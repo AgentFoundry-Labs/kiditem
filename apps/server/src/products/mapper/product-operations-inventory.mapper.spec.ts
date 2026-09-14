@@ -91,8 +91,6 @@ function rawListItem(): ProductOperationsRepositoryListItem {
     brand: null,
     tags: [],
     imageUrls: [],
-    abcGrade: null,
-    abcEvaluation: null,
     abcCreatedAt: new Date('2026-07-17T00:00:00.000Z'),
     adBudgetLimit: null,
     isActive: true,
@@ -129,8 +127,6 @@ function rawListItem(): ProductOperationsRepositoryListItem {
         capturedAt: null,
       },
     },
-    contributionMargin: null,
-    contributionProfitVelocity30: null,
     inventorySkuIds: [SKU_ID],
     inventoryOptions: [{
       id: '33333333-3333-4333-8333-333333333333',

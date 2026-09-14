@@ -82,7 +82,6 @@
 9 apps/server/src/products/application/service/product-operations.service.spec.ts
 3 apps/server/src/products/application/service/product-recipe-component-candidate.service.spec.ts
 1 apps/server/src/products/domain/master-product-abc.spec.ts
-2 apps/server/src/products/mapper/product-operations-inventory.mapper.spec.ts
 1 apps/server/src/readiness/__tests__/rank-readiness.pg.integration.spec.ts
 15 apps/server/src/readiness/__tests__/readiness.service.spec.ts
 1 apps/server/src/readiness/__tests__/rebuild-readiness.service.spec.ts
