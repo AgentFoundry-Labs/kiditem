@@ -1,18 +1,26 @@
 import type { Prisma } from '@prisma/client';
 import type { DataMigration, MigrationResult } from '../types';
 
-type CountRow = {
-  ledger_rows: bigint | number | string;
-  active_ledger_rows: bigint | number | string;
-  checkpoint_table_exists: boolean;
-  rules_applications_table_exists: boolean;
-  schedule_rows: bigint | number | string;
-  enabled_schedule_rows: bigint | number | string;
-  workflow_definition_rows: bigint | number | string;
-  workflow_execution_rows: bigint | number | string;
-  catalog_rows: bigint | number | string;
-  dormant_action_rows: bigint | number | string;
-};
+type Count = bigint | number | string;
+
+/**
+ * The tables this preparation reads. The v0.1.31 schema step drops the generic
+ * Operation/Automation tables and the KID-90 schema step drops `action_tasks`
+ * and `rules_evaluation_applications`, so a database past either step lacks
+ * some of them. A table that is gone holds nothing to guard, count, or delete.
+ */
+const PREPARED_TABLES = [
+  'operation_runs',
+  'operation_run_checkpoints',
+  'operation_schedules',
+  'workflow_templates',
+  'workflow_runs',
+  'marketplace',
+  'rules_evaluation_applications',
+  'action_tasks',
+] as const;
+
+type PreparedTable = (typeof PREPARED_TABLES)[number];
 
 type CutoverCounts = {
   ledgerRows: number;
@@ -35,22 +43,8 @@ type CutoverCounts = {
 export async function prepareOperationAutomationCutover(
   tx: Prisma.TransactionClient,
 ): Promise<MigrationResult> {
-  const [before] = await tx.$queryRaw<CountRow[]>`
-    SELECT
-      to_regclass('public.operation_run_checkpoints') IS NOT NULL AS checkpoint_table_exists,
-      to_regclass('public.rules_evaluation_applications') IS NOT NULL AS rules_applications_table_exists,
-      (SELECT COUNT(*)::bigint FROM operation_runs) AS ledger_rows,
-      (SELECT COUNT(*)::bigint FROM operation_runs
-        WHERE status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')) AS active_ledger_rows,
-      (SELECT COUNT(*)::bigint FROM operation_schedules) AS schedule_rows,
-      (SELECT COUNT(*)::bigint FROM operation_schedules WHERE enabled = TRUE) AS enabled_schedule_rows,
-      (SELECT COUNT(*)::bigint FROM workflow_templates) AS workflow_definition_rows,
-      (SELECT COUNT(*)::bigint FROM workflow_runs) AS workflow_execution_rows,
-      (SELECT COUNT(*)::bigint FROM marketplace) AS catalog_rows,
-      (SELECT COUNT(*)::bigint FROM action_tasks) AS dormant_action_rows
-  `;
-
-  const counts = normalizeCounts(before, 0);
+  const present = await readPresentTables(tx);
+  const counts = await readCounts(tx, present);
   if (counts.activeLedgerRows > 0) {
     throw new Error('Operation/Automation cutover is blocked while active ledger rows remain.');
   }
@@ -58,55 +52,36 @@ export async function prepareOperationAutomationCutover(
     throw new Error('Operation/Automation cutover is blocked while enabled schedules remain.');
   }
 
-  const checkpointTablePresent = before?.checkpoint_table_exists === true;
-  const rulesApplicationsTablePresent = before?.rules_applications_table_exists === true;
-  if (checkpointTablePresent) {
-    const [checkpoint] = await tx.$queryRaw<
-      Array<{
-        checkpoint_rows: bigint | number | string;
-      }>
-    >`
-      SELECT COUNT(*)::bigint AS checkpoint_rows
-      FROM operation_run_checkpoints
-    `;
-    counts.checkpointRows = toCount(checkpoint?.checkpoint_rows);
-  }
-
-  const deletedRulesApplicationRows = rulesApplicationsTablePresent
-    ? await tx.$executeRaw`DELETE FROM rules_evaluation_applications`
-    : 0;
-
   // Delete children before their retired parent tables. These statements use
   // fixed identifiers so the migration remains valid after Prisma models are
   // removed from the post-cutover client.
-  const deletedCheckpointRows = checkpointTablePresent
+  const deletedRulesApplicationRows = present.has('rules_evaluation_applications')
+    ? await tx.$executeRaw`DELETE FROM rules_evaluation_applications`
+    : 0;
+  const deletedCheckpointRows = present.has('operation_run_checkpoints')
     ? await tx.$executeRaw`DELETE FROM operation_run_checkpoints`
     : 0;
-  const deletedLedgerRows = await tx.$executeRaw`
-    DELETE FROM operation_runs
-  `;
-  const deletedScheduleRows = await tx.$executeRaw`
-    DELETE FROM operation_schedules
-  `;
-  const deletedWorkflowExecutionRows = await tx.$executeRaw`
-    DELETE FROM workflow_runs
-  `;
-  const deletedWorkflowDefinitionRows = await tx.$executeRaw`
-    DELETE FROM workflow_templates
-  `;
-  const deletedCatalogRows = await tx.$executeRaw`
-    DELETE FROM marketplace
-  `;
+  const deletedLedgerRows = present.has('operation_runs')
+    ? await tx.$executeRaw`DELETE FROM operation_runs`
+    : 0;
+  const deletedScheduleRows = present.has('operation_schedules')
+    ? await tx.$executeRaw`DELETE FROM operation_schedules`
+    : 0;
+  const deletedWorkflowExecutionRows = present.has('workflow_runs')
+    ? await tx.$executeRaw`DELETE FROM workflow_runs`
+    : 0;
+  const deletedWorkflowDefinitionRows = present.has('workflow_templates')
+    ? await tx.$executeRaw`DELETE FROM workflow_templates`
+    : 0;
+  const deletedCatalogRows = present.has('marketplace')
+    ? await tx.$executeRaw`DELETE FROM marketplace`
+    : 0;
 
-  const [after] = await tx.$queryRaw<
-    {
-      dormant_action_rows: bigint | number | string;
-    }[]
-  >`
-    SELECT COUNT(*)::bigint AS dormant_action_rows
-    FROM action_tasks
-  `;
-  const retainedDormantActionRows = toCount(after?.dormant_action_rows);
+  // ActionTask rows are left for the schema step that drops their table. A
+  // count that moved while this ran means a writer is still running.
+  const retainedDormantActionRows = present.has('action_tasks')
+    ? await countActionTasks(tx)
+    : 0;
   if (retainedDormantActionRows !== counts.dormantActionRows) {
     throw new Error('Dormant action rows changed during the cutover preparation.');
   }
@@ -139,8 +114,9 @@ export async function prepareOperationAutomationCutover(
       deletedWorkflowDefinitionRows,
       deletedCatalogRows,
       dormantActionRows: retainedDormantActionRows,
-      checkpointTablePresent,
-      rulesApplicationsTablePresent,
+      checkpointTablePresent: present.has('operation_run_checkpoints'),
+      rulesApplicationsTablePresent: present.has('rules_evaluation_applications'),
+      absentTables: PREPARED_TABLES.filter((table) => !present.has(table)),
     },
   };
 }
@@ -153,22 +129,80 @@ export const prepareOperationAutomationCutoverMigration: DataMigration = {
   run: prepareOperationAutomationCutover,
 };
 
-function normalizeCounts(row: CountRow | undefined, checkpointRows: number): CutoverCounts {
-  if (!row) throw new Error('Operation/Automation cutover count query returned no row.');
+async function readPresentTables(
+  tx: Prisma.TransactionClient,
+): Promise<ReadonlySet<PreparedTable>> {
+  const rows = await tx.$queryRaw<Array<{ table_name: string }>>`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = current_schema()
+      AND table_name = ANY(${[...PREPARED_TABLES]}::text[])
+  `;
+  const found = new Set(rows.map((row) => row.table_name));
+  return new Set(PREPARED_TABLES.filter((table) => found.has(table)));
+}
+
+async function readCounts(
+  tx: Prisma.TransactionClient,
+  present: ReadonlySet<PreparedTable>,
+): Promise<CutoverCounts> {
+  const [ledger] = present.has('operation_runs')
+    ? await tx.$queryRaw<Array<{ ledger_rows: Count; active_ledger_rows: Count }>>`
+        SELECT
+          (SELECT COUNT(*)::bigint FROM operation_runs) AS ledger_rows,
+          (SELECT COUNT(*)::bigint FROM operation_runs
+            WHERE status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')) AS active_ledger_rows
+      `
+    : [{ ledger_rows: 0, active_ledger_rows: 0 }];
+  const [schedules] = present.has('operation_schedules')
+    ? await tx.$queryRaw<Array<{ schedule_rows: Count; enabled_schedule_rows: Count }>>`
+        SELECT
+          (SELECT COUNT(*)::bigint FROM operation_schedules) AS schedule_rows,
+          (SELECT COUNT(*)::bigint FROM operation_schedules WHERE enabled = TRUE) AS enabled_schedule_rows
+      `
+    : [{ schedule_rows: 0, enabled_schedule_rows: 0 }];
+  const [checkpoints] = present.has('operation_run_checkpoints')
+    ? await tx.$queryRaw<Array<{ count: Count }>>`
+        SELECT COUNT(*)::bigint AS count FROM operation_run_checkpoints
+      `
+    : [{ count: 0 }];
+  const [workflowDefinitions] = present.has('workflow_templates')
+    ? await tx.$queryRaw<Array<{ count: Count }>>`
+        SELECT COUNT(*)::bigint AS count FROM workflow_templates
+      `
+    : [{ count: 0 }];
+  const [workflowExecutions] = present.has('workflow_runs')
+    ? await tx.$queryRaw<Array<{ count: Count }>>`
+        SELECT COUNT(*)::bigint AS count FROM workflow_runs
+      `
+    : [{ count: 0 }];
+  const [catalog] = present.has('marketplace')
+    ? await tx.$queryRaw<Array<{ count: Count }>>`
+        SELECT COUNT(*)::bigint AS count FROM marketplace
+      `
+    : [{ count: 0 }];
+
   return {
-    ledgerRows: toCount(row.ledger_rows),
-    activeLedgerRows: toCount(row.active_ledger_rows),
-    checkpointRows,
-    scheduleRows: toCount(row.schedule_rows),
-    enabledScheduleRows: toCount(row.enabled_schedule_rows),
-    workflowDefinitionRows: toCount(row.workflow_definition_rows),
-    workflowExecutionRows: toCount(row.workflow_execution_rows),
-    catalogRows: toCount(row.catalog_rows),
-    dormantActionRows: toCount(row.dormant_action_rows),
+    ledgerRows: toCount(ledger?.ledger_rows),
+    activeLedgerRows: toCount(ledger?.active_ledger_rows),
+    checkpointRows: toCount(checkpoints?.count),
+    scheduleRows: toCount(schedules?.schedule_rows),
+    enabledScheduleRows: toCount(schedules?.enabled_schedule_rows),
+    workflowDefinitionRows: toCount(workflowDefinitions?.count),
+    workflowExecutionRows: toCount(workflowExecutions?.count),
+    catalogRows: toCount(catalog?.count),
+    dormantActionRows: present.has('action_tasks') ? await countActionTasks(tx) : 0,
   };
 }
 
-function toCount(value: bigint | number | string | undefined): number {
+async function countActionTasks(tx: Prisma.TransactionClient): Promise<number> {
+  const [row] = await tx.$queryRaw<Array<{ count: Count }>>`
+    SELECT COUNT(*)::bigint AS count FROM action_tasks
+  `;
+  return toCount(row?.count);
+}
+
+function toCount(value: Count | undefined): number {
   if (value === undefined) throw new Error('Cutover count query returned no count.');
   const count = typeof value === 'bigint' ? Number(value) : Number(value);
   if (!Number.isSafeInteger(count) || count < 0) {

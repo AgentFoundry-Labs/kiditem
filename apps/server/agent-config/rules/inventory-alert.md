@@ -29,6 +29,6 @@ inventory_alert specialist 에이전트가 참조하는 재고 관리 규칙.
 
 ## 데이터 소스
 - inventory: current_stock, daily_sales_avg
-- products: status, ad_tier, is_deleted
+- products: status, is_deleted
 - ads: 진행 중인 광고 여부
 - purchase_orders: 입고 예정 발주

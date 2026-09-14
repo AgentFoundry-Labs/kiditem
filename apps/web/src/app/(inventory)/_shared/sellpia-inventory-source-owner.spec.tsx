@@ -115,7 +115,6 @@ function freshnessState(
     lastAttempt: status === 'failed'
       ? {
           attemptedAt: '2026-08-01T01:00:00.000Z',
-          status: 'failed',
           trigger: 'retry',
           scope: 'inventory',
           errorCode: 'sellpia_network_failed',

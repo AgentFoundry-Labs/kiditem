@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 
 const COUPANG_REVIEW_SOURCE_TYPE = 'coupang_reviews';
 
@@ -200,7 +201,7 @@ function currentReviewsCte(organizationId: string): Prisma.Sql {
         AND r.platform = 'coupang'
         AND r.source_import_run_id IS NOT NULL
         AND s.source_type = ${COUPANG_REVIEW_SOURCE_TYPE}
-        AND s.status = 'completed'
+        AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
     ), current_reviews AS (
       SELECT id, organization_id, source_import_run_id, listing_id, platform, rating,
              title, content, reviewer_name, external_review_id, external_option_id,
@@ -220,7 +221,7 @@ function currentReviewsCte(organizationId: string): Prisma.Sql {
       WHERE r.organization_id = ${organizationId}::uuid
         AND r.platform <> 'coupang'
         AND r.source_import_run_id IS NOT NULL
-        AND s.status = 'completed'
+        AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
     )
   `;
 }

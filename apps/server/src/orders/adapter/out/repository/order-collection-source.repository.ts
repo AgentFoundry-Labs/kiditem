@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
@@ -124,7 +129,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: account.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
@@ -215,7 +220,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       }
       assertConfirmedCoverage(plan, input.confirmedCoverage);
       const checksum = submissionHash(input.source.bytes);
-      if (row.status === 'completed') {
+      if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         if (
           row.contentChecksum !== checksum ||
           !sameConfirmedCoverage(row, input.confirmedCoverage) ||
@@ -225,7 +230,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         }
         return;
       }
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
       if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
@@ -250,9 +255,9 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       }
       assertConfirmedCoverage(plan, input.confirmedCoverage);
       const submissionChecksum = submissionHash(input.source.bytes);
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (
-          row.status === 'completed' &&
+          row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS &&
           row.contentChecksum === submissionChecksum &&
           sameConfirmedCoverage(row, input.confirmedCoverage)
         ) {
@@ -278,7 +283,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       await tx.sourceImportRun.update({
         where: { id: row.id, organizationId: input.organizationId },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
           verificationCount: { increment: 1 },
@@ -317,8 +322,8 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       if (row.attemptToken !== input.attemptToken) throw new ConflictException('ATTEMPT_FENCE_LOST');
       const source = input.source;
       const checksum = source ? submissionHash(source.bytes) : null;
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.errorCode === input.code && row.contentChecksum === checksum) {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.errorCode === input.code && row.contentChecksum === checksum) {
           return this.attemptView(tx, row);
         }
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
@@ -382,7 +387,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     return {
       attemptId: row.id,
       sourceImportRunId: row.id,
-      state: row.status === 'completed' ? 'COMPLETE' : row.status === 'running' && !isExpired ? 'RUNNING' : 'FAILED',
+      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? 'COMPLETE' : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired ? 'RUNNING' : 'FAILED',
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       artifactId: artifact?.id ?? null,
@@ -407,7 +412,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -513,7 +518,7 @@ function dateOnly(value: string): Date {
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function alertDedupeKey(row: SourceRun): string {

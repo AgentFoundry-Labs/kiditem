@@ -146,7 +146,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       activeGeneration: null,
       activeSyncToken: null,
       lastCompletedImportRunId: result.run.id,
-      lastAttemptStatus: 'completed',
+      failedGeneration: null,
     });
   });
 
@@ -575,7 +575,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       attemptId: runs[1]?.id,
       sourceType: 'sellpia_inventory',
       status: 'OPEN',
-      isRead: false,
+      readAt: null,
     });
   });
 

@@ -94,10 +94,6 @@ erDiagram
     String externalOptionId
     String itemName
     Int salePrice
-    Int costPriceOverride
-    Decimal commissionRate
-    Int shippingCost
-    Int otherCost
     String sellerSku
     String barcode
     String modelNumber
@@ -142,12 +138,7 @@ erDiagram
     String brand
     StringArray tags
     StringArray imageUrls
-    String abcGrade
-    String profitTag
-    String adTier
     Int adBudgetLimit
-    Int healthScore
-    DateTime healthUpdatedAt
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -343,7 +334,6 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
@@ -352,7 +342,6 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | CoupangDirectTransportReceipt |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
-| ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
 | ChannelAccount | channelAccount | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
 | ChannelAccount | targetChannelAccount | referenced by external | Sourcing | SourcingLaunchCandidate |
@@ -376,7 +365,6 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | MasterProduct | frozenMasterProduct | referenced by external | Channels | SellpiaProductMonthlySales |
 | MasterProduct | masterProduct | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
@@ -385,8 +373,6 @@ erDiagram
 | MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
-| Organization | organization | referenced by external | Advertising | ExecutionWorker |
-| Organization | organization | referenced by external | Advertising | ScrapeTarget |
 | Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | ContentAsset |
@@ -410,7 +396,6 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
-| Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
@@ -450,8 +435,6 @@ erDiagram
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
-| Organization | organization | referenced by external | Orders | OrderReturn |
-| Organization | organization | referenced by external | Orders | OrderReturnLineItem |
 | Organization | organization | referenced by external | Orders | Review |
 | Organization | organization | referenced by external | Orders | ReviewCollectionChunk |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
@@ -505,11 +488,7 @@ erDiagram
 | Organization | organization | referenced by external | Supply | SupplierOfferSkuSnapshot |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
-| Organization | organization | referenced by external | System | ActionTask |
-| Organization | organization | referenced by external | System | ActivityEvent |
 | Organization | organization | referenced by external | System | Alert |
-| Organization | organization | referenced by external | System | BusinessRule |
-| Organization | organization | referenced by external | System | RulesEvaluationApplication |
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
@@ -535,10 +514,8 @@ erDiagram
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | Channels | MallOperationOutcome |
-| User | actorUser | referenced by external | System | Alert |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
-| User | assigneeUser | referenced by external | System | ActionTask |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
@@ -554,7 +531,6 @@ erDiagram
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
-| User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |

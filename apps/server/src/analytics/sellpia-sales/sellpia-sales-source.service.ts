@@ -7,6 +7,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
@@ -103,7 +108,7 @@ function boundedInt(value: number): number {
 }
 
 function isExpired(row: Pick<SourceRun, 'status' | 'expiresAt'>, now = new Date()): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= now.getTime());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= now.getTime());
 }
 
 function lockKey(organizationId: string): string {
@@ -361,7 +366,7 @@ export class SellpiaSalesSourceService {
         return this.attemptView(current ?? replay);
       }
       const running = await tx.sourceImportRun.findFirst({
-        where: { organizationId, sourceType: SELLPIA_SALES_SOURCE_TYPE, status: 'running' },
+        where: { organizationId, sourceType: SELLPIA_SALES_SOURCE_TYPE, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
       });
       if (running) {
         if (!isExpired(running, now)) throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: running.id });
@@ -371,7 +376,7 @@ export class SellpiaSalesSourceService {
         data: {
           organizationId,
           sourceType: SELLPIA_SALES_SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: randomUUID(),
           idempotencyKey: key,
           requestFingerprint: fingerprint,
@@ -398,7 +403,7 @@ export class SellpiaSalesSourceService {
       where: { id: attemptId, organizationId, sourceType: SELLPIA_SALES_SOURCE_TYPE },
     });
     if (!row) return null;
-    if (row.status !== 'running') throw new ConflictException('ATTEMPT_TERMINAL');
+    if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('ATTEMPT_TERMINAL');
     if (isExpired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
     return { ...this.attemptView(row), attemptToken: row.attemptToken };
   }
@@ -420,13 +425,13 @@ export class SellpiaSalesSourceService {
       await this.lock(tx, organizationId);
       const row = await this.findAttempt(tx, organizationId, attemptId);
       this.assertToken(row, attemptToken);
-      if (row.status === 'completed') {
+      if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         if (row.contentChecksum !== contentChecksum || row.contentByteCount !== contentByteCount) {
           throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
         }
         return this.attemptView(row);
       }
-      if (row.status !== 'running') throw new ConflictException('ATTEMPT_TERMINAL');
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('ATTEMPT_TERMINAL');
       if (isExpired(row)) {
         await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.');
         throw new ConflictException('ATTEMPT_EXPIRED');
@@ -446,7 +451,7 @@ export class SellpiaSalesSourceService {
         where: {
           organizationId,
           sourceType: SELLPIA_SALES_SOURCE_TYPE,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           publicationSequence: { not: null },
         },
         orderBy: { publicationSequence: 'desc' },
@@ -459,11 +464,11 @@ export class SellpiaSalesSourceService {
           id: row.id,
           organizationId,
           sourceType: SELLPIA_SALES_SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken,
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: data.length,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -496,7 +501,7 @@ export class SellpiaSalesSourceService {
       });
       return this.attemptView({
         ...row,
-        status: 'completed',
+        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
         rowCount: data.length,
         importedAt: completedAt,
         lastVerifiedAt: completedAt,
@@ -529,8 +534,8 @@ export class SellpiaSalesSourceService {
       await this.lock(tx, organizationId);
       const row = await this.findAttempt(tx, organizationId, attemptId);
       this.assertToken(row, attemptToken);
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.errorCode === errorCode && row.errorMessage === message) return this.attemptView(row);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.errorCode === errorCode && row.errorMessage === message) return this.attemptView(row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
       const failed = await this.failIn(tx, row, errorCode, message);
@@ -565,7 +570,7 @@ export class SellpiaSalesSourceService {
     const message = normalizeMessage(errorMessage);
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
-      data: { status: 'failed', errorCode, errorMessage: message },
+      data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS, errorCode, errorMessage: message },
     });
     await this.alerts.recordTerminalOutcome(tx, {
       code: errorCode,
@@ -587,10 +592,10 @@ export class SellpiaSalesSourceService {
     return {
       attemptId: row.id,
       sourceType: SELLPIA_SALES_SOURCE_TYPE,
-      state: row.status === 'completed' ? 'COMPLETE' : row.status === 'running' && !expired ? 'RUNNING' : 'FAILED',
+      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? 'COMPLETE' : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !expired ? 'RUNNING' : 'FAILED',
       expiresAt: row.expiresAt?.toISOString() ?? row.createdAt.toISOString(),
       plan,
-      actualCutoffAt: row.status === 'completed' ? dateAtUtc(plan.range.to).toISOString() : null,
+      actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? dateAtUtc(plan.range.to).toISOString() : null,
       completedAt: row.importedAt?.toISOString() ?? null,
       contentChecksum: row.contentChecksum,
       contentByteCount: row.contentByteCount,

@@ -30,5 +30,6 @@ review_monitor specialist 에이전트가 참조하는 리뷰 분석 규칙.
 
 ## 데이터 소스
 - reviews: product_id, rating, content, created_at
-- products: name, abc_grade, status
+- products: name, status
+- ABC 등급: Products가 발행한 공식 ABC 평가 (master_product_abc_evaluations)
 - orders: 판매 수량 (리뷰율 계산용)

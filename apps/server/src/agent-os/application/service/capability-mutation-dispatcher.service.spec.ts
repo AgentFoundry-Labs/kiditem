@@ -14,6 +14,8 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const INPUT = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+const BEFORE_EXPIRY = new Date('2026-08-25T00:10:00.000Z');
+const AFTER_EXPIRY = new Date('2026-08-25T00:30:00.001Z');
 
 const definition = {
   key: 'sourcing.createCandidate',
@@ -106,12 +108,15 @@ describe('CapabilityMutationDispatcher', () => {
   it('runs one bounded bootstrap sweep and never executes non-approved pending records', async () => {
     const approved = invocation();
     const completed = { ...approved, status: 'succeeded' as const, result: receipt() };
-    const pending = { ...approved, id: '00000000-0000-4000-8000-000000000004', approvalStatus: 'pending' as const };
+    const pending = {
+      ...undecided(),
+      id: '00000000-0000-4000-8000-000000000004',
+    };
     const rejected = {
       ...approved,
       id: '00000000-0000-4000-8000-000000000005',
       status: 'failed' as const,
-      approvalStatus: 'rejected' as const,
+      approvalDecision: 'rejected' as const,
     };
     const repository = repositoryFor(approved, completed, new Map([
       [pending.id, pending],
@@ -122,6 +127,7 @@ describe('CapabilityMutationDispatcher', () => {
     const dispatcher = new CapabilityMutationDispatcher(
       repository as never,
       registry(owner) as never,
+      () => BEFORE_EXPIRY,
     );
 
     await dispatcher.onApplicationBootstrap();
@@ -241,18 +247,26 @@ describe('CapabilityMutationDispatcher', () => {
     expect(owner.invoke).not.toHaveBeenCalled();
   });
 
-  it('returns terminal or still-pending receipts without calling the owner', async () => {
+  it('returns terminal, still-pending, and lapsed receipts without calling the owner', async () => {
     const succeeded = { ...invocation(), status: 'succeeded' as const, result: receipt() };
-    const rejected = { ...invocation(), status: 'failed' as const, approvalStatus: 'rejected' as const };
-    const expired = { ...invocation(), status: 'failed' as const, approvalStatus: 'expired' as const };
-    const stillPending = { ...invocation(), approvalStatus: 'pending' as const };
+    const rejected = { ...invocation(), status: 'failed' as const, approvalDecision: 'rejected' as const };
+    const expired = { ...undecided(), status: 'failed' as const };
+    const stillPending = undecided();
+    const lapsedBeforeSweep = undecided();
     const owner = { capabilityKey: definition.key, invoke: vi.fn() };
 
-    for (const record of [succeeded, rejected, expired, stillPending]) {
+    for (const [record, at] of [
+      [succeeded, BEFORE_EXPIRY],
+      [rejected, BEFORE_EXPIRY],
+      [expired, BEFORE_EXPIRY],
+      [stillPending, BEFORE_EXPIRY],
+      [lapsedBeforeSweep, AFTER_EXPIRY],
+    ] as const) {
       const repository = repositoryFor(record, record);
       const dispatcher = new CapabilityMutationDispatcher(
         repository as never,
         registry(owner) as never,
+        () => at,
       );
       await expect(dispatcher.dispatch(record)).resolves.toEqual(record);
     }
@@ -292,10 +306,10 @@ function invocation(overrides: Partial<CapabilityInvocationRecord> = {}): Capabi
     canonicalInput: INPUT,
     inputHash,
     status: 'pending',
-    approvalStatus: 'approved',
     approvalInputHash: inputHash,
     approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
     approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+    approvalDecision: 'approved',
     approvalDecidedByUserId: USER_ID,
     approvalDecisionReason: 'Reviewed',
     approvalDecidedAt: new Date('2026-08-25T00:01:00.000Z'),
@@ -306,6 +320,16 @@ function invocation(overrides: Partial<CapabilityInvocationRecord> = {}): Capabi
     finishedAt: null,
     ...overrides,
   };
+}
+
+/** An admitted approval nobody decided; its window closes at 00:30. */
+function undecided(): CapabilityInvocationRecord {
+  return invocation({
+    approvalDecision: null,
+    approvalDecidedByUserId: null,
+    approvalDecisionReason: null,
+    approvalDecidedAt: null,
+  });
 }
 
 function repositoryFor(

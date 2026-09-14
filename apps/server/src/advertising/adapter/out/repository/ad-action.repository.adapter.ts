@@ -1,8 +1,10 @@
 // `AdAction` aggregate adapter: query + persistence + dedup + transaction-
 // wrapped lifecycle writes. The adapter owns `$transaction` for approve /
-// reject / reset so the application service stays Prisma-free.
+// reject / execution reports so the application service stays Prisma-free.
+// Execution words are read from each action's latest ExecutionTask through
+// `read/ad-action-execution.ts`; this adapter writes them only to that task.
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -10,14 +12,30 @@ import {
   readCompleteAdKeywordFacts,
   readCurrentAdTargetRows,
 } from '../../../read/ad-target-facts';
+import {
+  deriveAdActionExecution,
+  derivedExecuteStatusIn,
+  LATEST_EXECUTION_TASK_COLUMNS,
+  LATEST_EXECUTION_TASK_JOIN,
+  latestExecutionTaskOf,
+  readLatestExecutionTasks,
+  type LatestExecutionTaskColumns,
+} from '../../../read/ad-action-execution';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
+import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
+import {
+  isOpenExecutionTaskStatus,
+  resolveExecutionReport,
+} from '../../../domain/execution-task-lifecycle';
 import type {
+  AdActionExecution,
+  AdActionExecutionReport,
   AdActionQuery,
+  AdActionRecord,
   AdActionRepositoryPort,
   AdActionReviewResult,
-  AdActionUpdatePatch,
   ExistingAdActionDedupRow,
   OpenKeywordRelevanceActionRow,
   HydratedAdAction,
@@ -25,7 +43,43 @@ import type {
 } from '../../../application/port/out/repository/ad-action.repository.port';
 
 const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
+/** Execution words under which a proposal is still open work. */
 const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
+
+const OPEN_ACTION_APPROVAL_STATUS_VALUES = Prisma.join(
+  OPEN_ACTION_APPROVAL_STATUSES.map((status) => Prisma.sql`${status}`),
+);
+
+/** Every AdAction column except the execution words its latest task supplies. */
+const AD_ACTION_ROW_SELECT = {
+  id: true,
+  organizationId: true,
+  listingId: true,
+  listingOptionId: true,
+  adTargetDailyId: true,
+  actionType: true,
+  targetType: true,
+  externalId: true,
+  targetLabel: true,
+  reason: true,
+  priority: true,
+  currentValue: true,
+  proposedValue: true,
+  payload: true,
+  approvalStatus: true,
+  approvedAt: true,
+  createdAt: true,
+} as const;
+
+type AdActionRow = Omit<AdAction, keyof AdActionExecution>;
+
+interface AdActionReviewCounts {
+  pendingReview: number;
+  approvedQueued: number;
+  running: number;
+  done: number;
+  failed: number;
+}
 
 @Injectable()
 export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
@@ -43,44 +97,42 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   ): Promise<AdActionReviewResult> {
     const limit = Math.min(query.limit || 50, 200);
 
-    const where: Prisma.AdActionWhereInput = { organizationId };
+    const filters: Prisma.Sql[] = [];
     if (query.approvalStatus && query.approvalStatus !== 'all')
-      where.approvalStatus = query.approvalStatus;
+      filters.push(Prisma.sql`AND action.approval_status = ${query.approvalStatus}`);
     if (query.executeStatus && query.executeStatus !== 'all')
-      where.executeStatus = query.executeStatus;
-    if (query.listingId) where.listingId = query.listingId;
+      filters.push(Prisma.sql`AND ${derivedExecuteStatusIn([query.executeStatus])}`);
+    if (query.listingId)
+      filters.push(Prisma.sql`AND action.listing_id = ${query.listingId}::uuid`);
     if (query.targetType && query.targetType !== 'all')
-      where.targetType = query.targetType;
+      filters.push(Prisma.sql`AND action.target_type = ${query.targetType}`);
     if (query.priority && query.priority !== 'all')
-      where.priority = query.priority;
+      filters.push(Prisma.sql`AND action.priority = ${query.priority}`);
 
-    const [actions, counts, latestRun] = await Promise.all([
-      this.prisma.adAction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      Promise.all([
-        this.prisma.adAction.count({
-          where: { organizationId, approvalStatus: 'pending_review' },
-        }),
-        this.prisma.adAction.count({
-          where: {
-            organizationId,
-            approvalStatus: 'approved',
-            executeStatus: 'queued',
-          },
-        }),
-        this.prisma.adAction.count({
-          where: { organizationId, executeStatus: 'running' },
-        }),
-        this.prisma.adAction.count({
-          where: { organizationId, executeStatus: 'done' },
-        }),
-        this.prisma.adAction.count({
-          where: { organizationId, executeStatus: 'failed' },
-        }),
-      ]),
+    const [page, [counts], latestRun] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ id: string } & LatestExecutionTaskColumns>>(Prisma.sql`
+        SELECT action.id, ${LATEST_EXECUTION_TASK_COLUMNS}
+        FROM ad_actions action
+        ${LATEST_EXECUTION_TASK_JOIN}
+        WHERE action.organization_id = ${organizationId}::uuid
+          ${filters.length > 0 ? Prisma.join(filters, ' ') : Prisma.empty}
+        ORDER BY action.created_at DESC, action.id DESC
+        LIMIT ${limit}::int
+      `),
+      this.prisma.$queryRaw<AdActionReviewCounts[]>(Prisma.sql`
+        SELECT
+          COUNT(*) FILTER (WHERE action.approval_status = 'pending_review')::int AS "pendingReview",
+          COUNT(*) FILTER (
+            WHERE action.approval_status = 'approved'
+              AND ${derivedExecuteStatusIn(['queued'])}
+          )::int AS "approvedQueued",
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['running'])})::int AS "running",
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['done'])})::int AS "done",
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['failed'])})::int AS "failed"
+        FROM ad_actions action
+        ${LATEST_EXECUTION_TASK_JOIN}
+        WHERE action.organization_id = ${organizationId}::uuid
+      `),
       this.prisma.channelScrapeRun.findFirst({
         where: { organizationId },
         orderBy: [
@@ -91,6 +143,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         select: { finishedAt: true, startedAt: true, pageType: true },
       }),
     ]);
+
+    const rows: AdActionRow[] =
+      page.length === 0
+        ? []
+        : await this.prisma.adAction.findMany({
+            where: { organizationId, id: { in: page.map((entry) => entry.id) } },
+            select: AD_ACTION_ROW_SELECT,
+          });
+    const rowById = new Map(rows.map((row) => [row.id, row]));
+    const actions: AdActionRecord[] = page.flatMap((entry) => {
+      const row = rowById.get(entry.id);
+      return row
+        ? [{ ...row, ...deriveAdActionExecution(latestExecutionTaskOf(entry)) }]
+        : [];
+    });
 
     const hydrated = await this.hydrateActionRelations(organizationId, actions);
     const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -105,11 +172,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     return {
       items: sortedItems,
       summary: {
-        pendingReview: counts[0],
-        approvedQueued: counts[1],
-        running: counts[2],
-        done: counts[3],
-        failed: counts[4],
+        pendingReview: counts?.pendingReview ?? 0,
+        approvedQueued: counts?.approvedQueued ?? 0,
+        running: counts?.running ?? 0,
+        done: counts?.done ?? 0,
+        failed: counts?.failed ?? 0,
         latestSnapshotAt:
           latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
         latestSnapshotPageType: latestRun?.pageType || null,
@@ -264,42 +331,44 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     organizationId: string,
     sinceCreatedAt: Date,
   ): Promise<ExistingAdActionDedupRow[]> {
-    return this.prisma.adAction.findMany({
-      where: {
-        organizationId,
-        createdAt: { gte: sinceCreatedAt },
-        approvalStatus: { in: ['pending_review', 'approved'] },
-        executeStatus: { in: ['queued', 'running'] },
-      },
-      select: {
-        actionType: true,
-        externalId: true,
-        targetLabel: true,
-        currentValue: true,
-        proposedValue: true,
-      },
-    });
+    return this.prisma.$queryRaw<ExistingAdActionDedupRow[]>(Prisma.sql`
+      SELECT
+        action.action_type AS "actionType",
+        action.external_id AS "externalId",
+        action.target_label AS "targetLabel",
+        action.current_value AS "currentValue",
+        action.proposed_value AS "proposedValue"
+      FROM ad_actions action
+      ${LATEST_EXECUTION_TASK_JOIN}
+      WHERE action.organization_id = ${organizationId}::uuid
+        AND action.created_at >= ${sinceCreatedAt}::timestamptz
+        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+    `);
   }
 
   async findOpenKeywordRelevanceActions(
     organizationId: string,
   ): Promise<OpenKeywordRelevanceActionRow[]> {
-    return this.prisma.adAction.findMany({
-      where: {
-        organizationId,
-        actionType: 'pause_keyword',
-        approvalStatus: { in: ['pending_review', 'approved'] },
-        executeStatus: { in: ['queued', 'running'] },
-      },
-      select: { targetLabel: true, externalId: true, reason: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.prisma.$queryRaw<OpenKeywordRelevanceActionRow[]>(Prisma.sql`
+      SELECT
+        action.target_label AS "targetLabel",
+        action.external_id AS "externalId",
+        action.reason
+      FROM ad_actions action
+      ${LATEST_EXECUTION_TASK_JOIN}
+      WHERE action.organization_id = ${organizationId}::uuid
+        AND action.action_type = 'pause_keyword'
+        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+      ORDER BY action.created_at DESC, action.id DESC
+    `);
   }
 
   async createAdActionsFromCandidates(
     organizationId: string,
     candidates: ActionCandidate[],
-  ): Promise<AdAction[]> {
+  ): Promise<AdActionRecord[]> {
     if (candidates.length === 0) return [];
     return this.prisma.$transaction(async (tx) => {
       const pauseKeywordCandidates = candidates.filter((candidate) =>
@@ -318,20 +387,25 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           `,
         );
 
-        const openActions = await tx.adAction.findMany({
-          where: {
-            organizationId,
-            actionType: 'pause_keyword',
-            targetType: 'keyword',
-            approvalStatus: { in: [...OPEN_ACTION_APPROVAL_STATUSES] },
-            executeStatus: { in: [...OPEN_ACTION_EXECUTE_STATUSES] },
-            OR: pauseKeywordCandidates.map((candidate) => ({
-              externalId: candidate.externalId,
-              targetLabel: candidate.targetLabel,
-            })),
-          },
-          select: { externalId: true, targetLabel: true },
-        });
+        const openActions = await tx.$queryRaw<
+          Array<{ externalId: string | null; targetLabel: string }>
+        >(Prisma.sql`
+          SELECT action.external_id AS "externalId", action.target_label AS "targetLabel"
+          FROM ad_actions action
+          ${LATEST_EXECUTION_TASK_JOIN}
+          WHERE action.organization_id = ${organizationId}::uuid
+            AND action.action_type = 'pause_keyword'
+            AND action.target_type = 'keyword'
+            AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+            AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+            AND (${Prisma.join(
+              pauseKeywordCandidates.map((candidate) => Prisma.sql`(
+                action.external_id IS NOT DISTINCT FROM ${candidate.externalId}::text
+                AND action.target_label = ${candidate.targetLabel}
+              )`),
+              ' OR ',
+            )})
+        `);
 
         for (const action of openActions) {
           const key = pauseKeywordActionKey(action);
@@ -340,7 +414,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       }
 
       const seenPauseKeys = new Set<string>();
-      const created: AdAction[] = [];
+      const created: AdActionRecord[] = [];
       for (const candidate of candidates) {
         const pauseKey = pauseKeywordActionKey(candidate);
         if (pauseKey) {
@@ -349,7 +423,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           }
           seenPauseKeys.add(pauseKey);
         }
-        created.push(await tx.adAction.create({
+        const row = await tx.adAction.create({
           data: {
             organizationId,
             listingId: candidate.listingId,
@@ -364,7 +438,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             proposedValue: candidate.proposedValue,
             payload: candidate.payload as Prisma.InputJsonValue,
           },
-        }));
+          select: AD_ACTION_ROW_SELECT,
+        });
+        // A new proposal has no ExecutionTask until it is approved.
+        created.push({ ...row, ...deriveAdActionExecution(null) });
       }
 
       return created;
@@ -377,12 +454,13 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   ): Promise<void> {
     if (ids.length === 0) return;
     await this.prisma.$transaction(async (tx) => {
+      // The row locks this update takes serialize concurrent approvals of the
+      // same actions, so each reads the attempt the other committed.
       await tx.adAction.updateMany({
         where: { id: { in: ids }, organizationId },
         data: {
           approvalStatus: 'approved',
           approvedAt: new Date(),
-          executeStatus: 'queued',
         },
       });
 
@@ -393,19 +471,15 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const scopedIds = scopedActions.map((a) => a.id);
       if (scopedIds.length === 0) return;
 
-      const existingOpenTasks = await tx.executionTask.findMany({
-        where: {
-          actionId: { in: scopedIds },
-          status: { in: ['queued', 'leased', 'running'] },
-        },
-        select: { actionId: true },
+      // Approval queues a new attempt unless the latest one is still open. A
+      // failed or done attempt stays as evidence and the new queued task
+      // becomes the latest, so a failed action reads queued again.
+      const latestTasks = await readLatestExecutionTasks(tx, {
+        organizationId,
+        actionIds: scopedIds,
       });
-      const existingSet = new Set(
-        existingOpenTasks.map((t) => t.actionId),
-      );
-
       const toCreate = scopedIds
-        .filter((id) => !existingSet.has(id))
+        .filter((id) => !isOpenExecutionTaskStatus(latestTasks.get(id)?.status))
         .map((id) => ({ actionId: id, status: 'queued' }));
 
       if (toCreate.length > 0) {
@@ -422,7 +496,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     await this.prisma.$transaction(async (tx) => {
       await tx.adAction.updateMany({
         where: { id: { in: ids }, organizationId },
-        data: { approvalStatus: 'rejected', executeStatus: 'queued' },
+        data: { approvalStatus: 'rejected' },
       });
 
       const scopedActions = await tx.adAction.findMany({
@@ -432,10 +506,12 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const scopedIds = scopedActions.map((a) => a.id);
       if (scopedIds.length === 0) return;
 
+      // An attempt the extension has not started is cancelled; one already
+      // running keeps reporting the outcome that happened on Coupang.
       await tx.executionTask.updateMany({
         where: {
           actionId: { in: scopedIds },
-          status: { in: ['queued', 'leased'] },
+          status: 'queued',
         },
         data: {
           status: 'cancelled',
@@ -446,44 +522,28 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     });
   }
 
-  async resetFailedAdActions(organizationId: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const failedActions = await tx.adAction.findMany({
-        where: {
-          organizationId,
-          executeStatus: 'failed',
-          approvalStatus: 'approved',
-        },
-        select: { id: true },
-      });
-
-      if (failedActions.length === 0) return;
-      const ids = failedActions.map((a) => a.id);
-
-      await tx.adAction.updateMany({
-        where: { id: { in: ids }, organizationId },
-        data: { executeStatus: 'queued', errorMessage: null },
-      });
-
-      await tx.executionTask.createMany({
-        data: ids.map((id) => ({ actionId: id, status: 'queued' })),
-      });
-    });
-  }
-
   async findOpenCreateCampaignAction(
     organizationId: string,
     campaignName: string,
   ): Promise<{ id: string; executeStatus: string } | null> {
-    return this.prisma.adAction.findFirst({
-      where: {
-        organizationId,
-        actionType: 'create_campaign',
-        targetLabel: campaignName,
-        executeStatus: { in: ['queued', 'running', 'done'] },
-      },
-      select: { id: true, executeStatus: true },
-    });
+    const [row] = await this.prisma.$queryRaw<
+      Array<{ id: string } & LatestExecutionTaskColumns>
+    >(Prisma.sql`
+      SELECT action.id, ${LATEST_EXECUTION_TASK_COLUMNS}
+      FROM ad_actions action
+      ${LATEST_EXECUTION_TASK_JOIN}
+      WHERE action.organization_id = ${organizationId}::uuid
+        AND action.action_type = 'create_campaign'
+        AND action.target_label = ${campaignName}
+        AND ${derivedExecuteStatusIn(['queued', 'running', 'done'])}
+      ORDER BY action.created_at DESC, action.id DESC
+      LIMIT 1
+    `);
+    if (!row) return null;
+    return {
+      id: row.id,
+      executeStatus: deriveAdActionExecution(latestExecutionTaskOf(row)).executeStatus,
+    };
   }
 
   async createCampaignActionWithTask(input: {
@@ -502,45 +562,81 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         reason: input.reason,
         priority: input.priority,
         approvalStatus: 'approved',
-        executeStatus: 'queued',
         payload: input.payload as Prisma.InputJsonValue,
         executionTasks: {
           create: { status: 'queued' },
         },
       },
-      include: { executionTasks: true },
+      select: { id: true, executionTasks: { select: { id: true } } },
     });
-    const taskId =
-      (action.executionTasks as { id: string }[])[0]?.id ?? null;
-    return { actionId: action.id, taskId };
+    return { actionId: action.id, taskId: action.executionTasks[0]?.id ?? null };
   }
 
-  async updateActionOrThrow(
+  async reportActionExecution(
     id: string,
     organizationId: string,
-    data: AdActionUpdatePatch,
+    report: AdActionExecutionReport,
   ): Promise<void> {
-    const patch: Prisma.AdActionUpdateManyMutationInput = {};
-    if (data.executeStatus !== undefined)
-      patch.executeStatus = data.executeStatus;
-    if (data.executedAt !== undefined) patch.executedAt = data.executedAt;
-    if (data.beforeJson !== undefined)
-      patch.beforeJson = data.beforeJson as Prisma.InputJsonValue;
-    if (data.afterJson !== undefined)
-      patch.afterJson = data.afterJson as Prisma.InputJsonValue;
-    if (data.errorMessage !== undefined)
-      patch.errorMessage = data.errorMessage;
+    await this.prisma.$transaction(async (tx) => {
+      const action = await tx.adAction.findFirst({
+        where: { id, organizationId },
+        select: { id: true },
+      });
+      if (!action) throw new NotFoundException('AdAction not found');
 
-    const updated = await this.prisma.adAction.updateMany({
-      where: { id, organizationId },
-      data: patch,
+      const latestTasks = await readLatestExecutionTasks(tx, {
+        organizationId,
+        actionIds: [action.id],
+      });
+      const latest = latestTasks.get(action.id) ?? null;
+      const decision = resolveExecutionReport(latest?.status ?? null, report.status);
+      if (decision === 'replay') return;
+      if (decision === 'conflict' || !latest) {
+        throw new ConflictException(
+          `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
+        );
+      }
+
+      const now = new Date();
+      const data: Prisma.ExecutionTaskUpdateManyMutationInput =
+        report.status === 'running'
+          ? {
+              status: 'running',
+              startedAt: now,
+              errorMessage: null,
+              ...(report.beforeJson !== undefined
+                ? { beforeJson: report.beforeJson as Prisma.InputJsonValue }
+                : {}),
+            }
+          : {
+              status: report.status,
+              startedAt: latest.startedAt ?? now,
+              finishedAt: now,
+              errorMessage:
+                report.status === 'failed'
+                  ? scrubExecutionError(report.errorMessage)
+                  : null,
+              ...(report.afterJson !== undefined
+                ? { afterJson: report.afterJson as Prisma.InputJsonValue }
+                : {}),
+            };
+      // Compare-and-set on the status just read: a concurrent report or
+      // rejection that moved the task first turns this report into a conflict.
+      const updated = await tx.executionTask.updateMany({
+        where: { id: latest.id, actionId: action.id, status: latest.status },
+        data,
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException(
+          '실행 작업 상태가 동시에 바뀌었습니다. 다시 시도해 주세요.',
+        );
+      }
     });
-    if (updated.count !== 1) throw new NotFoundException('AdAction not found');
   }
 
   private async hydrateActionRelations(
     organizationId: string,
-    actions: AdAction[],
+    actions: AdActionRecord[],
   ): Promise<HydratedAdAction[]> {
     const listingMap = await this.listingAdapter.findScopedAdListings(
       organizationId,
@@ -575,7 +671,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
                 code: listing.masterProduct.code,
                 name: listing.masterProduct.name,
                 abcGrade: listing.masterProduct.abcGrade,
-                adTier: listing.masterProduct.adTier,
               },
             }
           : null,

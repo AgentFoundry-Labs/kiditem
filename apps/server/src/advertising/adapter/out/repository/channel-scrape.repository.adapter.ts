@@ -1,25 +1,17 @@
-// `ChannelScrapeRun` lifecycle writes + advertising-side scrape-run status
-// reads. Owns only the run lifecycle (create run → append snapshot → finalize)
-// and the buckets-by-source counts surfaced on the ops dashboard.
+// Advertising-side scrape-run status reads for the extension-status endpoint,
+// anchored on the published Wing itemwinner owner.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Inject, Injectable } from '@nestjs/common';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   WING_ITEMWINNER_KPI_READ_PORT,
   type WingItemwinnerKpiReadPort,
 } from '../../../application/port/in/wing-itemwinner-kpi-source.port';
-import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 import type {
   ChannelScrapeRepositoryPort,
   ExtensionStatusSnapshot,
-  ScrapeRunErrorFinalize,
-  ScrapeRunFinalize,
-  ScrapeRunInput,
-  ScrapeSnapshotInput,
 } from '../../../application/port/out/repository/channel-scrape.repository.port';
-
-const logger = new Logger('ChannelScrapeRepositoryAdapter');
 
 @Injectable()
 export class ChannelScrapeRepositoryAdapter
@@ -30,121 +22,6 @@ export class ChannelScrapeRepositoryAdapter
     @Inject(WING_ITEMWINNER_KPI_READ_PORT)
     private readonly wingItemwinnerRead: WingItemwinnerKpiReadPort,
   ) {}
-
-  async createRun(input: ScrapeRunInput): Promise<{ id: string }> {
-    return adIngestRepositoryClient(this.prisma).channelScrapeRun.create({
-      data: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        channel: input.channel,
-        source: input.source,
-        pageType: input.pageType,
-        businessDate: input.businessDate ?? null,
-        periodStart: input.periodStart ?? null,
-        periodEnd: input.periodEnd ?? null,
-        targetUrl: input.targetUrl ?? null,
-        period: input.period ?? null,
-        parserVersion: input.parserVersion ?? null,
-        status: 'running',
-        metaJson:
-          input.metaJson === undefined || input.metaJson === null
-            ? Prisma.DbNull
-            : (input.metaJson as Prisma.InputJsonValue),
-      },
-      select: { id: true },
-    });
-  }
-
-  async updateRunMeta(input: {
-    scrapeRunId: string;
-    organizationId: string;
-    metaJson: Record<string, unknown>;
-  }): Promise<void> {
-    const client = adIngestRepositoryClient(this.prisma);
-    const result = await client.channelScrapeRun.updateMany({
-      where: {
-        id: input.scrapeRunId,
-        organizationId: input.organizationId,
-      },
-      data: { metaJson: input.metaJson as Prisma.InputJsonValue },
-    });
-    if (result.count !== 1) {
-      throw new Error('ChannelScrapeRun not found for organization scope');
-    }
-  }
-
-  async appendSnapshot(input: ScrapeSnapshotInput): Promise<{ id: string }> {
-    return adIngestRepositoryClient(this.prisma).channelScrapeSnapshot.create({
-      data: {
-        scrapeRunId: input.scrapeRunId,
-        organizationId: input.organizationId,
-        channel: input.channel,
-        source: input.source,
-        pageType: input.pageType,
-        businessDate: input.businessDate ?? null,
-        externalId: input.externalId ?? null,
-        externalOptionId: input.externalOptionId ?? null,
-        listingId: input.listingId ?? null,
-        listingOptionId: input.listingOptionId ?? null,
-        matchStatus: input.matchStatus,
-        matchReason: input.matchReason ?? null,
-        rowHash: input.rowHash ?? null,
-        rawJson: input.rawJson as Prisma.InputJsonValue,
-        normalizedJson:
-          input.normalizedJson === undefined || input.normalizedJson === null
-            ? Prisma.DbNull
-            : (input.normalizedJson as Prisma.InputJsonValue),
-      },
-      select: { id: true },
-    });
-  }
-
-  async finalizeRun(input: ScrapeRunFinalize): Promise<void> {
-    const result = await adIngestRepositoryClient(this.prisma).channelScrapeRun.updateMany({
-      where: { id: input.scrapeRunId, organizationId: input.organizationId },
-      data: {
-        status: input.status,
-        rowCount: input.rowCount ?? 0,
-        matchedCount: input.matchedCount ?? 0,
-        unmatchedCount: input.unmatchedCount ?? 0,
-        errorCount: input.errorCount ?? 0,
-        finishedAt: new Date(),
-        errorJson:
-          input.errorJson === undefined || input.errorJson === null
-            ? Prisma.DbNull
-            : (input.errorJson as Prisma.InputJsonValue),
-      },
-    });
-    if (result.count !== 1) {
-      throw new Error(
-        `ChannelScrapeRun not found for organization scope: ${input.scrapeRunId}`,
-      );
-    }
-  }
-
-  async finalizeRunOnError(input: ScrapeRunErrorFinalize): Promise<void> {
-    try {
-      await this.finalizeRun({
-        scrapeRunId: input.scrapeRunId,
-        organizationId: input.organizationId,
-        status: 'error',
-        rowCount: input.rowCount,
-        matchedCount: input.matchedCount,
-        unmatchedCount: input.unmatchedCount,
-        errorCount: 1,
-        errorJson: serializeScrapeRunError(input.err),
-      });
-    } catch (finalizeError) {
-      // PG 연결 자체가 죽은 케이스: 다시 throw 하면 원본 에러를 가린다.
-      logger.error(
-        `Failed to record error status on scrape run ${input.scrapeRunId}: ${
-          finalizeError instanceof Error
-            ? finalizeError.message
-            : String(finalizeError)
-        }`,
-      );
-    }
-  }
 
   async findExtensionStatusSnapshot(
     organizationId: string,
@@ -183,7 +60,7 @@ export class ChannelScrapeRepositoryAdapter
           where: {
             organizationId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: 'completed' },
+            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
         })
       : Promise.resolve(0);
@@ -193,7 +70,7 @@ export class ChannelScrapeRepositoryAdapter
             organizationId,
             channelAccountId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: 'completed' },
+            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
           orderBy: [
             { finishedAt: 'desc' },
@@ -239,15 +116,4 @@ export class ChannelScrapeRepositoryAdapter
     });
     return account?.id ?? null;
   }
-}
-
-function serializeScrapeRunError(err: unknown): Record<string, unknown> {
-  if (err instanceof Error) {
-    return {
-      name: err.name,
-      message: err.message,
-      stack: err.stack ?? null,
-    };
-  }
-  return { message: String(err) };
 }

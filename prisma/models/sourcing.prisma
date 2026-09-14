@@ -591,14 +591,13 @@ model SourcingEvidenceIngestionRun {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  sourceKey              String    @default("") @map("source_key") @db.VarChar(80)
-  scopeKey               String    @default("default") @map("scope_key") @db.VarChar(160)
-  leaseToken             String    @default(uuid()) @map("lease_token") @db.Uuid
-  leaseExpiresAt         DateTime  @default(now()) @map("lease_expires_at") @db.Timestamptz
-  sourceControlCheckedAt DateTime  @default(now()) @map("source_control_checked_at") @db.Timestamptz
-  generation             Int       @default(1)
-  cancelRequestedAt      DateTime? @map("cancel_requested_at") @db.Timestamptz
-  staleDiscardedCount    Int       @default(0) @map("stale_discarded_count")
+  sourceKey              String   @default("") @map("source_key") @db.VarChar(80)
+  scopeKey               String   @default("default") @map("scope_key") @db.VarChar(160)
+  leaseToken             String   @default(uuid()) @map("lease_token") @db.Uuid
+  leaseExpiresAt         DateTime @default(now()) @map("lease_expires_at") @db.Timestamptz
+  sourceControlCheckedAt DateTime @default(now()) @map("source_control_checked_at") @db.Timestamptz
+  generation             Int      @default(1)
+  staleDiscardedCount    Int      @default(0) @map("stale_discarded_count")
 
   targetKey         String  @map("target_key") @db.VarChar(300)
   idempotencyKey    String  @map("idempotency_key") @db.VarChar(300)
@@ -615,8 +614,6 @@ model SourcingEvidenceIngestionRun {
 
   sourceWindowStartAt DateTime? @map("source_window_start_at") @db.Timestamptz
   sourceWindowEndAt   DateTime? @map("source_window_end_at") @db.Timestamptz
-  watermarkBefore     String?   @map("watermark_before") @db.Text
-  watermarkAfter      String?   @map("watermark_after") @db.Text
   discoveredCount     Int       @default(0) @map("discovered_count")
   acceptedCount       Int       @default(0) @map("accepted_count")
   rejectedCount       Int       @default(0) @map("rejected_count")
@@ -680,19 +677,17 @@ model SourcingEvidenceObservation {
   schemaVersion     String  @map("schema_version") @db.VarChar(80)
   evidenceClass     String  @map("evidence_class") @db.VarChar(40)
 
-  eventAt           DateTime? @map("event_at") @db.Timestamptz
-  observedAt        DateTime  @map("observed_at") @db.Timestamptz
-  availableAt       DateTime  @map("available_at") @db.Timestamptz
-  revisionAt        DateTime? @map("revision_at") @db.Timestamptz
-  businessDate      DateTime? @map("business_date") @db.Date
-  sourceRevisionKey String?   @map("source_revision_key") @db.VarChar(200)
-  sourceUrl         String?   @map("source_url") @db.Text
-  payloadHash       String    @map("payload_hash") @db.VarChar(64)
-  envelopeHash      String    @default("") @map("envelope_hash") @db.VarChar(64)
-  payload           Json?     @db.JsonB
-  rawArtifactRef    String?   @map("raw_artifact_ref") @db.VarChar(500)
-  ingestedAt        DateTime  @default(now()) @map("ingested_at") @db.Timestamptz
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  eventAt      DateTime? @map("event_at") @db.Timestamptz
+  observedAt   DateTime  @map("observed_at") @db.Timestamptz
+  availableAt  DateTime  @map("available_at") @db.Timestamptz
+  revisionAt   DateTime? @map("revision_at") @db.Timestamptz
+  businessDate DateTime? @map("business_date") @db.Date
+  sourceUrl    String?   @map("source_url") @db.Text
+  payloadHash  String    @map("payload_hash") @db.VarChar(64)
+  envelopeHash String    @default("") @map("envelope_hash") @db.VarChar(64)
+  payload      Json?     @db.JsonB
+  ingestedAt   DateTime  @default(now()) @map("ingested_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization               Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ingestionRun               SourcingEvidenceIngestionRun         @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
@@ -798,7 +793,6 @@ model SourcingDecisionBatch {
 
   idempotencyKey        String   @map("idempotency_key") @db.VarChar(300)
   requestHash           String   @map("request_hash") @db.VarChar(64)
-  decisionMode          String   @map("decision_mode") @db.VarChar(30)
   businessDate          DateTime @map("business_date") @db.Date
   decisionAt            DateTime @map("decision_at") @db.Timestamptz
   evidenceCutoffAt      DateTime @map("evidence_cutoff_at") @db.Timestamptz
@@ -811,10 +805,6 @@ model SourcingDecisionBatch {
   modelPipeline         String   @map("model_pipeline") @db.VarChar(160)
   modelGeneratorVersion String   @map("model_generator_version") @db.VarChar(200)
   expiresAt             DateTime @map("expires_at") @db.Timestamptz
-  heuristicArtifactHash String?  @map("heuristic_artifact_hash") @db.VarChar(64)
-  capitalBudgetKrw      Int?     @map("capital_budget_krw")
-  testSlotLimit         Int?     @map("test_slot_limit")
-  constraintSetHash     String?  @map("constraint_set_hash") @db.VarChar(64)
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -838,29 +828,25 @@ model SourcingDecisionBatchItem {
   launchCandidateId          String? @map("launch_candidate_id") @db.Uuid
   supplierOfferSkuSnapshotId String? @map("supplier_offer_sku_snapshot_id") @db.Uuid
 
-  itemKey                          String   @map("item_key") @db.VarChar(64)
-  modelCandidateId                 String   @map("model_candidate_id") @db.VarChar(300)
-  displayName                      String   @map("display_name") @db.VarChar(300)
-  rank                             Int
-  baselineDecision                 String   @map("baseline_decision") @db.VarChar(30)
-  decision                         String   @db.VarChar(30)
-  executionEligible                Boolean  @default(false) @map("execution_eligible")
-  confidenceKind                   String   @map("confidence_kind") @db.VarChar(40)
-  policyProbability                Decimal? @map("policy_probability") @db.Decimal(9, 8)
-  evidenceFamilyCount              Int      @default(0) @map("evidence_family_count")
-  evidencePlatformCount            Int      @default(0) @map("evidence_platform_count")
-  hasCoupangEvidence               Boolean  @default(false) @map("has_coupang_evidence")
-  has1688Evidence                  Boolean  @default(false) @map("has_1688_evidence")
-  nextEvidenceAction               String?  @map("next_evidence_action") @db.VarChar(60)
-  heuristicScore                   Decimal? @map("heuristic_score") @db.Decimal(20, 8)
-  decisionConfidence               Decimal? @map("decision_confidence") @db.Decimal(9, 8)
-  expectedContributionProfit90dKrw Int?     @map("expected_contribution_profit_90d_krw")
-  capitalAtRiskKrw                 Int?     @map("capital_at_risk_krw")
-  reasonCodes                      String[] @default([]) @map("reason_codes")
-  riskCodes                        String[] @default([]) @map("risk_codes")
-  modelOutput                      Json     @default("{}") @map("model_output") @db.JsonB
-  featureManifestHash              String?  @map("feature_manifest_hash") @db.VarChar(64)
-  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  itemKey               String   @map("item_key") @db.VarChar(64)
+  modelCandidateId      String   @map("model_candidate_id") @db.VarChar(300)
+  displayName           String   @map("display_name") @db.VarChar(300)
+  rank                  Int
+  baselineDecision      String   @map("baseline_decision") @db.VarChar(30)
+  decision              String   @db.VarChar(30)
+  executionEligible     Boolean  @default(false) @map("execution_eligible")
+  confidenceKind        String   @map("confidence_kind") @db.VarChar(40)
+  evidenceFamilyCount   Int      @default(0) @map("evidence_family_count")
+  evidencePlatformCount Int      @default(0) @map("evidence_platform_count")
+  hasCoupangEvidence    Boolean  @default(false) @map("has_coupang_evidence")
+  has1688Evidence       Boolean  @default(false) @map("has_1688_evidence")
+  nextEvidenceAction    String?  @map("next_evidence_action") @db.VarChar(60)
+  heuristicScore        Decimal? @map("heuristic_score") @db.Decimal(20, 8)
+  decisionConfidence    Decimal? @map("decision_confidence") @db.Decimal(9, 8)
+  reasonCodes           String[] @default([]) @map("reason_codes")
+  riskCodes             String[] @default([]) @map("risk_codes")
+  modelOutput           Json     @default("{}") @map("model_output") @db.JsonB
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization             Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   decisionBatch            SourcingDecisionBatch      @relation(fields: [decisionBatchId, organizationId], references: [id, organizationId], onDelete: Restrict)
@@ -1035,13 +1021,12 @@ model SourcingValidationCheck {
   organizationId      String @map("organization_id") @db.Uuid
   validationEpisodeId String @map("validation_episode_id") @db.Uuid
 
-  checkKey    String   @map("check_key") @db.VarChar(120)
-  status      String   @db.VarChar(40)
-  severity    String?  @db.VarChar(40)
-  score       Int?
-  summary     String?  @db.Text
-  details     Json     @default("{}") @db.JsonB
-  evaluatedAt DateTime @default(now()) @map("evaluated_at") @db.Timestamptz
+  checkKey String  @map("check_key") @db.VarChar(120)
+  status   String  @db.VarChar(40)
+  severity String? @db.VarChar(40)
+  score    Int?
+  summary  String? @db.Text
+  details  Json    @default("{}") @db.JsonB
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
@@ -1051,7 +1036,6 @@ model SourcingValidationCheck {
 
   @@unique([id, organizationId], map: "sourcing_validation_checks_id_org_key")
   @@unique([validationEpisodeId, checkKey], map: "sourcing_validation_checks_episode_check_key")
-  @@index([validationEpisodeId, evaluatedAt])
   @@map("sourcing_validation_checks")
 }
 
@@ -1112,7 +1096,6 @@ model SourcingReviewBatch {
   status              String    @default("awaiting_procurement_enablement") @db.VarChar(60)
   requestedAt         DateTime  @default(now()) @map("requested_at") @db.Timestamptz
   cancelledAt         DateTime? @map("cancelled_at") @db.Timestamptz
-  cancelReason        String?   @map("cancel_reason") @db.Text
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

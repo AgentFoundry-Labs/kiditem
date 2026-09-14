@@ -62,7 +62,6 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
       SELECT to_regclass('public.operation_runs') IS NULL AS absent
     `)[0]?.absent).toBe(true);
-    await expect(prisma.alert.count({ where: { kind: 'operation' } })).resolves.toBe(0);
     await expect(prisma.masterProductAbcEvaluation.count()).resolves.toEqual(abcBefore);
   });
 

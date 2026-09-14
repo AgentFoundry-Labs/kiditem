@@ -55,8 +55,6 @@ const createProductDetailFixture = (availableStock = 80) => ({
   abcEvaluation: null,
   abc: abcFixture,
   contribution: null,
-  profitTag: null,
-  adTier: null,
   adBudgetLimit: null,
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
@@ -114,8 +112,6 @@ const metadataFixture = {
   abcEvaluation: null,
   abc: abcFixture,
   contribution: null,
-  profitTag: null,
-  adTier: null,
   adBudgetLimit: null,
   isActive: true,
 };
@@ -304,6 +300,33 @@ describe('product operations contracts', () => {
     expect(() => UpdateMasterProductInputSchema.parse({ abcGrade: 'B' })).toThrow();
   });
 
+  it.each(['adTier', 'profitTag'] as const)(
+    'carries no operator %s on product metadata or mutations',
+    (operatorField) => {
+      const results = [
+        CreateMasterProductInputSchema.safeParse({
+          code: 'KI-001',
+          name: '식판',
+          [operatorField]: 'operator text',
+        }),
+        UpdateMasterProductInputSchema.safeParse({ name: '식판', [operatorField]: null }),
+        MasterProductOperationsMetadataSchema.safeParse({
+          ...metadataFixture,
+          imageUrls: [],
+          displayImageUrls: [],
+          [operatorField]: null,
+        }),
+      ];
+
+      for (const result of results) {
+        expect(result.success).toBe(false);
+        expect(result.error?.issues).toEqual([
+          expect.objectContaining({ code: 'unrecognized_keys', keys: [operatorField] }),
+        ]);
+      }
+    },
+  );
+
   it('freezes the product inventory status vocabulary', () => {
     expect(ProductInventoryStatusSchema.options).toEqual([
       'sellable',
@@ -368,8 +391,6 @@ describe('product operations contracts', () => {
       abcEvaluation: null,
       abc: abcFixture,
       contribution: null,
-      profitTag: null,
-      adTier: null,
       adBudgetLimit: null,
       isActive: true,
       isSelling: true,
@@ -495,8 +516,6 @@ describe('product operations contracts', () => {
       abcEvaluation: null,
       abc: abcFixture,
       contribution: null,
-      profitTag: null,
-      adTier: null,
       adBudgetLimit: null,
       isActive: true,
       createdAt: '2026-07-16T00:00:00.000Z',

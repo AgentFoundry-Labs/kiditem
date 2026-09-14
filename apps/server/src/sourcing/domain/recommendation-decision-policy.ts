@@ -65,8 +65,6 @@ export interface RecommendationDecisionPolicyResult {
   executionEligible: boolean;
   nextEvidenceAction: RecommendationNextEvidenceAction | null;
   reasonCodes: string[];
-  /** Assignment propensity belongs to a later randomized slate ledger. */
-  policyProbability: null;
 }
 
 const MIN_CALIBRATED_PROBABILITY = 0.67;
@@ -75,8 +73,8 @@ const MIN_SUPPORTING_PLATFORMS = 2;
 
 /**
  * Turn frozen recommendation evidence into the canonical sourcing action.
- * This policy intentionally cannot invent an assignment propensity: Phase 0
- * ranking is deterministic and `policyProbability` therefore remains null.
+ * Phase 0 ranking is deterministic, so the decision carries no assignment
+ * propensity; one belongs to a later randomized slate ledger.
  */
 export function decideSourcingRecommendation(
   input: RecommendationDecisionPolicyInput,
@@ -233,6 +231,5 @@ function result(
     executionEligible,
     nextEvidenceAction,
     reasonCodes,
-    policyProbability: null,
   };
 }

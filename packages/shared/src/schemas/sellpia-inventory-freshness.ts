@@ -95,7 +95,6 @@ const SellpiaInventoryActiveSyncViewSchema = z
 const SellpiaInventoryLastAttemptViewSchema = z
   .object({
     attemptedAt: IsoDateTimeStringSchema,
-    status: z.enum(['completed', 'failed']),
     trigger: SellpiaInventoryRefreshReasonSchema.nullable(),
     scope: SellpiaSyncScopeSchema,
     errorCode: SellpiaInventoryCollectionFailureCodeSchema.nullable(),

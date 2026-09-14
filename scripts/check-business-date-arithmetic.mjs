@@ -29,8 +29,6 @@ export const RECORDED_DAY_ARITHMETIC = Object.freeze({
     { lines: 1, reason: 'whole days elapsed since an applied instant' },
   'apps/server/src/orders/services/order-collection.service.ts':
     { lines: 2, reason: 'spreadsheet serial dates (days since 1899-12-30)' },
-  'apps/server/src/orders/services/returns.service.ts':
-    { lines: 1, reason: 'default 30-day rolling return query window from now' },
   'apps/server/src/orders/services/reviews.service.ts':
     { lines: 1, reason: 'rolling recent-review window from now' },
   'apps/server/src/sourcing/adapter/out/shortstrend/youtube-data-shorts.client.ts':

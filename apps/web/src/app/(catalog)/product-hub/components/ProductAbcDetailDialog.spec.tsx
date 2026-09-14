@@ -94,8 +94,6 @@ function product(): MasterProductOperationsMetadata {
       cumulativeLossImpact: null,
       metricCompleteness: { sales: true, operatingProfit: true },
     },
-    profitTag: null,
-    adTier: null,
     adBudgetLimit: null,
     isActive: true,
   };

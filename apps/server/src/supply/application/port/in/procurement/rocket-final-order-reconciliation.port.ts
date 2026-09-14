@@ -15,7 +15,6 @@ export type RocketFinalOrderUnmatchedLine = {
 export type RocketFinalOrderReconciliationResult = {
   exportId: string | null;
   transmissionIntentKey: string | null;
-  matchedLineCount: number;
   reconciledRows: number;
   unmatchedLines: RocketFinalOrderUnmatchedLine[];
 };

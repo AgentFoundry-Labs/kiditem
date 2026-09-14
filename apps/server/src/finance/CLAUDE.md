@@ -46,8 +46,7 @@ in Supply, but the backend capability owner is finance.
   to a listing sold on an account the Coupang target-day sweep covers.
   Elsewhere it is Not applied (0), never unmeasured.
 - Returns have no owner publication, so return counts, rates, and orphan
-  counts publish `null` here and on the channel dashboard until a return source
-  declares coverage.
+  counts publish `null` here until a return source declares coverage.
 - Profit and return rates derive from raw values, not persisted rates.
 - `common/option-pricing-resolver.ts`, `common/kst`, and
   `common/per-listing-profit` are shared finance helpers.
@@ -71,8 +70,7 @@ in Supply, but the backend capability owner is finance.
 ## Boundary Rules
 
 - Keep `/api/profit-loss` as live aggregation; do not add persisted P&L writes.
-- Never read option `costPriceOverride`, `commissionRate`, `otherCost` or
-  `shippingCost` in finance, the dashboard or `common`; shipping is the order's
+- Channel listing options carry no cost overrides; shipping is the order's
   `shippingPrice`. Component purchase cost comes from the mapped physical
   `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
   reads.

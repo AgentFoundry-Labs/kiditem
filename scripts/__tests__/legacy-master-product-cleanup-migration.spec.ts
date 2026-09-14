@@ -22,10 +22,11 @@ function createTransaction(input: {
 }
 
 describe('legacy channel-derived MasterProduct cleanup migration', () => {
-  it('registers as the final post-schema migration in its release train', () => {
-    expect(
-      dataMigrations.filter((migration) => migration.releaseVersion === '0.1.30').at(-1),
-    ).toMatchObject({
+  it('leaves the registry when the cached grade column it filters on is dropped', () => {
+    // Release 0.1.30 has not reached main, so the registration goes without
+    // inactive lineage; the applied source stays as it ran.
+    expect(dataMigrations.map((migration) => migration.id)).not.toContain(MIGRATION_ID);
+    expect(deleteLegacyChannelDerivedMasterProducts).toMatchObject({
       id: MIGRATION_ID,
       releaseVersion: '0.1.30',
       phase: 'post-schema',

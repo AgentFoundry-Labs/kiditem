@@ -202,13 +202,143 @@ test('schema and data surfaces fail closed without explicit cutover approval', (
   assert.match(script, /Runtime-only rollback is blocked immediately after a schema\/data cutover/);
 });
 
+test('schema/data cutover dumps the database after writers stop and before any database change', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const install = script.slice(script.indexOf('function Install-Deployment {'), script.indexOf('function Show-OfficeStatus {'));
+  const cutoverStart = install.indexOf("if ($DeploymentMode -eq 'Cutover') {");
+  const cutoverEnd = install.indexOf('Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate', cutoverStart);
+  assert.ok(cutoverStart > 0 && cutoverEnd > cutoverStart, 'Install-Deployment keeps one schema/data cutover branch');
+  const cutover = install.slice(cutoverStart, cutoverEnd);
+
+  assert.equal(script.match(/New-CutoverDatabaseDump -GitSha/g)?.length, 1, 'the dump has one call site, inside the cutover branch');
+  let previous = -1;
+  for (const step of [
+    'Stop-GatewayScheduledTask',
+    'Invoke-Checked docker @script:ComposeArgs stop api web nginx',
+    'Invoke-Checked docker @script:ComposeArgs up --detach --no-build --remove-orphans postgres',
+    "Wait-ForContainerHealthy 'kiditem-postgres'",
+    '$cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha',
+    '$cutoverDatabaseWorkStarted = $true',
+    'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema',
+    'npx prisma db push --accept-data-loss',
+    'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema',
+  ]) {
+    const position = cutover.indexOf(step);
+    assert.ok(position > previous, `cutover branch must run "${step}" after the previous step`);
+    previous = position;
+  }
+
+  assert.doesNotMatch(cutover, /\btry\b|\bcatch\b/, 'a dump failure must reach the fail-closed cutover handler');
+  assert.match(
+    install,
+    /Stop-OfficeRuntimeFailClosed 'schema\/data cutover candidate failed'\s+if \(-not \$cutoverDatabaseWorkStarted\) \{\s+throw [^\n]*stopped before database work began/,
+  );
+});
+
+test('cutover dump uses container credentials, counts only verified custom-format archives, and never prunes older dumps', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const dumpStart = script.indexOf('function New-CutoverDatabaseDump {');
+  assert.ok(dumpStart > 0, 'New-CutoverDatabaseDump must exist');
+  const dump = script.slice(dumpStart, script.indexOf('\nfunction ', dumpStart));
+
+  assert.match(script, /^\$script:DatabaseDumpsRoot = Join-Path \$script:DeploymentsRoot 'database-dumps'$/m);
+  assert.match(
+    script,
+    /^\$script:LastSuccessfulCutoverDumpRecord = Join-Path \$script:DatabaseDumpsRoot 'last-successful-cutover\.txt'$/m,
+  );
+  // No fixed dump count: failed attempts before a success each write a dump,
+  // and a count would push out the first one, taken before any row was deleted.
+  assert.doesNotMatch(script, /DatabaseDumpRetentionCount/);
+  assert.match(dump, /'kiditem-\{0\}-\{1\}\.dump' -f \$timestamp, \$GitSha\.Substring\(0, 12\)/);
+  assert.match(dump, /\$partialPath = "\$dumpPath\.partial"/);
+  assert.match(
+    dump,
+    /docker exec kiditem-postgres sh -c \('PGUSER=\$POSTGRES_USER PGDATABASE=\$POSTGRES_DB PGPASSWORD=\$POSTGRES_PASSWORD pg_dump --format=custom --no-password /,
+  );
+  assert.doesNotMatch(dump, /Get-OfficeEnvValue|Get-ProtectedServerEnvValue|DATABASE_URL/);
+
+  let previous = -1;
+  for (const step of [
+    'Invoke-Checked docker exec kiditem-postgres sh -c',
+    'Invoke-Checked docker cp',
+    "-cne 'PGDMP'",
+    'Move-Item -LiteralPath $partialPath -Destination $dumpPath',
+    'Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue',
+  ]) {
+    const position = dump.indexOf(step);
+    assert.ok(position > previous, `cutover dump must run "${step}" after the previous step`);
+    previous = position;
+  }
+  // A failed cutover leaves a database its pre-schema migrations already
+  // cleaned, and every retry dumps that database again. Writing a dump must
+  // never push the dump taken before the first deletion out of retention.
+  assert.doesNotMatch(dump, /staleDump|Select-Object -Skip|Remove-StaleCutoverDatabaseDumps/, 'writing a dump never prunes older dumps');
+});
+
+test('a successful cutover prunes only dumps older than the previous successful cutover, then records its own', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const pruneStart = script.indexOf('function Remove-StaleCutoverDatabaseDumps {');
+  assert.ok(pruneStart > 0, 'Remove-StaleCutoverDatabaseDumps must exist');
+  const prune = script.slice(pruneStart, script.indexOf('\nfunction ', pruneStart));
+
+  let previous = -1;
+  for (const step of [
+    '$keepName = Split-Path -Leaf $KeepDumpPath',
+    '$previousName = $null',
+    'if (Test-Path -LiteralPath $script:LastSuccessfulCutoverDumpRecord -PathType Leaf) {',
+    '$previousName = ([System.IO.File]::ReadAllText($script:LastSuccessfulCutoverDumpRecord)).Trim()',
+    String.raw`if ($previousName -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$') {`,
+    String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName -and [string]::CompareOrdinal($_.Name, $previousName) -lt 0`,
+    'Remove-Item -LiteralPath $staleDump.FullName -Force',
+    'Write-Warning "Could not prune old database dump',
+    '[System.IO.File]::WriteAllText($script:LastSuccessfulCutoverDumpRecord, $keepName',
+    'Write-Warning "Could not record the successful cutover dump',
+  ]) {
+    const position = prune.indexOf(step);
+    assert.ok(position > previous, `dump pruning must run "${step}" after the previous step`);
+    previous = position;
+  }
+  // Three failed attempts that each deleted rows and then a success must still
+  // leave the first attempt's dump: retention is anchored on the previous
+  // successful cutover, never on a count of the newest dumps.
+  assert.doesNotMatch(prune, /Select-Object -Skip|Sort-Object/, 'pruning never keeps a fixed number of newest dumps');
+
+  const install = script.slice(script.indexOf('function Install-Deployment {'), script.indexOf('function Show-OfficeStatus {'));
+  assert.equal(script.match(/Remove-StaleCutoverDatabaseDumps -KeepDumpPath/g)?.length, 1, 'pruning has one call site');
+  const call = install.search(
+    /if \(\$DeploymentMode -eq 'Cutover'\) \{\s+Remove-StaleCutoverDatabaseDumps -KeepDumpPath \$cutoverDatabaseDumpPath\s+\}/,
+  );
+  assert.ok(call > 0, 'only a schema/data cutover prunes, and it keeps the dump it started from');
+  // The catch block always rethrows, so code after it runs only for a cutover
+  // whose runtime, smoke tests, and manifest all succeeded.
+  for (const step of [
+    'Wait-ForRuntime',
+    'Assert-SmokeTests',
+    'throw $deploymentError',
+    '[System.IO.File]::WriteAllText($script:CurrentManifestPath',
+  ]) {
+    const position = install.lastIndexOf(step);
+    assert.ok(position > 0 && position < call, `dump pruning must wait until after "${step}"`);
+  }
+});
+
+test('the data-loss policy states that every dump since the previous successful cutover survives', () => {
+  const policy = read('docs/runbooks/deployment-architecture.md').replace(/\s+/g, ' ');
+  assert.ok(
+    policy.includes("Only a successful cutover prunes, and it deletes only dumps older than the previous successful cutover's dump"),
+    'the policy names which dumps a successful cutover prunes',
+  );
+  assert.ok(policy.includes('every dump written since then survives'), 'the policy states the guarantee failed attempts rely on');
+  assert.doesNotMatch(policy, /latest three/);
+});
+
 test('controlled recreate preserves runtime evidence and automatically restores app-only failures', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   assert.match(script, /runtime-snapshot\.json/);
   assert.match(script, /runtime-before\.json/);
   assert.match(script, /CurrentManifestPath/);
   assert.match(script, /PreviousManifestPath/);
-  assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
+  assert.match(script, /--detach --no-build --force-recreate api web nginx/);
   assert.match(script, /Restore-Transaction \$backupRoot/);
   assert.match(script, /Automatic runtime restore also failed/);
   assert.match(script, /function Invoke-GatewayTransientFileOperation/);
@@ -247,6 +377,46 @@ test('Office compose keeps env and external volumes while accepting only prebuil
   assert.match(compose, /local runtime manifest/);
 });
 
+test('Office deployer stops, starts, and waits only for services and containers that compose.office.yml defines', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const compose = read('deploy/office/compose.office.yml');
+  const servicesBlock = /^services:\n([\s\S]*?)^\S/m.exec(compose)?.[1] ?? '';
+  const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9_-]*):$/gm)].map((match) => match[1]);
+  const containers = [...servicesBlock.matchAll(/^ {4}container_name: (\S+)$/gm)].map((match) => match[1]);
+  const projectName = /^name: (\S+)$/m.exec(compose)?.[1];
+  assert.ok(services.includes('api') && containers.includes('kiditem-api') && projectName, 'compose.office.yml services must parse');
+
+  const composeOperands = [...script.matchAll(/docker @script:ComposeArgs (stop|up|run) ([^\n]*)/g)].flatMap(([, verb, rest]) => {
+    const operands = rest.replace(/'[^']*'/g, '').split(/\s+/).filter((token) => token && !token.startsWith('-'));
+    return verb === 'run' ? operands.slice(0, 1) : operands;
+  });
+  const renderedStart = script.indexOf('function Assert-RenderedManifestDeployment {');
+  const rendered = script.slice(renderedStart, script.indexOf('\nfunction ', renderedStart));
+  const renderedServices = [
+    ...[...rendered.matchAll(/in @\(([^)]*)\)/g)].flatMap((match) => [...match[1].matchAll(/'([^']+)'/g)].map((name) => name[1])),
+    ...[...rendered.matchAll(/\$rendered\.services\.([a-z]+)/g)].map((match) => match[1]),
+  ];
+  const containerNames = [
+    ...[...script.matchAll(/'(kiditem-[a-z]+)'/g)].map((match) => match[1]).filter((name) => name !== projectName),
+    ...[...script.matchAll(/docker (?:exec|cp) "?(kiditem-[a-z]+)\b/g)].map((match) => match[1]),
+  ];
+  assert.ok(composeOperands.length > 0 && renderedServices.length > 0 && containerNames.length > 0, 'deployer service references must parse');
+  for (const service of new Set([...composeOperands, ...renderedServices])) {
+    assert.ok(services.includes(service), `deployer names Compose service "${service}", which compose.office.yml does not define`);
+  }
+  for (const container of new Set(containerNames)) {
+    assert.ok(containers.includes(container), `deployer names container "${container}", which compose.office.yml does not define`);
+  }
+  for (const path of [
+    'deploy/office/apply-deployment.ps1',
+    'deploy/office/compose.office.yml',
+    'deploy/office/office.env.example',
+    'scripts/__tests__/office-windows-native-runtime.fixture.ps1',
+  ]) {
+    assert.doesNotMatch(read(path), /\bworker\b/i, `${path} still names the retired worker service`);
+  }
+});
+
 test('PowerShell deployment operator parses on Windows', { skip: process.platform !== 'win32' }, () => {
   const command = String.raw`foreach($file in @('deploy/office/apply-deployment.ps1','deploy/office/gateway-build.ps1')){$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){exit 1}}`;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
@@ -263,7 +433,7 @@ test('status and rollback retain schema-3 archived-runtime admission', () => {
   assert.match(script, /'Rollback'\s*\{[\s\S]*Install-Deployment -TargetManifestPath \$script:PreviousManifestPath/);
   assert.match(script, /Install-Deployment -TargetManifestPath \$script:PreviousManifestPath -DeploymentMode Rollback/);
   assert.match(script, /Get-ArchivedGatewayArtifact \$previousManifest/);
-  assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
+  assert.match(script, /--detach --no-build --force-recreate api web nginx/);
 });
 
 test('runbooks describe the local exact-SHA contract and no GitHub Office bundle fallback', () => {

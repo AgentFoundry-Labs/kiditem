@@ -39,10 +39,10 @@ describe("CapabilityInvocation persistence contract", () => {
       "canonicalInput",
       "inputHash",
       "status",
-      "approvalStatus",
       "approvalInputHash",
       "approvalRequestedAt",
       "approvalExpiresAt",
+      "approvalDecision",
       "approvalDecidedByUserId",
       "approvalDecisionReason",
       "approvalDecidedAt",
@@ -68,10 +68,10 @@ describe("CapabilityInvocation persistence contract", () => {
       /canonicalInput\s+Json\s+@map\("canonical_input"\)\s+@db\.JsonB/,
       /inputHash\s+String\s+@map\("input_hash"\)/,
       /status\s+String\s+@default\("pending"\)/,
-      /approvalStatus\s+String\s+@default\("not_required"\)\s+@map\("approval_status"\)/,
       /approvalInputHash\s+String\?\s+@map\("approval_input_hash"\)/,
       /approvalRequestedAt\s+DateTime\?\s+@map\("approval_requested_at"\)\s+@db\.Timestamptz/,
       /approvalExpiresAt\s+DateTime\?\s+@map\("approval_expires_at"\)\s+@db\.Timestamptz/,
+      /approvalDecision\s+String\?\s+@map\("approval_decision"\)/,
       /approvalDecidedByUserId\s+String\?\s+@map\("approval_decided_by_user_id"\)\s+@db\.Uuid/,
       /approvalDecisionReason\s+String\?\s+@map\("approval_decision_reason"\)\s+@db\.Text/,
       /approvalDecidedAt\s+DateTime\?\s+@map\("approval_decided_at"\)\s+@db\.Timestamptz/,
@@ -81,7 +81,7 @@ describe("CapabilityInvocation persistence contract", () => {
       /updatedAt\s+DateTime\s+@default\(now\(\)\)\s+@updatedAt\s+@map\("updated_at"\)\s+@db\.Timestamptz/,
       /finishedAt\s+DateTime\?\s+@map\("finished_at"\)\s+@db\.Timestamptz/,
       /@@index\(\[organizationId, status, createdAt\]\)/,
-      /@@index\(\[organizationId, approvalStatus, approvalExpiresAt\]\)/,
+      /@@index\(\[status, approvalDecision, createdAt\]\)/,
       /@@index\(\[initiatingUserId\]\)/,
       /@@index\(\[approvalDecidedByUserId\]\)/,
       /"CapabilityInvocationInitiator"/,
@@ -91,7 +91,7 @@ describe("CapabilityInvocation persistence contract", () => {
     }
   });
 
-  it("excludes the retired graph, durable runtime coordinates, and lease/retry state", () => {
+  it("excludes the retired graph, durable runtime coordinates, lease/retry state, and a stored approval word", () => {
     for (const forbidden of [
       "AgentVersion",
       "AgentSession",
@@ -114,6 +114,8 @@ describe("CapabilityInvocation persistence contract", () => {
       "attemptCount",
       "retry",
       "version",
+      "approvalStatus",
+      "approval_status",
     ]) {
       expect(schema).not.toContain(forbidden);
     }

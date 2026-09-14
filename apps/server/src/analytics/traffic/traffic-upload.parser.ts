@@ -34,7 +34,6 @@ export interface ParsedUploadRow {
 export interface ParsedTrafficUpload {
   rows: ParsedUploadRow[];
   skipped: number;
-  rowCount: number;
   detectedColumns: TrafficDetectedColumns;
 }
 
@@ -74,7 +73,6 @@ export function parseTrafficUploadFile({
 
   return {
     ...parsed,
-    rowCount: rows.length,
     detectedColumns,
   };
 }

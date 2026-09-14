@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
@@ -58,7 +63,7 @@ function dateAtUtc(value: string): Date {
 }
 
 function expired(row: SourceRun): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function isExplicitWingItemWinnerUrl(value: string): boolean {
@@ -159,7 +164,7 @@ export class WingItemwinnerKpiSourceRepository
         where: {
           organizationId: input.organizationId,
           sourceType: WING_ITEMWINNER_SOURCE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (running) {
@@ -200,7 +205,7 @@ export class WingItemwinnerKpiSourceRepository
           organizationId: input.organizationId,
           sourceType: WING_ITEMWINNER_SOURCE,
           channelAccountId: account.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           idempotencyKey: input.idempotencyKey,
           requestFingerprint,
           attemptToken: randomUUID(),
@@ -257,7 +262,7 @@ export class WingItemwinnerKpiSourceRepository
         const row = await this.find(tx, input.organizationId, input.attemptId);
         this.fence(row, input.attemptToken);
         const checksum = hash(input.capture);
-        if (row.status !== 'running') {
+        if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
           if (row.contentChecksum === checksum) return { row };
           throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
         }
@@ -428,9 +433,6 @@ export class WingItemwinnerKpiSourceRepository
           data: {
             status: 'complete',
             targetUrl: input.capture.url,
-            rowCount: input.capture.data.length,
-            matchedCount,
-            unmatchedCount: input.capture.data.length - matchedCount,
             finishedAt: new Date(),
             metaJson: json({
               kpis: input.capture.kpis,
@@ -442,7 +444,7 @@ export class WingItemwinnerKpiSourceRepository
         const completed = await tx.sourceImportRun.update({
           where: { id: row.id, organizationId: input.organizationId },
           data: {
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
             importedAt: new Date(),
             lastVerifiedAt: observedAt,
             verificationCount: { increment: 1 },
@@ -485,8 +487,8 @@ export class WingItemwinnerKpiSourceRepository
       await this.lock(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
       this.fence(row, input.attemptToken);
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.errorCode === input.code && row.errorMessage === message) {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.errorCode === input.code && row.errorMessage === message) {
           return this.controlView(tx, row);
         }
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
@@ -523,7 +525,7 @@ export class WingItemwinnerKpiSourceRepository
             organizationId: input.organizationId,
             sourceType: WING_ITEMWINNER_SOURCE,
             channelAccountId: account.id,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
           orderBy: [{ freshnessGeneration: 'desc' }, { importedAt: 'desc' }, { id: 'desc' }],
         });
@@ -534,7 +536,7 @@ export class WingItemwinnerKpiSourceRepository
             sourceImportRunId: row.id,
             source: SNAPSHOT_SOURCE,
             pageType: PAGE_TYPE,
-            sourceImportRun: { status: 'completed', sourceType: WING_ITEMWINNER_SOURCE },
+            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS, sourceType: WING_ITEMWINNER_SOURCE },
           },
           orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
           select: { id: true, businessDate: true, observedAt: true, normalizedJson: true },
@@ -583,7 +585,7 @@ export class WingItemwinnerKpiSourceRepository
         orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
       tx.sourceImportRun.findFirst({
-        where: { ...where, status: 'completed' },
+        where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
         orderBy: [{ freshnessGeneration: 'desc' }, { importedAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
@@ -620,7 +622,7 @@ export class WingItemwinnerKpiSourceRepository
   }
 
   private async attemptView(tx: Tx | PrismaService, row: SourceRun): Promise<WingItemwinnerAttempt> {
-    const snapshot = row.status === 'completed'
+    const snapshot = row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
       ? await tx.channelScrapeSnapshot.findFirst({
           where: {
             organizationId: row.organizationId,
@@ -639,9 +641,9 @@ export class WingItemwinnerKpiSourceRepository
       channelAccountId: row.channelAccountId!,
       generation: String(row.freshnessGeneration ?? 0n),
       state:
-        row.status === 'completed'
+        row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? 'COMPLETE'
-          : row.status === 'running' && !isExpired
+          : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
             ? 'RUNNING'
             : 'FAILED',
       plan,
@@ -673,7 +675,7 @@ export class WingItemwinnerKpiSourceRepository
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -689,7 +691,6 @@ export class WingItemwinnerKpiSourceRepository
       data: {
         status: 'error',
         finishedAt: new Date(),
-        errorCount: 1,
         errorJson: json({ code, message }),
       },
     });

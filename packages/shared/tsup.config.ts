@@ -44,7 +44,6 @@ export default defineConfig({
     'src/statistics.ts',
     'src/settlements.ts',
     'src/alerts.ts',
-    'src/return-summary.ts',
     'src/feature-gate.ts',
     'src/inspection.ts',
     'src/readiness.ts',

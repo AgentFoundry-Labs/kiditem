@@ -6,7 +6,6 @@ function repository(result: {
   intents: Array<{
     intentKey: string;
     status: 'prepared' | 'finalized' | 'aborted';
-    finalizedGeneration: bigint | null;
   }>;
 }) {
   return { read: vi.fn().mockResolvedValue(result) };
@@ -39,19 +38,19 @@ describe('RocketWorkbookProgressService', () => {
     },
     {
       name: 'prepared transmission',
-      intents: [{ intentKey: 'rocket:shipment', status: 'prepared' as const, finalizedGeneration: null }],
+      intents: [{ intentKey: 'rocket:shipment', status: 'prepared' as const }],
       verifiedGeneration: 8n,
       expected: 'sellpia_transmitting',
     },
     {
       name: 'aborted transmission',
-      intents: [{ intentKey: 'rocket:shipment', status: 'aborted' as const, finalizedGeneration: null }],
+      intents: [{ intentKey: 'rocket:shipment', status: 'aborted' as const }],
       verifiedGeneration: 8n,
       expected: 'failed',
     },
     {
-      name: 'finalized transmission without an inventory generation',
-      intents: [{ intentKey: 'rocket:shipment', status: 'finalized' as const, finalizedGeneration: null }],
+      name: 'finalized transmission',
+      intents: [{ intentKey: 'rocket:shipment', status: 'finalized' as const }],
       verifiedGeneration: 8n,
       expected: 'completed',
     },
@@ -74,7 +73,6 @@ describe('RocketWorkbookProgressService', () => {
       intents: [{
         intentKey: 'rocket:shipment',
         status: 'finalized',
-        finalizedGeneration: 9n,
       }],
     });
     const service = new RocketWorkbookProgressService(progressRepository as never);

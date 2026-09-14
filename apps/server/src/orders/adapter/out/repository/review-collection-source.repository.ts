@@ -11,6 +11,11 @@ import {
   type ReviewIngestItem,
   type ReviewIngestResponse,
 } from '@kiditem/shared/reviews';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
@@ -107,7 +112,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
         where: {
           organizationId: input.organizationId,
           sourceType: COUPANG_REVIEW_COLLECTION_SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
@@ -126,7 +131,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
         data: {
           organizationId: input.organizationId,
           sourceType: COUPANG_REVIEW_COLLECTION_SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           idempotencyKey: input.idempotencyKey,
           requestFingerprint,
           attemptToken: randomUUID(),
@@ -324,8 +329,8 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       await this.lock(tx, input.organizationId);
       const row = await this.findRun(tx, input.organizationId, input.attemptId);
       this.assertToken(row, input.attemptToken);
-      if (row.status === 'completed') return this.attemptView(tx, row);
-      if (row.status !== 'running') throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
+      if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return this.attemptView(tx, row);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
 
       const plan = readPlan(row.plan);
@@ -403,7 +408,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       const updated = await tx.sourceImportRun.update({
         where: { id: row.id, organizationId: input.organizationId },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: collected,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -464,11 +469,11 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       await this.lock(tx, input.organizationId);
       const row = await this.findRun(tx, input.organizationId, input.attemptId);
       this.assertToken(row, input.attemptToken);
-      if (row.status === 'failed') {
+      if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS) {
         if (row.errorCode === errorCode) return this.attemptView(tx, row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
-      if (row.status === 'completed') throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
+      if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
       const failed = await this.failIn(tx, row, errorCode, message);
       return this.attemptView(tx, failed);
@@ -483,7 +488,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
   ): Promise<SourceRun> {
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
-      data: { status: 'failed', errorCode, errorMessage },
+      data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS, errorCode, errorMessage },
     });
     await this.alerts.recordTerminalOutcome(tx, {
       code: errorCode,
@@ -522,7 +527,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
     return {
       attemptId: row.id,
       sourceImportRunId: row.id,
-      state: row.status === 'completed' ? 'COMPLETE' : row.status === 'running' && !isExpired ? 'RUNNING' : 'FAILED',
+      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? 'COMPLETE' : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired ? 'RUNNING' : 'FAILED',
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       completedWindows: progress.completedWindows,
@@ -559,7 +564,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
   }
 
   private assertRunning(row: SourceRun): void {
-    if (row.status !== 'running') throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
+    if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
     if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
   }
 
@@ -822,7 +827,7 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function alertDedupeKey(): string {

@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
@@ -95,7 +100,7 @@ implements SellpiaShipmentTrackingSourcePort {
           organizationId: input.organizationId,
           sourceType: SELLPIA_SHIPMENT_TRACKING_SOURCE_TYPE,
           channelAccountId: null,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
@@ -172,8 +177,8 @@ implements SellpiaShipmentTrackingSourcePort {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
       const checksum = submissionHash(input.source.bytes);
-      if (row.status !== 'running') {
-        if (row.status === 'completed' && row.contentChecksum === checksum) {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && row.contentChecksum === checksum) {
           return this.attemptView(tx, row);
         }
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
@@ -194,7 +199,7 @@ implements SellpiaShipmentTrackingSourcePort {
       const completed = await tx.sourceImportRun.update({
         where: { id: row.id },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           importedAt: new Date(),
           lastVerifiedAt: new Date(),
           verificationCount: { increment: 1 },
@@ -235,9 +240,9 @@ implements SellpiaShipmentTrackingSourcePort {
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (
-          row.status === 'failed'
+          row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           && row.errorCode === errorCode
           && row.errorMessage === errorMessage
         ) {
@@ -304,9 +309,9 @@ implements SellpiaShipmentTrackingSourcePort {
     return {
       attemptId: row.id,
       sourceImportRunId: row.id,
-      state: row.status === 'completed'
+      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
       plan,
@@ -341,7 +346,7 @@ implements SellpiaShipmentTrackingSourcePort {
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
       },
@@ -451,7 +456,7 @@ function readWindow(value: unknown): { start: string; end: string } {
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function alertDedupeKey(row: SourceRun): string {

@@ -103,7 +103,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
    */
   async function seedTestListing(suffix: string) {
     const { id: masterId } = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, code: `M-T-${suffix}`, name: `Master T-${suffix}`, abcGrade: 'A',
+      organizationId: TEST_ORGANIZATION_ID, code: `M-T-${suffix}`, name: `Master T-${suffix}`,
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
@@ -811,7 +811,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // Seed 12 listings × 1 order each, decreasing revenue 12000, 11000, ..., 1000
     for (let i = 1; i <= 12; i++) {
       const { id: masterId } = await setupMaster(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, code: `M-T-TOP-${i}`, name: `Top ${i}`, abcGrade: i <= 4 ? 'A' : i <= 8 ? 'B' : 'C',
+        organizationId: TEST_ORGANIZATION_ID, code: `M-T-TOP-${i}`, name: `Top ${i}`,
       });
       const { id: optionId } = await setupProductOption(prisma, {
         organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-T-TOP-${i}`, costPrice: 0,
@@ -910,7 +910,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       code: 'M-T-TOP-UNCLASSIFIED',
       name: 'Unclassified Top Product',
-      abcGrade: null,
     });
     const option = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID,

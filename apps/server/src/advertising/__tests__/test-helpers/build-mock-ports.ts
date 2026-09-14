@@ -14,10 +14,8 @@ import type { AdListingRepositoryPort } from '../../application/port/out/reposit
 import type { AdConfigRepositoryPort } from '../../application/port/out/repository/ad-config.repository.port';
 import type { AdCampaignRepositoryPort } from '../../application/port/out/repository/ad-campaign.repository.port';
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
-import type { AdExecutionRepositoryPort } from '../../application/port/out/repository/ad-execution.repository.port';
 import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
-import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/repository/channel-listing-daily.repository.port';
 import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
 import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
@@ -40,7 +38,6 @@ export type MockAdListingRepo = {
 export function buildMockAdListingRepo(): MockAdListingRepo {
   return {
     findScopedAdListings: vi.fn(),
-    changeAdTier: vi.fn(),
     verifyListingOwnership: vi.fn(),
   };
 }
@@ -83,25 +80,9 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     createAdActionsFromCandidates: vi.fn(),
     approveAdActions: vi.fn(),
     rejectAdActions: vi.fn(),
-    resetFailedAdActions: vi.fn(),
-    updateActionOrThrow: vi.fn(),
+    reportActionExecution: vi.fn(),
     findOpenCreateCampaignAction: vi.fn(),
     createCampaignActionWithTask: vi.fn(),
-  };
-}
-
-export type MockAdExecutionRepo = {
-  [K in keyof AdExecutionRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockAdExecutionRepo(): MockAdExecutionRepo {
-  return {
-    upsertWorkerForLease: vi.fn(),
-    leaseQueuedTasks: vi.fn(),
-    heartbeatWorkerOrThrow: vi.fn(),
-    findScopedExecutionTask: vi.fn(),
-    findTaskWorkerKey: vi.fn(),
-    reportExecutionTask: vi.fn(),
   };
 }
 
@@ -121,22 +102,7 @@ export type MockChannelScrapeRepo = {
 
 export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
   return {
-    createRun: vi.fn(),
-    updateRunMeta: vi.fn(),
-    appendSnapshot: vi.fn(),
-    finalizeRun: vi.fn(),
-    finalizeRunOnError: vi.fn(),
     findExtensionStatusSnapshot: vi.fn(),
-  };
-}
-
-export type MockChannelListingDailyRepo = {
-  [K in keyof ChannelListingDailyRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockChannelListingDailyRepo(): MockChannelListingDailyRepo {
-  return {
-    upsert: vi.fn(),
   };
 }
 

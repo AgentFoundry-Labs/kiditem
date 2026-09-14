@@ -9,7 +9,7 @@ import type {
  * HydratedListing → AdListingSummary (Zod schema 정합).
  *
  * ad-grade-rules, ad-budget-allocator 공통 사용 — DRY.
- * ad/inventory 메타 필드 (abcGrade, adTier) 는 strip.
+ * 상품 메타 필드 (abcGrade) 는 strip.
  */
 export function hydratedListingToSummary(listing: HydratedListing): {
   listingId: string;
@@ -32,8 +32,8 @@ export function hydratedListingToSummary(listing: HydratedListing): {
 }
 
 /**
- * Read-model row → AdListingSummary preserving the master meta fields used
- * downstream (abcGrade, adTier). Used by hub / campaign /
+ * Read-model row → AdListingSummary preserving the master meta field used
+ * downstream (abcGrade). Used by hub / campaign /
  * benchmark services that already loaded ScopedAdListingReadModel rows.
  */
 export function scopedListingToSummary(

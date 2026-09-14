@@ -88,7 +88,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
   it('T1: single listing × 1 order × 1 lineItem → metrics math', async () => {
     const { id: masterId } = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      code: 'M-T1', name: 'Master T1', abcGrade: null, category: 'Toy',
+      code: 'M-T1', name: 'Master T1', category: 'Toy',
     });
     await seedPublishedProductAbcGrades(prisma, {
       organizationId: TEST_ORGANIZATION_ID,

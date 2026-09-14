@@ -131,7 +131,6 @@ export interface SourcingDecisionBatchItem {
   baselineScore: number;
   confidence: number;
   confidenceKind: SourcingConfidenceKind;
-  policyProbability: number | null;
   evidenceFamilyCount: number;
   evidencePlatformCount: number;
   hasCoupangEvidence: boolean;

@@ -47,8 +47,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         organizationId: ORG,
         code: 'ABC-AD-CONSUMER',
         name: 'Published A product',
-        abcGrade: 'C',
-        adTier: 'growth',
       },
     });
     const listing = await prisma.channelListing.create({

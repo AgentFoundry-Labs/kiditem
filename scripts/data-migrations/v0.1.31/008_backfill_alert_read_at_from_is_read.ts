@@ -13,12 +13,29 @@ import type { DataMigration, MigrationResult } from '../types';
  *
  * `updated_at` is the closest recorded moment for a read that stamped nothing,
  * and raw SQL leaves it untouched. Fixed identifiers keep this migration valid
- * after the Prisma client loses `isRead`. Pre-schema, so it runs before any
- * schema step in the same train removes the column.
+ * after the Prisma client loses `isRead`, and a database that already lost the
+ * column has nothing to reconcile. Pre-schema, so it runs before any schema
+ * step in the same train removes the column.
  */
 export async function backfillAlertReadAtFromIsRead(
   tx: Prisma.TransactionClient,
 ): Promise<MigrationResult> {
+  const [isReadColumn] = await tx.$queryRaw<Array<{ present: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'alerts'
+        AND column_name = 'is_read'
+    ) AS present
+  `;
+  if (isReadColumn?.present !== true) {
+    return {
+      affectedRows: 0,
+      details: { stampedReadRows: 0, clearedStampRows: 0, isReadColumnPresent: false },
+    };
+  }
+
   const stampedReadRows = await tx.$executeRaw`
     UPDATE alerts
     SET read_at = updated_at
@@ -31,7 +48,7 @@ export async function backfillAlertReadAtFromIsRead(
   `;
   return {
     affectedRows: stampedReadRows + clearedStampRows,
-    details: { stampedReadRows, clearedStampRows },
+    details: { stampedReadRows, clearedStampRows, isReadColumnPresent: true },
   };
 }
 

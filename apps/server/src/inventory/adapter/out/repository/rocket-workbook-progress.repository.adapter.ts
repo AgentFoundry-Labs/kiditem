@@ -22,7 +22,7 @@ implements RocketWorkbookProgressRepositoryPort {
         organizationId: input.organizationId,
         intentKey: { in: input.intentKeys },
       },
-      select: { intentKey: true, status: true, finalizedGeneration: true },
+      select: { intentKey: true, status: true },
       orderBy: { intentKey: 'asc' },
     });
     return {
@@ -39,7 +39,6 @@ implements RocketWorkbookProgressRepositoryPort {
         return {
           intentKey: row.intentKey,
           status: status as RocketWorkbookTransmissionIntentRecord['status'],
-          finalizedGeneration: row.finalizedGeneration,
         };
       }),
     };

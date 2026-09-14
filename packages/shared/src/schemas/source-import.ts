@@ -73,13 +73,25 @@ export const SourceImportTypeSchema = z.enum([
 ]);
 export type SourceImportType = z.infer<typeof SourceImportTypeSchema>;
 
+export const SOURCE_IMPORT_RUN_RUNNING_STATUS = 'running' as const;
 export const SOURCE_IMPORT_RUN_COMPLETED_STATUS = 'completed' as const;
-export const SourceImportStatusSchema = z.enum([
-  'running',
+export const SOURCE_IMPORT_RUN_FAILED_STATUS = 'failed' as const;
+
+/**
+ * Every value `SourceImportRun.status` may hold. Source owners write only these
+ * names, and readers compare against them instead of spelling the words again.
+ */
+export const SOURCE_IMPORT_RUN_STATUSES = [
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  'failed',
-]);
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+] as const;
+export const SourceImportStatusSchema = z.enum(SOURCE_IMPORT_RUN_STATUSES);
 export type SourceImportStatus = z.infer<typeof SourceImportStatusSchema>;
+
+export function isSourceImportStatus(value: string): value is SourceImportStatus {
+  return SourceImportStatusSchema.safeParse(value).success;
+}
 
 const PositiveGenerationSchema = z.string().regex(/^[1-9]\d*$/);
 const DateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -177,7 +189,10 @@ export const SourceImportRunSchema = SourceImportRunObjectSchema.superRefine(
     }
     if (!missingFileName || !missingFileHash) return;
 
-    if (run.sourceType !== 'sellpia_inventory' || run.status !== 'failed') {
+    if (
+      run.sourceType !== 'sellpia_inventory' ||
+      run.status !== SOURCE_IMPORT_RUN_FAILED_STATUS
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['fileName'],
@@ -261,7 +276,7 @@ export type SourceImportRun = z.infer<typeof SourceImportRunSchema>;
 export const CompletedSourceArtifactRunSchema = SourceImportRunObjectSchema.extend({
   fileName: z.string().min(1),
   fileHash: z.string().regex(/^[a-f0-9]{64}$/),
-  status: z.literal('completed'),
+  status: z.literal(SOURCE_IMPORT_RUN_COMPLETED_STATUS),
   importedAt: zIsoDate,
 });
 export type CompletedSourceArtifactRun = z.infer<

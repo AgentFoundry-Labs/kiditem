@@ -410,7 +410,7 @@ erDiagram
     Int reviewsAfter
     Int salesBefore
     Int salesAfter
-    String status
+    DateTime markedInconclusiveAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -426,7 +426,6 @@ erDiagram
     Int reviewCount
     Float ratingAvg
     Json rawCellTexts
-    String scrapeStatus
     String errorMessage
     DateTime createdAt
   }

@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NotImplementedException } from '@nestjs/common';
 import { OrdersController } from './orders.controller';
-import { ReturnsController } from './returns.controller';
 
-describe('Orders and Returns action controllers', () => {
+describe('Orders action controller', () => {
   it('propagates the unsupported order confirmation response instead of wrapping it as provider outage', async () => {
     const error = new NotImplementedException('쿠팡 주문 확인은 지원하지 않습니다.');
     const service = {
@@ -46,18 +45,5 @@ describe('Orders and Returns action controllers', () => {
       'INV-001',
       'organization-1',
     );
-  });
-
-  it('propagates the unsupported return approval response instead of wrapping it as provider outage', async () => {
-    const error = new NotImplementedException('쿠팡 반품 승인은 지원하지 않습니다.');
-    const service = {
-      approve: vi.fn().mockRejectedValue(error),
-    };
-    const controller = new ReturnsController(service as never);
-
-    await expect(
-      controller.handleAction({ receiptId: 12345 } as never, 'organization-1'),
-    ).rejects.toBe(error);
-    expect(service.approve).toHaveBeenCalledWith(12345, 'organization-1');
   });
 });

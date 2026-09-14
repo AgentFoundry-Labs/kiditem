@@ -38,10 +38,10 @@ model CoupangDirectTransportReceipt {
   unmatchedLines               Json     @map("unmatched_lines") @db.JsonB
   createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization               Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount             ChannelAccount                     @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  effectSourceImportRun      SourceImportRun                    @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  rocketPurchaseConfirmation RocketPurchaseConfirmation?        @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization               Organization                        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount             ChannelAccount                      @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  effectSourceImportRun      SourceImportRun                     @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rocketPurchaseConfirmation RocketPurchaseConfirmation?         @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
   consumptions               CoupangDirectTransportConsumption[]
 
   @@unique([id, organizationId, transport], map: "coupang_direct_transport_receipts_id_org_transport_key")
@@ -100,17 +100,16 @@ model ReviewCollectionChunk {
 /// @namespace Orders
 /// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
 model SellpiaOrderTransmissionIntent {
-  id                  String    @id @default(uuid()) @db.Uuid
-  organizationId      String    @map("organization_id") @db.Uuid
-  intentKey           String    @map("intent_key") @db.VarChar(500)
-  status              String    @default("prepared")
-  createdBy           String    @map("created_by") @db.Uuid
-  preparedAt          DateTime  @default(now()) @map("prepared_at") @db.Timestamptz
-  finalizedAt         DateTime? @map("finalized_at") @db.Timestamptz
-  abortedAt           DateTime? @map("aborted_at") @db.Timestamptz
-  finalizedGeneration BigInt?   @map("finalized_generation") @db.BigInt
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  intentKey      String    @map("intent_key") @db.VarChar(500)
+  status         String    @default("prepared")
+  createdBy      String    @map("created_by") @db.Uuid
+  preparedAt     DateTime  @default(now()) @map("prepared_at") @db.Timestamptz
+  finalizedAt    DateTime? @map("finalized_at") @db.Timestamptz
+  abortedAt      DateTime? @map("aborted_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization                                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creator         User                                           @relation("SellpiaOrderTransmissionIntentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
@@ -182,7 +181,6 @@ model Order {
   channelAccount  ChannelAccount   @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems       OrderLineItem[]
-  returns         OrderReturn[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, channelAccountId, externalOrderId])
@@ -221,10 +219,9 @@ model OrderLineItem {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order           Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listingOption   ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  returnLineItems OrderReturnLineItem[]
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order         Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([id, organizationId])
   @@unique([orderId, externalLineId])
@@ -232,81 +229,6 @@ model OrderLineItem {
   @@index([orderId])
   @@index([listingOptionId])
   @@map("order_line_items")
-}
-
-/// @namespace Orders
-/// @describe 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class.
-model OrderReturn {
-  id               String  @id @default(uuid()) @db.Uuid
-  organizationId   String  @map("organization_id") @db.Uuid
-  orderId          String? @map("order_id") @db.Uuid
-  channelAccountId String  @map("channel_account_id") @db.Uuid
-
-  externalReturnId String @map("external_return_id") @db.VarChar(60)
-
-  type String @default("RETURN") @db.VarChar(20)
-
-  status          String  @default("pending")
-  reason          String  @default("")
-  reasonCategory1 String? @map("reason_category1")
-  reasonCategory2 String? @map("reason_category2")
-  faultBy         String  @default("CUSTOMER") @map("fault_by") @db.VarChar(20)
-
-  requesterName String @default("") @map("requester_name")
-  enclosePrice  Int?   @map("enclose_price")
-
-  requestedAt DateTime  @map("requested_at") @db.Timestamptz
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-
-  metadata Json?
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  order          Order?                @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lineItems      OrderReturnLineItem[]
-
-  @@unique([id, organizationId])
-  @@unique([organizationId, channelAccountId, externalReturnId])
-  @@index([organizationId])
-  @@index([orderId])
-  @@index([status])
-  @@index([type])
-  @@index([requestedAt])
-  @@index([channelAccountId])
-  @@map("order_returns")
-}
-
-/// @namespace Orders
-/// @describe 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다.
-model OrderReturnLineItem {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
-  returnId        String  @map("return_id") @db.Uuid
-  orderLineItemId String? @map("order_line_item_id") @db.Uuid
-  listingOptionId String? @map("listing_option_id") @db.Uuid
-
-  productName String  @default("") @map("product_name")
-  optionName  String? @map("option_name")
-  externalSku String? @map("external_sku")
-  quantity    Int
-
-  metadata Json?
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  return        OrderReturn           @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem OrderLineItem?        @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@index([organizationId])
-  @@index([returnId])
-  @@index([orderLineItemId])
-  @@index([listingOptionId])
-  @@map("order_return_line_items")
 }
 
 /// @namespace Orders
@@ -342,10 +264,10 @@ model Settlement {
 /// `listingId` 는 `externalOptionId`(쿠팡 vendorItemId) → `ChannelListingOption` 매칭 결과이며
 /// 매칭 실패 시 null(미연결 리뷰)로 남는다.
 model Review {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
   sourceImportRunId String? @map("source_import_run_id") @db.Uuid
-  listingId      String? @map("listing_id") @db.Uuid
+  listingId         String? @map("listing_id") @db.Uuid
 
   platform     String  @default("coupang")
   rating       Int
@@ -373,9 +295,9 @@ model Review {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listing         ChannelListing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
   @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))

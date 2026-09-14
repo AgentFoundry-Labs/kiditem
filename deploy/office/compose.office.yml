@@ -16,8 +16,8 @@ x-server-environment: &server-environment
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
   SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
-  # API admission and worker-owned recovery bind to the locally built exact-SHA
-  # runtime identity. Provider credentials stay in the Windows user profile.
+  # API admission binds to the locally built exact-SHA runtime identity.
+  # Provider credentials stay in the Windows user profile.
   KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the local runtime manifest}
   KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the local runtime manifest}
 
@@ -86,8 +86,8 @@ services:
     environment:
       <<: *server-environment
       KIDITEM_AGENT_GATEWAY_TOKEN_FILE: /run/secrets/agent_gateway_token
-      # Completed AG-UI history only. The API owns this local runner; the worker
-      # neither mounts it nor treats it as active-turn authority.
+      # Completed AG-UI history only. The API owns this local runner, and it is
+      # never active-turn authority.
       KIDITEM_COPILOTKIT_SQLITE_PATH: /var/lib/kiditem/agent-os/copilotkit-events.sqlite
       MCP_SDK_GENERATION: v2
       MCP_PROTOCOL_NEGOTIATION: auto

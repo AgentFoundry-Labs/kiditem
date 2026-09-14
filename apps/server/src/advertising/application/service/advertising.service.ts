@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import { recomputeRoas } from '../../domain/util/ratio-recompute';
 import { buildAdMetrics } from '../../domain/ad-metrics';
@@ -23,9 +18,6 @@ import type {
   FindAllAdsResponse,
 } from '@kiditem/shared/advertising';
 import type { AdvertisingHubReadPort } from '../port/in/advertising-hub-read.port';
-
-const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
-type ValidTier = (typeof VALID_TIERS)[number];
 
 @Injectable()
 export class AdvertisingService implements AdvertisingHubReadPort {
@@ -58,31 +50,6 @@ export class AdvertisingService implements AdvertisingHubReadPort {
       page,
       limit,
     } satisfies FindAllAdsResponse;
-  }
-
-  /**
-   * Change ad tier by listing id. The IDOR check routes through
-   * `ChannelListing` directly; the supplied id is interpreted as a
-   * `ChannelListing.id`. (No frontend URL change — the ad-ops UI already
-   * passes listingId.)
-   */
-  async changeTier(
-    id: string,
-    adTier: string,
-    organizationId: string,
-  ): Promise<{ ok: true }> {
-    if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
-      throw new BadRequestException('유효하지 않은 티어입니다');
-    }
-    const nextTier: string | null =
-      (adTier as ValidTier) === 'OFF' ? null : adTier;
-    const changed = await this.listingRepo.changeAdTier(
-      id,
-      organizationId,
-      nextTier,
-    );
-    if (!changed) throw new NotFoundException('Ad not found');
-    return { ok: true };
   }
 
   private async buildListingItems(
@@ -118,8 +85,6 @@ export class AdvertisingService implements AdvertisingHubReadPort {
           option: null,
           metrics,
           grade: grade === 'A' || grade === 'B' || grade === 'C' ? grade : null,
-          tier: master.adTier ?? null,
-          adTier: master.adTier ?? null,
         } satisfies AdsListItem,
       ];
     });
@@ -131,13 +96,9 @@ export class AdvertisingService implements AdvertisingHubReadPort {
     const totalRoas = recomputeRoas(totalRevenue, totalSpend);
 
     const gradeSpend: Record<'A' | 'B' | 'C', number> = { A: 0, B: 0, C: 0 };
-    const tierSpend: Record<string, number> = {};
     for (const p of products) {
       if (p.grade === 'A' || p.grade === 'B' || p.grade === 'C') {
         gradeSpend[p.grade] += p.metrics.spend;
-      }
-      if (p.adTier) {
-        tierSpend[p.adTier] = (tierSpend[p.adTier] ?? 0) + p.metrics.spend;
       }
     }
 
@@ -152,7 +113,6 @@ export class AdvertisingService implements AdvertisingHubReadPort {
       totalRevenue,
       totalRoas,
       gradeSpend,
-      tierSpend,
       gradeSpendPercent,
     } satisfies AdsHubSummary;
   }

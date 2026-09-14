@@ -295,8 +295,6 @@ implements ProductOperationsRepositoryPort {
           brand: null,
           tags: [],
           imageUrls: [],
-          profitTag: null,
-          adTier: null,
           adBudgetLimit: null,
           isActive: true,
           ...input.product,
@@ -500,8 +498,6 @@ function metadata(row: ProductRow) {
     brand: row.brand,
     tags: row.tags,
     imageUrls: row.imageUrls,
-    profitTag: row.profitTag,
-    adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
     isActive: row.isActive,
   };

@@ -64,7 +64,6 @@ implements SellpiaOrderTransmissionRepositoryTransaction {
           preparedAt: input.preparedAt,
           finalizedAt: null,
           abortedAt: null,
-          finalizedGeneration: null,
         },
       });
       if (reopened.count !== 1) {
@@ -109,7 +108,6 @@ implements SellpiaOrderTransmissionRepositoryTransaction {
       },
       data: {
         status: 'finalized',
-        finalizedGeneration: null,
         finalizedAt: input.finalizedAt,
         abortedAt: null,
       },
@@ -188,13 +186,11 @@ implements SellpiaOrderTransmissionRepositoryTransaction {
       data: input.outcome === 'submitted'
         ? {
             status: 'finalized',
-            finalizedGeneration: null,
             finalizedAt: input.reconciledAt,
             abortedAt: null,
           }
         : {
             status: 'aborted',
-            finalizedGeneration: null,
             finalizedAt: null,
             abortedAt: input.reconciledAt,
           },

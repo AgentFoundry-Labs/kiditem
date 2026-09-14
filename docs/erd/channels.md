@@ -9,7 +9,6 @@
 
 | Model | Table | Description |
 |---|---|---|
-| ChannelAccountDailyKpiSnapshot | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdListingProductMonthlyFact | `channel_ad_listing_product_monthly_facts` | Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation. |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
@@ -41,25 +40,6 @@
 
 ```mermaid
 erDiagram
-  ChannelAccountDailyKpiSnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId FK
-    String channel
-    String source
-    String kpiType
-    DateTime businessDate
-    DateTime periodStart
-    DateTime periodEnd
-    Json normalizedJson
-    Json rawJson
-    String rawSnapshotId FK
-    Int sampleCount
-    DateTime firstObservedAt
-    DateTime lastObservedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ChannelAdListingProductMonthlyFact {
     String id PK
     String organizationId FK
@@ -137,36 +117,12 @@ erDiagram
     Int winnerGapPrice
     Int productRank
     Int categoryRank
-    Int adSpend
-    Int adRevenue
-    Int adImpressions
-    Int adClicks
-    Int adConversions
-    Int adOrders
-    Int adDirectOrders1d
-    Int adIndirectOrders1d
-    Int adDirectQty1d
-    Int adIndirectQty1d
-    Int adDirectRevenue1d
-    Int adIndirectRevenue1d
-    Int adTotalOrders14d
-    Int adDirectOrders14d
-    Int adIndirectOrders14d
-    Int adTotalQty14d
-    Int adDirectQty14d
-    Int adIndirectQty14d
-    Int adTotalRevenue14d
-    Int adDirectRevenue14d
-    Int adIndirectRevenue14d
-    String adCoverageStatus
-    DateTime adObservedAt
     Int trafficVisitors
     Int trafficViews
     Int trafficCartAdds
     Int trafficOrders
     Int trafficSalesQty
     Int trafficRevenue
-    String trafficCoverageStatus
     DateTime trafficObservedAt
     Int sampleCount
     DateTime firstObservedAt
@@ -264,10 +220,6 @@ erDiagram
     String targetUrl
     String period
     String parserVersion
-    Int rowCount
-    Int matchedCount
-    Int unmatchedCount
-    Int errorCount
     DateTime startedAt
     DateTime finishedAt
     DateTime createdAt
@@ -489,7 +441,6 @@ erDiagram
     DateTime plannedDeliveryDate
     String poStatusCode
     String businessDateBasis
-    Boolean hasConfirmation
     String center
     String inboundType
     String poStatus
@@ -588,7 +539,6 @@ erDiagram
   }
   ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
-  ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
@@ -601,8 +551,6 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ChannelAccountDailyKpiSnapshot | channelAccount | references external | Core | ChannelAccount |
-| ChannelAccountDailyKpiSnapshot | organization | references external | Core | Organization |
 | ChannelAdListingProductMonthlyFact | channelAccount | references external | Core | ChannelAccount |
 | ChannelAdListingProductMonthlyFact | channelListing | references external | Core | ChannelListing |
 | ChannelAdListingProductMonthlyFact | masterProduct | references external | Core | MasterProduct |

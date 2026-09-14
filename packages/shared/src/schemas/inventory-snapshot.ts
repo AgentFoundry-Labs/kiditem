@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
-import { SourceImportStatusSchema } from './source-import.js';
+import {
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SourceImportStatusSchema,
+} from './source-import.js';
 import {
   SellpiaInventoryGenerationSchema,
   SellpiaInventoryQualityReportSchema,
@@ -189,7 +192,7 @@ export const SellpiaImportRunSummarySchema = z.object({
   // canonical source-import contract validates artifact pairing separately.
   if (!missingFileName || !missingFileHash) return;
   if (
-    run.status !== 'failed'
+    run.status !== SOURCE_IMPORT_RUN_FAILED_STATUS
     || run.rowCount !== 0
     || run.importedAt !== null
     || run.lastVerifiedAt !== null

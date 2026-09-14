@@ -15,6 +15,11 @@ import {
   type SellerIdentitySource,
   type SellerIdentitySourceCapture,
 } from '@kiditem/shared/advertising';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { CompetitorTrackingService } from '../../../application/service/competitor-tracking.service';
@@ -73,13 +78,13 @@ export class SellerIdentitySourceRepository {
       const expiredRows = await tx.sourceImportRun.findMany({
         where: {
           ...scope(org),
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           expiresAt: { lte: new Date(Date.now()) },
         },
       });
       for (const row of expiredRows) await this.settleExpiry(tx, row);
       const active = await tx.sourceImportRun.findFirst({
-        where: { ...scope(org), status: 'running' },
+        where: { ...scope(org), status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
       });
       if (active)
         throw new ConflictException({
@@ -104,7 +109,7 @@ export class SellerIdentitySourceRepository {
             freshnessGeneration: (previous._max.freshnessGeneration ?? 0n) + 1n,
             expiresAt: new Date(now.getTime() + (5 + count) * 60_000),
             plan: json(plan),
-            status: 'running',
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           },
         }),
       );
@@ -123,7 +128,7 @@ export class SellerIdentitySourceRepository {
           orderBy: { freshnessGeneration: 'desc' },
         });
         const complete = await tx.sourceImportRun.findFirst({
-          where: { ...scope(org), status: 'completed' },
+          where: { ...scope(org), status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           orderBy: [{ importedAt: 'desc' }, { freshnessGeneration: 'desc' }],
         });
         const latestAttempt = latest ? view(latest) : null;
@@ -151,7 +156,7 @@ export class SellerIdentitySourceRepository {
         organizationId: org,
         sourceImportRunId: id,
         source: SOURCE,
-        sourceImportRun: { ...scope(org), status: 'completed' },
+        sourceImportRun: { ...scope(org), status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
       },
       select: { rawJson: true },
     });
@@ -174,7 +179,7 @@ export class SellerIdentitySourceRepository {
         if (row.attemptToken !== token)
           throw new ConflictException('ATTEMPT_FENCE_LOST');
         const checksum = hash(capture);
-        if (row.status !== 'running') {
+        if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
           if (row.contentChecksum === checksum) return view(row);
           throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
         }
@@ -248,7 +253,7 @@ export class SellerIdentitySourceRepository {
         const complete = await tx.sourceImportRun.update({
           where: { id, organizationId: org },
           data: {
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
             importedAt: capturedAt,
             lastVerifiedAt: capturedAt,
             verificationCount: 1,
@@ -285,7 +290,7 @@ export class SellerIdentitySourceRepository {
       if (row.attemptToken !== token)
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       const checksum = hash({ code, message });
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (row.contentChecksum === checksum) return view(row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
@@ -295,7 +300,7 @@ export class SellerIdentitySourceRepository {
   }
 
   private settleExpiry(tx: Tx, row: Row) {
-    if (row.status !== 'running' || !expired(row)) return Promise.resolve(row);
+    if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS || !expired(row)) return Promise.resolve(row);
     const code = 'ATTEMPT_EXPIRED';
     const message = 'Seller identity collection expired before publication.';
     return this.failIn(tx, row, code, message, hash({ code, message }));
@@ -311,7 +316,7 @@ export class SellerIdentitySourceRepository {
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         contentChecksum: checksum,
@@ -350,14 +355,14 @@ function expired(row: Row) {
   return !row.expiresAt || row.expiresAt.getTime() <= Date.now();
 }
 function view(row: Row): SellerIdentitySourceAttempt {
-  const isExpired = row.status === 'running' && expired(row);
+  const isExpired = row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && expired(row);
   return {
     attemptId: row.id,
     generation: String(row.freshnessGeneration),
     state:
-      row.status === 'completed'
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
     plan: SellerIdentitySourcePlanSchema.parse(row.plan),

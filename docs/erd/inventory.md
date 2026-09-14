@@ -86,7 +86,6 @@ erDiagram
     BigInt verifiedGeneration
     BigInt failedGeneration
     DateTime lastAttemptAt
-    String lastAttemptStatus
     String lastAttemptSyncScope
     String lastErrorCode
     String lastErrorMessage

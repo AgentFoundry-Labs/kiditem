@@ -18,6 +18,11 @@ import {
   type WingRankSource,
   type WingRankSourceControl,
 } from "@kiditem/shared/advertising";
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from "@kiditem/shared/source-import";
 import { SourceFailureAlerts } from "../../../../alerts/alerts.service";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { canonicalOwnerInputHash as hash } from "../../../../common/owner-idempotency-key";
@@ -204,7 +209,7 @@ export class WingRankSourceRepository {
           throw new NotFoundException("WING_RANK_BATCH_MEMBER_NOT_FOUND");
         const pending = admission.attemptIds
           .map((id) => byId.get(id)!)
-          .filter((row) => row.status === "running")
+          .filter((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS)
           .slice(0, BATCH_CANCEL_CHUNK_SIZE);
         for (const row of pending) {
           await this.failIn(
@@ -255,7 +260,7 @@ export class WingRankSourceRepository {
     expiresAt: Date,
   ) {
     const old = await tx.sourceImportRun.findFirst({
-      where: { ...scope(org), rankKeyword: plan.keyword, status: "running" },
+      where: { ...scope(org), rankKeyword: plan.keyword, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
     });
     if (old) {
       if (!expired(old))
@@ -283,7 +288,7 @@ export class WingRankSourceRepository {
         ...scope(org),
         id,
         rankKeyword: plan.keyword,
-        status: "running",
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
         attemptToken: randomUUID(),
@@ -310,7 +315,7 @@ export class WingRankSourceRepository {
           orderBy: { freshnessGeneration: "desc" },
         });
         const complete = await tx.sourceImportRun.findFirst({
-          where: { ...scope(org), rankKeyword: keyword, status: "completed" },
+          where: { ...scope(org), rankKeyword: keyword, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           orderBy: [{ importedAt: "desc" }, { freshnessGeneration: "desc" }],
         });
         const latestAttempt = latest ? view(latest) : null;
@@ -347,7 +352,7 @@ export class WingRankSourceRepository {
         organizationId: org,
         sourceImportRunId: id,
         source: SOURCE,
-        sourceImportRun: { ...scope(org), status: "completed" },
+        sourceImportRun: { ...scope(org), status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
       },
       select: { rawJson: true },
     });
@@ -368,7 +373,7 @@ export class WingRankSourceRepository {
         const row = await this.find(tx, org, id);
         this.fence(row, token);
         const checksum = hash(capture);
-        if (row.status !== "running") {
+        if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
           if (row.contentChecksum === checksum) return view(row);
           throw new ConflictException("SOURCE_TERMINAL_REPLAY_CONFLICT");
         }
@@ -411,7 +416,7 @@ export class WingRankSourceRepository {
         const complete = await tx.sourceImportRun.update({
           where: { id, organizationId: org },
           data: {
-            status: "completed",
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
             importedAt: normalized.capturedAt,
             lastVerifiedAt: normalized.capturedAt,
             verificationCount: 1,
@@ -448,9 +453,9 @@ export class WingRankSourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       this.fence(row, token);
-      if (row.status !== "running") {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (
-          row.status === "failed" &&
+          row.status === SOURCE_IMPORT_RUN_FAILED_STATUS &&
           row.errorCode === code &&
           row.errorMessage === message
         )
@@ -472,7 +477,7 @@ export class WingRankSourceRepository {
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: "failed",
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -514,7 +519,7 @@ export class WingRankSourceRepository {
 
 function expired(row: Attempt) {
   return (
-    row.status === "running" &&
+    row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS &&
     (!row.expiresAt || row.expiresAt.getTime() <= Date.now())
   );
 }
@@ -534,15 +539,15 @@ function view(row: Attempt): WingRankSourceAttempt {
     keyword: row.rankKeyword!,
     generation: String(row.freshnessGeneration),
     state:
-      row.status === "completed"
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? "COMPLETE"
-        : row.status === "running" && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? "RUNNING"
           : "FAILED",
     plan: WingRankSourcePlanSchema.parse(row.plan),
     expiresAt: row.expiresAt!.toISOString(),
     actualCutoffAt:
-      row.status === "completed" ? row.importedAt!.toISOString() : null,
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt!.toISOString() : null,
     itemCount: row.rowCount,
     errorCode: isExpired ? "ATTEMPT_EXPIRED" : row.errorCode,
     errorMessage: isExpired

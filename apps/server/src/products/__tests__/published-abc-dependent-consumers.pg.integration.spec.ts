@@ -43,13 +43,11 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       organizationId: ORG,
       code: 'OFFICIAL-A',
       name: 'Official A',
-      abcGrade: null,
     } });
     const staleCacheA = await prisma.masterProduct.create({ data: {
       organizationId: ORG,
       code: 'STALE-CACHE-A',
       name: 'Stale cache A',
-      abcGrade: 'A',
     } });
     const listing = await prisma.channelListing.create({ data: {
       organizationId: ORG,

@@ -66,8 +66,8 @@ owns physical stock quantities.
   Ambiguous names, conflicting evidence, and unknown quantities require
   operator review. AI output and rank alone never confirm inventory identity.
 - The current `MasterProductAbcEvaluation` is the nullable official ABC output;
-  `MasterProduct.abcGrade` is a legacy non-authoritative column pending schema
-  removal and is never operator input. Products publishes ABC only through the explicit Product Hub grade-refresh
+  `MasterProduct` has no grade column, and no grade is operator input.
+  Products publishes ABC only through the explicit Product Hub grade-refresh
   command. The service reads the latest compatible `COMPLETE` source snapshots,
   persists formula/evaluation provenance, and records only actual grade changes
   in history.

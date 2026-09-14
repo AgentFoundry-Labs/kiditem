@@ -3,22 +3,14 @@ import { ChannelDashboardRepositoryAdapter } from '../../../adapter/out/reposito
 import {
   readDailyOrderFacts,
   readListingOptionOrderFacts,
-  readOrderReturnFaultFacts,
-  readOrderReturnStatusCount,
-  readOrderReturnWindowFacts,
   readOrderStatusCount,
   readOrderWindowFacts,
 } from '../../../../orders/read/order-facts.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import { ReturnSummarySchema } from '@kiditem/shared/return-summary';
 
 vi.mock('../../../../orders/read/order-facts.reader', () => ({
   readDailyOrderFacts: vi.fn(),
   readListingOptionOrderFacts: vi.fn(),
-  readOrderReturnFaultFacts: vi.fn(),
-  readOrderReturnReasonFacts: vi.fn(),
-  readOrderReturnStatusCount: vi.fn(),
-  readOrderReturnWindowFacts: vi.fn(),
   readOrderStatusCount: vi.fn(),
   readOrderWindowFacts: vi.fn(),
 }));
@@ -54,16 +46,17 @@ describe('ChannelDashboardRepositoryAdapter', () => {
       sourceCoverage: [],
     });
     vi.mocked(readOrderStatusCount).mockResolvedValue(2);
-    vi.mocked(readOrderReturnStatusCount).mockResolvedValue(1);
     tx.channelListing.findFirst.mockResolvedValue({
       updatedAt: new Date('2026-04-20T05:00:00.000Z'),
     });
 
     const result = await service.getSummary(ORGANIZATION_ID);
 
-    expect(result.todayOrders).toEqual({ count: null, revenue: null });
-    expect(result.pendingAccept).toBe(2);
-    expect(result.pendingReturns).toBe(1);
+    expect(result).toEqual({
+      todayOrders: { count: null, revenue: null },
+      pendingAccept: 2,
+      lastModifiedAt: new Date('2026-04-20T05:00:00.000Z'),
+    });
   });
 
   it('maps daily canonical facts to the dashboard trend contract', async () => {
@@ -119,31 +112,5 @@ describe('ChannelDashboardRepositoryAdapter', () => {
       revenue: 45_000,
       orderCount: 1,
     }]);
-  });
-
-  it('publishes no return count or rate while returns have no source', async () => {
-    vi.mocked(readOrderReturnWindowFacts).mockResolvedValue({
-      orderCount: 3,
-      returnCount: null,
-      orphanReturnCount: null,
-    });
-    vi.mocked(readOrderReturnFaultFacts).mockResolvedValue([
-      { faultBy: 'CUSTOMER', count: 4 },
-      { faultBy: 'COURIER', count: 99 },
-    ]);
-
-    const window = [new Date('2026-04-01'), new Date('2026-05-01')] as const;
-    const summary = await service.getReturnSummary(ORGANIZATION_ID, ...window);
-    expect(summary).toEqual({
-      orderCount: 3,
-      returnCount: null,
-      returnRate: null,
-      orphanReturnCount: null,
-    });
-    expect(ReturnSummarySchema.parse(summary)).toEqual(summary);
-    await expect(service.getReturnFaultSplit(ORGANIZATION_ID, ...window)).resolves.toEqual({
-      customer: 4,
-      vendor: 0,
-    });
   });
 });

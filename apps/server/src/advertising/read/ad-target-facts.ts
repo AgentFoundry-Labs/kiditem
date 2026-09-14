@@ -1,3 +1,4 @@
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { addDays, businessDateKey, parseBusinessDate } from '../../common/kst';
 import { compareAttemptsNewestFirst, isNewerAttempt } from '../../common/current-row';
 import {
@@ -45,10 +46,6 @@ import type { UpsertAdTargetDailyInput } from '../application/port/out/repositor
  *   sweep published any, else the sum of its product rows; the two are never
  *   added together. Keyword-grain rows describe a trailing window, not a day,
  *   and are never summed here.
- *
- * `channel_listing_daily_snapshots` still carries ad columns from the
- * pre-cutover writer. They are a rollup of this ledger, nobody writes them any
- * more, and no reader may touch them; their removal is a schema cutover.
  */
 
 /** The channel whose accounts the Coupang campaign sweep publishes target-day advertising for. */
@@ -129,7 +126,7 @@ const SWEEPS_CTE = (organizationId: string) => Prisma.sql`
         THEN (plan ->> 'endDate')::date END AS requested_end
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
-      AND status = 'completed'
+      AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       AND source_type = 'coupang_ad_campaign'
       AND parser_version = 'ad-campaign-v1'
       AND plan ->> 'captureMode' = 'campaign_sweep'
@@ -933,7 +930,7 @@ export async function readCompleteAdKeywordFacts(
   const published = await tx.sourceImportRun.findMany({
     where: {
       organizationId,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       OR: [
         { sourceType: 'coupang_ad_keyword', parserVersion: 'ad-keyword-v1' },
         { sourceType: 'coupang_ad_campaign', parserVersion: 'ad-campaign-v1' },
@@ -1108,7 +1105,7 @@ export function completeAdCampaignSourceIds(organizationId: string) {
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
       AND source_type = 'coupang_ad_campaign' AND parser_version = 'ad-campaign-v1'
-      AND status = 'completed' AND channel_account_id IS NOT NULL
+      AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS} AND channel_account_id IS NOT NULL
       AND plan ->> 'captureMode' = 'campaign_sweep'
     ORDER BY channel_account_id, freshness_generation DESC NULLS LAST, id DESC
   `;

@@ -252,7 +252,6 @@ erDiagram
     String requestedByUserId FK
     String idempotencyKey
     String requestHash
-    String decisionMode
     DateTime businessDate
     DateTime decisionAt
     DateTime evidenceCutoffAt
@@ -265,10 +264,6 @@ erDiagram
     String modelPipeline
     String modelGeneratorVersion
     DateTime expiresAt
-    String heuristicArtifactHash
-    Int capitalBudgetKrw
-    Int testSlotLimit
-    String constraintSetHash
     DateTime createdAt
   }
   SourcingDecisionBatchItem {
@@ -285,7 +280,6 @@ erDiagram
     String decision
     Boolean executionEligible
     String confidenceKind
-    Decimal policyProbability
     Int evidenceFamilyCount
     Int evidencePlatformCount
     Boolean hasCoupangEvidence
@@ -293,12 +287,9 @@ erDiagram
     String nextEvidenceAction
     Decimal heuristicScore
     Decimal decisionConfidence
-    Int expectedContributionProfit90dKrw
-    Int capitalAtRiskKrw
     StringArray reasonCodes
     StringArray riskCodes
     Json modelOutput
-    String featureManifestHash
     DateTime createdAt
   }
   SourcingDecisionEvidence {
@@ -319,7 +310,6 @@ erDiagram
     DateTime leaseExpiresAt
     DateTime sourceControlCheckedAt
     Int generation
-    DateTime cancelRequestedAt
     Int staleDiscardedCount
     String targetKey
     String idempotencyKey
@@ -335,8 +325,6 @@ erDiagram
     Boolean isCurrentComplete
     DateTime sourceWindowStartAt
     DateTime sourceWindowEndAt
-    String watermarkBefore
-    String watermarkAfter
     Int discoveredCount
     Int acceptedCount
     Int rejectedCount
@@ -374,12 +362,10 @@ erDiagram
     DateTime availableAt
     DateTime revisionAt
     DateTime businessDate
-    String sourceRevisionKey
     String sourceUrl
     String payloadHash
     String envelopeHash
     Json payload
-    String rawArtifactRef
     DateTime ingestedAt
     DateTime createdAt
   }
@@ -556,7 +542,6 @@ erDiagram
     String status
     DateTime requestedAt
     DateTime cancelledAt
-    String cancelReason
     DateTime createdAt
     DateTime updatedAt
   }
@@ -591,7 +576,6 @@ erDiagram
     Int score
     String summary
     Json details
-    DateTime evaluatedAt
     DateTime createdAt
   }
   SourcingValidationCheckEvidence {

@@ -22,16 +22,4 @@ export class ChannelDashboardService {
   getProductRanking(organizationId: string, from: Date, to: Date) {
     return this.repository.getProductRanking(organizationId, from, to);
   }
-
-  getReturnSummary(organizationId: string, from: Date, to: Date) {
-    return this.repository.getReturnSummary(organizationId, from, to);
-  }
-
-  getReturnReasonBreakdown(organizationId: string, from: Date, to: Date) {
-    return this.repository.getReturnReasonBreakdown(organizationId, from, to);
-  }
-
-  getReturnFaultSplit(organizationId: string, from: Date, to: Date) {
-    return this.repository.getReturnFaultSplit(organizationId, from, to);
-  }
 }

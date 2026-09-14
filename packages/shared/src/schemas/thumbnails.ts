@@ -221,6 +221,7 @@ export const ThumbnailGenerationListResponseSchema = z.object({
 
 // ─── 트래킹 ──────────────────────────────────────────────
 
+/** Derived by the server from the operator's inconclusive mark and the CTR before and after; never stored. */
 export const THUMBNAIL_TRACKING_STATUSES = ['tracking', 'measured', 'inconclusive'] as const;
 export type ThumbnailTrackingStatus = (typeof THUMBNAIL_TRACKING_STATUSES)[number];
 
@@ -258,7 +259,8 @@ export const UpdateThumbnailTrackingMetricsSchema = z
     reviewsAfter: z.number().optional(),
     salesBefore: z.number().optional(),
     salesAfter: z.number().optional(),
-    status: z.enum(THUMBNAIL_TRACKING_STATUSES).optional(),
+    /** true marks the tracking inconclusive (결론 없음) and keeps an earlier mark; false clears it. */
+    inconclusive: z.boolean().optional(),
   })
   .strict();
 

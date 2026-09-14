@@ -503,13 +503,12 @@ try {
   foreach ($expectedStop in @(
     'gateway',
     'container:stop kiditem-api',
-    'container:stop kiditem-worker',
     'container:stop kiditem-web',
     'container:stop kiditem-nginx'
   )) {
     if ($failClosedStops -notcontains $expectedStop) { throw "Fail-closed stop did not attempt $expectedStop." }
   }
-  if (@($failClosedStops | Where-Object { $_ -match '^compose:.*stop api worker web nginx$' }).Count -ne 1) {
+  if (@($failClosedStops | Where-Object { $_ -match '^compose:.*stop api web nginx$' }).Count -ne 1) {
     throw 'Fail-closed stop did not attempt the full Compose writer/public-surface stop.'
   }
 

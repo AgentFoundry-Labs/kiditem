@@ -32,6 +32,8 @@ $script:DeployEnvPath = Join-Path $script:OfficeRoot '.env.office.deploy'
 $script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
+$script:DatabaseDumpsRoot = Join-Path $script:DeploymentsRoot 'database-dumps'
+$script:LastSuccessfulCutoverDumpRecord = Join-Path $script:DatabaseDumpsRoot 'last-successful-cutover.txt'
 $script:ComposeArgs = @()
 # Office Gateway deliberately uses the invoking operator's existing Windows
 # profile so the bundled CLIs see that profile's approved Codex/Claude login.
@@ -1169,7 +1171,6 @@ function Wait-ForRuntime {
       'kiditem-postgres' = Get-ContainerState 'kiditem-postgres'
       'kiditem-minio' = Get-ContainerState 'kiditem-minio'
       'kiditem-api' = Get-ContainerState 'kiditem-api'
-      'kiditem-worker' = Get-ContainerState 'kiditem-worker'
       'kiditem-web' = Get-ContainerState 'kiditem-web'
       'kiditem-nginx' = Get-ContainerState 'kiditem-nginx'
     }
@@ -1177,7 +1178,6 @@ function Wait-ForRuntime {
       $states['kiditem-postgres'] -eq 'healthy' -and
       $states['kiditem-minio'] -eq 'healthy' -and
       $states['kiditem-api'] -eq 'healthy' -and
-      $states['kiditem-worker'] -eq 'running' -and
       $states['kiditem-web'] -eq 'healthy' -and
       $states['kiditem-nginx'] -eq 'healthy'
     ) {
@@ -1254,7 +1254,7 @@ function Assert-RenderedManifestDeployment {
   # cannot turn a destructive maintenance action into a mixed-SHA restart.
   $renderedJson = Get-CheckedOutput docker @script:ComposeArgs config --format json
   $rendered = $renderedJson | ConvertFrom-Json
-  foreach ($name in @('api', 'worker')) {
+  foreach ($name in @('api')) {
     $service = $rendered.services.$name
     if ($null -eq $service) { throw "Rendered Compose is missing required $name service." }
     if ($service.image -ne $Manifest.apiImage) {
@@ -1853,11 +1853,11 @@ function Stop-OfficeRuntimeFailClosed {
   catch { $failures.Add('gateway') }
   try {
     Set-ComposeArguments
-    Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs stop api web nginx
   }
   catch {
     $failures.Add('compose')
-    foreach ($container in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+    foreach ($container in @('kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
       try {
         & docker stop $container *> $null
         if ($LASTEXITCODE -ne 0) { $failures.Add($container) }
@@ -1933,12 +1933,12 @@ function Rotate-GatewayToken {
   try {
     Set-ComposeArguments
     Stop-GatewayScheduledTask
-    Invoke-Checked docker @script:ComposeArgs stop api worker
+    Invoke-Checked docker @script:ComposeArgs stop api
     $rehydratedGatewayRelease = New-GatewayRelease -ArtifactPath $archivedGatewayArtifact -Manifest $manifest
     Switch-GatewayCurrentRelease $rehydratedGatewayRelease $manifest
     Install-GatewayLauncher
     Replace-GatewayInstallationToken
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
     Wait-ForRuntime
     Start-GatewayScheduledTask
     Assert-CurrentOfficeReleaseIdentity
@@ -1955,7 +1955,7 @@ function Rotate-GatewayToken {
       Switch-GatewayCurrentRelease $recoveredGatewayRelease $manifest
       Install-GatewayLauncher
       Set-ComposeArguments
-      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
       Wait-ForRuntime
       Start-GatewayScheduledTask
       Assert-CurrentOfficeReleaseIdentity
@@ -1988,6 +1988,76 @@ function Get-ProtectedServerEnvValue {
   throw "Protected Office server env file is missing $Name."
 }
 
+function New-CutoverDatabaseDump {
+  param([Parameter(Mandatory = $true)][string]$GitSha)
+
+  # pg_dump reads its credentials from the postgres container's own Compose
+  # env; the host passes none. A dump counts toward retention only after it
+  # passes every check and leaves its .partial name. Writing one never prunes
+  # older dumps; that waits until the whole cutover succeeds.
+  New-Item -ItemType Directory -Path $script:DatabaseDumpsRoot -Force | Out-Null
+  $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+  $dumpName = 'kiditem-{0}-{1}.dump' -f $timestamp, $GitSha.Substring(0, 12)
+  $dumpPath = Join-Path $script:DatabaseDumpsRoot $dumpName
+  $partialPath = "$dumpPath.partial"
+  $containerDumpPath = '/tmp/kiditem-cutover.dump'
+  Write-Host 'Writing the pre-cutover Office database dump.'
+  try {
+    Invoke-Checked docker exec kiditem-postgres sh -c ('PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB PGPASSWORD=$POSTGRES_PASSWORD pg_dump --format=custom --no-password --file={0}' -f $containerDumpPath)
+    Invoke-Checked docker cp "kiditem-postgres:$containerDumpPath" $partialPath
+    $header = New-Object byte[] 5
+    $stream = [System.IO.File]::OpenRead($partialPath)
+    try { $headerLength = $stream.Read($header, 0, $header.Length) }
+    finally { $stream.Dispose() }
+    if ($headerLength -ne $header.Length -or [System.Text.Encoding]::ASCII.GetString($header) -cne 'PGDMP') {
+      throw 'Pre-cutover database dump is not a pg_dump custom-format archive.'
+    }
+    Move-Item -LiteralPath $partialPath -Destination $dumpPath
+  }
+  finally {
+    Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
+    & docker exec kiditem-postgres rm -f $containerDumpPath | Out-Null
+  }
+  Write-Host "Pre-cutover database dump: $dumpPath"
+  return $dumpPath
+}
+
+function Remove-StaleCutoverDatabaseDumps {
+  param([Parameter(Mandatory = $true)][string]$KeepDumpPath)
+
+  # Runs only after a cutover deployment succeeded. Every dump written since the
+  # previous successful cutover survives: failed attempts before this success
+  # each wrote one, and the first of them is the only dump taken before any row
+  # was deleted. Only dumps older than the previous successful cutover's dump are
+  # pruned, and nothing is without that record. This cutover's dump then becomes
+  # the record; excluding it by name means host clock skew can never prune it.
+  $keepName = Split-Path -Leaf $KeepDumpPath
+  $previousName = $null
+  if (Test-Path -LiteralPath $script:LastSuccessfulCutoverDumpRecord -PathType Leaf) {
+    $previousName = ([System.IO.File]::ReadAllText($script:LastSuccessfulCutoverDumpRecord)).Trim()
+  }
+  if ($previousName -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$') {
+    $staleDumps = @(
+      Get-ChildItem -LiteralPath $script:DatabaseDumpsRoot -File |
+        Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName -and [string]::CompareOrdinal($_.Name, $previousName) -lt 0 }
+    )
+    foreach ($staleDump in $staleDumps) {
+      try {
+        Remove-Item -LiteralPath $staleDump.FullName -Force
+      }
+      catch {
+        Write-Warning "Could not prune old database dump $($staleDump.FullName); remove it manually. $($_.Exception.Message)"
+      }
+    }
+  }
+  try {
+    [System.IO.File]::WriteAllText($script:LastSuccessfulCutoverDumpRecord, $keepName, [System.Text.UTF8Encoding]::new($false))
+  }
+  catch {
+    Write-Warning "Could not record the successful cutover dump $keepName; the next cutover prunes less. $($_.Exception.Message)"
+  }
+}
+
 function Invoke-ExactShaDataMigrations {
   param(
     [Parameter(Mandatory = $true)][string]$WorktreePath,
@@ -2011,7 +2081,7 @@ function Write-PreDeployRuntimeSnapshot {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
   $containers = [ordered]@{}
-  foreach ($name in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+  foreach ($name in @('kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
     $imageId = & docker inspect --format '{{.Image}}' $name 2>$null
     if ($LASTEXITCODE -eq 0) { $containers[$name] = ($imageId | Out-String).Trim() }
   }
@@ -2080,7 +2150,7 @@ function Restore-Transaction {
     Install-GatewayLauncher
   }
   Set-ComposeArguments
-  Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+  Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
   Wait-ForRuntime
   if ($isLocalRuntime) {
     Start-GatewayScheduledTask
@@ -2144,6 +2214,8 @@ function Install-Deployment {
   Assert-GatewayArtifact $sourceGatewayArtifact $manifest
   $script:GatewayLauncherSourcePath = $sourceLauncher
   $gatewayReleaseRoot = $null
+  $cutoverDatabaseDumpPath = $null
+  $cutoverDatabaseWorkStarted = $false
 
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
@@ -2186,14 +2258,18 @@ function Install-Deployment {
       }
       Write-Warning 'Stopping application writers for the explicitly approved schema/data cutover. Runtime rollback cannot undo database changes.'
       Stop-GatewayScheduledTask
-      Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
-      Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
+      Invoke-Checked docker @script:ComposeArgs stop api web nginx
+      # Containers of services retired from Compose are orphans that the stop
+      # above cannot reach; remove them before any database work.
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --remove-orphans postgres
       Wait-ForContainerHealthy 'kiditem-postgres'
+      $cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha
+      $cutoverDatabaseWorkStarted = $true
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema -ReleaseVersion $manifest.appVersion
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss'
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema -ReleaseVersion $manifest.appVersion
     }
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
     Wait-ForRuntime
     Switch-GatewayCurrentRelease $gatewayReleaseRoot $manifest
     Start-GatewayScheduledTask
@@ -2203,6 +2279,10 @@ function Install-Deployment {
     $deploymentError = $_
     if ($DeploymentMode -eq 'Cutover') {
       Stop-OfficeRuntimeFailClosed 'schema/data cutover candidate failed'
+      if (-not $cutoverDatabaseWorkStarted) {
+        throw [System.InvalidOperationException]::new("Schema/data cutover stopped before database work began; application surfaces stay stopped. Cause: $($deploymentError.Exception.Message)", $deploymentError.Exception)
+      }
+      Write-Warning "Database dump taken before this cutover: $cutoverDatabaseDumpPath"
       throw [System.InvalidOperationException]::new('Schema/data cutover failed after database work began; application surfaces are stopped because runtime-only rollback is unsafe.', $deploymentError.Exception)
     }
     try {
@@ -2245,6 +2325,10 @@ function Install-Deployment {
     Copy-Item -LiteralPath $sourceGatewayArtifact -Destination $archivedGatewayArtifact -Force
   }
 
+  if ($DeploymentMode -eq 'Cutover') {
+    Remove-StaleCutoverDatabaseDumps -KeepDumpPath $cutoverDatabaseDumpPath
+  }
+
   Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
   Write-Host "API image: $($manifest.apiImage)"
   Write-Host "Web image: $($manifest.webImage)"
@@ -2267,7 +2351,7 @@ function Show-OfficeStatus {
   Write-Host "Office root disk free: $(Get-FreeSpaceGb $script:OfficeRoot) GB"
   $dockerDataGuardPath = Get-DockerDataGuardPath
   Write-Host "Docker data disk free: $(Get-FreeSpaceGb $dockerDataGuardPath) GB ($dockerDataGuardPath)"
-  foreach ($name in @('kiditem-postgres', 'kiditem-minio', 'kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+  foreach ($name in @('kiditem-postgres', 'kiditem-minio', 'kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
     Write-Host "${name}: $(Get-ContainerState $name)"
   }
   if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {

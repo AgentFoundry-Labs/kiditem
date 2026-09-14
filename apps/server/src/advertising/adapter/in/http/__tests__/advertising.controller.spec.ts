@@ -4,7 +4,6 @@ import { AdvertisingActionsController } from '../advertising-actions.controller'
 import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
 import { AdvertisingDiagnosticsController } from '../advertising-diagnostics.controller';
-import { AdvertisingExecutionController } from '../advertising-execution.controller';
 import { AdvertisingIngestController } from '../advertising-ingest.controller';
 import { AdvertisingOverviewController } from '../advertising-overview.controller';
 import { AdvertisingStrategyController } from '../advertising-strategy.controller';
@@ -25,7 +24,6 @@ function makeServices() {
     advertising: {
       getHubData: vi.fn(),
       findAll: vi.fn(),
-      changeTier: vi.fn(),
     },
     campaigns: {
       getCampaigns: vi.fn(),
@@ -50,12 +48,6 @@ function makeServices() {
       markRunning: vi.fn(),
       markDone: vi.fn(),
       markFailed: vi.fn(),
-      resetFailed: vi.fn(),
-    },
-    execution: {
-      lease: vi.fn(),
-      heartbeat: vi.fn(),
-      report: vi.fn(),
     },
     config: { getConfig: vi.fn(), updateConfig: vi.fn() },
   };
@@ -73,7 +65,6 @@ function makeControllers(svcs = makeServices()) {
     svcs.extension as any,
   );
   const actionCtrl = new AdvertisingActionsController(svcs.action as any);
-  const executionCtrl = new AdvertisingExecutionController(svcs.execution as any);
   const configCtrl = new AdvertisingConfigController(svcs.config as any);
 
   return {
@@ -83,7 +74,6 @@ function makeControllers(svcs = makeServices()) {
     diagnosticsCtrl,
     ingestCtrl,
     actionCtrl,
-    executionCtrl,
     configCtrl,
     svcs,
   };
@@ -97,11 +87,6 @@ function makeActionController(svcs = makeServices()) {
 function makeIngestController(svcs = makeServices()) {
   const { ingestCtrl, svcs: services } = makeControllers(svcs);
   return { ctrl: ingestCtrl, svcs: services };
-}
-
-function makeExecutionController(svcs = makeServices()) {
-  const { executionCtrl, svcs: services } = makeControllers(svcs);
-  return { ctrl: executionCtrl, svcs: services };
 }
 
 function makeConfigController(svcs = makeServices()) {
@@ -126,13 +111,14 @@ function makeStrategyController(svcs = makeServices()) {
 
 const COMPANY = 'organization-1';
 
-describe('AdvertisingController — defaults + body transformations', () => {
-  it('PATCH /:id/tier extracts adTier from body before delegating', () => {
-    const { ctrl, svcs } = makeOverviewController();
-    ctrl.changeTier('ad-1', { adTier: 'A' } as any, COMPANY);
-    expect(svcs.advertising.changeTier).toHaveBeenCalledWith('ad-1', 'A', COMPANY);
+describe('AdvertisingController — overview surface', () => {
+  it('exposes no operator ad-tier write', () => {
+    const { ctrl } = makeOverviewController();
+    expect('changeTier' in Object.getPrototypeOf(ctrl)).toBe(false);
   });
+});
 
+describe('AdvertisingController — defaults + body transformations', () => {
   it('GET /campaigns falls back to period 7d when query omitted', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
@@ -184,32 +170,6 @@ describe('AdvertisingController — defaults + body transformations', () => {
     const { ctrl, svcs } = makeStrategyController();
     ctrl.getRules({} as any, COMPANY);
     expect(svcs.strategy.getRules).toHaveBeenCalledWith('14d', COMPANY);
-  });
-
-  it('POST /execution/lease bundles label/pageType/limit into options object', () => {
-    const { ctrl, svcs } = makeExecutionController();
-    ctrl.executionLease(
-      { workerKey: 'w1', label: 'L', pageType: 'campaign', limit: 3 } as any,
-      COMPANY,
-    );
-    expect(svcs.execution.lease).toHaveBeenCalledWith(
-      'w1',
-      { label: 'L', pageType: 'campaign', limit: 3 },
-      COMPANY,
-    );
-  });
-
-  it('POST /execution/heartbeat bundles currentUrl/currentPageType into meta', () => {
-    const { ctrl, svcs } = makeExecutionController();
-    ctrl.executionHeartbeat(
-      { workerKey: 'w1', currentUrl: 'http://x', currentPageType: 'keyword' } as any,
-      COMPANY,
-    );
-    expect(svcs.execution.heartbeat).toHaveBeenCalledWith(
-      'w1',
-      { currentUrl: 'http://x', currentPageType: 'keyword' },
-      COMPANY,
-    );
   });
 
   it('PATCH /config/:key prefixes the key with "ads." before delegating', () => {
@@ -308,9 +268,11 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('action=resetFailed → action.resetFailed(organizationId)', () => {
-    ctrl.handleActionCommand({ action: 'resetFailed' } as any, COMPANY);
-    expect(svcs.action.resetFailed).toHaveBeenCalledWith(COMPANY);
+  it('action=resetFailed is retired → BadRequestException', () => {
+    // Approving a failed action queues a new attempt instead.
+    expect(() =>
+      ctrl.handleActionCommand({ action: 'resetFailed' } as any, COMPANY),
+    ).toThrow(BadRequestException);
   });
 
   it('unknown action → BadRequestException', () => {

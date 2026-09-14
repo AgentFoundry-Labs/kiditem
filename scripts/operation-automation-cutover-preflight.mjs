@@ -9,11 +9,13 @@ const REQUIRED_TABLES = Object.freeze([
   'workflow_templates',
   'workflow_runs',
   'marketplace',
-  'action_tasks',
   'alerts',
 ]);
 
-const OPTIONAL_TABLES = Object.freeze(['rules_evaluation_applications']);
+// Retired tables and columns a schema step may already have dropped. An absent
+// one holds nothing to count, so its count is zero and the report names it.
+const OPTIONAL_TABLES = Object.freeze(['rules_evaluation_applications', 'action_tasks']);
+const OPTIONAL_COLUMNS = Object.freeze(['alerts.kind']);
 
 const MAX_IDENTITY_ITEMS = 100;
 const MAX_IDENTITY_LENGTH = 256;
@@ -25,6 +27,12 @@ const PREFLIGHT_SQL = Object.freeze({
     FROM information_schema.tables
     WHERE table_schema = current_schema()
       AND table_name = ANY($1::text[])
+  `,
+  columnNames: `
+    SELECT table_name || '.' || column_name AS column_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name || '.' || column_name = ANY($1::text[])
   `,
   operationRuns: `
     SELECT COUNT(*) AS count
@@ -87,6 +95,7 @@ const PREFLIGHT_SQL = Object.freeze({
   `,
 });
 
+// [report key, count column, the optional table or column the count reads]
 const COUNT_FIELDS = Object.freeze([
   ['operationRuns', 'count'],
   ['activeOperationRuns', 'active_operation_runs'],
@@ -94,9 +103,9 @@ const COUNT_FIELDS = Object.freeze([
   ['workflowTemplates', 'count'],
   ['workflowRuns', 'count'],
   ['marketplaceItems', 'count'],
-  ['actionTasks', 'count'],
-  ['operationAlerts', 'count'],
-  ['rulesApplications', 'count'],
+  ['actionTasks', 'count', 'action_tasks'],
+  ['operationAlerts', 'count', 'alerts.kind'],
+  ['rulesApplications', 'count', 'rules_evaluation_applications'],
 ]);
 
 export function buildPreflightSql() {
@@ -257,6 +266,14 @@ function tableNames(rows) {
   );
 }
 
+function columnNames(rows) {
+  return new Set(
+    rows
+      .map((row) => row?.column_name ?? row?.columnName)
+      .filter((name) => typeof name === 'string'),
+  );
+}
+
 function assertRequiredTables(rows) {
   const found = tableNames(rows);
   const missing = REQUIRED_TABLES.filter((table) => !found.has(table));
@@ -302,13 +319,20 @@ export async function runPreflight({
     );
     const foundTables = assertRequiredTables(tableRows);
     const absentOptionalTables = OPTIONAL_TABLES.filter((table) => !foundTables.has(table));
+    const foundColumns = columnNames(
+      await queryRows(
+        client,
+        PREFLIGHT_SQL.columnNames,
+        [[...OPTIONAL_COLUMNS]],
+        'column-existence',
+      ),
+    );
+    const absentOptionalColumns = OPTIONAL_COLUMNS.filter((column) => !foundColumns.has(column));
+    const absent = new Set([...absentOptionalTables, ...absentOptionalColumns]);
 
     const countResults = {};
-    for (const [reportKey, field] of COUNT_FIELDS) {
-      if (
-        reportKey === 'rulesApplications' &&
-        absentOptionalTables.includes('rules_evaluation_applications')
-      ) {
+    for (const [reportKey, field, requires] of COUNT_FIELDS) {
+      if (requires && absent.has(requires)) {
         countResults[reportKey] = 0;
         continue;
       }
@@ -361,6 +385,7 @@ export async function runPreflight({
         rulesApplications: countResults.rulesApplications,
       },
       absentOptionalTables,
+      absentOptionalColumns,
       activeOperationKeys,
       enabledScheduleKeys,
       installedWorkflowNames,

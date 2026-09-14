@@ -63,7 +63,7 @@ are executable in [the Supply tests](__tests__/).
   evidence. Matching classifies rows but does not filter collection output or
   mutate Orders/Inventory tables.
 - Completion depends on linked Orders transmission intents, not an Inventory
-  refresh. Abandonment uses the tested empty-probe and explicit-reason policy.
+  refresh. Abandonment uses the tested empty-probe policy and takes no reason.
 
 Read
 [sellpia-rocket-inventory-sync.md](../../../../docs/runbooks/sellpia-rocket-inventory-sync.md)

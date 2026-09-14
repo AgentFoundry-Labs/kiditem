@@ -354,7 +354,6 @@ describe('ProcurementController purchase submission boundary', () => {
       {
         action: 'abandonRocketWorkbook',
         exportId: '44444444-4444-4444-8444-444444444444',
-        abandonReason: '쿠팡에 업로드하지 않음',
       } as never,
     );
 
@@ -369,7 +368,6 @@ describe('ProcurementController purchase submission boundary', () => {
       userId: 'authenticated-user',
       request: {
         exportId: '44444444-4444-4444-8444-444444444444',
-        reason: '쿠팡에 업로드하지 않음',
       },
     });
   });

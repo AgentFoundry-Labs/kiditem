@@ -1,3 +1,4 @@
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { clampProfitabilityMonthCoverage } from '../domain/profitability-month-coverage';
 import type { Prisma } from '@prisma/client';
 
@@ -37,7 +38,7 @@ export async function readMonthlyAdAllocationPublication(
       id: input.sourceImportRunId,
       organizationId: input.organizationId,
       sourceType: 'coupang_ad_profitability',
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       publicationSequence: { not: null },
     },
     select: {

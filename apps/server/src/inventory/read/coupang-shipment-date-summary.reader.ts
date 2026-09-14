@@ -1,5 +1,9 @@
 import { Prisma, type SourceImportRun } from "@prisma/client";
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from "@kiditem/shared/source-import";
 import type {
   CoupangShipmentDateSummaryEntry,
   ShipmentSummaryAttempt,
@@ -73,14 +77,14 @@ export function shipmentSummaryAttempt(
   run: SourceImportRun,
 ): ShipmentSummaryAttempt {
   const isExpired =
-    run.status === "running" &&
+    run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS &&
     (!run.expiresAt || run.expiresAt.getTime() <= Date.now());
   return {
     attemptId: run.id,
     attemptToken: run.attemptToken,
     generation: String(run.freshnessGeneration),
     state:
-      isExpired || run.status === "failed"
+      isExpired || run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
         ? "FAILED"
         : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? "COMPLETE"

@@ -123,7 +123,6 @@ export const DashboardAlertItemSchema = z.object({
   id: z.string(),
   status: AlertStatusSchema,
   type: z.string(),
-  severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
   sourceType: z.string().nullable().optional(),
