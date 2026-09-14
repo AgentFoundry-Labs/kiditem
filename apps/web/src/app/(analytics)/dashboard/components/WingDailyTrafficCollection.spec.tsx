@@ -192,7 +192,7 @@ describe('WingDailyTrafficCollection', () => {
       startDate: '2026-09-01',
       endDate: '2026-09-07',
       url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-01&end_date=2026-09-07',
-    });
+    }, { signal: expect.any(AbortSignal) });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
       'Wing 일별 트래픽 수집 완료 · 2026-09-01 ~ 2026-09-07',
     ));
@@ -239,7 +239,8 @@ describe('WingDailyTrafficCollection', () => {
       vi.mocked(readWingTrafficSource).mockResolvedValue(source(running));
       return {
         attempt: running,
-        release: 'extension-replied',
+        release: 'extension-failed',
+        failure: '다른 Wing 트래픽 수집이 진행 중입니다.',
         extensionReply: Promise.resolve({ ok: false, message: '다른 Wing 트래픽 수집이 진행 중입니다.' }),
       } as never;
     });
@@ -343,6 +344,109 @@ describe('WingDailyTrafficCollection', () => {
     expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled();
     expect(screen.getByTestId('wing-traffic-collect')).toHaveTextContent('일별 수집 시작');
     expect(screen.queryByText('Wing 수집 상태를 불러오지 못했습니다.')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('stops waiting for the release when the dashboard unmounts', async () => {
+    let received: AbortSignal | undefined;
+    vi.mocked(collectWingTrafficSource).mockImplementation(async (_request, options) => {
+      received = options?.signal;
+      return new Promise<never>(() => undefined);
+    });
+    const view = renderControl();
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('wing-traffic-collect'));
+    await waitFor(() => expect(received).toBeDefined());
+    expect(received?.aborted).toBe(false);
+
+    view.unmount();
+    expect(received?.aborted).toBe(true);
+  });
+
+  function deferredReply() {
+    let answer!: (reply: { ok: false; message: string }) => void;
+    const reply = new Promise<{ ok: false; message: string }>((resolve) => {
+      answer = resolve;
+    });
+    return { reply, answer };
+  }
+
+  function unresponsiveOutcome(extensionReply: Promise<unknown>) {
+    const running = attempt('RUNNING', { receiptCount: 0 });
+    vi.mocked(readWingTrafficSource).mockResolvedValue(source(running));
+    return { attempt: running, release: 'extension-unresponsive', extensionReply } as never;
+  }
+
+  it('announces a late extension reply only for the newest request', async () => {
+    const first = deferredReply();
+    const second = deferredReply();
+    vi.mocked(collectWingTrafficSource)
+      .mockImplementationOnce(async () => unresponsiveOutcome(first.reply))
+      .mockImplementationOnce(async () => unresponsiveOutcome(second.reply));
+    const view = renderControl();
+    const collectButton = () => screen.getByTestId('wing-traffic-collect');
+    await waitFor(() => expect(collectButton()).toBeEnabled());
+
+    fireEvent.click(collectButton());
+    await waitFor(() => {
+      expect(collectButton()).toHaveTextContent('이어서 수집');
+      expect(collectButton()).toBeEnabled();
+    });
+    fireEvent.click(collectButton());
+    await waitFor(() => expect(collectWingTrafficSource).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(collectButton()).toBeEnabled());
+
+    first.answer({ ok: false, message: '이전 요청의 늦은 실패' });
+    second.answer({ ok: false, message: '최신 요청의 늦은 실패' });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('최신 요청의 늦은 실패'));
+    expect(toast.error).not.toHaveBeenCalledWith('이전 요청의 늦은 실패');
+    view.unmount();
+  });
+
+  it('drops the late extension reply once a cancel is confirmed', async () => {
+    const late = deferredReply();
+    const cancelled = {
+      ...attempt('FAILED'),
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '사용자가 Wing 트래픽 수집을 중단했습니다.',
+    };
+    vi.mocked(collectWingTrafficSource).mockImplementation(async () => unresponsiveOutcome(late.reply));
+    vi.mocked(cancelWingTrafficSource).mockImplementation(async () => {
+      vi.mocked(readWingTrafficSource).mockResolvedValue(source(cancelled));
+      return cancelled as never;
+    });
+    const view = renderControl();
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('wing-traffic-collect'));
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-cancel')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('wing-traffic-cancel'));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('사용자가 Wing 트래픽 수집을 중단했습니다.'));
+
+    late.answer({ ok: false, message: '중단 뒤 도착한 실패' });
+    // Give an unsuppressed handler time to refetch and announce the cancelled attempt.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(toast.error).not.toHaveBeenCalledWith('중단 뒤 도착한 실패');
+    expect(toast.warning).not.toHaveBeenCalledWith('사용자가 Wing 트래픽 수집을 중단했습니다.');
+    view.unmount();
+  });
+
+  it('still announces the late extension reply when a cancel fails', async () => {
+    const late = deferredReply();
+    vi.mocked(collectWingTrafficSource).mockImplementation(async () => unresponsiveOutcome(late.reply));
+    vi.mocked(cancelWingTrafficSource).mockRejectedValue(new Error('중단 요청을 보내지 못했습니다.'));
+    const view = renderControl();
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('wing-traffic-collect'));
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-cancel')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('wing-traffic-cancel'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('중단 요청을 보내지 못했습니다.'));
+
+    late.answer({ ok: false, message: 'Wing 로그인이 필요합니다.' });
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Wing 로그인이 필요합니다.'));
     view.unmount();
   });
 });

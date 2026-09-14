@@ -119,9 +119,10 @@ describe('Wing traffic source owner bridge', () => {
 
   it('resumes a same-range active owner attempt without creating a second attempt', async () => {
     const running = attempt('RUNNING');
+    // A success reply releases only once the owner attempt settles.
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce(source(running))
-      .mockResolvedValueOnce(running);
+      .mockResolvedValueOnce(attempt('COMPLETE'));
 
     await collectWingTrafficSource({
       startDate: '2026-09-01',
@@ -333,7 +334,7 @@ describe('Wing traffic dispatch release', () => {
 
   it.each([
     [
-      'a {success:false} reply',
+      'a Korean refusal as sent',
       () => Promise.resolve({
         success: false,
         attemptId: created.attemptId,
@@ -344,11 +345,23 @@ describe('Wing traffic dispatch release', () => {
       '다른 Wing 트래픽 수집이 진행 중입니다.',
     ],
     [
-      'a failed dispatch',
-      () => Promise.reject(new Error('The message port closed before a response was received.')),
-      'The message port closed before a response was received.',
+      'an English refusal reason as a Korean sentence',
+      () => Promise.resolve({
+        success: false,
+        attemptId: created.attemptId,
+        terminalState: 'RUNNING',
+        continuationRequired: false,
+        errorCode: 'SOURCE_OWNER_UNAVAILABLE',
+        error: 'Wing traffic completion acknowledgement did not match the manifest.',
+      }),
+      'Wing 트래픽 수집 확장이 작업을 마치지 못했습니다.',
     ],
-  ])('surfaces %s from the extension while the attempt keeps running', async (_label, reply, message) => {
+    [
+      'a browser transport failure as a Korean sentence',
+      () => Promise.reject(new Error('The message port closed before a response was received.')),
+      '확장과 통신하지 못했습니다. 확장 상태를 확인한 뒤 다시 시도해 주세요.',
+    ],
+  ])('releases on a failed extension answer and shows %s', async (_label, reply, message) => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce(source(attempt('FAILED')))
       .mockResolvedValue(created);
@@ -359,9 +372,68 @@ describe('Wing traffic dispatch release', () => {
 
     expect(seen.error).toBeUndefined();
     expect(seen.outcome).toMatchObject({
-      release: 'extension-replied',
+      release: 'extension-failed',
+      failure: message,
       attempt: { state: 'RUNNING' },
     });
     await expect(seen.outcome?.extensionReply).resolves.toEqual({ ok: false, message });
+  });
+
+  it('keeps waiting for the terminal attempt after a success reply', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValue(created);
+    dispatchReplies(() => Promise.resolve({
+      success: true,
+      attemptId: created.attemptId,
+      terminalState: 'COMPLETE',
+      continuationRequired: false,
+    }));
+
+    const seen = track(collectWingTrafficSource(request));
+    // A success reply proves the extension ran, so the no-progress grace no longer applies.
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(seen.outcome).toBeUndefined();
+
+    vi.mocked(apiClient.get).mockResolvedValue(attempt('COMPLETE'));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(seen.error).toBeUndefined();
+    expect(seen.outcome).toMatchObject({ release: 'terminal', attempt: { state: 'COMPLETE' } });
+  });
+
+  it('stops reading the attempt once the request is aborted', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValue(created);
+    dispatchReplies(neverAnswered);
+    const controller = new AbortController();
+
+    const seen = track(collectWingTrafficSource(request, { signal: controller.signal }));
+    await vi.advanceTimersByTimeAsync(4_000);
+    const readsBeforeAbort = vi.mocked(apiClient.get).mock.calls.length;
+    expect(readsBeforeAbort).toBeGreaterThan(1);
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(vi.mocked(apiClient.get).mock.calls.length).toBe(readsBeforeAbort);
+    expect(seen.outcome).toBeUndefined();
+    expect(seen.error).toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('Wing traffic extension messages', () => {
+  it('names a failed cancel dispatch in Korean instead of the browser transport error', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+      if ((message as { action?: string }).action === 'ping') {
+        return {
+          success: true,
+          capabilities: { wingTrafficSourceOwnerV1: true, wingTrafficSourceOwnerV2: true },
+        };
+      }
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    });
+
+    await expect(cancelWingTrafficSource(attempt('RUNNING').attemptId, 'wing-traffic-daily-v2'))
+      .rejects.toThrow('확장과 통신하지 못했습니다. 확장 상태를 확인한 뒤 다시 시도해 주세요.');
   });
 });

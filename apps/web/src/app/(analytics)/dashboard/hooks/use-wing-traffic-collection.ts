@@ -134,8 +134,11 @@ export function useWingTrafficCollection({
   const [cancelPending, setCancelPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [extensionNotice, setExtensionNotice] = useState<ExtensionNotice | null>(null);
-  // A newer request or a cancel supersedes announcements from an older dispatch.
+  // A newer request or a confirmed cancel supersedes announcements from an older dispatch.
   const requestGeneration = useRef(0);
+  // Only the newest request of the mounted dashboard keeps observing its attempt.
+  const requestAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => requestAbort.current?.abort(), []);
   const observedCompleteId = useRef<string | null | undefined>(undefined);
   const source = useQuery(collectionSourceStatusQueryOptions<AdTrafficSourceStatus>({
     queryKey: [...wingTrafficSourceQueryKey, channelAccountId ?? 'primary'],
@@ -225,19 +228,17 @@ export function useWingTrafficCollection({
     setExtensionNotice(null);
     setActionPending(true);
     const generation = ++requestGeneration.current;
+    requestAbort.current?.abort();
+    const controller = new AbortController();
+    requestAbort.current = controller;
     try {
-      const outcome = await collectWingTrafficSource(request);
+      const outcome = await collectWingTrafficSource(request, { signal: controller.signal });
       await source.refetch();
       if (outcome.release === 'terminal') {
         await announceAttempt(outcome.attempt);
-      } else if (outcome.release === 'extension-replied') {
-        const reply = await outcome.extensionReply;
-        if (reply?.ok === false) {
-          setExtensionNotice(extensionNoticeFor(outcome.attempt, reply.message));
-          toast.error(reply.message);
-        } else {
-          toast.info(STILL_RUNNING_MESSAGE);
-        }
+      } else if (outcome.release === 'extension-failed') {
+        setExtensionNotice(extensionNoticeFor(outcome.attempt, outcome.failure));
+        toast.error(outcome.failure);
       } else {
         // No extension progress yet. The attempt stays RUNNING and resumable;
         // the extension's eventual answer is still announced once.
@@ -258,6 +259,8 @@ export function useWingTrafficCollection({
       }
       return outcome.attempt;
     } catch (error) {
+      // An unmounted dashboard or a newer request stopped observing this attempt.
+      if (controller.signal.aborted) return null;
       const message = error instanceof Error ? error.message : 'Wing 일별 트래픽 수집 실패';
       setActionError(message);
       if (!(error instanceof WingTrafficRangeMismatchError)) toast.error(message);
@@ -284,11 +287,12 @@ export function useWingTrafficCollection({
     const active = source.data?.latestAttempt;
     if (!active || active.state !== 'RUNNING') return null;
 
-    requestGeneration.current += 1;
     setActionError(null);
     setCancelPending(true);
     try {
       const attempt = await cancelWingTrafficSource(active.attemptId, active.plan.parserVersion);
+      // Only a confirmed cancel supersedes the dispatch's late announcement.
+      requestGeneration.current += 1;
       await source.refetch();
       if (attempt.state === 'FAILED') {
         toast.info(attempt.errorMessage ?? 'Wing 일별 트래픽 수집을 중단했습니다.');
