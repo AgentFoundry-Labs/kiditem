@@ -58,3 +58,22 @@ test('does not retain the deleted campaign sweep raw-snapshot exception', () => 
   assert.ok(!scanner.includes(marker));
   assert.ok(!adapter.includes('queryLatestCompleteCampaignSweeps'));
 });
+
+test('fails instead of passing when ripgrep is unavailable', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'snapshot-boundary-no-rg-'));
+  try {
+    mkdirSync(path.join(fixture, 'scripts'), { recursive: true });
+    copyFileSync(scannerPath, path.join(fixture, 'scripts/check-raw-snapshot-read-models.sh'));
+    const bash = spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).stdout.trim();
+    const result = spawnSync(bash, ['scripts/check-raw-snapshot-read-models.sh'], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: { PATH: fixture },
+    });
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /ripgrep \(rg\) is required/);
+    assert.doesNotMatch(result.stdout, /PASS/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
