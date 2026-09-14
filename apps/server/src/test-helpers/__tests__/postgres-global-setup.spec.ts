@@ -38,10 +38,12 @@ function setupDependencies(
   startPostgres: () => Promise<StartedPostgres>,
   pushSchema: (databaseUrl: string) => void | Promise<void>,
   gatewayToken = createGatewayInstallationToken(),
+  applyDatabaseObjects: (databaseUrl: string) => Promise<void> = vi.fn(async () => undefined),
 ) {
   const dependencies = {
     startPostgres,
     pushSchema,
+    applyDatabaseObjects,
     createGatewayInstallationToken: gatewayToken.createToken,
     removeGatewayInstallationToken: gatewayToken.removeToken,
   } satisfies PostgresGlobalSetupDependencies;
@@ -62,6 +64,9 @@ describe('Postgres integration global setup orchestration', () => {
     const pushSchema = vi.fn(async (url: string) => {
       events.push(`push:${url}`);
     });
+    const applyDatabaseObjects = vi.fn(async (url: string) => {
+      events.push(`objects:${url}`);
+    });
     const gatewayToken = createGatewayInstallationToken();
     gatewayToken.createToken.mockImplementation(async () => {
       events.push('token:create');
@@ -71,6 +76,7 @@ describe('Postgres integration global setup orchestration', () => {
       startPostgres,
       pushSchema,
       gatewayToken,
+      applyDatabaseObjects,
     );
     const provide = vi.fn((key: 'databaseUrl' | 'gatewayInstallationTokenFile' | 'webOrigin', value: string) => {
       events.push(`provide:${key}:${value}`);
@@ -87,6 +93,7 @@ describe('Postgres integration global setup orchestration', () => {
     expect(events).toEqual([
       'token:create',
       `push:${databaseUrl}`,
+      `objects:${databaseUrl}`,
       `provide:databaseUrl:${databaseUrl}`,
       `provide:gatewayInstallationTokenFile:${token.filePath}`,
       'provide:webOrigin:http://127.0.0.1:3000',
@@ -101,6 +108,7 @@ describe('Postgres integration global setup orchestration', () => {
     const { container, stop } = createStartedPostgres(databaseUrl);
     const setupError = new Error('schema push failed');
     const provide = vi.fn();
+    const applyDatabaseObjects = vi.fn(async () => undefined);
     const gatewayToken = createGatewayInstallationToken();
     const { dependencies, token } = setupDependencies(
       vi.fn(async () => container),
@@ -108,11 +116,13 @@ describe('Postgres integration global setup orchestration', () => {
         throw setupError;
       }),
       gatewayToken,
+      applyDatabaseObjects,
     );
     const setup = createPostgresGlobalSetup(dependencies);
 
     await expect(setup({ provide })).rejects.toBe(setupError);
 
+    expect(applyDatabaseObjects).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(gatewayToken.removeToken).toHaveBeenCalledWith(token);
     expect(provide).not.toHaveBeenCalled();

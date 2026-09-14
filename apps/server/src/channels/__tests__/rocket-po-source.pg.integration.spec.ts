@@ -431,7 +431,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     ).toBeNull();
     await prisma.sourceImportRun.update({
       where: { id: a.attemptId },
-      data: { status: 'complete', parserVersion: null, plan: {} },
+      data: { parserVersion: null, plan: {} },
     });
     expect((await readSource()).body).toMatchObject({
       ready: false,

@@ -4,6 +4,9 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
+import { ensureSourceImportRunStatusCheck } from '../../../../scripts/data-migrations/helpers/source-import-run-status-check';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -36,6 +39,11 @@ export interface EphemeralGatewayInstallationToken {
 export interface PostgresGlobalSetupDependencies {
   startPostgres(): Promise<StartedPostgres>;
   pushSchema(databaseUrl: string): void | Promise<void>;
+  /**
+   * Creates the database objects Prisma cannot declare and `db push` therefore
+   * leaves out, from the modules their data migrations use.
+   */
+  applyDatabaseObjects(databaseUrl: string): Promise<void>;
   createGatewayInstallationToken(): Promise<EphemeralGatewayInstallationToken>;
   removeGatewayInstallationToken(token: EphemeralGatewayInstallationToken): Promise<void>;
 }
@@ -51,6 +59,7 @@ export function createPostgresGlobalSetup(
       container = await dependencies.startPostgres();
       const databaseUrl = container.getConnectionUri();
       await dependencies.pushSchema(databaseUrl);
+      await dependencies.applyDatabaseObjects(databaseUrl);
       project.provide('databaseUrl', databaseUrl);
       project.provide('gatewayInstallationTokenFile', gatewayToken.filePath);
       project.provide('webOrigin', integrationWebOrigin);
@@ -156,6 +165,16 @@ const setup = createPostgresGlobalSetup({
       },
       stdio: 'inherit',
     });
+  },
+  applyDatabaseObjects: async (databaseUrl) => {
+    const prisma = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: databaseUrl }),
+    });
+    try {
+      await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
+    } finally {
+      await prisma.$disconnect();
+    }
   },
   createGatewayInstallationToken: createEphemeralGatewayInstallationToken,
   removeGatewayInstallationToken: removeEphemeralGatewayInstallationToken,

@@ -365,6 +365,8 @@ model SourceImportRun {
   channelAccountId             String?   @map("channel_account_id") @db.Uuid
   fileName                     String?   @map("file_name")
   fileHash                     String?   @map("file_hash")
+  /// One of SOURCE_IMPORT_RUN_STATUSES (@kiditem/shared/source-import), enforced by the CHECK constraint
+  /// source_import_runs_status_check in scripts/data-migrations/helpers/source-import-run-status-check.ts.
   status                       String    @default("running")
   rowCount                     Int       @default(0) @map("row_count")
   importedAt                   DateTime? @map("imported_at") @db.Timestamptz

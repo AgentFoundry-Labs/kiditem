@@ -13,7 +13,10 @@ export type SourceImportRunStateFact = Readonly<{
   expiresAt: Date | null;
 }>;
 
-/** Unknown persisted values fail closed until the source-state migration repairs them. */
+/**
+ * PostgreSQL rejects any other value (source_import_runs_status_check), but
+ * Prisma still reads the column as a string, so an unexpected one fails closed.
+ */
 export function sourceImportRunDbState(status: string): SourceImportStatus {
   return isSourceImportStatus(status) ? status : SOURCE_IMPORT_RUN_FAILED_STATUS;
 }
