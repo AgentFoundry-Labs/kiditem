@@ -6472,19 +6472,27 @@ async function ensureIcecreamMallDeliveryInquiry() {
     );
   }
 
+  // Wait for the delivery page itself. Right after the menu click the side
+  // menu shows its own "배송 조회" label while the delivery frame is still
+  // about:blank, and picking a frame then scrapes the menu page, which has no
+  // delivery table header.
+  function isDeliveryInquiryDocument(doc, href) {
+    const compact = String(doc?.body?.innerText || "").replace(/\s+/g, "");
+    if (compact.includes("배송목록") && compact.includes("주문번호") && compact.includes("배송번호")) {
+      return true;
+    }
+    return String(href || "").includes("deliveryInquiry.deliveryInquiryListView") &&
+      hasDeliveryInquiryText(compact);
+  }
+
   function hasDeliveryInquiryFrame() {
-    const bodyText = document.body?.innerText || "";
-    if (hasDeliveryInquiryText(bodyText)) {
+    if (isDeliveryInquiryDocument(document, location.href)) {
       return true;
     }
 
     return Array.from(document.querySelectorAll("iframe,frame")).some((frame) => {
-      const src = String(frame.getAttribute("src") || "");
-      if (src.includes("deliveryInquiry.deliveryInquiryListView")) return true;
-
       try {
-        const frameText = frame.contentDocument?.body?.innerText || "";
-        return hasDeliveryInquiryText(frameText);
+        return isDeliveryInquiryDocument(frame.contentDocument, frame.contentWindow?.location?.href);
       } catch {
         return false;
       }
