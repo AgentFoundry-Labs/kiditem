@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { BarChart3 } from 'lucide-react';
-import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getProfitAmountColor, getProfitColor } from '@/lib/utils';
 import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
@@ -80,10 +80,10 @@ export function DashboardTopProducts({
                 {/* Revenue is always measured; profit is not. A row whose profit
                     the backend withheld shows the absent-value dash rather than a
                     figure the screen cannot account for. */}
-                <td className={cn('text-right text-sm tabular-nums', product.netProfit === null ? 'text-slate-400' : getProfitColor(product.profitRate ?? 0))}>
+                <td className={cn('text-right text-sm tabular-nums', getProfitAmountColor(product.netProfit))}>
                   {product.netProfit === null ? '—' : <>{formatKRW(product.netProfit)}<span className="text-slate-400">원</span></>}
                 </td>
-                <td className={cn('text-right pr-4 text-sm tabular-nums font-semibold', product.profitRate === null ? 'text-slate-400' : getProfitColor(product.profitRate))}>
+                <td className={cn('text-right pr-4 text-sm tabular-nums font-semibold', getProfitColor(product.profitRate))}>
                   {product.profitRate === null ? '—' : formatPercent(product.profitRate)}
                 </td>
               </tr>

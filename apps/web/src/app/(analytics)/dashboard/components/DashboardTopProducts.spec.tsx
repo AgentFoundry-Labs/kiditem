@@ -68,6 +68,25 @@ describe('DashboardTopProducts', () => {
   });
 
   /**
+   * The profit cell reads an amount, the rate cell a rate. They used to share
+   * the rate palette, so a row whose rate the backend withheld was coloured as
+   * if the rate were 0% — a thin-margin orange over a healthy profit.
+   */
+  it('colours a withheld rate neutrally without moving its profit into the thin-margin band', () => {
+    render(
+      <DashboardTopProducts
+        products={[product({ name: '이익률 미상', netProfit: 3_000, profitRate: null })] as never}
+      />,
+    );
+
+    const row = rowOf('이익률 미상');
+    const [, , , profitCell, rateCell] = Array.from(row.querySelectorAll('td'));
+    expect(profitCell!.className).toContain('text-green-600');
+    expect(profitCell!.className).not.toContain('text-orange-500');
+    expect(rateCell!.className).toContain('text-slate-400');
+  });
+
+  /**
    * The panel is the same height on a day with no sales as on a day with six.
    * It used to swap one centred line for a table, so the panel and everything
    * under it moved the moment a collection landed.

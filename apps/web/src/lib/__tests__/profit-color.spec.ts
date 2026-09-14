@@ -42,9 +42,11 @@ describe('getProfitAmountColor', () => {
 });
 
 describe('AD_COST_TEXT_COLOR', () => {
-  it('marks ad spend with the caution tone, not a profit tone', () => {
-    expect(AD_COST_TEXT_COLOR).toBe('text-amber-600');
-    expect(AD_COST_TEXT_COLOR).not.toBe(getProfitAmountColor(-1));
-    expect(AD_COST_TEXT_COLOR).not.toBe(getProfitAmountColor(1));
+  it('keeps ad spend off the profit palette', () => {
+    // Spend is a cost, not a result: it may not read as profit, as loss, or as
+    // a figure the screen could not obtain.
+    for (const profitTone of [getProfitAmountColor(-1), getProfitAmountColor(1), getProfitColor(null)]) {
+      expect(AD_COST_TEXT_COLOR).not.toBe(profitTone);
+    }
   });
 });
