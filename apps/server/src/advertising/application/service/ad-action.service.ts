@@ -32,8 +32,7 @@ const ACTION_DEDUP_HOURS = 24;
  * Execution state lives on the action's latest ExecutionTask. The browser
  * extension's markRunning / markDone / markFailed reports move that task; a
  * second markRunning for a running task is another executor and is refused.
- * Approving a failed action queues a new attempt, and so does approving one
- * whose running attempt was abandoned, which closes that attempt as failed.
+ * Approving a failed action queues a new one.
  */
 @Injectable()
 export class AdActionService {

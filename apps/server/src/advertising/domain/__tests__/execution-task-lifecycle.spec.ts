@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ABANDONED_RUNNING_EXECUTION_MS,
-  isAbandonedRunningExecutionTask,
   isOpenExecutionTaskStatus,
   resolveExecutionReport,
 } from '../execution-task-lifecycle';
@@ -41,39 +39,5 @@ describe('isOpenExecutionTaskStatus', () => {
         isOpenExecutionTaskStatus,
       ),
     ).toEqual([true, true, false, false, false, false, false]);
-  });
-});
-
-describe('isAbandonedRunningExecutionTask', () => {
-  const now = new Date('2026-09-14T12:00:00.000Z');
-  const startedAgo = (ms: number) => new Date(now.getTime() - ms);
-
-  it('abandons a running attempt once 30 minutes pass without an outcome report', () => {
-    expect(ABANDONED_RUNNING_EXECUTION_MS).toBe(30 * 60 * 1000);
-    expect(
-      isAbandonedRunningExecutionTask(
-        { status: 'running', startedAt: startedAgo(ABANDONED_RUNNING_EXECUTION_MS - 1) },
-        now,
-      ),
-    ).toBe(false);
-    expect(
-      isAbandonedRunningExecutionTask(
-        { status: 'running', startedAt: startedAgo(ABANDONED_RUNNING_EXECUTION_MS) },
-        now,
-      ),
-    ).toBe(true);
-  });
-
-  it('treats a running attempt with no start time as abandoned', () => {
-    expect(isAbandonedRunningExecutionTask({ status: 'running', startedAt: null }, now)).toBe(true);
-  });
-
-  it('never abandons an attempt that is not running', () => {
-    const dayAgo = startedAgo(24 * 60 * 60 * 1000);
-    expect(
-      ['queued', 'done', 'failed', 'cancelled'].map((status) =>
-        isAbandonedRunningExecutionTask({ status, startedAt: dayAgo }, now),
-      ),
-    ).toEqual([false, false, false, false]);
   });
 });
