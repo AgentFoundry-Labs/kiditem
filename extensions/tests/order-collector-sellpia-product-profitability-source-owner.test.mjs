@@ -5,6 +5,8 @@ import vm from 'node:vm';
 
 const attemptId = '11111111-1111-4111-8111-111111111111';
 const attemptToken = '22222222-2222-4222-8222-222222222222';
+const restartAttemptId = '99999999-9999-4999-8999-999999999999';
+const restartAttemptToken = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const sourcePath = '/api/sellpia-product-sales/attempts';
 const ownerSource = readFileSync(
   new URL('../kiditem-os/background/orders/sellpia-product-profitability-source-owner.js', import.meta.url),
@@ -67,6 +69,12 @@ function response(body, status = 200) {
   };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
+
 function createFixture({
   collected = { success: true, payload },
   loseCompletionAck = false,
@@ -75,6 +83,9 @@ function createFixture({
   failControlReadAfterCapture = false,
   controlReadResponse = null,
   statusResponses = new Map(),
+  collectUntilStopped = false,
+  holdFailure = false,
+  parkBeforeCompletion = false,
 } = {}) {
   const context = vm.createContext({
     Date,
@@ -113,13 +124,30 @@ function createFixture({
     storageKey: 'sessions',
     webUrlPatterns: [],
   });
+  const ownerWrites = [];
+  const collectStarted = deferred();
+  const failureRelease = deferred();
+  const completionParked = deferred();
+  const completionRelease = deferred();
   const sessionApi = sessions;
   if (failProgressUpdate) {
     sessionApi.progress = async () => {
       throw new Error('collection progress unavailable');
     };
   }
-  let current = control();
+  if (parkBeforeCompletion) {
+    // The owner reports progress immediately before it submits completion.
+    const reportProgress = sessions.progress;
+    sessionApi.progress = async (...args) => {
+      completionParked.resolve();
+      await completionRelease.promise;
+      return reportProgress(...args);
+    };
+  }
+  const attempts = new Map([
+    [attemptId, control()],
+    [restartAttemptId, control('RUNNING', { attemptId: restartAttemptId, attemptToken: restartAttemptToken })],
+  ]);
   let completeCalls = 0;
 
   const owner = context.KidItemSellpiaProductProfitabilitySourceOwner.create({
@@ -128,11 +156,10 @@ function createFixture({
     request: async (environmentId, path, init = {}) => {
       calls.push({ environmentId, path, method: init.method || 'GET', headers: init.headers, body: init.body });
       const method = init.method || 'GET';
+      const id = decodeURIComponent(path.slice(`${sourcePath}/`.length).split('/')[0]);
+      const current = attempts.get(id);
       if (method === 'GET' && path.endsWith('/status')) {
-        const statusAttemptId = decodeURIComponent(
-          path.slice(`${sourcePath}/`.length, -'/status'.length),
-        );
-        const statusResponse = statusResponses.get(statusAttemptId);
+        const statusResponse = statusResponses.get(id);
         if (statusResponse) return statusResponse();
         if (failTerminalStatusRead && current.state !== 'RUNNING') {
           throw new Error('terminal status read lost');
@@ -147,25 +174,42 @@ function createFixture({
         if (controlReadResponse) return controlReadResponse();
         return response(current);
       }
-      if (path === `${sourcePath}/${attemptId}`) {
+      const route = path === `${sourcePath}/${id}` ? 'complete' : path.split('/').at(-1);
+      ownerWrites.push({ attemptId: id, route, afterEnd: current.state !== 'RUNNING' });
+      if (route === 'complete') {
         completeCalls += 1;
         bodies.push(JSON.parse(init.body));
-        current = control('COMPLETE', { generation: '8' });
+        attempts.set(id, control('COMPLETE', {
+          attemptId: id,
+          attemptToken: current.attemptToken,
+          generation: '8',
+        }));
         if (loseCompletionAck && completeCalls === 1) throw new Error('completion reply lost');
-        return response(current);
+        return response(attempts.get(id));
       }
-      if (path.endsWith('/fail')) {
+      if (route === 'fail') {
         const failure = JSON.parse(init.body);
-        current = control('FAILED', {
+        if (holdFailure) await failureRelease.promise;
+        attempts.set(id, control('FAILED', {
+          attemptId: id,
+          attemptToken: current.attemptToken,
           errorCode: failure.errorCode,
           errorMessage: failure.errorMessage,
-        });
-        return response(current);
+        }));
+        return response(attempts.get(id));
       }
       return response({ message: 'unexpected owner route' }, 404);
     },
     collect: async (collection) => {
       collectionContext = collection;
+      if (collectUntilStopped && collection.attemptId === attemptId) {
+        // Like the Sellpia collector after a stop closes its tab: it sees the fence and returns.
+        collectStarted.resolve();
+        while (await collection.isActive()) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        return { success: false, errorCode: 'sellpia_network_failed', error: 'Sellpia tab was closed.' };
+      }
       return collected;
     },
   });
@@ -176,6 +220,17 @@ function createFixture({
     calls,
     bodies,
     removedTabs,
+    ownerWrites,
+    attempt: (id) => attempts.get(id),
+    collectStarted: collectStarted.promise,
+    releaseFailure: failureRelease.resolve,
+    completionParked: completionParked.promise,
+    releaseCompletion: completionRelease.resolve,
+    // cancelOrdersCollectionSession fences the local session, then cancels through the owner.
+    operatorStop: async (target) => {
+      await sessionApi.requestCancellation(target.attemptId, target.environmentId);
+      return owner.cancel(target);
+    },
     get collectionContext() { return collectionContext; },
     get controlReads() { return controlReads; },
     get completeCalls() { return completeCalls; },
@@ -468,4 +523,57 @@ test('fails instead of publishing a payload outside the frozen plan', async () =
   assert.equal(result.errorCode, 'SELLPIA_PROFITABILITY_PAYLOAD_INVALID');
   assert.equal(fixture.completeCalls, 0);
   assert.equal(fixture.calls.filter((call) => call.path.endsWith('/fail')).length, 1);
+});
+
+function assertStoppedThenRestarted(fixture, restart) {
+  const stopped = fixture.attempt(attemptId);
+  assert.equal(stopped.state, 'FAILED');
+  assert.equal(stopped.errorCode, 'COLLECTION_CANCELLED');
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, 'COMPLETE');
+  const stoppedWrites = fixture.ownerWrites.filter((write) => write.attemptId === attemptId);
+  assert.deepEqual(stoppedWrites.map((write) => write.route), ['fail']);
+  assert.deepEqual(stoppedWrites.filter((write) => write.afterEnd), []);
+}
+
+test('an operator stop during collection releases the environment for the next attempt', async () => {
+  const fixture = createFixture({ collectUntilStopped: true, holdFailure: true });
+  const running = fixture.owner.run({ environmentId: 'office', attemptId });
+  await fixture.collectStarted;
+
+  const stopping = fixture.operatorStop({ environmentId: 'office', attemptId });
+  // The collector sees the stop, so the run returns before the owner acknowledges it.
+  await running;
+  fixture.releaseFailure();
+  await stopping;
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+});
+
+test('an operator stop with no run in this worker releases the environment for the next attempt', async () => {
+  const fixture = createFixture();
+  await fixture.sessions.start({
+    environmentId: 'office',
+    attemptId,
+    producer: 'orders.sellpia_product_profitability',
+  });
+
+  await fixture.operatorStop({ environmentId: 'office', attemptId });
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+});
+
+test('an operator stop after the post-collect check releases the environment without completing the stopped attempt', async () => {
+  const fixture = createFixture({ parkBeforeCompletion: true });
+  const running = fixture.owner.run({ environmentId: 'office', attemptId });
+  await fixture.completionParked;
+
+  await fixture.operatorStop({ environmentId: 'office', attemptId });
+  fixture.releaseCompletion();
+  await running;
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
 });
