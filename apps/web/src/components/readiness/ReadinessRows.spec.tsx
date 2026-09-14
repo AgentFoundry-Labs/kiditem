@@ -15,6 +15,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { ActionCheckCard, AdKeywordRow, AdSyncRow, StockSyncRow } from './ReadinessRows';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
@@ -238,6 +239,8 @@ beforeEach(() => {
       capabilities: { kiditemEnvironmentProfilesV1: true, collectionStartV1: true },
     }),
     setAuthToken: () => ({ success: true }),
+    // A web-opened attempt shows as taken once the extension holds its session.
+    getCollectionSession: (message) => extensionSessionReply(message),
   };
   vi.mocked(detectExtensionId).mockResolvedValue(EXTENSION_ID);
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([EXTENSION_ID]);

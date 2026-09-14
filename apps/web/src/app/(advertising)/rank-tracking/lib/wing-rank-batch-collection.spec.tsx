@@ -241,14 +241,28 @@ describe('Wing rank batch collection control', () => {
     });
   });
 
-  it('keeps an admitted batch running with its stop when the extension does not confirm the dispatch', async () => {
+  it('stops the admitted batch by its key and gives the reason when the extension does not take it', async () => {
     vi.mocked(runWingSalesRankCheck).mockRejectedValue(new Error('Wing 판매순위 요청 전달 실패'));
+    vi.mocked(apiClient.post).mockImplementation(async (path: string, _body?: unknown, options?: unknown) => {
+      if (path === BATCH_PATH) {
+        owner = current(idempotencyKey(options), ['RUNNING', 'RUNNING']);
+        return batch(['RUNNING', 'RUNNING']);
+      }
+      if (path === CANCEL_PATH) {
+        owner = current(idempotencyKey(options), ['FAILED', 'FAILED']);
+        return batch(['FAILED', 'FAILED']);
+      }
+      throw new Error(`unexpected POST ${path}`);
+    });
     renderControls(<WingRankControl label="순위 추적" />);
 
     fireEvent.click(await screen.findByRole('button', { name: '순위 받기' }));
 
-    expect(await screen.findByText('수집 중 · 0/2개 키워드')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
+    expect(await screen.findByText('Wing 판매순위 요청 전달 실패')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '순위 받기' })).toBeEnabled();
+    const [[, , beginOptions], [cancelPath, , cancelOptions]] = vi.mocked(apiClient.post).mock.calls;
+    expect(cancelPath).toBe(CANCEL_PATH);
+    expect(idempotencyKey(cancelOptions)).toBe(idempotencyKey(beginOptions));
   });
 
   it('refreshes rank, dashboard, traffic and readiness reads only after a newly finished batch', async () => {

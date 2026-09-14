@@ -11,6 +11,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
@@ -103,7 +104,8 @@ beforeEach(() => {
     version: '1',
   });
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([]);
-  vi.mocked(sendToExtension).mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+    extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
     const accountId = new URL(path, 'http://localhost').searchParams.get('channelAccountId') ?? '';
     const source = sources[accountId];
@@ -152,6 +154,31 @@ describe('Rocket PO collection control', () => {
     expect(extensionMessages('collectRocketPoRows')).toEqual([
       ['rocket-extension', { action: 'collectRocketPoRows', attemptId: ATTEMPT_ID }, 190_000],
     ]);
+  });
+
+  it('stops the attempt it opened and gives the reason when the extension cannot be reached', async () => {
+    const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
+      if ((message as { action: string }).action === 'collectRocketPoRows') {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      }
+      return null;
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === BEGIN_PATH) {
+        return { ...attempt(ACCOUNT_A, 'RUNNING'), attemptToken: '44444444-4444-4444-8444-444444444444' };
+      }
+      if (path === cancelPath) return attempt(ACCOUNT_A, 'FAILED');
+      throw new Error(`unexpected POST ${path}`);
+    });
+    renderControls(<RocketControl accountId={ACCOUNT_A} label="확인 패널" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '로켓 PO 수집' }));
+
+    expect(
+      await screen.findByText('확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.'),
+    ).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
   });
 
   it('joins the collection the owner already runs for the account', async () => {

@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import WingDailySales from './WingDailySales';
 
 vi.mock('@/lib/api-client', () => ({
@@ -83,7 +84,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   source = { latestAttempt: null, latestComplete: null };
   vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('sellpia-extension');
-  vi.mocked(sendToExtension).mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+    extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path.startsWith('/api/traffic/monthly')) return monthly;
     if (path === '/api/readiness') return readiness;

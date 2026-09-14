@@ -17,14 +17,9 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { attemptInProgress } from '@/lib/collection-start';
-import {
-  detectOrderCollectionExtensionRuntime,
-  sendToExtension,
-} from '@/lib/extension-bridge';
-import { transferExtensionAuthTo } from '@/lib/extension-auth';
+import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
+import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { invalidateSellpiaInventory } from './invalidate-sellpia-inventory';
 
@@ -98,7 +93,7 @@ export function beginSellpiaInventorySourceAttempt(
     .then((response) => SellpiaInventorySourceAttemptSchema.parse(response));
 }
 
-export async function prepareSellpiaInventoryExtension(): Promise<string> {
+async function detectSellpiaInventoryExtension(): Promise<string> {
   const runtime = await detectOrderCollectionExtensionRuntime(1_200, [
     SELLPIA_INVENTORY_EXTENSION_CAPABILITY,
   ]);
@@ -110,8 +105,13 @@ export async function prepareSellpiaInventoryExtension(): Promise<string> {
       '셀피아 재고 수집 익스텐션을 연결한 뒤 다시 시도해 주세요.',
     );
   }
-  await transferExtensionAuthTo(runtime.extensionId);
   return runtime.extensionId;
+}
+
+function cancelSellpiaInventoryAttempt(attemptId: string) {
+  return apiClient.post(
+    `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
+  );
 }
 
 export type SellpiaInventorySourceOwnerState = {
@@ -122,19 +122,6 @@ export type SellpiaInventorySourceOwnerState = {
   /** The last attempt was stopped; the previous snapshot stays in use. */
   stopped: boolean;
 };
-
-/**
- * Sends the begun attempt's id to the extension. The extension answers only
- * when the collection ends and the owner status already reports that, so the
- * page does not wait for the answer.
- */
-export function dispatchSellpiaInventoryCollection(extensionId: string, attemptId: string): void {
-  void sendToExtension(
-    extensionId,
-    { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId },
-    190_000,
-  ).catch(() => undefined);
-}
 
 /**
  * The owner's freshness read names the attempt holding the live lease, so every
@@ -152,8 +139,8 @@ const SOURCE_RUNNING_POLL_MS = 2_000;
 const SOURCE_IDLE_POLL_MS = 60_000;
 
 /**
- * Sellpia inventory collection for the shared control. The page begins the
- * owner attempt and hands its id to the extension; the extension collects,
+ * Sellpia inventory collection for the shared control. The page opens the
+ * owner attempt and hands it to the extension; the extension collects,
  * uploads and finalizes it.
  */
 export function sellpiaInventoryCollection({
@@ -181,26 +168,19 @@ export function sellpiaInventoryCollection({
       meta: { suppressGlobalErrorToast: true },
     }),
     readRunning: sellpiaInventoryRunning,
-    start: async (_input, { status }) => {
-      const extensionId = await prepareSellpiaInventoryExtension();
-      const trigger = status?.status === 'failed' ? 'retry' : 'manual_request';
-      let started: SellpiaInventorySourceAttempt;
-      try {
-        started = await beginSellpiaInventorySourceAttempt(createSecureRandomUuid(), trigger);
-      } catch (error) {
-        const inProgress = attemptInProgress(error);
-        if (!inProgress) throw error;
-        return { outcome: 'running', attemptId: inProgress.attemptId };
-      }
-      if (started.state === 'RUNNING') {
-        dispatchSellpiaInventoryCollection(extensionId, started.attemptId);
-      }
-      return { outcome: 'started', attemptId: started.attemptId };
-    },
-    cancelOnServer: (attemptId) =>
-      apiClient.post(
-        `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
-      ),
+    start: (_input, { status }) =>
+      startWebOpenedCollection({
+        detectExtension: detectSellpiaInventoryExtension,
+        begin: async (idempotencyKey) => {
+          const trigger = status?.status === 'failed' ? 'retry' : 'manual_request';
+          const started = await beginSellpiaInventorySourceAttempt(idempotencyKey, trigger);
+          return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
+        },
+        handOff: ({ extensionId, attemptId }) =>
+          handOffToExtensionRun(extensionId, { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId }),
+        cancel: ({ attemptId }) => cancelSellpiaInventoryAttempt(attemptId),
+      }),
+    cancelOnServer: cancelSellpiaInventoryAttempt,
     readCompleteId: (freshness) => freshness.verifiedGeneration,
     // A newer verified generation republished the snapshot every stock screen reads.
     onNewComplete: (queryClient) => {

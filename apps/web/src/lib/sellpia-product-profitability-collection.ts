@@ -8,14 +8,9 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { attemptInProgress } from '@/lib/collection-start';
-import {
-  detectOrderCollectionExtensionRuntime,
-  sendToExtension,
-} from '@/lib/extension-bridge';
-import { transferExtensionAuthTo } from '@/lib/extension-auth';
+import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
+import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   beginSellpiaProductProfitabilitySourceAttempt,
   SELLPIA_PROFITABILITY_SOURCE_PATH,
@@ -27,7 +22,7 @@ export const SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_CAPABILITY =
 
 const RUNNING_POLL_MS = 2_000;
 
-async function prepareSellpiaProductProfitabilityExtension(): Promise<string> {
+async function detectSellpiaProductProfitabilityExtension(): Promise<string> {
   const runtime = await detectOrderCollectionExtensionRuntime(1_200, [
     SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_CAPABILITY,
   ]);
@@ -37,13 +32,18 @@ async function prepareSellpiaProductProfitabilityExtension(): Promise<string> {
   if (runtime.status !== 'ready') {
     throw new Error('셀피아 수익성 수집 익스텐션을 연결한 뒤 다시 시도해 주세요.');
   }
-  await transferExtensionAuthTo(runtime.extensionId);
   return runtime.extensionId;
 }
 
+function cancelSellpiaProductProfitabilityAttempt(attemptId: string) {
+  return apiClient.post(
+    `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
+  );
+}
+
 /**
- * Sellpia product profitability for the shared control. The page begins the
- * owner attempt and hands its id to the extension, which collects, uploads and
+ * Sellpia product profitability for the shared control. The page opens the
+ * owner attempt and hands it to the extension, which collects, uploads and
  * finalizes it. Collection never publishes ABC grades.
  */
 export const sellpiaProductProfitabilityCollection: CollectionSourceAdapter<SellpiaProfitabilitySourceStatus> = {
@@ -71,32 +71,21 @@ export const sellpiaProductProfitabilityCollection: CollectionSourceAdapter<Sell
       ? { attemptId: attempt.attemptId, scopeLabel: `${attempt.plan.from} ~ ${attempt.plan.to}` }
       : null;
   },
-  start: async () => {
-    const extensionId = await prepareSellpiaProductProfitabilityExtension();
-    let attempt;
-    try {
-      attempt = await beginSellpiaProductProfitabilitySourceAttempt({
-        idempotencyKey: createSecureRandomUuid(),
-      });
-    } catch (error) {
-      const inProgress = attemptInProgress(error);
-      if (!inProgress) throw error;
-      return { outcome: 'running', attemptId: inProgress.attemptId };
-    }
-    if (attempt.state === 'RUNNING') {
-      // The extension answers when the collection ends; the owner status reports it.
-      void sendToExtension(
-        extensionId,
-        { action: SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_ACTION, attemptId: attempt.attemptId },
-        190_000,
-      ).catch(() => undefined);
-    }
-    return { outcome: 'started', attemptId: attempt.attemptId };
-  },
-  cancelOnServer: (attemptId) =>
-    apiClient.post(
-      `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
-    ),
+  start: () =>
+    startWebOpenedCollection({
+      detectExtension: detectSellpiaProductProfitabilityExtension,
+      begin: async (idempotencyKey) => {
+        const attempt = await beginSellpiaProductProfitabilitySourceAttempt({ idempotencyKey });
+        return { outcome: 'opened', attemptId: attempt.attemptId, running: attempt.state === 'RUNNING' };
+      },
+      handOff: ({ extensionId, attemptId }) =>
+        handOffToExtensionRun(extensionId, {
+          action: SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_ACTION,
+          attemptId,
+        }),
+      cancel: ({ attemptId }) => cancelSellpiaProductProfitabilityAttempt(attemptId),
+    }),
+  cancelOnServer: cancelSellpiaProductProfitabilityAttempt,
   readCompleteId: (status) => status.latestComplete?.sourceImportRunId ?? null,
   // A new publication changes the profit evidence Product Management and stock analysis read.
   onNewComplete: (queryClient) => {

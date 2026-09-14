@@ -7,11 +7,9 @@ import type {
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { attemptInProgress } from '@/lib/collection-start';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { transferExtensionAuthTo } from '@/lib/extension-auth';
+import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
+import { detectOrderCollectionExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { beginSellpiaSalesSourceAttempt } from '@/lib/sellpia-sales-api';
 import type { z } from 'zod';
 import type { QueryKey } from '@tanstack/react-query';
@@ -55,43 +53,41 @@ export function sellpiaSalesReadinessRange(check: Readonly<{
   };
 }
 
-async function startSellpiaSalesCollection(
+function cancelSellpiaSalesAttempt(attemptId: string) {
+  return apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
+function startSellpiaSalesCollection(
   range: SellpiaSalesCollectionRange | void,
 ): Promise<CollectionStartOutcome> {
-  const extensionId = await detectOrderCollectionExtensionId(1_200, REQUIRED_CAPABILITY);
-  if (!extensionId) {
-    throw new Error(
-      '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os를 Chrome에서 새로고침하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도해주세요.',
-    );
-  }
-  await transferExtensionAuthTo(extensionId);
-  let started: Awaited<ReturnType<typeof beginSellpiaSalesSourceAttempt>>;
-  try {
-    started = await beginSellpiaSalesSourceAttempt({
-      idempotencyKey: createSecureRandomUuid(),
-      from: range ? range.from : undefined,
-      to: range ? range.to : undefined,
-    });
-  } catch (error) {
-    const inProgress = attemptInProgress(error);
-    if (!inProgress) throw error;
-    return { outcome: 'running', attemptId: inProgress.attemptId };
-  }
-  if (started.state === 'RUNNING') {
-    // The extension answers only when the collection ends; the owner status reports it.
-    void sendToExtension(
-      extensionId,
-      { action: EXTENSION_ACTION, attemptId: started.attemptId },
-      190_000,
-    ).catch(() => undefined);
-  }
-  return { outcome: 'started', attemptId: started.attemptId };
+  return startWebOpenedCollection({
+    detectExtension: async () => {
+      const extensionId = await detectOrderCollectionExtensionId(1_200, REQUIRED_CAPABILITY);
+      if (!extensionId) {
+        throw new Error(
+          '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os를 Chrome에서 새로고침하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도해주세요.',
+        );
+      }
+      return extensionId;
+    },
+    begin: async (idempotencyKey) => {
+      const started = await beginSellpiaSalesSourceAttempt({
+        idempotencyKey,
+        from: range ? range.from : undefined,
+        to: range ? range.to : undefined,
+      });
+      return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
+    },
+    handOff: ({ extensionId, attemptId }) =>
+      handOffToExtensionRun(extensionId, { action: EXTENSION_ACTION, attemptId }),
+    cancel: ({ attemptId }) => cancelSellpiaSalesAttempt(attemptId),
+  });
 }
 
 /**
  * Sellpia sales (몰별 일매출) collection for the shared control. The page
- * begins the owner attempt for a range, or the owner's default window, and
- * hands its id to the extension, which uploads the sale summary to the owner.
+ * opens the owner attempt for a range, or the owner's default window, and
+ * hands it to the extension, which uploads the sale summary to the owner.
  */
 export const sellpiaSalesCollection: CollectionSourceAdapter<
   SellpiaSalesSourceStatus,
@@ -119,8 +115,7 @@ export const sellpiaSalesCollection: CollectionSourceAdapter<
     return { attemptId: attempt.attemptId, scopeLabel: from === to ? from : `${from} ~ ${to}` };
   },
   start: (range) => startSellpiaSalesCollection(range),
-  cancelOnServer: (attemptId) =>
-    apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`),
+  cancelOnServer: cancelSellpiaSalesAttempt,
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
   // A new COMPLETE republished the daily sales the sales screens, readiness and Wing daily sales read.
   onNewComplete: (queryClient) => {

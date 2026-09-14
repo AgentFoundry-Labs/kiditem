@@ -32,6 +32,9 @@ it("Dashboard starts this month's Rocket collection through the account's shared
     messages.push(message);
     // The extension answers collectRocketPoRows only when the collection ends.
     if (message.action === 'collectRocketPoRows') return;
+    // Taking the attempt shows as its collection session.
+    if (message.action === 'getCollectionSession') return callback({ attemptId: message.attemptId, producer: 'orders.coupang_rocket_po',
+      progress: { current: 0, total: 0, completed: 0, failed: 0, label: null }, attention: null });
     callback(message.action === 'ping' ? { success: true, version: 'test', capabilities: {
       kiditemEnvironmentProfilesV1: true, coupangRocketPoSourceOwnerV1: true,
     } } : { success: true });

@@ -10,6 +10,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { SellpiaSyncAction } from './SellpiaSyncAction';
 
 vi.mock('@/lib/api-client', () => ({
@@ -141,8 +142,9 @@ beforeEach(() => {
     version: '1',
   });
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([]);
-  // The extension answers only when the collection ends; the page never waits for it.
-  vi.mocked(sendToExtension).mockImplementation(() => new Promise(() => undefined));
+  // The extension answers only when the collection ends; its session shows it took the attempt.
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+    extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path === FRESHNESS_PATH) return freshnessView;
     throw new Error(`unexpected GET ${path}`);

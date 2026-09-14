@@ -16,6 +16,7 @@ import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
 } from '@/lib/sellpia-sales-source-collection';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
@@ -118,8 +119,9 @@ beforeEach(() => {
   source = { latestAttempt: null, latestComplete: null };
   vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('sellpia-extension');
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([]);
-  // The extension answers only when the collection ends.
-  vi.mocked(sendToExtension).mockImplementation(() => new Promise(() => undefined));
+  // The extension answers only when the collection ends; the session shows it took the attempt.
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+    extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
     if (path !== SOURCE_PATH) throw new Error(`unexpected GET ${path}`);
     return source;
@@ -152,9 +154,34 @@ describe('Sellpia sales collection control', () => {
       { range: RANGE },
       { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
     ]]);
-    expect(vi.mocked(sendToExtension).mock.calls).toEqual([
+    expect(
+      vi.mocked(sendToExtension).mock.calls.filter(([, message]) =>
+        (message as { action: string }).action === 'collectSellpiaSaleSummary'),
+    ).toEqual([
       ['sellpia-extension', { action: 'collectSellpiaSaleSummary', attemptId: ATTEMPT_ID }, 190_000],
     ]);
+  });
+
+  it('stops the attempt it opened and gives the reason when the extension does not take it', async () => {
+    const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      (message as { action: string }).action === 'collectSellpiaSaleSummary'
+        ? { success: false, error: 'Another Sellpia sales collection is running' }
+        : null);
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === BEGIN_PATH) return beginReply();
+      if (path === cancelPath) return {};
+      throw new Error(`unexpected POST ${path}`);
+    });
+    renderControls(<SalesControl label="매출 분석" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
+
+    expect(
+      await screen.findByText('확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '매출 받기' })).toBeEnabled();
+    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
   });
 
   it("begins the owner's default window when the screen names no range", async () => {

@@ -5,10 +5,8 @@ import type {
   CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { attemptInProgress } from '@/lib/collection-start';
-import { transferExtensionAuthTo } from '@/lib/extension-auth';
+import { startWebOpenedCollection } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   beginWingRankBatch,
   cancelWingRankBatchOnServer,
@@ -29,29 +27,31 @@ function runningBatch(batch: WingRankCurrentBatch | null): WingRankCurrentBatch 
   return batch?.attempts.some((attempt) => attempt.state === 'RUNNING') ? batch : null;
 }
 
-async function startWingRankBatch(): Promise<CollectionStartOutcome> {
-  const gate = await detectRankExtensionGate();
-  if (gate.status !== 'ready') {
-    throw new Error(
-      rankExtensionGateMessage(gate) ?? 'Wing 판매순위 수집 확장프로그램을 확인할 수 없습니다.',
-    );
-  }
-  await transferExtensionAuthTo(gate.extensionId);
-  const batchKey = createSecureRandomUuid();
-  let admitted: Awaited<ReturnType<typeof beginWingRankBatch>>;
-  try {
-    admitted = await beginWingRankBatch(batchKey);
-  } catch (error) {
-    if (!attemptInProgress(error)) throw error;
-    // A keyword of the current batch is still running; the current batch read names it.
-    return { outcome: 'running', attemptId: null };
-  }
-  if (admitted.attempts.length === 0) {
-    return { outcome: 'refused', message: '순위를 확인할 자사 상품이 없습니다.' };
-  }
-  // The extension works through the batch and the owner reports each keyword.
-  void runWingSalesRankCheck(gate.extensionId, batchKey).catch(() => undefined);
-  return { outcome: 'started', attemptId: batchKey };
+function startWingRankBatch(): Promise<CollectionStartOutcome> {
+  return startWebOpenedCollection({
+    detectExtension: async () => {
+      const gate = await detectRankExtensionGate();
+      if (gate.status !== 'ready') {
+        throw new Error(
+          rankExtensionGateMessage(gate) ?? 'Wing 판매순위 수집 확장프로그램을 확인할 수 없습니다.',
+        );
+      }
+      return gate.extensionId;
+    },
+    // The owner admits a batch of keyword attempts under the start's key.
+    begin: async (batchKey) => {
+      const admitted = await beginWingRankBatch(batchKey);
+      const first =
+        admitted.attempts.find((attempt) => attempt.state === 'RUNNING') ?? admitted.attempts[0];
+      if (!first) return { outcome: 'refused', message: '순위를 확인할 자사 상품이 없습니다.' };
+      return { outcome: 'opened', attemptId: first.attemptId, running: first.state === 'RUNNING' };
+    },
+    // The extension accepts the batch at once and works through its keywords.
+    handOff: async ({ extensionId, idempotencyKey }) => {
+      await runWingSalesRankCheck(extensionId, idempotencyKey);
+    },
+    cancel: ({ idempotencyKey }) => cancelWingRankBatchOnServer(idempotencyKey),
+  });
 }
 
 async function stopWingRankBatch(batchKey: string): Promise<void> {

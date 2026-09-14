@@ -9,6 +9,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { ProductOperationsSourceCollections } from './ProductOperationsSourceCollections';
 
 vi.mock('@/lib/api-client', () => ({
@@ -105,7 +106,8 @@ beforeEach(() => {
     version: '1',
   });
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([]);
-  vi.mocked(sendToExtension).mockImplementation(() => new Promise(() => undefined));
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+    extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path === FRESHNESS_PATH) return freshness;
     throw new Error(`unexpected GET ${path}`);
@@ -145,6 +147,27 @@ describe('ProductOperationsSourceCollections', () => {
       ['sellpia-extension', { action: 'collectSellpiaProductProfit', attemptId: ATTEMPT_ID }, 190_000],
     ]);
     expect(extensionMessages('collectSellpiaInventory')).toEqual([]);
+  });
+
+  it('stops the profitability attempt it opened when the extension does not take it', async () => {
+    const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      (message as { action: string }).action === 'collectSellpiaProductProfit'
+        ? { success: false, error: '셀피아 로그인이 필요합니다.' }
+        : null);
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === BEGIN_PATH) {
+        return { ...profitabilityAttempt('RUNNING'), attemptToken: '44444444-4444-4444-8444-444444444444' };
+      }
+      if (path === cancelPath) return profitabilityAttempt('FAILED');
+      throw new Error(`unexpected POST ${path}`);
+    });
+    renderCollections();
+
+    fireEvent.click(await screen.findByRole('button', { name: '셀피아 상품 손익 수집' }));
+
+    expect(await screen.findByText('셀피아 로그인이 필요합니다.')).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
   });
 
   it('stops a running profitability collection through the owner route when no extension holds it', async () => {
