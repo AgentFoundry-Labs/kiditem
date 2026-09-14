@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const sourcePath = path.join(repoRoot, 'extensions/kiditem-os/background/coupang/ad-center-collector.js');
@@ -434,4 +435,115 @@ test('source interface does not expose the old universal target loop', () => {
   assert.equal(typeof collector.collectKeywords, 'function');
   assert.equal(typeof collector.collectAccountDailyKpis, 'undefined');
   assert.equal(typeof collector.collectProfitabilitySlice, 'function');
+});
+
+const dashboardNotLoaded = {
+  success: false,
+  errorCode: 'AD_DASHBOARD_NOT_LOADED',
+  error: '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.',
+};
+const sweepControl = { attemptId: 'attempt', plan: { captureMode: 'campaign_sweep' } };
+
+test('a campaign sweep reloads the tab once when the dashboard grid does not load, then fails with the dashboard reason', async () => {
+  const api = load();
+  const fake = harness([dashboardNotLoaded, dashboardNotLoaded], { producer: 'advertising.ad_sync' });
+  const reloads = [];
+  fake.resource.reloadTab = async (tabId) => { reloads.push(tabId); };
+  const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'ad-status', cancelKey: 'ad-cancel', delay: async () => {} });
+
+  const result = await collector.collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'AD_DASHBOARD_NOT_LOADED');
+  assert.equal(result.error, dashboardNotLoaded.error);
+  assert.deepEqual(reloads, [41], 'one reload and one more wait, then the sweep fails');
+  assert.equal(fake.calls.messages.length, 2);
+});
+
+test('a campaign sweep continues when the dashboard grid loads after its reload, also after a resume handoff', async () => {
+  const api = load();
+  const complete = { success: true, campaignReceipt: { complete: true } };
+  const resume = {
+    success: false,
+    resumeRequired: true,
+    resumeUrl: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    progress: { current: 12, total: 31, completed: 0, failed: 0, label: '12일' },
+  };
+  for (const responses of [[dashboardNotLoaded, complete], [resume, dashboardNotLoaded, complete]]) {
+    const fake = harness(responses.map((response) => structuredClone(response)), { producer: 'advertising.ad_sync' });
+    const reloads = [];
+    fake.resource.reloadTab = async (tabId) => { reloads.push(tabId); };
+    const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'ad-status', cancelKey: 'ad-cancel', delay: async () => {} });
+
+    const result = await collector.collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+
+    assert.equal(result.success, true, JSON.stringify(result));
+    assert.deepEqual(reloads, [41]);
+    assert.equal(fake.calls.messages.length, responses.length);
+  }
+});
+
+test('a campaign sweep keeps Coupang dialogs from blocking its page and restores them when the sweep ends', async () => {
+  const api = load();
+  const events = [];
+  const scripts = [];
+  let sends = 0;
+  const fake = harness([], {
+    producer: 'advertising.ad_sync',
+    sendMessageWhenReady: async ({ tabId }) => {
+      sends += 1;
+      events.push(`message:${tabId}`);
+      return sends === 1
+        ? {
+          success: false,
+          resumeRequired: true,
+          resumeUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',
+          progress: { current: 1, total: 31, completed: 0, failed: 0, label: 'retry' },
+        }
+        : { success: true, campaignReceipt: { complete: true } };
+    },
+  });
+  fake.chrome.scripting = {
+    async executeScript(details) {
+      scripts.push(details);
+      events.push(`page:${details.func.name}:${details.world}:${details.target.tabId}`);
+      return [{ result: true }];
+    },
+  };
+  const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'ad-status', cancelKey: 'ad-cancel', delay: async () => {} });
+
+  const result = await collector.collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.deepEqual(events, [
+    'page:installAdsDialogRecorder:MAIN:41',
+    'message:41',
+    'page:installAdsDialogRecorder:MAIN:41',
+    'message:41',
+    'page:removeAdsDialogRecorder:MAIN:41',
+  ], 'each sweep document gets the recorder before its message, and the page gets its dialogs back afterwards');
+
+  // chrome.scripting serializes each function into the page, so run the same
+  // source text in a page world.
+  const dom = new JSDOM('', { url: 'https://advertising.coupang.com/marketing/dashboard/sales', runScripts: 'outside-only' });
+  try {
+    const page = dom.getInternalVMContext();
+    const nativeAlert = dom.window.alert;
+    const nativeConfirm = dom.window.confirm;
+    const install = scripts[0].func;
+    const remove = scripts.at(-1).func;
+    vm.runInContext(`(${install})()`, page);
+    vm.runInContext(`(${install})()`, page);
+    assert.equal(vm.runInContext('window.alert("세션이 만료되었습니다.")', page), undefined);
+    assert.equal(vm.runInContext('window.confirm("이 페이지를 떠나시겠습니까?")', page), false);
+    assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem('kiditem_ads_dialog_log_v1')), [
+      { seq: 1, kind: 'alert', message: '세션이 만료되었습니다.' },
+      { seq: 2, kind: 'confirm', message: '이 페이지를 떠나시겠습니까?' },
+    ]);
+    vm.runInContext(`(${remove})()`, page);
+    assert.equal(dom.window.alert, nativeAlert);
+    assert.equal(dom.window.confirm, nativeConfirm);
+  } finally {
+    dom.window.close();
+  }
 });

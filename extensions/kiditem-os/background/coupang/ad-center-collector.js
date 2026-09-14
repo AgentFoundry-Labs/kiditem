@@ -283,6 +283,55 @@
     return [String(previous || "unknown"), String(next || "unknown")].join("\u001e");
   }
 
+  // Coupang's native alert() and confirm() block the page, and the content
+  // script waiting on it, until someone dismisses them. While a campaign sweep
+  // runs, its owned tab's page world records these dialogs in the tab's
+  // sessionStorage instead, and ads-report.js treats a recorded alert as a page
+  // error. chrome.scripting serializes both functions into the page, so they
+  // must not reach anything outside their own bodies.
+  function installAdsDialogRecorder() {
+    const logKey = "kiditem_ads_dialog_log_v1";
+    const marker = "__kiditemAdsDialogRecorder";
+    if (window[marker]) return true;
+    const record = (kind, message) => {
+      let log;
+      try {
+        log = JSON.parse(window.sessionStorage.getItem(logKey) || "[]");
+      } catch {
+        log = [];
+      }
+      if (!Array.isArray(log)) log = [];
+      const last = Number(log[log.length - 1]?.seq);
+      const seq = Number.isSafeInteger(last) && last > 0 ? last + 1 : 1;
+      log.push({ seq, kind, message: String(message ?? "").slice(0, 300) });
+      try {
+        window.sessionStorage.setItem(logKey, JSON.stringify(log.slice(-10)));
+      } catch {
+        // Recording is best effort; the page must still not block.
+      }
+    };
+    const native = { alert: window.alert, confirm: window.confirm };
+    window.alert = function recordAlert(message) {
+      record("alert", message);
+    };
+    window.confirm = function recordConfirm(message) {
+      record("confirm", message);
+      return false;
+    };
+    Object.defineProperty(window, marker, { value: native, configurable: true });
+    return true;
+  }
+
+  function removeAdsDialogRecorder() {
+    const marker = "__kiditemAdsDialogRecorder";
+    const native = window[marker];
+    if (!native) return false;
+    window.alert = native.alert;
+    window.confirm = native.confirm;
+    delete window[marker];
+    return true;
+  }
+
   function create(options = {}) {
     const windowResource = options.window || options.resource;
     const chromeApi = options.chrome || root.chrome;
@@ -547,6 +596,7 @@
 
     async function sendManualSync(tabId, runId, targetUrl, environmentId, mode, control, producer, extra = {}) {
       const message = targetMessage(runId, 1, environmentId, mode, control, extra);
+      if (mode === "campaign_sweep") await runInPage(tabId, installAdsDialogRecorder);
       for (let busyAttempt = 1; busyAttempt <= MAX_BUSY_ATTEMPTS; busyAttempt += 1) {
         await activeRun(runId, environmentId, producer);
         try {
@@ -596,6 +646,32 @@
       return sendManualSync(tabId, runId, targetUrl, environmentId, mode, control, producer, extra);
     }
 
+    const DASHBOARD_NOT_LOADED = "AD_DASHBOARD_NOT_LOADED";
+
+    async function runInPage(tabId, func) {
+      if (typeof chromeApi?.scripting?.executeScript !== "function" || !Number.isInteger(tabId)) return;
+      try {
+        await chromeApi.scripting.executeScript({ target: { tabId }, world: "MAIN", func });
+      } catch {
+        // Best effort: a page that cannot take the recorder, such as a login
+        // page outside the advertising origin, still runs the sweep.
+      }
+    }
+
+    // A sweep whose dashboard grid did not load gets one reload of the tab and
+    // one more wait before that failure stands.
+    async function sendWithDashboardReload(tabId, runId, targetUrl, environmentId, mode, control, producer, extra = {}) {
+      const response = await sendWithReceiverRecovery(tabId, runId, targetUrl, environmentId, mode, control, producer, extra);
+      if (mode !== "campaign_sweep" || response?.errorCode !== DASHBOARD_NOT_LOADED) return response;
+      await activeRun(runId, environmentId, producer);
+      await windowResource.reloadTab(tabId);
+      await windowResource.waitForTabComplete(tabId);
+      await activeRun(runId, environmentId, producer);
+      await wait(NORMAL_TARGET_SETTLE_MS);
+      await activeRun(runId, environmentId, producer);
+      return sendWithReceiverRecovery(tabId, runId, targetUrl, environmentId, mode, control, producer, extra);
+    }
+
     async function runTarget(runId, target, environmentId, mode, control, producer, extra = {}) {
       await activeRun(runId, environmentId, producer);
       const isProfitability = mode === "profitability_report";
@@ -619,7 +695,7 @@
       await activeRun(runId, environmentId, producer);
       return {
         owned,
-        response: await sendWithReceiverRecovery(
+        response: await sendWithDashboardReload(
           owned.tabId,
           runId,
           target.url,
@@ -680,7 +756,7 @@
             await bindTab(owned.tabId, environmentId);
             await wait(2500);
             await activeRun(runId, environmentId, producer);
-            response = await sendWithReceiverRecovery(owned.tabId, runId, target.url, environmentId, mode, control, producer, extra);
+            response = await sendWithDashboardReload(owned.tabId, runId, target.url, environmentId, mode, control, producer, extra);
           } catch (error) {
             response = { success: false, pendingLogin: true, error: errorMessage(error) };
             break;
@@ -705,7 +781,7 @@
         await activeRun(runId, environmentId, producer);
         await wait(2500);
         await activeRun(runId, environmentId, producer);
-        response = await sendWithReceiverRecovery(owned.tabId, runId, target.url, environmentId, mode, control, producer, extra);
+        response = await sendWithDashboardReload(owned.tabId, runId, target.url, environmentId, mode, control, producer, extra);
         const next = campaignSweepProgress(response);
         if (progressed(progress, next)) {
           stalledTransitions.clear();
@@ -781,6 +857,13 @@
         if (owned) await writeStatus({ runId: attemptId, status: "error", current: 1, total: 1, completed: 0, failed: 1, currentTabId: owned.tabId, error: message });
         notify();
         throw error;
+      } finally {
+        // Give the page its own dialogs back once the sweep stops, for example
+        // when a login window stays open for the operator.
+        if (mode === "campaign_sweep" && owned) {
+          const current = await windowResource.reattach(attemptId).catch(() => null);
+          if (current) await runInPage(current.tabId, removeAdsDialogRecorder);
+        }
       }
     }
 

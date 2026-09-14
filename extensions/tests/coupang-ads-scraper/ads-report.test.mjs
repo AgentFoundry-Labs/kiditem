@@ -2732,6 +2732,31 @@ test("successful sweep clears a prior dashboard identity error but keeps unresol
   );
 });
 
+test("the campaign failure reason names a few campaigns and the latest Coupang alert within the owner's limit", () => {
+  const contract = loadContract();
+  const errors = ["A 캠페인", "B 캠페인", "C 캠페인", "D 캠페인", "E 캠페인"].map((name, index) => ({
+    identity: `campaign:${index + 1}`,
+    name,
+    error: "campaign_detail_identity_or_surface_timeout",
+    ...(index === 3 ? { alertMessage: "일시적인 오류가 발생했습니다." } : {}),
+  }));
+
+  assert.equal(
+    contract.campaignSweepFailureReason(errors),
+    "쿠팡 광고 캠페인 5개를 불러오지 못했습니다: A 캠페인, B 캠페인, C 캠페인 외 2개. 쿠팡 알림: '일시적인 오류가 발생했습니다.'",
+  );
+  assert.equal(
+    contract.campaignSweepFailureReason([{ identity: "campaign:1", name: "A", error: "x" }]),
+    "쿠팡 광고 캠페인 1개를 불러오지 못했습니다: A.",
+  );
+  const bounded = contract.campaignSweepFailureReason(errors.map((entry) => ({
+    ...entry,
+    name: "긴".repeat(200),
+    alertMessage: "알림".repeat(200),
+  })));
+  assert.ok(bounded.length <= 300, `the owner failure message allows 300 characters, got ${bounded.length}`);
+});
+
 test("only a campaign with no detail report gets a metadata-only envelope", () => {
   const contract = loadContract();
   assert.deepEqual(

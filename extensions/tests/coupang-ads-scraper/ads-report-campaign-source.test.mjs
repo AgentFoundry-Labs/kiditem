@@ -10,7 +10,7 @@ const dashboard = 'https://advertising.coupang.com/marketing/dashboard/sales';
 const detail = dashboard + '/campaign/123/group/456/product';
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function harness({ metadata = false, rawOnly = false, manual = false, manualPeriod = '7d', failDate = null, failKeywords = false, failProductSales = false, metadataRows = null, metadataPageSize = null, metadataNextDisabled = false } = {}) {
+function harness({ metadata = false, rawOnly = false, manual = false, manualPeriod = '7d', failDate = null, failKeywords = false, failProductSales = false, metadataRows = null, metadataPageSize = null, metadataNextDisabled = false, detailFailures = 0, onDetailFailure = null, onDelay = null, gridMissing = false } = {}) {
   const dom = new JSDOM('', { url: dashboard });
   Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', { get() { return this.textContent; } });
   dom.window.HTMLElement.prototype.getClientRects = () => [{}];
@@ -44,8 +44,22 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
   function renderDashboard() {
     dom.window.history.replaceState({}, '', dashboard);
     dom.window.document.body.innerHTML = identity + `<div class="rt-table"><div class="rt-thead"><span class="rt-th">캠페인</span><span class="rt-th">노출수</span><span class="rt-th">클릭수</span></div><div class="rt-tbody"><div class="rt-tr-group"><div role="gridcell" data-bigfoot-component="campaign_name"><a class="dashboard-title" href="${rawOnly ? dashboard : detail}">${name}</a></div><div role="gridcell">OFF</div><div role="gridcell">중지</div></div></div></div>` + dashboardPagination;
-    dom.window.document.querySelector('a').onclick = event => { event.preventDefault(); renderDetail(); };
+    if (gridMissing) {
+      dom.window.document.querySelector('.rt-table').remove();
+      return;
+    }
+    dom.window.document.querySelector('a').onclick = event => {
+      event.preventDefault();
+      // A visit that never reaches the detail page, like a stalled Coupang page.
+      if (detailFailuresLeft > 0) {
+        detailFailuresLeft -= 1;
+        onDetailFailure?.(dom);
+        return;
+      }
+      renderDetail();
+    };
   }
+  let detailFailuresLeft = detailFailures;
   function renderDetail() {
     dom.window.history.replaceState({}, '', detail);
     const pageStart = (metadataPage - 1) * effectiveMetadataPageSize;
@@ -136,7 +150,7 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
       return { ok: true, status: 200, text: async () => JSON.stringify({}) };
     },
     chrome: { runtime: { lastError: null, onMessage: { addListener(fn) { listener = fn; } }, sendMessage(message, callback) {
-      if (message.action === 'waitForAdCollectorDelay') { now += message.milliseconds; delays.push(message.milliseconds); }
+      if (message.action === 'waitForAdCollectorDelay') { now += message.milliseconds; delays.push(message.milliseconds); onDelay?.(dom); }
       if (message.action === 'syncToServer') throw new Error('campaign must not publish through legacy sync');
       if (message.action !== 'advertisingCampaignSourceStep') return callback?.({success:true});
       if (message.step === 'resume') return callback({success:true,control:structuredClone(control)});
@@ -797,4 +811,101 @@ test('two linkless campaigns survive 12-day handoffs and content recreation with
   } finally {
     h.close();
   }
+});
+
+// The page-world recorder the collector installs while a sweep runs
+// (background/coupang/ad-center-collector.js) writes Coupang dialogs here.
+function recordCoupangAlert(dom, message) {
+  const key = 'kiditem_ads_dialog_log_v1';
+  const log = JSON.parse(dom.window.sessionStorage.getItem(key) || '[]');
+  log.push({ seq: (log.at(-1)?.seq || 0) + 1, kind: 'alert', message });
+  dom.window.sessionStorage.setItem(key, JSON.stringify(log));
+}
+
+test('a campaign whose detail page never loads gets one retry in the attempt, then fails it with a named reason', async () => {
+  const h = harness({ detailFailures: 2 });
+  try {
+    const first = await h.run();
+    assert.equal(first.resumeRequired, true, JSON.stringify(first));
+    assert.equal(first.resumeUrl, dashboard, 'a hashless dashboard URL reloads the page, so the retry starts from page one');
+    assert.equal(first.campaignReceipt, undefined, 'the first failure does not end the attempt');
+
+    const second = await h.run();
+
+    assert.equal(second.success, false, JSON.stringify(second));
+    assert.equal(second.campaignReceipt.complete, false);
+    assert.equal(second.error, '쿠팡 광고 캠페인 1개를 불러오지 못했습니다: OFF campaign.');
+    assert.equal(h.receipts.some((receipt) => receipt.kind === 'campaign_day'), false);
+  } finally { h.close(); }
+});
+
+test('a campaign that loads on its retry completes the attempt', async () => {
+  const h = harness({ detailFailures: 1 });
+  try {
+    let result;
+    for (let invocation = 0; invocation < 6; invocation += 1) {
+      result = await h.run();
+      if (!result.resumeRequired) break;
+    }
+    assert.equal(result.success, true, JSON.stringify(result));
+    assert.equal(result.campaignReceipt.complete, true);
+    assert.equal(result.failed, 0);
+    assert.deepEqual(
+      h.receipts.filter((receipt) => receipt.kind === 'campaign_day').map((receipt) => receipt.businessDate),
+      h.control.plan.businessDates,
+    );
+  } finally { h.close(); }
+});
+
+test('a Coupang alert during the detail wait counts as a page error and is named in the failure reason', async () => {
+  const h = harness({
+    detailFailures: 2,
+    onDetailFailure: (dom) => recordCoupangAlert(dom, '캠페인 정보를 불러오지 못했습니다.'),
+  });
+  try {
+    const first = await h.run();
+    assert.equal(first.resumeRequired, true, JSON.stringify(first));
+
+    const second = await h.run();
+
+    assert.equal(second.success, false, JSON.stringify(second));
+    assert.equal(second.errors[0].error, 'coupang_alert', 'the recorded alert ends the wait instead of a timeout');
+    assert.equal(
+      second.error,
+      "쿠팡 광고 캠페인 1개를 불러오지 못했습니다: OFF campaign. 쿠팡 알림: '캠페인 정보를 불러오지 못했습니다.'",
+    );
+  } finally { h.close(); }
+});
+
+test('a dashboard whose campaign grid never loads answers with the dashboard failure', async () => {
+  const h = harness({ gridMissing: true });
+  try {
+    const result = await h.run();
+    assert.deepEqual(plain({ success: result.success, errorCode: result.errorCode, error: result.error }), {
+      success: false,
+      errorCode: 'AD_DASHBOARD_NOT_LOADED',
+      error: '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.',
+    });
+    assert.equal(h.receipts.length, 0);
+  } finally { h.close(); }
+});
+
+test('a Coupang alert while the dashboard grid loads is named in the dashboard failure', async () => {
+  let alerted = false;
+  const h = harness({
+    gridMissing: true,
+    onDelay: (dom) => {
+      if (alerted) return;
+      alerted = true;
+      recordCoupangAlert(dom, '세션이 만료되었습니다.');
+    },
+  });
+  try {
+    const result = await h.run();
+    assert.equal(result.errorCode, 'AD_DASHBOARD_NOT_LOADED');
+    assert.equal(
+      result.error,
+      "쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요. 쿠팡 알림: '세션이 만료되었습니다.'",
+    );
+  } finally { h.close(); }
 });

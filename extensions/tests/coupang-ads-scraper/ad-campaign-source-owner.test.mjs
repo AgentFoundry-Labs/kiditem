@@ -167,3 +167,28 @@ test('local checkpoint validates owned tab, actual identity, fixed expiry and ne
   } });
   await h.owner.run({ environmentId: 'local', attemptId });
 });
+
+test('a failed sweep reports the collector reason and code in the owner failure', async () => {
+  const dashboardReason = '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.';
+  const campaignReason = '쿠팡 광고 캠페인 2개를 불러오지 못했습니다: A, B.';
+  for (const [collected, body] of [
+    [{ success: false, error: campaignReason }, { code: 'AD_CAMPAIGN_COLLECTION_FAILED', message: campaignReason }],
+    [{ success: false, errorCode: 'AD_DASHBOARD_NOT_LOADED', error: dashboardReason }, { code: 'AD_DASHBOARD_NOT_LOADED', message: dashboardReason }],
+  ]) {
+    const value = control();
+    const h = harness({
+      request(path, init) {
+        if (path.endsWith('/fail')) {
+          const failure = JSON.parse(init.body);
+          Object.assign(value, { state: 'FAILED', errorCode: failure.code, errorMessage: failure.message });
+        }
+        return value;
+      },
+      collect: async () => collected,
+    });
+    const outcome = await h.owner.run({ environmentId: 'local', attemptId });
+    assert.deepEqual(JSON.parse(h.requests.find(r => r.path.endsWith('/fail')).body), body);
+    assert.equal(outcome.terminalState, 'FAILED');
+    assert.equal(outcome.error, body.message);
+  }
+});
