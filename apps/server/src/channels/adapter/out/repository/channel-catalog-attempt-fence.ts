@@ -48,6 +48,35 @@ export async function lockCatalogAccount(tx: Prisma.TransactionClient, scope: Ca
   const key = `channel-catalog-publication:${scope.organizationId}:${CATALOG_SOURCE}:${scope.channelAccountId}`;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS lock`;
 }
+export async function lockCatalogAttempt(
+  tx: Prisma.TransactionClient,
+  input: CatalogScope & { runId: string; attemptToken: string; stage?: CoupangCatalogStage },
+) {
+  const stage = input.stage ?? 'full';
+  const sourceType = catalogSourceForStage(stage);
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM source_import_runs
+    WHERE id = ${input.runId}::uuid AND organization_id = ${input.organizationId}::uuid
+      AND channel_account_id = ${input.channelAccountId}::uuid
+      AND source_type = ${sourceType} AND parser_version = ${CATALOG_PARSER}
+    FOR UPDATE
+  `;
+  if (!rows.length) throw new NotFoundException('Catalog attempt not found');
+  const run = await tx.sourceImportRun.findFirstOrThrow({
+    where: { ...catalogWhere(input, stage), id: input.runId },
+  });
+  assertCatalogToken(run.attemptToken, input.attemptToken);
+  return run;
+}
+export function assertCatalogToken(expected: string, received: string) {
+  if (!received || received !== expected)
+    throw new ConflictException('Catalog attempt token mismatch');
+}
+export function assertCatalogRunning(run: { status: string; expiresAt: Date | null }) {
+  if (run.status !== 'running') throw new ConflictException('Catalog attempt is terminal');
+  if (!run.expiresAt || run.expiresAt.getTime() <= Date.now())
+    throw new ConflictException('ATTEMPT_EXPIRED');
+}
 
 /** A workbook import holds its account until it goes this long without an update. */
 export const CATALOG_WORKBOOK_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -94,35 +123,6 @@ export function liveCatalogWorkbookImport(tx: Prisma.TransactionClient, scope: C
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: { id: true },
   });
-}
-export async function lockCatalogAttempt(
-  tx: Prisma.TransactionClient,
-  input: CatalogScope & { runId: string; attemptToken: string; stage?: CoupangCatalogStage },
-) {
-  const stage = input.stage ?? 'full';
-  const sourceType = catalogSourceForStage(stage);
-  const rows = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT id FROM source_import_runs
-    WHERE id = ${input.runId}::uuid AND organization_id = ${input.organizationId}::uuid
-      AND channel_account_id = ${input.channelAccountId}::uuid
-      AND source_type = ${sourceType} AND parser_version = ${CATALOG_PARSER}
-    FOR UPDATE
-  `;
-  if (!rows.length) throw new NotFoundException('Catalog attempt not found');
-  const run = await tx.sourceImportRun.findFirstOrThrow({
-    where: { ...catalogWhere(input, stage), id: input.runId },
-  });
-  assertCatalogToken(run.attemptToken, input.attemptToken);
-  return run;
-}
-export function assertCatalogToken(expected: string, received: string) {
-  if (!received || received !== expected)
-    throw new ConflictException('Catalog attempt token mismatch');
-}
-export function assertCatalogRunning(run: { status: string; expiresAt: Date | null }) {
-  if (run.status !== 'running') throw new ConflictException('Catalog attempt is terminal');
-  if (!run.expiresAt || run.expiresAt.getTime() <= Date.now())
-    throw new ConflictException('ATTEMPT_EXPIRED');
 }
 
 type CatalogPauseRun = {
