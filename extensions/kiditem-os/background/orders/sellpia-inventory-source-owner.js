@@ -323,6 +323,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         work.control = await read(environmentId, work.attemptId);
@@ -344,6 +345,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         if (requested.kind === "complete") {
@@ -399,7 +401,13 @@
       work.terminal ||= terminalRequest;
       if (work.terminalPromise) return work.terminalPromise;
       work.terminalPromise = terminal(environmentId, work)
-        .finally(() => { work.terminalPromise = null; });
+        .finally(() => {
+          work.terminalPromise = null;
+          // An operator stop can settle after both the run and cancel returned.
+          if (!work.promise && !work.terminal && active.get(environmentId) === work) {
+            active.delete(environmentId);
+          }
+        });
       return work.terminalPromise;
     }
 
