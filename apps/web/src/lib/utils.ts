@@ -123,10 +123,9 @@ export function getGradeColor(grade: string): string {
 export function getGradeTextColor(grade: string): string {
   return getGradeColor(grade)
     .split(' ')
-    .find((tone) => tone.startsWith('text-')) ?? ABC_GRADE_NEUTRAL_TEXT_CLASS;
+    .filter((tone) => tone.startsWith('text-'))
+    .join(' ');
 }
-
-const ABC_GRADE_NEUTRAL_TEXT_CLASS = 'text-slate-700';
 
 /**
  * Totals a column that may be unavailable.
