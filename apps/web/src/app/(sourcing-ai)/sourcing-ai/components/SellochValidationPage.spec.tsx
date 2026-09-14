@@ -8,6 +8,7 @@ import {
 import { SellochValidationPage } from './SellochValidationPage';
 
 vi.mock('../hooks/use-sourcing-workspace', () => ({
+  useRefreshSourcingRecommendations: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
   useRefreshSourcingValidation: vi.fn(),
   useSourcingRecommendations: vi.fn(),
   useSourcingValidation: vi.fn(),
@@ -15,15 +16,12 @@ vi.mock('../hooks/use-sourcing-workspace', () => ({
 
 vi.mock('../hooks/use-wing-catalog-source', () => ({
   useWingCatalogSource: vi.fn(() => ({
+    control: {
+      state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+      start: vi.fn(), stop: vi.fn(),
+    },
     attempt: null,
-    isRunning: false,
-    error: null,
     start: vi.fn(),
-    cancel: vi.fn(),
-    retryAttention: vi.fn(),
-    isStarting: false,
-    isCancelling: false,
-    isRetrying: false,
   })),
 }));
 
@@ -62,6 +60,7 @@ describe('SellochValidationPage', () => {
     vi.mocked(useRefreshSourcingValidation).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
+      isError: false,
     } as never);
     vi.mocked(useSourcingRecommendations).mockReturnValue({
       data: { data: { items: [] } },

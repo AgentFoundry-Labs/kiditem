@@ -41,8 +41,14 @@ vi.mock('../../lib/keyword-analysis-snapshot-api', async (importOriginal) => {
 vi.mock('../../hooks/use-wing-catalog-source', () => ({
   useWingCatalogSource: vi.fn((options: Record<string, unknown>) => {
     capturedOptions.set('wing-source', options);
-    return { attempt: null, start: catalogStart, cancel: vi.fn(), isStarting: false,
-      isRunning: false, isCancelling: false, error: null };
+    return {
+      control: {
+        state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+        start: vi.fn(), stop: vi.fn(),
+      },
+      attempt: null,
+      start: catalogStart,
+    };
   }),
 }));
 
