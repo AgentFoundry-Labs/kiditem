@@ -9,6 +9,7 @@ import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
 import AdCollectionDailyChart from "./AdCollectionDailyChart";
 import AdvertisingProfitabilityRefresh from "./AdvertisingProfitabilityRefresh";
+import { WingItemwinnerCollection } from "./WingItemwinnerCollection";
 import type { AdCollectionPeriod } from "./AdCollectionDailyChart";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
 import type { CampaignSelection } from "./CampaignTable";
@@ -155,30 +156,34 @@ export default function StatusContent({
 
       <AdvertisingProfitabilityRefresh />
 
-      {/* 아이템위너 · 노출 현황 (현재 상태) */}
-      {Object.keys(wingKpis).length > 0 && (
-        <div className="rounded-2xl p-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
+      {/* 아이템위너 · 노출 현황 (현재 상태). The card stays before any KPI exists:
+          it is where the itemwinner collection starts and stops. */}
+      <div className="rounded-2xl p-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+        <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <AlertTriangle size={16} style={{ color: "var(--warning)" }} />
             <h2 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>아이템위너 · 노출 현재 상태</h2>
             <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>현재 아이템위너 미보유 항목은 광고 전환율 급감 위험</span>
           </div>
-          {/* H3 — current-state observation timeline. `latestChannelStateAt` is the
-              max(lastObservedAt) across daily snapshots; `latestScrapeAt` is the
-              latest ChannelScrapeRun finished/started time. `rawSnapshotCount`
-              replaces the legacy AdSnapshot count. */}
-          {extensionStatus && (
-            <div className="flex items-center gap-4 mb-4 text-[11px] flex-wrap" style={{ color: "var(--text-tertiary)" }}>
-              {extensionStatus.latestChannelStateAt && (
-                <span>현재 상태 관측: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestChannelStateAt)}</span></span>
-              )}
-              {extensionStatus.latestScrapeAt && (
-                <span>최근 수집: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestScrapeAt)}</span></span>
-              )}
-              <span>원시 수집 <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.rawSnapshotCount)}건</span></span>
-              <span>현재 관측 listing <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.currentWinnerObservedListings)}/{formatNumber(extensionStatus.listingCount)}</span></span>
-            </div>
-          )}
+          <WingItemwinnerCollection />
+        </div>
+        {/* H3 — current-state observation timeline. `latestChannelStateAt` is the
+            max(lastObservedAt) across daily snapshots; `latestScrapeAt` is the
+            latest ChannelScrapeRun finished/started time. `rawSnapshotCount`
+            replaces the legacy AdSnapshot count. */}
+        {extensionStatus && (
+          <div className="flex items-center gap-4 mb-4 text-[11px] flex-wrap" style={{ color: "var(--text-tertiary)" }}>
+            {extensionStatus.latestChannelStateAt && (
+              <span>현재 상태 관측: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestChannelStateAt)}</span></span>
+            )}
+            {extensionStatus.latestScrapeAt && (
+              <span>최근 수집: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestScrapeAt)}</span></span>
+            )}
+            <span>원시 수집 <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.rawSnapshotCount)}건</span></span>
+            <span>현재 관측 listing <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.currentWinnerObservedListings)}/{formatNumber(extensionStatus.listingCount)}</span></span>
+          </div>
+        )}
+        {Object.keys(wingKpis).length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {Object.entries(wingKpis).map(([label, raw]) => {
               const isObj = raw && typeof raw === "object";
@@ -194,8 +199,10 @@ export default function StatusContent({
               );
             })}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>아직 수집한 아이템위너 현황이 없습니다.</p>
+        )}
+      </div>
 
       {/* 캠페인 현황 요약 */}
       <CampaignSummary campaigns={campaigns} onSelect={onGoToCampaign} />
