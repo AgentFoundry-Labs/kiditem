@@ -8,6 +8,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -39,9 +44,9 @@ export const COMPETITOR_CATALOG_SOURCE_PARSER_VERSION = 'competitor-catalog-v1';
 export const COMPETITOR_CATALOG_SOURCE_ALERT_DEDUPE_KEY = 'source:coupang-competitor-catalog';
 
 const ATTEMPT_TTL_MS = 30 * 60_000;
-const DB_RUNNING = 'running';
-const DB_COMPLETE = 'completed';
-const DB_FAILED = 'failed';
+const DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
+const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
+const DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
 const MAX_TARGETS = 20;
 
 type Transaction = Prisma.TransactionClient;

@@ -1,8 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  CoupangRocketMatchingCsvImportResponseSchema,
   type CompletedSourceArtifactRun,
+  CoupangRocketMatchingCsvImportResponseSchema,
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
@@ -47,7 +49,7 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
           sourceType: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
           fileHash: input.fileHash,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
         },
       });
       if (duplicate) {
@@ -72,7 +74,7 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
           channelAccountId: input.channelAccountId,
           fileName: input.fileName,
           fileHash: input.fileHash,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           rowCount: input.rows.length,
           createdBy: input.userId,
         },
@@ -87,7 +89,7 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
       const completed = await tx.sourceImportRun.update({
         where: { id: sourceRun.id },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           importedAt: new Date(),
           publicationSequence: await allocatePublicationSequence(
             tx,
@@ -126,7 +128,7 @@ function toCompletedRun(run: {
   createdAt: Date;
   updatedAt: Date;
 }): CompletedSourceArtifactRun {
-  if (!run.fileName || !run.fileHash || !run.importedAt || run.status !== 'completed') {
+  if (!run.fileName || !run.fileHash || !run.importedAt || run.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
     throw new ConflictException('Rocket matching CSV run is missing completed provenance');
   }
   return {
@@ -135,7 +137,7 @@ function toCompletedRun(run: {
     channelAccountId: run.channelAccountId,
     fileName: run.fileName,
     fileHash: run.fileHash,
-    status: 'completed',
+    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
     rowCount: run.rowCount,
     importedAt: run.importedAt.toISOString(),
     lastVerifiedAt: run.lastVerifiedAt?.toISOString() ?? null,

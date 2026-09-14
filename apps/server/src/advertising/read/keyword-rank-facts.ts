@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { addDays, currentBusinessDate } from '../../common/kst';
 import type {
   RankHistoryRow,
@@ -10,13 +11,13 @@ import type {
 const COMPLETE_SERP_SOURCE = {
   sourceType: 'coupang_keyword_serp',
   parserVersion: 'keyword-serp-v1',
-  status: 'completed',
+  status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } as const;
 
 const COMPLETE_WING_RANK_SOURCE = {
   sourceType: 'coupang_wing_rank',
   parserVersion: 'wing-rank-v1',
-  status: 'completed',
+  status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } as const;
 
 function inclusiveWindowStart(days: number): Date {

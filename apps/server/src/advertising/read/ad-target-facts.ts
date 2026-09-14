@@ -1,3 +1,4 @@
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { addDays, businessDateKey } from '../../common/kst';
 import { compareAttemptsNewestFirst, isNewerAttempt } from '../../common/current-row';
 import {
@@ -126,7 +127,7 @@ const SWEEPS_CTE = (organizationId: string) => Prisma.sql`
       coverage_end_date AS window_end
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
-      AND status = 'completed'
+      AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       AND source_type = 'coupang_ad_campaign'
       AND parser_version = 'ad-campaign-v1'
       AND plan ->> 'captureMode' = 'campaign_sweep'
@@ -895,7 +896,7 @@ export async function readCompleteAdKeywordFacts(
   const published = await tx.sourceImportRun.findMany({
     where: {
       organizationId,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       OR: [
         { sourceType: 'coupang_ad_keyword', parserVersion: 'ad-keyword-v1' },
         { sourceType: 'coupang_ad_campaign', parserVersion: 'ad-campaign-v1' },
@@ -1070,7 +1071,7 @@ export function completeAdCampaignSourceIds(organizationId: string) {
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
       AND source_type = 'coupang_ad_campaign' AND parser_version = 'ad-campaign-v1'
-      AND status = 'completed' AND channel_account_id IS NOT NULL
+      AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS} AND channel_account_id IS NOT NULL
       AND plan ->> 'captureMode' = 'campaign_sweep'
     ORDER BY channel_account_id, freshness_generation DESC NULLS LAST, id DESC
   `;

@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
+import {
   addDays,
   businessDateKey,
   evidenceCutoffDate,
@@ -301,7 +306,7 @@ export async function findAttempt(
 
 export function assertAttemptWritable(attempt: SourceAttemptRecord, attemptToken: string): void {
   assertAttemptToken(attempt, attemptToken);
-  if (attempt.status !== 'running') throw new ConflictException('ATTEMPT_TERMINAL');
+  if (attempt.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('ATTEMPT_TERMINAL');
   if (isExpiredRunning(attempt, new Date())) throw new ConflictException('ATTEMPT_EXPIRED');
 }
 
@@ -389,9 +394,9 @@ export function toAttemptView(
     attemptToken: attempt.attemptToken,
     state: expired
       ? 'FAILED'
-      : attempt.status === 'completed'
+      : attempt.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : attempt.status === 'failed'
+        : attempt.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           ? 'FAILED'
           : 'RUNNING',
     expiresAt: attempt.expiresAt?.toISOString() ?? attempt.createdAt.toISOString(),
@@ -492,7 +497,7 @@ export function hashJson(value: unknown): string {
 }
 
 export function isExpiredRunning(attempt: SourceAttemptRecord, now: Date): boolean {
-  return attempt.status === 'running'
+  return attempt.status === SOURCE_IMPORT_RUN_RUNNING_STATUS
     && attempt.expiresAt !== null
     && attempt.expiresAt.getTime() <= now.getTime();
 }
@@ -582,7 +587,7 @@ export function isoDate(value: Date): string {
 export function generationMetadata(
   attempt: PublishedGenerationRecord,
 ): SellpiaProfitabilityGenerationMetadata {
-  if (attempt.status !== 'completed'
+  if (attempt.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS
     || attempt.publicationSequence === null
     || attempt.mappingGeneration === null
     || attempt.coverageStartDate === null

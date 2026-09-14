@@ -19,7 +19,11 @@ import {
   type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchRow,
 } from '@kiditem/shared/sellpia-manual-match';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -36,9 +40,9 @@ import type {
 
 const CREATE_BATCH_SIZE = 5_000;
 const ATTEMPT_TTL_MS = 30 * 60_000;
-const DB_RUNNING = 'running';
+const DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
 const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
-const DB_FAILED = 'failed';
+const DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
 const ALERT_DEDUPE_KEY = 'source:sellpia-manual-match';
 const ALERT_HREF = '/product-hub/matching';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;

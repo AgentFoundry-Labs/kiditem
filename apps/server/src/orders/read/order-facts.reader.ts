@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey, datesInclusive, kstBusinessDate } from '../../common/kst';
 
 export const ORDER_FACT_EXCLUDED_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
@@ -226,7 +227,7 @@ export async function readOrderWindowFacts(
       INNER JOIN source_import_runs s
         ON s.id = o.source_import_run_id
        AND s.organization_id = o.organization_id
-       AND s.status = 'completed'
+       AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       WHERE o.organization_id = ${input.organizationId}::uuid
         AND o.ordered_at >= ${input.from}
         AND o.ordered_at < ${input.to}
@@ -451,7 +452,7 @@ export async function readObservedOrderBounds(
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
-          AND s.status = 'completed'
+          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       )
   `);
   const row = rows[0];
@@ -475,7 +476,7 @@ export async function readObservedOrderCount(
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
-          AND s.status = 'completed'
+          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       )
   `);
   return Number(row?.count ?? 0n);
@@ -541,7 +542,7 @@ export async function readOrderStatusCount(
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
-          AND s.status = 'completed'
+          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       )
   `);
   return Number(row?.count ?? 0n);
@@ -562,7 +563,7 @@ function completeOrderFactSql(organizationId: string): Prisma.Sql {
     SELECT 1 FROM source_import_runs completed_source
     WHERE completed_source.id = o.source_import_run_id
       AND completed_source.organization_id = ${organizationId}::uuid
-      AND completed_source.status = 'completed'
+      AND completed_source.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
   )`;
 }
 
@@ -590,7 +591,7 @@ function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {
     organizationId,
     sourceImportRunId: { not: null },
     sourceImportRun: {
-      is: { organizationId, status: 'completed' },
+      is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
     },
   };
 }
@@ -605,7 +606,7 @@ async function readCompletedOrderCoverageRuns(
   return tx.sourceImportRun.findMany({
     where: {
       organizationId: input.organizationId,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       OR: [
         {
           orders: {

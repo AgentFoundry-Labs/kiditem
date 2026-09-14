@@ -27,6 +27,11 @@ import {
   type AdTrafficSourceStatus,
   type AdTrafficSourcePublished,
 } from '@kiditem/shared/advertising';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
@@ -154,7 +159,7 @@ function parseReadDate(value: string | undefined, code: string): Date | undefine
 }
 
 function expired(row: SourceRun): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -462,7 +467,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: account.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (running) {
@@ -590,7 +595,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
             channelAccountId: account.id,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
           orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }],
         });
@@ -662,7 +667,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         const publication = asRecord(existingChunk.publicationJson);
         return AdTrafficSourceReceiptSchema.parse(publication.receipt);
       }
-      if (row.status !== 'running') throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
       if (expired(row)) {
         await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.');
         // Return a marker so the failure state/alert transaction commits. The
@@ -934,7 +939,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }
       const entries = await this.receiptsIn(tx, row);
       const current = attemptView(row, entries);
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (row.contentChecksum === input.manifestChecksum) {
           return this.sourceStatusIn(tx, input.organizationId, row.channelAccountId!);
         }
@@ -1005,7 +1010,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       await tx.sourceImportRun.update({
         where: { id: row.id, organizationId: input.organizationId },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           contentChecksum: input.manifestChecksum,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -1063,8 +1068,8 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.errorCode === input.code && row.errorMessage === message) {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.errorCode === input.code && row.errorMessage === message) {
           return this.sourceStatusIn(tx, input.organizationId, row.channelAccountId!);
         }
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
@@ -1146,11 +1151,11 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }],
       }),
       tx.sourceImportRun.findFirst({
-        where: { ...where, status: 'completed' },
+        where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
         orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }],
       }),
       tx.sourceImportRun.findMany({
-        where: { ...where, status: 'completed' },
+        where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
         select: { plan: true, qualityReport: true },
       }),
     ]);
@@ -1580,7 +1585,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message.slice(0, 300),
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -1963,14 +1968,14 @@ function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAt
       attemptId: row.id,
       channelAccountId: row.channelAccountId,
       state:
-        row.status === 'completed'
+        row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? 'COMPLETE'
-          : row.status === 'running' && !isExpired
+          : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
             ? 'RUNNING'
             : 'FAILED',
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? new Date(0).toISOString(),
-      actualCutoffAt: row.status === 'completed' ? row.importedAt?.toISOString() ?? null : null,
+      actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt?.toISOString() ?? null : null,
       manifestChecksum: hash({ plan, receipts: entries.map((entry) => entry.receipt) }),
       rowCount: row.rowCount,
       matchedRowCount,
@@ -1989,14 +1994,14 @@ function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAt
     attemptId: row.id,
     channelAccountId: row.channelAccountId,
     state:
-      row.status === 'completed'
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
     plan,
     expiresAt: row.expiresAt?.toISOString() ?? new Date(0).toISOString(),
-    actualCutoffAt: row.status === 'completed' ? row.importedAt?.toISOString() ?? null : null,
+    actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt?.toISOString() ?? null : null,
     manifestChecksum: hash({ plan, receipts: entries.map((entry) => entry.receipt) }),
     rowCount: row.rowCount,
     matchedRowCount,

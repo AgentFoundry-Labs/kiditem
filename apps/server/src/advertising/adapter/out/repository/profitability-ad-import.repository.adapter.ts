@@ -8,6 +8,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
@@ -53,9 +58,9 @@ const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
 const MAX_RESPONSE_BYTES = 50_000_000;
 const INSERT_CHUNK_SIZE = 1_000;
-const SOURCE_DB_RUNNING = 'running';
-const SOURCE_DB_COMPLETE = 'completed';
-const SOURCE_DB_FAILED = 'failed';
+const SOURCE_DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
+const SOURCE_DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
+const SOURCE_DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
 const SOURCE_STATE_RUNNING = 'RUNNING';
 const SOURCE_STATE_FAILED = 'FAILED';
 const RECEIPT_DB_RUNNING = 'running';

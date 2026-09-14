@@ -27,6 +27,11 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { z, type ZodType } from 'zod';
 import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
+import {
   CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
   type ChannelCatalogCollectionChunkRecord,
   type ChannelCatalogCollectionRepositoryPort,
@@ -180,7 +185,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
     if (!input.attemptToken || input.attemptToken !== run.attemptToken)
       throw new ConflictException('Catalog attempt token mismatch');
     if (
-      run.status === 'completed' &&
+      run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS &&
       jsonRecord(run.metaJson)?.snapshotHash !== request.snapshotHash
     )
       throw new ConflictException('Completed collection has a different snapshot hash');
@@ -221,9 +226,9 @@ function effectiveState(run: {
   status: string;
   expiresAt: Date;
 }): 'RUNNING' | 'COMPLETE' | 'FAILED' {
-  return run.status === 'completed'
+  return run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
     ? 'COMPLETE'
-    : run.status === 'failed' || run.expiresAt.getTime() <= Date.now()
+    : run.status === SOURCE_IMPORT_RUN_FAILED_STATUS || run.expiresAt.getTime() <= Date.now()
       ? 'FAILED'
       : 'RUNNING';
 }
@@ -246,7 +251,7 @@ function buildCollectionStatus(
   // it carries a preallocated child key the whole refresh is still in flight.
   // The individual owner state remains COMPLETE; only overallState describes
   // the linked internal flow.
-  const pendingDetailsHandoff = stage === 'basics' && run.status === 'completed' &&
+  const pendingDetailsHandoff = stage === 'basics' && run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS &&
     Boolean(plan.detailsIdempotencyKey);
   const overallState = linkedDetailsRun
     ? effectiveState(linkedDetailsRun)
@@ -296,13 +301,13 @@ function buildCollectionStatus(
       mediaCount: state.mediaCount,
       storedChunks: run.chunks.length,
       publishedProducts: publishedDetails?.publishedProducts
-        ?? (run.status === 'completed' ? products.length : 0),
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? products.length : 0),
       publishedOptionCount: publishedDetails?.publishedOptionCount
-        ?? (run.status === 'completed' ? state.optionCount : 0),
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? state.optionCount : 0),
       publishedMediaCount: publishedDetails?.publishedMediaCount
-        ?? (run.status === 'completed' ? state.mediaCount : 0),
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? state.mediaCount : 0),
       publishedChunks: publishedDetails?.publishedChunks
-        ?? (run.status === 'completed'
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? run.chunks.filter((chunk) =>
             stage === 'basics'
               ? chunk.kind === 'listing_basics'
@@ -310,9 +315,9 @@ function buildCollectionStatus(
           ).length
           : 0),
       firstPublishedAt: publishedDetails?.firstPublishedAt
-        ?? (run.status === 'completed' ? (run.finishedAt?.toISOString() ?? null) : null),
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? (run.finishedAt?.toISOString() ?? null) : null),
       lastPublishedAt: publishedDetails?.lastPublishedAt
-        ?? (run.status === 'completed' ? (run.finishedAt?.toISOString() ?? null) : null),
+        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? (run.finishedAt?.toISOString() ?? null) : null),
     },
     missing: {
       discoverySequences: missingDiscoverySequences(state),
@@ -326,7 +331,7 @@ function buildCollectionStatus(
     snapshotHash:
       typeof metadata.snapshotHash === 'string' ? metadata.snapshotHash : readySnapshotHash,
     error:
-      run.status === 'running' && effective === 'FAILED'
+      run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && effective === 'FAILED'
         ? {
             code: 'ATTEMPT_EXPIRED',
             message: 'Catalog attempt expired',
@@ -848,7 +853,7 @@ function derivePhase(
   stage: CoupangCatalogStage = 'full',
   plan?: ReturnType<typeof CoupangCatalogCollectionPlanSchema.parse>,
 ): CoupangCatalogCollectionPhase {
-  if (status === 'completed') return 'finished';
+  if (status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return 'finished';
   if (!state.manifest || !state.confirmation || missingDiscoverySequences(state).length > 0)
     return 'discovery';
   const products = stage === 'basics'

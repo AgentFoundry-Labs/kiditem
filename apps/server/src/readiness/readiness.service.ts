@@ -12,6 +12,7 @@ import {
   kstBusinessDate,
   parseBusinessDate,
 } from '@kiditem/shared/common';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../prisma/prisma.service';
 import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
@@ -173,7 +174,7 @@ export class ReadinessService {
               organizationId,
               channelAccountId: activeCoupangAccount.id,
               sourceType: { in: [...READINESS_CATALOG_COMPLETE_SOURCE_TYPES] },
-              status: 'completed',
+              status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
               importedAt: { not: null },
             },
             orderBy: { importedAt: 'desc' },

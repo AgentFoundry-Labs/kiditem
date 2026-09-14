@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState, type SourceImportRun } from '@prisma/client';
 import {
-  VerifiedSellpiaSourceImportRunSchema,
   type SellpiaInventoryImportResponse,
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+  VerifiedSellpiaSourceImportRunSchema,
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -89,7 +92,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
                 organizationId: input.organizationId,
                 sourceType: SOURCE_TYPE,
                 channelAccountId: null,
-                status: 'completed',
+                status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
               },
               select: { rowCount: true },
             })
@@ -142,11 +145,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: null,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: input.attemptToken,
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: input.rows.length,
           importedAt: now,
           lastVerifiedAt: now,
@@ -205,7 +208,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       ]);
       const generation = assertPublicationFence(state, input);
       if (
-        run.status !== 'completed'
+        run.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS
         || run.sourceType !== SOURCE_TYPE
         || run.fileHash !== input.fileHash
         || run.channelAccountId !== null
@@ -233,7 +236,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
             channelAccountId: null,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
           data: {
             lastTrigger: currentGenerationReason,
@@ -266,7 +269,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
             channelAccountId: null,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
         });
         return importResponse(
@@ -283,7 +286,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: null,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
         },
         data: {
           lastVerifiedAt: now,
@@ -313,7 +316,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: null,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
         },
       });
       return importResponse(
@@ -580,11 +583,11 @@ async function recordPublicationFailure(
       organizationId: input.organizationId,
       sourceType: SOURCE_TYPE,
       channelAccountId: null,
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       attemptToken: input.attemptToken,
     },
     data: {
-      status: 'failed',
+      status: SOURCE_IMPORT_RUN_FAILED_STATUS,
       rowCount: failure.rowCount,
       qualityReport: failure.qualityReport,
       errorCode: failure.errorCode,
@@ -724,7 +727,7 @@ function assertRunningRun(run: SourceImportRun, input: PublishInput): void {
     || run.sourceType !== SOURCE_TYPE
     || run.channelAccountId !== null
     || (run.fileHash !== null && run.fileHash !== input.fileHash)
-    || run.status !== 'running'
+    || run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS
     || run.attemptToken !== input.attemptToken
   ) {
     throw new ConflictException('Sellpia inventory run publication fence is stale');

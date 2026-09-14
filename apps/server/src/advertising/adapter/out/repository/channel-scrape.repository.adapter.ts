@@ -4,6 +4,7 @@
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   WING_ITEMWINNER_KPI_READ_PORT,
@@ -175,7 +176,7 @@ export class ChannelScrapeRepositoryAdapter
           where: {
             organizationId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: 'completed' },
+            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
         })
       : Promise.resolve(0);
@@ -185,7 +186,7 @@ export class ChannelScrapeRepositoryAdapter
             organizationId,
             channelAccountId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: 'completed' },
+            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
           orderBy: [
             { finishedAt: 'desc' },

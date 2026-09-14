@@ -9,7 +9,11 @@ import {
   type RocketSavedPoSnapshot,
   type RocketSavedPoSummary,
 } from "@kiditem/shared/rocket-purchase-preview";
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from "@kiditem/shared/source-import";
 import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
 import {
   businessDateKey,
@@ -429,13 +433,13 @@ async function resolveIdentities(
 
 function publicAttempt(run: RocketPoAttemptRow, now: Date) {
   const isExpired =
-    run.status === "running" &&
+    run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS &&
     (!run.expiresAt || run.expiresAt.getTime() <= now.getTime());
   return {
     attemptId: run.id,
     channelAccountId: run.channelAccountId!,
     state:
-      isExpired || run.status === "failed"
+      isExpired || run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
         ? ("FAILED" as const)
         : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? ("COMPLETE" as const)

@@ -5,6 +5,7 @@ import {
   COUPANG_CATALOG_BROWSER_FILE_NAME,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { SOURCE_IMPORT_RUN_FAILED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { hashCatalogChunkPayload } from '../../../application/service/channel-catalog-collection.service';
@@ -94,7 +95,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             attemptToken: existing.attemptToken,
             stage,
           });
-          if (locked.status === 'running') {
+          if (locked.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) {
             // Idempotent replay is also the status read for an expired
             // attempt. Preserve the immutable run and let readOwned expose
             // its effective FAILED state; only a new idempotency key may
@@ -132,7 +133,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         }
         const vendorId = await catalogAccountVendor(tx, input);
         const active = await tx.sourceImportRun.findMany({
-          where: { ...catalogWhere(input, stage), status: 'running' },
+          where: { ...catalogWhere(input, stage), status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
         });
         for (const previous of active) {
           if (previous.expiresAt && previous.expiresAt.getTime() > Date.now())
@@ -148,7 +149,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             attemptToken: previous.attemptToken,
             stage,
           });
-          if (locked.status === 'running')
+          if (locked.status === SOURCE_IMPORT_RUN_RUNNING_STATUS)
             await this.saveFailure(tx, {
               ...input,
               runId: previous.id,
@@ -199,7 +200,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             id: ownerId,
             ...catalogWhere(input, stage),
             fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
-            status: 'running',
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
             idempotencyKey: input.idempotencyKey,
             requestFingerprint,
             plan,
@@ -315,7 +316,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       const stage = await ownerStage(tx, input);
       const owner = await lockCatalogAttempt(tx, { ...input, stage });
       const checksum = hashCatalogChunkPayload(input.error);
-      if (owner.status === 'failed' && owner.contentChecksum === checksum)
+      if (owner.status === SOURCE_IMPORT_RUN_FAILED_STATUS && owner.contentChecksum === checksum)
         return readOwned(tx, { ...input, stage, includePayload: false });
       assertCatalogRunning(owner);
       await this.saveFailure(tx, { ...input, stage });
@@ -337,11 +338,11 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: {
         ...catalogWhere(input, input.stage ?? 'full'),
         id: input.runId,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
       },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         importedAt: new Date(),
         errorCode: input.error.code,
         errorMessage: input.error.message,
@@ -373,7 +374,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: {
         ...catalogWhere(input, input.stage),
         id: input.runId,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
       },
       data: {
@@ -406,7 +407,7 @@ async function clearCatalogPause(
     where: {
       ...catalogWhere(input, input.stage),
       id: input.runId,
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       attemptToken: input.attemptToken,
     },
     data: {

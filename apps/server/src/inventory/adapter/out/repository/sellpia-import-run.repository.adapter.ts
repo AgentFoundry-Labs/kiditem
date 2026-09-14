@@ -12,6 +12,11 @@ import {
   type SellpiaInventoryRefreshReason,
   type SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
@@ -87,7 +92,7 @@ implements SellpiaImportRunRepositoryPort {
         if (existing.requestFingerprint !== fingerprint) {
           throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
         }
-        if (existing.status === 'running' && isExpired(existing)) {
+        if (existing.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && isExpired(existing)) {
           existing = await failOwnerIn(
             tx,
             this.alerts,
@@ -101,7 +106,7 @@ implements SellpiaImportRunRepositoryPort {
       }
 
       let running = await findOwnerAttempt(tx, input.organizationId, {
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       });
       if (running) {
         if (!isExpired(running)) {
@@ -162,7 +167,7 @@ implements SellpiaImportRunRepositoryPort {
           channelAccountId: null,
           fileName: null,
           fileHash: null,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           rowCount: 0,
           lastTrigger: normalizedTrigger,
           freshnessGeneration: generation,
@@ -231,8 +236,8 @@ implements SellpiaImportRunRepositoryPort {
       if (run.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
-      if (run.status !== 'running') {
-        if (run.status === 'failed'
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           && run.errorCode === errorCode
           && run.errorMessage === errorMessage) {
           return ownerAttemptView(run);
@@ -299,11 +304,11 @@ implements SellpiaImportRunRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: null,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: input.attemptToken,
         },
         data: {
-          status: 'failed',
+          status: SOURCE_IMPORT_RUN_FAILED_STATUS,
           errorCode: input.errorCode,
           errorMessage: sanitizeErrorMessage(input.errorMessage),
         },
@@ -397,7 +402,7 @@ async function failOwnerIn(
   const failed = await tx.sourceImportRun.update({
     where: { id: run.id, organizationId: run.organizationId },
     data: {
-      status: 'failed',
+      status: SOURCE_IMPORT_RUN_FAILED_STATUS,
       errorCode: errorCode.slice(0, 100),
       errorMessage: cleanMessage,
       ...(input?.fileName !== undefined ? { fileName: input.fileName } : {}),
@@ -451,10 +456,10 @@ function ownerAttemptView(run: SourceImportRun): SellpiaInventorySourceAttempt {
   if (!run.expiresAt || !run.plan || run.freshnessGeneration === null) {
     throw new ConflictException('Sellpia inventory source attempt is incomplete');
   }
-  const expired = run.status === 'running' && isExpired(run);
-  const state = expired || run.status === 'failed'
+  const expired = run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && isExpired(run);
+  const state = expired || run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
     ? 'FAILED'
-    : run.status === 'completed'
+    : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
       ? 'COMPLETE'
       : 'RUNNING';
   return {
@@ -546,7 +551,7 @@ async function createRun(
       channelAccountId: null,
       fileName: input.fileName,
       fileHash: input.fileHash,
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       rowCount: 0,
       importedAt: null,
       lastTrigger: execution.trigger,
@@ -577,7 +582,7 @@ async function claimExistingRun(
   // A hash identifies a durable run, but only the state pointer identifies the
   // currently published snapshot. Historical completed hashes must be fenced
   // and published again before they can become authoritative.
-  if (run.status === 'completed' && run.id === currentCompletedRunId) {
+  if (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && run.id === currentCompletedRunId) {
     return { kind: 'completed', runId: run.id, claimedExecution };
   }
   const attemptToken = randomUUID();
@@ -591,7 +596,7 @@ async function claimExistingRun(
       attemptToken: run.attemptToken,
     },
     data: {
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       fileName: input.fileName,
       rowCount: 0,
       importedAt: null,

@@ -11,6 +11,9 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   CompletedSourceArtifactRunSchema,
   type CoupangWingCatalogImportResponse,
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
 import type {
   ChannelCatalogImportClaim,
@@ -88,7 +91,7 @@ implements ChannelCatalogImportRepositoryPort {
           channelAccountId: input.channelAccountId,
           fileName: input.fileName,
           fileHash: input.fileHash,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           rowCount: input.rowCount,
           importedAt: null,
           createdBy: input.userId,
@@ -171,21 +174,21 @@ implements ChannelCatalogImportRepositoryPort {
         );
       }
 
-      if (lockedRun.status === 'completed') {
+      if (lockedRun.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         const completed = await tx.sourceImportRun.findFirstOrThrow({
           where: {
             id: input.runId,
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
             channelAccountId: input.channelAccountId,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
         });
         return importResponse(completed, true, zeroChanges());
       }
 
       if (
-        lockedRun.status !== 'running' ||
+        lockedRun.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS ||
         lockedRun.attemptToken !== input.attemptToken
       ) {
         throw new ConflictException(
@@ -458,11 +461,11 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: input.attemptToken,
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: input.rows.length,
           importedAt,
           publicationSequence,
@@ -485,7 +488,7 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           attemptToken: input.attemptToken,
         },
       });
@@ -517,10 +520,10 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken,
         },
-        data: { status: 'failed' },
+        data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS },
       });
       if (failed.count === 0) return;
       await this.alerts.recordTerminalOutcome(tx, {
@@ -558,14 +561,14 @@ implements ChannelCatalogImportRepositoryPort {
     input: ClaimInput,
     run: SourceImportRun,
   ): Promise<ChannelCatalogImportClaim> {
-    if (run.status === 'completed') {
+    if (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
       return {
         kind: 'duplicate',
         response: importResponse(run, true, zeroChanges()),
       };
     }
 
-    if (run.status === 'running') {
+    if (run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) {
       const staleBefore = new Date(Date.now() - STALE_AFTER_MS);
       if (run.updatedAt >= staleBefore) return { kind: 'running' };
 
@@ -576,7 +579,7 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           updatedAt: run.updatedAt,
           attemptToken: run.attemptToken,
         },
@@ -594,7 +597,7 @@ implements ChannelCatalogImportRepositoryPort {
       return this.resolveLostClaimRace(input, run.id);
     }
 
-    if (run.status === 'failed') {
+    if (run.status === SOURCE_IMPORT_RUN_FAILED_STATUS) {
       const attemptToken = randomUUID();
       const retried = await this.prisma.sourceImportRun.updateMany({
         where: {
@@ -602,11 +605,11 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'failed',
+          status: SOURCE_IMPORT_RUN_FAILED_STATUS,
           attemptToken: run.attemptToken,
         },
         data: {
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           fileName: input.fileName,
           rowCount: input.rowCount,
           createdBy: input.userId,
