@@ -103,9 +103,11 @@ takes priority over it
 - Pre-schema data migrations delete rows that cannot fit the new schema instead
   of stopping. They carry forward users and organizations, channel accounts,
   confirmed recipes, orders, and transport receipts.
-- A cutover starts from one `pg_dump` of the Office database, kept with the
-  latest three. It needs no restore test, Office-copy rehearsal, backfill or
-  rollback evidence, or confirmation of Office database state.
+- A cutover starts from one `pg_dump` of the Office database. Only a
+  successful cutover prunes older dumps to the latest three, so failed
+  retries keep the dump taken before their first deletion. It needs no
+  restore test, Office-copy rehearsal, backfill or rollback evidence, or
+  confirmation of Office database state.
 - Verify a cutover on Testcontainers PostgreSQL and the local QA database
   `kiditem-qa-pg` (port 5434). The QA database is disposable: restore it from a
   local dump, apply the cutover, run real collections, and check the screens.

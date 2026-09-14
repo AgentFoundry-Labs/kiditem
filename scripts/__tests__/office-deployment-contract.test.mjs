@@ -235,7 +235,7 @@ test('schema/data cutover dumps the database after writers stop and before any d
   );
 });
 
-test('cutover dump uses container credentials, counts only verified custom-format archives, and prunes to three after success', () => {
+test('cutover dump uses container credentials, counts only verified custom-format archives, and never prunes older dumps', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const dumpStart = script.indexOf('function New-CutoverDatabaseDump {');
   assert.ok(dumpStart > 0, 'New-CutoverDatabaseDump must exist');
@@ -258,18 +258,54 @@ test('cutover dump uses container credentials, counts only verified custom-forma
     "-cne 'PGDMP'",
     'Move-Item -LiteralPath $partialPath -Destination $dumpPath',
     'Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue',
-    'foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1)))',
-    'Remove-Item -LiteralPath $staleDump.FullName -Force',
   ]) {
     const position = dump.indexOf(step);
     assert.ok(position > previous, `cutover dump must run "${step}" after the previous step`);
     previous = position;
   }
-  assert.doesNotMatch(dump.slice(0, dump.indexOf('foreach ($staleDump in')), /\bcatch\b/, 'a failed dump must never reach pruning');
-  assert.ok(
-    dump.includes(String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $dumpName`),
-    'retention counts only completed dumps and never prunes the dump just written',
+  // A failed cutover leaves a database its pre-schema migrations already
+  // cleaned, and every retry dumps that database again. Writing a dump must
+  // never push the dump taken before the first deletion out of retention.
+  assert.doesNotMatch(dump, /staleDump|Select-Object -Skip|Remove-StaleCutoverDatabaseDumps/, 'writing a dump never prunes older dumps');
+});
+
+test('old cutover dumps are pruned to three only after the cutover deployment is recorded', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const pruneStart = script.indexOf('function Remove-StaleCutoverDatabaseDumps {');
+  assert.ok(pruneStart > 0, 'Remove-StaleCutoverDatabaseDumps must exist');
+  const prune = script.slice(pruneStart, script.indexOf('\nfunction ', pruneStart));
+
+  let previous = -1;
+  for (const step of [
+    '$keepName = Split-Path -Leaf $KeepDumpPath',
+    String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName`,
+    'Sort-Object -Property Name -Descending',
+    'foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1)))',
+    'Remove-Item -LiteralPath $staleDump.FullName -Force',
+    'Write-Warning "Could not prune old database dump',
+  ]) {
+    const position = prune.indexOf(step);
+    assert.ok(position > previous, `dump pruning must run "${step}" after the previous step`);
+    previous = position;
+  }
+
+  const install = script.slice(script.indexOf('function Install-Deployment {'), script.indexOf('function Show-OfficeStatus {'));
+  assert.equal(script.match(/Remove-StaleCutoverDatabaseDumps -KeepDumpPath/g)?.length, 1, 'pruning has one call site');
+  const call = install.search(
+    /if \(\$DeploymentMode -eq 'Cutover'\) \{\s+Remove-StaleCutoverDatabaseDumps -KeepDumpPath \$cutoverDatabaseDumpPath\s+\}/,
   );
+  assert.ok(call > 0, 'only a schema/data cutover prunes, and it keeps the dump it started from');
+  // The catch block always rethrows, so code after it runs only for a cutover
+  // whose runtime, smoke tests, and manifest all succeeded.
+  for (const step of [
+    'Wait-ForRuntime',
+    'Assert-SmokeTests',
+    'throw $deploymentError',
+    '[System.IO.File]::WriteAllText($script:CurrentManifestPath',
+  ]) {
+    const position = install.lastIndexOf(step);
+    assert.ok(position > 0 && position < call, `dump pruning must wait until after "${step}"`);
+  }
 });
 
 test('controlled recreate preserves runtime evidence and automatically restores app-only failures', () => {

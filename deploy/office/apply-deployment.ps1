@@ -1993,8 +1993,8 @@ function New-CutoverDatabaseDump {
 
   # pg_dump reads its credentials from the postgres container's own Compose
   # env; the host passes none. A dump counts toward retention only after it
-  # passes every check and leaves its .partial name, and only then are older
-  # dumps pruned.
+  # passes every check and leaves its .partial name. Writing one never prunes
+  # older dumps; that waits until the whole cutover succeeds.
   New-Item -ItemType Directory -Path $script:DatabaseDumpsRoot -Force | Out-Null
   $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [System.Globalization.CultureInfo]::InvariantCulture)
   $dumpName = 'kiditem-{0}-{1}.dump' -f $timestamp, $GitSha.Substring(0, 12)
@@ -2019,12 +2019,21 @@ function New-CutoverDatabaseDump {
     & docker exec kiditem-postgres rm -f $containerDumpPath | Out-Null
   }
   Write-Host "Pre-cutover database dump: $dumpPath"
+  return $dumpPath
+}
 
-  # Keep this dump plus the newest older ones. Excluding it by name means host
-  # clock skew can never prune the dump this cutover depends on.
+function Remove-StaleCutoverDatabaseDumps {
+  param([Parameter(Mandatory = $true)][string]$KeepDumpPath)
+
+  # Runs only after a cutover deployment succeeded. A failed attempt prunes
+  # nothing, so retries that dump an already cleaned database keep the dump
+  # taken before the first deletion. Keep the dump this cutover started from
+  # plus the newest older ones; excluding it by name means host clock skew can
+  # never prune it.
+  $keepName = Split-Path -Leaf $KeepDumpPath
   $olderDumps = @(
     Get-ChildItem -LiteralPath $script:DatabaseDumpsRoot -File |
-      Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $dumpName } |
+      Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName } |
       Sort-Object -Property Name -Descending
   )
   foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1))) {
@@ -2035,7 +2044,6 @@ function New-CutoverDatabaseDump {
       Write-Warning "Could not prune old database dump $($staleDump.FullName); remove it manually. $($_.Exception.Message)"
     }
   }
-  return $dumpPath
 }
 
 function Invoke-ExactShaDataMigrations {
@@ -2303,6 +2311,10 @@ function Install-Deployment {
   }
   if (([System.IO.Path]::GetFullPath($sourceGatewayArtifact)) -ne ([System.IO.Path]::GetFullPath($archivedGatewayArtifact))) {
     Copy-Item -LiteralPath $sourceGatewayArtifact -Destination $archivedGatewayArtifact -Force
+  }
+
+  if ($DeploymentMode -eq 'Cutover') {
+    Remove-StaleCutoverDatabaseDumps -KeepDumpPath $cutoverDatabaseDumpPath
   }
 
   Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
