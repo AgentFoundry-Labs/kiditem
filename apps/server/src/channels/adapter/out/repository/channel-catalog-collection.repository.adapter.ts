@@ -28,6 +28,7 @@ import {
   CATALOG_STAGING_SOURCE,
   catalogSourceForStage,
   assertExpectedDetailsBasis,
+  liveCatalogImport,
   liveCatalogWorkbookImport,
   lockCatalogAccount,
   lockCatalogAttempt,
@@ -145,23 +146,26 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       return readOwned(tx, { ...input, runId: existing.id, stage, includePayload: false });
     }
     const vendorId = await catalogAccountVendor(tx, input);
-    const workbook = await liveCatalogWorkbookImport(tx, input);
-    if (workbook)
-      throw new ConflictException({
-        code: 'ATTEMPT_IN_PROGRESS',
-        attemptId: workbook.id,
-        message: '이 계정의 쿠팡 상품 목록 파일을 가져오는 중입니다. 끝난 뒤 다시 수집해 주세요.',
-      });
+    // One import runs per account: a new browser import waits for the account's
+    // live import in either stage or a live workbook import. A details begin is
+    // that import's own handoff, so only a workbook import holds it back.
+    if (stage === 'details') {
+      const workbook = await liveCatalogWorkbookImport(tx, input);
+      if (workbook) throw attemptInProgress(workbook.id, WORKBOOK_IMPORT_IN_PROGRESS);
+    } else {
+      const live = await liveCatalogImport(tx, input);
+      if (live) {
+        throw live.source === 'workbook'
+          ? attemptInProgress(live.attemptId, WORKBOOK_IMPORT_IN_PROGRESS)
+          : attemptInProgress(live.attemptId);
+      }
+    }
     const active = await tx.sourceImportRun.findMany({
       where: { ...catalogWhere(input, stage), status: 'running' },
     });
     for (const previous of active) {
       if (previous.expiresAt && previous.expiresAt.getTime() > Date.now())
-        throw new ConflictException({
-          code: 'ATTEMPT_IN_PROGRESS',
-          attemptId: previous.id,
-          message: `이미 수집 중인 시도(${previous.id})가 있습니다. 해당 수집 상태를 확인해주세요.`,
-        });
+        throw attemptInProgress(previous.id);
       // Serialize expiration with uploads as well as terminal publication.
       const locked = await lockCatalogAttempt(tx, {
         ...input,
@@ -533,6 +537,15 @@ async function clearCatalogPause(
     },
   });
   if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its resume fence');
+}
+const WORKBOOK_IMPORT_IN_PROGRESS =
+  '이 계정의 쿠팡 상품 목록 파일을 가져오는 중입니다. 끝난 뒤 다시 수집해 주세요.';
+// The owner's same-source conflict, naming the live import's root attempt.
+function attemptInProgress(
+  attemptId: string,
+  message = `이미 수집 중인 시도(${attemptId})가 있습니다. 해당 수집 상태를 확인해주세요.`,
+) {
+  return new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId, message });
 }
 const chunkSelect = {
   id: true,

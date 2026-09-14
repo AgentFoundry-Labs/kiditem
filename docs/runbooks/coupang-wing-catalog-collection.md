@@ -87,8 +87,10 @@ with `USER_CANCELLED` and no Alert.
 
 Begin sends a UUID `Idempotency-Key` and `{collectorVersion, stage}`, with
 `stage: "basics"` or `stage: "details"` for the two-stage flow. Reuse that key
-after an uncertain response to recover the original permit; a different key
-while an attempt is active returns `409 ATTEMPT_IN_PROGRESS` and its ID.
+after an uncertain response to recover the original permit. One import runs per
+account: a different key while the account's import (either stage, or a live
+workbook import) runs returns `409 ATTEMPT_IN_PROGRESS` with that import's root
+attempt ID.
 Chunk, pause, fail and finalize requests carry `x-source-attempt-token`. Safe status
 reads never return that token. The permit expires 24 hours after admission;
 expiry is fixed and cannot be renewed. A terminal or expired attempt requires

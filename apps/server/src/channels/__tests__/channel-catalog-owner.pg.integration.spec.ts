@@ -798,7 +798,11 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   });
   it('carries staged Wing sale age through detail publication and a later basics refresh', async () => {
     const basics = await stageBasics();
-    const details = await startDetails(undefined, basics.manifest);
+    const details = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
     await publishOneDetailChunk(details.permit, {
       saleStartedAt: '2026-04-01T14:41:57',
     });
@@ -857,6 +861,9 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       '2026-09-01',
     )).toBeGreaterThanOrEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays);
 
+    // One import runs per account: the refresh begins once the operator stopped
+    // the partial details import, whose published product detail stays.
+    await fail(details.permit, 'USER_CANCELLED').expect(201);
     await stageBasics();
     await expect(prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId: ACCOUNT, externalId: 'BASIC-P1' },
@@ -1001,6 +1008,62 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       latestAttempt: null,
       detailsAttempt: null,
     });
+  });
+  it('keeps one live import per account across stages: a new browser import begin names the running root', async () => {
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+    const beginsConflictWithRoot = async () => {
+      for (const stage of ['basics', undefined] as const) {
+        const conflict = await start(randomUUID(), 'wing-inventory-v1', stage).expect(409);
+        expect(conflict.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: rootId });
+      }
+    };
+    // The completed basics root carries the import until its handoff admits the details child.
+    await beginsConflictWithRoot();
+    const child = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
+    await beginsConflictWithRoot();
+    expect(await prisma.sourceImportRun.count({
+      where: { organizationId: ORG, channelAccountId: ACCOUNT, status: 'running' },
+    })).toBe(1);
+    await request(httpUrl)
+      .post(`/api/channels/accounts/${OTHER_ACCOUNT}/catalog-imports/coupang-wing/attempts`)
+      .set('Idempotency-Key', randomUUID())
+      .send({ collectorVersion: 'wing-inventory-v1', stage: 'basics' })
+      .expect(201);
+
+    await fail(child.permit).expect(201);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('refuses a workbook import while the account browser import hands off to or runs its details stage, naming the root', async () => {
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const claim = () => importer.claimCoupangWingImport({
+      organizationId: ORG,
+      userId: USER,
+      channelAccountId: ACCOUNT,
+      fileName: 'catalog.xlsx',
+      fileHash: 'e'.repeat(64),
+      rowCount: 1,
+    });
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+
+    expect(await claim()).toEqual({ kind: 'running', attemptId: rootId });
+    const child = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
+    expect(await claim()).toEqual({ kind: 'running', attemptId: rootId });
+    expect(await prisma.sourceImportRun.count({
+      where: { organizationId: ORG, channelAccountId: ACCOUNT, fileHash: 'e'.repeat(64) },
+    })).toBe(0);
+
+    await fail(child.permit).expect(201);
+    expect(await claim()).toMatchObject({ kind: 'started' });
   });
   it('replays the exact frozen permit and exposes safe status without a token', async () => {
     const key = randomUUID();

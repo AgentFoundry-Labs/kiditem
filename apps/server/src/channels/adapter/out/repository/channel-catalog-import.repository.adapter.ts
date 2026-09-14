@@ -24,7 +24,7 @@ import {
 } from '../../../../common/product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
-import { liveCatalogAttempt, lockCatalogAccount } from './channel-catalog-attempt-fence';
+import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
@@ -69,9 +69,10 @@ implements ChannelCatalogImportRepositoryPort {
   ) {}
 
   /**
-   * One live Wing catalog attempt per account: the claim runs under the same
-   * account lock as the browser collection begin and opens no RUNNING row while
-   * a browser attempt holds its lease or another workbook import is not stale.
+   * One Wing catalog import per account: the claim runs under the same account
+   * lock as the browser collection begin and opens no RUNNING row while the
+   * account's browser import (either stage, or a pending details handoff) or
+   * another workbook import is live, naming that import's root attempt.
    */
   async claimCoupangWingImport(
     input: ClaimInput,
@@ -556,8 +557,8 @@ implements ChannelCatalogImportRepositoryPort {
           response: importResponse(existing, true, zeroChanges()),
         };
       }
-      const live = await liveCatalogAttempt(tx, input);
-      if (live) return { kind: 'running', attemptId: live.id };
+      const live = await liveCatalogImport(tx, input);
+      if (live) return { kind: 'running', attemptId: live.attemptId };
       if (!existing) {
         const created = await tx.sourceImportRun.create({
           data: {
