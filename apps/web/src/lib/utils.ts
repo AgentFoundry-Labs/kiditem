@@ -116,6 +116,19 @@ export function getGradeColor(grade: string): string {
 }
 
 /**
+ * The same palette's text tone, for a grade label that carries no chip.
+ * Derived from the chip tone so a label can never show a grade in a colour
+ * the chip does not use.
+ */
+export function getGradeTextColor(grade: string): string {
+  return getGradeColor(grade)
+    .split(' ')
+    .find((tone) => tone.startsWith('text-')) ?? ABC_GRADE_NEUTRAL_TEXT_CLASS;
+}
+
+const ABC_GRADE_NEUTRAL_TEXT_CLASS = 'text-slate-700';
+
+/**
  * Totals a column that may be unavailable.
  *
  * A total over a set containing an unavailable member is itself unavailable —

@@ -41,7 +41,7 @@ E-commerce operations dashboard. Data-dense APP UI. Light theme only.
 
 - No blue as primary. Blue (`blue-600`) is legacy accent; semantic KidItem violet is the current standard.
 - Profit colors: `green-600` positive, `red-600` negative, `orange-500` for low margins (0-3%).
-- Grade colors: one palette, `ABC_GRADE_TONE_CLASS` in `apps/web/src/lib/utils.ts` (via `getGradeColor`): A = `emerald`, B = `amber`, C = `rose` (`bg-*-100 text-*-800`); an unclassified or unknown grade uses `ABC_GRADE_NEUTRAL_TONE_CLASS` (`slate`).
+- Grade colors: one palette, `ABC_GRADE_TONE_CLASS` in `apps/web/src/lib/utils.ts` (via `getGradeColor`): A = `emerald`, B = `amber`, C = `rose` (`bg-*-100 text-*-800`); an unclassified or unknown grade uses `ABC_GRADE_NEUTRAL_TONE_CLASS` (`slate`). A grade label with no chip takes `getGradeTextColor`, the same palette's `text-*` half.
 - Components use semantic tokens rather than literal purple palette classes.
 - Reserve primary violet for true primary, current, selected, send, and focus states; do not wash whole work surfaces in purple.
 
