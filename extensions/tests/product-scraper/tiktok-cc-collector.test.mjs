@@ -634,3 +634,56 @@ test('reinserts missing content once, preserves per-target failures, dedupes acr
   assert.doesNotMatch(JSON.stringify(harness.sessionCalls), new RegExp(ATTEMPT_TOKEN));
   assert.doesNotMatch(JSON.stringify(result), new RegExp(ATTEMPT_TOKEN));
 });
+
+// KID-147: a restarted worker continues a collection only for the same attempt
+// whose lease has not passed; a replay that differs leaves it for its lease or
+// an operator stop.
+test('a replayed attempt continues only while it is the same attempt with a live lease', async () => {
+  const targets = [{ label: 'Pencil case', keyword: 'pencil case' }];
+  const otherAttemptId = '00000000-0000-4000-8000-000000007778';
+  const liveLease = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const scenario of ['expired lease', 'another attempt', 'live lease']) {
+    const initial = loadCollector({
+      targets,
+      planMaxItems: 12,
+      extractionResponses: [
+        { ok: true, items: Array.from({ length: 12 }, (_, index) => trend('hashtag', `first-${index}`)) },
+        { ok: true, items: Array.from({ length: 12 }, (_, index) => trend('hashtag', `second-${index}`)) },
+      ],
+      requestHandler: ({ url, init, ownerAttempt: plan }) => {
+        if (url.endsWith('/attempts') && init.method === 'POST') return response({ ...plan(), expiresAt: liveLease });
+        return response({ message: 'temporary owner failure' }, { ok: false, status: 503 });
+      },
+    });
+    const first = await runCollector(initial, { idempotencyKey: `tiktok-replay-${scenario}` });
+    assert.equal(first.terminalState, 'RUNNING', scenario);
+    const tabsBefore = initial.chrome.calls.create.length;
+
+    const replayed = loadCollector({
+      targets,
+      planMaxItems: 12,
+      existingChrome: initial.chrome,
+      existingSessionRuntime: initial.sessionRuntime,
+      requestHandler: ({ url, init, ownerAttempt: plan }) => {
+        if (url.endsWith('/attempts') && init.method === 'POST') {
+          if (scenario === 'expired lease') return response({ ...plan(), expiresAt: '2026-01-01T00:00:00.000Z' });
+          if (scenario === 'another attempt') return response({ ...plan(), attemptId: otherAttemptId, expiresAt: liveLease });
+          return response({ ...plan(), expiresAt: liveLease });
+        }
+        if (init.method === 'PUT') return response(plan({ state: 'COMPLETE', acceptedCount: 12 }));
+        throw new Error(`unexpected recovery request: ${init.method} ${url}`);
+      },
+    });
+    const recovered = await replayed.collector.recover('local');
+
+    if (scenario === 'live lease') {
+      assert.equal(recovered.terminalState, 'COMPLETE', scenario);
+      assert.equal(initial.chrome.calls.create.length, tabsBefore + 1, 'the same live attempt continues');
+    } else {
+      assert.equal(recovered.errorCode, 'SOURCE_ATTEMPT_NOT_CONTINUED', scenario);
+      assert.equal(recovered.terminalState, 'RUNNING', scenario);
+      assert.equal(initial.chrome.calls.create.length, tabsBefore, `${scenario}: nothing is collected`);
+      assert.deepEqual(replayed.requests.map((request) => request.init.method), ['POST'], `${scenario}: only the begin was replayed`);
+    }
+  }
+});

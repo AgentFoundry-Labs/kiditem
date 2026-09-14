@@ -161,7 +161,14 @@
     }
 
 
-    async function begin(config, environmentId, input) {
+    // A begin replayed to resume a stored attempt continues only that attempt
+    // while its lease holds. Any other running answer changes nothing local; the
+    // attempt stays for its lease or an operator stop.
+    function continuesAttempt(plan, expectedAttemptId) {
+      return plan.attemptId === expectedAttemptId && Date.parse(plan.expiresAt) > Date.now();
+    }
+
+    async function begin(config, environmentId, input, expectedAttemptId = null) {
       const validated = validateLiveUrl(input?.url);
       if (!validated.ok) throw ownerError("INVALID_LIVE_COMMERCE_URL", validated.error);
       const plan = sourcePlanFrom(await requestJson(config, SOURCE_PATH, {
@@ -172,6 +179,9 @@
         },
         body: JSON.stringify({ url: validated.url }),
       }), { requireToken: true });
+      if (expectedAttemptId && plan.state === "RUNNING" && !continuesAttempt(plan, expectedAttemptId)) {
+        return { ...plan, continuable: false };
+      }
       if (plan.state === "RUNNING") {
         await persistRequestIdentity(environmentId, plan.attemptId, input.idempotencyKey);
         try {
@@ -367,7 +377,7 @@
         return { plan: await begin(config, environmentId, {
           idempotencyKey: existing.correlation.idempotencyKey,
           url: observed.plan.pageUrl,
-        }) };
+        }, existing.session.attemptId) };
       }
       if (typeof input.url !== "string") return null;
       return { plan: await begin(config, environmentId, input) };
@@ -427,6 +437,15 @@
         if (result.plan.state !== "RUNNING") {
           await clearTerminalAttempt(environmentId, result.plan.attemptId, null);
           return terminalResult(result.plan);
+        }
+        if (result.plan.continuable === false) {
+          return {
+            success: false,
+            attemptId: result.plan.attemptId,
+            terminalState: "RUNNING",
+            errorCode: "SOURCE_ATTEMPT_NOT_CONTINUED",
+            error: "Live Commerce collection was not continued: the owner did not return the same attempt with a live lease.",
+          };
         }
         const collectorRun = {
           config,

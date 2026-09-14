@@ -541,3 +541,55 @@ test('recovers a lost terminal response with the original request key and termin
   assert.equal(fake.calls.create.length, 1);
   assert.equal(await sessions.get(ATTEMPT_ID), null);
 });
+
+// KID-147: a restarted worker continues a collection only for the same attempt
+// whose lease has not passed; a replay that differs leaves it for its lease or
+// an operator stop.
+test('a replayed attempt continues only while it is the same attempt with a live lease', async () => {
+  const otherAttemptId = '00000000-0000-4000-8000-000000001689';
+  const liveLease = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const scenario of ['expired lease', 'another attempt', 'live lease']) {
+    const fake = createFakeChrome(({ cb }) => cb({ ok: true, items: [item('900000001', 1)] }));
+    let phase = 'first';
+    const recoveryMethods = [];
+    const { collector, sessions } = loadCollector({
+      fakeChrome: fake.chrome,
+      backendConfig: {
+        ok: true,
+        apiBase: 'http://localhost:4000/api',
+        headers: {},
+        request: async (url, init) => {
+          if (phase === 'recovery') recoveryMethods.push(init.method);
+          if (init.method === 'POST' && url.endsWith('/attempts')) {
+            const replay = { ...attemptPlan('RUNNING'), expiresAt: liveLease };
+            if (phase === 'first') return response(replay);
+            if (scenario === 'expired lease') return response({ ...replay, expiresAt: '2026-01-01T00:00:00.000Z' });
+            if (scenario === 'another attempt') return response({ ...replay, attemptId: otherAttemptId });
+            return response(replay);
+          }
+          if (phase === 'recovery' && init.method === 'PUT') return response(attemptPlan('COMPLETE'));
+          return response({ message: 'owner temporarily unavailable' }, { ok: false, status: 503 });
+        },
+      },
+      fetchImpl: async () => assert.fail('fetch must not run'),
+    });
+
+    const first = await collector.run({ environmentId: 'local', idempotencyKey: `1688-replay-${scenario}` });
+    assert.equal(first.terminalState, 'RUNNING', scenario);
+    const tabsBefore = fake.calls.create.length;
+    phase = 'recovery';
+
+    const recovered = await collector.recover('local');
+
+    if (scenario === 'live lease') {
+      assert.equal(recovered.terminalState, 'COMPLETE', scenario);
+      assert.equal(fake.calls.create.length, tabsBefore + 1, 'the same live attempt continues');
+    } else {
+      assert.equal(recovered.errorCode, 'SOURCE_ATTEMPT_NOT_CONTINUED', scenario);
+      assert.equal(recovered.terminalState, 'RUNNING', scenario);
+      assert.equal(fake.calls.create.length, tabsBefore, `${scenario}: nothing is collected`);
+      assert.deepEqual(recoveryMethods, ['POST'], `${scenario}: only the begin was replayed`);
+      assert.ok(await sessions.get(ATTEMPT_ID), `${scenario}: the running attempt keeps its session`);
+    }
+  }
+});
