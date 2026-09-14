@@ -26,6 +26,7 @@ import {
   CATALOG_STAGING_SOURCE,
   catalogSourceForStage,
   assertExpectedDetailsBasis,
+  liveCatalogWorkbookImport,
   lockCatalogAccount,
   lockCatalogAttempt,
   latestCompletedCatalogBasics,
@@ -131,6 +132,13 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
           return readOwned(tx, { ...input, runId: existing.id, stage, includePayload: false });
         }
         const vendorId = await catalogAccountVendor(tx, input);
+        const workbook = await liveCatalogWorkbookImport(tx, input);
+        if (workbook)
+          throw new ConflictException({
+            code: 'ATTEMPT_IN_PROGRESS',
+            attemptId: workbook.id,
+            message: '이 계정의 쿠팡 상품 목록 파일을 가져오는 중입니다. 끝난 뒤 다시 수집해 주세요.',
+          });
         const active = await tx.sourceImportRun.findMany({
           where: { ...catalogWhere(input, stage), status: 'running' },
         });

@@ -7,7 +7,8 @@ import type {
 export type ChannelCatalogImportClaim =
   | { kind: 'started'; runId: string; attemptToken: string }
   | { kind: 'duplicate'; response: CoupangWingCatalogImportResponse }
-  | { kind: 'running' };
+  /** The account already has a live Wing catalog attempt, from a workbook or the browser. */
+  | { kind: 'running'; attemptId: string };
 
 export interface ChannelCatalogImportRepositoryPort {
   claimCoupangWingImport(input: {

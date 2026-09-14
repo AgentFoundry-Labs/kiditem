@@ -35,9 +35,11 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
 
     if (claim.kind === 'duplicate') return claim.response;
     if (claim.kind === 'running') {
-      throw new ConflictException(
-        'This Coupang Wing catalog file is already being imported for this account',
-      );
+      throw new ConflictException({
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: claim.attemptId,
+        message: '이 계정의 쿠팡 상품 목록을 이미 가져오는 중입니다. 끝난 뒤 다시 시도해 주세요.',
+      });
     }
 
     try {

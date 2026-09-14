@@ -14,6 +14,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import type { PrismaClient } from '@prisma/client';
@@ -111,7 +112,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       await expect(repository.markImportFailed(
         TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
       )).rejects.toThrow();
-      expect(await claim(hash)).toEqual({ kind: 'running' });
+      expect(await claim(hash)).toEqual({ kind: 'running', attemptId: first.runId });
       expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
     } finally {
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT test_catalog_import_alert_failure`;
@@ -133,7 +134,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_resolution CHECK (source_type <> 'coupang_wing_catalog' OR status <> 'RESOLVED')`;
     try {
       await expect(publish()).rejects.toThrow();
-      expect(await claim(hash)).toEqual({ kind: 'running' });
+      expect(await claim(hash)).toEqual({ kind: 'running', attemptId: retry.runId });
       expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
         attemptId: first.attemptToken, status: 'OPEN',
       }]);
@@ -970,7 +971,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    expect(await claim(hash)).toEqual({ kind: 'running' });
+    expect(await claim(hash)).toEqual({ kind: 'running', attemptId: run.id });
     await prisma.sourceImportRun.update({
       where: { id: run.id },
       data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
@@ -981,6 +982,13 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     if (reclaimed?.kind !== 'started') throw new Error('expected stale claim');
     expect(reclaimed).toMatchObject({ runId: run.id });
     expect(reclaimed.attemptToken).not.toBe(oldToken);
+
+    // The reclaimed import is live again, so it holds the account.
+    expect(await claim(fileHash('failed-retry'))).toEqual({ kind: 'running', attemptId: run.id });
+    await prisma.sourceImportRun.update({
+      where: { id: run.id },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
 
     const failedHash = fileHash('failed-retry');
     const failedToken = randomUUID();
@@ -1001,6 +1009,82 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(retry).toMatchObject({ kind: 'started', runId: failedRun.id });
     if (retry.kind !== 'started') throw new Error('expected failed retry');
     expect(retry.attemptToken).not.toBe(failedToken);
+  });
+
+  it('does not open a second RUNNING import for another file while a workbook import for the account is live', async () => {
+    const first = await claim(fileHash('live-first'));
+    if (first.kind !== 'started') throw new Error('expected the first claim to start');
+    expect(await claim(fileHash('live-second'))).toEqual({ kind: 'running', attemptId: first.runId });
+    const conflict = await service.importCoupangWing({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      fileName: 'second.xlsx',
+      fileHash: fileHash('live-second'),
+      rows: [makeRow(0)],
+      skippedRows: [],
+      headers: [],
+    }).catch((error: unknown) => error);
+    expect(conflict).toBeInstanceOf(ConflictException);
+    expect((conflict as ConflictException).getResponse()).toEqual({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: first.runId,
+      message: expect.any(String),
+    });
+    expect(await prisma.sourceImportRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: WING_ACCOUNT_ID,
+        status: 'running',
+      },
+    })).toBe(1);
+
+    const otherAccount = await repository.claimCoupangWingImport({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: SECOND_WING_ACCOUNT_ID,
+      fileName: 'wing.xlsx',
+      fileHash: fileHash('live-second'),
+      rowCount: 1,
+    });
+    expect(otherAccount.kind).toBe('started');
+
+    await prisma.sourceImportRun.update({
+      where: { id: first.runId },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
+    expect(await claim(fileHash('live-second'))).toMatchObject({ kind: 'started' });
+  });
+
+  it('does not open a workbook import while a browser Wing catalog attempt for the account holds its lease', async () => {
+    const collection = new ChannelCatalogCollectionRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      alerts,
+      {
+        publishDetailChunk: async () => {
+          throw new Error('detail publication is not part of this fixture');
+        },
+      } as never,
+    );
+    const browser = await collection.startOrResume({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+      stage: 'basics',
+    });
+    expect(await claim(fileHash('browser-live'))).toEqual({ kind: 'running', attemptId: browser.id });
+    expect(await prisma.sourceImportRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, fileHash: fileHash('browser-live') },
+    })).toBe(0);
+
+    await prisma.sourceImportRun.update({
+      where: { id: browser.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    expect(await claim(fileHash('browser-live'))).toMatchObject({ kind: 'started' });
   });
 
   it('rejects a stale worker token on write/fail after account-scoped reclamation', async () => {

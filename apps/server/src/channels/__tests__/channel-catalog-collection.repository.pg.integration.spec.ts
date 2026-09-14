@@ -255,6 +255,50 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     ).resolves.toMatchObject({ status: 'running' });
   });
 
+  it('does not start a browser attempt while a workbook import for the account is live', async () => {
+    const workbook = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: WING_ACCOUNT_ID,
+        fileName: 'wing.xlsx',
+        fileHash: 'a'.repeat(64),
+        status: 'running',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+      },
+    });
+    for (const stage of ['full', 'basics'] as const) {
+      const blocked = await repository.startOrResume({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        idempotencyKey: randomUUID(),
+        collectorVersion: '1.0.0',
+        stage,
+      }).catch((error: unknown) => error);
+      expect(blocked).toBeInstanceOf(ConflictException);
+      expect((blocked as ConflictException).getResponse()).toMatchObject({
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: workbook.id,
+      });
+    }
+    const otherAccount = await repository.startOrResume({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: SECOND_WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    });
+    expect(otherAccount.status).toBe('running');
+
+    await prisma.sourceImportRun.update({
+      where: { id: workbook.id },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
+    await expect(startRun(repository)).resolves.toMatchObject({ status: 'running' });
+  });
+
   it('stores raw chunks in JSONB and makes same-checksum retries idempotent', async () => {
     const run = await startRun(repository);
     const input = {

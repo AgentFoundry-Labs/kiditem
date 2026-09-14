@@ -48,6 +48,53 @@ export async function lockCatalogAccount(tx: Prisma.TransactionClient, scope: Ca
   const key = `channel-catalog-publication:${scope.organizationId}:${CATALOG_SOURCE}:${scope.channelAccountId}`;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS lock`;
 }
+
+/** A workbook import holds its account until it goes this long without an update. */
+export const CATALOG_WORKBOOK_STALE_AFTER_MS = 30 * 60 * 1_000;
+
+const liveBrowserAttempt = (now: Date) => ({
+  parserVersion: CATALOG_PARSER,
+  sourceType: { in: [CATALOG_SOURCE, CATALOG_BASICS_SOURCE, CATALOG_DETAILS_SOURCE] },
+  expiresAt: { gt: now },
+});
+const liveWorkbookImport = (now: Date) => ({
+  sourceType: CATALOG_SOURCE,
+  fileHash: { not: null },
+  updatedAt: { gte: new Date(now.getTime() - CATALOG_WORKBOOK_STALE_AFTER_MS) },
+});
+
+/**
+ * The account's live Wing catalog attempt from either path: a browser
+ * collection of any stage inside its lease, or a running workbook import that
+ * is not stale. The workbook claim and the browser begin both read this under
+ * `lockCatalogAccount`, so one account never holds two live attempts.
+ */
+export function liveCatalogAttempt(tx: Prisma.TransactionClient, scope: CatalogScope, now = new Date()) {
+  return tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      status: 'running',
+      OR: [liveBrowserAttempt(now), liveWorkbookImport(now)],
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true },
+  });
+}
+
+/** The account's running workbook import that is not stale. */
+export function liveCatalogWorkbookImport(tx: Prisma.TransactionClient, scope: CatalogScope, now = new Date()) {
+  return tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      status: 'running',
+      ...liveWorkbookImport(now),
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true },
+  });
+}
 export async function lockCatalogAttempt(
   tx: Prisma.TransactionClient,
   input: CatalogScope & { runId: string; attemptToken: string; stage?: CoupangCatalogStage },

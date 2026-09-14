@@ -24,10 +24,11 @@ import {
 } from '../../../../common/product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
+import { liveCatalogAttempt, lockCatalogAccount } from './channel-catalog-attempt-fence';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
-const STALE_AFTER_MS = 30 * 60 * 1_000;
+const CLAIM_READ_LIMIT = 3;
 const UPSERT_BATCH_SIZE = 500;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 
@@ -67,48 +68,27 @@ implements ChannelCatalogImportRepositoryPort {
     private readonly alerts: SourceFailureAlerts,
   ) {}
 
+  /**
+   * One live Wing catalog attempt per account: the claim runs under the same
+   * account lock as the browser collection begin and opens no RUNNING row while
+   * a browser attempt holds its lease or another workbook import is not stale.
+   */
   async claimCoupangWingImport(
     input: ClaimInput,
   ): Promise<ChannelCatalogImportClaim> {
     await this.assertActiveWingAccount(input.organizationId, input.channelAccountId);
-
-    const existing = await this.findRun(
-      input.organizationId,
-      input.channelAccountId,
-      input.fileHash,
-    );
-    if (existing) return this.claimExistingRun(input, existing);
-
-    const attemptToken = randomUUID();
     try {
-      const created = await this.prisma.sourceImportRun.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileName: input.fileName,
-          fileHash: input.fileHash,
-          status: 'running',
-          rowCount: input.rowCount,
-          importedAt: null,
-          createdBy: input.userId,
-          attemptToken,
-        },
-      });
-      return {
-        kind: 'started',
-        runId: created.id,
-        attemptToken: created.attemptToken,
-      };
+      return await this.prisma.$transaction(
+        (tx) => this.claimInTransaction(tx, input),
+        TRANSACTION_OPTIONS,
+      );
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
-      const raced = await this.findRun(
-        input.organizationId,
-        input.channelAccountId,
-        input.fileHash,
+      // A claim outside the account lock created this file's run first.
+      return this.prisma.$transaction(
+        (tx) => this.claimInTransaction(tx, input),
+        TRANSACTION_OPTIONS,
       );
-      if (!raced) throw error;
-      return this.claimExistingRun(input, raced);
     }
   }
 
@@ -554,33 +534,69 @@ implements ChannelCatalogImportRepositoryPort {
     assertCanonicalCoupangAccountIdentity(account);
   }
 
-  private async claimExistingRun(
+  private async claimInTransaction(
+    tx: Prisma.TransactionClient,
     input: ClaimInput,
-    run: SourceImportRun,
   ): Promise<ChannelCatalogImportClaim> {
-    if (run.status === 'completed') {
-      return {
-        kind: 'duplicate',
-        response: importResponse(run, true, zeroChanges()),
-      };
-    }
-
-    if (run.status === 'running') {
-      const staleBefore = new Date(Date.now() - STALE_AFTER_MS);
-      if (run.updatedAt >= staleBefore) return { kind: 'running' };
-
-      const attemptToken = randomUUID();
-      const reclaimed = await this.prisma.sourceImportRun.updateMany({
+    await lockCatalogAccount(tx, input);
+    // Publication and failure settle a run under their own lock, so a lost
+    // compare-and-set reads the run again before deciding.
+    for (let read = 0; read < CLAIM_READ_LIMIT; read += 1) {
+      const existing = await tx.sourceImportRun.findFirst({
         where: {
-          id: run.id,
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'running',
-          updatedAt: run.updatedAt,
-          attemptToken: run.attemptToken,
+          fileHash: input.fileHash,
+        },
+      });
+      if (existing?.status === 'completed') {
+        return {
+          kind: 'duplicate',
+          response: importResponse(existing, true, zeroChanges()),
+        };
+      }
+      const live = await liveCatalogAttempt(tx, input);
+      if (live) return { kind: 'running', attemptId: live.id };
+      if (!existing) {
+        const created = await tx.sourceImportRun.create({
+          data: {
+            organizationId: input.organizationId,
+            sourceType: SOURCE_TYPE,
+            channelAccountId: input.channelAccountId,
+            fileName: input.fileName,
+            fileHash: input.fileHash,
+            status: 'running',
+            rowCount: input.rowCount,
+            importedAt: null,
+            createdBy: input.userId,
+            attemptToken: randomUUID(),
+          },
+        });
+        return {
+          kind: 'started',
+          runId: created.id,
+          attemptToken: created.attemptToken,
+        };
+      }
+      if (existing.status !== 'running' && existing.status !== 'failed') {
+        return { kind: 'running', attemptId: existing.id };
+      }
+      // A stale running import is reclaimed and a failed one retried, each
+      // under a new token so the previous worker's writes stay fenced out.
+      const attemptToken = randomUUID();
+      const claimed = await tx.sourceImportRun.updateMany({
+        where: {
+          id: existing.id,
+          organizationId: input.organizationId,
+          sourceType: SOURCE_TYPE,
+          channelAccountId: input.channelAccountId,
+          status: existing.status,
+          ...(existing.status === 'running' ? { updatedAt: existing.updatedAt } : {}),
+          attemptToken: existing.attemptToken,
         },
         data: {
+          status: 'running',
           fileName: input.fileName,
           rowCount: input.rowCount,
           createdBy: input.userId,
@@ -588,71 +604,11 @@ implements ChannelCatalogImportRepositoryPort {
           attemptToken,
         },
       });
-      if (reclaimed.count === 1) {
-        return { kind: 'started', runId: run.id, attemptToken };
+      if (claimed.count === 1) {
+        return { kind: 'started', runId: existing.id, attemptToken };
       }
-      return this.resolveLostClaimRace(input, run.id);
     }
-
-    if (run.status === 'failed') {
-      const attemptToken = randomUUID();
-      const retried = await this.prisma.sourceImportRun.updateMany({
-        where: {
-          id: run.id,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          status: 'failed',
-          attemptToken: run.attemptToken,
-        },
-        data: {
-          status: 'running',
-          fileName: input.fileName,
-          rowCount: input.rowCount,
-          createdBy: input.userId,
-          importedAt: null,
-          attemptToken,
-        },
-      });
-      if (retried.count === 1) {
-        return { kind: 'started', runId: run.id, attemptToken };
-      }
-      return this.resolveLostClaimRace(input, run.id);
-    }
-
-    return { kind: 'running' };
-  }
-
-  private async resolveLostClaimRace(
-    input: ClaimInput,
-    runId: string,
-  ): Promise<ChannelCatalogImportClaim> {
-    const current = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        id: runId,
-        organizationId: input.organizationId,
-        sourceType: SOURCE_TYPE,
-        channelAccountId: input.channelAccountId,
-        fileHash: input.fileHash,
-      },
-    });
-    if (!current) return this.claimCoupangWingImport(input);
-    return this.claimExistingRun(input, current);
-  }
-
-  private findRun(
-    organizationId: string,
-    channelAccountId: string,
-    fileHash: string,
-  ): Promise<SourceImportRun | null> {
-    return this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId,
-        sourceType: SOURCE_TYPE,
-        channelAccountId,
-        fileHash,
-      },
-    });
+    throw new ConflictException('Coupang Wing catalog import claim lost its fence');
   }
 }
 
