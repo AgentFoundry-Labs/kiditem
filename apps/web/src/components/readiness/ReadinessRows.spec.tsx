@@ -96,6 +96,9 @@ function ownerStatus(current: OwnerAttempt | null, previous: OwnerAttempt | null
     latestAttempt: current,
     latestComplete,
     actualCutoffAt: null,
+    // The campaign source's live attempt of any capture mode; the keyword source has none.
+    activeAttempt: current?.state === 'RUNNING' ? current : null,
+    latestManualReport: null,
   };
 }
 
@@ -611,5 +614,36 @@ describe('readiness Wing rank card', () => {
     expect(await screen.findByText('수집 중 · 0/1개 키워드')).toBeInTheDocument();
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(EXTENSION_ID, expect.stringMatching(UUID));
     expect(onCollect).not.toHaveBeenCalled();
+  });
+});
+
+describe('readiness ad sync row live attempt', () => {
+  it("shows a live manual report, the account's active attempt, while the sweep itself is idle", async () => {
+    const complete = ownerAttempt('campaign', 'COMPLETE');
+    const manual = {
+      ...ownerAttempt('campaign', 'RUNNING', NEXT_ATTEMPT_ID),
+      plan: {
+        sourceType: 'coupang_ad_campaign',
+        parserVersion: 'ad-campaign-v1',
+        channelAccountId: ACCOUNT_ID,
+        expectedAdvertiserId: 'advertiser-1',
+        captureMode: 'manual_report',
+        period: '7d',
+        startDate: '2026-08-30',
+        endDate: '2026-09-05',
+        targetUrl: 'https://advertising.coupang.com/campaigns',
+        businessDates: ['2026-09-05'],
+      },
+    };
+    statuses['/api/ads/ad-campaigns/source'] = {
+      ...ownerStatus(complete),
+      activeAttempt: manual,
+      latestManualReport: manual,
+    };
+    renderRow(<AdSyncRow />);
+
+    expect(await screen.findByText('수집 중 · 원본 보고서 7일 · 2026-08-30 ~ 2026-09-05')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '광고 동기화' })).not.toBeInTheDocument();
   });
 });

@@ -11,25 +11,15 @@ import {
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
+import { exactManualReportRange } from "../lib/ad-campaign-collection";
 import { roasColor } from "../lib/status-colors";
 import { adTrendsSourceLabel } from "../lib/trends-source";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
+import ManualCampaignReportControl from "./ManualCampaignReportControl";
 import ManualCampaignReportPanel from "./ManualCampaignReportPanel";
 import { ProductDrilldown } from "./ProductDrilldown";
 import { CampaignTable } from "./CampaignTable";
 import type { CampaignSelection } from "./CampaignTable";
-import { shiftBusinessDateKey } from "@kiditem/shared/common";
-
-function exactManualReportRange(
-  period: string,
-  knownThrough: string | undefined,
-): { startDate: string; endDate: string } | null {
-  if (period !== "7d" || !knownThrough) return null;
-  return {
-    startDate: shiftBusinessDateKey(knownThrough, -6),
-    endDate: knownThrough,
-  };
-}
 
 export default function CampaignContent({
   initialCampaign,
@@ -184,6 +174,7 @@ export default function CampaignContent({
         </div>
       )}
 
+      <ManualCampaignReportControl period={period} knownThrough={trendsQuery.data?.knownThrough} />
       <ManualCampaignReportPanel reports={manualReports} />
 
       <div className="space-y-4" aria-busy={isRefreshing}>

@@ -143,8 +143,9 @@ export const queryKeys = {
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
+    manualReportsAll: () => [...queryKeys.ads.all, 'manual-reports'] as const,
     manualReports: (from: string, to: string) =>
-      [...queryKeys.ads.all, 'manual-reports', from, to] as const,
+      [...queryKeys.ads.manualReportsAll(), from, to] as const,
     keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
