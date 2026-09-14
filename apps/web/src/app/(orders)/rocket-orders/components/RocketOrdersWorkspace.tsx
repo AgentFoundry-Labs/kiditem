@@ -65,7 +65,6 @@ export interface RocketDecisionWorkspaceContext {
   selectedDate: string | null;
   selectedDateSourceRunCount: number;
   onActivity: (activity: RocketOrderActivityInput) => void;
-  onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
 }
 
@@ -497,7 +496,6 @@ export function RocketOrdersWorkspace({
         selectedDate: selectedDay || null,
         selectedDateSourceRunCount: selectedDaySourceRunCount,
         onActivity: recordActivity,
-        onOrdersChanged: () => { void refetch(); void rocketSource.refetch(); },
         renderOrderExplorer,
       })}
 

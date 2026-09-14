@@ -17,8 +17,8 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     const shipmentScreen = source(
       'src/app/(inventory)/coupang-shipments/page.tsx',
     );
-    const rocketWorkflow = source(
-      'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
+    const rocketPanel = source(
+      'src/app/(orders)/rocket-orders/components/RocketConfirmPanel.tsx',
     );
     const trendScreen = source(
       'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
@@ -39,7 +39,7 @@ describe('useDepartmentQuickActions execution boundaries', () => {
 
     for (const [sharedAction, domainSource] of [
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
-      ['useRocketPoSource', rocketWorkflow],
+      ['useRocketPoCollection', rocketPanel],
       ['useTrendSourceCollection', trendScreen],
     ] as const) {
       expect(dashboard).toContain(sharedAction);

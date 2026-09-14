@@ -54,9 +54,10 @@ multiple route groups.
   the Inventory attempt and send only its ID to the extension. Read status,
   capture cutoff, and calendar history from the owner; keep provider rows and
   terminal writes out of the page.
-- Rocket PO callers use `rocket-purchase-collection-action.ts` to collect through
-  the Channels attempt before requesting Supply preview by COMPLETE source ID.
-  `use-rocket-po-source.ts` reads owner status; preview errors never fail a source.
+- Rocket PO callers start and stop collection through the account's shared
+  control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
+  by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
+  fail a source.
 
 ## Boundary Rules
 

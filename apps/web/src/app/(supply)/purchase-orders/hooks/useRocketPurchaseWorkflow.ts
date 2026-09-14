@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   isRocketWorkbookBlockingReason,
   ROCKET_CONFIRMATION_REQUEST_STATUSES,
@@ -10,9 +9,6 @@ import {
 import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
-import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
-import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
-import { queryKeys } from '@/lib/query-keys';
 import {
   loadSavedRocketCollection,
   previewRocketPurchases,
@@ -32,7 +28,6 @@ import type {
   RocketPurchasePreviewFreshnessPendingResponse,
   RocketPurchasePreviewReadyResponse,
   RocketPurchasePreviewRequest,
-  RocketPurchasePreviewResponse,
   RocketPurchasePreviewRow,
   RocketShortageReason,
   RocketWorkbookExportResponse,
@@ -49,8 +44,6 @@ interface CollectionRunSummary {
 
 export type RocketWorkflowStage =
   | 'idle'
-  | 'collecting'
-  | 'persisting_collection'
   | 'calculating'
   | 'review_required'
   | 'ready'
@@ -191,7 +184,6 @@ export function useRocketPurchaseWorkflow({
   to,
   savedSourceImportRunId,
   selectedDeliveryDate,
-  onCatalogSaved,
   onActivity,
 }: {
   channelAccountId: string;
@@ -199,11 +191,8 @@ export function useRocketPurchaseWorkflow({
   to: string;
   savedSourceImportRunId: string | null;
   selectedDeliveryDate?: string;
-  onCatalogSaved?: () => void;
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
-  const queryClient = useQueryClient();
-  const rocketSource = useRocketPoSource(channelAccountId);
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
     () => new Set(),
@@ -228,7 +217,6 @@ export function useRocketPurchaseWorkflow({
   const [exporting, setExporting] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const requestGenerationRef = useRef(0);
@@ -246,15 +234,27 @@ export function useRocketPurchaseWorkflow({
     complete: RocketPurchasePreviewReadyResponse;
   } | null>(null);
   const activeWaiterRef = useRef<AbortController | null>(null);
-  const collectionPromiseRef = useRef<Promise<void> | null>(null);
   const reviewScope = JSON.stringify([channelAccountId, from, to, selectedDeliveryDate]);
-  // An owner read acknowledging this view's collection must not reopen it and erase edits.
-  const collectedReviewRef = useRef<{ sourceId: string; scope: string } | null>(null);
+  // The operator's edits as of this render, read when a newer source of the same review arrives.
+  const operatorEditsRef = useRef<Record<string, number>>({});
+  operatorEditsRef.current = operatorEditsForRows(operatorEditedLineIds, editedQuantities, sourceRows);
+  const reviewedSourceRef = useRef({ scope: reviewScope, sourceId: savedSourceImportRunId });
+  /**
+   * Edits carried to a newer collection of the same review. The load
+   * intersects them with its lines and sends them once with the joint clamp.
+   */
+  const retainedEditsRef = useRef<{ scope: string; edits: Record<string, number> } | null>(null);
 
   useEffect(() => {
-    if (collectedReviewRef.current?.sourceId === savedSourceImportRunId
-      && collectedReviewRef.current.scope === reviewScope) return;
-    collectedReviewRef.current = null;
+    const previous = reviewedSourceRef.current;
+    reviewedSourceRef.current = { scope: reviewScope, sourceId: savedSourceImportRunId };
+    const newerCollection = previous.scope === reviewScope
+      && previous.sourceId !== null
+      && savedSourceImportRunId !== null
+      && previous.sourceId !== savedSourceImportRunId;
+    retainedEditsRef.current = newerCollection && Object.keys(operatorEditsRef.current).length > 0
+      ? { scope: reviewScope, edits: operatorEditsRef.current }
+      : null;
     requestGenerationRef.current += 1;
     activeWaiterRef.current?.abort();
     activeWaiterRef.current = null;
@@ -271,7 +271,6 @@ export function useRocketPurchaseWorkflow({
     setCollectionRun(null);
     setShortageReasons({});
     setLoading(false);
-    setCollecting(false);
     setError(null);
   }, [channelAccountId, from, savedSourceImportRunId, selectedDeliveryDate, to, reviewScope]);
 
@@ -283,8 +282,6 @@ export function useRocketPurchaseWorkflow({
     request: RocketPurchasePreviewRequest;
     generation: number;
     controller: AbortController;
-    notifyCatalogSaved: boolean;
-    initial?: RocketPurchasePreviewResponse;
     inventoryRequirement?: 'advisory' | 'fresh';
   }): Promise<RocketPurchasePreviewReadyResponse> => {
     const isCurrent = () => (
@@ -296,11 +293,10 @@ export function useRocketPurchaseWorkflow({
           inventoryRequirement: input.inventoryRequirement,
         })
       : previewRocketPurchases(input.request);
-    const initial = input.initial ?? await requestPreview();
+    const initial = await requestPreview();
     if (!isCurrent()) {
       throw new Error('Stale Rocket preview response');
     }
-    if (input.notifyCatalogSaved && initial.catalog) onCatalogSaved?.();
 
     return requireFreshRocketPreview(initial, (checkpoint) => {
       if (!isCurrent()) return;
@@ -335,15 +331,12 @@ export function useRocketPurchaseWorkflow({
 
   const recoveryErrorMessage = (cause: unknown, fallback: string): string => (
     cause instanceof RocketInventoryCollectionRequiredError
-      || cause instanceof RocketPoSourceError
       ? cause.message
       : rocketPreviewErrorMessage(cause, fallback)
   );
 
   useEffect(() => {
     if (!savedSourceImportRunId) return;
-    if (collectedReviewRef.current?.sourceId === savedSourceImportRunId
-      && collectedReviewRef.current.scope === reviewScope) return;
     const generation = requestGenerationRef.current;
     const controller = beginWaiter();
     let cancelled = false;
@@ -405,7 +398,6 @@ export function useRocketPurchaseWorkflow({
           },
           generation,
           controller,
-          notifyCatalogSaved: false,
         });
         if (supersededDuringLoad()) return;
         loadedSourceRef.current = { key: cacheKey, saved, complete: completeResult };
@@ -416,6 +408,51 @@ export function useRocketPurchaseWorkflow({
           ...dateScoped,
           rows: dateScoped.rows.filter(({ poLineId }) => reviewLineIds.has(poLineId)),
         };
+        const retained = retainedEditsRef.current?.scope === reviewScope
+          ? retainedEditsRef.current.edits
+          : null;
+        retainedEditsRef.current = null;
+        const retainedEdits = retained
+          ? operatorEditsForRows(new Set(Object.keys(retained)), retained, reviewRows)
+          : {};
+        if (Object.keys(retainedEdits).length > 0) {
+          // A newer collection of this review keeps the edits on the lines it still has.
+          const retainedResult = await previewWithInventoryGate({
+            request: {
+              channelAccountId,
+              sourceImportRunId: saved.sourceImportRunId,
+              editedQuantities: retainedEdits,
+              clampEditedQuantities: true,
+              previewScope: 'confirmation_requested',
+            },
+            generation,
+            controller,
+          });
+          if (supersededDuringLoad()) return;
+          const reviewed = previewForDeliveryDate(retainedResult, selectedDeliveryDate);
+          const reviewedEdits = visibleReviewQuantities(reviewed);
+          const reviewedLineIds = new Set(reviewed.rows.map(({ poLineId }) => poLineId));
+          setDisplayPreview(mergeDisplayPreview(dateScoped, reviewed));
+          setEditedQuantities(reviewedEdits);
+          setOperatorEditedLineIds(new Set(
+            Object.keys(retainedEdits).filter((poLineId) => reviewedLineIds.has(poLineId)),
+          ));
+          setValidatedEditFingerprint(editFingerprint(reviewedEdits));
+          setPreviewDirty(false);
+          setShortageReasons((current) => reconcileShortageReasons(
+            current,
+            reviewed,
+            reviewedEdits,
+          ));
+          setPreview(reviewed);
+          setPendingCheckpoint(null);
+          setStage('ready');
+          onActivity?.({
+            status: 'succeeded',
+            message: '새 로켓 PO 수집본에 검토수량을 이어 적용해 다시 계산했습니다.',
+          });
+          return;
+        }
         const effectiveEdits = visibleReviewQuantities(result);
         setEditedQuantities(effectiveEdits);
         setOperatorEditedLineIds(new Set());
@@ -459,117 +496,6 @@ export function useRocketPurchaseWorkflow({
     reviewScope,
   ]);
 
-  const performRecalculation = async () => {
-    // 새 수집본이 생기므로 날짜 전환용 캐시는 버린다.
-    loadedSourceRef.current = null;
-    const generation = requestGenerationRef.current;
-    // This controller intentionally outlives the route. A client-side route
-    // transition must not cancel collection persistence.
-    const controller = new AbortController();
-    setLoading(true);
-    setCollecting(true);
-    setStage('collecting');
-    setError(null);
-    onActivity?.({ status: 'started', message: '쿠팡에서 로켓 PO를 새로 수집하고 있습니다.' });
-    try {
-      const { collected, request, initialPreview } = await rocketSource.collect({
-        from,
-        to,
-        onCatalogSaved,
-        createPreviewRequest: (current) => {
-          collectedReviewRef.current = { sourceId: current.sourceImportRunId, scope: reviewScope };
-          const reviewRows = rowsForDeliveryDate(
-            confirmationRequestedRows(current.rows),
-            selectedDeliveryDate,
-          );
-          const retainedEdits = operatorEditsForRows(
-            operatorEditedLineIds,
-            editedQuantities,
-            reviewRows,
-          );
-          setCollectionRun({
-            sourceImportRunId: current.sourceImportRunId,
-            collection: current.collection,
-            poCount: current.poCount,
-            rowCount: current.rows.length,
-            uniqueRowPoCount: new Set(current.rows.map(({ poNumber }) => poNumber)).size,
-            rowsMatchEvidenceVendor: current.rows.every(
-              ({ vendorId }) => vendorId === current.collection.vendorId,
-            ),
-          });
-          setSourceRows(reviewRows);
-          setCollectionRows(current.rows);
-          setPendingCheckpoint(null);
-          setStage('persisting_collection');
-          return {
-            channelAccountId,
-            sourceImportRunId: current.sourceImportRunId,
-            editedQuantities: retainedEdits,
-            clampEditedQuantities: true,
-            previewScope: 'confirmation_requested',
-          } satisfies RocketPurchasePreviewRequest;
-        },
-      });
-      const completeResult = await previewWithInventoryGate({
-        request,
-        generation,
-        controller,
-        notifyCatalogSaved: false,
-        initial: initialPreview,
-      });
-      if (generation !== requestGenerationRef.current) return;
-      const result = previewForDeliveryDate(completeResult, selectedDeliveryDate);
-      const effectiveEdits = visibleReviewQuantities(result);
-      const currentLineIds = new Set(result.rows.map(({ poLineId }) => poLineId));
-      setEditedQuantities(effectiveEdits);
-      setOperatorEditedLineIds((current) => new Set(
-        [...current].filter((poLineId) => currentLineIds.has(poLineId)),
-      ));
-      setValidatedEditFingerprint(editFingerprint(effectiveEdits));
-      setPreviewDirty(false);
-      setShortageReasons((current) => reconcileShortageReasons(
-        current,
-        result,
-        effectiveEdits,
-      ));
-      setPreview(result);
-      setDisplayPreview(result);
-      setPendingCheckpoint(null);
-      setStage('ready');
-      onActivity?.({
-        status: 'succeeded',
-        message: `로켓 PO ${collected.collection.detailPoCount}/${collected.poCount}건을 수집·저장하고 거래확인요청 ${new Set(result.rows.map(({ poNumber }) => poNumber)).size}건의 재고 미리보기를 계산했습니다.`,
-      });
-    } catch (cause) {
-      if (generation !== requestGenerationRef.current) return;
-      if (cause instanceof RocketPoSourceError && cause.attempt.state === 'RUNNING') {
-        // The owner read supplies progress and expiry; a lost callback is not a failed collection.
-        setStage('idle');
-        return;
-      }
-      setStage(stageForRecoveryFailure(cause));
-      const message = recoveryErrorMessage(cause, '로켓 발주 미리보기를 계산하지 못했습니다.');
-      setError(message);
-      onActivity?.({ status: 'failed', message });
-    } finally {
-      if (generation === requestGenerationRef.current) {
-        setLoading(false);
-        setCollecting(false);
-      }
-    }
-  };
-
-  const recalculate = (): Promise<void> => {
-    if (collectionPromiseRef.current) return collectionPromiseRef.current;
-    const promise = performRecalculation().finally(() => {
-      if (collectionPromiseRef.current === promise) {
-        collectionPromiseRef.current = null;
-      }
-    });
-    collectionPromiseRef.current = promise;
-    return promise;
-  };
-
   const revalidateEditedQuantities = async () => {
     if (!collectionRun || sourceRows.length === 0 || collectionRows.length === 0) return;
     // 재고 기준이 갱신되므로 날짜 전환용 캐시는 버린다.
@@ -595,7 +521,6 @@ export function useRocketPurchaseWorkflow({
         },
         generation,
         controller,
-        notifyCatalogSaved: false,
       });
       if (generation !== requestGenerationRef.current) return;
       const result = previewForDeliveryDate(completeResult, selectedDeliveryDate);
@@ -710,7 +635,6 @@ export function useRocketPurchaseWorkflow({
         },
         generation,
         controller,
-        notifyCatalogSaved: false,
         inventoryRequirement: 'fresh',
       });
       if (generation !== requestGenerationRef.current) return null;
@@ -775,7 +699,7 @@ export function useRocketPurchaseWorkflow({
     /** 표에 그릴 전체 행(선택 날짜의 모든 상태). 엑셀 게이트는 `preview` 가 담당한다. */
     displayPreview,
     pendingCheckpoint,
-    stage: rocketSource.isCollecting ? 'collecting' as const : stage,
+    stage,
     sourceRows,
     /** 선택 날짜의 전체 수집 행. 매입단가처럼 검토 대상 밖 행에도 필요한 값을 여기서 읽는다. */
     collectionRows,
@@ -787,13 +711,11 @@ export function useRocketPurchaseWorkflow({
     exporting,
     templateFile,
     setTemplateFile,
-    loading: loading || rocketSource.isCollecting,
-    collecting: collecting || rocketSource.isCollecting,
+    loading,
     error,
     inventoryCollectionRequired: stage === 'inventory_collection_required',
     collectionWarning,
     canExport,
-    recalculate,
     retryInventoryAndPreview,
     revalidateEditedQuantities,
     exportAndDownload,

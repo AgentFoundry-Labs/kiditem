@@ -1,16 +1,13 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePersistedAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
-import { queryKeys } from '@/lib/query-keys';
-import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
-import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
+import { useRocketPoCollection } from '@/hooks/use-rocket-po-source';
 import { formatNumber } from '@/lib/utils';
 
 export type DepartmentQuickAction =
@@ -41,12 +38,11 @@ function currentMonthRange(): { from: string; to: string } {
  * screens. Inventory collection is admitted by the Sellpia source owner.
  */
 export function useDepartmentQuickActions() {
-  const queryClient = useQueryClient();
   const { collect: collectTrend } = useTrendSourceCollection();
   const { rocketAccounts, isBootstrapping: rocketAccountBootstrapping } =
     useRocketChannelAccounts();
   const rocketAccountId = rocketAccounts[0]?.id ?? null;
-  const { collect: collectRocket } = useRocketPoSource(rocketAccountId ?? '');
+  const rocketCollection = useRocketPoCollection(rocketAccountId ?? '');
   const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
     rocketChannelAccountId: rocketAccountId,
   });
@@ -70,35 +66,9 @@ export function useDepartmentQuickActions() {
         ? '쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요.'
         : '쿠팡 로켓 계정을 먼저 연결해주세요.');
     }
-    const { from, to } = currentMonthRange();
-    const result = await collectRocket({
-      from,
-      to,
-      onCatalogSaved: () => {
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.orders.all }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
-        ]);
-      },
-      createPreviewRequest: (collected) => ({
-        channelAccountId: rocketAccountId,
-        sourceImportRunId: collected.sourceImportRunId,
-        editedQuantities: {},
-        clampEditedQuantities: true,
-        previewScope: 'confirmation_requested',
-      }),
-    }).catch((cause: unknown) => {
-      if (cause instanceof RocketPoSourceError && cause.attempt.state === 'RUNNING') {
-        toast.info(cause.message);
-        return null;
-      }
-      throw cause;
-    });
-    if (!result) return;
-    toast.success(
-      `로켓 PO ${result.collected.collection.detailPoCount}/${result.collected.poCount}건 수집·저장 완료`,
-    );
-  }, [collectRocket, queryClient, rocketAccountBootstrapping, rocketAccountId]);
+    // The same control as /rocket-orders: running state, refusal and stop are shared.
+    rocketCollection.start(currentMonthRange());
+  }, [rocketAccountBootstrapping, rocketAccountId, rocketCollection]);
 
   const start = useCallback(async (action: DepartmentQuickAction): Promise<void> => {
     if (action === 'collectAllOrders') return collectAllOrders();

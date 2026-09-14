@@ -12,7 +12,7 @@ vi.mock('@/hooks/useAllMarketplaceOrderCollection', () => ({ usePersistedAllMark
 vi.mock('@/hooks/useRocketChannelAccounts', () => ({ useRocketChannelAccounts: () => ({ rocketAccounts: [], isBootstrapping: false }) }));
 vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventorySourceOwner: () => ({ start: vi.fn(), state: null, isStarting: false }) }));
 vi.mock('@/lib/coupang-shipment-summary-action', () => ({ collectAndPersistCoupangShipmentSummary: vi.fn() }));
-vi.mock('@/hooks/use-rocket-po-source', () => ({ useRocketPoSource: () => ({ collect: vi.fn() }) }));
+vi.mock('@/hooks/use-rocket-po-source', () => ({ useRocketPoCollection: () => ({ start: vi.fn() }) }));
 
 function renderActions() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

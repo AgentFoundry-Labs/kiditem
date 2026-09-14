@@ -23,6 +23,18 @@ vi.mock(
   }),
 );
 const inventoryStart = vi.hoisted(() => vi.fn());
+const rocketCollectionStart = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/use-rocket-po-source", () => ({
+  useRocketPoCollection: () => ({
+    state: "idle",
+    statusRead: "current",
+    running: null,
+    canStop: false,
+    notice: null,
+    start: rocketCollectionStart,
+    stop: vi.fn(),
+  }),
+}));
 vi.mock("@/app/(inventory)/_shared/sellpia-inventory-source-owner", () => ({
   useSellpiaInventoryCollection: () => ({
     control: {
@@ -125,12 +137,10 @@ const baseWorkflow = {
   exporting: false,
   setTemplateFile: vi.fn(),
   loading: false,
-  collecting: false,
   error: null as string | null,
   inventoryCollectionRequired: false,
   collectionWarning: null,
   canExport: false,
-  recalculate: vi.fn(),
   revalidateEditedQuantities: vi.fn(),
   retryInventoryAndPreview: vi.fn(),
   exportAndDownload: vi.fn(),
@@ -170,7 +180,6 @@ function renderPanel(options?: {
       selectedDate={options?.selectedDate ?? null}
       selectedDateSourceRunCount={sourceRunCount}
       onActivity={vi.fn()}
-      onOrdersChanged={vi.fn()}
       renderOrderExplorer={({ onSelectDate }) => (
         <>
           <button type="button" onClick={() => onSelectDate("2026-07-21", 0)}>
@@ -190,15 +199,16 @@ describe("<RocketConfirmPanel />", () => {
     vi.clearAllMocks();
   });
 
-  it("labels saved-date loading separately from a fresh Coupang collection", () => {
-    renderPanel({ workflow: { loading: true, collecting: false } });
+  it("labels saved-date loading separately from the shared Coupang collection control", () => {
+    renderPanel({ workflow: { loading: true } });
 
+    expect(screen.getByText("저장본 계산 중…")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "저장본 계산 중…" }),
-    ).toBeDisabled();
+      screen.getByRole("button", { name: "이 달 쿠팡 PO 수집·보관" }),
+    ).toBeEnabled();
   });
 
-  it("runs the shared Rocket collection workflow used by the dashboard", async () => {
+  it("starts this month's Rocket collection through the account's shared control", () => {
     renderPanel();
 
     const collectButton = screen.getByRole("button", {
@@ -210,8 +220,9 @@ describe("<RocketConfirmPanel />", () => {
     );
     fireEvent.click(collectButton);
 
-    await waitFor(() => {
-      expect(baseWorkflow.recalculate).toHaveBeenCalledTimes(1);
+    expect(rocketCollectionStart).toHaveBeenCalledWith({
+      from: "2026-07-01",
+      to: "2026-07-31",
     });
   });
 

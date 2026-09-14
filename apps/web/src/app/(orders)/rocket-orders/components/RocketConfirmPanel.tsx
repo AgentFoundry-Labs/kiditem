@@ -17,6 +17,8 @@ import {
   type RocketShortageReason,
 } from "@kiditem/shared/rocket-purchase-preview";
 import { toast } from "sonner";
+import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
+import { useRocketPoCollection } from "@/hooks/use-rocket-po-source";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
 import {
   clearCoupangCookiesViaExtension,
@@ -138,7 +140,6 @@ export function RocketConfirmPanel({
   selectedDate: selectedDateProp,
   selectedDateSourceRunCount,
   onActivity,
-  onOrdersChanged,
   renderOrderExplorer,
 }: RocketDecisionWorkspaceContext) {
   // 날짜 상태는 워크스페이스가 소유한다(URL 복원 포함). 패널은 읽기만 한다.
@@ -195,12 +196,10 @@ export function RocketConfirmPanel({
     exporting,
     setTemplateFile,
     loading,
-    collecting,
     error,
     inventoryCollectionRequired,
     collectionWarning,
     canExport,
-    recalculate,
     revalidateEditedQuantities,
     retryInventoryAndPreview,
     exportAndDownload,
@@ -210,9 +209,9 @@ export function RocketConfirmPanel({
     to,
     savedSourceImportRunId: selectedSourceImportRunId,
     selectedDeliveryDate: selectedDate || undefined,
-    onCatalogSaved: onOrdersChanged,
     onActivity,
   });
+  const rocketCollection = useRocketPoCollection(channelAccountId);
 
   // 매입단가는 검토 대상 밖 행에도 필요하므로 수집본 전체에서 찾고, 없으면 검토 행으로 보완한다.
   const sourceByLineId = useMemo(
@@ -374,14 +373,6 @@ export function RocketConfirmPanel({
     setMatchModalOpen(false);
   }
 
-  async function collectMonth() {
-    if (!channelAccountId) {
-      toast.error("쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-    await recalculate();
-  }
-
   function editQuantity(row: RocketPurchasePreviewRow, quantity: number) {
     const bounded = Math.max(
       0,
@@ -423,28 +414,23 @@ export function RocketConfirmPanel({
               로켓 PO 보관 · 입고예정일 달력
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void collectMonth()}
-              disabled={busy || !channelAccountId}
-              title={`${activeMonth} 입고예정 발주를 선택한 로켓 계정에서 모든 상태로 수집합니다.`}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
-                (busy || !channelAccountId) && "pointer-events-none opacity-60",
-              )}
-            >
-              {loading ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <RefreshCw size={15} />
-              )}
-              {collecting
-                ? "쿠팡 수집·저장 중…"
-                : loading
-                  ? "저장본 계산 중…"
-                  : "이 달 쿠팡 PO 수집·보관"}
-            </button>
+          <div className="flex flex-wrap items-start gap-2">
+            {loading ? (
+              <span className="inline-flex items-center gap-1.5 self-center text-xs font-medium text-slate-500">
+                <Loader2 size={13} className="animate-spin" />
+                저장본 계산 중…
+              </span>
+            ) : null}
+            <CollectionStartControl
+              control={rocketCollection}
+              startLabel="이 달 쿠팡 PO 수집·보관"
+              startTitle={`${activeMonth} 입고예정 발주를 선택한 로켓 계정에서 모든 상태로 수집합니다.`}
+              startBlockedReason={channelAccountId
+                ? null
+                : "쿠팡 익스텐션 계정을 자동으로 연결하는 중입니다. 잠시 후 다시 시도해주세요."}
+              onStart={() => rocketCollection.start({ from, to })}
+              onStop={rocketCollection.stop}
+            />
           </div>
         </div>
 
