@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import {
+  cancelCompetitorCatalogAttempt,
   fetchCompetitorCatalogSourceStatus,
   fetchCompetitorTrackingOverview,
 } from '../lib/competitor-tracking-api';
@@ -89,8 +90,16 @@ vi.mock('../lib/competitor-tracking-api', async (importOriginal) => {
     ...actual,
     fetchCompetitorTrackingOverview: vi.fn(),
     fetchCompetitorCatalogSourceStatus: vi.fn(),
+    cancelCompetitorCatalogAttempt: vi.fn(),
   };
 });
+
+vi.mock('@/lib/browser-collection-session', () => ({
+  // This browser holds no session for the attempt, so a stop reaches the owner route.
+  sendBrowserCollectionControl: vi.fn(async () => {
+    throw new Error('no extension session');
+  }),
+}));
 
 vi.mock('../lib/competitor-extension', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/competitor-extension')>();
@@ -236,6 +245,36 @@ describe('CompetitorTrackingPage direct source owner', () => {
     expect(collectCompetitorCatalogFromExtension).not.toHaveBeenCalled();
     const pageSource = readFileSync(resolve(__dirname, 'CompetitorTrackingPage.tsx'), 'utf8');
     expect(pageSource).not.toContain('/attempts');
+  });
+
+  it('shows the running collection with a stop that ends it through the owner route, then shows it stopped', async () => {
+    const latest = (state: 'RUNNING' | 'FAILED') => ({
+      attemptId: ATTEMPT_ID,
+      state,
+      startedAt: '2026-09-04T00:00:00.000Z',
+      capturedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
+      errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
+    });
+    vi.mocked(fetchCompetitorCatalogSourceStatus).mockResolvedValue({
+      ...sourceStatus(),
+      latestAttempt: latest('RUNNING'),
+    });
+    vi.mocked(cancelCompetitorCatalogAttempt).mockImplementation(async () => {
+      vi.mocked(fetchCompetitorCatalogSourceStatus).mockResolvedValue({
+        ...sourceStatus(),
+        latestAttempt: latest('FAILED'),
+      });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(cancelCompetitorCatalogAttempt).toHaveBeenCalledWith(ATTEMPT_ID);
+    expect(collectCompetitorCatalogFromExtension).not.toHaveBeenCalled();
+    expect(screen.queryByText(/마지막 수집 실패/)).not.toBeInTheDocument();
   });
 
   it('shows stale failure details while retaining the last complete cutoff', async () => {
