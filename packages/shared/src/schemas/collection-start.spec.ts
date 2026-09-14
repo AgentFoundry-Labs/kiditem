@@ -1,0 +1,130 @@
+import { describe, expect, it } from 'vitest';
+import {
+  COLLECTION_START_PRODUCERS,
+  CollectionStartRequestSchema,
+  CollectionStartResultSchema,
+} from './collection-start';
+
+const idempotencyKey = '3f1b8c3e-2a4d-4f7e-9c1a-5b6d7e8f9a0b';
+const attemptId = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
+const channelAccountId = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+
+describe('collection start request', () => {
+  it('covers exactly the producers that share the Coupang collection window', () => {
+    expect([...COLLECTION_START_PRODUCERS].sort()).toEqual([
+      'advertising.ad_keyword',
+      'advertising.ad_sync',
+      'advertising.profitability_import',
+      'dashboard.wing_kpi',
+      'dashboard.wing_sales',
+    ]);
+  });
+
+  it('accepts a campaign sweep with or without an account', () => {
+    for (const scope of [{}, { channelAccountId }]) {
+      expect(
+        CollectionStartRequestSchema.safeParse({
+          action: 'startCollection',
+          producer: 'advertising.ad_sync',
+          idempotencyKey,
+          scope,
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('requires an ordered date range for Wing traffic', () => {
+    const base = { action: 'startCollection', producer: 'dashboard.wing_sales', idempotencyKey };
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        ...base,
+        scope: { startDate: '2026-09-01', endDate: '2026-09-13' },
+      }).success,
+    ).toBe(true);
+    expect(CollectionStartRequestSchema.safeParse({ ...base, scope: {} }).success).toBe(false);
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        ...base,
+        scope: { startDate: '2026-09-13', endDate: '2026-09-01' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects unknown scope fields, other producers and a missing idempotency key', () => {
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        action: 'startCollection',
+        producer: 'advertising.profitability_import',
+        idempotencyKey,
+        scope: { channelAccountId },
+      }).success,
+    ).toBe(false);
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        action: 'startCollection',
+        producer: 'inventory.sellpia',
+        idempotencyKey,
+        scope: {},
+      }).success,
+    ).toBe(false);
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        action: 'startCollection',
+        producer: 'dashboard.wing_kpi',
+        scope: {},
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('collection start result', () => {
+  it('reads a started, running or refused outcome', () => {
+    expect(
+      CollectionStartResultSchema.parse({
+        success: true,
+        outcome: 'started',
+        producer: 'advertising.ad_sync',
+        attemptId,
+      }).outcome,
+    ).toBe('started');
+    expect(
+      CollectionStartResultSchema.parse({
+        success: true,
+        outcome: 'running',
+        producer: 'advertising.ad_sync',
+        attemptId: null,
+      }).outcome,
+    ).toBe('running');
+    const refused = CollectionStartResultSchema.parse({
+      success: true,
+      outcome: 'refused',
+      producer: 'dashboard.wing_sales',
+      holder: { producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인', attemptId },
+      message: '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
+    });
+    expect(refused.outcome === 'refused' && refused.holder.name).toBe('쿠팡 광고 캠페인');
+  });
+
+  it('does not accept a refusal without a holder name or message', () => {
+    expect(
+      CollectionStartResultSchema.safeParse({
+        success: true,
+        outcome: 'refused',
+        producer: 'dashboard.wing_sales',
+        holder: { producer: 'advertising.ad_sync', name: '', attemptId: null },
+        message: '',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('does not accept a started outcome without an attempt', () => {
+    expect(
+      CollectionStartResultSchema.safeParse({
+        success: true,
+        outcome: 'started',
+        producer: 'advertising.ad_keyword',
+        attemptId: null,
+      }).success,
+    ).toBe(false);
+  });
+});
