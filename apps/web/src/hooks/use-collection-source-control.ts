@@ -19,20 +19,31 @@ import {
   type CollectionSourceStatusRead,
 } from '@/lib/collection-source-status-query';
 
+/**
+ * `attemptId` is null when the owner has not named the attempt yet, such as a
+ * collection the extension opens after the start request is accepted.
+ */
 export type CollectionStartOutcome =
-  | Readonly<{ outcome: 'started'; attemptId: string }>
+  | Readonly<{ outcome: 'started'; attemptId: string | null }>
   | Readonly<{ outcome: 'running'; attemptId: string | null }>
   | Readonly<{ outcome: 'refused'; message: string }>;
 
-export type CollectionRunning = Readonly<{ attemptId: string; scopeLabel: string | null }>;
+/** A running collection; `attemptId` is null when the owner reports it without naming the attempt. */
+export type CollectionRunning = Readonly<{ attemptId: string | null; scopeLabel: string | null }>;
+
+export type CollectionStartContext<TStatus> = Readonly<{
+  /** The last status read this start was decided against. */
+  status: TStatus | undefined;
+}>;
 
 export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
   sourceKey: string;
   label: string;
   statusQuery: UseQueryOptions<TStatus, Error, TStatus, QueryKey>;
   readRunning: (status: TStatus) => CollectionRunning | null;
-  start: (input: TInput) => Promise<CollectionStartOutcome>;
-  cancelOnServer: (attemptId: string) => Promise<unknown>;
+  start: (input: TInput, context: CollectionStartContext<TStatus>) => Promise<CollectionStartOutcome>;
+  /** The owner's operator stop. A source without one shows its running collection without a stop. */
+  cancelOnServer?: (attemptId: string) => Promise<unknown>;
   readCompleteId?: (status: TStatus) => string | null;
   onNewComplete?: (queryClient: QueryClient) => void;
 }>;
@@ -55,6 +66,8 @@ export type CollectionControlView = Readonly<{
   state: CollectionControlState;
   statusRead: CollectionSourceStatusRead;
   running: CollectionRunning | null;
+  /** Whether the running collection can be stopped from here: the owner has a stop and named the attempt. */
+  canStop: boolean;
   notice: CollectionControlNotice | null;
 }>;
 
@@ -159,8 +172,8 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
 
   const startMutation = useMutation({
     mutationKey: startKey,
-    mutationFn: async ({ input }: StartVariables<TStatus, TInput>) => {
-      const outcome = await adapter.start(input);
+    mutationFn: async ({ input, statusAtStart }: StartVariables<TStatus, TInput>) => {
+      const outcome = await adapter.start(input, { status: statusAtStart });
       // Running state is the owner's to report; read it before settling.
       if (outcome.outcome !== 'refused') {
         await queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true });
@@ -191,7 +204,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
         // No session for this attempt, a failed cancel, or no answer in time.
       }
       if (!extensionAnswered || (await attemptStillRunning(attemptId))) {
-        await adapter.cancelOnServer(attemptId);
+        await adapter.cancelOnServer?.(attemptId);
       }
       await queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true });
     },
@@ -229,6 +242,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
 
   const statusRead = collectionSourceStatusRead(query);
   const running = query.data === undefined ? null : adapter.readRunning(query.data);
+  const canStop = Boolean(adapter.cancelOnServer) && running?.attemptId != null;
   const notice =
     starting || stopping
       ? null
@@ -259,9 +273,10 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   };
 
   const stop = () => {
-    if (!running || state !== 'running') return;
+    const attemptId = running?.attemptId;
+    if (!attemptId || !canStop || state !== 'running') return;
     if (queryClient.isMutating({ mutationKey: stopKey }) > 0) return;
-    stopMutation.mutate({ attemptId: running.attemptId });
+    stopMutation.mutate({ attemptId });
   };
 
   return {
@@ -270,6 +285,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     state,
     statusRead,
     running,
+    canStop,
     notice,
     query,
     status: query.data,

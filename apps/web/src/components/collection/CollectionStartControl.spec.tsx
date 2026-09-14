@@ -415,6 +415,60 @@ describe('CollectionStartControl stop', () => {
   });
 });
 
+describe('CollectionStartControl without a stop', () => {
+  function renderAdapter(adapter: CollectionSourceAdapter<SpecStatus>) {
+    function AdapterControl() {
+      const control = useCollectionSourceControl(adapter);
+      return (
+        <CollectionStartControl
+          control={control}
+          startLabel="키워드 수집"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
+      );
+    }
+    return renderControls(<AdapterControl />);
+  }
+
+  beforeEach(() => {
+    serverStatus = { latestAttempt: attempt('RUNNING'), latestComplete: null };
+  });
+
+  it('shows a running collection without a stop when the owner has no operator stop', async () => {
+    const { cancelOnServer: _cancelOnServer, ...serverRun } = specCollection;
+    renderAdapter(serverRun);
+
+    expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
+  });
+
+  it('shows a running collection whose attempt the owner does not name without a stop', async () => {
+    renderAdapter({
+      ...specCollection,
+      readRunning: (status) =>
+        status.latestAttempt?.state === 'RUNNING' ? { attemptId: null, scopeLabel: null } : null,
+    });
+
+    expect(await screen.findByText('수집 중')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '키워드 수집' })).not.toBeInTheDocument();
+  });
+
+  it('decides a start against the status it last read', async () => {
+    serverStatus = { latestAttempt: attempt('FAILED'), latestComplete: null };
+    const start = vi.fn(async () => ({ outcome: 'started' as const, attemptId: null }));
+    renderAdapter({ ...specCollection, start });
+
+    fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
+
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+    expect(start).toHaveBeenCalledWith(undefined, {
+      status: { latestAttempt: attempt('FAILED'), latestComplete: null },
+    });
+  });
+});
+
 describe('CollectionStartControl completion', () => {
   const statusKey = ['collection-start-control-spec'];
   const ledgerKey = ['spec-ledger'];

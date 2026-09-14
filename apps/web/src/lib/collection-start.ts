@@ -9,6 +9,7 @@ import {
   type CollectionStartRequest,
   type CollectionStartResult,
 } from '@kiditem/shared/collection-start';
+import { isApiError } from './api-error';
 import { transferExtensionAuthTo } from './extension-auth';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
 import { createSecureRandomUuid } from './secure-random-uuid';
@@ -70,4 +71,14 @@ export async function startWindowCollection<TProducer extends CollectionStartPro
     throw new Error(COLLECTION_START_UPDATE_REQUIRED);
   }
   return result.data;
+}
+
+/**
+ * A source owner's 409 for a live attempt of the same source. The owner names
+ * the attempt when its error body carries one; any other failure is not this.
+ */
+export function attemptInProgress(error: unknown): Readonly<{ attemptId: string | null }> | null {
+  if (!isApiError(error) || error.status !== 409) return null;
+  if (error.details.code !== 'ATTEMPT_IN_PROGRESS') return null;
+  return { attemptId: error.details.attemptId ?? null };
 }
