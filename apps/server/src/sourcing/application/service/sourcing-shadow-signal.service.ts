@@ -12,7 +12,7 @@ import {
   type SourcingBrowserSourceAttemptRepositoryPort,
   type SourcingBrowserSourceAttempt,
 } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
-import { addDays, businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { addDays, businessDateKey, kstBusinessDate, kstDayStart } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import { MarketShadowSnapshotDocumentSchema } from '../../domain/market-shadow-snapshot-document';
 import {
@@ -252,7 +252,10 @@ export class SourcingShadowSignalService {
           attemptToken: attempt.attemptToken,
           planChecksum: attempt.planChecksum,
           contentChecksum: payloadHash,
-          sourceWindowStartAt: businessDate,
+          // The KST business date is UTC midnight, 09:00 KST. Collected before
+          // dawn that start is later than the capture, so the stored window is
+          // reversed and a reader of its dates sees no covered day (KID-139).
+          sourceWindowStartAt: kstDayStart(now),
           sourceWindowEndAt: now,
           output: {
             discoveredCount: 1,

@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  copyFileSync,
   mkdtempSync,
+  realpathSync,
   mkdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   analyzePrReleaseContract,
   migrationReleaseFromPath,
@@ -670,5 +673,106 @@ test('still allows an undeclared historical migration in a promotion PR', () => 
     assert.deepEqual(result.errors, []);
   } finally {
     destroyFixture(fixture);
+  }
+});
+
+const guardSource = fileURLToPath(
+  new URL('../check-pr-release-contract.mjs', import.meta.url),
+);
+
+/**
+ * A disposable repository the guard can run against.
+ *
+ * The guard resolves its repository root from its own path and reads the
+ * release train (VERSION, the migration index, the inactive-lineage catalog)
+ * plus `origin/main` from git. Running the checked-in copy against this
+ * repository would need its full history, which a CI checkout does not have,
+ * so the guard is copied into a fixture whose history is one commit.
+ *
+ * `gh pr view` is the guard's last-resort body source. A failing `gh` early on
+ * PATH keeps a `--body-file` regression from being masked by whatever body the
+ * current branch's pull request happens to carry.
+ */
+function createBodyFileFixture() {
+  // The guard only runs as a CLI when its own resolved path equals argv[1], and
+  // macOS hands out temporary directories below a symlink (/var -> /private/var).
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'pr-release-guard-')));
+  mkdirSync(path.join(root, 'scripts/data-migrations'), { recursive: true });
+  copyFileSync(guardSource, path.join(root, 'scripts/check-pr-release-contract.mjs'));
+  writeFileSync(path.join(root, 'VERSION'), '0.1.7\n');
+  writeFileSync(
+    path.join(root, 'scripts/data-migrations/index.ts'),
+    'export const dataMigrations = [];\n',
+  );
+  writeFileSync(path.join(root, 'scripts/data-migrations/retired.json'), '[]\n');
+  writeFileSync(path.join(root, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  runGit(root, ['init', '-q']);
+  runGit(root, ['config', 'user.email', 'test@example.invalid']);
+  runGit(root, ['config', 'user.name', 'Release Contract Test']);
+  runGit(root, ['add', 'VERSION', 'scripts']);
+  runGit(root, ['commit', '-qm', 'release train fixture']);
+  runGit(root, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  return root;
+}
+
+function runGuard(root, body) {
+  const bodyPath = path.join(root, 'body.md');
+  writeFileSync(bodyPath, body);
+  return execFileSync(
+    'node',
+    [
+      path.join(root, 'scripts/check-pr-release-contract.mjs'),
+      '--base',
+      'HEAD',
+      '--files',
+      'prisma/models/thing.prisma',
+      '--body-file',
+      bodyPath,
+    ],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${root}${path.delimiter}${process.env.PATH ?? ''}`,
+        GITHUB_ACTIONS: '',
+        GITHUB_EVENT_PATH: '',
+        GITHUB_BASE_REF: '',
+        GITHUB_HEAD_REF: '',
+      },
+    },
+  );
+}
+
+test('--body-file with a release decision passes', () => {
+  const root = createBodyFileFixture();
+
+  try {
+    assert.match(
+      runGuard(
+        root,
+        '## DB\nRelease decision: no version bump, schema-only change on the current release\n',
+      ),
+      /check:pr-release-contract PASS/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('--body-file without a release decision fails', () => {
+  const root = createBodyFileFixture();
+
+  try {
+    assert.throws(
+      () => runGuard(root, emptyBody),
+      (error) => {
+        assert.equal(error.status, 1);
+        assert.match(error.stderr, /Release decision: field is required/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

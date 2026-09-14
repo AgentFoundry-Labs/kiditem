@@ -106,6 +106,9 @@ describe('integration test runtime contract', () => {
     expect(developJobSource).toContain('run: npm ci --ignore-scripts');
     expect(developJobSource).toContain('run: npx prisma generate');
     expect(developJobSource).toContain(
+      'NODE_OPTIONS: --max-old-space-size=4096',
+    );
+    expect(developJobSource).toContain(
       'npm run build --workspace=packages/shared',
     );
     expect(developJobSource).toContain(

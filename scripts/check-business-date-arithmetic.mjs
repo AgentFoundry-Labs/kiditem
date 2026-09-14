@@ -3,8 +3,8 @@
 // millisecond-day arithmetic (86_400_000, 24 * 60 * 60 * 1000, ...) is how a
 // KST cutoff or day shift drifts from that module, so it fails outside kst.ts.
 // Existing lines that are not business dates (lease TTLs, rolling windows over
-// instants, spreadsheet serials) and named follow-ups are recorded below with
-// a per-file line ceiling. A ceiling only ratchets down.
+// instants, spreadsheet serials) are recorded below with a per-file line
+// ceiling. A ceiling only ratchets down.
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,16 +45,6 @@ export const RECORDED_DAY_ARITHMETIC = Object.freeze({
     { lines: 1, reason: '7-day event window between two instants' },
   'apps/server/src/sourcing/adapter/out/shortstrend/shortstrend-trend.adapter.ts':
     { lines: 1, reason: '48-hour recent window from now' },
-  'apps/server/src/advertising/read/monthly-ad-allocation.reader.ts':
-    { lines: 1, reason: 'FOLLOW-UP: local inclusive day count over business-date keys; use common/kst inclusiveDayCount' },
-  'apps/server/src/advertising/domain/profitability-month-coverage.ts':
-    { lines: 1, reason: 'FOLLOW-UP: local inclusive day count over business-date keys; use common/kst inclusiveDayCount' },
-  'apps/server/src/products/domain/master-product-abc.ts':
-    { lines: 1, reason: 'FOLLOW-UP (Products): business-date day ordinal' },
-  'apps/server/src/sourcing/application/service/sourcing-rising-product.service.ts':
-    { lines: 1, reason: 'FOLLOW-UP (Sourcing): business-date window start shift; use common/kst addDays' },
-  'apps/server/src/sourcing/domain/sourcing-rising-product-model.ts':
-    { lines: 1, reason: 'FOLLOW-UP (Sourcing): whole-day difference between dates' },
 });
 
 const NUMBER = String.raw`\d[\d_]*(?:\.\d+)?(?:e\d+)?`;

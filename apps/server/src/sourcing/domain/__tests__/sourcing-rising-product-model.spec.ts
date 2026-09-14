@@ -68,6 +68,31 @@ describe('buildSourcingRisingProductModel', () => {
     expect(v2!.risks).toContain('쿠팡 리뷰 장벽');
   });
 
+  it('counts observation span and first-seen age across a month boundary', () => {
+    const days = ['2026-02-27', '2026-02-28', '2026-03-01'] as const;
+    const result = buildSourcingRisingProductModel({
+      serpSnapshots: days.map((businessDate, index) => ({
+        keyword: '아기 물티슈',
+        businessDate,
+        items: [item({
+          vendorItemId: 'V1',
+          name: '아기 물티슈 리필',
+          rank: 30 - index * 5,
+          reviewCount: 40 + index * 30,
+        })],
+      })),
+      todayBusinessDate: '2026-03-03',
+    });
+
+    const candidate = result.candidates.find((entry) => entry.vendorItemId === 'V1');
+    expect(candidate).toBeDefined();
+    expect(candidate!.signals.spanDays).toBe(2);
+    expect(candidate!.signals.firstSeenBusinessDate).toBe('2026-02-27');
+    expect(candidate!.signals.daysSinceFirstSeen).toBe(4);
+    expect(candidate!.signals.reviewGrowth).toBe(60);
+    expect(candidate!.signals.reviewVelocityPerDay).toBe(30);
+  });
+
   it('drops products with only one observation and counts them', () => {
     const result = buildSourcingRisingProductModel({
       serpSnapshots: [
