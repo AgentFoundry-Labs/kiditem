@@ -1,6 +1,5 @@
 'use client';
 
-import type { QueryKey } from '@tanstack/react-query';
 import {
   AdTrafficSourceStatusSchema,
   type AdTrafficSourceStatus,
@@ -10,6 +9,7 @@ import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { startWindowCollection } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
+import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/traffic';
 const RUNNING_POLL_MS = 2_000;

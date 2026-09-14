@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
 import StatusContent, { CampaignSummary, wingKpiCount } from "./StatusContent";
+import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 

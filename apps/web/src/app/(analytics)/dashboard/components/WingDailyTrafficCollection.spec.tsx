@@ -2,7 +2,6 @@ import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdTrafficSourceAttempt, AdTrafficSourceStatus } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 import {
   detectBrowserCollectionExtensionIds,
@@ -12,6 +11,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { resolveWingTrafficCollectionRange } from '../hooks/use-wing-traffic-collection';
 import { WingDailyTrafficCollection } from './WingDailyTrafficCollection';
+import type { AdTrafficSourceAttempt, AdTrafficSourceStatus } from '@kiditem/shared/advertising';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({
