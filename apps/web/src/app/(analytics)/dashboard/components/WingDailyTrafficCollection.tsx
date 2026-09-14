@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Info, RefreshCw } from 'lucide-react';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { cn } from '@/lib/utils';
 import {
   useWingTrafficCollection,
@@ -55,7 +56,7 @@ export function WingDailyTrafficCollection({
   const running = attempt?.state === 'RUNNING';
   const statusUnknown = control.statusRead === 'loading' || control.statusRead === 'unavailable';
   const rangeMismatch = running && !collection.activeRangeMatches;
-  const cancelled = attempt?.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
+  const cancelled = stoppedAttempt(attempt);
   const status = statusUnknown
     ? control.statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
     : statusLabel(attempt?.state, control.status, cancelled);
@@ -157,7 +158,7 @@ export function WingDailyTrafficCollection({
       {attempt?.state === 'FAILED' && (
         <p className={cn('mt-2 text-[13px]', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
           {cancelled
-            ? '수집을 중단했습니다. 저장된 완료본은 유지됩니다.'
+            ? COLLECTION_STOPPED_MESSAGE
             : attempt.errorMessage ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
         </p>
       )}

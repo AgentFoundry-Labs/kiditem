@@ -328,8 +328,23 @@ describe('readiness ad source rows', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
-      expect(await screen.findByText('운영자가 수집을 중단했습니다.')).toBeInTheDocument();
+      expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: startLabel })).toBeEnabled();
+    },
+  );
+
+  it.each(ownerRows)(
+    '$name shows an attempt its browser session stopped as stopped, not failed',
+    async ({ Row, kind, path }) => {
+      statuses[`${path}/source`] = ownerStatus({
+        ...ownerAttempt(kind, 'FAILED'),
+        errorCode: 'COLLECTION_CANCELLED',
+        errorMessage: 'Collection was cancelled.',
+      });
+      renderRow(<Row />);
+
+      expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+      expect(screen.queryByText('Collection was cancelled.')).not.toBeInTheDocument();
     },
   );
 

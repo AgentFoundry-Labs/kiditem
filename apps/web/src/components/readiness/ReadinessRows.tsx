@@ -30,7 +30,7 @@ import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/Sellpia
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
@@ -715,7 +715,9 @@ export function AdSyncRow() {
           {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
               {attempt.state === 'FAILED'
-                ? (attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                ? (stoppedAttempt(attempt)
+                  ? COLLECTION_STOPPED_MESSAGE
+                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
                 : attempt.state === 'RUNNING'
                   ? `캠페인 ${attempt.campaignCount}개 수집 중 · 미발행`
                   : `전체 수집 완료${attempt.rawOnlyCampaignCount ? ` · ${attempt.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
@@ -769,7 +771,9 @@ export function AdKeywordRow() {
           {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
               {attempt.state === 'FAILED'
-                ? (attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                ? (stoppedAttempt(attempt)
+                  ? COLLECTION_STOPPED_MESSAGE
+                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
                 : attempt.state === 'COMPLETE'
                   ? '전체 수집 완료'
                   : `수집 진행 ${attempt.completedGroupCount}/${attempt.groupCount} 광고그룹 · 미발행`}

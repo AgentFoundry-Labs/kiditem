@@ -28,6 +28,8 @@ the nearest scoped guide owns route-specific composition.
   `collectionSourceStatusQueryOptions` and gate collection actions through
   `collectionSourceStatusRead`: block only until a first status read, then act
   on the last known status.
+- An attempt that ended with a `*_CANCELLED` code was stopped, not failed. Read
+  it through `stoppedAttempt` and show `COLLECTION_STOPPED_MESSAGE`.
 - Browser collection starts use the shared control: a per-source adapter for
   `useCollectionSourceControl`, rendered by `CollectionStartControl`. Running
   state comes from the owner status read, and every mounted copy shares start

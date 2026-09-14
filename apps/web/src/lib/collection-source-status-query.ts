@@ -14,6 +14,17 @@ export const COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE = '상태를 다시 확
 /** A stopped collection is not a failure: its source keeps the last complete collection. */
 export const COLLECTION_STOPPED_MESSAGE = '수집을 중단했습니다. 저장된 완료본은 유지됩니다.';
 
+/**
+ * An attempt that ended with a `*_CANCELLED` code was stopped, by an operator
+ * or with its browser session, and did not fail. The server's source failure
+ * alerts follow the same suffix rule.
+ */
+export function stoppedAttempt(
+  attempt: Readonly<{ state: string; errorCode?: string | null }> | null | undefined,
+): boolean {
+  return attempt?.state === 'FAILED' && Boolean(attempt.errorCode?.endsWith('_CANCELLED'));
+}
+
 const ERROR_REFETCH_MS = 30_000;
 const MAX_TRANSIENT_RETRIES = 3;
 

@@ -1,3 +1,4 @@
+import { stoppedAttempt } from '@/lib/collection-source-status-query';
 import type { WingCatalogSource } from '../hooks/use-wing-catalog-source';
 
 /**
@@ -7,7 +8,7 @@ import type { WingCatalogSource } from '../hooks/use-wing-catalog-source';
 export function WingCatalogSourceStatus({ source }: { source: WingCatalogSource }) {
   const { attempt } = source;
   if (!attempt || attempt.state === 'RUNNING') return null;
-  const cancelled = attempt.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
+  const cancelled = stoppedAttempt(attempt);
   return (
     <div role="status" className="flex items-center gap-3 rounded-lg border p-3 text-sm">
       <span>

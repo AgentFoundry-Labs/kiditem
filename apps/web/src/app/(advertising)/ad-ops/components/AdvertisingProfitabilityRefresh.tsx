@@ -3,6 +3,7 @@
 import { Megaphone } from 'lucide-react';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { formatDateTime } from '@/lib/utils';
 import {
   advertisingProfitabilityCollection,
@@ -17,7 +18,7 @@ function statusText(
 ): string {
   if (attempt?.state === 'RUNNING') return '수집 중';
   if (attempt?.state === 'FAILED') {
-    return attempt.errorCode === 'USER_CANCELLED' ? '수집 중단됨' : '최근 수집 실패';
+    return stoppedAttempt(attempt) ? '수집 중단됨' : '최근 수집 실패';
   }
   if (attempt?.state === 'COMPLETE' && source?.ready) return '최신 수집 완료';
   if (attempt?.state === 'COMPLETE') return '완료 · 보완 필요';
@@ -31,7 +32,7 @@ export default function AdvertisingProfitabilityRefresh() {
   const attempt = source?.latestAttempt;
   const latestComplete = source?.latestComplete;
   const running = attempt?.state === 'RUNNING';
-  const cancelled = attempt?.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
+  const cancelled = stoppedAttempt(attempt);
   const label = control.statusRead === 'loading'
     ? '상태 확인 중'
     : control.statusRead === 'unavailable'
@@ -72,7 +73,7 @@ export default function AdvertisingProfitabilityRefresh() {
             {running && <p>브라우저에서 상품별 보고서를 수집하고 있습니다.</p>}
             {attempt?.state === 'FAILED' && (
               <p style={{ color: cancelled ? 'var(--warning)' : 'var(--danger)' }}>
-                {attempt.errorMessage ?? '최근 수집에 실패했습니다.'}
+                {cancelled ? COLLECTION_STOPPED_MESSAGE : attempt.errorMessage ?? '최근 수집에 실패했습니다.'}
               </p>
             )}
             {latestComplete && (

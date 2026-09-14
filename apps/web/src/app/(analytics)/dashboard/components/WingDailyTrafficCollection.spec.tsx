@@ -255,6 +255,20 @@ describe('WingDailyTrafficCollection', () => {
     expect(screen.getByRole('button', { name: START_LABEL })).toBeEnabled();
   });
 
+  it('shows a collection stopped with its browser session as stopped, not failed', async () => {
+    serverStatus = source(attempt('FAILED', {
+      errorCode: 'COLLECTION_CANCELLED',
+      errorMessage: 'Collection was cancelled.',
+    }));
+    renderControl();
+
+    expect(await screen.findByTestId('wing-traffic-error')).toHaveTextContent(
+      '수집을 중단했습니다. 저장된 완료본은 유지됩니다.',
+    );
+    expect(screen.getByText('수집 중단됨')).toBeInTheDocument();
+    expect(screen.queryByText('최근 수집 실패')).not.toBeInTheDocument();
+  });
+
   it('describes daily-v2 progress as source chunks and target days', async () => {
     const dailyV2 = attempt('RUNNING', {
       expectedPages: null,

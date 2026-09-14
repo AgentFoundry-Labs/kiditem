@@ -165,8 +165,21 @@ describe('WingItemwinnerCollection', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
-    expect(await screen.findByText('운영자가 수집을 중단했습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '아이템위너 수집' })).toBeEnabled();
+  });
+
+  it('shows a collection stopped with its browser session as stopped, not failed', async () => {
+    serverStatus = itemwinnerSource(itemwinnerAttempt('FAILED', ATTEMPT_ID, {
+      errorCode: 'COLLECTION_CANCELLED',
+      errorMessage: 'Collection was cancelled because no KidItem tab remained.',
+    }));
+    renderCollection();
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Collection was cancelled because no KidItem tab remained.'),
+    ).not.toBeInTheDocument();
   });
 
   it('refreshes the ad reads behind the itemwinner card only after a new collection completes', async () => {

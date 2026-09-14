@@ -131,6 +131,23 @@ describe("Wing rank owner UI", () => {
     expect(h.completed).toHaveBeenCalledTimes(1);
   });
 
+  it("shows keywords a stop cancelled as stopped, not as failures", async () => {
+    const stopped = batch(["FAILED", "FAILED"]);
+    stopped.attempts[1] = {
+      ...stopped.attempts[1]!,
+      errorCode: "COLLECTION_CANCELLED",
+      errorMessage: "키워드 순위 수집이 취소되었습니다.",
+    };
+    owner = { batchKey: KEY, ...stopped };
+    renderCheck();
+
+    expect(await screen.findByText("처리 2 / 전체 2")).toBeInTheDocument();
+    expect(screen.getByText("실패 1건 · 이전 정상 데이터는 유지됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("중단 1건")).toBeInTheDocument();
+    expect(screen.getByText("연필: Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/색연필:/)).not.toBeInTheDocument();
+  });
+
   it("opens the exact failed attempt's attention tab", async () => {
     owner = { batchKey: KEY, ...batch(["COMPLETE", "FAILED"]) };
     vi.mocked(listWingRankSessions).mockResolvedValue([{

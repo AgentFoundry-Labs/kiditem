@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
 import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
+import { stoppedAttempt } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { listWingRankSessions, openWingRankAttention } from "../lib/rank-extension";
 import { wingRankBatchCollection } from "../lib/wing-rank-batch-collection";
@@ -26,7 +27,11 @@ export default function BatchRankCheck({
   const observed = useRef("");
   const attempts = control.status?.attempts ?? [];
   const complete = attempts.filter((attempt) => attempt.state === "COMPLETE").length;
-  const failures = attempts.filter((attempt) => attempt.state === "FAILED");
+  // A keyword a stop cancelled did not fail; the batch shows it as stopped.
+  const stopped = attempts.filter(stoppedAttempt);
+  const failures = attempts.filter(
+    (attempt) => attempt.state === "FAILED" && !stoppedAttempt(attempt),
+  );
   const runningAttempt = attempts.find((attempt) => attempt.state === "RUNNING");
   const signature = attempts
     .filter((attempt) => attempt.state !== "RUNNING")
@@ -57,9 +62,10 @@ export default function BatchRankCheck({
       {attempts.length > 0 && (
         <div className="text-xs text-[var(--text-secondary)]" aria-live="polite">
           <span>
-            처리 {complete + failures.length} / 전체 {attempts.length}
+            처리 {complete + failures.length + stopped.length} / 전체 {attempts.length}
           </span>
           {runningAttempt && <span className="ml-2">{runningAttempt.keyword}</span>}
+          {stopped.length > 0 && <span className="ml-2">중단 {stopped.length}건</span>}
           {failures.length > 0 && (
             <details open className="mt-1 min-w-0 max-w-full">
               <summary className="cursor-pointer">

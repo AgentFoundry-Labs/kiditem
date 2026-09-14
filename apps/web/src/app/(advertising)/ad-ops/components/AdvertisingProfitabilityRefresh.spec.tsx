@@ -145,6 +145,27 @@ describe('AdvertisingProfitabilityRefresh', () => {
     expect(screen.getByText('최근 수집 실패')).toBeInTheDocument();
   });
 
+  it('shows an import the extension session stopped as stopped, not failed', async () => {
+    mockGetParsed.mockResolvedValue(sourceView({
+      latestAttempt: attempt(
+        'FAILED',
+        OLD_ATTEMPT_ID,
+        'Advertising profitability collection was cancelled.',
+        'COLLECTION_CANCELLED',
+      ),
+      latestComplete: complete(),
+    }));
+
+    renderControl();
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(screen.getByText('수집 중단됨')).toBeInTheDocument();
+    expect(screen.queryByText('최근 수집 실패')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Advertising profitability collection was cancelled.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps acting on a retained status when a later authoritative read fails', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(queryKeys.ads.profitabilitySource(), sourceView({
@@ -225,7 +246,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     renderControl();
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
-    expect(await screen.findByText('운영자가 수집을 중단했습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
     expect(screen.getByText('수집 중단됨')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: START_LABEL })).toBeEnabled();
   });
