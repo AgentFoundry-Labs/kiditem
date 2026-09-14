@@ -33,6 +33,30 @@ describe('collection start request', () => {
     }
   });
 
+  it('accepts a manual campaign report whose range matches its period', () => {
+    const base = { action: 'startCollection', producer: 'advertising.ad_sync', idempotencyKey };
+    const manual = (scope: Record<string, unknown>) =>
+      CollectionStartRequestSchema.safeParse({
+        ...base,
+        scope: { captureMode: 'manual_report', ...scope },
+      }).success;
+    expect(manual({ period: '7d', startDate: '2026-09-07', endDate: '2026-09-13' })).toBe(true);
+    expect(
+      manual({ channelAccountId, period: '1d', startDate: '2026-09-13', endDate: '2026-09-13' }),
+    ).toBe(true);
+    expect(manual({ period: '7d', startDate: '2026-09-08', endDate: '2026-09-13' })).toBe(false);
+    expect(manual({ period: '1d', startDate: '2026-09-12', endDate: '2026-09-13' })).toBe(false);
+    expect(manual({ period: '30d', startDate: '2026-08-15', endDate: '2026-09-13' })).toBe(false);
+    expect(
+      manual({
+        period: '1d',
+        startDate: '2026-09-13',
+        endDate: '2026-09-13',
+        targetUrl: 'https://advertising.coupang.com/report',
+      }),
+    ).toBe(false);
+  });
+
   it('requires an ordered date range for Wing traffic', () => {
     const base = { action: 'startCollection', producer: 'dashboard.wing_sales', idempotencyKey };
     expect(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { shiftBusinessDateKey } from '../common';
 
 /**
  * Producers whose collections share one Coupang collection window per browser
@@ -29,6 +30,29 @@ const AccountScopeSchema = z
   .object({ channelAccountId: z.string().uuid().optional() })
   .strict();
 
+const MANUAL_CAMPAIGN_REPORT_DAYS = { '7d': 7, '1d': 1 } as const;
+
+/**
+ * A manual campaign report captures the ad center's own report for one exact
+ * 7-day or 1-day range. The extension opens the report page itself, so the
+ * start carries no page URL.
+ */
+const ManualCampaignReportScopeSchema = z
+  .object({
+    captureMode: z.literal('manual_report'),
+    channelAccountId: z.string().uuid().optional(),
+    period: z.enum(['7d', '1d']),
+    startDate: CalendarDateSchema,
+    endDate: CalendarDateSchema,
+  })
+  .strict()
+  .refine(
+    (scope) =>
+      shiftBusinessDateKey(scope.startDate, MANUAL_CAMPAIGN_REPORT_DAYS[scope.period] - 1) ===
+      scope.endDate,
+    { message: 'the report range must cover exactly its period', path: ['endDate'] },
+  );
+
 function startRequest<
   TProducer extends CollectionStartProducer,
   TScope extends z.ZodTypeAny,
@@ -44,7 +68,10 @@ function startRequest<
 }
 
 export const CollectionStartRequestSchema = z.discriminatedUnion('producer', [
-  startRequest('advertising.ad_sync', AccountScopeSchema),
+  startRequest(
+    'advertising.ad_sync',
+    z.union([ManualCampaignReportScopeSchema, AccountScopeSchema]),
+  ),
   startRequest('advertising.ad_keyword', AccountScopeSchema),
   startRequest('advertising.profitability_import', z.object({}).strict()),
   startRequest(
