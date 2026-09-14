@@ -92,11 +92,12 @@ jobs:
           DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
         run: npx prisma generate
 
-      - name: Build shared package
-        env:
-          # The tsup DTS worker runs out of the default heap on hosted runners.
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: npm run build --workspace=packages/shared
+      - name: Build shared package JavaScript
+        # Script specs import runtime JS only; the DTS build exhausts the hosted runner heap.
+        run: npm exec --workspace=packages/shared tsup -- --no-dts
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
 
       - name: Run script contract tests
         run: npm run test:scripts
