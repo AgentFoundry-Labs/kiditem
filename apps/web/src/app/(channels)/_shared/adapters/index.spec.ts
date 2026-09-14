@@ -15,7 +15,7 @@ import {
 describe('몰 등록 어댑터 레지스트리', () => {
   it('등록된 몰 목록이 레지스트리와 같다', () => {
     expect(MALL_PUBLISH_ADAPTERS.map((a) => a.mallKey).sort())
-      .toEqual(['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'icecream-mall', 'kidsnote', 'kkomangse', 'onch', 'teacher-mall', 'thirtymall']);
+      .toEqual(['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall']);
   });
 
   it('몰키가 서버 매니페스트 키와 같다', () => {
@@ -25,7 +25,8 @@ describe('몰 등록 어댑터 레지스트리', () => {
     // 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이 통째로 빈다.
     const manifestKeys = new Set([
       'coupang', 'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
-      'icecream-mall', 'gmarket', 'boribori', 'kkomangse', 'thirtymall',
+      'icecream-mall', 'gmarket', 'boribori', 'kkomangse', 'thirtymall', 'kidkids', 'ssg', 'smartstore', 'gs-shop',
+      'lotte-on',
     ]);
     for (const adapter of MALL_PUBLISH_ADAPTERS) {
       expect(manifestKeys.has(adapter.mallKey)).toBe(true);

@@ -27,7 +27,7 @@ const MALL_FILL_TIMEOUT_MS = 120_000;
 
 export type MallFormRegisterMall =
   | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st' | 'icecream'
-  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall';
+  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall' | 'kidkids' | 'ssg' | 'smartstore' | 'gsshop' | 'lotteon';
 
 /**
  * 확장 폼 스펙 이름 → 쇼핑몰 계정 키.
@@ -57,6 +57,20 @@ export const MALL_ACCOUNT_KEY: Record<MallFormRegisterMall, string> = {
   // 쇼핑몰 계정 목록에 이미 있는 키다(주문수집은 아직). 샵바이 로그인 화면은 실측 전이라
   // 자동 로그인이 못 붙으면 확장이 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
   thirtymall: 'thirtymall',
+  // 주문수집·송장 등록에 이미 붙어 있는 몰이라 저장된 계정으로 자동 로그인이 붙는다.
+  kidkids: 'kidkids',
+  // 쇼핑몰 계정 목록에 있는 키다. 파트너오피스 로그인 화면은 실측 전이라 자동 로그인이 못
+  // 붙으면 확장이 "직접 로그인하세요" 로 멈춘다.
+  ssg: 'ssg',
+  // 서버 매니페스트 키와 같다. 스마트스토어 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
+  // 확장이 "직접 로그인하세요" 로 멈춘다.
+  smartstore: 'smartstore',
+  // 주문수집에 이미 붙어 있는 몰 키다. 파트너스 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
+  // 확장이 "직접 로그인하세요" 로 멈춘다.
+  gsshop: 'gs-shop',
+  // 주문수집에 이미 붙어 있는 몰 키다. 롯데ON 로그인은 통합회원 화면이라 자동 로그인이 못 붙으면
+  // 확장이 "직접 로그인하세요" 로 멈춘다.
+  lotteon: 'lotte-on',
 };
 
 export interface MallFormRegistrationResult {

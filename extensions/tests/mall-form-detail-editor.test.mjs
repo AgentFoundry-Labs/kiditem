@@ -278,12 +278,16 @@ test('상세 이미지는 리퍼러를 보내지 않게 넣는다', async () => 
   assert.ok(html.includes(HOSTED));
 });
 
-function makeRegisterHarness({ listBody = `<img src="${HOSTED}">`, editorResult } = {}) {
+function makeRegisterHarness({
+  listBody = `<img src="${HOSTED}">`,
+  registerBody = '<input name="pno" value="187012">',
+  editorResult,
+} = {}) {
   const calls = { fetch: [], scripts: [], tabs: [], targets: [] };
   const fetchApi = async (url, init) => {
     calls.fetch.push({ url: String(url), method: init?.method || 'GET' });
     if (String(url).includes('product@product_register')) {
-      return { ok: true, status: 200, arrayBuffer: async () => encode('<input name="pno" value="187012">') };
+      return { ok: true, status: 200, arrayBuffer: async () => encode(registerBody) };
     }
     if (String(url).includes('product@product_file.frm')) {
       return { ok: true, status: 200, arrayBuffer: async () => encode(listBody) };
@@ -376,6 +380,24 @@ test('올린 주소를 못 찾으면 이유를 남기고 에디터는 열지 않
 
   assert.equal(outcome.ok, true);
   assert.ok(Array.from(outcome.warnings).some((w) => w.includes('올라간 주소를 찾지 못했습니다')));
+  assert.ok(!Array.from(harness.calls.scripts).includes('driveDetailEditor'));
+});
+
+/**
+ * 도매꾹 상세 이미지는 키즈노트 첨부 저장소에 올려 주소를 받는다. 그 저장소는 키즈노트 관리자
+ * 세션으로만 열려서, 로그아웃이면 등록화면 대신 로그인 화면이 오고 상품번호가 없다. 예전 경고는
+ * '상품번호를 받지 못했습니다. 화면에서 직접 올리세요' 라 무엇을 할지 알 수 없었다.
+ */
+test('상세 이미지 저장소가 로그아웃이면 키즈노트 관리자에 로그인하라고 말한다', async () => {
+  const { create } = loadModule();
+  const harness = makeRegisterHarness({
+    registerBody: '<html><title>관리자 로그인</title><input type="password" name="admin_pwd"></html>',
+  });
+
+  const outcome = await create(harness.api).register(MESSAGE);
+
+  const warnings = Array.from(outcome.warnings);
+  assert.ok(warnings.some((w) => w.includes('키즈노트 관리자에 로그인되어 있지 않습니다')), warnings.join(' / '));
   assert.ok(!Array.from(harness.calls.scripts).includes('driveDetailEditor'));
 });
 

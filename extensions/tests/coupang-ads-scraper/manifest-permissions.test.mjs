@@ -30,6 +30,16 @@ test('Wing form image fetch has debugger access and only local/Office storage ho
   );
 });
 
+/**
+ * 등록할 상품 사진(대표 · 추가)은 대부분 쿠팡 이미지 CDN 에 있다. 몰 파일 칸에 넣으려면
+ * 서비스워커가 그 바이트를 읽어야 하는데, 권한이 없으면 CORS 로 막혀 사진이 통째로 빠진다.
+ */
+test("mall registration can read product photos from Coupang's image CDN", async () => {
+  const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
+
+  assert.ok(manifest.host_permissions.includes("https://*.coupangcdn.com/*"));
+});
+
 test("web bridge reaches local and Office KidItem origins", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 

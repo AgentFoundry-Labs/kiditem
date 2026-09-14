@@ -12,6 +12,11 @@ import { esmplusAdapter } from './esmplus.adapter';
 import { boriboriAdapter } from './boribori.adapter';
 import { kkomangseAdapter } from './kkomangse.adapter';
 import { thirtymallAdapter } from './thirtymall.adapter';
+import { kidkidsAdapter } from './kidkids.adapter';
+import { ssgAdapter } from './ssg.adapter';
+import { smartstoreAdapter } from './smartstore.adapter';
+import { gsshopAdapter } from './gsshop.adapter';
+import { lotteonAdapter } from './lotteon.adapter';
 
 /**
  * 등록 어댑터 레지스트리.
@@ -38,6 +43,11 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   boriboriAdapter,
   kkomangseAdapter,
   thirtymallAdapter,
+  kidkidsAdapter,
+  ssgAdapter,
+  smartstoreAdapter,
+  gsshopAdapter,
+  lotteonAdapter,
 ];
 
 const BY_KEY = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
@@ -77,4 +87,9 @@ export {
   boriboriAdapter,
   kkomangseAdapter,
   thirtymallAdapter,
+  kidkidsAdapter,
+  ssgAdapter,
+  smartstoreAdapter,
+  gsshopAdapter,
+  lotteonAdapter,
 };

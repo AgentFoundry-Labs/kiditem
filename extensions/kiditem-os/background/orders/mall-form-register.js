@@ -383,6 +383,216 @@
       detailSelfUpload: { editorTab: null },
     },
     /**
+     * 키드키즈 스토어 파트너센터(`partner.kidkids.net`, euc-kr PHP).
+     *
+     * 실측 2026-09-14, 목록 3,478개 + 최근 등록물 60개(2026-06~08). 겉 주소
+     * `/new/pages/sales/goods_register.htm` 은 껍데기고 폼은 iframe 의
+     * `/sales/goods_reg_renewal.htm` 이다 — 그 주소를 바로 열어도 폼이 온전히 그려진다.
+     *
+     * 칸 이름은 다 있다. 다른 몰과 다른 것 셋:
+     *
+     *  1. 분류는 대·중·소 계단식이다. 앞 단을 고르면 jQuery 가 `get_category_data.php` 로
+     *     다음 단을 채운다(라이브 확인: 네이티브 change 이벤트로도 돈다).
+     *  2. ⭐ 공정위 고시는 `gs_id` 를 골라야 칸이 **그려진다**(`goods_spec_proc.php`).
+     *     칸은 전부 `name="spec_contents"` 로 이름이 같고 `info` 속성(고시 항목 번호)만
+     *     다르다. 제출할 때 화면이 그 칸들을 `info|값//` 로 묶어 `my_gs_data` 에 담는다.
+     *  3. 상세설명은 TinyMCE 3.5.8 이다. textarea 에만 쓰면 제출 때 에디터 내용으로
+     *     덮이므로 에디터에 넣는다. 등록물 60개 전부 `<center><img …></center>` 한 장.
+     *  4. ⭐ 상세 이미지는 **키드키즈 자체 업로드**에 올린다. 에디터 `이미지 삽입/편집` 창의
+     *     [...] 이 여는 `galery_ftp.htm` 이다 — 파일을 올리면 응답 HTML 의 `insertimg()` 에
+     *     `https://img.kidkids.net/upimage/<시각>_<난수>.<확장자>` 가 실린다(라이브 확인
+     *     2026-09-14: 올린 바이트 그대로 공개로 읽히고 다른 사이트 리퍼러도 통과). 이름이 바뀌어
+     *     저장되므로 올린 파일명으로 찾으면 못 찾는다. 남의 저장소(키즈노트)가 필요 없다 —
+     *     예전엔 키즈노트 관리자 세션이 없으면 키드키즈 상세가 통째로 빠졌다.
+     *     그 창의 파일 목록은 서버 쪽 오류(opendir)로 깨져 있지만 업로드는 된다.
+     */
+    kidkids: {
+      label: "키드키즈",
+      origin: "https://partner.kidkids.net",
+      pathPrefix: "/sales/goods_reg_renewal.htm",
+      formSelector: 'form[name="goods_form"]',
+      preRadios: ["kc_view"],
+      selectorFields: [
+        { key: "category1", selector: 'select[name="large_cat_id"]', label: "대분류", waitMs: 600, waitForOption: true },
+        { key: "category2", selector: 'select[name="middle_cat_id"]', label: "중분류", waitMs: 600, waitForOption: true },
+        { key: "category3", selector: 'select[name="small_cat_id"]', label: "소분류", waitMs: 300, waitForOption: true },
+        // 목록은 화면이 열리자마자 AJAX 로 채운다(처음엔 `선택` 한 줄).
+        { key: "noticeGroup", selector: "#gs_id", label: "공정위 고시 분류", waitMs: 300, waitForOption: true },
+      ],
+      infoRows: { itemSelector: "textarea.spec_contents", attr: "info", label: "공정위 고시", timeoutMs: 10000 },
+      fireKeyup: true,
+      // 목록 이미지 + 추가 이미지 4칸. 칸마다 한 장.
+      imageFileInputs: [
+        { key: "main", label: "대표 이미지", selector: 'input[type="file"][name="goods_photo_new"]' },
+        { key: "img2", label: "추가 이미지 2", selector: 'input[type="file"][name="goods_img_2"]' },
+        { key: "img3", label: "추가 이미지 3", selector: 'input[type="file"][name="goods_img_3"]' },
+        { key: "img4", label: "추가 이미지 4", selector: 'input[type="file"][name="goods_img_4"]' },
+        { key: "img5", label: "추가 이미지 5", selector: 'input[type="file"][name="goods_img_5"]' },
+      ],
+      /**
+       * TinyMCE 3 는 모르는 속성을 저장할 때 지운다. 몰 업로드가 실패해 이미 읽히는 남의
+       * 주소(카카오 CDN)로 넣게 되면 핫링크를 통과시키는 `referrerpolicy` 가 필요하므로 그
+       * 속성을 허용한다(라이브 확인: 허용 후 `triggerSave` 결과에 속성이 남는다).
+       */
+      detailRich: {
+        kind: "tinymce",
+        editorId: "goods_desc",
+        validElements: "img[src|alt|width|height|style|referrerpolicy]",
+        // 에디터 [...] 업로드 창의 폼 그대로다(`imgupload`: 파일 `upload` + `act=upload` + `fname`).
+        upload: {
+          endpoint: "/sales/js/tiny_mce/plugins/advimage/galery_ftp.htm?dirname=https://img.kidkids.net/upimage/",
+          field: "upload",
+          fields: { act: "upload", fname: "" },
+          // 응답에는 파일명 없는 기본 주소(`…/upimage/'`)와 `…/upimage//' + img.alt` 도 있다.
+          // 파일명과 확장자까지 붙은 것만 올린 결과다.
+          hostedPattern: "https://img\\.kidkids\\.net/upimage/[^'\"\\s<>/]+\\.(?:jpe?g|png|gif)",
+        },
+      },
+      // 상세 이미지를 File 로 받아 와야 몰 업로드에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * 신세계 파트너오피스(`po.ssgadm.com`) 상품 등록.
+     *
+     * 실측 2026-09-14. 메인(`main.ssg`)은 탭 껍데기고 폼은 `/cp/item/item/itemNew.ssg` 다 —
+     * 바로 열어도 온전하다. Vue 2 + jQuery + dhtmlx 로 된 한 화면이라 다른 몰과 모양이 달라
+     * 전용 페이지 함수(`fillSsgProductForm`)로 채운다.
+     *
+     *  1. `<form>` 이 없다. 섹션 id(`itemNm`)가 입력칸 id 와 겹쳐서 `#itemNm` 은 섹션을 집는다.
+     *  2. 검증을 `alert` 으로 띄운다. 뜨면 페이지가 멈춰 그 뒤를 못 채운다 — 먼저 삼킨다.
+     *  3. 판매사이트 → 전시카테고리 → 표준분류를 골라야 가격·판매정보 칸이 그려진다.
+     *  4. 가격은 dhtmlx 그리드다. 셀 편집기를 거쳐야 공급가를 화면이 계산한다.
+     *  5. 전시 시작일이 지금보다 과거면 저장이 막힌다(초 단위). 기본값은 화면을 연 시각이라
+     *     채우고 나서 저장하면 늘 막힌다 → 몇 시간 뒤 정각으로 넣는다.
+     *
+     * 이미지·상세는 몰 서버에 올린다. 사람이 하는 길 그대로다 — 이미지 칸 파일 선택
+     * (`/upload/0/file.ssg`), 상세는 SSG Editor 이미지 업로드(`/upload/0/synapEditorUpload.ssg`).
+     * 저장(`goSave`)은 부르지 않는다. 확인창은 거절로 막아 둔다.
+     */
+    ssg: {
+      label: "신세계",
+      origin: "https://po.ssgadm.com",
+      pathPrefix: "/cp/item/item/itemNew.ssg",
+      // ⚠️ 같은 주소에 `?srcItemId=`·`?itemId=` 가 붙으면 **기존 상품 수정 화면**이다.
+      // 거기에 값을 넣으면 사람이 저장하는 순간 판매중 상품이 덮인다 — 쿼리는 받지 않는다.
+      noQuery: true,
+      formSelector: "#content",
+      imageSlots: [],
+      ssgForm: {
+        imageGroupKey: "ssg",
+        maxImages: 10,
+        // 채운 시각 + 이만큼 뒤 정각을 전시 시작으로 넣는다. 사람이 그 전에 저장해야 한다.
+        displayStartDelayHours: 3,
+        formWaitMs: 30000,
+        // 칸 하나가 화면에 반응(서제스트 목록·다음 셀렉트·업로드)할 때까지 기다리는 시간.
+        stepWaitMs: 8000,
+        // 에디터 이미지 업로드. 응답 `{uploadPath}` 가 이미지 주소다(Synap 규약).
+        detailUpload: { endpoint: "/upload/0/synapEditorUpload.ssg", field: "file" },
+      },
+      // 상세 이미지를 File 로 받아 와야 몰 업로드에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * 네이버 스마트스토어센터(`sell.smartstore.naver.com`) 상품 등록.
+     *
+     * 실측 2026-09-14. AngularJS 1.6 한 화면이라 전용 페이지 함수(`fillSmartstoreProductForm`)로 채운다.
+     *
+     *  1. 해시 라우트다. `#/products/create` 가 새 등록, `#/products/edit/<번호>` 는 판매중 상품 수정이다.
+     *  2. 카테고리·브랜드·제조사·원산지·인증·고시 분류·태그가 전부 selectize 다. 글자를 넣으면 모델에
+     *     안 닿아서 selectize API 로 고른다.
+     *  3. `상품 주요정보`·`상품정보제공고시`·`검색설정` 은 접혀 있고, 펼쳐야 칸이 그려진다.
+     *  4. 화면을 열면 `이전에 작성하던 내용` 확인창이 뜰 수 있다. 확인하면 옛 내용이 새 값을 덮는다 → 취소.
+     *
+     * 사진은 사람이 하는 길 그대로 `이미지 등록 → 내 사진` 에 파일을 넣는다(네이버 사진 서버로 올라간다).
+     * 상세설명 이미지도 화면이 쓰는 네이버 사진 업로드 서비스로 올리고 `HTML 작성` 에 넣는다.
+     * 배송·반품/교환·A/S 는 계정 기본값이 이미 채워져 있어 건드리지 않는다. `저장하기`·`임시저장` 은 누르지 않는다.
+     */
+    smartstore: {
+      label: "스마트스토어",
+      origin: "https://sell.smartstore.naver.com",
+      pathPrefix: "/",
+      // 등록과 수정이 같은 문서의 해시만 다르다. 해시까지 똑같아야 받는다.
+      hash: "#/products/create",
+      noQuery: true,
+      formSelector: 'form[name="vm.productForm"]',
+      imageSlots: [],
+      smartstoreForm: {
+        // 첫 장이 대표이미지, 나머지가 추가이미지(최대 9장)다.
+        imageGroupKey: "smartstore",
+        maxExtraImages: 9,
+        formWaitMs: 40000,
+        // 칸 하나가 반응(검색 목록·다음 selectize·창 열림)할 때까지 기다리는 시간.
+        stepWaitMs: 10000,
+        // 사진을 넣은 뒤 화면이 네이버 사진 서버에 다 올리고 창을 닫을 때까지.
+        imageWaitMs: 60000,
+      },
+      // 상세 이미지를 File 로 받아 와야 네이버 사진 서버에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * GS SHOP 파트너스(`partners.gsshop.com`) 상품 등록.
+     *
+     * 실측 2026-09-14. React + MUI 화면이고 폼 상태는 zustand 저장소 하나(`product-store`)에 있다.
+     * 칸마다 화면이 부르는 처리 함수가 저장소 `actions` 에 섹션별로 있어서(`baseInfo.onChangePrdNm` 등),
+     * 글자를 치는 대신 **그 함수를 사람이 누른 것처럼 부른다** — 분류를 고르면 고시·과세·안전인증이 따라
+     * 바뀌는 연쇄도 화면이 스스로 돈다. 저장소는 화면이 미리 받아 둔 모듈(`modulepreload`)에서 찾는다.
+     *
+     * 사진은 화면의 사진 칸 처리(`imgInfo.uploadPrdImg`)로, 기술서 사진은 편집기가 쓰는 임시 업로드로 GS 서버에
+     * 올린다. `임시저장`·`전체저장` 은 부르지 않는다. 확인창은 거절한다.
+     */
+    gsshop: {
+      label: "GS샵",
+      origin: "https://partners.gsshop.com",
+      pathPrefix: "/product/products/create",
+      // 같은 화면이 `/update/<번호>`·`/copy/<번호>` 로도 열린다. 등록 주소와 정확히 같아야 받는다.
+      exactPath: true,
+      noQuery: true,
+      formSelector: "body",
+      imageSlots: [],
+      gsshopForm: {
+        // 대표 1 + 추가 7.
+        imageGroupKey: "gsshop",
+        maxImages: 8,
+        formWaitMs: 40000,
+        // 처리 함수 하나(분류 연쇄·담당MD 수수료 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 15000,
+      },
+      // 상세 이미지를 File 로 받아 와야 GS 편집기 업로드에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * 롯데ON 판매자센터(`store.lotteon.com`) 상품 등록.
+     *
+     * 실측 2026-09-14. 화면은 WebSquare 한 페이지(`index_SO.wsp`)이고 상품등록은 그 안의 탭
+     * (`/ui/product/registration/productInsert.xml`)이다. 주소로 바로 열 수 없어서 페이지 함수가 화면의
+     * `com.openTab` 으로 연다. 칸마다 화면의 데이터(`dat_productInfo` 등)와 섹션 함수(`scwin.*`)가 있어,
+     * 사람이 고른 것처럼 그 함수를 부른다 — 표준카테고리를 고르면 전시카테고리·수수료·단품 줄이 따라온다.
+     *
+     * 사진은 화면의 단품이미지 창이 쓰는 업로드(티켓 → 파일)로 롯데ON 에 올리고, 창이 닫힐 때 부르는
+     * 콜백을 그대로 부른다. 상세 이미지는 편집기(CKEditor)의 사진 업로드 — 편집기 안내대로 사진을 끌어다
+     * 놓을 때 도는 그 길 — 로 넣는다. `저장`·`임시저장` 은 부르지 않고, 확인창은 거절한다.
+     */
+    lotteon: {
+      label: "롯데ON",
+      origin: "https://store.lotteon.com",
+      pathPrefix: "/cm/main/index_SO.wsp",
+      exactPath: true,
+      noQuery: true,
+      formSelector: "body",
+      imageSlots: [],
+      lotteonForm: {
+        // 단품 이미지 창이 받는 최대 장수.
+        imageGroupKey: "lotteon",
+        maxImages: 10,
+        // 로그인 확인 → 탭 열기 → 화면 초기화(공통코드 1.5초 대기 포함)까지.
+        formWaitMs: 60000,
+        // 섹션 하나(분류 연관정보·고시 항목·배송비 정책 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 20000,
+      },
+      // 상세 이미지는 사람이 편집기에 끌어다 놓는 것과 같은 편집기 업로드로 넣는다. File 로 받아 와야 한다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
      * 떠리몰(샵바이 파트너어드민 · `partner.shopby.co.kr`).
      *
      * 실측 2026-09-11, 등록물 `132154869` 외 둘 + 목록 479개. 이 몰만 다른 것 넷:
@@ -882,7 +1092,9 @@
       // 첨부 목록. `pno` 만 붙이면 된다.
       listPath: "/_manage/?body=product@product_file.frm&filetype=3&stat=1&content_id=content2",
       filetype: "3",
-      label: "상품 첨부 저장소",
+      label: "키즈노트 첨부 저장소",
+      // 이 저장소는 키즈노트 관리자 세션으로만 열린다. 로그아웃이면 어느 몰 상세도 못 올린다.
+      loginLabel: "키즈노트 관리자",
     },
   };
 
@@ -936,6 +1148,17 @@
     }
     if (url.origin !== spec.origin || !url.pathname.startsWith(spec.pathPrefix)) {
       throw new Error(`${spec.label} 상품등록 주소가 아닙니다.`);
+    }
+    if (spec.exactPath && url.pathname.replace(/\/+$/, "") !== spec.pathPrefix) {
+      throw new Error(`${spec.label} 상품등록 주소가 아닙니다.`);
+    }
+    // 등록과 수정이 같은 주소를 쓰는 몰(신세계)은 쿼리가 붙은 주소를 수정 화면으로 본다.
+    if (spec.noQuery && url.search) {
+      throw new Error(`${spec.label} 상품등록 주소가 아닙니다. 기존 상품 수정 화면에는 채우지 않습니다.`);
+    }
+    // 해시 라우트 몰(스마트스토어)은 문서가 하나다. 해시가 등록 화면이 아니면 수정·목록 화면이다.
+    if (spec.hash && (url.pathname !== spec.pathPrefix || url.hash !== spec.hash)) {
+      throw new Error(`${spec.label} 상품등록 주소가 아닙니다. 기존 상품 수정 화면에는 채우지 않습니다.`);
     }
     return url.toString();
   }
@@ -1169,10 +1392,330 @@
         }
         return out;
       })(),
+      /** 같은 이름의 칸을 속성 값으로 가려 넣는 줄들(키드키즈 고시 `info`). 속성 값 → 값. */
+      infoRows: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.infoRows || {})) {
+          if (!key || entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
       detailUploads: (Array.isArray(value.detailUploads) ? value.detailUploads : [])
         .filter((entry) => entry && typeof entry.url === "string"),
       manualSteps: (Array.isArray(value.manualSteps) ? value.manualSteps : [])
         .filter((step) => typeof step === "string"),
+      // 전용 페이지 함수로 채우는 몰(신세계·스마트스토어)의 값 묶음.
+      ssg: spec.ssgForm ? normalizeSsgForm(value.ssg) : null,
+      smartstore: spec.smartstoreForm ? normalizeSmartstoreForm(value.smartstore) : null,
+      gsshop: spec.gsshopForm ? normalizeGsshopForm(value.gsshop) : null,
+      lotteon: spec.lotteonForm ? normalizeLotteonForm(value.lotteon) : null,
+    };
+  }
+
+  /**
+   * 롯데ON 폼 값. 페이지 함수에 그대로 넘어가므로 모양을 여기서 굳힌다.
+   *
+   * 글자 수는 화면(`WebSquare.util.getStringByteSize`)과 같이 UTF-8 **바이트**로 센다(한글 3). 상품명 150,
+   * 판매자내부상품번호 30. 모델명은 화면이 영문·숫자·`-_+/.` 만 받는다.
+   */
+  function normalizeLotteonForm(raw) {
+    if (!raw || typeof raw !== "object") throw new Error("롯데ON 폼 데이터가 없습니다.");
+    const text = (entry, max = 1000) => (entry === null || entry === undefined ? "" : String(entry)).trim().slice(0, max);
+    const digits = (entry) => (/^\d+$/.test(String(entry ?? "")) ? String(entry) : "");
+    const code = (entry, pattern) => (pattern.test(String(entry ?? "")) ? String(entry) : "");
+    const amount = (entry) => {
+      const parsed = Number(entry);
+      return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+    };
+    const encoder = new TextEncoder();
+    const cut = (entry, maxBytes) => {
+      let out = "";
+      for (const char of entry) {
+        if (encoder.encode(out + char).length > maxBytes) break;
+        out += char;
+      }
+      return out.trim();
+    };
+
+    const category = code(String(raw.category ?? "").trim().toUpperCase(), /^BC\d{8}$/);
+    if (!category) throw new Error("롯데ON 표준카테고리 코드(예: BC55031100)가 없습니다.");
+    const productName = cut(text(raw.productName, 400).replace(/[<>]/g, "").replace(/\s+/g, " "), 150);
+    if (!productName) throw new Error("롯데ON 판매자상품명이 없습니다.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw new Error("롯데ON 판매가가 없습니다.");
+    const domestic = raw.origin?.typeCode === "DMST";
+
+    const delivery = raw.delivery || {};
+    const noticeValues = {};
+    for (const [itemCode, entry] of Object.entries(raw.notice?.values || {})) {
+      if (/^\d{4}$/.test(itemCode) && entry !== null && entry !== undefined) noticeValues[itemCode] = text(entry, 1000);
+    }
+    const purchase = raw.purchase || {};
+    const maxQty = amount(purchase.maxQty);
+    const periodDays = amount(purchase.periodDays);
+    return {
+      category,
+      productName,
+      salePrice,
+      stockManaged: raw.stockManaged === true,
+      stock: amount(raw.stock),
+      modelNo: code(String(raw.modelNo ?? "").replace(/\s/g, ""), /^[A-Za-z0-9\-_+/.]{1,40}$/),
+      maker: text(raw.maker, 30),
+      origin: domestic
+        ? { typeCode: "DMST", code: "KR" }
+        : { typeCode: "OVS", code: code(String(raw.origin?.code ?? "").toUpperCase(), /^[A-Z]{2}$/) || "CN" },
+      notice: { groupCode: code(raw.notice?.groupCode, /^\d{1,3}$/), values: noticeValues },
+      delivery: {
+        costPolicy: digits(delivery.costPolicy),
+        extraCostPolicy: digits(delivery.extraCostPolicy),
+        shipPlace: code(delivery.shipPlace, /^[A-Z0-9]{3,20}$/),
+        returnPlace: code(delivery.returnPlace, /^[A-Z0-9]{3,20}$/),
+        courier: code(delivery.courier, /^\d{4}$/),
+        returnCourier: code(delivery.returnCourier, /^\d{4}$/),
+        sameDay: delivery.sameDay === true,
+        closeTime: code(delivery.closeTime, /^([01]\d|2[0-3])[0-5]\d$/),
+        saturday: delivery.saturday === "Y" ? "Y" : "N",
+        retrieveType: code(delivery.retrieveType, /^[A-Z]+_RTRV$/),
+      },
+      purchase: {
+        maxQty: maxQty >= 1 ? Math.min(maxQty, 99999) : 0,
+        periodDays: periodDays >= 1 && periodDays <= 31 ? periodDays : 1,
+      },
+      asText: text(raw.asText, 1000),
+      sellerCode: cut(text(raw.sellerCode, 60), 30),
+    };
+  }
+
+  /**
+   * GS샵 폼 값. 페이지 함수에 그대로 넘어가므로 모양을 여기서 굳힌다.
+   *
+   * 글자 수는 화면과 같이 **바이트**로 센다(한글 2 · 영숫자 1). 노출상품명 160, 송장상품명 30, 모델명 60 —
+   * 넘으면 저장할 때 화면이 막고, 어떤 칸은 값을 지운다.
+   */
+  function normalizeGsshopForm(raw) {
+    if (!raw || typeof raw !== "object") throw new Error("GS샵 폼 데이터가 없습니다.");
+    const text = (entry, max = 1000) => (entry === null || entry === undefined ? "" : String(entry)).trim().slice(0, max);
+    const digits = (entry) => (/^\d+$/.test(String(entry ?? "")) ? String(entry) : "");
+    const code = (entry, pattern) => (pattern.test(String(entry ?? "")) ? String(entry) : "");
+    const amount = (entry) => {
+      const parsed = Number(entry);
+      return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+    };
+    const bytes = (entry) => [...entry].reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
+    const cut = (entry, maxBytes) => {
+      let out = "";
+      for (const char of entry) {
+        if (bytes(out + char) > maxBytes) break;
+        out += char;
+      }
+      return out.trim();
+    };
+
+    const category = code(raw.category, /^[A-Z]\d{8}$/);
+    if (!category) throw new Error("GS샵 상품분류 코드(예: B35012701)가 없습니다.");
+    const sectionId = digits(raw.sectionId);
+    if (!sectionId) throw new Error("GS샵 전시 카테고리 번호가 없습니다.");
+    const supplierProductCode = code(raw.supplierProductCode, /^[A-Za-z0-9\-_()]{1,20}$/);
+    if (!supplierProductCode) throw new Error("GS샵 협력사 상품코드는 영문·숫자·-_() 20자 이내여야 합니다.");
+    // 화면이 막는 글자: 노출상품명 `" < > | \ ? *`, 송장상품명 `: " < > | \ '`(? * 는 공백으로 바뀐다).
+    const exposureName = cut(text(raw.exposureName, 400).replace(/["<>|\\?*]/g, "").replace(/\s+/g, " "), 160);
+    const invoiceName = cut(text(raw.invoiceName, 200).replace(/[:"<>|\\']/g, "").replace(/[?*]/g, " ").replace(/\s+/g, " "), 30);
+    if (!exposureName || !invoiceName) throw new Error("GS샵 노출상품명·송장상품명이 없습니다.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw new Error("GS샵 판매가가 없습니다.");
+    const marginRate = amount(raw.marginRate);
+    const brandCode = digits(raw.brand?.code);
+    if (!brandCode) throw new Error("GS샵 브랜드 코드가 없습니다.");
+
+    const delivery = raw.delivery || {};
+    const remote = delivery.remote || {};
+    const noticeValues = {};
+    for (const [itemCode, entry] of Object.entries(raw.notice?.values || {})) {
+      if (digits(itemCode) && entry !== null && entry !== undefined) noticeValues[itemCode] = text(entry, 1000);
+    }
+    return {
+      category,
+      sectionId,
+      supplierProductCode,
+      mdId: digits(raw.mdId),
+      employeeNo: digits(raw.employeeNo),
+      exposureName,
+      invoiceName,
+      brand: { code: brandCode, name: text(raw.brand?.name, 60) },
+      modelName: cut(text(raw.modelName, 200), 60),
+      composition: {
+        content: text(raw.composition?.content, 200),
+        packageCount: Math.max(1, amount(raw.composition?.packageCount)),
+        maker: text(raw.composition?.maker, 60),
+        origin: text(raw.composition?.origin, 40),
+      },
+      salePrice,
+      marginRate: marginRate > 0 && marginRate < 100 ? marginRate : 0,
+      delivery: {
+        courier: code(delivery.courier, /^[A-Z0-9]{2,4}$/),
+        convenienceReturn: delivery.convenienceReturn === "Y" ? "Y" : "N",
+        fee: amount(delivery.fee),
+        freeOver: amount(delivery.freeOver),
+        returnFee: amount(delivery.returnFee),
+        exchangeFee: amount(delivery.exchangeFee),
+        remote: {
+          fee: amount(remote.fee),
+          returnFee: amount(remote.returnFee),
+          exchangeFee: amount(remote.exchangeFee),
+        },
+        refundType: delivery.refundType === "20" ? "20" : "10",
+        shipAddress: code(delivery.shipAddress, /^\d{4}$/),
+        returnAddress: code(delivery.returnAddress, /^\d{4}$/),
+        bundle: code(delivery.bundle, /^[A-Z]\d{2}$/),
+        weight: code(delivery.weight, /^A\d{2}$/),
+        length: code(delivery.length, /^B\d{2}$/),
+      },
+      stock: amount(raw.stock),
+      safeStock: amount(raw.safeStock),
+      notice: { groupCode: digits(raw.notice?.groupCode), values: noticeValues },
+    };
+  }
+
+  /**
+   * 스마트스토어 폼 값. 페이지 함수에 그대로 넘어가므로 모양을 여기서 굳힌다.
+   *
+   * 번호(카테고리·원산지·인증)는 숫자만, 코드(원산지 구분·고시 분류)는 대문자만 받는다. 페이지 함수가
+   * 그 값으로 selectize 옵션을 찾기 때문이다.
+   */
+  function normalizeSmartstoreForm(raw) {
+    if (!raw || typeof raw !== "object") throw new Error("스마트스토어 폼 데이터가 없습니다.");
+    const text = (entry, max = 1000) => (entry === null || entry === undefined ? "" : String(entry)).trim().slice(0, max);
+    const digits = (entry) => (/^\d+$/.test(String(entry ?? "")) ? String(entry) : "");
+    const code = (entry) => (/^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "");
+    const amount = (entry) => {
+      const parsed = Number(entry);
+      return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+    };
+    // 네이버가 상품명·모델명·태그에서 막는 글자(`\ * ? " < >`). 들어가면 저장이 거절된다.
+    const clean = (entry, max) => text(entry, 1000).replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+    // 태그 상한은 UTF-8 30바이트다(한글 10자 · 영문 30자). 넘으면 화면이 안내창을 띄우고 버린다.
+    const utf8Length = (entry) => new TextEncoder().encode(entry).length;
+
+    const categoryId = digits(raw.category?.id);
+    const categoryKeyword = text(raw.category?.keyword, 60);
+    if (!categoryId || !categoryKeyword) throw new Error("스마트스토어 카테고리(번호·검색어)가 없습니다.");
+    const productName = clean(raw.productName, 100);
+    if (!productName) throw new Error("스마트스토어 상품명이 없습니다.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw new Error("스마트스토어 판매가가 없습니다.");
+    const discountWon = amount(raw.discountWon);
+
+    // 인증기관·인증일자는 우리가 모른다(번호만 안다). 사람이 제품안전정보센터에서 보고 넣는다.
+    const cert = raw.childCert;
+    const childCert = cert && digits(cert.certId) && clean(cert.number, 60)
+      ? { certId: digits(cert.certId), number: clean(cert.number, 60), companyName: text(cert.companyName, 60) }
+      : null;
+    const origin = raw.origin && code(raw.origin.exposureType)
+      ? {
+        exposureType: code(raw.origin.exposureType),
+        firstSub: digits(raw.origin.firstSub),
+        secondSub: digits(raw.origin.secondSub),
+        importer: text(raw.origin.importer, 60),
+      }
+      : null;
+    const tags = [];
+    for (const entry of Array.isArray(raw.tags) ? raw.tags : []) {
+      const tag = clean(entry, 30).replace(/\s+/g, "");
+      if (!tag || tags.includes(tag) || utf8Length(tag) > 30) continue;
+      tags.push(tag);
+      if (tags.length >= 10) break;
+    }
+
+    return {
+      category: { id: categoryId, keyword: categoryKeyword },
+      productName,
+      salePrice,
+      // 즉시할인은 판매가보다 작아야 한다. 아니면 할인 없이 넣는다.
+      discountWon: discountWon > 0 && discountWon < salePrice ? discountWon : 0,
+      stock: amount(raw.stock),
+      modelName: clean(raw.modelName, 100),
+      brandName: clean(raw.brandName, 50),
+      manufacturerName: clean(raw.manufacturerName, 50),
+      origin,
+      childCert,
+      notice: {
+        type: code(raw.notice?.type) || "ETC",
+        itemName: text(raw.notice?.itemName, 200),
+        modelName: text(raw.notice?.modelName, 200),
+        certificateDetails: text(raw.notice?.certificateDetails, 500),
+        manufacturer: text(raw.notice?.manufacturer, 100),
+        afterServiceDirector: text(raw.notice?.afterServiceDirector, 100),
+      },
+      tags,
+    };
+  }
+
+  /**
+   * 신세계 폼 값. 페이지 함수에 그대로 넘어가므로 모양을 여기서 굳힌다.
+   *
+   * 번호(카테고리·배송비·주소지·고시 속성)는 숫자만 받는다. 페이지 함수가 그 번호로
+   * 선택자를 만들기 때문이다 — 글자가 섞이면 엉뚱한 요소를 집는다.
+   */
+  function normalizeSsgForm(raw) {
+    if (!raw || typeof raw !== "object") throw new Error("신세계 폼 데이터가 없습니다.");
+    const text = (entry, max = 1000) => (entry === null || entry === undefined ? "" : String(entry)).slice(0, max);
+    const digits = (entry) => (/^\d+$/.test(String(entry ?? "")) ? String(entry) : "");
+    const amount = (entry) => {
+      const parsed = Number(entry);
+      return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+    };
+    const category = (entry, label) => {
+      const id = digits(entry?.id);
+      const keyword = text(entry?.keyword, 60).trim();
+      if (!id || !keyword) throw new Error(`신세계 ${label}(번호·검색어)가 없습니다.`);
+      return { id, keyword };
+    };
+    const fee = (entry) => (entry && typeof entry === "object"
+      ? {
+        divCd: digits(entry.divCd),
+        typeCd: digits(entry.typeCd),
+        prepayCd: digits(entry.prepayCd),
+        unitCd: digits(entry.unitCd),
+        feeId: digits(entry.feeId),
+      }
+      : null);
+    const noticeValues = {};
+    for (const [propId, entry] of Object.entries(raw.notice?.values || {})) {
+      if (digits(propId) && entry !== null && entry !== undefined) noticeValues[propId] = text(entry, 1000);
+    }
+    const itemName = text(raw.itemName, 300).trim();
+    if (!itemName) throw new Error("신세계 상품명이 없습니다.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw new Error("신세계 판매가가 없습니다.");
+    const shipping = raw.shipping || {};
+    return {
+      itemName,
+      brandName: text(raw.brandName, 60).trim(),
+      siteNo: digits(raw.siteNo),
+      displayCategory: category(raw.displayCategory, "전시카테고리"),
+      standardCategory: category(raw.standardCategory, "표준분류"),
+      salePrice,
+      marginRate: amount(raw.marginRate),
+      stock: amount(raw.stock),
+      modelName: text(raw.modelName, 100).trim(),
+      searchKeywords: text(raw.searchKeywords, 500).trim(),
+      adultTypeCode: digits(raw.adultTypeCode) || "90",
+      returnExchangeButton: raw.returnExchangeButton === "N" ? "N" : "Y",
+      notice: {
+        classId: digits(raw.notice?.classId),
+        values: noticeValues,
+        importPropId: digits(raw.notice?.importPropId),
+        importYn: raw.notice?.importYn === "N" ? "N" : "Y",
+      },
+      manufacturer: text(raw.manufacturer, 100).trim(),
+      originCountry: text(raw.originCountry, 40).trim(),
+      shipping: {
+        leadDays: amount(shipping.leadDays),
+        outboundAddrId: digits(shipping.outboundAddrId),
+        returnAddrId: digits(shipping.returnAddrId),
+        fees: (Array.isArray(shipping.fees) ? shipping.fees : []).map(fee).filter((entry) => entry && entry.feeId),
+      },
     };
   }
 
@@ -1272,6 +1815,9 @@
     const fire = (el) => {
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      // 글자 수 표시를 keyup 으로만 고치는 화면(키드키즈 `limitInputText`). 안 주면 값이
+      // 들어갔는데 `0/100` 으로 남아 사람이 빈 칸으로 읽는다.
+      if (payload.fireKeyup) el.dispatchEvent(new Event("keyup", { bubbles: true }));
     };
 
     /**
@@ -2225,6 +2771,33 @@
         steps.push(entry.label || entry.text);
       }
 
+      // 5-2) 고른 분류가 그려 주는 줄들. 이름이 같아 속성 값(키드키즈 `info`)으로 가린다.
+      //
+      // 줄은 AJAX 로 온다. 기다리지 않으면 0줄을 보고 지나간다. 없는 줄은 경고한다 —
+      // 몰이 고시 항목을 바꾸면 그 칸이 빈 채로 제출되기 때문이다.
+      const infoSpec = payload.infoRows;
+      const infoValues = payload.infoRowValues || {};
+      if (infoSpec && Object.keys(infoValues).length > 0) {
+        const until = Date.now() + (infoSpec.timeoutMs || 8000);
+        let boxes = [...document.querySelectorAll(infoSpec.itemSelector)];
+        while (boxes.length === 0 && Date.now() < until) {
+          await sleep(300);
+          boxes = [...document.querySelectorAll(infoSpec.itemSelector)];
+        }
+        let placed = 0;
+        const absent = [];
+        for (const [key, value] of Object.entries(infoValues)) {
+          const box = boxes.find((el) => el.getAttribute(infoSpec.attr) === key);
+          if (!box) { absent.push(key); continue; }
+          assign(box, value);
+          placed += 1;
+        }
+        if (placed > 0) steps.push(`${infoSpec.label} ${placed}줄`);
+        if (absent.length > 0) {
+          warnings.push(`${infoSpec.label} 칸 ${absent.length}개가 화면에 없습니다: ${absent.join(", ")}`);
+        }
+      }
+
       // 저장된 주소는 하나뿐인 경우가 많다. 내부 번호를 적어두지 않고 첫 항목을 고른다.
       for (const name of payload.selectFirstOptions || []) {
         const el = field(name);
@@ -2754,7 +3327,9 @@
         const spec = payload.detailRich;
         let rich = null;
         const self = payload.detailSelfUpload;
-        if (self && payload.detailImage?.dataUrl) {
+        // 편집기 파일매니저로 올리는 몰(아트공구 Froala)만 여기서 올린다. 자기 에디터 업로드를
+        // 따로 가진 몰(키드키즈 TinyMCE)은 아래 그 에디터 갈래에서 올린다.
+        if (Array.isArray(self?.editors) && payload.detailImage?.dataUrl) {
           // 편집기 탭을 먼저 연다. 기본 탭에서는 편집기가 숨어 있어 값을 넣어도
           // 사람 눈에는 빈 칸으로 보인다.
           if (self.tabSelector) {
@@ -2789,6 +3364,47 @@
               if (applied.length > 0) { rich = true; steps.push(`상세설명(업로드 후 ${applied.length}곳)`); }
             } catch (error) {
               warnings.push(`상세설명을 올리지 못했습니다: ${error?.message || error}. 화면에서 직접 넣으세요.`);
+            }
+          }
+        } else if (spec && spec.kind === "tinymce") {
+          // TinyMCE 3(키드키즈). 제출할 때 에디터가 textarea 를 덮으므로 에디터에 넣는다.
+          const editor = window.tinyMCE?.get?.(spec.editorId);
+          if (editor) {
+            rich = true;
+            let html = payload.detailHtml;
+            // 몰 서버에 먼저 올린다 — 사람이 `이미지 삽입/편집` 창의 [...] 으로 올리는 곳과 같다.
+            // 실패하면 이미 읽히는 주소(`detailHtml`)가 있을 때만 그것으로 넣는다.
+            const upload = spec.upload;
+            if (upload && payload.detailImage?.dataUrl) {
+              try {
+                let file = toFile(payload.detailImage);
+                // 서버가 확장자를 보고 이름을 새로 붙인다. 확장자 없는 이름이면 붙여 보낸다.
+                if (!/\.(jpe?g|png|gif)$/i.test(file.name)) {
+                  file = new File([file], `detail.${/png/i.test(file.type) ? "png" : "jpg"}`, { type: file.type });
+                }
+                const body = new FormData();
+                body.append(upload.field, file);
+                for (const [name, value] of Object.entries(upload.fields || {})) body.append(name, value);
+                const response = await fetch(upload.endpoint, { method: "POST", body, credentials: "include" });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                // 응답은 업로드 창 화면 그대로다. 올린 파일 주소가 그 안 스크립트에 실린다.
+                const text = await response.text();
+                const hosted = (text.match(new RegExp(upload.hostedPattern)) || [])[0] || "";
+                if (!hosted) throw new Error("응답에 올린 이미지 주소가 없습니다");
+                html = `<center><img src="${hosted}"></center>`;
+                steps.push("상세이미지 몰 업로드");
+              } catch (error) {
+                warnings.push(`상세이미지를 몰에 올리지 못했습니다: ${error?.message || error}`);
+              }
+            }
+            if (html) {
+              try { if (spec.validElements) editor.schema?.addValidElements?.(spec.validElements); } catch { /* 옛 에디터 */ }
+              editor.setContent(html);
+              try { window.tinyMCE.triggerSave(); } catch { /* 제출 때 다시 옮긴다 */ }
+              steps.push("상세설명(에디터)");
+            } else {
+              // 에디터는 있는데 넣을 것이 없다. 조용히 넘기면 상세가 빈 채로 등록된다.
+              warnings.push("상세설명에 넣을 이미지를 만들지 못했습니다. 화면에서 직접 넣으세요.");
             }
           }
         } else if (spec && spec.kind === "froala") {
@@ -2945,6 +3561,1791 @@
     })();
   }
 
+  /**
+   * 신세계 파트너오피스 상품등록 화면을 채운다(MAIN 월드).
+   *
+   * 사람이 누르는 순서를 그대로 밟는다 — 화면이 앞 칸을 골라야 뒤 칸을 그리기 때문이다
+   * (판매사이트 → 전시카테고리 → 표준분류 → 가격·판매정보). 칸마다 이벤트 연결 방식이
+   * 달라서(Vue `v-model`, jQuery 서제스트, 인라인 `onchange`) 각각 그 방식으로 건드린다.
+   *
+   * ⚠️ 인라인 `onchange` 칸(출고지·반송지)은 네이티브 `change` 한 번만 쏜다. jQuery 로 한 번
+   * 더 쏘면 그 핸들러가 셀렉트를 첫 줄로 되돌린 뒤라 빈 값으로 다시 불려 고른 주소가
+   * 지워진다(라이브 실측 2026-09-14).
+   *
+   * 저장은 하지 않는다. 끝에 화면 자체 검증(`ItemValidator` · `saveValidModules`)만 돌려
+   * 막히는 칸을 경고로 돌려준다 — 둘 다 네트워크를 타지 않는다.
+   */
+  function fillSsgProductForm(payload) {
+    return (async () => {
+      const steps = [];
+      const warnings = [];
+      const said = [];
+      const nativeAlert = window.alert;
+      const nativeConfirm = window.confirm;
+      // 검증을 alert 으로 띄우는 화면이다. 뜨면 페이지가 멈춰 나머지를 못 채운다.
+      // 확인창은 거절한다 — 무엇이 물어도 저장에 '예' 가 눌리는 일이 없게.
+      window.alert = (message) => { said.push(String(message)); };
+      window.confirm = (message) => { said.push(String(message)); return false; };
+
+      const form = payload.form;
+      const stepWait = payload.stepWaitMs || 8000;
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (probe, timeoutMs, stepMs = 250) => {
+        const until = Date.now() + timeoutMs;
+        for (;;) {
+          let found = null;
+          try { found = probe(); } catch { found = null; }
+          if (found) return found;
+          if (Date.now() >= until) return null;
+          await sleep(stepMs);
+        }
+      };
+      const q = (selector) => document.querySelector(selector);
+      const byId = (id) => document.getElementById(id);
+      const visible = (el) => Boolean(el && el.getClientRects().length > 0);
+      const fire = (el, types) => {
+        for (const type of types) el.dispatchEvent(new Event(type, { bubbles: true }));
+      };
+      const setText = (el, entry) => {
+        el.value = entry;
+        fire(el, ["input", "change"]);
+      };
+      const keyup = (el) => el.dispatchEvent(new KeyboardEvent("keyup", { key: "a", keyCode: 65, which: 65, bubbles: true }));
+      const clickRadio = (el) => {
+        if (!el) return false;
+        if (!el.checked) el.click();
+        return el.checked;
+      };
+      const base = () => window.itemMainDto?.itemDto?.itemBaseDto || {};
+      const lastSaid = () => (said.length > 0 ? `: ${said[said.length - 1]}` : "");
+      const pad = (n) => String(n).padStart(2, "0");
+
+      /** data URL → File. 화면이 파일 이름의 확장자로 형식을 가른다(jpg·jpeg·png). */
+      const toImageFile = (image, fallbackName) => {
+        const [head, encoded] = String(image.dataUrl).split(",");
+        const mime = (head.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+        const binary = atob(encoded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        let name = String(image.fileName || fallbackName);
+        if (!/\.(jpe?g|png)$/i.test(name)) name = `${fallbackName}.${/png/i.test(mime) ? "png" : "jpg"}`;
+        return new File([bytes], name, { type: mime });
+      };
+
+      /** 서제스트 셀렉트(브랜드·제조국). 옵션 값이 `번호|이름` 이다. */
+      const pickSuggestOption = async (input, comboId, name) => {
+        input.focus();
+        input.value = name;
+        keyup(input);
+        const combo = await waitFor(() => {
+          const select = byId(comboId);
+          return select && [...select.options].some((option) => option.value.split("|")[1] === name) ? select : null;
+        }, stepWait);
+        if (!combo) return false;
+        combo.selectedIndex = [...combo.options].findIndex((option) => option.value.split("|")[1] === name);
+        combo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        return true;
+      };
+
+      /** 검색해서 고르는 카테고리. 결과 줄의 `data-value` 가 `번호|…` 로 시작한다. */
+      const pickCategory = async (input, listId, target) => {
+        input.focus();
+        input.value = target.keyword;
+        keyup(input);
+        const link = await waitFor(() => {
+          const row = document.querySelector(`#${listId} li[data-value^="${target.id}|"]`);
+          return row ? (row.querySelector("a") || row) : null;
+        }, stepWait);
+        if (!link) return false;
+        link.click();
+        return true;
+      };
+
+      /** dhtmlx 셀을 사람이 고치는 것처럼 편집기를 열고 닫는다. 그래야 `onEditCell` 계산이 돈다. */
+      const editGridCell = async (grid, rowId, columnId, entry) => {
+        const column = grid.getColIndexById(columnId);
+        if (column === undefined || column === null || column < 0) return false;
+        grid.selectCell(grid.getRowIndex(rowId), column);
+        grid.editCell();
+        if (grid.editor && grid.editor.obj) grid.editor.obj.value = String(entry);
+        grid.editStop();
+        await sleep(300);
+        return true;
+      };
+
+      try {
+        // 0) 화면 준비. 로그아웃이면 로그인 화면이 와서 모듈이 없다 → 확장이 로그인 후 다시 부른다.
+        const ready = await waitFor(() => {
+          if ([...document.querySelectorAll('input[type="password"]')].some(visible)) return "login";
+          return window.ItemMain && window.itemMainDto && window.ItemPrcInv
+            && q("input#itemNm") && byId(`siteNo${form.siteNo}`) ? "form" : null;
+        }, payload.formWaitMs || 30000);
+        if (ready !== "form") {
+          return { ok: false, noForm: true, error: "신세계 상품등록 화면을 찾지 못했습니다." };
+        }
+        await waitFor(() => !visible(byId("loadingBox")), stepWait * 2);
+        // 상품번호가 실려 있으면 기존 상품 수정 화면이다. 저장하면 판매중 상품이 덮이므로 손대지 않는다.
+        if (base().itemId) {
+          return { ok: false, error: "기존 상품 수정 화면이라 채우지 않았습니다. 새 상품등록 화면에서 다시 누르세요." };
+        }
+
+        // 1) 판매사이트.
+        clickRadio(byId(`siteNo${form.siteNo}`));
+        const dispInput = await waitFor(() => [...document.querySelectorAll("#categoryInfo input[type=text]")]
+          .find((input) => visible(input) && /카테고리명/.test(input.placeholder || "")), stepWait);
+
+        // 2) 전시카테고리(SSG.COM몰). 신세계몰은 화면이 매핑으로 채운다.
+        const dispPicked = dispInput
+          && await pickCategory(dispInput, "suggestCombo_suggestMainDispCtgId", form.displayCategory);
+        if (dispPicked) steps.push(`전시카테고리 ${form.displayCategory.keyword}`);
+        else warnings.push(`전시카테고리 ${form.displayCategory.keyword}(${form.displayCategory.id})를 찾지 못했습니다. 화면에서 고르세요.`);
+
+        // 3) 표준분류. 이걸 골라야 판매정보·가격 칸이 그려진다.
+        const stdInput = await waitFor(() => (visible(byId("suggestStdCtgTxt")) ? byId("suggestStdCtgTxt") : null), stepWait);
+        const stdPicked = stdInput && await pickCategory(stdInput, "suggestCombo_suggestStdCtgId", form.standardCategory);
+        const stdApplied = stdPicked && await waitFor(() => base().stdCtgId === form.standardCategory.id, stepWait);
+        if (stdApplied) steps.push(`표준분류 ${form.standardCategory.keyword}`);
+        else warnings.push(`표준분류 ${form.standardCategory.keyword}(${form.standardCategory.id})를 고르지 못했습니다. 화면에서 고르세요.`);
+        document.body.click();
+
+        // 4) 브랜드 → 상품명. 고객 노출 상품명을 화면이 브랜드 + 상품명으로 만든다.
+        if (form.brandName) {
+          const brandPicked = await pickSuggestOption(q("input#brandNm"), "suggestCombo_brandId", form.brandName);
+          if (brandPicked && byId("brandId")?.value) steps.push(`브랜드 ${form.brandName}`);
+          else warnings.push(`브랜드 ${form.brandName}을(를) 찾지 못했습니다. 화면에서 고르세요.`);
+        }
+        setText(q("input#itemNm"), form.itemName);
+        if (base().itemNm === form.itemName) steps.push("상품명");
+        else warnings.push("상품명을 넣지 못했습니다.");
+
+        // 5) 판매정보 기본값 중 화면이 비워 두는 필수 라디오.
+        clickRadio(q(`#itemAddInfo input[name="adultItemTypeCd"][value="${form.adultTypeCode}"]`));
+        clickRadio(q(`#itemRetExch input[name="retExchPsblYn"][value="${form.returnExchangeButton}"]`));
+
+        // 6) 가격(판매가 + 마진 → 공급가 자동) · 재고.
+        const grid = await waitFor(() => {
+          const candidate = window.ItemPrcInv?.gridRepPrc;
+          return candidate && candidate.getRowsNum() > 0 ? candidate : null;
+        }, stepWait);
+        if (grid) {
+          clickRadio(byId("autoAccount_1"));
+          const rowId = grid.getRowId(0);
+          await editGridCell(grid, rowId, "sellprc", form.salePrice);
+          if (form.marginRate > 0) await editGridCell(grid, rowId, "mrgrt", form.marginRate);
+          const supply = String(grid.cells(rowId, grid.getColIndexById("splprc")).getValue() || "");
+          if (supply) steps.push(`가격 판매가 ${form.salePrice} · 마진 ${form.marginRate}% · 공급가 ${supply}`);
+          else warnings.push(`공급가가 계산되지 않았습니다${lastSaid()}. 가격 칸을 확인하세요.`);
+        } else {
+          warnings.push("가격 칸이 그려지지 않았습니다. 표준분류를 고른 뒤 가격을 넣으세요.");
+        }
+        const stock = q("input#usablInvQty");
+        if (stock && form.stock > 0) setText(stock, String(form.stock));
+
+        // 7) 모델명 · 검색어 · 전시기간. 시작이 지금보다 과거면 저장이 막히므로 몇 시간 뒤 정각으로.
+        if (form.modelName && q("input#mdlNm")) setText(q("input#mdlNm"), form.modelName);
+        if (form.searchKeywords && q("input#itemSrchwdNm")) setText(q("input#itemSrchwdNm"), form.searchKeywords);
+        byId("dispDt99_btn")?.click();
+        const start = new Date(Date.now() + (payload.displayStartDelayHours || 3) * 3600000);
+        if (start.getMinutes() > 0 || start.getSeconds() > 0) start.setHours(start.getHours() + 1);
+        start.setMinutes(0, 0, 0);
+        const startText = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())} ${pad(start.getHours())}:00`;
+        const startInput = q("input#dispStrtDts");
+        if (startInput) setText(startInput, startText);
+        if (base().dispStrtDt === startText) steps.push(`전시 시작 ${startText}`);
+        else warnings.push("전시 시작일을 넣지 못했습니다. 저장 전에 지금 이후로 고치세요.");
+
+        // 8) 상품고시. 분류를 바꾸면 그 분류의 줄이 새로 그려진다.
+        const noticeClass = q("select#itemMngPropClsId");
+        if (noticeClass && form.notice.classId) {
+          if (noticeClass.value !== form.notice.classId) {
+            noticeClass.value = form.notice.classId;
+            fire(noticeClass, ["change"]);
+          }
+          const propIds = Object.keys(form.notice.values);
+          await waitFor(() => propIds.every((propId) => visible(byId(propId))), stepWait);
+          const missing = [];
+          for (const [propId, entry] of Object.entries(form.notice.values)) {
+            const el = byId(propId);
+            if (!visible(el)) { missing.push(propId); continue; }
+            setText(el, entry);
+          }
+          if (form.notice.importPropId) clickRadio(byId(`${form.notice.importPropId}_${form.notice.importYn}`));
+          if (missing.length > 0) warnings.push(`상품고시 칸 ${missing.join(", ")} 이(가) 화면에 없습니다.`);
+          else steps.push(`상품고시 ${propIds.length}줄`);
+        }
+        if (form.manufacturer && q("input#manufcoNm")) setText(q("input#manufcoNm"), form.manufacturer);
+        if (form.originCountry) {
+          const originPicked = await pickSuggestOption(q("input#orplcNm0"), "suggestCombo_prodManufCntryId0", form.originCountry);
+          if (!originPicked || !byId("prodManufCntryId0")?.value) {
+            warnings.push(`제조국 ${form.originCountry}을(를) 고르지 못했습니다. 화면에서 고르세요.`);
+          }
+        }
+
+        // 9) 배송 — 소요일 · 출고지/반송지 · 출고/반품 배송비.
+        const shipping = form.shipping;
+        if (shipping.leadDays > 0 && q("input#shppRqrmDcnt")) setText(q("input#shppRqrmDcnt"), String(shipping.leadDays));
+        for (const [selectId, addrId, label] of [
+          ["whoutAddrId", shipping.outboundAddrId, "출고지"],
+          ["snbkAddrId", shipping.returnAddrId, "반송지"],
+        ]) {
+          if (!addrId) continue;
+          const select = q(`select#${selectId}`);
+          if (!select || ![...select.options].some((option) => option.value === addrId)) {
+            warnings.push(`${label} ${addrId} 가 목록에 없습니다. 화면에서 고르세요.`);
+            continue;
+          }
+          select.value = addrId;
+          fire(select, ["change"]);
+          if (base()[selectId] !== addrId) warnings.push(`${label}를 고르지 못했습니다.`);
+        }
+        for (const fee of shipping.fees) {
+          const chain = [
+            ["gnrlShppcstPlcyDivCd", fee.divCd],
+            ["gnrlShppcstPlcyTypeCd", fee.typeCd],
+            ["gnrlPrpayCodDivCd", fee.prepayCd],
+            ["gnrlShppcstAplUnitCd", fee.unitCd],
+            ["gnrlShppcstId", fee.feeId],
+          ];
+          let reached = true;
+          for (const [selectId, code] of chain) {
+            const select = await waitFor(() => {
+              const candidate = q(`select#${selectId}`);
+              return candidate && [...candidate.options].some((option) => option.value === code) ? candidate : null;
+            }, stepWait);
+            if (!select) { reached = false; break; }
+            select.value = code;
+            fire(select, ["change"]);
+            await sleep(300);
+          }
+          if (!reached || !byId("addGnrlShppcstPlcyBtn")) {
+            warnings.push(`배송비 ${fee.feeId} 를 고르지 못했습니다. 화면에서 추가하세요.`);
+            continue;
+          }
+          byId("addGnrlShppcstPlcyBtn").click();
+          await sleep(500);
+          steps.push(`배송비 ${fee.feeId}`);
+        }
+
+        // 10) 상품이미지. 칸의 파일 선택과 같다 — 화면이 바로 몰 서버에 올리고(동기) 주소를 적는다.
+        const images = (payload.images || []).slice(0, payload.maxImages || 10);
+        let uploadedImages = 0;
+        for (let index = 0; index < images.length; index += 1) {
+          const slot = index + 1;
+          const input = byId(`uitemImgVod10_${slot}_file`);
+          if (!input) break;
+          const transfer = new DataTransfer();
+          transfer.items.add(toImageFile(images[index], `image${slot}`));
+          input.files = transfer.files;
+          fire(input, ["change"]);
+          const path = await waitFor(() => byId(`uitemImgVod10_${slot}_dataFileNm`)?.value, stepWait);
+          if (!path) {
+            warnings.push(`상품이미지 ${slot}을(를) 올리지 못했습니다${lastSaid()}`);
+            continue;
+          }
+          const alt = byId(`uitemImgVod10_${slot}_rplcTextNm`);
+          if (alt && !alt.value) setText(alt, slot === 1 ? "대표이미지" : `상품이미지${slot}`);
+          uploadedImages += 1;
+        }
+        if (uploadedImages > 0) steps.push(`상품이미지 ${uploadedImages}장`);
+
+        // 11) 상세설명. SSG Editor 이미지 업로드로 몰 주소를 받고, 에디터 저장 콜백으로 넣는다.
+        let detailHtml = payload.detailHtml || "";
+        const upload = payload.detailUpload;
+        if (upload && payload.detailImage?.dataUrl) {
+          try {
+            const body = new FormData();
+            body.append(upload.field, toImageFile(payload.detailImage, "detail"));
+            const response = await fetch(upload.endpoint, { method: "POST", body, credentials: "include" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json();
+            const hosted = String(result?.uploadPath || "").trim();
+            if (!hosted) throw new Error("응답에 이미지 주소가 없습니다");
+            detailHtml = `<center><img src="${new URL(hosted, location.origin).href}"></center>`;
+            steps.push("상세이미지 몰 업로드");
+          } catch (error) {
+            warnings.push(`상세이미지를 몰에 올리지 못했습니다: ${error?.message || error}`);
+          }
+        }
+        if (detailHtml && typeof window.ItemDtl?.popupItemDtlSynapEditorCallBack === "function") {
+          window.ItemDtl.popupItemDtlSynapEditorCallBack(detailHtml);
+          steps.push("상세설명");
+        } else {
+          warnings.push("상세설명에 넣을 이미지를 만들지 못했습니다. 화면에서 직접 넣으세요.");
+        }
+
+        // 채우는 동안 몰이 한 말은 사람에게 넘긴다. 이미 경고에 실은 문장은 다시 싣지 않는다.
+        for (const message of new Set(said)) {
+          if (!warnings.some((warning) => warning.includes(message))) warnings.push(`몰 안내: ${message}`);
+        }
+
+        // 12) 저장 전 검증만 돌린다. 막히는 첫 칸을 사람에게 알린다.
+        said.length = 0;
+        let valid = null;
+        try {
+          window.ItemMain.savePreProcess();
+          valid = Boolean(window.ItemValidator.validate(window.jQuery("#content")))
+            && Boolean(window.ItemMain.saveValidModules());
+        } catch {
+          valid = null;
+        }
+        if (valid === true) steps.push("저장 전 검증 통과");
+        else if (valid === false) warnings.push(`저장 전 확인: ${[...new Set(said)].join(" / ") || "화면이 막는 칸이 있습니다"}`);
+        said.length = 0;
+        window.scrollTo(0, 0);
+
+        return { ok: true, steps, warnings, submitted: false };
+      } finally {
+        // 사람이 이어서 쓸 화면이다. 대화상자는 원래대로 돌려준다 — 저장 확인창도 떠야 한다.
+        window.alert = nativeAlert;
+        window.confirm = nativeConfirm;
+      }
+    })();
+  }
+
+  /**
+   * 스마트스토어 새 상품등록 화면을 사람이 누르는 순서대로 채운다.
+   *
+   * AngularJS 화면이라 넣은 값이 **모델에 닿았는지** 칸마다 모델을 읽어 확인한다. debugInfo 가 꺼져
+   * `.scope()` 는 못 쓰니 `$rootScope` 에서 `vm.productFormSubmitVO` 를 찾는다.
+   * 마지막에 폼 검증(`$error`)만 읽어 막히는 칸을 사람에게 알린다. 저장·임시저장은 누르지 않는다.
+   */
+  function fillSmartstoreProductForm(payload) {
+    return (async () => {
+      const steps = [];
+      const warnings = [];
+      const said = [];
+      const nativeAlert = window.alert;
+      const nativeConfirm = window.confirm;
+      window.alert = (message) => { said.push(String(message)); };
+      window.confirm = (message) => { said.push(String(message)); return false; };
+
+      const form = payload.form;
+      const stepWait = payload.stepWaitMs || 10000;
+      // 창이 뜨는지·값이 모델에 닿는지 짧게 보는 기다림. 칸 반응 기다림보다 길 이유가 없다.
+      const brief = Math.min(3000, stepWait);
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (probe, timeoutMs, stepMs = 250) => {
+        const until = Date.now() + timeoutMs;
+        for (;;) {
+          let found = null;
+          try { found = probe(); } catch { found = null; }
+          if (found) return found;
+          if (Date.now() >= until) return null;
+          await sleep(stepMs);
+        }
+      };
+      const q = (selector, scope = document) => (scope ? scope.querySelector(selector) : null);
+      const all = (selector, scope = document) => (scope ? [...scope.querySelectorAll(selector)] : []);
+      const visible = (el) => Boolean(el && el.getClientRects().length > 0);
+      const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+      const fire = (el, types) => {
+        for (const type of types) el.dispatchEvent(new Event(type, { bubbles: true }));
+      };
+      /**
+       * 사람이 치는 것과 같다 — 포커스 → 값 → 포커스 해제 **한 번**.
+       *
+       * ⚠️ 금액 칸(`ncp-number-format`)은 blur 마다 값을 `6,000` 으로 바꿔 다시 읽는다. 포커스가 남은 채로
+       * 가짜 blur 를 쏘면, 나중에 진짜 blur 가 한 번 더 와서 `6,000` 을 숫자로 못 읽고 칸을 비운다
+       * (라이브 실측 2026-09-14: 판매가·즉시할인이 채운 뒤 1초 안에 사라짐). 진짜 포커스면 진짜로 푼다.
+       */
+      const typeInto = (el, entry) => {
+        if (!el) return false;
+        el.focus?.();
+        el.value = String(entry);
+        fire(el, ["input", "change"]);
+        if (document.activeElement === el && typeof el.blur === "function") el.blur();
+        else fire(el, ["blur"]);
+        return true;
+      };
+
+      /** 화면 모델. 컴포넌트마다 같은 객체를 나눠 쓰므로 처음 만난 것을 쓴다. */
+      const submitVO = () => {
+        const root = window.angular?.element(document.body).injector?.()?.get("$rootScope");
+        const stack = root ? [root] : [];
+        for (let guard = 0; stack.length > 0 && guard < 50000; guard += 1) {
+          const scope = stack.pop();
+          if (scope.vm?.productFormSubmitVO?.product) return scope.vm.productFormSubmitVO;
+          for (let child = scope.$$childHead; child; child = child.$$nextSibling) stack.push(child);
+        }
+        return null;
+      };
+      const product = () => submitVO()?.product || {};
+      const detail = () => product().detailAttribute || {};
+
+      const openModals = () => all(".modal").filter(visible);
+      // 우리가 여닫는 창의 글은 사람에게 넘기지 않는다(할 일을 이미 알고 채운다).
+      const quiet = /유의사항 안내|내 사진 불러오기/;
+      /**
+       * 떠 있는 안내·확인창을 치운다.
+       *
+       * 확인창(취소가 있는 창)은 **거절**한다 — 무엇을 묻든 '예' 가 눌리는 일이 없게. 안내는 닫는다.
+       * 몰이 한 말은 버리지 않고 사람에게 넘긴다.
+       */
+      const clearDialogs = () => {
+        for (const modal of openModals()) {
+          const buttons = all("button", modal);
+          const button = buttons.find((entry) => textOf(entry) === "취소")
+            || buttons.find((entry) => entry.classList.contains("close"))
+            || buttons.find((entry) => textOf(entry) === "확인");
+          const message = textOf(modal).replace(/^×\s*/, "").replace(/\s*(취소\s*)?확인$/, "");
+          if (message && !quiet.test(message)) said.push(message.slice(0, 200));
+          button?.click();
+        }
+      };
+
+      /** 접힌 섹션을 펼친다. 펼쳐야 칸이 그려지는 섹션이 있다(`상품 주요정보`·`상품정보제공고시`·`검색설정`). */
+      const openSection = async (title) => {
+        const section = all(".form-section").find((candidate) => textOf(q(".title-line", candidate)).startsWith(title));
+        const line = q(".title-line", section);
+        if (!line) return null;
+        const toggle = q("a.btn", line);
+        if (toggle && !toggle.classList.contains("active")) {
+          line.click();
+          await waitFor(() => toggle.classList.contains("active"), brief);
+          await sleep(300);
+        }
+        return section;
+      };
+
+      const selectizeIn = (scope, selector) => all(selector, scope).map((el) => el.selectize).find(Boolean) || null;
+      /** 목록에서 옵션 키로 고른다. 뒷 단 목록은 앞 단을 고른 뒤에 채워지므로 기다린다. */
+      const pickOption = async (selectize, key) => {
+        if (!selectize) return false;
+        const ready = await waitFor(() => Object.prototype.hasOwnProperty.call(selectize.options, key), stepWait);
+        if (!ready) return false;
+        if (selectize.getValue() !== key) selectize.setValue(key);
+        return selectize.getValue() === key;
+      };
+      /** 검색해서 고르는 목록(카테고리). 화면이 쓰는 검색을 그대로 부른다. */
+      const loadOptions = (selectize, keyword) => new Promise((resolve) => {
+        let settled = false;
+        const finish = (items) => {
+          if (settled) return;
+          settled = true;
+          resolve(Array.isArray(items) ? items : []);
+        };
+        setTimeout(() => finish([]), stepWait);
+        try { selectize.settings.load.call(selectize, keyword, finish); } catch { finish([]); }
+      });
+
+      /** data URL → File. 사진 칸은 jpg·gif·png·bmp 만 받는다. */
+      const toImageFile = (image, fallbackName) => {
+        const [head, encoded] = String(image.dataUrl).split(",");
+        const mime = (head.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+        const binary = atob(encoded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        let name = String(image.fileName || fallbackName);
+        if (!/\.(jpe?g|png|gif|bmp)$/i.test(name)) name = `${fallbackName}.${/png/i.test(mime) ? "png" : "jpg"}`;
+        return new File([bytes], name, { type: mime });
+      };
+
+      const uploadModal = () => openModals().find((modal) => /내 사진 불러오기/.test(textOf(modal)));
+      // 화면이 제 박자로 늦게 띄우는 안내. 카테고리를 고르면 '유의사항 안내', 여는 순간엔 '이전에 작성하던 내용'.
+      const incidental = /유의사항 안내|이전에 작성하던 내용/;
+      /** 늦게 뜬 안내만 닫는다. 떠 있는 사진 창은 건드리지 않는다. 옛 내용 불러오기는 취소한다. */
+      const closeIncidental = () => {
+        for (const modal of openModals()) {
+          if (!incidental.test(textOf(modal))) continue;
+          const buttons = all("button", modal);
+          (buttons.find((entry) => textOf(entry) === "취소")
+            || buttons.find((entry) => entry.classList.contains("close")))?.click();
+        }
+      };
+      const uploadedCount = (containerId, imageType) => {
+        const inModel = (Array.isArray(product().images) ? product().images : [])
+          .filter((image) => image?.imageType === imageType).length;
+        const names = q(`#${containerId} input[name="_hidden_uploaded_names"]`)?.value || "";
+        return Math.max(inModel, names ? names.split(",").filter(Boolean).length : 0);
+      };
+      /**
+       * `이미지 등록 → 내 사진` 과 같다. 창이 열리면 ng-file-upload 가 숨은 파일 칸을 만들고, 거기 파일을
+       * 넣으면 화면이 네이버 사진 서버에 올린 뒤 창을 닫고, 다음 틱에 사진을 칸에 붙인다.
+       *
+       * ⚠️ 사진 창 위에 다른 창이 보인다고 곧 거절이 아니다. 늦게 뜬 '유의사항 안내' 가 겹친 것을 거절로 보고
+       *    사진 창까지 닫아 올리던 사진이 버려졌다(라이브 2026-09-14, 대표이미지 빈 칸). 그런 안내는 닫고 계속
+       *    기다리고, 형식·크기·개수 안내처럼 사진 창이 띄운 것만 거절로 본다.
+       *
+       * 돌려주는 `stage` 로 어디서 멈췄는지 가른다 — `open`(창이 안 열림)만 다시 해 볼 만하다.
+       */
+      const uploadThroughModal = async (button, files, containerId, imageType) => {
+        const before = uploadedCount(containerId, imageType);
+        clearDialogs();
+        await waitFor(() => openModals().length === 0, brief);
+        const fileInputs = () => all('input[type="file"][ngf-select^="vm.uploadImagesFromDevice"]');
+        const existing = new Set(fileInputs());
+        button.click();
+        const input = await waitFor(() => {
+          closeIncidental();
+          return uploadModal()
+            ? fileInputs().find((candidate) => !existing.has(candidate)) || fileInputs().pop()
+            : null;
+        }, stepWait);
+        if (!input) {
+          // 카테고리가 안 골라졌으면 창 대신 칸 아래 빨간 글(`먼저 카테고리를 선택해 주세요.`)이 뜬다.
+          const hint = all('[class*="danger"]', q(`#${containerId}`)).map(textOf).find(Boolean);
+          clearDialogs();
+          return { ok: false, stage: "open", reason: hint || "사진 창이 열리지 않았습니다" };
+        }
+        const transfer = new DataTransfer();
+        for (const file of files) transfer.items.add(file);
+        input.files = transfer.files;
+        fire(input, ["change"]);
+        let refusal = "";
+        const settled = await waitFor(() => {
+          closeIncidental();
+          if (!uploadModal()) return "closed";
+          const other = openModals()
+            .find((modal) => !/내 사진 불러오기/.test(textOf(modal)) && !incidental.test(textOf(modal)));
+          if (!other) return null;
+          refusal = textOf(other).replace(/^×\s*/, "").replace(/\s*(취소\s*)?확인$/, "");
+          return "refused";
+        }, payload.imageWaitMs || 60000);
+        if (settled === "closed") {
+          const attached = await waitFor(() => uploadedCount(containerId, imageType) > before, stepWait);
+          return attached
+            ? { ok: true, added: uploadedCount(containerId, imageType) - before }
+            : { ok: false, stage: "attach", reason: "올린 사진이 칸에 붙지 않았습니다" };
+        }
+        clearDialogs();
+        return settled === "refused"
+          ? { ok: false, stage: "refused", reason: refusal || "사진 창이 사진을 받지 않았습니다" }
+          : { ok: false, stage: "timeout", reason: "네이버 사진 서버 응답을 기다리다 멈췄습니다" };
+      };
+      /** 칸 하나에 사진을 올린다. 창이 안 열린 경우만 한 번 더 한다 — 올라가던 것을 다시 올리면 겹친다. */
+      const uploadImages = async (containerId, imageType, files) => {
+        const button = () => q(`#${containerId} a[ng-click="vm.openUploadModal()"]`);
+        if (!button()) return { ok: false, reason: "사진 칸을 찾지 못했습니다" };
+        let result = await uploadThroughModal(button(), files, containerId, imageType);
+        if (!result.ok && result.stage === "open" && button()) {
+          result = await uploadThroughModal(button(), files, containerId, imageType);
+        }
+        return { ...result, reason: String(result.reason || "").replace(/[.\s]+$/, "") };
+      };
+
+      try {
+        // 0) 화면 준비. 로그아웃이면 로그인 화면이 와서 폼이 없다.
+        const ready = await waitFor(() => {
+          if (/^#\/(login|signin)/i.test(location.hash)
+            || all('input[type="password"]').some(visible)) return "login";
+          return window.angular && q('form[name="vm.productForm"]')
+            && q('input[ng-model="vm.category"]')?.selectize && submitVO() ? "form" : null;
+        }, payload.formWaitMs || 40000);
+        if (ready !== "form") {
+          return { ok: false, noForm: true, error: "스마트스토어 상품등록 화면을 찾지 못했습니다." };
+        }
+        // 상품번호가 실린 화면은 판매중 상품 수정이다. 사람이 저장하면 그 상품이 덮이므로 손대지 않는다.
+        if (location.hash !== "#/products/create" || product().id) {
+          return { ok: false, error: "기존 상품 수정 화면이라 채우지 않았습니다. 새 상품등록 화면에서 다시 누르세요." };
+        }
+
+        // 1) 여는 순간 뜨는 창. `이전에 작성하던 내용` 을 확인하면 옛 내용이 새 값을 덮는다 → 취소.
+        const resume = await waitFor(() => openModals().find((modal) => /이전에 작성하던 내용/.test(textOf(modal))), brief);
+        if (resume) {
+          all("button", resume).find((button) => textOf(button) === "취소")?.click();
+          await waitFor(() => !visible(resume), brief);
+          steps.push("이전 작성 내용은 불러오지 않음");
+        }
+        q(".seller-notice button.close")?.click();
+
+        // 2) 카테고리. 이걸 골라야 인증·고시·사진 칸이 그 카테고리에 맞게 그려진다.
+        const categorySelect = q('input[ng-model="vm.category"]').selectize;
+        const categoryId = () => String(product().category?.id || "");
+        if (categoryId() !== form.category.id) {
+          const valueField = categorySelect.settings.valueField || "id";
+          const found = (await loadOptions(categorySelect, form.category.keyword))
+            .find((item) => String(item?.[valueField]) === form.category.id);
+          if (found) {
+            categorySelect.addOption(found);
+            categorySelect.setValue(String(found[valueField]));
+            await waitFor(() => categoryId() === form.category.id, stepWait);
+          }
+        }
+        if (categoryId() === form.category.id) {
+          steps.push(`카테고리 ${product().category?.wholeCategoryName || form.category.keyword}`);
+        } else {
+          warnings.push(`카테고리 ${form.category.keyword}(${form.category.id})를 찾지 못했습니다. 화면에서 고르세요.`);
+        }
+        // 어린이제품 인증 카테고리면 '유의사항 안내'(모델명·인증 필수)가 뜬다. 둘 다 아래에서 채운다.
+        await waitFor(() => openModals().find((modal) => /유의사항 안내/.test(textOf(modal))), Math.min(2000, stepWait));
+        clearDialogs();
+
+        // 3) 상품명 · 판매가 · 즉시할인 · 재고.
+        typeInto(q('input[name="product.name"]'), form.productName);
+        if (product().name === form.productName) steps.push("상품명");
+        else warnings.push("상품명을 넣지 못했습니다.");
+
+        typeInto(q("#prd_price2"), form.salePrice);
+        const priceOk = Number(product().salePrice) === form.salePrice;
+        let discountOk = true;
+        if (form.discountWon > 0) {
+          const on = q("#r3_1_total");
+          if (on && !on.checked) on.click();
+          // 켜야 칸이 새로 그려진다. 켜기 전에 찾아 둔 요소에 쓰면 모델에 안 닿는다.
+          const discount = await waitFor(() => (visible(q("#prd_sale")) ? q("#prd_sale") : null), stepWait);
+          typeInto(discount, form.discountWon);
+          const policy = product().customerBenefit?.immediateDiscountPolicy?.discountMethod;
+          discountOk = Boolean(discount) && (policy ? Number(policy.value) === form.discountWon : discount.value.replace(/,/g, "") === String(form.discountWon));
+        } else {
+          const off = q("#r3_2_total");
+          if (off && !off.checked) off.click();
+        }
+        if (priceOk && discountOk) {
+          steps.push(form.discountWon > 0
+            ? `판매가 ${form.salePrice} · 즉시할인 ${form.discountWon} → ${form.salePrice - form.discountWon}원`
+            : `판매가 ${form.salePrice}`);
+        } else {
+          warnings.push(`${priceOk ? "즉시할인" : "판매가"}을 넣지 못했습니다. 가격 칸을 확인하세요.`);
+        }
+        if (form.stock > 0) {
+          typeInto(q("#stock"), form.stock);
+          if (Number(product().stockQuantity) === form.stock) steps.push(`재고 ${form.stock}`);
+          else warnings.push("재고수량을 넣지 못했습니다.");
+        }
+
+        // 4) 사진. 대표 1장 → 추가 최대 9장. 카테고리를 고른 뒤라야 사진 창이 열린다.
+        const images = (payload.images || []).filter((image) => image && image.dataUrl);
+        if (images.length > 0) {
+          const represent = await uploadImages("representImage", "REPRESENTATIVE", [toImageFile(images[0], "image1")]);
+          if (represent.ok) steps.push("대표이미지");
+          else warnings.push(`대표이미지를 올리지 못했습니다: ${represent.reason}. 화면에서 올리세요.`);
+          const extras = images.slice(1, 1 + (payload.maxExtraImages || 9));
+          if (extras.length > 0) {
+            const extra = await uploadImages(
+              "optionalImages",
+              "OPTIONAL",
+              extras.map((image, index) => toImageFile(image, `image${index + 2}`)),
+            );
+            if (extra.ok) steps.push(`추가이미지 ${extra.added}장`);
+            if (extra.ok && extra.added < extras.length) {
+              warnings.push(`추가이미지 ${extras.length}장 중 ${extra.added}장만 올라갔습니다. 화면에서 확인하세요.`);
+            }
+            if (!extra.ok) warnings.push(`추가이미지 ${extras.length}장을 올리지 못했습니다: ${extra.reason}. 화면에서 올리세요.`);
+          }
+        }
+
+        // 5) 상세설명. 화면이 쓰는 네이버 사진 업로드로 주소를 받아 `HTML 작성` 에 넣는다.
+        let detailHtml = payload.detailHtml || "";
+        if (payload.detailImage?.dataUrl) {
+          try {
+            const uploader = window.angular.element(document.body).injector().get("photoInfraImageUploadService");
+            const uploaded = await uploader.uploadImages([toImageFile(payload.detailImage, "detail")], {});
+            const url = String((Array.isArray(uploaded) ? uploaded[0]?.imageUrl : "") || "");
+            if (!/^https?:\/\//.test(url)) throw new Error("응답에 이미지 주소가 없습니다");
+            // 응답은 http 주소다. 같은 사진이 https CDN 에도 있다(바이트 동일 실측).
+            const hosted = url.replace(/^https?:\/\/shop1\.phinf\.naver\.net\//, "https://shop-phinf.pstatic.net/");
+            detailHtml = `<center><img src="${hosted}"></center>`;
+            steps.push("상세이미지 네이버 업로드");
+          } catch (error) {
+            warnings.push(`상세이미지를 네이버에 올리지 못했습니다: ${error?.message || error}`);
+          }
+        }
+        if (detailHtml) {
+          const htmlTab = all('a[ng-click*="changeEditorType"]').find((link) => /HTML 작성/.test(textOf(link)));
+          if (htmlTab && product().detailContent?.editorType !== "NONE") htmlTab.click();
+          const editor = await waitFor(() => {
+            const candidate = q('textarea[ng-model="vm.editorContent"]');
+            return visible(candidate) ? candidate : null;
+          }, stepWait);
+          typeInto(editor, detailHtml);
+          const content = product().detailContent || {};
+          if (content.editorType === "NONE" && content.productDetailInfoContent === detailHtml) steps.push("상세설명(HTML)");
+          else warnings.push("상세설명을 넣지 못했습니다. [HTML 작성] 에 직접 넣으세요.");
+        } else {
+          warnings.push("상세설명에 넣을 이미지를 만들지 못했습니다. 화면에서 직접 넣으세요.");
+        }
+
+        // 6) 상품 주요정보 — 모델명 · 브랜드 · 제조사 · 원산지 · 어린이제품인증.
+        const mainInfo = await openSection("상품 주요정보");
+        const searchInfo = () => detail().naverShoppingSearchInfo || {};
+        if (form.modelName) {
+          // 모델명은 `찾기` 창의 `텍스트로 직접입력` 으로만 넣을 수 있다. 창의 [저장] 은 창을 닫으며 이 폼에만
+          // 반영한다(서버에 보내지 않는다). 입력칸은 직접입력을 고른 뒤에야 그려진다.
+          q('button[ng-click^="vm.func.openModelSearchModal"]', mainInfo)?.click();
+          const modal = await waitFor(() => openModals()
+            .find((candidate) => q('input[ng-model="vm.inputType"]', candidate)), stepWait);
+          if (modal) {
+            const direct = q('input[ng-model="vm.inputType"][value="TEXT"]', modal);
+            if (direct && !direct.checked) direct.click();
+            const input = await waitFor(() => {
+              const candidate = q('input[ng-model="vm.modelText"]', modal);
+              return visible(candidate) ? candidate : null;
+            }, brief);
+            typeInto(input, form.modelName);
+            await sleep(200);
+            q('[ng-click="vm.func.save()"]', modal)?.click();
+            await waitFor(() => !visible(modal), brief);
+            if (visible(modal)) q("button.close", modal)?.click();
+          }
+          if (await waitFor(() => searchInfo().modelName === form.modelName, brief)) steps.push(`모델명 ${form.modelName}`);
+          else warnings.push(`모델명 ${form.modelName}을(를) 넣지 못했습니다. 상품 주요정보 [찾기] 에서 직접 입력하세요.`);
+        }
+        // 브랜드·제조사는 목록에 없는 이름이라 직접입력으로 만든다(`{id:'', name}`).
+        const nameSelects = all('[ng-model="vm.searchKeyword"]', mainInfo).map((el) => el.selectize).filter(Boolean);
+        for (const [index, name, key, label] of [
+          [0, form.brandName, "brandName", "브랜드"],
+          [1, form.manufacturerName, "manufacturerName", "제조사"],
+        ]) {
+          if (!name) continue;
+          if (nameSelects[index] && searchInfo()[key] !== name) nameSelects[index].createItem(name, false);
+          if (await waitFor(() => searchInfo()[key] === name, brief)) steps.push(`${label} ${name}`);
+          else warnings.push(`${label} ${name}을(를) 넣지 못했습니다. 화면에서 직접 입력하세요.`);
+        }
+        clearDialogs();
+
+        if (form.origin) {
+          const origin = form.origin;
+          let reached = await pickOption(
+            selectizeIn(mainInfo, 'select[ng-model="vm.viewData.originAreaInfo.originAreaExposureType"]'),
+            origin.exposureType,
+          );
+          if (reached && origin.firstSub) {
+            reached = await pickOption(selectizeIn(mainInfo, 'select[ng-model="vm.viewData.originAreaInfo.firstSubOriginAreaType"]'), origin.firstSub);
+          }
+          if (reached && origin.secondSub) {
+            reached = await pickOption(selectizeIn(mainInfo, 'select[ng-model="vm.viewData.originAreaInfo.secondSubOriginAreaType"]'), origin.secondSub);
+          }
+          if (reached && origin.importer) {
+            const importer = await waitFor(() => {
+              const candidate = q('input[ng-model="vm.viewData.originAreaInfo.importer"]', mainInfo);
+              return visible(candidate) ? candidate : null;
+            }, stepWait);
+            reached = typeInto(importer, origin.importer);
+          }
+          const area = detail().originAreaInfo || {};
+          const code = origin.secondSub || origin.firstSub;
+          const applied = reached
+            && (!code || (area.originArea?.code || area.originAreaCode) === code)
+            && (!origin.importer || area.importer === origin.importer);
+          if (applied) steps.push(`원산지 ${origin.exposureType}${code ? ` ${code}` : ""}${origin.importer ? ` · 수입사 ${origin.importer}` : ""}`);
+          else warnings.push("원산지를 고르지 못했습니다. 상품 주요정보에서 고르세요.");
+        }
+
+        if (form.childCert) {
+          const cert = form.childCert;
+          const target = q("#childYn_false");
+          if (target && !target.checked) target.click();
+          const numberInput = () => q('input[name="certNumberCHILD_CERTIFICATION0"]');
+          await waitFor(numberInput, stepWait);
+          // 인증 한 줄(종류 selectize · 기관 · 번호 · 상호 · 일자)을 번호 칸에서 거슬러 올라가 찾는다.
+          let row = numberInput();
+          while (row && !q('select[ng-model$=".certificationInfo"]', row)) row = row.parentElement;
+          const picked = row && await pickOption(q('select[ng-model$=".certificationInfo"]', row).selectize, `${cert.certId}_CHILD_CERTIFICATION`);
+          let filled = false;
+          if (picked) {
+            await sleep(300);
+            typeInto(numberInput(), cert.number);
+            // 인증상호는 필수다. 종류를 고른 뒤에야 칸이 보인다.
+            const company = await waitFor(() => {
+              const candidate = q('input[ng-model$=".companyName"]', row);
+              return visible(candidate) ? candidate : null;
+            }, brief);
+            if (cert.companyName && company) typeInto(company, cert.companyName);
+            filled = numberInput()?.value === cert.number && (!cert.companyName || company?.value === cert.companyName);
+          }
+          if (filled) steps.push(`어린이제품인증 ${cert.number}`);
+          else warnings.push(`어린이제품인증 ${cert.number}을(를) 넣지 못했습니다. 상품 주요정보에서 직접 넣으세요.`);
+        } else if (q("#childYn_false")) {
+          // 어린이제품인데 번호를 모른다. '대상 아님' 을 대신 고르면 거짓 신고라 비워 두고 사람에게 넘긴다.
+          warnings.push("KC 인증번호가 없어 어린이제품인증을 비워 뒀습니다. 번호를 넣거나, 인증대상이 아니면 직접 '대상 아님' 을 고르세요.");
+        }
+        clearDialogs();
+
+        // 7) 상품정보제공고시. 새 화면은 **직전 등록물 값**으로 미리 채워져 온다 → 전부 덮어쓴다.
+        const noticeSection = await openSection("상품정보제공고시");
+        if (noticeSection) {
+          const notice = form.notice;
+          const typePicked = await pickOption(selectizeIn(noticeSection, 'select[ng-model="vm.selectizeType"]'), notice.type);
+          const directRadio = (model) => all(`input[ng-model="${model}"]`, noticeSection).find((radio) => radio.value === "false");
+          for (const radio of [directRadio("vm.viewData.nullable.certificateDetails"), directRadio("vm.viewData.selectedCustomerService")]) {
+            if (radio && !radio.checked) radio.click();
+          }
+          await sleep(200);
+          for (const [selector, value] of [
+            ['input[ng-model="vm.content.itemName"]', notice.itemName],
+            ['input[ng-model="vm.content.modelName"]', notice.modelName],
+            ['textarea[ng-model="vm.content.certificateDetails"]', notice.certificateDetails],
+            ['input[ng-model="vm.content.afterServiceDirector"]', notice.afterServiceDirector],
+          ]) {
+            if (value) typeInto(q(selector, noticeSection), value);
+          }
+          const maker = selectizeIn(noticeSection, '[ng-model="vm.searchKeyword"]');
+          const content = () => detail().productInfoProvidedNotice?.productInfoProvidedNoticeContent || {};
+          if (notice.manufacturer && maker && content().manufacturer !== notice.manufacturer) maker.createItem(notice.manufacturer, false);
+          await waitFor(() => !notice.manufacturer || content().manufacturer === notice.manufacturer, brief);
+          const wrong = ["itemName", "modelName", "certificateDetails", "manufacturer", "afterServiceDirector"]
+            .filter((key) => notice[key] && content()[key] !== notice[key]);
+          if (typePicked && wrong.length === 0) steps.push(`상품정보제공고시 ${notice.type}`);
+          else warnings.push(`상품정보제공고시 ${[...(typePicked ? [] : ["분류"]), ...wrong].join(", ")} 을(를) 넣지 못했습니다. 직전 등록물 값이 남아 있을 수 있습니다.`);
+        } else {
+          warnings.push("상품정보제공고시 칸을 찾지 못했습니다. 직전 등록물 값이 그대로일 수 있으니 확인하세요.");
+        }
+        clearDialogs();
+
+        // 8) 검색설정 태그. 넣을 때마다 화면이 사용 불가 태그인지 네이버에 묻는다.
+        if (form.tags.length > 0) {
+          const searchSection = await openSection("검색설정");
+          const direct = q('input[ng-model="vm.viewData.isDirectInput"]', searchSection);
+          if (direct && !direct.checked) direct.click();
+          const tagSelect = await waitFor(() => q('select[ng-model="vm.directInputTag"]', searchSection)?.selectize, stepWait);
+          const current = () => (detail().seoInfo?.sellerTags || []).map((tag) => tag?.text);
+          for (const tag of form.tags) {
+            if (!tagSelect || current().includes(tag)) continue;
+            tagSelect.createItem(tag, false);
+            await waitFor(() => current().includes(tag) || openModals().length > 0, brief);
+            clearDialogs();
+          }
+          const added = form.tags.filter((tag) => current().includes(tag));
+          const missed = form.tags.filter((tag) => !current().includes(tag));
+          if (added.length > 0) steps.push(`태그 ${added.length}개`);
+          if (missed.length > 0) warnings.push(`태그 ${missed.join(", ")} 은(는) 넣지 못했습니다(사용 불가 태그일 수 있습니다).`);
+        }
+
+        // 채우는 동안 몰이 한 말은 사람에게 넘긴다. 이미 경고에 실은 문장은 다시 싣지 않는다.
+        clearDialogs();
+        for (const message of new Set(said)) {
+          if (!warnings.some((warning) => warning.includes(message))) warnings.push(`몰 안내: ${message}`);
+        }
+
+        // 9) 저장 전 검증만 읽는다. 막히는 칸이 있는 섹션을 사람에게 알린다.
+        //    ⚠️ 꺼진 칸(고시 소비자상담 전화 등)도 required 로 남는다 — 사람이 채울 수 없는 칸이라 뺀다.
+        const formController = window.angular.element(q('form[name="vm.productForm"]')).controller("form");
+        const blocked = new Set();
+        const seen = new Set();
+        const sectionTitle = (el) => {
+          const label = q(".title-line label", el?.closest?.(".form-section"));
+          return label
+            ? [...label.childNodes].filter((node) => node.nodeType === 3).map((node) => node.textContent).join("").trim()
+            : "";
+        };
+        const walk = (controller, depth) => {
+          for (const entries of Object.values(controller?.$error || {})) {
+            for (const entry of entries || []) {
+              if (!entry || seen.has(entry)) continue;
+              seen.add(entry);
+              if (typeof entry.$setViewValue !== "function") {
+                if (depth < 8) walk(entry, depth + 1);
+                continue;
+              }
+              const el = entry.$$element?.[0];
+              if (el && (el.disabled || el.closest?.("fieldset[disabled]"))) continue;
+              // 칸 이름은 placeholder 가 가장 사람 말에 가깝다(`인증기관`). 숨은 검증 칸은 섹션 이름만 쓴다.
+              const hint = el?.getAttribute?.("placeholder") || "";
+              blocked.add([sectionTitle(el), hint].filter(Boolean).join(" ") || entry.$name || "이름 없는 칸");
+            }
+          }
+        };
+        walk(formController, 0);
+        if (formController && blocked.size === 0) steps.push("저장 전 검증 통과");
+        else if (blocked.size > 0) warnings.push(`저장 전 확인: ${[...blocked].join(" · ")}`);
+        window.scrollTo(0, 0);
+
+        return { ok: true, steps, warnings, submitted: false };
+      } finally {
+        // 사람이 이어서 쓸 화면이다. 대화상자는 원래대로 돌려준다.
+        window.alert = nativeAlert;
+        window.confirm = nativeConfirm;
+      }
+    })();
+  }
+
+  /**
+   * GS샵 새 상품등록 화면을 채운다.
+   *
+   * 칸마다 화면이 부르는 처리 함수(zustand `product-store` 의 `actions`)를 사람이 고른 순서대로 부른다.
+   * 처리 함수는 도중에 안내창을 띄우고 닫힐 때까지 기다리기도 해서, 부르는 동안 안내창을 계속 치운다.
+   * 넣은 값은 저장소 `schemas[칸].value` 로 확인한다. 저장(`common.create.save`·`imsiSave`)은 부르지 않는다.
+   */
+  function fillGsshopProductForm(payload) {
+    return (async () => {
+      const steps = [];
+      const warnings = [];
+      const said = [];
+      const nativeAlert = window.alert;
+      const nativeConfirm = window.confirm;
+      window.alert = (message) => { said.push(String(message)); };
+      window.confirm = (message) => { said.push(String(message)); return false; };
+
+      const form = payload.form;
+      const stepWait = payload.stepWaitMs || 15000;
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (probe, timeoutMs, stepMs = 250) => {
+        const until = Date.now() + timeoutMs;
+        for (;;) {
+          let found = null;
+          try { found = await probe(); } catch { found = null; }
+          if (found) return found;
+          if (Date.now() >= until) return null;
+          await sleep(stepMs);
+        }
+      };
+      const visible = (el) => Boolean(el && el.getClientRects().length > 0);
+      const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+      const getJson = async (url) => {
+        const response = await fetch(url, { credentials: "include" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      };
+
+      /**
+       * 화면이 띄운 안내·확인창을 치운다. 확인창(취소가 있는 창)은 거절하고, 안내는 확인으로 닫는다.
+       * 몰이 한 말은 사람에게 넘긴다.
+       */
+      const clearDialogs = () => {
+        for (const dialog of [...document.querySelectorAll('[role="dialog"]')].filter(visible)) {
+          const buttons = [...dialog.querySelectorAll("button")];
+          const button = buttons.find((entry) => textOf(entry) === "취소")
+            || buttons.find((entry) => textOf(entry) === "확인")
+            || buttons.find((entry) => textOf(entry) === "닫기");
+          const message = textOf(dialog).replace(/^확인\s*/, "").replace(/\s*(취소\s*)?확인$/, "");
+          if (message) said.push(message.slice(0, 200));
+          button?.click();
+        }
+      };
+      /** 처리 함수를 부르고, 끝날 때까지 안내창을 치운다. 안내창이 닫혀야 끝나는 함수가 있다. */
+      const act = async (run) => {
+        let settled = false;
+        let failure = null;
+        const promise = Promise.resolve().then(run).catch((error) => { failure = error; }).finally(() => { settled = true; });
+        const until = Date.now() + stepWait;
+        while (!settled && Date.now() < until) {
+          clearDialogs();
+          await Promise.race([promise, sleep(200)]);
+        }
+        clearDialogs();
+        if (failure) throw failure;
+        return settled;
+      };
+
+      /** 화면이 받아 둔 모듈에서 폼 저장소를 찾는다. 이미 실행된 모듈이라 import 는 같은 인스턴스를 준다. */
+      let storeModule = null;
+      const findStore = async () => {
+        const hrefs = [...document.querySelectorAll('link[rel="modulepreload"]')]
+          .map((link) => link.getAttribute("href") || "")
+          .filter((href) => /\/chunks\/[^/]+\.js$/.test(href));
+        for (const href of hrefs) {
+          let mod;
+          try { mod = await import(href); } catch { continue; }
+          const store = Object.values(mod).find((entry) => entry && typeof entry.getState === "function"
+            && entry.getState()?.actions?.baseInfo && entry.getState()?.schemas);
+          if (store) {
+            storeModule = mod;
+            return store;
+          }
+        }
+        return null;
+      };
+
+      let store = null;
+      const state = () => store.getState();
+      const actions = () => state().actions;
+      const value = (key) => state().schemas?.[key]?.value;
+      const same = (left, right) => String(left ?? "") === String(right ?? "");
+
+      try {
+        // 0) 화면 준비. 로그아웃이면 로그인 화면이 와서 저장소가 없다.
+        const ready = await waitFor(async () => {
+          if (/^\/login/i.test(location.pathname)
+            || [...document.querySelectorAll('input[type="password"]')].some(visible)) return "login";
+          store = store || await findStore();
+          return store && state().meta?.isReady ? "form" : null;
+        }, payload.formWaitMs || 40000, 500);
+        if (ready !== "form") {
+          return { ok: false, noForm: true, error: "GS샵 상품등록 화면을 찾지 못했습니다." };
+        }
+        // 수정·복사 화면은 같은 저장소를 쓴다. 저장하면 판매중 상품이 바뀌므로 손대지 않는다.
+        if (state().meta.mode !== "create" || value("base.prdCd")) {
+          return { ok: false, error: "기존 상품 수정 화면이라 채우지 않았습니다. 새 상품등록 화면에서 다시 누르세요." };
+        }
+        clearDialogs();
+
+        // 1) 상품분류. 고르면 과세·안전인증 대상·정보고시 상품군이 이 분류에 맞게 바뀐다.
+        try {
+          const code = form.category;
+          const [top, mids, smalls, leaves] = await Promise.all([
+            getJson("/bff/product/classifications/top"),
+            getJson(`/bff/product/classifications/subs?upperCode=${code.slice(0, 3)}&level=1`),
+            getJson(`/bff/product/classifications/subs?upperCode=${code.slice(0, 5)}&level=2`),
+            getJson(`/bff/product/classifications/leaf?upperCode=${code.slice(0, 7)}`),
+          ]);
+          const nameOf = (list, part, key = "code") => (Array.isArray(list) ? list : []).find((entry) => same(entry?.[key], part));
+          const leaf = nameOf(leaves, code, "prdClsCd");
+          if (!leaf) throw new Error("분류 목록에 없습니다");
+          await act(() => actions().baseInfo.setPrdClsLayerSelected({
+            class1: code.slice(0, 3),
+            class2: code.slice(3, 5),
+            class3: code.slice(5, 7),
+            class4: code.slice(7, 9),
+            class1Nm: nameOf(top, code.slice(0, 3))?.name || "",
+            class2Nm: nameOf(mids, code.slice(3, 5))?.name || "",
+            class3Nm: nameOf(smalls, code.slice(5, 7))?.name || "",
+            class4Nm: leaf.prdClsNm || "",
+          }));
+          if (!same(value("base.prdClsCd"), code)) throw new Error("화면에 반영되지 않았습니다");
+          steps.push(`상품분류 ${leaf.prdClsNm || code}`);
+        } catch (error) {
+          warnings.push(`상품분류 ${form.category}를 고르지 못했습니다(${error?.message || error}). 화면에서 고르세요.`);
+        }
+
+        // 2) 전시 카테고리. 매장 번호로 상위 단계를 받아 '최근 등록한 전시 카테고리' 를 고른 것처럼 넣는다.
+        try {
+          const [section] = await getJson(`/bff/display/sections/by-leaf?sectIds=${form.sectionId}`);
+          if (!section) throw new Error("매장 번호가 없습니다");
+          await act(() => actions().baseInfo.onClickRecentRegSectCls(section));
+          const shops = value("shop.ctgrShops") || [];
+          if (!shops.some((shop) => same(shop?.sectid, form.sectionId))) throw new Error("화면에 반영되지 않았습니다");
+          steps.push(`전시 카테고리 ${section.name || form.sectionId}`);
+        } catch (error) {
+          warnings.push(`전시 카테고리 ${form.sectionId}를 고르지 못했습니다(${error?.message || error}). 화면에서 고르세요.`);
+        }
+
+        // 3) 협력사 상품코드. 이미 쓰인 코드면 저장이 막히므로 미리 알린다.
+        try {
+          const exists = await getJson(`/bff/product/suppliers/products/codes/exists?supPrdCd=${encodeURIComponent(form.supplierProductCode)}`);
+          if (exists === true || exists?.exists === true) warnings.push(`협력사 상품코드 ${form.supplierProductCode} 는 이미 쓰였습니다. 다른 코드로 바꾸세요.`);
+        } catch { /* 확인 못 해도 저장할 때 화면이 다시 본다 */ }
+        await act(() => actions().baseInfo.onChangeSupPrdCd(form.supplierProductCode));
+        if (same(value("base.supPrdCd"), form.supplierProductCode)) steps.push(`협력사 상품코드 ${form.supplierProductCode}`);
+        else warnings.push("협력사 상품코드를 넣지 못했습니다.");
+
+        // 4) 담당MD. 고르면 화면이 담당자 목록과 수수료 기준을 새로 받는다.
+        try {
+          const mds = await getJson("/bff/supplier/me/md");
+          const mdId = form.mdId || String(mds?.list?.[0]?.mdId || mds?.recentList?.[0]?.mdId || "");
+          if (!mdId) throw new Error("담당MD 목록이 비었습니다");
+          await act(() => actions().baseInfo.onChangeOperMdId(mdId));
+          const employees = await getJson(`/bff/product/codes/employees/by-md/${mdId}`);
+          const employeeNo = form.employeeNo || String(employees?.[0]?.empNo || "");
+          if (employeeNo) await act(() => actions().baseInfo.onChangeRepMdUserId(employeeNo));
+          if (!same(value("base.operMdId"), mdId) || !value("base.repMdUserId")) throw new Error("화면에 반영되지 않았습니다");
+          steps.push(`담당MD ${mdId}`);
+        } catch (error) {
+          warnings.push(`담당MD를 고르지 못했습니다(${error?.message || error}). 화면에서 고르세요.`);
+        }
+
+        // 5) 상품명 · 브랜드 · 모델명.
+        await act(() => actions().baseInfo.onChangeExposPrdNm(form.exposureName));
+        await act(() => actions().baseInfo.onChangePrdNm(form.invoiceName));
+        if (same(value("base.exposPrdNm"), form.exposureName) && same(value("base.prdNm"), form.invoiceName)) {
+          steps.push("노출상품명 · 송장상품명");
+        } else {
+          warnings.push("상품명을 넣지 못했습니다. 노출상품명·송장상품명을 확인하세요.");
+        }
+        await act(() => actions().baseInfo.onSelectSearchedBrand({ brandCd: Number(form.brand.code), brandNm: form.brand.name }));
+        if (same(value("base.brandCd"), form.brand.code)) steps.push(`브랜드 ${form.brand.name}`);
+        else warnings.push(`브랜드 ${form.brand.name}을(를) 넣지 못했습니다. 화면에서 검색해 고르세요.`);
+        if (form.modelName) await act(() => actions().baseInfo.onChangeModelNo(form.modelName));
+
+        // 6) 구성상품 · 가격. 판매가와 수수료율을 넣으면 공급가는 화면이 계산한다.
+        const composition = form.composition;
+        for (const [key, entry] of [
+          ["custom.goodsDesc", composition.content],
+          ["custom.pkgCnt", String(composition.packageCount)],
+          ["custom.factoryName", composition.maker],
+          ["custom.nativeCountry", composition.origin],
+        ]) {
+          if (entry) await act(() => actions().cmposInfo.onChangeCompositions(key, entry));
+        }
+        if (same(value("custom.goodsDesc"), composition.content)) steps.push("구성상품");
+        await act(() => actions().cmposInfo.onChangeSalePrc(String(form.salePrice)));
+        if (form.marginRate > 0) await act(() => actions().cmposInfo.onChangeMargnRt(String(form.marginRate)));
+        const fee = value("price.fee");
+        if (same(value("price.salePrc"), form.salePrice) && fee !== "" && fee !== undefined && fee !== null) {
+          steps.push(`판매가 ${form.salePrice} · 수수료율 ${form.marginRate}% · 공급가 ${fee}`);
+        } else {
+          warnings.push("판매가·공급가가 계산되지 않았습니다. 가격 칸을 확인하세요.");
+        }
+
+        // 7) 배송·반품·교환.
+        const delivery = form.delivery;
+        const d = () => actions().deliveryInfo;
+        if (delivery.courier) await act(() => d().onChangeDlvsCoCd(delivery.courier));
+        await act(() => d().onChangeCvsDlvsRtpYn(delivery.convenienceReturn));
+        await act(() => d().onChangeDlvcYn(delivery.fee > 0 ? "YN" : "NN"));
+        if (delivery.fee > 0) {
+          await act(() => d().onChangeChrDlvCost(String(delivery.fee)));
+          await act(() => d().onChangeStdAmtYn(delivery.freeOver > 0 ? "N" : "Y"));
+          if (delivery.freeOver > 0) await act(() => d().onChangeDlvcLimitAmt(String(delivery.freeOver)));
+        }
+        for (const [yes, amountHandler, fee] of [
+          ["onChangeRtnChrYn", "onChangeRtnChrAmt", delivery.returnFee],
+          ["onChangeExchChrYn", "onChangeExchChrAmt", delivery.exchangeFee],
+        ]) {
+          await act(() => d()[yes](fee > 0 ? "Y" : "N"));
+          if (fee > 0) await act(() => d()[amountHandler](String(fee)));
+        }
+        const remote = delivery.remote;
+        if (remote.fee > 0 || remote.returnFee > 0 || remote.exchangeFee > 0) {
+          await act(() => d().onChangeJejuIlndAddFeeYn("Y"));
+          for (const area of ["Jeju", "Ilnd"]) {
+            await act(() => d()[`onChange${area}DlvPsblYn`]("Y"));
+            for (const [yes, amountHandler, fee] of [
+              ["ChrDlvYn", "ChrDlvcAmt", remote.fee],
+              ["RtnChrYn", "RtnChrAmt", remote.returnFee],
+              ["ExchChrYn", "ExchChrAmt", remote.exchangeFee],
+            ]) {
+              await act(() => d()[`onChange${area}${yes}`](fee > 0 ? "Y" : "N"));
+              if (fee > 0) await act(() => d()[`onChange${area}${amountHandler}`](String(fee)));
+            }
+          }
+        }
+        await act(() => d().onChangeRfnTypCd(delivery.refundType));
+        if (delivery.shipAddress) await act(() => d().onChangePrdRelspAddrCd(delivery.shipAddress));
+        if (delivery.returnAddress) await act(() => d().onChangePrdRetpAddrCd(delivery.returnAddress));
+        if (delivery.bundle) await act(() => d().onChangeBundlDlvCd(delivery.bundle));
+        if (delivery.weight) await act(() => d().onChangeQuantityValUnitCd(delivery.weight));
+        if (delivery.length) await act(() => d().onChangeLengthValUnitCd(delivery.length));
+        const deliveryMissing = [
+          ["delivery.dlvsCoCd", delivery.courier, "택배사"],
+          ["delivery.chrDlvCost", delivery.fee > 0 ? delivery.fee : "", "배송비"],
+          ["custom.rtnChrAmt", delivery.returnFee > 0 ? delivery.returnFee : "", "반품비"],
+          ["delivery.prdRelspAddrCd", delivery.shipAddress, "출고지"],
+          ["delivery.prdRetpAddrCd", delivery.returnAddress, "반송지"],
+          ["delivery.quantityValue.unitCd", delivery.weight, "무게"],
+        ].filter(([key, expected]) => expected !== "" && !same(value(key), expected)).map(([, , label]) => label);
+        if (deliveryMissing.length === 0) steps.push("배송·반품·교환");
+        else warnings.push(`배송 정보 ${deliveryMissing.join(", ")} 을(를) 넣지 못했습니다.`);
+
+        // 8) 재고.
+        if (form.stock > 0) await act(() => actions().attrInfo.onChangeOrdPsblQty(String(form.stock)));
+        if (form.safeStock > 0) await act(() => actions().attrInfo.onChangeSafeStockQty(String(form.safeStock)));
+        if (form.stock > 0 && same(value("custom.ordPsblQty"), form.stock)) steps.push(`주문가능수량 ${form.stock}`);
+
+        // 9) 정보고시. 상품군을 고르면 항목이 새로 그려진다. 고칠 수 있는 항목만 채운다(A/S 는 GS 고정).
+        const notice = form.notice;
+        if (notice.groupCode) {
+          await act(() => actions().govPublsInfo.onChangeGovPublsPrdGrpCd(notice.groupCode));
+          const loaded = await waitFor(() => (value("custom.govPublsListG") || []).length > 0, stepWait);
+          if (loaded) {
+            const list = (value("custom.govPublsListG") || []).map((item) => (item?.editable
+              && Object.prototype.hasOwnProperty.call(notice.values, String(item.prdExplnItmCd))
+              ? { ...item, prdExplnCntnt: notice.values[String(item.prdExplnItmCd)] }
+              : item));
+            actions().setFieldValue("custom.govPublsListG", list);
+            const empty = (value("custom.govPublsListG") || [])
+              .filter((item) => item?.mandYn === "Y" && !String(item?.prdExplnCntnt || "").trim())
+              .map((item) => item.prdExplnItmNm);
+            if (same(value("explanation.govPublsPrdGrpCd"), notice.groupCode) && empty.length === 0) {
+              steps.push(`정보고시 ${notice.groupCode}`);
+            } else if (empty.length > 0) {
+              warnings.push(`정보고시 필수 항목 ${empty.join(", ")} 이(가) 비었습니다.`);
+            }
+          } else {
+            warnings.push(`정보고시 상품군 ${notice.groupCode} 항목을 불러오지 못했습니다. 화면에서 고르세요.`);
+          }
+        }
+        // 안전인증 대상여부. 인증번호·기관·발급일은 우리가 다 알지 못해 '해당사항 없음' 으로 둔다(기존 등록물과 같다).
+        await act(() => actions().govPublsInfo.onChangeSafeCertTgtYn("N"));
+
+        // 10) 상품 이미지. 사진 칸 처리 함수가 GS 임시 저장소에 올리고 미리보기를 붙인다(1 = 대표).
+        const toFile = (image, fallbackName) => {
+          const [head, encoded] = String(image.dataUrl).split(",");
+          const mime = (head.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+          const binary = atob(encoded);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          let name = String(image.fileName || fallbackName);
+          if (!/\.(jpe?g|png|webp)$/i.test(name)) name = `${fallbackName}.${/png/i.test(mime) ? "png" : "jpg"}`;
+          return new File([bytes], name, { type: mime });
+        };
+        const images = (payload.images || []).filter((image) => image && image.dataUrl).slice(0, payload.maxImages || 8);
+        let uploaded = 0;
+        for (let index = 0; index < images.length; index += 1) {
+          const seq = index + 1;
+          const file = toFile(images[index], `image${seq}`);
+          const saidBefore = said.length;
+          await act(() => actions().imgInfo.uploadPrdImg({ orgFile: file, cntntFileNm: file.name, seq }, {}));
+          const slot = (value("images") || []).find((image) => image?.seq === seq);
+          if (slot?.cntntUrl && slot?.filePath) uploaded += 1;
+          else warnings.push(`${seq === 1 ? "대표" : `추가${seq - 1}`} 이미지를 올리지 못했습니다${said.length > saidBefore ? `: ${said[said.length - 1].replace(/[.\s]+$/, "")}` : ""}.`);
+        }
+        if (uploaded > 0) steps.push(`상품 이미지 ${uploaded}장`);
+
+        // 11) 기술서. 편집기의 사진 올리기와 같은 임시 업로드로 주소를 받아 편집기에 넣는다.
+        let detailHtml = payload.detailHtml || "";
+        if (payload.detailImage?.dataUrl) {
+          try {
+            const upload = Object.values(storeModule || {}).find((entry) => typeof entry === "function"
+              && /keepName/.test(String(entry)) && /\.file/.test(String(entry)));
+            if (!upload) throw new Error("편집기 업로드를 찾지 못했습니다");
+            const result = await upload({ files: [{ id: `$$_${Date.now()}_$$`, file: toFile(payload.detailImage, "detail") }] });
+            const path = String((Array.isArray(result) ? result[0]?.path : "") || "");
+            if (!path) throw new Error("응답에 사진 주소가 없습니다");
+            detailHtml = `<center><img src="${path}" data-uploaded-path="${path}"></center>`;
+            steps.push("기술서 사진 GS 업로드");
+          } catch (error) {
+            warnings.push(`기술서 사진을 GS에 올리지 못했습니다: ${error?.message || error}`);
+          }
+        }
+        const editor = state().deps?.crossEditor;
+        if (detailHtml && editor) {
+          editor.setValue(detailHtml);
+          actions().setFieldValue("custom.documentDesc", detailHtml);
+          if (/<img/i.test(String(editor.getValue() || ""))) steps.push("기술서");
+          else warnings.push("기술서를 넣지 못했습니다. 편집기에 직접 넣으세요.");
+        } else {
+          warnings.push(detailHtml ? "기술서 편집기를 찾지 못했습니다. 직접 넣으세요." : "기술서에 넣을 사진을 만들지 못했습니다. 직접 넣으세요.");
+        }
+
+        // 채우는 동안 몰이 한 말은 사람에게 넘긴다. 이미 경고에 실은 문장은 다시 싣지 않는다.
+        clearDialogs();
+        for (const message of new Set(said)) {
+          if (!warnings.some((warning) => warning.includes(message))) warnings.push(`몰 안내: ${message}`);
+        }
+
+        // 12) 저장 전에 화면이 막는 필수 칸만 다시 본다(저장 검사 함수는 막히면 값을 지우므로 부르지 않는다).
+        const blocked = [
+          ["base.prdClsCd", "상품분류"],
+          ["base.supPrdCd", "협력사 상품코드"],
+          ["base.operMdId", "담당MD"],
+          ["base.repMdUserId", "담당MD 담당자"],
+          ["base.exposPrdNm", "노출상품명"],
+          ["base.prdNm", "송장상품명"],
+          ["base.brandCd", "브랜드"],
+          ["price.salePrc", "판매가"],
+          ["price.fee", "공급가"],
+          ["delivery.dlvsCoCd", "택배사"],
+          ["delivery.prdRelspAddrCd", "출고지"],
+          ["delivery.prdRetpAddrCd", "반송지"],
+        ].filter(([key]) => {
+          const current = value(key);
+          return current === "" || current === null || current === undefined;
+        }).map(([, label]) => label);
+        if (!(value("shop.ctgrShops") || []).some((shop) => shop?.sectid)) blocked.push("전시 카테고리");
+        if (!(value("images") || []).some((image) => image?.seq === 1 && image?.cntntUrl)) blocked.push("대표 이미지");
+        if (blocked.length === 0) steps.push("저장 전 필수 칸 확인");
+        else warnings.push(`저장 전 확인: ${blocked.join(" · ")}`);
+        window.scrollTo(0, 0);
+
+        return { ok: true, steps, warnings, submitted: false };
+      } finally {
+        window.alert = nativeAlert;
+        window.confirm = nativeConfirm;
+      }
+    })();
+  }
+
+  /**
+   * 롯데ON 판매자센터 상품등록(WebSquare) 채우기. `index_SO.wsp` 에 주입된다.
+   *
+   * 화면 칸은 데이터(`dat_*`)에 묶여 있고, 섹션(`wfm_*`)마다 사람이 누를 때 도는 함수가 있다. 그 함수를
+   * 사람 순서대로 부른다. 순서가 중요하다 — 표준카테고리를 고르면 단품 줄·판매유형이 새로 만들어지고,
+   * 고시 상품군을 고르면 제조자 칸이 비워지고, 거래처·분류 조회가 배송비 정책을 다시 고른다.
+   *
+   * 화면 알림(`com.alert`/`com.confirm`)은 DOM 대화상자이고 섹션마다 `com` 이 따로 있다. 채우는 동안
+   * 전부 가로채 **기록만** 한다 — 알림 콜백 중에는 탭을 닫거나 등록 첫 화면으로 보내는 것이 있다.
+   * `저장`(`scwin.product.regist`)·`임시저장` 은 부르지 않는다.
+   */
+  function fillLotteonProductForm(payload) {
+    return (async () => {
+      const steps = [];
+      const warnings = [];
+      const said = [];
+      const form = payload.form;
+      const stepWait = payload.stepWaitMs || 20000;
+      // 화면이 늦게 끝내는 조회를 기다리는 짧은 간격. 섹션 대기보다 길지 않게 둔다.
+      const settle = Math.min(1500, stepWait);
+      const PATH = "/ui/product/registration/productInsert.xml";
+      const nativeAlert = window.alert;
+      const nativeConfirm = window.confirm;
+      window.alert = (message) => { said.push(String(message)); };
+      window.confirm = (message) => { said.push(String(message)); return false; };
+
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (probe, timeoutMs, stepMs = 250) => {
+        const until = Date.now() + timeoutMs;
+        for (;;) {
+          let found = null;
+          try { found = await probe(); } catch { found = null; }
+          if (found) return found;
+          if (Date.now() >= until) return null;
+          await sleep(stepMs);
+        }
+      };
+      const clean = (message) => String(message || "").replace(/\s+/g, " ").trim();
+      const tidy = (message) => clean(message).replace(/[.\s]+$/, "");
+      const toBlob = (dataUrl) => {
+        const [head, encoded] = String(dataUrl).split(",");
+        const mime = (head.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+        const binary = atob(encoded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new Blob([bytes], { type: mime });
+      };
+
+      // 섹션마다 따로 있는 `com` 의 알림을 기록만 하게 바꾼다. 끝나면 되돌린다.
+      const patched = [];
+      const patchCom = (target) => {
+        if (!target || typeof target.alert !== "function" || patched.some((entry) => entry.target === target)) return;
+        patched.push({ target, alert: target.alert, confirm: target.confirm });
+        target.alert = (message) => { said.push(clean(message)); return null; };
+        target.confirm = (message) => { said.push(clean(message)); return null; };
+      };
+      // 조회 오류 알림처럼 `com.alert` 를 거치지 않는 대화상자는 치운다. 확인창은 취소(비강조 단추)로 닫는다.
+      const sweepDialogs = () => {
+        for (const node of [...document.querySelectorAll(".dialog-block, .dialog-block-for-tab")]) {
+          const content = node.querySelector(".dialog-block-content") || node;
+          const message = clean(content.innerText || content.textContent);
+          if (message) said.push(message.slice(0, 200));
+          const buttons = [...node.querySelectorAll(".dialog-block-buttons input[type=button]")];
+          if (buttons.length > 1) buttons.find((button) => !/\bpoint3\b/.test(button.className))?.click();
+          node.parentNode?.removeChild(node);
+        }
+      };
+      // WebSquare 는 그릴 때 DOM 을 많이 바꾼다. 바뀔 때마다 훑지 않고 잠깐 모아서 한 번 훑는다.
+      let sweepQueued = false;
+      const observer = new MutationObserver(() => {
+        if (sweepQueued) return;
+        sweepQueued = true;
+        setTimeout(() => { sweepQueued = false; sweepDialogs(); }, 150);
+      });
+
+      try {
+        // 0) 판매자센터 껍데기. 로그아웃이면 로그인 화면으로 넘어간다.
+        const shell = await waitFor(() => {
+          if (/login/i.test(location.pathname)
+            || [...document.querySelectorAll('input[type="password"]')].some((el) => el.getClientRects().length > 0)) return "login";
+          return window.com && typeof window.com.openTab === "function" && window.gcm?.user?.getTrNo?.() ? "shell" : null;
+        }, payload.formWaitMs || 60000, 500);
+        if (shell !== "shell") {
+          return { ok: false, noForm: true, error: "롯데ON 판매자센터 화면을 찾지 못했습니다." };
+        }
+        observer.observe(document.body, { childList: true, subtree: true });
+        sweepDialogs();
+        patchCom(window.com);
+
+        // 1) 상품등록 탭. 새로 여는 탭 번호를 우리가 정해 두면 그 탭의 화면을 정확히 집는다.
+        const tac = window.com.getHighestOpener(window).$p.getComponentById("tac_layout");
+        if (tac.getTabCount() >= 10) {
+          return { ok: false, error: "롯데ON 화면 탭이 10개라 상품등록을 열 수 없습니다. 탭을 닫고 다시 누르세요." };
+        }
+        const tabId = `kiditemPI${Date.now()}`;
+        window.com.openTab("상품등록", PATH, { initType: "category", menuName: "상품등록", jsonData: {} }, tabId);
+        const pi = await waitFor(() => {
+          const scope = tac.getWindow(tabId);
+          return scope && scope.scwin && scope.scwin.product && scope.wfm_title && scope.wfm_delivery ? scope : null;
+        }, stepWait, 300);
+        if (!pi) return { ok: false, error: "롯데ON 상품등록 화면을 열지 못했습니다." };
+        const win = (name) => pi[name].getWindow();
+
+        // 공통코드 → 1.5초 뒤 초기화 → 거래처 조회 → 배송 정보 조회까지 끝나야 칸이 안 뒤집힌다.
+        const initialized = () => {
+          const scwin = pi.scwin;
+          const delivery = win("wfm_delivery");
+          return scwin.isPause === true && scwin.product.tp === "category" && scwin.product.data.pdTypCd === "GNRL_GNRL"
+            && scwin.traderData?.trNo && pi.dat_basicInfo.get("trNo")
+            && win("wfm_buyService").rad_maxPurLmtTypCd.getValue() === "N"
+            && (delivery.scwin.dvCstPolList || []).length > 0 && (delivery.scwin.owhpList || []).length > 0
+            && delivery.sbx_hdcCd.getValue() !== "";
+        };
+        const settled = await waitFor(async () => {
+          if (!initialized()) return false;
+          await sleep(Math.min(1000, settle));
+          return initialized();
+        }, payload.formWaitMs || 60000, 500);
+        patchCom(pi.com);
+        for (const name of Object.keys(pi).filter((key) => /^wfm_/.test(key) && typeof pi[key]?.getWindow === "function")) {
+          try { patchCom(win(name).com); } catch { /* 아직 안 붙은 섹션 */ }
+        }
+        if (!settled) {
+          if (!pi.scwin.traderData?.trNo) return { ok: false, error: "롯데ON 상품등록 화면이 거래처 정보를 불러오지 못했습니다." };
+          warnings.push("롯데ON 화면 초기화가 늦어 배송 정보가 덜 불러와졌을 수 있습니다. 배송 칸을 확인하세요.");
+        }
+
+        // 2) 표준카테고리. 화면의 [선택하기] 가 끝에 부르는 함수를 부른다. 연관정보 콜백이 전시카테고리·수수료·
+        //    판매유형·단품 줄·속성·인증 대상을 한꺼번에 채운다.
+        const scwin = pi.scwin;
+        const categoryWin = win("wfm_category");
+        const basic = pi.dat_basicInfo;
+        const categoryRun = { callback: false, error: null };
+        const originalCallback = categoryWin.scwin.categoryCallback;
+        categoryWin.scwin.categoryCallback = function (...args) {
+          categoryRun.callback = true;
+          try { return originalCallback.apply(this, args); } catch (error) { categoryRun.error = error; throw error; }
+        };
+        let special = false;
+        try {
+          special = Boolean(categoryWin.scwin.getStdMappingInfo(form.category))
+            || [categoryWin.scwin.rntlCatYn, categoryWin.scwin.ecpnTraderYn, categoryWin.scwin.mblTraderYn,
+              categoryWin.scwin.pprTraderYn, categoryWin.scwin.zeroPdTypCdCategoryYn].includes("Y");
+        } catch { special = false; }
+        const saidBeforeCategory = said.length;
+        if (!special) scwin.select_standard_category(form.category);
+        const chosen = special ? null : await waitFor(() => categoryRun.error || (categoryRun.callback
+          && basic.get("scatNo") === form.category && basic.get("scatNm") && basic.get("dcatNoLst")
+          && String(basic.get("slfee") ?? "") !== "" && pi.dat_saleOptionGrid.getRowCount() > 0), stepWait, 250);
+        categoryWin.scwin.categoryCallback = originalCallback;
+        if (!chosen || categoryRun.error || basic.get("scatNo") !== form.category) {
+          const reason = special ? "해외·렌탈·상품권 전용 분류입니다"
+            : tidy(said.slice(saidBeforeCategory).pop() || categoryRun.error?.message || "화면에 반영되지 않았습니다");
+          return {
+            ok: false,
+            steps,
+            warnings,
+            error: `롯데ON 표준카테고리 ${form.category} 를 고르지 못했습니다(${reason}). 열린 탭에서 카테고리를 고르세요.`,
+          };
+        }
+        steps.push(`표준카테고리 ${basic.get("scatNm")} · 수수료 ${basic.get("slfee")}%`);
+
+        // 3) 판매자상품명. 전시상품명도 같은 값으로 두고 단품 줄에 따라 적는다.
+        const titleWin = win("wfm_title");
+        titleWin.dat_productInfo.set("spdNm", form.productName);
+        titleWin.dat_productInfo.set("pdNm", form.productName);
+        titleWin.scwin.ibx_pdNm_onchange();
+        try { titleWin.tbx_spdNmLength.setValue(window.WebSquare.util.getStringByteSize(form.productName)); } catch { /* 글자 수 표시만 */ }
+        if (pi.dat_productInfo.get("spdNm") === form.productName) steps.push("판매자상품명");
+        else warnings.push("판매자상품명을 넣지 못했습니다. 화면에서 확인하세요.");
+        const keywordRule = String(scwin.pdNmEstlKwdCnts || "");
+        if (keywordRule && !keywordRule.split("|").some((keyword) => keyword && form.productName.includes(keyword))) {
+          warnings.push(`이 카테고리는 상품명에 ${keywordRule.split("|").join(", ")} 중 하나가 들어가야 저장됩니다.`);
+        }
+
+        // 4) 판매옵션 — 선택형 옵션 없이 단품 한 줄. 재고관리를 바꾸면 재고가 초기화되므로 가격·재고보다 먼저.
+        const optionWin = win("wfm_option");
+        const grid = optionWin.dat_saleOptionGrid;
+        if (optionWin.rad_slOptYn.getValue() !== "N" || grid.getRowCount() !== 1) {
+          optionWin.rad_slOptYn.setValue("N");
+          optionWin.scwin.rad_slOptYn_onviewchange();
+        }
+        optionWin.rad_stkMgtYn.setValue(form.stockManaged ? "Y" : "N");
+        optionWin.scwin.rad_stkMgtYn_onchange.call(optionWin.rad_stkMgtYn);
+        grid.setCellData(0, "slPrc", form.salePrice);
+        if (form.stockManaged) grid.setCellData(0, "stkQty", form.stock);
+        const row = grid.getRowJSON(0) || {};
+        if (Number(row.slPrc) === form.salePrice && String(row.stkQty ?? "") !== "") {
+          steps.push(`판매가 ${form.salePrice} · 재고 ${form.stockManaged ? form.stock : "관리 안 함"}`);
+        } else {
+          warnings.push("판매가·재고를 넣지 못했습니다. 판매옵션 목록을 확인하세요.");
+        }
+
+        // 5) 상품정보제공고시. 상품군을 고르면 항목이 새로 그려지면서 칸이 비워진다 — 그 뒤에 채운다.
+        const notice = form.notice;
+        const articleWin = win("wfm_article");
+        if (notice.groupCode) {
+          if (articleWin.rad_pdItmsRegWay.getValue() !== "NEW") {
+            articleWin.rad_pdItmsRegWay.setValue("NEW");
+            articleWin.scwin.rad_pdItmsRegWay_onchange();
+          }
+          const noticeRun = { fired: false, loaded: false };
+          const originalDisplay = articleWin.scwin.setItemDisplay;
+          const originalDisplayed = articleWin.scwin.setItemDisplay1;
+          articleWin.scwin.setItemDisplay = function (...args) { noticeRun.fired = true; return originalDisplay.apply(this, args); };
+          articleWin.scwin.setItemDisplay1 = function (...args) {
+            const result = originalDisplayed.apply(this, args);
+            noticeRun.loaded = true;
+            return result;
+          };
+          articleWin.sbx_pdItmsCd.setValue(notice.groupCode);
+          if (!noticeRun.fired) articleWin.scwin.sbx_pdItmsCd_onchange.call(articleWin.sbx_pdItmsCd);
+          const loaded = await waitFor(() => noticeRun.loaded, stepWait, 200);
+          articleWin.scwin.setItemDisplay = originalDisplay;
+          articleWin.scwin.setItemDisplay1 = originalDisplayed;
+          if (loaded) {
+            const exclude = "group trigger textbox output calendar image span anchor pageInherit wframe itemTable generator";
+            for (const ref of articleWin.data_pdArtlCdList.getFilteredColData("artlRefcNo")) {
+              const group = articleWin.$p.getComponentById(`grp_item${ref}`);
+              if (!group) continue;
+              for (const input of window.WebSquare.util.getChildren(group, { excludePlugin: exclude, recursive: true })) {
+                let itemCode = null;
+                try { itemCode = input.getUserData("userData1"); } catch { itemCode = null; }
+                if (typeof itemCode !== "string" || !itemCode) continue;
+                if (itemCode === "1420") {
+                  articleWin.sbx_oplcTypCd3.setValue(form.origin.typeCode);
+                  articleWin.scwin.sbx_oplcTypCd3_onviewchange();
+                  input.setValue(form.origin.code);
+                  articleWin.scwin.acb_oplcCd3_onviewchange();
+                } else if (Object.prototype.hasOwnProperty.call(notice.values, itemCode)) {
+                  input.setValue(notice.values[itemCode]);
+                }
+              }
+            }
+            const filled = articleWin.scwin.getPdItmsArtlInfo() || [];
+            const empty = filled.filter((item) => !String(item.pdArtlCnts || "").replace(/\/\//g, "").trim()
+              || /\/\/$/.test(String(item.pdArtlCnts || "")) || /^\/\//.test(String(item.pdArtlCnts || "")))
+              .map((item) => item.pdArtlCd);
+            if (filled.length > 0 && empty.length === 0) steps.push(`정보고시 ${notice.groupCode}`);
+            else warnings.push(`정보고시 항목 ${empty.join(", ") || "전부"} 이(가) 비었습니다. 화면에서 채우세요.`);
+          } else {
+            warnings.push(`정보고시 상품군 ${notice.groupCode} 항목을 불러오지 못했습니다. 화면에서 고르세요.`);
+          }
+        }
+
+        // 6) 상품주요정보 — 원산지·제조사·모델명. 제조사 칸은 고시 제조자와 같은 데이터라 고시 뒤에 넣는다.
+        const infoWin = win("wfm_info");
+        if (form.origin.code !== "KR") {
+          infoWin.dat_productInfo.set("oplcCd", form.origin.code);
+          infoWin.scwin.acb_oplcCd_onchange();
+        }
+        if (form.maker) infoWin.ibx_mfcrNm.setValue(form.maker);
+        if (form.modelNo) win("wfm_etc").ibx_mdlNo.setValue(form.modelNo);
+        const product = pi.dat_productInfo;
+        if (product.get("oplcCd") === form.origin.code && (!form.maker || product.get("mfcrNm") === form.maker)) {
+          steps.push(`원산지 ${form.origin.code}${form.maker ? ` · 제조사 ${form.maker}` : ""}${form.modelNo ? ` · 모델명 ${form.modelNo}` : ""}`);
+        } else {
+          warnings.push("원산지·제조사를 넣지 못했습니다. 상품주요정보를 확인하세요.");
+        }
+
+        // 7) 인증정보. 분류가 KC 대상이면 화면이 '설정함'으로 바꾼다 — 인증번호·기관은 사람이 넣는다.
+        const safetyWin = win("wfm_saftyAthn");
+        const certRadios = ["rad_isSftyAthn", "rad_isChildSftyAthn", "rad_isChemSftyAthn"];
+        if (certRadios.some((radio) => safetyWin[radio]?.getValue() === "Y")) {
+          warnings.push("이 카테고리는 KC 인증정보가 필요합니다. 인증정보 칸에 인증 구분·번호를 직접 넣으세요.");
+        }
+
+        // 8) 상세설명 · A/S. 상세 이미지는 편집기 안내("이미지를 내용입력영역에 드래그&드롭")대로 편집기의 사진
+        //    업로드로 넣는다 — 끌어다 놓을 때 CKEditor `uploadimage` 가 쓰는 `uploadRepository` 를 그대로 쓴다.
+        //    롯데ON 은 올린 사진을 본문에 넣을 이미지 데이터로 돌려준다(실측 `/websquare/imageupload.wq` →
+        //    `{uploaded:1, url:"data:image/jpeg;base64,…"}`). 화면이 쓰는 변경 함수로 '설정함' 표시를 맞춘다.
+        const descWin = win("wfm_desc");
+        const writeDetail = (html, marker) => waitFor(() => {
+          descWin.edt_dscrp.setHTML(html);
+          descWin.scwin.edt_dscrp_onchange();
+          return String(descWin.edt_dscrp.getHTML() || "").includes(marker);
+        }, Math.min(5000, stepWait), 500);
+        let detailWritten = false;
+        if (payload.detailImage?.dataUrl) {
+          try {
+            const editorId = String(descWin.edt_dscrp.id || "");
+            const instances = window.CKEDITOR?.instances || {};
+            const editor = instances[`${editorId}_`]
+              || Object.values(instances).find((instance) => editorId && String(instance.name).startsWith(editorId));
+            if (!editor?.uploadRepository) throw new Error("상세설명 편집기를 찾지 못했습니다");
+            const blob = toBlob(payload.detailImage.dataUrl);
+            const extension = /png/i.test(blob.type) ? "png" : "jpg";
+            const name = /\.(jpe?g|png)$/i.test(String(payload.detailImage.fileName || "")) ? String(payload.detailImage.fileName) : `detail.${extension}`;
+            const loader = editor.uploadRepository.create(new File([blob], name, { type: blob.type }));
+            loader.loadAndUpload(window.CKEDITOR.fileTools.getUploadUrl(editor.config, "image"));
+            const finished = await waitFor(() => (["uploaded", "error", "abort"].includes(loader.status) ? loader.status : null), stepWait * 3, 250);
+            if (finished !== "uploaded" || !loader.url) {
+              throw new Error(loader.message || (finished ? "편집기가 사진을 받지 않았습니다" : "업로드가 끝나지 않았습니다"));
+            }
+            const alt = form.productName.replace(/["<>]/g, "");
+            detailWritten = await writeDetail(`<center><img src="${loader.url}" alt="${alt}"></center>`, String(loader.url).slice(0, 64));
+            if (detailWritten) steps.push("상세설명 이미지(편집기 업로드)");
+          } catch (error) {
+            warnings.push(`상세 이미지를 편집기에 올리지 못했습니다: ${tidy(error?.message || error)}.`);
+          }
+        }
+        if (!detailWritten && payload.detailHtml) {
+          const detailHtml = String(payload.detailHtml);
+          detailWritten = await writeDetail(detailHtml, (detailHtml.match(/src="([^"]+)"/) || [])[1] || "<img");
+          if (detailWritten) steps.push("상세설명");
+        }
+        if (!detailWritten) warnings.push("상세설명을 넣지 못했습니다. 상세 이미지를 편집기에 끌어다 놓으세요.");
+        if (form.asText) {
+          const asWin = win("wfm_as");
+          asWin.edt_asCnts.setHTML(form.asText);
+          asWin.scwin.edt_asCnts_onchange();
+          if (String(asWin.edt_asCnts.getHTML() || "").includes(form.asText.slice(0, 8))) steps.push("A/S 안내");
+        }
+
+        // 9) 구매수량 제한. 화면 초기화의 0.5초 타이머가 '사용안함'으로 되돌리므로 초기화가 끝난 뒤에 넣는다.
+        if (form.purchase.maxQty > 0) {
+          const buyWin = win("wfm_buyService");
+          buyWin.rad_maxPurLmtTypCd.setValue("PERIOD");
+          buyWin.scwin.rad_maxPurLmtTypCd_onchange();
+          buyWin.ibx_maxPurQty.setValue(form.purchase.maxQty);
+          buyWin.ibx_maxPurLmtPrd.setValue(form.purchase.periodDays);
+          const option = pi.dat_saleOption;
+          if (option.get("maxPurLmtTypCd") === "PERIOD" && Number(option.get("maxPurQty")) === form.purchase.maxQty) {
+            steps.push(`최대구매 ${form.purchase.periodDays}일 ${form.purchase.maxQty}개`);
+          } else {
+            warnings.push("최대 구매수량을 넣지 못했습니다. 구매/서비스조건을 확인하세요.");
+          }
+        }
+
+        // 10) 판매자 내부관리번호.
+        if (form.sellerCode) {
+          const manageWin = win("wfm_manageNo");
+          manageWin.ibx_epdNo.setValue(form.sellerCode);
+          try { manageWin.scwin.setTitle(form.sellerCode); } catch { /* 요약 표시만 */ }
+          if (pi.dat_manageNo.get("epdNo") === form.sellerCode) steps.push(`판매자내부상품번호 ${form.sellerCode}`);
+        }
+
+        // 11) 배송 · 반품. 분류·거래처 조회가 정책을 다시 고르므로 마지막에 넣고, 잠시 뒤 다시 본다.
+        const deliveryWin = win("wfm_delivery");
+        const output = deliveryWin.dat_output;
+        const returns = deliveryWin.dat_returnInfo;
+        const delivery = form.delivery;
+        const pick = (component, wanted) => {
+          if (!wanted || !component) return true;
+          if (component.getValue() !== wanted) component.setValue(wanted);
+          return component.getValue() === wanted;
+        };
+        const applyDelivery = () => {
+          if (delivery.sameDay && output.get("sndBgtNday") !== 0 && output.get("sndBgtNday") !== "0") deliveryWin.scwin.todaySndBgt();
+          const missed = [];
+          if (!pick(deliveryWin.sbx_nldySndCloseTm, delivery.closeTime)) missed.push("발송마감시간");
+          if (!pick(deliveryWin.rad_satSndPsbYn, delivery.saturday)) missed.push("토요일발송");
+          if (!pick(deliveryWin.sbx_dvCstPolNo, delivery.costPolicy)) missed.push(`배송비 정책 ${delivery.costPolicy}`);
+          if (!pick(deliveryWin.sbx_adtnDvCstPolNo, delivery.extraCostPolicy)) missed.push(`추가배송비 정책 ${delivery.extraCostPolicy}`);
+          if (!pick(deliveryWin.sbx_owhpNo, delivery.shipPlace)) missed.push(`출고지 ${delivery.shipPlace}`);
+          if (!pick(deliveryWin.sbx_rtrpNo, delivery.returnPlace)) missed.push(`반품지 ${delivery.returnPlace}`);
+          if (!pick(deliveryWin.sbx_hdcCd, delivery.courier)) missed.push("택배사");
+          if (!pick(deliveryWin.sbx_rtngHdcCd, delivery.returnCourier)) missed.push("반품 택배사");
+          if (delivery.returnPlace && deliveryWin.sbx_rtrpNo.getValue() === delivery.returnPlace) returns.set("rtrpNo", delivery.returnPlace);
+          if (delivery.retrieveType && deliveryWin.rad_rtrvTypCd) {
+            deliveryWin.rad_rtrvTypCd.setValue(delivery.retrieveType);
+            if (returns.get("rtrvTypCd") !== delivery.retrieveType) returns.set("rtrvTypCd", delivery.retrieveType);
+          }
+          return missed;
+        };
+        const deliverySnapshot = () => JSON.stringify([output.get("dvCstPolNo"), output.get("adtnDvCstPolNo"), output.get("owhpNo"),
+          returns.get("rtrpNo"), output.get("hdcCd"), returns.get("rtngHdcCd"), output.get("sndBgtNday"),
+          deliveryWin.sbx_nldySndCloseTm.getValue(), returns.get("rtrvTypCd")]);
+        applyDelivery();
+        const firstPass = deliverySnapshot();
+        await sleep(settle);
+        if (deliverySnapshot() !== firstPass) {
+          // 늦게 끝난 조회가 고른 값을 되돌렸다. 한 번 더 넣고 가라앉기를 본다.
+          applyDelivery();
+          await sleep(settle);
+        }
+        const missedDelivery = applyDelivery();
+        if (missedDelivery.length === 0) {
+          steps.push(`배송 ${delivery.sameDay ? "오늘발송" : "일반발송"} · 배송비 정책 ${output.get("dvCstPolNo")} · 출고/반품지 ${output.get("owhpNo")}`);
+        } else {
+          warnings.push(`배송 정보 ${missedDelivery.join(", ")} 을(를) 고르지 못했습니다. 목록에 없으면 화면에서 고르세요.`);
+        }
+
+        // 12) 상품 이미지. 단품이미지 창이 쓰는 업로드(티켓 → 파일)로 올리고, 창이 닫힐 때 부르는 콜백을 부른다.
+        const images = (payload.images || []).filter((image) => image && image.dataUrl).slice(0, payload.maxImages || 10);
+        if (images.length > 0) {
+          const apiBase = String(window.gcm.API_GW || "https://soapi.lotteon.com");
+          // ⚠️ `Accept` 가 없으면 파일 업로드가 XML(`<FineUploaderResponseModel>`)로 답한다(실측 2026-09-14).
+          const headers = () => {
+            const token = window.gcm.getAuthToken?.();
+            return {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              "X-Timezone": window.gcm.getTimezone?.() || "GMT+09:00",
+              Accept: "application/json",
+            };
+          };
+          /** JSON 이 기본이고, 그래도 XML 로 오면 같은 칸을 읽는다. */
+          const readUploadResult = async (response) => {
+            const text = await response.text().catch(() => "");
+            try { return JSON.parse(text); } catch { /* XML 답 */ }
+            const tag = (name) => (text.match(new RegExp(`<${name}>([^<]*)</${name}>`)) || [])[1];
+            if (!tag("success")) return {};
+            return {
+              success: tag("success") === "true",
+              message: tag("message"),
+              meta: { fileId: tag("fileId"), fileName: tag("fileName"), size: Number(tag("size")) || 0 },
+            };
+          };
+          const measure = (blob) => new Promise((resolve) => {
+            const url = URL.createObjectURL(blob);
+            const probe = new Image();
+            probe.onload = () => { URL.revokeObjectURL(url); resolve({ width: probe.naturalWidth, height: probe.naturalHeight }); };
+            probe.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+            probe.src = url;
+          });
+          const sizeLabel = (size) => {
+            const kb = Math.ceil(size / 1024);
+            return kb >= 1024 ? `${Math.ceil(kb / 1024)}MB` : `${kb}KB`;
+          };
+          const accepted = [];
+          for (let index = 0; index < images.length; index += 1) {
+            const label = index === 0 ? "대표" : `추가${index}`;
+            const blob = toBlob(images[index].dataUrl);
+            const dimension = await measure(blob);
+            if (!dimension) warnings.push(`${label} 이미지를 읽지 못했습니다.`);
+            else if (blob.size > 5 * 1024 * 1024) warnings.push(`${label} 이미지가 5MB 를 넘어 올리지 않았습니다.`);
+            else if (Math.min(dimension.width, dimension.height) < 500 || Math.max(dimension.width, dimension.height) > 5000) {
+              warnings.push(`${label} 이미지 크기 ${dimension.width}x${dimension.height} 는 롯데ON 규격(500~5000px)이 아니라 올리지 않았습니다.`);
+            } else {
+              const extension = /png/i.test(blob.type) ? "png" : "jpg";
+              const name = /\.(jpe?g|png)$/i.test(String(images[index].fileName || "")) ? String(images[index].fileName) : `image${index + 1}.${extension}`;
+              accepted.push({ blob, name, dimension, label });
+            }
+          }
+          const uploaded = [];
+          if (accepted.length > 0) {
+            try {
+              const ticketResponse = await fetch(`${apiBase}/soapi/v1/product/registration/createProductImagesFileUploadTicket?limitSizePerEach=${5 * 1024 * 1024}&limitFiles=${accepted.length}`, {
+                method: "POST",
+                headers: headers(),
+              });
+              const ticket = (await readUploadResult(ticketResponse))?.data?.ticket;
+              if (!ticket) throw new Error(`업로드 준비에 실패했습니다(HTTP ${ticketResponse.status})`);
+              for (let index = 0; index < accepted.length; index += 1) {
+                const entry = accepted[index];
+                const body = new FormData();
+                body.append("qquuid", `kiditem-${Date.now()}-${index}`);
+                body.append("fileName", entry.name);
+                body.append("qqtotalfilesize", String(entry.blob.size));
+                body.append("file", entry.blob, entry.name);
+                const response = await fetch(`${apiBase}/soapi/v1/bocommon/o/fileManage/upload4FineUploader/${ticket}`, {
+                  method: "POST",
+                  headers: headers(),
+                  body,
+                });
+                const result = await readUploadResult(response);
+                if (!result?.success || !result?.meta?.fileId) {
+                  warnings.push(`${entry.label} 이미지를 올리지 못했습니다${result?.message ? `: ${tidy(result.message)}` : ` (HTTP ${response.status})`}.`);
+                  continue;
+                }
+                uploaded.push({ meta: result.meta, entry });
+              }
+            } catch (error) {
+              warnings.push(`상품 이미지를 올리지 못했습니다: ${tidy(error?.message || error)}.`);
+            }
+          }
+          if (uploaded.length > 0) {
+            const ret = uploaded.map(({ meta, entry }, index) => ({
+              fileId: meta.fileId,
+              imgSeq: index + 1,
+              epsrTypCd: "IMG",
+              epsrTypDtlCd: entry.dimension.height > entry.dimension.width ? "IMG_LNTH" : "IMG_SQRE",
+              fileSrc: "",
+              origFileNm: meta.fileName || entry.name,
+              rprtImgYn: index === 0 ? "Y" : "N",
+              fileSize: sizeLabel(meta.size || entry.blob.size),
+              origImgFileNm: "",
+              imgSortSeq: index + 1,
+            }));
+            optionWin.scwin.tempBlobImageRow = 0;
+            optionWin.scwin.popupCallbackInProductReg({
+              param: { callbackId: "uploadItemImage", row: 0, trGrpCd: basic.get("trGrpCd"), paramImageList: [] },
+              ret,
+            });
+            // 창 콜백은 대표 사진을 받아 썸네일 칸(검사용)을 채운다. 늦으면 우리가 가진 사진으로 채운다.
+            const thumbnail = await waitFor(() => grid.getCellData(0, "imageSrc"), Math.min(8000, stepWait), 250);
+            if (!thumbnail) grid.setCellData(0, "imageSrc", images[0].dataUrl);
+            const attached = (optionWin.data_itemImageList || pi.data_itemImageList).getMatchedJSON("row", 0).length;
+            if (attached === uploaded.length) steps.push(`상품 이미지 ${attached}장`);
+            else warnings.push(`상품 이미지 ${uploaded.length}장 중 ${attached}장만 붙었습니다. 판매옵션 이미지를 확인하세요.`);
+          }
+        } else {
+          warnings.push("상품 이미지가 없습니다. 판매옵션 목록의 이미지 [등록] 으로 올리세요.");
+        }
+
+        // 13) 저장 전 검사. 화면의 검사 함수만 부른다(저장·확인창 없음). 막히면 화면이 알려 준 첫 문장을 싣는다.
+        const saidBeforeValidation = said.length;
+        let valid = false;
+        try { valid = scwin.product.validation(); } catch { valid = false; }
+        const validationMessages = said.splice(saidBeforeValidation);
+        if (valid) steps.push("저장 전 필수 칸 확인");
+        else warnings.push(`저장 전 확인: ${tidy(validationMessages[0] || "필수 칸이 비었습니다")}`);
+
+        sweepDialogs();
+        for (const message of new Set(said)) {
+          if (message && !warnings.some((warning) => warning.includes(message))) warnings.push(`몰 안내: ${message}`);
+        }
+        window.scrollTo(0, 0);
+        return { ok: true, steps, warnings, submitted: false };
+      } finally {
+        observer.disconnect();
+        for (const entry of patched) {
+          entry.target.alert = entry.alert;
+          entry.target.confirm = entry.confirm;
+        }
+        window.alert = nativeAlert;
+        window.confirm = nativeConfirm;
+      }
+    })();
+  }
+
   function create({ chrome: chromeApi, fetch: fetchApi, interactiveTabs, tabReason, ensureLogin }) {
     /**
      * 탭이 실제로 다 뜰 때까지 기다린다.
@@ -3039,7 +5440,11 @@
           const fileName = (new URL(upload.url).pathname.split("/").pop() || "image") + "";
           images.push({ name: upload.name, dataUrl, fileName });
         } catch (error) {
-          images.push({ name: upload.name, error: error?.message || String(error) });
+          // 어느 주소에서 막혔는지 남긴다. 'Failed to fetch' 만으로는 권한 문제인지 알 수 없다.
+          let host = "";
+          try { host = new URL(upload.url).host; } catch { /* 주소가 아니면 비워 둔다 */ }
+          const message = error?.message || String(error);
+          images.push({ name: upload.name, error: host ? `${message} (${host})` : message });
         }
       }
       return images;
@@ -3083,7 +5488,12 @@
       // 1) 빈 상품번호를 받는다. 상품을 만들지는 않는다 — 첨부를 걸 자리만 필요하다.
       const page = await read(host.registerPath);
       const pno = (page.match(/name=["']?pno["']?[^>]*value=["']?(\d+)/i) || [])[1];
-      if (!pno) throw new Error("상품번호를 받지 못했습니다. 로그인 상태를 확인하세요.");
+      if (!pno) {
+        // 번호가 없는 건 거의 언제나 로그인 화면이 온 것이다.
+        const error = new Error("상품번호를 받지 못했습니다.");
+        error.needsLogin = true;
+        throw error;
+      }
 
       // 2) 우리가 렌더한 이미지를 그대로 올린다.
       const blob = blob0;
@@ -3209,8 +5619,10 @@
           detailUrl = await hostDetailImage(host, form.detailUploads[0].url);
         } catch (error) {
           detailWarnings.push(
-            `${host.label}에 상세설명을 올리지 못했습니다: ${error?.message || error}. `
-            + "화면에서 직접 올리세요.",
+            error?.needsLogin && host.loginLabel
+              ? `상세 이미지를 올리지 못했습니다 — ${host.loginLabel}에 로그인되어 있지 않습니다. `
+                + `${host.loginLabel}에 로그인한 뒤 다시 채우세요.`
+              : `${host.label}에 상세설명을 올리지 못했습니다: ${error?.message || error}. 화면에서 직접 올리세요.`,
           );
         }
       } else if (!detailUrl && form.detailUploads.length > 0 && !spec.detailSelfUpload) {
@@ -3259,6 +5671,11 @@
         // 표의 줄 제목으로 찾는 이미지 칸(떠리몰). 여기 없으면 내려받지 않는다.
         ...((spec.tableForm && spec.tableForm.images) || [])
           .map((slot) => ({ key: slot.key, label: slot.row })),
+        // 전용 페이지 함수가 칸마다 올리는 몰(신세계·스마트스토어). 여기 없으면 내려받지 않는다.
+        ...(spec.ssgForm ? [{ key: spec.ssgForm.imageGroupKey, label: "상품이미지" }] : []),
+        ...(spec.smartstoreForm ? [{ key: spec.smartstoreForm.imageGroupKey, label: "상품이미지" }] : []),
+        ...(spec.gsshopForm ? [{ key: spec.gsshopForm.imageGroupKey, label: "상품이미지" }] : []),
+        ...(spec.lotteonForm ? [{ key: spec.lotteonForm.imageGroupKey, label: "상품이미지" }] : []),
       ];
       for (const slot of imageSlotSpecs) {
         const urls = form.imageGroups[slot.key] || [];
@@ -3326,7 +5743,61 @@
 
       // 팝업 에디터가 있는 몰은 칸에 직접 쓰지 않는다. 폼을 채운 뒤 버튼을 눌러서 넣는다.
       const editor = spec.detailEditor || null;
-      const injectOptions = {
+      // 공용 채움 함수로 못 다루는 화면(신세계·스마트스토어)은 전용 함수에 값 묶음만 넘긴다.
+      const dedicatedFill = spec.ssgForm ? {
+        func: fillSsgProductForm,
+        payload: {
+          form: form.ssg,
+          images: imageGroups[spec.ssgForm.imageGroupKey] || [],
+          maxImages: spec.ssgForm.maxImages,
+          displayStartDelayHours: spec.ssgForm.displayStartDelayHours,
+          formWaitMs: spec.ssgForm.formWaitMs,
+          stepWaitMs: spec.ssgForm.stepWaitMs,
+          detailUpload: spec.ssgForm.detailUpload,
+          detailImage,
+          detailHtml,
+        },
+      } : spec.smartstoreForm ? {
+        func: fillSmartstoreProductForm,
+        payload: {
+          form: form.smartstore,
+          images: imageGroups[spec.smartstoreForm.imageGroupKey] || [],
+          maxExtraImages: spec.smartstoreForm.maxExtraImages,
+          formWaitMs: spec.smartstoreForm.formWaitMs,
+          stepWaitMs: spec.smartstoreForm.stepWaitMs,
+          imageWaitMs: spec.smartstoreForm.imageWaitMs,
+          detailImage,
+          detailHtml,
+        },
+      } : spec.gsshopForm ? {
+        func: fillGsshopProductForm,
+        payload: {
+          form: form.gsshop,
+          images: imageGroups[spec.gsshopForm.imageGroupKey] || [],
+          maxImages: spec.gsshopForm.maxImages,
+          formWaitMs: spec.gsshopForm.formWaitMs,
+          stepWaitMs: spec.gsshopForm.stepWaitMs,
+          detailImage,
+          detailHtml,
+        },
+      } : spec.lotteonForm ? {
+        func: fillLotteonProductForm,
+        payload: {
+          form: form.lotteon,
+          images: imageGroups[spec.lotteonForm.imageGroupKey] || [],
+          maxImages: spec.lotteonForm.maxImages,
+          formWaitMs: spec.lotteonForm.formWaitMs,
+          stepWaitMs: spec.lotteonForm.stepWaitMs,
+          detailImage,
+          detailHtml,
+        },
+      } : null;
+      const injectOptions = dedicatedFill ? {
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: dedicatedFill.func,
+        args: [dedicatedFill.payload],
+      } : {
         // 폼이 iframe 안에 있는 몰(11번가)은 모든 프레임에 넣고, 폼을 찾은 프레임의
         // 결과만 쓴다. 프레임 번호를 미리 알 길이 없어서 이게 가장 단순하다.
         target: spec.allFrames ? { tabId: tab.id, allFrames: true } : { tabId: tab.id },
@@ -3407,6 +5878,10 @@
           // 칸을 여는 라디오(꼬망세 KC)와, 다 고른 뒤 눌러야 반영되는 버튼(분류 추가).
           preRadios: spec.preRadios || [],
           afterSelectorClicks: spec.afterSelectorClicks || [],
+          // 고른 분류가 그려 주는, 이름이 같은 줄들(키드키즈 고시).
+          infoRows: spec.infoRows || null,
+          fireKeyup: Boolean(spec.fireKeyup),
+          infoRowValues: form.infoRows,
           // 표의 줄 제목이 손잡이인 몰(떠리몰)과, 그 폼이 든 프레임.
           tableForm: spec.tableForm || null,
           tableFields: form.tableFields,
@@ -3416,7 +5891,17 @@
           frameUrlIncludes: spec.frameUrlIncludes || "",
         }],
       };
-      const injected = await injectWithRetry(injectOptions);
+      let injected;
+      try {
+        injected = await injectWithRetry(injectOptions);
+      } catch (error) {
+        // 스마트스토어는 로그인이 풀리면 다른 도메인(네이버 커머스 로그인)으로 보낸다. 권한 밖 주소라
+        // Chrome 이 주입을 거절한다 — 채움 실패가 아니라 로그인 문제다.
+        if (!spec.smartstoreForm || !/cannot access|permission/i.test(String(error?.message || error))) throw error;
+        injected = [{
+          result: { ok: false, noForm: true, error: `${spec.label}에 로그인되어 있지 않습니다. 열린 탭에서 로그인한 뒤 다시 누르세요.` },
+        }];
+      }
 
       // 폼이 없는 프레임의 응답(`noForm`)은 실패가 아니라 '여기 아님'이다. 그것만
       // 남으면 진짜로 화면을 못 찾은 것이므로 그때 그 오류를 올린다.
@@ -3495,6 +5980,9 @@
     create,
     SPECS,
     FILL_TIMEOUT_MS,
-    pageFunctions: { driveDetailEditor, fillMallProductForm },
+    pageFunctions: {
+      driveDetailEditor, fillMallProductForm, fillSsgProductForm, fillSmartstoreProductForm, fillGsshopProductForm,
+      fillLotteonProductForm,
+    },
   };
 })(typeof self !== "undefined" ? self : globalThis);

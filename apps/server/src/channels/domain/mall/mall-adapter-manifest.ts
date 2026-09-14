@@ -463,10 +463,10 @@ const SEEDS: readonly ManifestSeed[] = [
   {
     key: 'kidkids',
     name: '키드키즈',
-    kind: 'unknown',
-    difficulty: 'unknown',
+    kind: 'extension_form',
+    difficulty: 'medium',
     unverified: true,
-    note: '전 경로 302(euc-kr). 상품·재고 메뉴 미확인. 계정 확보 전 착수 금지.',
+    note: '스토어 파트너센터(euc-kr PHP). 등록은 /sales/goods_reg_renewal.htm 단일 폼(multipart → /stdinfo/reg_process_renewal.htm)으로 실측됐다(2026-09-14, 목록 3,478개). 분류 3단 AJAX · 공정위 고시 gs_id 동적 줄 · TinyMCE 상세. 품절관리·재고수량 메뉴는 있으나 상태 전이 경로는 미검증.',
   },
   {
     key: 'woongjin-class',
