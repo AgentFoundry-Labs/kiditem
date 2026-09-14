@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -13,6 +13,7 @@ import {
   PROFITABILITY_SOURCE_TYPE,
   profitabilityCoverageForKstYesterday,
 } from '../adapter/out/repository/profitability-ad-import.repository.adapter';
+import { readMonthlyAdAllocationPublication } from '../read/monthly-ad-allocation.reader';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { PrismaClient } from '@prisma/client';
 import type {
@@ -183,6 +184,84 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
       ready: true,
     });
+  });
+
+  it('holds an unreported closed day out of the confirmed coverage and its monthly facts', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: the import requests 2025-10-01 through 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: FIRST_KEY,
+      });
+      // Spend on 2026-09-05 and none on 2026-09-06: Coupang has not reported the 6th.
+      for (const receipt of plannedUploads(attempt, (slice) =>
+        slice.to === '2026-09-06' ? '2026-09-05' : slice.businessDates.at(-1)!)) {
+        await owner.uploadSlice(receipt);
+      }
+      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+        latestComplete: { sourceImportRunId: attempt.attemptId, coveredThrough: '2026-09-05' },
+        ready: true,
+      });
+      const september = await prisma.channelAdListingProductMonthlyFact.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: attempt.attemptId,
+          month: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+      expect(september).toHaveLength(2);
+      expect(september.every((fact) =>
+        fact.coveredEndDate.toISOString().slice(0, 10) === '2026-09-05'
+        && fact.observedTargetDayCount === 5
+        && fact.allocatedSpend === 7n)).toBe(true);
+      await expect(readMonthlyAdAllocationPublication(prisma as never, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attempt.attemptId,
+      })).resolves.toMatchObject({ coveredThrough: '2026-09-05' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a month whose only requested day is held as unreported', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-02 12:00 KST: the import requests 2025-10-01 through 2026-09-01.
+      vi.setSystemTime(new Date('2026-09-02T03:00:00.000Z'));
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: FIRST_KEY,
+      });
+      // Spend on 2026-08-31 and none on 2026-09-01.
+      for (const receipt of plannedUploads(attempt, (slice) =>
+        slice.from === '2026-09-01' ? null : slice.businessDates.at(-1)!)) {
+        await owner.uploadSlice(receipt);
+      }
+      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+        latestComplete: { sourceImportRunId: attempt.attemptId, coveredThrough: '2026-08-31' },
+        ready: true,
+      });
+      const run = await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } });
+      expect(run.coverageEndDate).toEqual(new Date('2026-08-31T00:00:00.000Z'));
+      expect(run.coveredMonths).not.toContain('2026-09');
+      await expect(prisma.channelAdListingProductMonthlyFact.count({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: attempt.attemptId,
+          month: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      })).resolves.toBe(0);
+      const generation = await owner.readGeneration({
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attempt.attemptId,
+      });
+      expect(generation?.summary.coveredThrough).toBe('2026-08-31');
+      expect(generation?.allocations.some((fact) => fact.month === '2026-09')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not expose a generation until every planned account and slice is complete', async () => {
@@ -852,12 +931,21 @@ async function seedAccount(
   });
 }
 
-function plannedUploads(plan: AdvertisingProfitabilityPlan): AdvertisingProfitabilitySliceUpload[] {
+/**
+ * One receipt per planned slice. Its row falls on `rowDate(slice)`, the slice's
+ * last requested day by default so the closed day carries spend; `null`
+ * uploads the slice with no rows.
+ */
+function plannedUploads(
+  plan: AdvertisingProfitabilityPlan,
+  rowDate: (slice: AdvertisingProfitabilityPlan['accounts'][number]['slices'][number]) => string | null
+    = (slice) => slice.businessDates.at(-1)!,
+): AdvertisingProfitabilitySliceUpload[] {
   let sequence = 0;
   return plan.accounts.flatMap((account) => account.slices.map((slice) => {
     const isFirstSlice = slice.sliceId === account.slices[0]?.sliceId;
     const row = {
-      businessDate: slice.businessDates[0]!,
+      businessDate: rowDate(slice) ?? slice.businessDates.at(-1)!,
       externalOptionId: account.externalAccountId === 'account-a'
         ? 'AD-OPTION-A'
         : account.externalAccountId === 'account-b'
@@ -872,8 +960,7 @@ function plannedUploads(plan: AdvertisingProfitabilityPlan): AdvertisingProfitab
       conversions: 1,
       adRevenue: 70,
     };
-    const rows = account.externalAccountId === 'account-c'
-      && !isFirstSlice
+    const rows = (account.externalAccountId === 'account-c' && !isFirstSlice) || rowDate(slice) === null
       ? []
       : [row];
     return {

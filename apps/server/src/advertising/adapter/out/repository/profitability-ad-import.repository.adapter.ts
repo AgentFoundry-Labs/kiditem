@@ -16,9 +16,11 @@ import {
   businessDateKey,
   datesInclusive,
   evidenceCutoffDate,
+  inclusiveDayCount,
   kstMonthEnd,
   kstMonthRange,
   parseBusinessDate,
+  shiftBusinessDateKey,
 } from '../../../../common/kst';
 import {
   effectiveSourceImportRunState as effectiveState,
@@ -36,6 +38,11 @@ import type {
 import type { AttemptFence } from '../../../application/port/in/profitability-ad-import.port';
 import type { ProfitabilityAdImportRepositoryPort } from '../../../application/port/out/repository/profitability-ad-import.repository.port';
 import { clampProfitabilityMonthCoverage } from '../../../domain/profitability-month-coverage';
+import {
+  adReportEvidenceCutoff,
+  confirmedAdReportEnd,
+  type ObservedDaySpend,
+} from '../../../domain/ad-report-confirmation';
 
 export const PROFITABILITY_SOURCE_TYPE = 'coupang_ad_profitability';
 export const PROFITABILITY_PARSER_VERSION = 'profitability-report-v1';
@@ -605,6 +612,16 @@ export class ProfitabilityAdImportRepositoryAdapter
         || fact.observedTargetDayCount === null
         || fact.observedTargetDayCount <= 0)) throw incompleteImport();
       const allocationSummary = await assertConservation(targets, facts, expectedSlices);
+      const requestedEnd = businessDateKey(attempt.coverageEndDate!);
+      const confirmedEnd = confirmedAdReportEnd({
+        requestedEnd,
+        closedDay: requestedEnd,
+        daySpend: observedDaySpend(plan, targets),
+      });
+      const publishedFacts = confirmedEnd === requestedEnd
+        ? facts
+        : await holdUnreportedDay(tx, attempt, facts, confirmedEnd);
+      const coveredMonths = attempt.coveredMonths.filter((month) => `${month}-01` <= confirmedEnd);
 
       const importedAt = new Date();
       const publication = await tx.sourceImportRun.findFirst({
@@ -622,10 +639,10 @@ export class ProfitabilityAdImportRepositoryAdapter
         .map((receipt) => receiptPayload(receipt.metaJson))
         .sort((left, right) => compareLowercase(left.sliceId ?? '', right.sliceId ?? '')));
       const qualityReport = completedQualityReport(
-        attempt,
+        { ...attempt, coveredMonths },
         plan,
         receipts,
-        facts,
+        publishedFacts,
         receiptDigest,
         allocationSummary,
       );
@@ -647,6 +664,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           providerBackedEmptyProof: targets.length === 0 || targets.every((target) => target.adSpend === 0),
           publicationSequence,
           qualityReport,
+          coverageEndDate: dateOnly(confirmedEnd),
+          coveredMonths,
           errorCode: null,
           errorMessage: null,
         },
@@ -1037,7 +1056,15 @@ function sourceView(
     latestComplete: latestCompleteView
       ? { actualCutoff: latestCompleteView.coveredThrough }
       : null,
-    requiredCutoff: businessDateKey(evidenceCutoffDate(now)),
+    requiredCutoff: adReportEvidenceCutoff({
+      closedDay: businessDateKey(evidenceCutoffDate(now)),
+      collections: [latestCompleteView && latestComplete
+        ? {
+          requestedEnd: requestedCoverageEnd(latestComplete),
+          confirmedEnd: latestCompleteView.coveredThrough,
+        }
+        : null],
+    }),
   }).ready;
   return {
     latestAttempt: latestAttemptView,
@@ -2061,6 +2088,74 @@ function incompleteImport(): ConflictException {
 
 function parseDate(value: string): Date | null {
   return parseBusinessDate(value);
+}
+
+/**
+ * The import's organization-wide spend on each business date its slices
+ * requested. An organization with no retained account requested nothing and
+ * observed no advertising, so every day reads zero.
+ */
+function observedDaySpend(plan: StoredPlan, targets: readonly Target[]): ObservedDaySpend {
+  if (plan.accounts.length === 0) return () => 0;
+  const requested = new Set(plan.accounts.flatMap((account) =>
+    account.slices.flatMap((slice) => slice.businessDates)));
+  const spend = new Map<string, number>();
+  for (const target of targets) {
+    const date = businessDateKey(target.businessDate);
+    spend.set(date, (spend.get(date) ?? 0) + target.adSpend);
+  }
+  return (date) => (requested.has(date) ? spend.get(date) ?? 0 : undefined);
+}
+
+/**
+ * Withdraw a held closed day from the frozen monthly facts. Its spend was zero,
+ * so allocations stay as they are and only covered dates move: facts ending on
+ * the held day now end the day before, and a month that held only that day is
+ * dropped.
+ */
+async function holdUnreportedDay(
+  tx: Transaction,
+  attempt: SourceAttempt,
+  facts: readonly MonthlyFact[],
+  confirmedEnd: string,
+): Promise<MonthlyFact[]> {
+  const heldDay = dateOnly(shiftBusinessDateKey(confirmedEnd, 1));
+  const end = dateOnly(confirmedEnd);
+  const endingOnHeldDay = {
+    organizationId: attempt.organizationId,
+    sourceImportRunId: attempt.id,
+    coveredEndDate: heldDay,
+  };
+  await tx.channelAdListingProductMonthlyFact.deleteMany({
+    where: { ...endingOnHeldDay, coveredStartDate: heldDay },
+  });
+  const starts = [...new Set(facts
+    .filter((fact) => fact.coveredEndDate.getTime() === heldDay.getTime()
+      && fact.coveredStartDate.getTime() < heldDay.getTime())
+    .map((fact) => businessDateKey(fact.coveredStartDate)))];
+  for (const start of starts) {
+    await tx.channelAdListingProductMonthlyFact.updateMany({
+      where: { ...endingOnHeldDay, coveredStartDate: dateOnly(start) },
+      data: { coveredEndDate: end, observedTargetDayCount: inclusiveDayCount(dateOnly(start), end) },
+    });
+  }
+  return facts.flatMap((fact) => {
+    if (fact.coveredEndDate.getTime() !== heldDay.getTime()) return [fact];
+    if (fact.coveredStartDate.getTime() === heldDay.getTime()) return [];
+    return [{
+      ...fact,
+      coveredEndDate: end,
+      observedTargetDayCount: inclusiveDayCount(fact.coveredStartDate, end),
+    }];
+  });
+}
+
+/** The last business date a generation's plan requested; its confirmed end when the plan has no slices. */
+function requestedCoverageEnd(run: SourceAttempt): string {
+  const ends = parseStoredPlan(run.plan).accounts
+    .flatMap((account) => account.slices.map((slice) => slice.to))
+    .sort();
+  return ends.at(-1) ?? businessDateKey(run.coverageEndDate!);
 }
 
 function dateOnly(value: string): Date {

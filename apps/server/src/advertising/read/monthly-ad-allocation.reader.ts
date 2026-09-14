@@ -114,9 +114,9 @@ export async function readMonthlyAdAllocationPublication(
       });
     if (run.plan === null) {
       if (coveredStartDate < coverageStartDate || coveredEndDate > coveredThrough) return null;
-    } else if (!frozenSlice
-      || frozenSlice.from < coverageStartDate
-      || frozenSlice.to > coveredThrough) {
+    } else if (!frozenSlice || frozenSlice.from < coverageStartDate) {
+      // A frozen slice may request a closed day the import held back as
+      // unreported; the clamped fact coverage below still ends in the window.
       return null;
     }
     const normalizedCoverage = frozenSlice

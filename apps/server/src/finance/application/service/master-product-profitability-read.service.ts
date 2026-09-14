@@ -411,7 +411,9 @@ function selectCompatiblePair(
         sellpiaGeneration.view.coverageEndDate,
         advertisingGeneration.view.coverageEndDate,
       );
-      if (!actualCutoff) continue;
+      if (!actualCutoff || !coversCutoffMonth(actualCutoff, sellpiaGeneration, advertisingGeneration)) {
+        continue;
+      }
       pairs.push({
         sellpia: sellpiaGeneration,
         advertising: advertisingGeneration,
@@ -700,6 +702,22 @@ function parseDate(value: string, code: string): string {
     throw new UnprocessableEntityException(code);
   }
   return value;
+}
+
+/**
+ * Whether both generations end on the pair's cutoff, or the cutoff closes its
+ * month. Sellpia and advertising facts are month totals, so a source that runs
+ * past a cutoff inside its month cannot be cut back to it, and that month would
+ * be incomplete for every product the source has facts for.
+ */
+function coversCutoffMonth(
+  actualCutoff: string,
+  sellpia: SellpiaGeneration,
+  advertising: AdvertisingGeneration,
+): boolean {
+  return actualCutoff === kstMonthEnd(actualCutoff.slice(0, 7))
+    || (sellpia.view.coverageEndDate === actualCutoff
+      && advertising.view.coverageEndDate === actualCutoff);
 }
 
 function minDate(...values: readonly (string | null)[]): string | null {

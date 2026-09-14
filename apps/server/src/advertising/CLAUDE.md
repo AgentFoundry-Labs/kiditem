@@ -32,6 +32,9 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - These rows are therefore NOT additive. `findKeywordTargetRollups` takes the
   latest observation per keyword; summing two collections double-counts their
   overlap.
+- Keyword rows carry no business date and cannot observe a single day, so a
+  window collected before Coupang reports yesterday can include that unreported
+  day. Keyword windows are never held back: the confirmed window is the plan.
 - The report grid's `키워드` column holds a modal-open button, not a keyword.
   `normalizeAdKeyword()` rejects those control labels at the domain boundary.
 - `replaceCampaignDay` is grain-scoped through `replaceScope`. The campaign
@@ -86,6 +89,11 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 ## Boundary Rules
 
 - KST business date conversion goes through `toBusinessDate()`.
+- Campaign sweeps and the profitability import request through the closed day
+  but confirm it only once they saw spend that day or no spend the day before
+  (`domain/ad-report-confirmation`); a held day stays out of the confirmed
+  window until a later collection sees its spend. Readers that require the
+  latest ads day use `readAdEvidenceCutoff`, never the closed day.
 - Period views derive from daily facts; ratios recompute from summed raw
   values instead of provider ratios.
 - Listing facts match `vendorItemId` to `ChannelListingOption`, then

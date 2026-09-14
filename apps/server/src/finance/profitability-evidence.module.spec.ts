@@ -415,9 +415,12 @@ describe('ProfitabilityEvidence', () => {
           ? { ...fact, coverageEndDate: '2026-08-14' }
           : fact),
       }),
+      // The advertising generation the snapshot lists is the one read back.
       advertisingSnapshot: {
         ...advertisingSnapshot(),
         latestAttempt: { ...advertisingSnapshot().latestAttempt, coverageEndDate: '2026-08-15' },
+        latestComplete: advertisingSummary({ coveredThrough: '2026-08-15' }),
+        completeGenerations: [advertisingSummary({ coveredThrough: '2026-08-15' })],
       },
       advertisingGeneration: advertisingGeneration({
         summary: advertisingSummary({ coveredThrough: '2026-08-15' }),

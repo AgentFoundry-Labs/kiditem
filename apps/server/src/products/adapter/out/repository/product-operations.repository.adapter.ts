@@ -11,6 +11,7 @@ import {
 } from '@kiditem/shared/channel-listing';
 import {
   advertisingApplies,
+  readAdEvidenceCutoff,
   readAdWindowFacts,
   readListingAdWindowFacts,
   type AdListingWindowFacts,
@@ -156,13 +157,18 @@ implements ProductOperationsRepositoryPort {
           include: productInclude(organizationId),
           orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         });
-        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: periodStart, to: periodEnd });
-        const adWindow = await readAdWindowFacts(tx, { organizationId, from: periodStart, to: periodEnd });
+        // The ad window keeps the period length but ends at the ad evidence
+        // cutoff: yesterday, unless every account held yesterday as unreported.
+        const adCutoff = await readAdEvidenceCutoff(tx, { organizationId, closedDay: cutoff });
+        const adPeriodStart = addDays(adCutoff, -(query.periodDays - 1));
+        const adPeriodEnd = addDays(adCutoff, 1);
+        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd });
+        const adWindow = await readAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd });
         const applies = await advertisingApplies(tx, organizationId);
         const adCoverage = {
           ready: !applies || adWindow.days.length === query.periodDays,
-          coverageStartDate: businessDateKey(periodStart),
-          coverageEndDate: businessDateKey(cutoff),
+          coverageStartDate: businessDateKey(adPeriodStart),
+          coverageEndDate: businessDateKey(adCutoff),
           capturedAt: adWindow.observedAt,
         };
         const traffic = await readListingTrafficWindowFacts(tx, {
@@ -431,6 +437,10 @@ function toListItem(
   const adSpend = adCoverage.ready
     ? advertisingFacts.reduce((total, fact) => total + fact.spend, 0)
     : null;
+  // A rate over two measurements needs identical dates (ADR-0006): while the ad
+  // window ends at an earlier evidence cutoff, the rate is unavailable.
+  const adAndSalesShareDates = adCoverage.coverageStartDate === orderCoverage.coverageStartDate
+    && adCoverage.coverageEndDate === orderCoverage.coverageEndDate;
   return {
     ...metadata(row),
     abcCreatedAt: row.createdAt,
@@ -458,7 +468,7 @@ function toListItem(
     salesQuantity,
     salesAmount,
     adSpend,
-    adSpendRate: adSpend !== null && salesAmount !== null && salesAmount > 0
+    adSpendRate: adSpend !== null && salesAmount !== null && salesAmount > 0 && adAndSalesShareDates
       ? (adSpend / salesAmount) * 100
       : null,
     metricsFreshness: {

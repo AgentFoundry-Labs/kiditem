@@ -89,10 +89,20 @@ owns physical stock quantities.
 - Revenue and operating-profit contribution, rank, cumulative share, and loss
   impact are separate reporting metrics. They never alter `abcGrade`.
 - Validity and freshness are distinct. Publication uses the newest cutoff every
-  compatible complete source reaches, so evidence that lags the latest closed
-  day still publishes at its own actual cutoff, and a newer RUNNING or FAILED
-  collection alone does not invalidate a compatible complete source. Persist
-  and display that actual cutoff separately from the desired latest cutoff.
+  compatible complete source pair reaches, so evidence that lags the latest
+  closed day still publishes at its own actual cutoff, and a newer RUNNING or
+  FAILED collection alone does not invalidate a compatible complete source.
+  Persist and display that actual cutoff separately from the desired latest
+  cutoff.
+- A Sellpia and an advertising generation pair only when they end on the same
+  day or the earlier one ends on a month's last day: month totals cannot be cut
+  back to an earlier day inside a month. Whichever source is newer, publication
+  pairs the newest retained generations that end together; with none, the
+  refresh returns `SOURCE_NOT_READY`, the source with the earlier end reads not
+  ready, and nothing is written. An advertising collection that held its
+  closed day as unreported therefore delays a refresh on a newer Sellpia
+  generation by one day unless an older Sellpia generation ends on the held
+  end.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Publication verifies the evaluated generation's identity as given; it does
@@ -102,8 +112,9 @@ owns physical stock quantities.
   cutoff come from the evaluated selection, and the transaction still refuses
   an input that disagrees with itself or with mutable state it re-reads.
 - Publication does not move the official cutoff backward because every
-  collection plan ends its coverage at KST-yesterday and `targetCutoff` is the
-  latest closed KST day, so the actual cutoff cannot precede a published one.
+  collection plan requests coverage through KST-yesterday (an advertising
+  collection may confirm one day less) and `targetCutoff` is the latest closed
+  KST day, so the actual cutoff cannot precede a published one.
   No guard enforces this. It rests on two things: a collection plan's coverage
   end, and a forward-moving clock. A remapping followed by a collection that
   ran while the host clock was behind produces an older actual cutoff over a

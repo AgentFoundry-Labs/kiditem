@@ -4,7 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
@@ -1063,6 +1063,147 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       .toEqual([{ id: zero.id, adSpend: 0 }]);
     expect(active.total).toBe(1);
     expect(inactive.total).toBe(1);
+  });
+
+  it('ends the advertising window at the evidence cutoff while the sweep holds yesterday as unreported', async () => {
+    const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1);
+    // The newest complete sweep requested 2026-09-06 and held it back.
+    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: listing.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
+      requestedEndDate: '2026-09-06',
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: '2026-09-05',
+      spend: 5_000,
+      runId: heldSweep,
+    });
+    const query = { activeStatus: 'all', periodDays: 7 } as const;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: yesterday is 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
+        adSpend: 5_000,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
+        },
+      });
+
+      // A later sweep that saw yesterday's spend confirms it.
+      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        generation: 2,
+        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
+      });
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        date: '2026-09-06',
+        spend: 7_000,
+        runId: reportedSweep,
+      });
+      const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
+        adSpend: 7_000,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('withholds the ad spend rate while the ad window and the sales window end on different days', async () => {
+    const { product, listing, options } = await linkedProductWithOptions('ADS-RATE', 1);
+    const order = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'ADS-RATE-ORDER',
+      orderedAt: '2026-09-03T03:00:00.000Z',
+      lineItems: [{
+        quantity: 1,
+        totalPrice: 20_000,
+        optionId: 'option',
+        listingOptionId: options[0]!.id,
+      }],
+    });
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-08-31',
+      endDate: '2026-09-06',
+      orderIds: [order],
+    });
+    // The sweep held yesterday (2026-09-06), so ads close a day before sales.
+    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: listing.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
+      requestedEndDate: '2026-09-06',
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: '2026-09-03',
+      spend: 2_000,
+      runId: heldSweep,
+    });
+    const query = {
+      page: 1,
+      limit: 50,
+      periodDays: 7 as const,
+      activeStatus: 'all' as const,
+      adStatus: 'all' as const,
+    };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: both amounts are measured, but over different dates.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
+        salesAmount: 20_000,
+        adSpend: 2_000,
+        adSpendRate: null,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
+          orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+
+      // A later sweep confirms yesterday, so both windows cover the same dates.
+      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        generation: 2,
+        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
+      });
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        date: '2026-09-03',
+        spend: 2_000,
+        runId: reportedSweep,
+      });
+      const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
+        salesAmount: 20_000,
+        adSpend: 2_000,
+        adSpendRate: 10,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+          orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('requires full declared traffic coverage and keeps sales separate from Wing traffic', async () => {

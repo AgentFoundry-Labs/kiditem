@@ -16,6 +16,7 @@ import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaig
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
 import { readAdWindowFacts } from '../read/ad-target-facts';
+import { businessDateKey, evidenceCutoffDate } from '../../common/kst';
 import type { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';
 
@@ -135,7 +136,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     mode,
     ...(payload ? { payload } : {}),
   });
-  const payload = (date: string, empty = false) => ({
+  const payload = (date: string, empty = false, spend = 12) => ({
     type: 'ad_campaign',
     source: 'advertising',
     campaignName: 'Campaign',
@@ -154,23 +155,23 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
             campaignName: 'Campaign',
             productName: 'Item',
             vendorItemId: 'OPTION-1',
-            runningAdSpend: 12,
-            revenue: 40,
-            impressions: 100,
-            clicks: 4,
-            conversions: 2,
-            orders: 2,
+            runningAdSpend: spend,
+            revenue: spend > 0 ? 40 : 0,
+            impressions: spend > 0 ? 100 : 0,
+            clicks: spend > 0 ? 4 : 0,
+            conversions: spend > 0 ? 2 : 0,
+            orders: spend > 0 ? 2 : 0,
             onOff: 'ON',
           },
     ],
   });
-  const day = (date: string, empty = false) => ({
+  const day = (date: string, empty = false, spend = 12) => ({
     ...common(),
     kind: 'campaign_day',
     key: `day:camp:${date}`,
     campaignKey: 'camp',
     businessDate: date,
-    payload: payload(date, empty),
+    payload: payload(date, empty, spend),
     proof: {
       dateApplied: true,
       complete: true,
@@ -179,7 +180,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       visitedPages: [1],
     },
   });
-  const manualReport = (period: '7d' | '1d', startDate: string, endDate: string, targetUrl: string, empty = false) => ({
+  const manualReport = (period: '7d' | '1d', startDate: string, endDate: string, targetUrl: string, empty = false, spend?: number) => ({
     ...common(),
     kind: 'manual_report',
     key: `manual_report:${period}:${startDate}:${endDate}`,
@@ -195,7 +196,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       timestamp: new Date().toISOString(),
       url: targetUrl,
       data: empty ? [] : [{ raw: 'displayed-range' }],
-      normalizedRows: [],
+      normalizedRows: spend === undefined ? [] : [{ campaignName: '_전체', runningAdSpend: spend }],
     },
   });
   const upload = (a: any, sequence: number, p: any) => put(a, `receipts/${sequence}`, p);
@@ -209,6 +210,15 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     await upload(a, 1, resolve()).expect(200);
     for (const [index, date] of a.plan.businessDates.entries())
       await upload(a, index + 2, day(date, index === 30)).expect(200);
+    return a;
+  };
+  /** A sweep whose product row on each requested date has `spendOn(date, plan)` spend. */
+  const sweep = async (spendOn: (date: string, plan: { businessDates: string[] }) => number) => {
+    const a = (await admit()).body;
+    await upload(a, 0, page()).expect(200);
+    await upload(a, 1, resolve()).expect(200);
+    for (const [index, date] of a.plan.businessDates.entries())
+      await upload(a, index + 2, day(date, false, spendOn(date, a.plan))).expect(200);
     return a;
   };
   const auxiliary = (a: any, failed = false, empty = false) => ({
@@ -515,6 +525,51 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it('holds a zero closed day after a day with spend until a later sweep sees its spend', async () => {
+    const held = await sweep((date, plan) => (date === plan.businessDates[0] ? 0 : 12));
+    await finish(held, 201);
+    const heldDayBefore = held.plan.businessDates[1];
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: held.attemptId } }))
+      .resolves.toMatchObject({ coverageEndDate: new Date(`${heldDayBefore}T00:00:00.000Z`) });
+    const heldDays = (await readAdWindowFacts(prisma as never, { organizationId: ORG })).days;
+    expect(heldDays.at(-1)).toMatchObject({ businessDate: heldDayBefore, spend: 12 });
+    expect(heldDays.map((row) => row.businessDate)).not.toContain(held.plan.endDate);
+    // Nothing newer can be collected until Coupang reports the closed day.
+    expect((await get('/source').expect(200)).body).toMatchObject({
+      ready: true,
+      latestComplete: { attemptId: held.attemptId },
+    });
+
+    const reported = await sweep(() => 12);
+    await finish(reported, 201);
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: reported.attemptId } }))
+      .resolves.toMatchObject({ coverageEndDate: new Date(`${reported.plan.endDate}T00:00:00.000Z`) });
+    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG })).days.at(-1))
+      .toMatchObject({ businessDate: reported.plan.endDate, spend: 12 });
+  });
+  it('confirms a zero closed day after a zero day, because the account was not advertising', async () => {
+    const quiet = await sweep((date, plan) => (plan.businessDates.slice(0, 2).includes(date) ? 0 : 12));
+    await finish(quiet, 201);
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: quiet.attemptId } }))
+      .resolves.toMatchObject({ coverageEndDate: new Date(`${quiet.plan.endDate}T00:00:00.000Z`) });
+    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG })).days.at(-1))
+      .toMatchObject({ businessDate: quiet.plan.endDate, spend: 0 });
+  });
+  it('holds a one-day manual report of the closed day that shows no spend', async () => {
+    const closedDay = businessDateKey(evidenceCutoffDate());
+    const targetUrl = `https://advertising.coupang.com/marketing/dashboard/sales#targetDate=${closedDay}`;
+    const scope = { captureMode: 'manual_report', period: '1d', startDate: closedDay, endDate: closedDay, targetUrl };
+    const range = `/reports?startDate=${closedDay}&endDate=${closedDay}`;
+    const zero = (await admit(randomUUID(), scope)).body;
+    await upload(zero, 0, manualReport('1d', closedDay, closedDay, targetUrl, false, 0)).expect(200);
+    await finish(zero, 201);
+    expect((await get(range).expect(200)).body.reports).toEqual([]);
+
+    const spent = (await admit(randomUUID(), scope)).body;
+    await upload(spent, 0, manualReport('1d', closedDay, closedDay, targetUrl, false, 500)).expect(200);
+    await finish(spent, 201);
+    expect((await get(range).expect(200)).body.reports).toMatchObject([{ attemptId: spent.attemptId }]);
   });
   it('does not let a detail-backed OFF campaign downgrade to metadata instead of collecting its dates', async () => {
     const a = (await admit()).body;

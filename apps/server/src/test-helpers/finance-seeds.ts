@@ -678,6 +678,8 @@ export async function seedCompletedAdSweepRun(
     status?: 'completed' | 'running' | 'failed';
     /** The window the sweep declares it swept; every date in it is measured. */
     window?: { startDate: string; endDate: string };
+    /** The last date the sweep requested, when it held back days after its window. */
+    requestedEndDate?: string;
   },
 ): Promise<string> {
   const account = await prisma.channelAccount.findFirstOrThrow({
@@ -696,7 +698,11 @@ export async function seedCompletedAdSweepRun(
       channelAccountId: account.id,
       status: opts.status ?? 'completed',
       parserVersion: 'ad-campaign-v1',
-      plan: { captureMode: 'campaign_sweep', ...(opts.window ?? {}) },
+      plan: {
+        captureMode: 'campaign_sweep',
+        ...(opts.window ?? {}),
+        ...(opts.requestedEndDate ? { endDate: opts.requestedEndDate } : {}),
+      },
       freshnessGeneration: BigInt(opts.generation),
       ...(opts.window && (opts.status ?? 'completed') === 'completed'
         ? {
