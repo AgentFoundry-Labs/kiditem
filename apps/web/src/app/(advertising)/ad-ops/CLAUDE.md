@@ -25,5 +25,6 @@ drilldown, strategy/planning, exports, and ad sync triggers.
 
 - Do not duplicate backend ad threshold policy. Read `/api/ads/config`.
 - Do not add direct Chrome messaging here without documenting the matching
-  extension capability and checking `extensions/coupang-ads-scraper/CLAUDE.md`.
+  extension capability and checking
+  `extensions/kiditem-os/background/coupang/CLAUDE.md`.
 - Do not mix finance settlement or catalog editing behavior into ad operations.
