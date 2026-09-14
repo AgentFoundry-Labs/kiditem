@@ -5,9 +5,7 @@ import {
 } from '@kiditem/shared/dashboard';
 import {
   SellpiaProfitabilityAttemptSchema,
-  SellpiaProfitabilityAttemptSummarySchema,
   type SellpiaProfitabilityAttempt,
-  type SellpiaProfitabilityAttemptSummary,
 } from '@kiditem/shared/source-import';
 
 // Sellpia 상품별 소진(재고관리) 백엔드 read 래퍼.
@@ -49,20 +47,4 @@ export function beginSellpiaProductProfitabilitySourceAttempt(input: {
       { headers: { 'Idempotency-Key': input.idempotencyKey } },
     )
     .then((response) => SellpiaProfitabilityAttemptSchema.parse(response));
-}
-
-export function readSellpiaProductProfitabilitySourceAttempt(
-  attemptId: string,
-): Promise<SellpiaProfitabilityAttemptSummary> {
-  return apiClient
-    .getParsed(
-      `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/status`,
-      SellpiaProfitabilityAttemptSummarySchema,
-    )
-    .then((attempt) => {
-      if (attempt.attemptId !== attemptId) {
-        throw new Error('셀피아 수익성 수집 시도 응답이 일치하지 않습니다.');
-      }
-      return attempt;
-    });
 }

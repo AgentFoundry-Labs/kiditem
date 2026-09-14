@@ -101,6 +101,8 @@ export const queryKeys = {
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>
       [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
+    sellpiaProductProfitabilitySource: () =>
+      [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
