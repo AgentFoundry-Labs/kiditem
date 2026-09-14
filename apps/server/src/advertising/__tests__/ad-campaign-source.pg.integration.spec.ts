@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import { AdCampaignSourceStatusSchema } from '@kiditem/shared/advertising';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-source.controller';
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
@@ -925,4 +926,80 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     ]);
     expect((await actionReader.findLatestTargetRows(ORG)).map((row) => row.spend)).toContain(77);
   });
+
+  const manualReportBegin = {
+    captureMode: 'manual_report',
+    period: '7d',
+    startDate: '2026-08-30',
+    endDate: '2026-09-05',
+    targetUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',
+  };
+  const sourceStatus = async () =>
+    AdCampaignSourceStatusSchema.parse((await get('/source').expect(200)).body);
+
+  it('reads the live attempt of any capture mode beside the sweep status', async () => {
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: null,
+      activeAttempt: null,
+      latestManualReport: null,
+    });
+
+    const manual = (await admit(randomUUID(), manualReportBegin)).body;
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: null,
+      latestComplete: null,
+      activeAttempt: {
+        attemptId: manual.attemptId,
+        state: 'RUNNING',
+        plan: { captureMode: 'manual_report' },
+      },
+    });
+    await cancel(manual.attemptId).expect(200);
+    expect((await sourceStatus()).activeAttempt).toBeNull();
+
+    const sweep = (await admit()).body;
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'RUNNING' },
+      activeAttempt: { attemptId: sweep.attemptId, plan: { captureMode: 'campaign_sweep' } },
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: sweep.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' },
+      activeAttempt: null,
+    });
+  });
+
+  it('reads the newest manual report in any state beside the sweep status', async () => {
+    const published = (await admit(randomUUID(), manualReportBegin)).body;
+    expect((await sourceStatus()).latestManualReport).toMatchObject({
+      attemptId: published.attemptId,
+      state: 'RUNNING',
+    });
+    await upload(
+      published,
+      0,
+      manualReport('7d', '2026-08-30', '2026-09-05', manualReportBegin.targetUrl),
+    ).expect(200);
+    await finish(published, 201);
+    const failed = (await admit(randomUUID(), manualReportBegin)).body;
+    await post(failed, 'fail', { code: 'NETWORK', message: 'Provider unavailable.' }).expect(201);
+    const sweep = await full();
+    await finish(sweep);
+
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'COMPLETE' },
+      latestComplete: { attemptId: sweep.attemptId },
+      activeAttempt: null,
+      latestManualReport: {
+        attemptId: failed.attemptId,
+        state: 'FAILED',
+        errorCode: 'NETWORK',
+        plan: { captureMode: 'manual_report', period: '7d' },
+      },
+    });
+  });
+
 });

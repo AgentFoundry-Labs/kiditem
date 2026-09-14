@@ -265,6 +265,8 @@ export class AdCampaignSourceRepository {
             latestAttempt: null,
             latestComplete: null,
             actualCutoffAt: null,
+            activeAttempt: null,
+            latestManualReport: null,
           };
         const where = { ...scope(org), channelAccountId: account.id };
         const rows = await tx.sourceImportRun.findMany({
@@ -273,11 +275,25 @@ export class AdCampaignSourceRepository {
         });
         const latest = rows.find(isCampaignSweepRow) ?? null;
         const complete = rows.find((row) => row.status === 'completed' && isCampaignSweepRow(row)) ?? null;
+        // Readiness stays on the sweep. A manual report holds the account while
+        // it runs, so the live attempt is read across capture modes.
+        const active = rows.find((row) => row.status === 'running' && !expired(row)) ?? null;
+        const manual = rows.find(isManualReportRow) ?? null;
         const latestAttempt = latest ? await this.viewIn(tx, latest) : null;
         const latestComplete = complete
           ? complete.id === latest?.id
             ? latestAttempt
             : await this.viewIn(tx, complete)
+          : null;
+        const activeAttempt = active
+          ? active.id === latest?.id
+            ? latestAttempt
+            : await this.viewIn(tx, active)
+          : null;
+        const latestManualReport = manual
+          ? manual.id === active?.id
+            ? activeAttempt
+            : await this.viewIn(tx, manual)
           : null;
         const confirmedEnd = complete?.coverageEndDate
           ? businessDateKey(complete.coverageEndDate)
@@ -302,6 +318,8 @@ export class AdCampaignSourceRepository {
           latestAttempt,
           latestComplete,
           actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
+          activeAttempt,
+          latestManualReport,
         } satisfies AdCampaignSourceStatus;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -917,6 +935,11 @@ function expired(row: Attempt) {
 function isCampaignSweepRow(row: Attempt): boolean {
   const parsed = AdCampaignSourcePlanSchema.safeParse(row.plan);
   return parsed.success && parsed.data.captureMode === 'campaign_sweep';
+}
+
+function isManualReportRow(row: Attempt): boolean {
+  const parsed = AdCampaignSourcePlanSchema.safeParse(row.plan);
+  return parsed.success && parsed.data.captureMode === 'manual_report';
 }
 
 function dateAtUtc(value: string): Date {
