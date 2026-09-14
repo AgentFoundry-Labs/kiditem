@@ -26,7 +26,6 @@ import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
-import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { countPublishedCatalogListings } from '../read/completed-catalog-run';
@@ -1131,17 +1130,33 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await finish(ready.permit, ready.hash).expect(201);
   });
   it('rejects a late browser snapshot after a real file import publishes to the same account', async () => {
-    const ready = await stage();
-    const file = new ChannelCatalogImportService(
-      new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts),
-    );
-    await file.importCoupangWing({
+    // One import runs per account: a browser import begins only once the file
+    // import that claimed the account went stale, and that file import's later
+    // publication still fences the browser snapshot out.
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,
       channelAccountId: ACCOUNT,
       fileName: 'catalog.xlsx',
       fileHash: 'f'.repeat(64),
-      headers: [],
+      rowCount: 1,
+    });
+    if (claim.kind !== 'started') throw new Error('expected the file import to claim the account');
+    expect((await start().expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: claim.runId,
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: claim.runId },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
+    const ready = await stage();
+    await importer.upsertCoupangWingCatalog({
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
       skippedRows: [],
       rows: [
         {
@@ -1165,7 +1180,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     });
     const before = await visible();
     expect(before.items.map((row) => row.externalId)).toEqual(['FILE']);
-    await finish(ready.permit, ready.hash).expect(409);
+    const late = await finish(ready.permit, ready.hash).expect(409);
+    expect(late.body.message).toContain('superseded');
     expect(await visible()).toEqual(before);
   });
   it('checks fixed expiry after waiting for the mapping lock and after media work before terminal CAS', async () => {
