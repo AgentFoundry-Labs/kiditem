@@ -1,7 +1,7 @@
 import {
-  AD_COST_TEXT_COLOR,
   cn,
   formatKRW,
+  getAdCostColor,
   getGradeTextColor,
   getProfitAmountColor,
 } from '@/lib/utils';
@@ -44,7 +44,7 @@ export function GradesPanel({ grades }: GradesPanelProps) {
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">광고비</span>
-                <span className={cn('font-semibold tabular-nums', AD_COST_TEXT_COLOR)}>
+                <span className={cn('font-semibold tabular-nums', getAdCostColor(grade.adCost))}>
                   {grade.adCost === null ? '-' : `${formatKRW(grade.adCost)}원`}
                 </span>
               </div>
