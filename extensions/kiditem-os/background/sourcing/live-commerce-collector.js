@@ -161,13 +161,6 @@
     }
 
 
-    // A begin replayed to resume a stored attempt continues only that attempt
-    // while its lease holds. Any other running answer changes nothing local; the
-    // attempt stays for its lease or an operator stop.
-    function continuesAttempt(plan, expectedAttemptId) {
-      return plan.attemptId === expectedAttemptId && Date.parse(plan.expiresAt) > Date.now();
-    }
-
     async function begin(config, environmentId, input, expectedAttemptId = null) {
       const validated = validateLiveUrl(input?.url);
       if (!validated.ok) throw ownerError("INVALID_LIVE_COMMERCE_URL", validated.error);
@@ -179,7 +172,7 @@
         },
         body: JSON.stringify({ url: validated.url }),
       }), { requireToken: true });
-      if (expectedAttemptId && plan.state === "RUNNING" && !continuesAttempt(plan, expectedAttemptId)) {
+      if (expectedAttemptId && plan.state === "RUNNING" && !wire.continuesAttempt(plan, expectedAttemptId)) {
         return { ...plan, continuable: false };
       }
       if (plan.state === "RUNNING") {

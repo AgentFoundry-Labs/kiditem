@@ -165,3 +165,15 @@ test('shared HTTP retry remains bounded at three and never retries owner 4xx ref
     assert.equal(requests, expected);
   }
 });
+
+test('continues a replayed begin only for the same attempt while its lease holds', () => {
+  const { chrome } = chromeStorage();
+  const wire = loadWire().create({ chrome, sourcePath: '/sourcing/example/attempts', requestFailureMessage: 'failed' });
+  const now = Date.parse('2026-09-14T00:00:00.000Z');
+  const plan = { attemptId: 'attempt-1', expiresAt: '2026-09-14T00:10:00.000Z' };
+
+  assert.equal(wire.continuesAttempt(plan, 'attempt-1', now), true);
+  assert.equal(wire.continuesAttempt(plan, 'attempt-2', now), false);
+  assert.equal(wire.continuesAttempt(plan, 'attempt-1', Date.parse(plan.expiresAt)), false);
+  assert.equal(wire.continuesAttempt({ ...plan, expiresAt: 'not-a-date' }, 'attempt-1', now), false);
+});

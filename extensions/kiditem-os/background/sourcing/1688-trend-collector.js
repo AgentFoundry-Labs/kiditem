@@ -275,13 +275,6 @@
       return sendTabMessage(tabId, message);
     }
 
-    // A begin replayed to resume a stored attempt continues only that attempt
-    // while its lease holds. Any other running answer changes nothing local; the
-    // attempt stays for its lease or an operator stop.
-    function continuesAttempt(plan, expectedAttemptId) {
-      return plan.attemptId === expectedAttemptId && Date.parse(plan.expiresAt) > now().getTime();
-    }
-
     async function begin(config, environmentId, idempotencyKey, expectedAttemptId = null) {
       const plan = planFrom(await requestJson(config, SOURCE_PATH, {
         method: "POST",
@@ -290,7 +283,7 @@
           "Idempotency-Key": requiredText(idempotencyKey, "INVALID_IDEMPOTENCY_KEY"),
         },
       }));
-      if (expectedAttemptId && plan.state === "RUNNING" && !continuesAttempt(plan, expectedAttemptId)) {
+      if (expectedAttemptId && plan.state === "RUNNING" && !wire.continuesAttempt(plan, expectedAttemptId, now().getTime())) {
         return { ...plan, continuable: false };
       }
       if (plan.state === "RUNNING") {
