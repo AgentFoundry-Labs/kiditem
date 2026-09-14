@@ -231,7 +231,7 @@ describe('Rocket PO collection control', () => {
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
-  it('refreshes the saved Rocket PO lists only after a new complete collection', async () => {
+  it('refreshes the saved Rocket PO lists and the dashboard collection times only after a new complete collection', async () => {
     sources[ACCOUNT_A] = {
       ready: true,
       latestAttempt: attempt(ACCOUNT_A, 'COMPLETE'),
@@ -239,16 +239,23 @@ describe('Rocket PO collection control', () => {
     };
     const { client } = renderControls(<RocketControl accountId={ACCOUNT_A} label="확인 패널" />);
     const savedListKey = [...queryKeys.orders.rocketSavedPoLists(), 'month'];
+    // The dashboard's Rocket PO cell shows when the collection last completed.
+    const dashboardCollectionsKey = queryKeys.dashboard.collections();
     client.setQueryData(savedListKey, []);
+    client.setQueryData(dashboardCollectionsKey, { lastCompleted: {} });
     expect(await screen.findByRole('button', { name: '로켓 PO 수집' })).toBeEnabled();
 
     await act(() => client.refetchQueries({ queryKey: queryKeys.orders.rocketPoSource(ACCOUNT_A) }));
     expect(client.getQueryState(savedListKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(dashboardCollectionsKey)?.isInvalidated).toBe(false);
 
     const next = attempt(ACCOUNT_A, 'COMPLETE', NEXT_ATTEMPT_ID);
     sources[ACCOUNT_A] = { ready: true, latestAttempt: next, latestComplete: next };
     await act(() => client.refetchQueries({ queryKey: queryKeys.orders.rocketPoSource(ACCOUNT_A) }));
 
-    await waitFor(() => expect(client.getQueryState(savedListKey)?.isInvalidated).toBe(true));
+    await waitFor(() => {
+      expect(client.getQueryState(savedListKey)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(dashboardCollectionsKey)?.isInvalidated).toBe(true);
+    });
   });
 });

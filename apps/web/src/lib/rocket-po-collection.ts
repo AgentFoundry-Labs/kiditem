@@ -114,6 +114,8 @@ export function rocketPoCollection(
     onNewComplete: (queryClient) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.rocketSavedPoLists() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all });
+      // The dashboard's Rocket PO cell shows when the last collection completed.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.collections() });
     },
   };
 }
