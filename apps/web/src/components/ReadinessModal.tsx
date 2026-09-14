@@ -235,16 +235,8 @@ export default function ReadinessModal({
                   </p>
                 </div>
                 <div className="space-y-2.5">
-                  <AdSyncRow
-                    onComplete={() => {
-                      void query.refetch();
-                    }}
-                  />
-                  <AdKeywordRow
-                    onComplete={() => {
-                      void query.refetch();
-                    }}
-                  />
+                  <AdSyncRow />
+                  <AdKeywordRow />
                   <StockSyncRow />
                   {additionalCollection}
                 </div>

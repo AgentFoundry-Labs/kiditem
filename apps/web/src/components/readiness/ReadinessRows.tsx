@@ -16,11 +16,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect';
-import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
+import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
+import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
 import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
-import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import {
   buildCoupangCatalogProgress,
@@ -53,7 +54,6 @@ function getDisplay(check: ReadinessCheck): DisplayMeta {
 function collectLabel(check: ReadinessCheck, catalog?: CatalogReadinessState): string {
   const overallState = catalog ? catalogOverallState(catalog) : null;
   if (check.key === 'wing_sales') return '매출 받기';
-  if (check.key === 'coupang_ads') return '광고 받기';
   if (check.key === 'wing_kpi') return '순위 받기';
   if (check.key === 'coupang_products' && catalog && catalogWholeFlowPending(catalog)) {
     return '상태 확인 중';
@@ -534,6 +534,9 @@ export function ActionCheckCard({
   const catalogCanResume = isCatalog && catalogState === 'RUNNING' &&
     catalog?.browser?.active !== true && !catalogResumeBlocked && !catalogWholeFlowPendingState;
   const catalogRunningInBrowser = isCatalog && catalogState === 'RUNNING' && catalog?.browser?.active === true;
+  // The campaign sweep keeps one control in this modal, 광고 동기화 below;
+  // the ad readiness card only points to it.
+  const collectsThroughAdSync = check.key === 'coupang_ads';
 
   const subline = (() => {
     if (missingCount > 0) {
@@ -594,30 +597,36 @@ export function ActionCheckCard({
           </p>
         </div>
 
-        <button
-          onClick={() => onCollect(check)}
-          disabled={(pending && !catalogCanResume) || catalog?.isCancelling ||
-            Boolean(catalogRunningInBrowser) || Boolean(catalogResumeBlocked) || catalogWholeFlowPendingState}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {catalogWholeFlowPendingState ? (
-            <>상태 확인 중</>
-          ) : pending ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              받는 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {catalogResumeBlocked ? '재개 대기' : collectLabel(check, catalog)}
-            </>
-          )}
-        </button>
+        {collectsThroughAdSync ? (
+          <p className="shrink-0 self-center text-[11px] text-[var(--text-muted)]">
+            {'아래 ‘광고 동기화’에서 받아요'}
+          </p>
+        ) : (
+          <button
+            onClick={() => onCollect(check)}
+            disabled={(pending && !catalogCanResume) || catalog?.isCancelling ||
+              Boolean(catalogRunningInBrowser) || Boolean(catalogResumeBlocked) || catalogWholeFlowPendingState}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+              'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+              'disabled:opacity-60',
+            )}
+          >
+            {catalogWholeFlowPendingState ? (
+              <>상태 확인 중</>
+            ) : pending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                받는 중…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3.5 w-3.5" />
+                {catalogResumeBlocked ? '재개 대기' : collectLabel(check, catalog)}
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {isCatalog && catalog && (
@@ -631,11 +640,15 @@ export function ActionCheckCard({
   );
 }
 
-export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
-  const { source, status, loading, cancelling, run, cancel } = useAdSync({ onComplete });
-  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
-  const isRunning = status?.state === 'RUNNING';
-  const statusRead = collectionSourceStatusRead(source);
+/**
+ * The campaign sweep's one control in the readiness modal. Start, refusal,
+ * running scope and stop come from the shared collection control.
+ */
+export function AdSyncRow() {
+  const control = useCollectionSourceControl(adCampaignSweepCollection);
+  const source = control.status;
+  const readiness = source ? ownerSourceReadiness(source) : null;
+  const attempt = source?.latestAttempt ?? null;
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -653,55 +666,28 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            {source.data?.latestComplete
-              ? `사용 중인 데이터: ${source.data.latestComplete.plan.startDate} ~ ${source.data.latestComplete.plan.endDate}`
+            {source?.latestComplete
+              ? `사용 중인 데이터: ${source.latestComplete.plan.startDate} ~ ${source.latestComplete.plan.endDate}`
               : '완료된 데이터가 없습니다. 전체 순회 완료 후 결과를 표시합니다.'}
           </p>
-          {statusRead === 'unavailable' && (
-            <p className="mt-1 text-xs text-[var(--danger)]">수집 상태를 확인하지 못했습니다.</p>
-          )}
-          {statusRead === 'rechecking' && (
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
-          )}
-          {status && (
+          {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {status.state === 'FAILED'
-                ? (status.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
-                : isRunning
-                  ? `캠페인 ${status.campaignCount}개 수집 중 · 미발행`
-                  : `전체 수집 완료${status.rawOnlyCampaignCount ? ` · ${status.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
+              {attempt.state === 'FAILED'
+                ? (attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                : attempt.state === 'RUNNING'
+                  ? `캠페인 ${attempt.campaignCount}개 수집 중 · 미발행`
+                  : `전체 수집 완료${attempt.rawOnlyCampaignCount ? ` · ${attempt.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
             </p>
           )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              동기화 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {isRunning ? '진행 확인·이어서 수집' : '광고 동기화'}
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="광고 동기화"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
-      {isRunning && (
-        <button type="button" onClick={() => void cancel()} disabled={cancelling}
-          className="mx-4 mb-4 text-xs text-[var(--text-secondary)] disabled:opacity-60">
-          {cancelling ? '중단 확인 중…' : '수집 중단'}
-        </button>
-      )}
     </div>
   );
 }
@@ -714,11 +700,11 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
  * keyword table of every advertised product. Keyword collection also runs on
  * its own — it does not need the 31-day sweep to finish first.
  */
-export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
-  const { source, status, loading, cancelling, run, cancel } = useAdKeywordCollect({ onComplete });
-  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
-  const canContinue = status?.state === 'RUNNING';
-  const statusRead = collectionSourceStatusRead(source);
+export function AdKeywordRow() {
+  const control = useCollectionSourceControl(adKeywordCollection);
+  const source = control.status;
+  const readiness = source ? ownerSourceReadiness(source) : null;
+  const attempt = source?.latestAttempt ?? null;
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -738,63 +724,30 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             완료본 유지 · 필요하면 명시적으로 다시 실행
           </p>
-          {statusRead === 'unavailable' && (
-            <p className="mt-1 text-xs text-[var(--danger)]">
-              수집 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.
-            </p>
-          )}
-          {statusRead === 'rechecking' && (
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
-          )}
-          {status && (
+          {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {status.state === 'FAILED'
-                ? (status.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
-                : status.state === 'COMPLETE'
+              {attempt.state === 'FAILED'
+                ? (attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                : attempt.state === 'COMPLETE'
                   ? '전체 수집 완료'
-                  : `수집 진행 ${status.completedGroupCount}/${status.groupCount} 광고그룹 · 미발행`}
+                  : `수집 진행 ${attempt.completedGroupCount}/${attempt.groupCount} 광고그룹 · 미발행`}
             </p>
           )}
-          {source.data?.latestComplete && (
+          {source?.latestComplete && (
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              사용 중인 데이터: {source.data.latestComplete.plan.startDate} ~{' '}
-              {source.data.latestComplete.plan.endDate}
+              사용 중인 데이터: {source.latestComplete.plan.startDate} ~{' '}
+              {source.latestComplete.plan.endDate}
             </p>
           )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              수집 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {canContinue ? '이어서 수집' : '키워드 수집'}
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="키워드 수집"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
-      {canContinue && (
-        <button
-          type="button"
-          onClick={() => void cancel()}
-          disabled={cancelling}
-          className="mx-4 mb-4 text-xs text-[var(--text-secondary)] disabled:opacity-60"
-        >
-          {cancelling ? '중단 확인 중…' : '수집 중단'}
-        </button>
-      )}
     </div>
   );
 }

@@ -31,18 +31,8 @@ const CATALOG_CHILD_OWNER_PATH =
 const CATALOG_BEGIN_PATH =
   `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/attempts`;
 const CATALOG_BASICS_STORAGE_KEY = `${COUPANG_CATALOG_ATTEMPT_STORAGE_KEY}:basics`;
-const AD_CAMPAIGN_SOURCE_PATH = '/api/ads/ad-campaigns';
-const AD_CAMPAIGN_EXTENSION_ACTION = 'collectAdvertisingCampaigns';
 // The account-day KPI owner was deleted; nothing may still reach it.
 const RETIRED_AD_ACCOUNT_DAY_PATH = '/api/ads/account-daily-kpis';
-const RETIRED_AD_ACCOUNT_DAY_STORAGE_KEY = 'kiditem:readiness:ad-account-daily-kpi-attempt';
-const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000011';
-const AD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000012';
-const AD_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000014';
-const AD_PREVIOUS_ATTEMPT_ID = '00000000-0000-4000-8000-000000000015';
-const AD_ATTEMPT_PATH = `${AD_CAMPAIGN_SOURCE_PATH}/attempts/${AD_ATTEMPT_ID}`;
-const AD_SOURCE_STATUS_PATH = `${AD_CAMPAIGN_SOURCE_PATH}/source`;
-const AD_BEGIN_PATH = `${AD_CAMPAIGN_SOURCE_PATH}/attempts`;
 const catalogPlan = {
   channelAccountId: CATALOG_ACCOUNT_ID,
   collectorVersion: 'wing-inventory-v1',
@@ -121,53 +111,6 @@ const catalogDetailsOwner: CoupangCatalogCollectionRun = {
     changes: {},
   },
 };
-const adPlan = {
-  sourceType: 'coupang_ad_campaign' as const,
-  parserVersion: 'ad-campaign-v1' as const,
-  captureMode: 'campaign_sweep' as const,
-  channelAccountId: AD_ACCOUNT_ID,
-  expectedAdvertiserId: 'advertiser-1',
-  startDate: '2026-06-14',
-  endDate: '2026-07-14',
-  businessDates: Array.from({ length: 31 }, (_, index) =>
-    new Date(Date.UTC(2026, 6, 14 - index)).toISOString().slice(0, 10),
-  ),
-};
-function adAttempt(
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING',
-  attemptId = AD_ATTEMPT_ID,
-) {
-  return {
-    attemptId,
-    channelAccountId: AD_ACCOUNT_ID,
-    state,
-    plan: adPlan,
-    expiresAt: '2030-01-01T00:00:00.000Z',
-    actualCutoffAt:
-      state === 'COMPLETE' ? '2026-07-15T00:00:00.000Z' : null,
-    manifestChecksum: 'a'.repeat(64),
-    rowCount: state === 'COMPLETE' ? 31 : 0,
-    campaignCount: 1,
-    rawOnlyCampaignCount: 0,
-    warningCount: 0,
-    errorCode: state === 'FAILED' ? 'EXTENSION_ERROR' : null,
-    errorMessage: state === 'FAILED' ? '광고 페이지를 읽지 못했습니다.' : null,
-  };
-}
-function adSource(
-  latestAttempt: ReturnType<typeof adAttempt> | null,
-  ready: boolean = latestAttempt?.state === 'COMPLETE',
-  latestComplete: ReturnType<typeof adAttempt> | null =
-    latestAttempt?.state === 'COMPLETE' ? latestAttempt : null,
-) {
-  return {
-    channelAccountId: AD_ACCOUNT_ID,
-    ready,
-    latestAttempt,
-    latestComplete,
-    actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
-  };
-}
 function wingBatch(state: 'RUNNING' | 'COMPLETE' = 'RUNNING'): WingRankBatch {
   return {
     attempts: [{ attemptId: RUN_ID, keyword: '연필', generation: '1', state,
@@ -185,12 +128,8 @@ const COMPATIBLE_PING = {
   version: '1.2.102',
   capabilities: {
     browserCollectionSessions: true,
-    advertisingCampaignSourceOwnerV1: true,
   },
 };
-
-let currentAdAttempt = adAttempt();
-let currentAdSource = adSource(null);
 
 const mocks = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
@@ -296,8 +235,6 @@ describe('readiness extension collection', () => {
       version: '1.2.42',
     });
     vi.mocked(sendToExtension).mockResolvedValue(COMPATIBLE_PING);
-    currentAdAttempt = adAttempt();
-    currentAdSource = adSource(null);
     mocks.collectSellpiaSaleSummaryFromExtension.mockResolvedValue({
       success: true,
       terminalState: 'COMPLETE',
@@ -312,8 +249,6 @@ describe('readiness extension collection', () => {
       if (path === WING_BATCH_PATH) return wingBatch();
       if (path === CATALOG_OWNER_PATH) return catalogOwner;
       if (path === CATALOG_CHILD_OWNER_PATH) return catalogDetailsOwner;
-      if (path === AD_SOURCE_STATUS_PATH) return currentAdSource;
-      if (path === AD_ATTEMPT_PATH) return currentAdAttempt;
       return [
         {
           id: CATALOG_ACCOUNT_ID,
@@ -325,18 +260,12 @@ describe('readiness extension collection', () => {
     vi.mocked(apiClient.post).mockImplementation(async (path) => {
       if (path === WING_BATCH_PATH) return wingBatch();
       if (path === CATALOG_BEGIN_PATH) return catalogPermit;
-      if (path === AD_BEGIN_PATH) {
-        currentAdAttempt = adAttempt();
-        currentAdSource = adSource(currentAdAttempt);
-        return currentAdAttempt;
-      }
       return { id: RUN_ID };
     });
     mocks.startCoupangCatalogBrowser.mockResolvedValue('coupang-extension');
     mocks.sendToExtension.mockResolvedValue({
       success: true,
       cancelled: true,
-      capabilities: { advertisingCampaignSourceOwnerV1: true },
     });
     mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
       attemptId: CATALOG_ATTEMPT_ID,
@@ -462,7 +391,6 @@ describe('readiness extension collection', () => {
 
     await act(async () => {
       await result.current.handleCollect(check('wing_sales'));
-      await result.current.handleCollect(check('coupang_ads'));
       await result.current.handleCollect(check('coupang_products'));
       await result.current.handleCollect(check('wing_kpi'));
     });
@@ -470,11 +398,6 @@ describe('readiness extension collection', () => {
     // Readiness keys use their concrete owner, never the retired generic
     // scrapeTargets/runId session transport.
     expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalled();
-    expect(sendToExtension).toHaveBeenCalledWith(
-      'coupang-extension',
-      { action: AD_CAMPAIGN_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
-      35 * 60_000,
-    );
     expect(
       requestedApiPaths().filter((path) => path.startsWith(RETIRED_AD_ACCOUNT_DAY_PATH)),
     ).toEqual([]);
@@ -1074,109 +997,6 @@ describe('readiness extension collection', () => {
     expect(toast.warning).toHaveBeenCalled();
     expect(sendToExtension).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
-  });
-
-  it('starts the campaign sweep owner attempt with its exact extension action', async () => {
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper() },
-    );
-
-    await act(async () => {
-      await result.current.handleCollect(check('coupang_ads'));
-    });
-
-    expect(apiClient.post).toHaveBeenCalledWith(
-      AD_BEGIN_PATH,
-      {},
-      { headers: { 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) } },
-    );
-    expect(sendToExtension).toHaveBeenCalledWith(
-      'coupang-extension',
-      { action: AD_CAMPAIGN_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
-      35 * 60_000,
-    );
-    expect(
-      vi.mocked(sendToExtension).mock.calls.map(
-        ([, message]) => (message as { action: string }).action,
-      ),
-    ).toEqual(['ping', AD_CAMPAIGN_EXTENSION_ACTION]);
-    expect(apiClient.get).toHaveBeenCalledWith(AD_ATTEMPT_PATH);
-    await waitFor(() => expect(result.current.pendingKey).toBe('coupang_ads'));
-    expect(refetchReadiness).not.toHaveBeenCalled();
-    expect(
-      requestedApiPaths().filter((path) => path.startsWith(RETIRED_AD_ACCOUNT_DAY_PATH)),
-    ).toEqual([]);
-  });
-
-  it('reconciles a running campaign sweep on reload without provider IO', async () => {
-    currentAdAttempt = adAttempt();
-    currentAdSource = adSource(currentAdAttempt);
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const view = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper() },
-    );
-
-    await waitFor(() => expect(view.result.current.pendingKey).toBe('coupang_ads'));
-    expect(apiClient.get).toHaveBeenCalledWith(AD_SOURCE_STATUS_PATH);
-    expect(apiClient.post).not.toHaveBeenCalledWith(
-      AD_BEGIN_PATH,
-      expect.anything(),
-      expect.anything(),
-    );
-    expect(sendToExtension).not.toHaveBeenCalled();
-    expect(refetchReadiness).not.toHaveBeenCalled();
-  });
-
-  it('clears pending state and refetches readiness once the campaign sweep settles', async () => {
-    currentAdAttempt = adAttempt();
-    currentAdSource = adSource(currentAdAttempt);
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const view = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper(client) },
-    );
-    await waitFor(() => expect(view.result.current.pendingKey).toBe('coupang_ads'));
-
-    currentAdAttempt = adAttempt('COMPLETE');
-    currentAdSource = adSource(currentAdAttempt);
-    await act(async () => {
-      await client.invalidateQueries({ queryKey: queryKeys.ads.campaignSource() });
-    });
-
-    await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
-    expect(refetchReadiness).toHaveBeenCalledTimes(1);
-    expect(sendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('keeps a failed sweep beside previous complete data and ignores retired account-day attempt storage', async () => {
-    localStorage.setItem(
-      RETIRED_AD_ACCOUNT_DAY_STORAGE_KEY,
-      JSON.stringify({ attemptId: AD_ATTEMPT_ID, idempotencyKey: AD_IDEMPOTENCY_KEY }),
-    );
-    currentAdAttempt = adAttempt('FAILED');
-    currentAdSource = adSource(
-      currentAdAttempt,
-      false,
-      adAttempt('COMPLETE', AD_PREVIOUS_ATTEMPT_ID),
-    );
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const view = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper() },
-    );
-
-    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(AD_SOURCE_STATUS_PATH));
-    expect(view.result.current.pendingKey).toBeNull();
-    expect(refetchReadiness).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(sendToExtension).not.toHaveBeenCalled();
-    expect(
-      requestedApiPaths().filter((path) => path.startsWith(RETIRED_AD_ACCOUNT_DAY_PATH)),
-    ).toEqual([]);
   });
 
   it('keeps Wing pending until the owner receipt settles, ignoring legacy session state', async () => {

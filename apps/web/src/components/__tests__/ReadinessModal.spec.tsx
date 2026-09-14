@@ -1,18 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 import ReadinessModal from '../ReadinessModal';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
-const mockAdSyncRun = vi.hoisted(() => vi.fn());
-const mockAdCampaignSource = vi.hoisted(() => ({
-  data: {
-    ready: false,
-    latestComplete: null as null | { plan: { startDate: string; endDate: string } },
-  },
-}));
 const mockHandleCollect = vi.hoisted(() => vi.fn());
 const mockCatalog = vi.hoisted(() => ({ value: null as unknown }));
 
@@ -21,24 +15,6 @@ vi.mock('@/lib/api-client', () => ({
     get: mockApiGet,
     post: vi.fn(),
   },
-}));
-
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
-  useAdSync: () => ({
-    loading: false,
-    run: mockAdSyncRun,
-    source: mockAdCampaignSource,
-    status: null,
-    cancelling: false,
-    cancel: vi.fn(),
-  }),
-}));
-
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect', () => ({
-  useAdKeywordCollect: () => ({
-    loading: false, cancelling: false, source: {}, status: null,
-    run: vi.fn(), cancel: vi.fn(),
-  }),
 }));
 
 vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
@@ -68,6 +44,66 @@ vi.mock('sonner', () => ({
 
 const TODAY_DISMISSED_KEY = 'kiditem.readiness.dismissedDate';
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
+const CAMPAIGN_SOURCE_PATH = '/api/ads/ad-campaigns/source';
+const KEYWORD_SOURCE_PATH = '/api/ads/ad-keywords/source';
+const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000011';
+const EMPTY_OWNER_SOURCE = {
+  channelAccountId: null,
+  ready: false,
+  latestAttempt: null,
+  latestComplete: null,
+  actualCutoffAt: null,
+};
+
+function completeCampaignSweep() {
+  return {
+    attemptId: '00000000-0000-4000-8000-000000000012',
+    channelAccountId: AD_ACCOUNT_ID,
+    state: 'COMPLETE',
+    plan: {
+      sourceType: 'coupang_ad_campaign',
+      parserVersion: 'ad-campaign-v1',
+      channelAccountId: AD_ACCOUNT_ID,
+      expectedAdvertiserId: 'advertiser-1',
+      startDate: '2026-08-06',
+      endDate: '2026-09-05',
+      businessDates: Array.from({ length: 31 }, (_, index) =>
+        new Date(Date.UTC(2026, 8, 5 - index)).toISOString().slice(0, 10),
+      ),
+    },
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    actualCutoffAt: '2026-09-06T00:00:00.000Z',
+    manifestChecksum: 'a'.repeat(64),
+    rowCount: 31,
+    campaignCount: 1,
+    rawOnlyCampaignCount: 0,
+    warningCount: 0,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+function campaignSweepSource(ready: boolean) {
+  const complete = completeCampaignSweep();
+  return {
+    channelAccountId: AD_ACCOUNT_ID,
+    ready,
+    latestAttempt: complete,
+    latestComplete: complete,
+    actualCutoffAt: complete.actualCutoffAt,
+  };
+}
+
+let readiness: unknown;
+let campaignSource: unknown;
+
+function setReadiness(response: unknown) {
+  readiness = response;
+}
+
+function readinessReads(): number {
+  return mockApiGet.mock.calls.filter(([path]) => path === '/api/readiness').length;
+}
 
 function makeQueryClient() {
   return new QueryClient({
@@ -250,12 +286,13 @@ function makeCatalogState(owner: Record<string, unknown>, chainOverallState: str
 describe('ReadinessModal', () => {
   beforeEach(() => {
     mockApiGet.mockReset();
-    mockApiGet.mockResolvedValue(makeReadinessResponse());
-    mockAdSyncRun.mockReset();
-    mockAdCampaignSource.data = {
-      ready: false,
-      latestComplete: null,
-    };
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === CAMPAIGN_SOURCE_PATH) return campaignSource;
+      if (path === KEYWORD_SOURCE_PATH) return EMPTY_OWNER_SOURCE;
+      return readiness;
+    });
+    setReadiness(makeReadinessResponse());
+    campaignSource = EMPTY_OWNER_SOURCE;
     mockHandleCollect.mockReset();
     mockCatalog.value = null;
     localStorage.clear();
@@ -320,7 +357,7 @@ describe('ReadinessModal', () => {
 
   it('marks only server-confirmed dates green in the daily status strip', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         {
@@ -351,7 +388,7 @@ describe('ReadinessModal', () => {
 
   it('shows server-confirmed daily coverage for a completed ad check', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         response.checks[0],
@@ -382,7 +419,7 @@ describe('ReadinessModal', () => {
 
   it('keeps a linked details handoff in status-checking state until the child receipt arrives', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         ...response.checks,
@@ -476,7 +513,7 @@ describe('ReadinessModal', () => {
   });
 
   it('renders a saved basics receipt as partial coverage and keeps 상품 받기 available', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
+    setReadiness(makeCatalogReadinessResponse());
     const owner = makeCatalogOwner({
       plan: { ...makeCatalogOwner().plan, detailsIdempotencyKey: undefined },
       currentAttemptId: CATALOG_ATTEMPT_ID,
@@ -494,7 +531,7 @@ describe('ReadinessModal', () => {
   });
 
   it('keeps basic progress labels while the details child is running', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
+    setReadiness(makeCatalogReadinessResponse());
     const rootOwner = makeCatalogOwner({
       plan: {
         ...makeCatalogOwner().plan,
@@ -513,7 +550,7 @@ describe('ReadinessModal', () => {
   });
 
   it('renders the whole-flow completion label for a terminal details receipt', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
+    setReadiness(makeCatalogReadinessResponse());
     const owner = makeCatalogOwner({
       attemptId: CATALOG_CHILD_ATTEMPT_ID,
       idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
@@ -536,7 +573,7 @@ describe('ReadinessModal', () => {
 
   it('keeps refresh reachable when the catalog readiness check is already ok', async () => {
     const response = makeCatalogReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: response.checks.map((check) =>
         check.key === 'coupang_products'
@@ -586,7 +623,7 @@ describe('ReadinessModal', () => {
 
   it('keeps pending catalog-child progress visible when readiness is already ok', async () => {
     const response = makeCatalogReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: response.checks.map((check) =>
         check.key === 'coupang_products'
@@ -666,20 +703,20 @@ describe('ReadinessModal', () => {
       wrapper: wrapper(queryClient),
     });
 
-    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(readinessReads()).toBe(0);
     view.rerender(<ReadinessModal open onClose={onClose} />);
 
     expect(await screen.findByRole('button', { name: '대시보드로 돌아가기' })).toBeInTheDocument();
-    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(readinessReads()).toBe(1);
 
     view.rerender(<ReadinessModal open={false} onClose={onClose} />);
     view.rerender(<ReadinessModal open onClose={onClose} />);
-    await waitFor(() => expect(mockApiGet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(readinessReads()).toBe(2));
   });
 
   it('does not render the retired Rocket row from a cached readiness response', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         {
@@ -707,34 +744,43 @@ describe('ReadinessModal', () => {
     } finally { window.history.replaceState({}, '', '/'); }
   });
 
-  it('does not pass a React click event as the ad-sync run id', async () => {
+  it('keeps one campaign sweep control: the missing ad card points to 광고 동기화', async () => {
+    const response = makeReadinessResponse();
+    setReadiness({
+      ...response,
+      checks: response.checks.map((check) =>
+        check.key === 'coupang_ads'
+          ? {
+              ...check,
+              basis: { ...check.basis, asOf: null, observedAt: null, measured: false },
+              detail: '광고 데이터 없음',
+              lastSyncedAt: null,
+            }
+          : check,
+      ),
+    });
+
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    fireEvent.click(await screen.findByRole('button', { name: '광고 동기화' }));
-
-    expect(mockAdSyncRun).toHaveBeenCalledWith();
+    expect(await screen.findByText('아래 ‘광고 동기화’에서 받아요')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '광고 받기' })).not.toBeInTheDocument();
+    expect(await screen.findAllByRole('button', { name: '광고 동기화' })).toHaveLength(1);
   });
 
   it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
-    mockAdCampaignSource.data = {
-      ready: true,
-      latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
-    };
-
+    campaignSource = campaignSweepSource(true);
+    const queryClient = makeQueryClient();
     const view = render(<ReadinessModal open onClose={vi.fn()} />, {
-      wrapper: wrapper(),
+      wrapper: wrapper(queryClient),
     });
 
     expect(await screen.findByText('최신')).toBeInTheDocument();
     expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
 
-    mockAdCampaignSource.data = {
-      ready: false,
-      latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
-    };
-    view.rerender(<ReadinessModal open onClose={vi.fn()} />);
+    campaignSource = campaignSweepSource(false);
+    await act(() => queryClient.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
 
-    expect(screen.queryByText('최신')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('최신')).not.toBeInTheDocument());
   });
 
   it('labels the Wing rank action as Wing sales ranking and keeps its handler', async () => {
@@ -757,7 +803,7 @@ describe('ReadinessModal', () => {
       expectedDates: [],
       missingDates: [],
     };
-    mockApiGet.mockResolvedValue({ ...response, checks: [...response.checks, wingRank] });
+    setReadiness({ ...response, checks: [...response.checks, wingRank] });
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 

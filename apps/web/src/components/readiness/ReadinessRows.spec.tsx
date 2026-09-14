@@ -1,46 +1,131 @@
-import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOURCE_READINESS_LABELS } from '@kiditem/shared/source-readiness';
+import { apiClient } from '@/lib/api-client';
+import {
+  detectBrowserCollectionExtensionIds,
+  detectExtensionId,
+  sendToExtension,
+} from '@/lib/extension-bridge';
+import { queryKeys } from '@/lib/query-keys';
 import { AdKeywordRow, AdSyncRow, StockSyncRow } from './ReadinessRows';
 
-const hooks = vi.hoisted(() => ({
-  adSync: vi.fn(),
-  keyword: vi.fn(),
-  stock: vi.fn(),
-}));
+const hooks = vi.hoisted(() => ({ stock: vi.fn() }));
 
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
-  useAdSync: hooks.adSync,
-}));
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect', () => ({
-  useAdKeywordCollect: hooks.keyword,
-}));
 vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
   useSellpiaInventorySourceOwner: hooks.stock,
+}));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('@/lib/extension-bridge', () => ({
+  detectExtensionId: vi.fn(),
+  detectBrowserCollectionExtensionIds: vi.fn(),
+  sendToExtension: vi.fn(),
 }));
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
-function ownerSource(ready: boolean, completeEndDate: string | null) {
+const EXTENSION_ID = 'kiditem-extension';
+const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
+const NEXT_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type Kind = 'campaign' | 'keyword';
+type State = 'RUNNING' | 'COMPLETE' | 'FAILED';
+
+function ownerAttempt(kind: Kind, state: State = 'RUNNING', attemptId = ATTEMPT_ID) {
   return {
-    loading: false,
-    cancelling: false,
-    run: vi.fn(),
-    cancel: vi.fn(),
-    status: null,
-    source: {
-      isPending: false,
-      isError: false,
-      data: {
-        ready,
-        latestAttempt: null,
-        latestComplete: completeEndDate
-          ? { plan: { startDate: '2026-08-06', endDate: completeEndDate } }
-          : null,
-      },
+    attemptId,
+    channelAccountId: ACCOUNT_ID,
+    state,
+    plan: {
+      sourceType: `coupang_ad_${kind}`,
+      parserVersion: `ad-${kind}-v1`,
+      channelAccountId: ACCOUNT_ID,
+      expectedAdvertiserId: 'advertiser-1',
+      startDate: kind === 'campaign' ? '2026-08-06' : '2026-08-30',
+      endDate: '2026-09-05',
+      ...(kind === 'campaign'
+        ? {
+            businessDates: Array.from({ length: 31 }, (_, index) =>
+              new Date(Date.UTC(2026, 8, 5 - index)).toISOString().slice(0, 10),
+            ),
+          }
+        : { windowDays: 7 }),
     },
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    actualCutoffAt: null,
+    manifestChecksum: 'a'.repeat(64),
+    rowCount: 10,
+    campaignCount: 1,
+    rawOnlyCampaignCount: 0,
+    warningCount: 0,
+    groupCount: 1,
+    completedGroupCount: 0,
+    errorCode: null as string | null,
+    errorMessage: null as string | null,
   };
+}
+
+type OwnerAttempt = ReturnType<typeof ownerAttempt>;
+
+function ownerStatus(current: OwnerAttempt | null, previous: OwnerAttempt | null = null) {
+  const latestComplete = current?.state === 'COMPLETE' ? current : previous;
+  return {
+    channelAccountId: ACCOUNT_ID,
+    ready: current?.state === 'COMPLETE',
+    latestAttempt: current,
+    latestComplete,
+    actualCutoffAt: null,
+  };
+}
+
+const ownerRows = [
+  {
+    name: 'AdSyncRow',
+    Row: AdSyncRow,
+    kind: 'campaign',
+    path: '/api/ads/ad-campaigns',
+    statusKey: queryKeys.ads.campaignSource() as QueryKey,
+    producer: 'advertising.ad_sync',
+    startLabel: '광고 동기화',
+    runningScope: '수집 중 · 캠페인 순회 · 2026-08-06 ~ 2026-09-05',
+    usedData: '사용 중인 데이터: 2026-08-06 ~ 2026-09-05',
+  },
+  {
+    name: 'AdKeywordRow',
+    Row: AdKeywordRow,
+    kind: 'keyword',
+    path: '/api/ads/ad-keywords',
+    statusKey: queryKeys.ads.keywordSource() as QueryKey,
+    producer: 'advertising.ad_keyword',
+    startLabel: '키워드 수집',
+    runningScope: '수집 중 · 2026-08-30 ~ 2026-09-05',
+    usedData: '사용 중인 데이터: 2026-08-30 ~ 2026-09-05',
+  },
+] as const;
+
+let statuses: Record<string, unknown>;
+let extensionReplies: Record<string, (message: Record<string, unknown>) => unknown>;
+
+function renderRow(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return {
+    client,
+    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
+  };
+}
+
+function startMessages() {
+  return vi
+    .mocked(sendToExtension)
+    .mock.calls.map(([, message]) => message as Record<string, unknown>)
+    .filter((message) => message.action === 'startCollection');
 }
 
 function stockOwner(
@@ -55,48 +140,158 @@ function stockOwner(
   };
 }
 
-const ownerRows = [
-  { name: 'AdSyncRow', Row: AdSyncRow, hook: hooks.adSync },
-  { name: 'AdKeywordRow', Row: AdKeywordRow, hook: hooks.keyword },
-] as const;
-
-describe('readiness owner rows use the shared source readiness labels', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+beforeEach(() => {
+  vi.clearAllMocks();
+  statuses = {};
+  extensionReplies = {
+    ping: () => ({
+      success: true,
+      capabilities: { kiditemEnvironmentProfilesV1: true, collectionStartV1: true },
+    }),
+    setAuthToken: () => ({ success: true }),
+  };
+  vi.mocked(detectExtensionId).mockResolvedValue(EXTENSION_ID);
+  vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([EXTENSION_ID]);
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
+    const action = (message as { action: string }).action;
+    const reply = extensionReplies[action];
+    if (!reply) throw new Error(`unexpected extension action ${action}`);
+    return reply(message as Record<string, unknown>);
   });
+  vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+    if (path in statuses) return statuses[path];
+    throw new Error(`unexpected GET ${path}`);
+  });
+  vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+    if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
+    throw new Error(`unexpected POST ${path}`);
+  });
+});
 
-  it.each(ownerRows)('$name derives ready, stale and missing from the owner source', ({ Row, hook }) => {
-    hook.mockReturnValue(ownerSource(true, '2026-09-05'));
-    const view = render(<Row onComplete={vi.fn()} />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
+describe('readiness ad source rows', () => {
+  it.each(ownerRows)(
+    '$name derives ready, stale and missing from the owner source',
+    async ({ Row, kind, path, statusKey, usedData }) => {
+      const complete = ownerAttempt(kind, 'COMPLETE');
+      statuses[`${path}/source`] = ownerStatus(complete);
+      const view = renderRow(<Row />);
+      expect(await screen.findByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
 
-    hook.mockReturnValue(ownerSource(false, '2026-09-05'));
-    view.rerender(<Row onComplete={vi.fn()} />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
-    expect(screen.queryByText(SOURCE_READINESS_LABELS.ready)).not.toBeInTheDocument();
+      statuses[`${path}/source`] = { ...ownerStatus(complete), ready: false };
+      await act(() => view.client.refetchQueries({ queryKey: statusKey }));
+      expect(await screen.findByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
+      expect(view.container).toHaveTextContent(usedData);
+
+      statuses[`${path}/source`] = ownerStatus(null);
+      await act(() => view.client.refetchQueries({ queryKey: statusKey }));
+      expect(await screen.findByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
+    },
+  );
+
+  it.each(ownerRows)(
+    '$name starts $producer through the start contract without beginning an attempt itself',
+    async ({ Row, kind, path, producer, startLabel, runningScope }) => {
+      statuses[`${path}/source`] = ownerStatus(null);
+      extensionReplies.startCollection = (message) => {
+        statuses[`${path}/source`] = ownerStatus(ownerAttempt(kind, 'RUNNING'));
+        return { success: true, outcome: 'started', producer: message.producer, attemptId: ATTEMPT_ID };
+      };
+      renderRow(<Row />);
+
+      fireEvent.click(await screen.findByRole('button', { name: startLabel }));
+
+      expect(await screen.findByText(runningScope)).toBeInTheDocument();
+      expect(startMessages()).toEqual([
+        {
+          action: 'startCollection',
+          producer,
+          idempotencyKey: expect.stringMatching(UUID),
+          scope: {},
+        },
+      ]);
+      expect(vi.mocked(apiClient.post).mock.calls.map(([postPath]) => postPath)).toEqual([
+        '/api/auth/extension-handoff',
+      ]);
+    },
+  );
+
+  it.each(ownerRows)(
+    '$name stops a running attempt through $path when the extension holds no session',
+    async ({ Row, kind, path, startLabel }) => {
+      statuses[`${path}/source`] = ownerStatus(ownerAttempt(kind, 'RUNNING'));
+      extensionReplies.cancelCollectionSession = () => ({
+        success: false,
+        error: 'Collection session not found',
+      });
+      vi.mocked(apiClient.post).mockImplementation(async (postPath: string) => {
+        if (postPath !== `${path}/attempts/${ATTEMPT_ID}/cancel`) {
+          throw new Error(`unexpected POST ${postPath}`);
+        }
+        const cancelled = {
+          ...ownerAttempt(kind, 'FAILED'),
+          errorCode: 'USER_CANCELLED',
+          errorMessage: '운영자가 수집을 중단했습니다.',
+        };
+        statuses[`${path}/source`] = ownerStatus(cancelled);
+        return cancelled;
+      });
+      renderRow(<Row />);
+
+      fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+      expect(await screen.findByText('운영자가 수집을 중단했습니다.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: startLabel })).toBeEnabled();
+    },
+  );
+
+  it.each([
+    { ...ownerRows[0], refreshed: [true, true, true] },
+    { ...ownerRows[1], refreshed: [true, false, true] },
+  ])(
+    '$name refreshes the screens reading its facts only after a new collection completes',
+    async ({ Row, kind, path, statusKey, refreshed }) => {
+      const prior = ownerAttempt(kind, 'COMPLETE');
+      statuses[`${path}/source`] = ownerStatus(prior);
+      const { client } = renderRow(<Row />);
+      const dependents = [
+        [...queryKeys.ads.all, 'visible-ad-data'],
+        [...queryKeys.dashboard.all, 'summary'],
+        ['readiness', 'checks'],
+      ];
+      for (const key of dependents) client.setQueryData(key, { rows: [] });
+      const invalidated = () =>
+        dependents.map((key) => client.getQueryState(key)?.isInvalidated ?? false);
+      expect(await screen.findByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
+
+      // Reading again the COMPLETE this row already shows is not a new collection.
+      await act(() => client.refetchQueries({ queryKey: statusKey }));
+      expect(invalidated()).toEqual([false, false, false]);
+
+      statuses[`${path}/source`] = ownerStatus(ownerAttempt(kind, 'COMPLETE', NEXT_ATTEMPT_ID));
+      await act(() => client.refetchQueries({ queryKey: statusKey }));
+
+      await waitFor(() => expect(invalidated()).toEqual(refreshed));
+    },
+  );
+
+  it('shows a failed sweep beside the dates of the previous complete sweep', async () => {
+    const previous = ownerAttempt('campaign', 'COMPLETE');
+    const failed = {
+      ...ownerAttempt('campaign', 'FAILED', NEXT_ATTEMPT_ID),
+      errorCode: 'LOGIN_REQUIRED',
+      errorMessage: '광고센터 로그인이 필요합니다.',
+    };
+    statuses['/api/ads/ad-campaigns/source'] = { ...ownerStatus(failed, previous), ready: false };
+    const view = renderRow(<AdSyncRow />);
+
+    expect(await screen.findByText('광고센터 로그인이 필요합니다.')).toBeInTheDocument();
     expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
-    expect(view.container).not.toHaveTextContent(`· ${SOURCE_READINESS_LABELS.stale}`);
-
-    hook.mockReturnValue(ownerSource(false, null));
-    view.rerender(<Row onComplete={vi.fn()} />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
+    expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
+    expect(sendToExtension).not.toHaveBeenCalled();
   });
+});
 
-  it.each(ownerRows)('$name blocks collection only while no owner status has been read', ({ name, Row, hook }) => {
-    const collectLabel = name === 'AdSyncRow' ? '광고 동기화' : '키워드 수집';
-    const lastKnown = ownerSource(true, '2026-09-05');
-    hook.mockReturnValue({ ...lastKnown, source: { isPending: false, isError: true, data: undefined } });
-    const view = render(<Row onComplete={vi.fn()} />);
-    expect(screen.getByRole('button', { name: collectLabel })).toBeDisabled();
-    expect(view.container).toHaveTextContent('수집 상태를 확인하지 못했습니다');
-
-    hook.mockReturnValue({ ...lastKnown, source: { ...lastKnown.source, isError: true } });
-    view.rerender(<Row onComplete={vi.fn()} />);
-    expect(screen.getByRole('button', { name: collectLabel })).toBeEnabled();
-    expect(view.container).toHaveTextContent('상태를 다시 확인하는 중');
-    expect(view.container).not.toHaveTextContent('수집 상태를 확인하지 못했습니다');
-  });
-
+describe('readiness Sellpia row', () => {
   it('derives the Sellpia chip from freshness and the KST date of the last verification', () => {
     hooks.stock.mockReturnValue(stockOwner('fresh', '2026-09-05T16:30:00.000Z'));
     const view = render(<StockSyncRow />);

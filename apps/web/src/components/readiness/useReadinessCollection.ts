@@ -29,7 +29,6 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { useCoupangCatalogImport } from '@/app/(product-pipeline)/product-pipeline/registered-products/hooks/useCoupangCatalogImport';
 import { sellpiaSalesErrorMessage } from '@/lib/sellpia-sales-api';
-import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
 interface UseReadinessCollectionOptions {
@@ -219,11 +218,6 @@ export function useReadinessCollection({
         ? 2000
         : false,
   }));
-  // The coupang_ads check collects through the campaign sweep owner. Its
-  // persisted latest attempt, not browser storage, says a sweep is running.
-  const adSync = useAdSync();
-  const adSyncBusy = adSync.loading || adSync.status?.state === 'RUNNING';
-  const adSyncWasBusy = useRef(false);
 
   const invalidateCollectedData = async () => {
     await Promise.all([
@@ -273,22 +267,6 @@ export function useReadinessCollection({
     toast.error('서버의 쿠팡 상품 수집 결과를 확인하지 못했습니다.');
   }, [catalogImport.readError]);
 
-  useEffect(() => {
-    if (adSyncBusy) {
-      adSyncWasBusy.current = true;
-      setPendingKey((current) =>
-        current === null || current === 'coupang_ads' ? 'coupang_ads' : current,
-      );
-      return;
-    }
-    setPendingKey((current) => (current === 'coupang_ads' ? null : current));
-    if (!adSyncWasBusy.current) return;
-    // The sweep settled (explicit run or a reloaded RUNNING attempt): the
-    // readiness check reads the campaign ledger it just published.
-    adSyncWasBusy.current = false;
-    void refetchReadiness();
-  }, [adSyncBusy, refetchReadiness]);
-
   const handleCollect = async (
     check: ReadinessCheck,
   ) => {
@@ -313,12 +291,6 @@ export function useReadinessCollection({
       } finally {
         setPendingKey(null);
       }
-      return;
-    }
-
-    if (check.key === 'coupang_ads') {
-      // The owner flow reports its own start, failure and completion.
-      await adSync.run();
       return;
     }
 
