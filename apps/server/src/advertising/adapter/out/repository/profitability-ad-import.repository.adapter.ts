@@ -16,11 +16,9 @@ import {
   businessDateKey,
   datesInclusive,
   evidenceCutoffDate,
-  inclusiveDayCount,
   kstMonthEnd,
   kstMonthRange,
   parseBusinessDate,
-  shiftBusinessDateKey,
 } from '../../../../common/kst';
 import {
   effectiveSourceImportRunState as effectiveState,
@@ -611,16 +609,12 @@ export class ProfitabilityAdImportRepositoryAdapter
       if (facts.some((fact) => fact.mappingGeneration !== (attempt.mappingGeneration ?? 0n)
         || fact.observedTargetDayCount === null
         || fact.observedTargetDayCount <= 0)) throw incompleteImport();
-      const allocationSummary = await assertConservation(targets, facts, expectedSlices);
+      const uploadedAllocation = await assertConservation(targets, facts, expectedSlices);
       const requestedEnd = businessDateKey(attempt.coverageEndDate!);
-      const confirmedEnd = confirmedAdReportEnd({
-        requestedEnd,
-        closedDay: requestedEnd,
-        daySpend: observedDaySpend(plan, targets),
-      });
-      const publishedFacts = confirmedEnd === requestedEnd
-        ? facts
-        : await holdUnreportedDay(tx, attempt, facts, confirmedEnd);
+      const confirmedEnd = confirmedImportEnd(plan, targets, requestedEnd);
+      const { facts: publishedFacts, allocationSummary } = confirmedEnd === requestedEnd
+        ? { facts, allocationSummary: uploadedAllocation }
+        : await withdrawUnconfirmedDays(tx, attempt, targets, expectedSlices, confirmedEnd);
       const coveredMonths = attempt.coveredMonths.filter((month) => `${month}-01` <= confirmedEnd);
 
       const importedAt = new Date();
@@ -2092,16 +2086,36 @@ function parseDate(value: string): Date | null {
 }
 
 /**
- * The import's organization-wide spend on each business date its slices
- * requested. An organization with no retained account requested nothing and
- * observed no advertising, so every day reads zero.
+ * The last day the import confirms. Each account confirms the closed day on
+ * its own report (`confirmedAdReportEnd`), so another account's spend never
+ * confirms a day an account has not reported, and an account idle on both
+ * days accepts it. The import publishes through the earliest account end; an
+ * import without accounts requested no report and keeps its window.
  */
-function observedDaySpend(plan: StoredPlan, targets: readonly Target[]): ObservedDaySpend {
-  if (plan.accounts.length === 0) return () => 0;
-  const requested = new Set(plan.accounts.flatMap((account) =>
-    account.slices.flatMap((slice) => slice.businessDates)));
+function confirmedImportEnd(
+  plan: StoredPlan,
+  targets: readonly Target[],
+  requestedEnd: string,
+): string {
+  return plan.accounts.reduce((confirmedEnd, account) => {
+    const accountEnd = confirmedAdReportEnd({
+      requestedEnd,
+      closedDay: requestedEnd,
+      daySpend: accountDaySpend(account, targets),
+    });
+    return accountEnd < confirmedEnd ? accountEnd : confirmedEnd;
+  }, requestedEnd);
+}
+
+/** One account's spend on each business date its slices requested. */
+function accountDaySpend(
+  account: StoredPlan['accounts'][number],
+  targets: readonly Target[],
+): ObservedDaySpend {
+  const requested = new Set(account.slices.flatMap((slice) => slice.businessDates));
   const spend = new Map<string, number>();
   for (const target of targets) {
+    if (target.channelAccountId !== account.channelAccountId) continue;
     const date = businessDateKey(target.businessDate);
     spend.set(date, (spend.get(date) ?? 0) + target.adSpend);
   }
@@ -2109,46 +2123,47 @@ function observedDaySpend(plan: StoredPlan, targets: readonly Target[]): Observe
 }
 
 /**
- * Withdraw a held closed day from the frozen monthly facts. Its spend was zero,
- * so allocations stay as they are and only covered dates move: facts ending on
- * the held day now end the day before, and a month that held only that day is
- * dropped.
+ * Withdraw the days after `confirmedEnd` from the frozen monthly facts. A
+ * month left without a confirmed day is dropped. Every other month that loses
+ * days is re-allocated from its targets through `confirmedEnd`, because an
+ * account that reported a withdrawn day may have spent on it. Conservation is
+ * proven again over the published targets, facts and slices.
  */
-async function holdUnreportedDay(
+async function withdrawUnconfirmedDays(
   tx: Transaction,
   attempt: SourceAttempt,
-  facts: readonly MonthlyFact[],
+  targets: readonly Target[],
+  slices: readonly StoredSlice[],
   confirmedEnd: string,
-): Promise<MonthlyFact[]> {
-  const heldDay = dateOnly(shiftBusinessDateKey(confirmedEnd, 1));
+): Promise<{ facts: MonthlyFact[]; allocationSummary: TargetAllocationSummary }> {
   const end = dateOnly(confirmedEnd);
-  const endingOnHeldDay = {
-    organizationId: attempt.organizationId,
-    sourceImportRunId: attempt.id,
-    coveredEndDate: heldDay,
-  };
+  const run = { organizationId: attempt.organizationId, sourceImportRunId: attempt.id };
   await tx.channelAdListingProductMonthlyFact.deleteMany({
-    where: { ...endingOnHeldDay, coveredStartDate: heldDay },
+    where: { ...run, coveredStartDate: { gt: end } },
   });
-  const starts = [...new Set(facts
-    .filter((fact) => fact.coveredEndDate.getTime() === heldDay.getTime()
-      && fact.coveredStartDate.getTime() < heldDay.getTime())
-    .map((fact) => businessDateKey(fact.coveredStartDate)))];
-  for (const start of starts) {
-    await tx.channelAdListingProductMonthlyFact.updateMany({
-      where: { ...endingOnHeldDay, coveredStartDate: dateOnly(start) },
-      data: { coveredEndDate: end, observedTargetDayCount: inclusiveDayCount(dateOnly(start), end) },
+  await tx.channelAdListingProductMonthlyFact.updateMany({
+    where: { ...run, coveredEndDate: { gt: end } },
+    data: { coveredEndDate: end },
+  });
+  for (const slice of slices) {
+    if (slice.from > confirmedEnd || slice.to <= confirmedEnd) continue;
+    await allocateSlice(tx, {
+      ...run,
+      accountId: slice.channelAccountId,
+      from: slice.from,
+      to: confirmedEnd,
+      mappingGeneration: attempt.mappingGeneration ?? 0n,
     });
   }
-  return facts.flatMap((fact) => {
-    if (fact.coveredEndDate.getTime() !== heldDay.getTime()) return [fact];
-    if (fact.coveredStartDate.getTime() === heldDay.getTime()) return [];
-    return [{
-      ...fact,
-      coveredEndDate: end,
-      observedTargetDayCount: inclusiveDayCount(fact.coveredStartDate, end),
-    }];
-  });
+  const facts = await tx.channelAdListingProductMonthlyFact.findMany({ where: run });
+  const allocationSummary = await assertConservation(
+    targets.filter((target) => target.businessDate.getTime() <= end.getTime()),
+    facts,
+    slices
+      .filter((slice) => slice.from <= confirmedEnd)
+      .map((slice) => (slice.to > confirmedEnd ? { ...slice, to: confirmedEnd } : slice)),
+  );
+  return { facts, allocationSummary };
 }
 
 /** The last business date a generation's plan requested; its confirmed end when the plan has no slices. */

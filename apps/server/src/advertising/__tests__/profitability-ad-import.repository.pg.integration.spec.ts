@@ -264,6 +264,86 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     }
   });
 
+  it('holds the closed day while one account has not reported it, even when another has', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: the import requests 2025-10-01 through 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: FIRST_KEY,
+      });
+      // Account A reports spend on 2026-09-06. Account B spent on 2026-09-05 and shows none on the 6th yet.
+      for (const receipt of plannedUploads(attempt, (slice, account) =>
+        slice.to === '2026-09-06' && account.externalAccountId === 'account-b'
+          ? '2026-09-05'
+          : slice.businessDates.at(-1)!)) {
+        await owner.uploadSlice(receipt);
+      }
+      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+        latestComplete: {
+          sourceImportRunId: attempt.attemptId,
+          coveredThrough: '2026-09-05',
+          // Twelve months of 7 KRW for each account, less A's spend on the held day.
+          qualitySummary: { providerSpendKrw: 161, allocatedSpendKrw: 161 },
+        },
+        ready: true,
+      });
+      const accountByExternalId = new Map((await prisma.channelAccount.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+        select: { id: true, externalAccountId: true },
+      })).map((account) => [account.externalAccountId, account.id]));
+      const september = await prisma.channelAdListingProductMonthlyFact.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: attempt.attemptId,
+          month: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+      expect(september.map((fact) => ({
+        account: fact.channelAccountId === accountByExternalId.get('account-a') ? 'account-a' : 'account-b',
+        coveredEndDate: fact.coveredEndDate.toISOString().slice(0, 10),
+        observedTargetDayCount: fact.observedTargetDayCount,
+        allocatedSpend: fact.allocatedSpend,
+      })).sort((left, right) => left.account.localeCompare(right.account))).toEqual([
+        // A's 2026-09-06 spend stays out of the published month with the day it was reported on.
+        { account: 'account-a', coveredEndDate: '2026-09-05', observedTargetDayCount: 5, allocatedSpend: 0n },
+        { account: 'account-b', coveredEndDate: '2026-09-05', observedTargetDayCount: 5, allocatedSpend: 7n },
+      ]);
+      await expect(readMonthlyAdAllocationPublication(prisma as never, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attempt.attemptId,
+      })).resolves.toMatchObject({ coveredThrough: '2026-09-05' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('confirms the closed day when the account without spend on it was idle the day before too', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: the import requests 2025-10-01 through 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: FIRST_KEY,
+      });
+      // Account A reports spend on 2026-09-06. Account B last spent on 2026-09-01.
+      for (const receipt of plannedUploads(attempt, (slice, account) =>
+        slice.to === '2026-09-06' && account.externalAccountId === 'account-b'
+          ? '2026-09-01'
+          : slice.businessDates.at(-1)!)) {
+        await owner.uploadSlice(receipt);
+      }
+      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+        latestComplete: { sourceImportRunId: attempt.attemptId, coveredThrough: '2026-09-06' },
+        ready: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not expose a generation until every planned account and slice is complete', async () => {
     const attempt = await owner.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -938,14 +1018,16 @@ async function seedAccount(
  */
 function plannedUploads(
   plan: AdvertisingProfitabilityPlan,
-  rowDate: (slice: AdvertisingProfitabilityPlan['accounts'][number]['slices'][number]) => string | null
-    = (slice) => slice.businessDates.at(-1)!,
+  rowDate: (
+    slice: AdvertisingProfitabilityPlan['accounts'][number]['slices'][number],
+    account: AdvertisingProfitabilityPlan['accounts'][number],
+  ) => string | null = (slice) => slice.businessDates.at(-1)!,
 ): AdvertisingProfitabilitySliceUpload[] {
   let sequence = 0;
   return plan.accounts.flatMap((account) => account.slices.map((slice) => {
     const isFirstSlice = slice.sliceId === account.slices[0]?.sliceId;
     const row = {
-      businessDate: rowDate(slice) ?? slice.businessDates.at(-1)!,
+      businessDate: rowDate(slice, account) ?? slice.businessDates.at(-1)!,
       externalOptionId: account.externalAccountId === 'account-a'
         ? 'AD-OPTION-A'
         : account.externalAccountId === 'account-b'
@@ -960,7 +1042,7 @@ function plannedUploads(
       conversions: 1,
       adRevenue: 70,
     };
-    const rows = (account.externalAccountId === 'account-c' && !isFirstSlice) || rowDate(slice) === null
+    const rows = (account.externalAccountId === 'account-c' && !isFirstSlice) || rowDate(slice, account) === null
       ? []
       : [row];
     return {
