@@ -417,8 +417,9 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_org_source_failed_generation_key", where: raw("file_hash IS NULL AND source_type = 'sellpia_inventory' AND status = 'failed' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, idempotencyKey], map: "source_import_runs_source_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
-  @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type IN ('coupang_keyword_serp', 'coupang_wing_rank') AND status = 'running'"))
-  @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type IN ('coupang_keyword_serp', 'coupang_wing_rank') AND freshness_generation IS NOT NULL"))
+  // PostgreSQL stores IN (...) as = ANY (ARRAY[...]); any other spelling makes db push re-plan the index (KID-143).
+  @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND status = 'running'"))
+  @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_keyword_running_key", where: raw("source_type = 'coupang_ad_keyword' AND status = 'running'"))
   @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_keyword_generation_key", where: raw("source_type = 'coupang_ad_keyword' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_campaign_running_key", where: raw("source_type = 'coupang_ad_campaign' AND status = 'running'"))

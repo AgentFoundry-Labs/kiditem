@@ -170,7 +170,8 @@ model ChannelScrapeSnapshot {
   adTargetDailySnapshots ChannelAdTargetDailySnapshot[]      @relation("AdTargetDailyRawSnapshot")
 
   @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
-  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source IN ('coupang_keyword_serp', 'coupang_wing_rank')"))
+  // PostgreSQL stores IN (...) as = ANY (ARRAY[...]); any other spelling makes db push re-plan the index (KID-143).
+  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text])"))
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
