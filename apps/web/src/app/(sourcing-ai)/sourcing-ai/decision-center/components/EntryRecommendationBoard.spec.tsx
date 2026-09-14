@@ -31,6 +31,7 @@ vi.mock('@/hooks/use-trend-source-collection', () => ({
 const sourceOwnerMocks = vi.hoisted(() => ({
   collect: vi.fn(),
   fetchStatus: vi.fn(),
+  cancel: vi.fn(),
 }));
 const routerPushMock = vi.hoisted(() => vi.fn());
 const openConversationFromLauncherMock = vi.hoisted(() => vi.fn());
@@ -43,6 +44,13 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../lib/sourcing-1688-source-owner', () => ({
   collectSourcing1688TrendsFromExtension: sourceOwnerMocks.collect,
   fetchSourcing1688TrendSourceStatus: sourceOwnerMocks.fetchStatus,
+  cancelSourcing1688TrendAttempt: sourceOwnerMocks.cancel,
+}));
+vi.mock('@/lib/browser-collection-session', () => ({
+  // This browser holds no session for the attempt, so a stop reaches the owner route.
+  sendBrowserCollectionControl: vi.fn(async () => {
+    throw new Error('no extension session');
+  }),
 }));
 vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSaveSourcingReviewSelection: vi.fn(),
@@ -272,6 +280,37 @@ describe('EntryRecommendationBoard review state', () => {
     expect(sourceOwnerMocks.collect.mock.calls[1]?.[0]?.idempotencyKey).not.toBe(
       sourceOwnerMocks.collect.mock.calls[0]?.[0]?.idempotencyKey,
     );
+  });
+
+  it('shows the running 1688 collection with a stop that ends it through its owner, then shows it stopped', async () => {
+    const user = userEvent.setup();
+    const attemptId = '10000000-0000-4000-8000-000000001688';
+    const status1688 = (state: 'RUNNING' | 'FAILED') => ({
+      ready: true,
+      latestAttempt: {
+        attemptId,
+        state,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
+        errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
+      },
+      latestComplete: null,
+      actualCutoffAt: null,
+      errorCode: null,
+      errorMessage: null,
+    });
+    sourceOwnerMocks.fetchStatus.mockResolvedValue(status1688('RUNNING'));
+    sourceOwnerMocks.cancel.mockImplementation(async () => {
+      sourceOwnerMocks.fetchStatus.mockResolvedValue(status1688('FAILED'));
+    });
+
+    renderBoard();
+    await user.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(sourceOwnerMocks.cancel).toHaveBeenCalledWith(attemptId);
+    expect(sourceOwnerMocks.collect).not.toHaveBeenCalled();
+    expect(screen.queryByText('운영자가 수집을 중단했습니다.')).not.toBeInTheDocument();
   });
 
   it('starts the daily collection exactly once from the toolbar, without a direct recommendation refresh', async () => {

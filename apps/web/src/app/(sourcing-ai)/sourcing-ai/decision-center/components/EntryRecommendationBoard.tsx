@@ -1,10 +1,11 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -31,9 +32,9 @@ import {
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
+import { sourcing1688TrendCollection } from '../../lib/sourcing-1688-collection';
 import {
   collectSourcing1688TrendsFromExtension,
-  fetchSourcing1688TrendSourceStatus,
   type Sourcing1688TrendSourceStatus,
 } from '../../lib/sourcing-1688-source-owner';
 import { SourcingReadState } from '../../components/SourcingReadState';
@@ -105,13 +106,8 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
-  const interestSourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: queryKeys.sourcing.trend1688SourceStatus(),
-    queryFn: fetchSourcing1688TrendSourceStatus,
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
-    ),
-  }));
+  // The supply CTA starts the collection; the shared control shows it running and stops it.
+  const interestSource = useCollectionSourceControl(sourcing1688TrendCollection);
   const interestCollectionMutation = useMutation({
     mutationFn: async () => {
       const requestFingerprint = 'sourcing.1688.hot_product:all';
@@ -149,9 +145,7 @@ export function EntryRecommendationBoard() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
     },
   });
-  const interestCollectionActive =
-    interestCollectionMutation.isPending
-    || interestSourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
+  const interestCollectionActive = interestCollectionMutation.isPending || interestSource.running !== null;
   const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
   const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
@@ -233,7 +227,7 @@ export function EntryRecommendationBoard() {
           onFilterChange={setInterestFilter}
         />
 
-        <Sourcing1688SourceStatus source={interestSourceStatusQuery.data} />
+        <Sourcing1688SourceStatus source={interestSource.status} control={interestSource} />
 
         {activeItem && (
           <EntryRecommendationDetail
@@ -371,27 +365,43 @@ function SourceStrip({ sources, dataGaps }: { sources: EntrySourceStatus[]; data
 
 function Sourcing1688SourceStatus({
   source,
+  control,
 }: {
   source: Sourcing1688TrendSourceStatus | undefined;
+  control: CollectionControlView & Readonly<{ stop: () => void }>;
 }) {
-  if (!source || source.ready && source.latestAttempt?.state !== 'RUNNING') return null;
+  const running = source?.latestAttempt?.state === 'RUNNING';
+  const stopped = stoppedAttempt(source?.latestAttempt);
+  if (!source || (source.ready && !running && !stopped)) return null;
 
-  const message = source.latestAttempt?.state === 'RUNNING'
+  const message = running
     ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
-    : source.errorMessage ?? '1688 공급 데이터가 최신 계획과 일치하지 않습니다.';
+    : stopped
+      ? COLLECTION_STOPPED_MESSAGE
+      : source.errorMessage ?? '1688 공급 데이터가 최신 계획과 일치하지 않습니다.';
 
   return (
-    <p
+    <div
       role="status"
       className={cn(
-        'rounded-lg border px-3 py-2 text-xs font-semibold',
-        source.latestAttempt?.state === 'RUNNING'
+        'flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold',
+        running
           ? 'border-sky-200 bg-sky-50 text-sky-700'
-          : 'border-amber-200 bg-amber-50 text-amber-800',
+          : stopped
+            ? 'border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-secondary)]'
+            : 'border-amber-200 bg-amber-50 text-amber-800',
       )}
     >
-      {message}
-    </p>
+      <span>{message}</span>
+      {running && (
+        <CollectionStartControl
+          control={control}
+          startLabel="1688 공급 찾기"
+          onStart={() => undefined}
+          onStop={control.stop}
+        />
+      )}
+    </div>
   );
 }
 

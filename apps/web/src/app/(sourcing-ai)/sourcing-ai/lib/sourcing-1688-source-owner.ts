@@ -92,3 +92,8 @@ export async function collectSourcing1688TrendsFromExtension(input: {
 export function fetchSourcing1688TrendSourceStatus(): Promise<Sourcing1688TrendSourceStatus> {
   return apiClient.get<Sourcing1688TrendSourceStatus>(`${BASE}/current`);
 }
+
+/** The owner's operator stop for a running 1688 hot-product attempt; it needs no attempt token. */
+export function cancelSourcing1688TrendAttempt(attemptId: string): Promise<unknown> {
+  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
