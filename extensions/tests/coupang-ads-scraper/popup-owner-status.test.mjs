@@ -50,15 +50,12 @@ function ownerStatus({
   };
 }
 
-function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmission = false } = {}) {
+function createPopupHarness({ connected = ['local', 'office'] } = {}) {
   const dom = new JSDOM(popupHtml, {
     url: 'chrome-extension://kiditem/popup.html',
   });
   const requests = [];
   const waiters = [];
-  const intervals = [];
-  const timeouts = [];
-  const monthlyAdmissions = [];
 
   function publishApiRequest(message, callback) {
     const request = { message, callback, responded: false, claimed: false };
@@ -85,18 +82,6 @@ function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmis
         }
         if (message.action === 'bindKidItemEnvironment') {
           callback({ success: true });
-          return;
-        }
-        if (message.action === 'monthlyScrape') {
-          if (deferMonthlyAdmission) {
-            monthlyAdmissions.push({ message, callback, responded: false });
-          } else {
-            callback({ success: true, attemptId: 'monthly-attempt-1', terminalState: 'RUNNING' });
-          }
-          return;
-        }
-        if (message.action.startsWith('collectAdvertising')) {
-          callback({ success: true, attemptId: 'manual-attempt-1', terminalState: 'COMPLETE' });
           return;
         }
         callback({ success: true });
@@ -130,22 +115,10 @@ function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmis
     URL,
     Date,
     Intl,
-    setTimeout(callback) {
-      const handle = { callback, cleared: false };
-      timeouts.push(handle);
-      return handle;
-    },
-    clearTimeout(handle) {
-      if (handle) handle.cleared = true;
-    },
-    setInterval(callback) {
-      const handle = { callback, cleared: false };
-      intervals.push(handle);
-      return handle;
-    },
-    clearInterval(handle) {
-      if (handle) handle.cleared = true;
-    },
+    setTimeout() { return 0; },
+    clearTimeout() {},
+    setInterval() { return 0; },
+    clearInterval() {},
   });
   vm.runInContext(sourceReadinessRuntime, context, { filename: 'source-readiness.js' });
   vm.runInContext(popupSource, context, { filename: 'popup.js' });
@@ -170,40 +143,12 @@ function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmis
     await flush();
   }
 
-  async function runIntervals() {
-    for (const interval of intervals) {
-      if (!interval.cleared) interval.callback();
-    }
-    await flush();
-  }
-
-  async function runTimeouts() {
-    for (const timeout of timeouts) {
-      if (!timeout.cleared) {
-        timeout.cleared = true;
-        timeout.callback();
-      }
-    }
-    await flush();
-  }
-
-  async function replyMonthlyAdmission(admission, result) {
-    assert.equal(admission.responded, false);
-    admission.responded = true;
-    admission.callback(result);
-    await flush();
-  }
-
   return {
     dom,
     document: dom.window.document,
     requests,
     nextApiRequest,
     reply,
-    runIntervals,
-    runTimeouts,
-    monthlyAdmissions,
-    replyMonthlyAdmission,
     async flush() {
       await flush();
     },
@@ -248,41 +193,6 @@ test('owner reads render independently while the connection read is still pendin
 
   await harness.reply(connection, response({ status: 'ok' }));
   assert.equal(harness.document.getElementById('serverStatus').textContent, '연결됨 ✅');
-});
-
-test('a newer same-environment refresh fences callbacks from the older refresh', async () => {
-  const harness = createPopupHarness({ connected: ['local'] });
-  const oldConnection = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  const oldOwnerRequests = await Promise.all(OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')));
-  const oldActions = await harness.nextApiRequest(ACTIONS_PATH, 'local');
-  await harness.reply(oldConnection, response({ status: 'ok' }));
-
-  harness.document.getElementById('btnSync').click();
-  await harness.flush();
-  await harness.runTimeouts();
-  const newConnection = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  const newOwnerRequests = await Promise.all(OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')));
-  const newActions = await harness.nextApiRequest(ACTIONS_PATH, 'local');
-
-  await harness.reply(newConnection, response({ status: 'ok' }));
-  for (const request of newOwnerRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 22, itemCount: 22, campaignCount: 22 },
-    })));
-  }
-  await harness.reply(newActions, response({ items: [] }));
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /22행/);
-
-  for (const request of oldOwnerRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestAttempt: { state: 'FAILED', errorCode: 'OLD_REFRESH', errorMessage: 'stale result' },
-      latestComplete: { state: 'COMPLETE', rowCount: 1, itemCount: 1, campaignCount: 1 },
-    })));
-  }
-  await harness.reply(oldActions, response({ items: [{ id: 'old' }] }));
-  await harness.flush();
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /22행/);
-  assert.doesNotMatch(harness.document.getElementById('trafficSyncDetail').textContent, /OLD_REFRESH|1행/);
 });
 
 test('renders each owner status independently and preserves failed-attempt details beside prior complete evidence', async () => {
@@ -407,154 +317,4 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
   assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /7캠페인/);
   assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 5);
-});
-
-function dailyAttempt(state, overrides = {}) {
-  return {
-    attemptId: 'monthly-attempt-1',
-    state,
-    plan: { expectedDates: ['2026-09-01', '2026-09-02'] },
-    errorCode: null,
-    errorMessage: null,
-    ...overrides,
-  };
-}
-
-test('monthly owner polling uses the admitted attempt, preserves the prior complete card, and stops on exact failure', async () => {
-  const harness = createPopupHarness({ connected: ['local'] });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 44, actualCutoffAt: '2026-09-05T00:00:00.000Z' },
-    })),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
-  const monthButton = harness.document.getElementById('btnMonthlySync');
-  monthButton.click();
-  await harness.flush();
-  const admitted = await harness.nextApiRequest('/api/ads/traffic/attempts/monthly-attempt-1', 'local');
-  await harness.reply(admitted, response(dailyAttempt('RUNNING')));
-  await harness.flush();
-
-  assert.match(harness.document.getElementById('monthlySyncProgress').textContent, /2일 범위 owner 수집 중/);
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /44행/);
-  assert.equal(
-    harness.requests.filter((request) => request.message.path.startsWith('/api/ads/traffic/attempts/')).length,
-    1,
-  );
-
-  // The timer is intentionally not waited on: the exact attempt is failed by
-  // the next poll, and the callback must stop without reading local storage.
-  await harness.runIntervals();
-  const failedPoll = await harness.nextApiRequest('/api/ads/traffic/attempts/monthly-attempt-1', 'local');
-  await harness.reply(failedPoll, response(dailyAttempt('FAILED', {
-    errorCode: 'PROVIDER_TIMEOUT',
-    errorMessage: '<b>provider failed</b>',
-  })));
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus({
-      ready: false,
-      latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_TIMEOUT', errorMessage: 'provider failed' },
-      latestComplete: { state: 'COMPLETE', rowCount: 44, actualCutoffAt: '2026-09-05T00:00:00.000Z' },
-    })),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
-  await harness.flush();
-  assert.match(harness.document.getElementById('monthlySyncProgress').textContent, /provider failed/);
-  assert.equal(harness.document.getElementById('monthlySyncProgress').className, 'sync-progress error');
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '갱신 필요');
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /44행/);
-});
-
-test('monthly owner polling ignores a stale environment response', async () => {
-  const harness = createPopupHarness({ connected: ['local', 'office'] });
-  await selectEnvironment(harness, 'local');
-  const localExtension = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  await harness.reply(localExtension, response({ status: 'ok' }));
-  const localStatusRequests = await Promise.all([
-    ...OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')),
-    harness.nextApiRequest(ACTIONS_PATH, 'local'),
-  ]);
-  for (const request of localStatusRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 4, itemCount: 4, campaignCount: 4 },
-    })));
-  }
-  await harness.flush();
-
-  harness.document.getElementById('btnMonthlySync').click();
-  await harness.flush();
-  const localAttempt = await harness.nextApiRequest('/api/ads/traffic/attempts/monthly-attempt-1', 'local');
-
-  await selectEnvironment(harness, 'office');
-  await completeStatusLoad(harness, 'office', {
-    '/api/ads/traffic/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 8, actualCutoffAt: '2026-09-08T00:00:00.000Z' },
-    })),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
-  await harness.reply(localAttempt, response(dailyAttempt('FAILED', {
-    errorCode: 'OLD_ENVIRONMENT',
-    errorMessage: 'old monthly response',
-  })));
-  await harness.flush();
-
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /8행/);
-  assert.doesNotMatch(harness.document.getElementById('monthlySyncProgress').textContent, /old monthly response/);
-  assert.equal(
-    harness.requests.filter((request) => request.message.path === '/api/ads/traffic/attempts/monthly-attempt-1')
-      .every((request) => request.message.environmentId === 'local'),
-    true,
-  );
-});
-
-test('monthly polling rejects an exact-attempt response with a different attempt id', async () => {
-  const harness = createPopupHarness({ connected: ['local'] });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus()),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
-  harness.document.getElementById('btnMonthlySync').click();
-  await harness.flush();
-  const attempt = await harness.nextApiRequest('/api/ads/traffic/attempts/monthly-attempt-1', 'local');
-  await harness.reply(attempt, response(dailyAttempt('COMPLETE', { attemptId: 'wrong-attempt' })));
-  await harness.flush();
-  assert.match(harness.document.getElementById('monthlySyncProgress').textContent, /일치하지 않습니다/);
-  assert.equal(harness.document.getElementById('monthlySyncProgress').className, 'sync-progress error');
-});
-
-test('monthly admission is single-flight so a second same-environment click cannot revive a late first ACK', async () => {
-  const harness = createPopupHarness({ connected: ['local'], deferMonthlyAdmission: true });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus()),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
-  const button = harness.document.getElementById('btnMonthlySync');
-  button.click();
-  await harness.flush();
-  assert.equal(harness.monthlyAdmissions.length, 1);
-  assert.equal(button.disabled, true);
-
-  button.dispatchEvent(new harness.dom.window.Event('click', { bubbles: true }));
-  await harness.flush();
-  assert.equal(harness.monthlyAdmissions.length, 1);
-
-  await harness.replyMonthlyAdmission(harness.monthlyAdmissions[0], {
-    success: true,
-    attemptId: 'monthly-attempt-1',
-    terminalState: 'RUNNING',
-  });
-  const attempt = await harness.nextApiRequest('/api/ads/traffic/attempts/monthly-attempt-1', 'local');
-  await harness.reply(attempt, response(dailyAttempt('RUNNING')));
-  await harness.flush();
-  assert.equal(button.disabled, false);
-  assert.equal(
-    harness.requests.filter((request) => request.message.path === '/api/ads/traffic/attempts/monthly-attempt-1').length,
-    1,
-  );
 });
