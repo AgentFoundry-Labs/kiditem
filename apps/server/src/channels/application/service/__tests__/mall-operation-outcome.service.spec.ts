@@ -96,7 +96,8 @@ describe('MallOperationOutcomeService', () => {
 
     const summary = await service.summary(ORG, 7, now);
 
-    expect(repository.countSince).toHaveBeenCalledWith({ organizationId: ORG, since: new Date('2026-09-05T12:00:00.000Z') });
+    // 7 Korean calendar days including today (KST 2026-09-12 21:00) start at KST 09-06 00:00.
+    expect(repository.countSince).toHaveBeenCalledWith({ organizationId: ORG, since: new Date('2026-09-05T15:00:00.000Z') });
     expect(summary.total).toBe(8);
     expect(summary.rows).toEqual([
       expect.objectContaining({
@@ -111,6 +112,15 @@ describe('MallOperationOutcomeService', () => {
         counts: { succeeded: 0, empty: 0, attention: 1, failed: 0, cancelled: 0 },
       }),
     ]);
+  });
+
+  it('starts a one-day summary at KST midnight so yesterday morning stays out', async () => {
+    const { repository, service } = setup();
+    // KST 2026-09-12 09:30 — a rolling 24 hours would reach back into KST 09-11.
+    const summary = await service.summary(ORG, 1, new Date('2026-09-12T00:30:00.000Z'));
+
+    expect(repository.latestSince).toHaveBeenCalledWith({ organizationId: ORG, since: new Date('2026-09-11T15:00:00.000Z') });
+    expect(summary.since).toBe('2026-09-11T15:00:00.000Z');
   });
 
   it('lists recent outcomes with a default window', async () => {
