@@ -1457,6 +1457,62 @@ test('a Wing traffic request refused while another attempt collects still answer
   }
 });
 
+test('a Coupang collection taking the window clears ended sessions that hold no window and keeps the rest', async () => {
+  const ids = {
+    campaign: '81111111-1111-4111-8111-111111111111',
+    keyword: '82222222-2222-4222-8222-222222222222',
+    traffic: '83333333-3333-4333-8333-333333333333',
+    unreadable: '84444444-4444-4444-8444-444444444444',
+    itemwinner: '85555555-5555-4555-8555-555555555555',
+  };
+  const h = bootServiceWorker({ fetch: async (url) => {
+    const href = String(url);
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/control`)) {
+      return coupangWindowJson(coupangCampaignAttempt(ids.campaign, 'FAILED'));
+    }
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.keyword}/control`)) {
+      return coupangWindowJson({ message: 'not found' }, 404);
+    }
+    if (href.endsWith(`/api/ads/traffic/attempts/${ids.traffic}/control`)) {
+      return coupangWindowJson(coupangTrafficAttempt(ids.traffic, 'RUNNING'));
+    }
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.unreadable}/control`)) {
+      return coupangWindowJson({ message: 'forbidden' }, 403);
+    }
+    if (href.endsWith(`/api/ads/wing-itemwinner/attempts/${ids.itemwinner}`)) {
+      return coupangWindowJson(popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, ids.itemwinner));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const sessions = vm.runInContext('collectionSessions', h.context);
+  // None of these sessions holds the collection window.
+  await sessions.start({ attemptId: ids.campaign, environmentId: 'local', producer: 'advertising.ad_sync' });
+  await sessions.requireAttention(ids.campaign, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
+  await sessions.start({ attemptId: ids.keyword, environmentId: 'local', producer: 'advertising.ad_keyword' });
+  await sessions.start({ attemptId: ids.traffic, environmentId: 'local', producer: 'dashboard.wing_sales' });
+  await sessions.start({ attemptId: ids.unreadable, environmentId: 'local', producer: 'advertising.ad_sync' });
+  let sessionsAtCollect = null;
+  h.context.itemwinnerCollector = {
+    collectItemwinner: async () => {
+      sessionsAtCollect = [...(await sessions.list('local'))].map((session) => session.attemptId).sort();
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('wingReportCollectors.local = { collectItemwinner: (input) => itemwinnerCollector.collectItemwinner(input) };', h.context);
+  try {
+    await externalRequest(h.fake, { action: 'collectAdvertisingWingItemwinner', attemptId: ids.itemwinner });
+
+    assert.deepEqual(
+      sessionsAtCollect,
+      [ids.traffic, ids.unreadable, ids.itemwinner].sort(),
+      'the failed attention session and the unknown attempt are cleared; running and unreadable ones stay',
+    );
+  } finally {
+    h.close();
+  }
+});
+
 test('the shared Coupang window clears a leftover whose attempt ended and names a collection that still runs', async (t) => {
   const leftoverId = '61111111-1111-4111-8111-111111111111';
   const incomingId = '62222222-2222-4222-8222-222222222222';
@@ -1496,9 +1552,25 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
         ? coupangWindowJson({ message: 'ATTEMPT_TERMINAL' }, 409)
         : coupangWindowJson(coupangProfitabilityPlan(leftoverId)),
     },
+    // An owner that answers 404 no longer knows the attempt, so it has ended.
+    ...[
+      ['ad campaign', 'advertising.ad_sync', '쿠팡 광고 캠페인', campaignPath],
+      ['ad keyword', 'advertising.ad_keyword', '쿠팡 광고 키워드', `/api/ads/ad-keywords/attempts/${leftoverId}/control`],
+      ['Wing traffic', 'dashboard.wing_sales', '쿠팡 Wing 트래픽', trafficPath],
+      ['Wing itemwinner', 'dashboard.wing_kpi', '쿠팡 Wing 아이템위너', `/api/ads/wing-itemwinner/attempts/${leftoverId}`],
+    ].map(([label, producer, name, path]) => ({
+      label: `${label} the owner no longer knows`, producer, name, path, endedOnly: true,
+      reply: () => coupangWindowJson({ message: 'not found' }, 404),
+    })),
+    {
+      // Any other read failure leaves the attempt unknown, so the window stays refused.
+      label: 'ad campaign the owner forbids reading', producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인',
+      path: campaignPath, runningOnly: true,
+      reply: () => coupangWindowJson({ message: 'forbidden' }, 403),
+    },
   ];
   for (const scenario of scenarios) {
-    for (const ended of scenario.endedOnly ? [true] : [true, false]) {
+    for (const ended of scenario.endedOnly ? [true] : scenario.runningOnly ? [false] : [true, false]) {
       await t.test(`${scenario.label} ${ended ? 'ended' : 'still running'}`, async () => {
         const h = bootServiceWorker({
           fetch: async (url) => String(url).endsWith(scenario.path) ? scenario.reply(ended) : coupangWindowJson({}),

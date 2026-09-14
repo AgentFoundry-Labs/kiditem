@@ -497,3 +497,25 @@ test("Wing traffic daily v2 owner refuses another attempt while a run is still c
   finishCollect.resolve();
   assert.equal((await first).attemptId, attemptId);
 });
+
+test("Wing traffic daily v2 owner clears the ended sessions of earlier attempts, attention or not, before it starts", async () => {
+  const server = attemptServer();
+  const goneAttemptId = "55555555-5555-4555-8555-555555555555";
+  Object.assign(server.attempts.get(attemptId), {
+    state: "FAILED",
+    errorCode: "WING_TRAFFIC_COLLECTION_FAILED",
+    errorMessage: "Wing 로그인이 필요합니다.",
+  });
+  const h = harness(server.request, async () => ({ success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "stopped" }));
+  await h.sessions.start({ attemptId, environmentId: "local", producer: "dashboard.wing_sales" });
+  await h.sessions.requireAttention(attemptId, { reason: "marketplace_login", message: "Wing 로그인이 필요합니다." });
+  // The owner answers 404 for this one: it no longer knows the attempt.
+  await h.sessions.start({ attemptId: goneAttemptId, environmentId: "local", producer: "dashboard.wing_sales" });
+
+  const outcome = await h.owner.run({ environmentId: "local", attemptId: secondAttemptId });
+
+  assert.equal(outcome.attemptId, secondAttemptId);
+  assert.equal(await h.sessions.getOwned(attemptId, "local"), null, "a failed attempt's attention session is a leftover");
+  assert.equal(await h.sessions.getOwned(goneAttemptId, "local"), null, "an attempt the owner no longer knows has ended");
+  assert.deepEqual(h.closed.map((entry) => entry.id).sort(), [attemptId, goneAttemptId].sort());
+});

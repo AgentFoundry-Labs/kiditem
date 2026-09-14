@@ -517,9 +517,15 @@ const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create(
 // The source owners that close through collectionWindowFor share one window
 // per environment. Each run takes the window's turn and keeps it until its
 // outcome is reported and its window and session are released, so the next
-// collection never meets a window that is still finishing.
+// collection never meets a window that is still finishing. Taking the turn
+// first clears the sessions that ended collections left behind; only their
+// source owners can tell that an attempt ended.
 function takeCoupangWindowTurn(environmentId, operation) {
-  return collectionWindowFor(environmentId).runExclusive(operation);
+  const collectionWindow = collectionWindowFor(environmentId);
+  return collectionWindow.runExclusive(async () => {
+    await collectionWindow.clearEndedSessions(environmentId);
+    return operation();
+  });
 }
 
 // Names the collection that holds the window when another one is refused.

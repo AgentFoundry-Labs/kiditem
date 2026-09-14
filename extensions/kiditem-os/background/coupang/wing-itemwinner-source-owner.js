@@ -296,10 +296,12 @@
       if (Date.now() >= Date.parse(control.expiresAt)) return finish(environmentId, control);
       for (const previous of await options.sessions.list(environmentId)) {
         if (previous.producer !== PRODUCER || previous.attemptId === attemptId) continue;
-        let owner;
-        try { owner = await read(environmentId, previous.attemptId); } catch { continue; }
-        if (owner.state === "RUNNING") throw new Error("다른 Wing 아이템위너 수집이 진행 중입니다.");
-        await finish(environmentId, owner);
+        let ended;
+        try { ended = await attemptEnded(environmentId, previous.attemptId); } catch { continue; }
+        if (!ended) throw new Error("다른 Wing 아이템위너 수집이 진행 중입니다.");
+        // An ended attempt's session is a leftover, attention or not.
+        await options.closeAttempt(environmentId, previous.attemptId);
+        await options.sessions.remove(previous.attemptId);
       }
       const work = active.get(environmentId);
       work.control = control;
@@ -390,10 +392,17 @@
         : operation();
     }
 
-    // Completed, failed and expired attempts have ended; a session left behind
-    // by one is a leftover for the next collection to clear.
+    // Completed, failed and expired attempts have ended, and so has one the owner
+    // no longer knows (404); a session left behind by any of them is a leftover
+    // for the next collection to clear. Any other read failure stays unknown.
     async function attemptEnded(environmentId, attemptId) {
-      const control = await read(environmentId, attemptId);
+      let control;
+      try {
+        control = await read(environmentId, attemptId);
+      } catch (error) {
+        if (error?.status === 404) return true;
+        throw error;
+      }
       return control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt);
     }
 

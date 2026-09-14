@@ -274,6 +274,30 @@
       await clearRecord();
     }
 
+    // Ended sessions are leftovers whether or not they hold this window, and an
+    // attention session has nothing left to attend to once its attempt stopped
+    // running. A collection clears them when it takes its turn instead of
+    // leaving them to the session prune; a session whose attempt cannot be
+    // confirmed as ended is kept.
+    async function clearEndedSessions(environmentId) {
+      if (typeof sessions?.list !== "function" || typeof sessions.remove !== "function") return;
+      let listed;
+      try {
+        listed = await sessions.list(environmentId);
+      } catch {
+        return;
+      }
+      for (const session of Array.isArray(listed) ? listed : []) {
+        if (!(await attemptEnded(session))) continue;
+        try {
+          await close(session.attemptId);
+          await sessions.remove(session.attemptId);
+        } catch {
+          // A leftover that cannot be cleared now is tried again on the next turn.
+        }
+      }
+    }
+
     function reuseDecision(value) {
       if (value === true) return { reuse: true, closePrevious: false };
       if (value && typeof value === "object") {
@@ -688,6 +712,7 @@
 
     return Object.freeze({
       bindTab: bindOwnedTab,
+      clearEndedSessions,
       close,
       getOrCreate,
       getTab,

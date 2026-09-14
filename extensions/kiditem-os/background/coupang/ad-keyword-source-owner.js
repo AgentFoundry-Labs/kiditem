@@ -166,8 +166,7 @@
       if (Date.now() >= Date.parse(control.expiresAt)) throw new Error("광고 키워드 수집 허가가 만료되었습니다.");
       for (const previous of await options.sessions.list(environmentId)) {
         if (previous.producer !== PRODUCER || previous.attemptId === attemptId) continue;
-        const owner = await read(environmentId, previous.attemptId);
-        if (owner.state === "RUNNING") throw new Error("다른 광고 키워드 수집이 진행 중입니다.");
+        if (!(await attemptEnded(environmentId, previous.attemptId))) throw new Error("다른 광고 키워드 수집이 진행 중입니다.");
         await options.closeAttempt(environmentId, previous.attemptId);
         await options.sessions.remove(previous.attemptId);
       }
@@ -242,10 +241,17 @@
         : operation();
     }
 
-    // Completed, failed and expired attempts have ended; a session left behind
-    // by one is a leftover for the next collection to clear.
+    // Completed, failed and expired attempts have ended, and so has one the owner
+    // no longer knows (404); a session left behind by any of them is a leftover
+    // for the next collection to clear. Any other read failure stays unknown.
     async function attemptEnded(environmentId, attemptId) {
-      const control = await read(environmentId, attemptId);
+      let control;
+      try {
+        control = await read(environmentId, attemptId);
+      } catch (error) {
+        if (error?.status === 404) return true;
+        throw error;
+      }
       return control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt);
     }
 

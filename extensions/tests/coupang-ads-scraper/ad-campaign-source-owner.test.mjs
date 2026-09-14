@@ -192,3 +192,26 @@ test('a failed sweep reports the collector reason and code in the owner failure'
     assert.equal(outcome.error, body.message);
   }
 });
+
+test('a campaign run clears an earlier session whose attempt the owner no longer knows, but not one it cannot read', async () => {
+  const goneAttemptId = '55555555-5555-4555-8555-555555555555';
+  const stopped = async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'stopped' });
+
+  const gone = harness({
+    request: async (path) => path.includes(goneAttemptId) ? { httpStatus: 404, message: 'not found' } : control(),
+    collect: stopped,
+  });
+  await gone.sessions.start({ attemptId: goneAttemptId, environmentId: 'local', producer: 'advertising.ad_sync' });
+  const outcome = await gone.owner.run({ environmentId: 'local', attemptId });
+  assert.equal(outcome.attemptId, attemptId);
+  assert.equal(await gone.sessions.getOwned(goneAttemptId, 'local'), null, 'a 404 means the attempt has ended');
+  assert.ok(gone.closed.some((entry) => entry.id === goneAttemptId));
+
+  const forbidden = harness({
+    request: async (path) => path.includes(goneAttemptId) ? { httpStatus: 403, message: 'forbidden' } : control(),
+    collect: stopped,
+  });
+  await forbidden.sessions.start({ attemptId: goneAttemptId, environmentId: 'local', producer: 'advertising.ad_sync' });
+  await assert.rejects(forbidden.owner.run({ environmentId: 'local', attemptId }));
+  assert.ok(await forbidden.sessions.getOwned(goneAttemptId, 'local'), 'an unreadable attempt is not assumed to have ended');
+});
