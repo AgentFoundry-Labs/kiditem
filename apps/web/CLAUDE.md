@@ -28,6 +28,10 @@ the nearest scoped guide owns route-specific composition.
   `collectionSourceStatusQueryOptions` and gate collection actions through
   `collectionSourceStatusRead`: block only until a first status read, then act
   on the last known status.
+- Browser collection starts use the shared control: a per-source adapter for
+  `useCollectionSourceControl`, rendered by `CollectionStartControl`. Running
+  state comes from the owner status read, and every mounted copy shares start
+  and stop; do not add a screen-local start, lock, or running flag.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a
