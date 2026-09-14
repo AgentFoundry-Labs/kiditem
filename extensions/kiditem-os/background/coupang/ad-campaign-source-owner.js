@@ -287,7 +287,14 @@
       }
       const work = running || { attemptId };
       work.promise = Promise.resolve().then(() => takeWindowTurn(environmentId, () => execute(environmentId, attemptId)))
-        .finally(() => { work.promise = null; if (active.get(environmentId) === work && !work.terminal) active.delete(environmentId); });
+        .finally(() => {
+          work.promise = null;
+          // A settled run releases the environment even when its terminal report
+          // was not acknowledged. Only a terminal report still in flight keeps
+          // it; a server attempt that is still running is refused by the next
+          // run's previous-session check.
+          if (active.get(environmentId) === work && !work.terminalPromise) active.delete(environmentId);
+        });
       active.set(environmentId, work);
       return work.promise;
     }
@@ -300,7 +307,7 @@
       try {
         return await terminal(environmentId, work, "fail", { code: "USER_CANCELLED", message: "사용자가 광고 캠페인 수집을 중단했습니다." });
       } finally {
-        if (!work.promise && !work.terminal && active.get(environmentId) === work) active.delete(environmentId);
+        if (!work.promise && !work.terminalPromise && active.get(environmentId) === work) active.delete(environmentId);
       }
     }
 

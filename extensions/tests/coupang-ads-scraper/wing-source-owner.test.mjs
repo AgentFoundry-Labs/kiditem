@@ -533,3 +533,124 @@ test('Wing itemwinner owner clears the ended sessions of earlier attempts, atten
   assert.equal(await h.sessions.getOwned(goneAttemptId, 'local'), null, 'an attempt the owner no longer knows has ended');
   assert.deepEqual(h.closed.map((entry) => entry.id).sort(), [attemptId, goneAttemptId].sort());
 });
+
+const nextAttemptId = '44444444-4444-4444-8444-444444444444';
+
+// Serves each itemwinner attempt's read and records its failure report.
+// `onFail` may answer a report in the owner's place; `expire` ends an attempt
+// the way the owner does once its permit runs out.
+function attemptServer({ onFail } = {}) {
+  const attempts = new Map([
+    [attemptId, itemwinnerControl()],
+    [nextAttemptId, { ...itemwinnerControl(), attemptId: nextAttemptId }],
+  ]);
+  return {
+    expire: (id) => Object.assign(attempts.get(id), { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED', errorMessage: 'attempt expired' }),
+    async request(path, init) {
+      const [, id, action] = /\/attempts\/([^/]+)(?:\/(fail|complete))?$/.exec(path) || [];
+      const attempt = attempts.get(decodeURIComponent(id || ''));
+      if (!attempt) return { httpStatus: 404, message: 'not found' };
+      if (action === 'fail' && init?.method === 'POST') {
+        const answer = await onFail?.(attempt);
+        if (answer) return answer;
+        const failure = JSON.parse(init.body);
+        Object.assign(attempt, { state: 'FAILED', errorCode: failure.code, errorMessage: failure.message });
+      }
+      return attempt;
+    },
+  };
+}
+
+// The first attempt's failure report never reaches the owner.
+const firstReportLost = async (attempt) => attempt.attemptId === attemptId
+  ? { httpStatus: 503, message: 'unavailable' }
+  : undefined;
+
+const stoppedItemwinnerCollect = async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'stopped' });
+
+test('Wing itemwinner owner runs the next attempt after a run settles without its terminal acknowledgement', async () => {
+  const server = attemptServer({ onFail: firstReportLost });
+  const collected = [];
+  const h = harness({
+    kind: 'itemwinner',
+    request: server.request,
+    collect: async (input) => {
+      collected.push(input.attemptId);
+      return { success: false, error: 'Wing 아이템위너 표를 읽지 못했습니다.' };
+    },
+  });
+
+  const first = await h.owner.run({ environmentId: 'local', attemptId });
+  assert.equal(first.errorCode, 'SOURCE_OWNER_UNAVAILABLE', 'the unacknowledged report is not trusted');
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 Wing 아이템위너 수집이 진행 중입니다/,
+    'an attempt the owner still runs keeps refusing the next one',
+  );
+
+  server.expire(attemptId);
+  let next;
+  assert.doesNotThrow(() => {
+    next = h.owner.run({ environmentId: 'local', attemptId: nextAttemptId });
+  }, 'a settled run must not keep refusing every later attempt');
+  assert.equal((await next).attemptId, nextAttemptId);
+  assert.deepEqual(collected, [attemptId, nextAttemptId]);
+  assert.equal(await h.sessions.getOwned(attemptId, 'local'), null, "the ended attempt's session is cleared on the way");
+});
+
+test('Wing itemwinner owner refuses another attempt only while a cancellation is still being reported', async () => {
+  const reporting = Promise.withResolvers();
+  const releaseReport = Promise.withResolvers();
+  const server = attemptServer({
+    onFail: async (attempt) => {
+      if (attempt.attemptId !== attemptId) return undefined;
+      reporting.resolve();
+      await releaseReport.promise;
+      return { httpStatus: 503, message: 'unavailable' };
+    },
+  });
+  const h = harness({ kind: 'itemwinner', request: server.request, collect: stoppedItemwinnerCollect });
+  await h.sessions.start({ attemptId, environmentId: 'local', producer: 'dashboard.wing_kpi' });
+
+  const cancelling = h.owner.cancel({ environmentId: 'local', attemptId });
+  await reporting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 Wing 아이템위너 수집이 진행 중입니다/,
+  );
+
+  releaseReport.resolve();
+  assert.equal((await cancelling).errorCode, 'SOURCE_OWNER_UNAVAILABLE', 'the unacknowledged cancellation is not trusted');
+  server.expire(attemptId);
+  let next;
+  assert.doesNotThrow(() => {
+    next = h.owner.run({ environmentId: 'local', attemptId: nextAttemptId });
+  }, 'a settled cancellation must not keep refusing every later attempt');
+  assert.equal((await next).attemptId, nextAttemptId);
+});
+
+test('Wing itemwinner owner refuses another attempt while a run is still collecting', async () => {
+  const collecting = Promise.withResolvers();
+  const finishCollect = Promise.withResolvers();
+  const h = harness({
+    kind: 'itemwinner',
+    request: attemptServer().request,
+    collect: async (input) => {
+      if (input.attemptId === attemptId) {
+        collecting.resolve();
+        await finishCollect.promise;
+      }
+      return stoppedItemwinnerCollect();
+    },
+  });
+
+  const first = h.owner.run({ environmentId: 'local', attemptId });
+  await collecting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 Wing 아이템위너 수집이 진행 중입니다/,
+  );
+
+  finishCollect.resolve();
+  assert.equal((await first).attemptId, attemptId);
+});
