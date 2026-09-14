@@ -809,22 +809,6 @@ export type FinalizeCoupangCatalogCollectionRequest = z.infer<
   typeof FinalizeCoupangCatalogCollectionRequestSchema
 >;
 
-export const CoupangCatalogBrowserCommandSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('startCoupangCatalogImport'),
-    permit: CoupangCatalogCollectionPermitSchema,
-  }).strict(),
-  z.object({
-    action: z.literal('getCoupangCatalogImportStatus'),
-    attemptId: z.string().uuid(),
-  }).strict(),
-  z.object({
-    action: z.literal('cancelCoupangCatalogImport'),
-    attemptId: z.string().uuid(),
-  }).strict(),
-]);
-export type CoupangCatalogBrowserCommand = z.infer<typeof CoupangCatalogBrowserCommandSchema>;
-
 export const CoupangCatalogBrowserStatusSchema = z.object({
   attemptId: z.string().uuid(),
   active: z.boolean(),

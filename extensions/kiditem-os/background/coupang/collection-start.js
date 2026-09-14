@@ -1,11 +1,14 @@
 (function installCoupangCollectionStart(root) {
   "use strict";
 
-  // The one start for collections that take turns in the Coupang collection
-  // window of a browser environment (KID-147, `@kiditem/shared/collection-start`).
-  // A start is answered once it is decided, never when the collection ends: the
-  // source owner's attempt carries the collection's state from then on.
+  // The one start for collections that need a browser resource one collection
+  // holds at a time in a browser environment (KID-147,
+  // `@kiditem/shared/collection-start`): the Coupang collection window, and
+  // the Wing login a catalog import reads through. A start is answered once it
+  // is decided, never when the collection ends: the source owner's attempt
+  // carries the collection's state from then on.
   const START_ACTION = "startCollection";
+  // Collections that take turns in the Coupang collection window.
   const COLLECTION_NAMES = Object.freeze({
     "advertising.ad_sync": "쿠팡 광고 캠페인",
     "advertising.ad_keyword": "쿠팡 광고 키워드",
@@ -22,6 +25,13 @@
     "dashboard.wing_sales": "/api/ads/traffic/attempts",
     "dashboard.wing_kpi": "/api/ads/wing-itemwinner/attempts",
   });
+  // The Wing catalog import does not use the collection window. It reads Wing
+  // through the browser's single Wing login, so a browser imports one store
+  // account at a time; the catalog import module admits it.
+  const CATALOG_IMPORT_PRODUCER = "channels.coupang_catalog";
+  // Keeps the holder's name within the contract's 100 characters.
+  const CATALOG_ACCOUNT_NAME_MAX = 80;
+  const START_PRODUCERS = Object.freeze([...Object.keys(BEGIN_PATHS), CATALOG_IMPORT_PRODUCER]);
   const REQUEST_KEYS = ["action", "producer", "idempotencyKey", "scope"];
   // The shared schema validates with zod 3. These are its `z.string().uuid()`
   // and `z.string().date()` patterns, so both sides accept the same requests.
@@ -79,6 +89,13 @@
       scope.startDate <= scope.endDate;
   }
 
+  // A catalog import names exactly one store account.
+  function catalogImportScope(scope) {
+    return hasOnlyKeys(scope, ["channelAccountId"]) &&
+      typeof scope.channelAccountId === "string" &&
+      UUID.test(scope.channelAccountId);
+  }
+
   function validScope(producer, scope) {
     if (!isRecord(scope)) return false;
     switch (producer) {
@@ -91,6 +108,8 @@
         return Object.keys(scope).length === 0;
       case "dashboard.wing_sales":
         return trafficScope(scope);
+      case CATALOG_IMPORT_PRODUCER:
+        return catalogImportScope(scope);
       default:
         return false;
     }
@@ -103,7 +122,7 @@
       !hasOnlyKeys(message, REQUEST_KEYS) ||
       message.action !== START_ACTION ||
       typeof message.producer !== "string" ||
-      !Object.hasOwn(BEGIN_PATHS, message.producer) ||
+      !START_PRODUCERS.includes(message.producer) ||
       typeof message.idempotencyKey !== "string" ||
       !UUID.test(message.idempotencyKey) ||
       !validScope(message.producer, message.scope)
@@ -117,6 +136,8 @@
     };
   }
 
+  // Names only the collections that take turns in the collection window; a
+  // session of any other producer never protects that window.
   function collectionName(producer) {
     return typeof producer === "string" && Object.hasOwn(COLLECTION_NAMES, producer)
       ? COLLECTION_NAMES[producer]
@@ -167,6 +188,7 @@
     const keepAlive = options.keepAlive;
     const runs = options.runs;
     const manualReportUrl = options.manualReportUrl;
+    const catalogImport = options.catalogImport;
 
     // A manual campaign report begins with the report page the collection
     // window will open, which the owner freezes as the report's target.
@@ -218,6 +240,9 @@
     }
 
     async function start(startRequest, environmentId) {
+      if (startRequest.producer === CATALOG_IMPORT_PRODUCER) {
+        return startCatalogImport(startRequest, environmentId);
+      }
       const { producer, idempotencyKey } = startRequest;
       const windowTurn = windowFor(environmentId);
       // The claim is taken before anything is awaited, so a start that arrives
@@ -247,6 +272,46 @@
         } else {
           turn.release();
         }
+      }
+    }
+
+    // The catalog import module takes the browser's import turn, opens the
+    // basics attempt and runs the import; this contract answers for it.
+    async function startCatalogImport(startRequest, environmentId) {
+      const decision = await catalogImport.admit(startRequest, environmentId);
+      if (decision.outcome === "started") return started(CATALOG_IMPORT_PRODUCER, decision.attemptId);
+      if (decision.outcome === "running") return running(CATALOG_IMPORT_PRODUCER, decision.attemptId);
+      return refusedByCatalogImport(environmentId, decision.holder);
+    }
+
+    // The refusal names the store account whose import holds the browser when
+    // the owner can name it; an unreadable account list still refuses.
+    async function refusedByCatalogImport(environmentId, holder) {
+      const accountName = await storeAccountName(environmentId, holder.channelAccountId);
+      const name = accountName ? `${accountName} 계정의 쿠팡 상품 수집` : "다른 계정의 쿠팡 상품 수집";
+      return {
+        success: true,
+        outcome: "refused",
+        producer: CATALOG_IMPORT_PRODUCER,
+        holder: { producer: CATALOG_IMPORT_PRODUCER, name, attemptId: holder.attemptId ?? null },
+        message: `${name}이 이 브라우저에서 진행 중입니다. 한 브라우저에서는 쿠팡 계정 하나씩만 상품을 받을 수 있습니다. 끝난 뒤 다시 시작해 주세요.`,
+      };
+    }
+
+    async function storeAccountName(environmentId, channelAccountId) {
+      try {
+        const response = await request(environmentId, "/api/channels/accounts", { method: "GET" });
+        if (!response.ok) return null;
+        const accounts = await response.json();
+        const account = Array.isArray(accounts)
+          ? accounts.find((entry) => entry?.id === channelAccountId)
+          : null;
+        const name = typeof account?.name === "string"
+          ? account.name.trim().slice(0, CATALOG_ACCOUNT_NAME_MAX).trim()
+          : "";
+        return name || null;
+      } catch {
+        return null;
       }
     }
 

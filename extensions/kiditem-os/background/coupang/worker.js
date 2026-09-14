@@ -79,8 +79,9 @@ function catalogCollectionWindowFor(environmentId) {
 }
 
 // Every start of a collection that takes turns in the Coupang collection
-// window goes through this admission (KID-147). It answers the web app once the
-// start is decided and runs the source owner afterwards.
+// window, and of the Wing catalog import, goes through this admission (KID-147).
+// It answers the web app once the start is decided and runs the source owner
+// afterwards.
 const coupangCollectionStart = KidItemCoupangCollectionStart.create({
   windowFor: collectionWindowFor,
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
@@ -99,6 +100,12 @@ const coupangCollectionStart = KidItemCoupangCollectionStart.create({
       runWingTrafficSourceOwner({ environmentId, attemptId }),
     [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
       wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
+  },
+  // The catalog import holds its own turn per environment: the browser's one
+  // Wing login reads one store account at a time.
+  catalogImport: {
+    admit: (request, environmentId) =>
+      KidItemCoupangCatalogImport.admit(request, coupangCatalogImportDependencies(environmentId)),
   },
 });
 
@@ -475,12 +482,12 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   const scheduled = coupangEnvironment.parseAlarm(alarm.name);
-  if (scheduled?.base === "kiditem-coupang-catalog-import-step") {
-    KidItemCoupangCatalogImport.handleAlarm(
-      alarm,
-      coupangCatalogImportDependencies(scheduled.environmentId),
-    );
-  }
+  if (scheduled?.base !== "kiditem-coupang-catalog-import-step") return;
+  const dependencies = coupangCatalogImportDependencies(scheduled.environmentId);
+  // An alarm left from an earlier worker life runs no step until this worker
+  // admits, recovers or stops that import (KID-147).
+  if (!KidItemCoupangCatalogImport.isContinuing(dependencies)) return;
+  KidItemCoupangCatalogImport.handleAlarm(alarm, dependencies);
 });
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
@@ -626,38 +633,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // ping 은 통합 서비스워커가 세 도메인의 capabilities 를 합쳐 한 번만 응답한다.
   // 이 도메인의 capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
-
-  if (msg.action === "startCoupangCatalogImport") {
-    KidItemCoupangCatalogImport.start(msg, coupangCatalogImportDependencies(environmentId))
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "쿠팡 상품 수집 시작 실패",
-        }),
-      );
-    return true;
-  }
-
-  if (msg.action === "getCoupangCatalogImportStatus") {
-    KidItemCoupangCatalogImport.getStatus(
-      typeof msg.attemptId === "string" ? msg.attemptId : null,
-      coupangCatalogImportDependencies(environmentId),
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) => sendResponse({ attemptId: msg.attemptId, active: false, attention: null, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
-    return true;
-  }
-
-  if (msg.action === "cancelCoupangCatalogImport") {
-    KidItemCoupangCatalogImport.cancel(
-      typeof msg.attemptId === "string" ? msg.attemptId : null,
-      coupangCatalogImportDependencies(environmentId),
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 중단 실패" }));
-    return true;
-  }
 
   if (msg.action === "deleteWingProduct") {
     deleteWingProduct(msg)
@@ -1942,8 +1917,10 @@ async function cancelCollectionSession(runId, environmentId) {
 // and settles its stop requests. The ad campaign, keyword, Wing traffic and
 // itemwinner owners only settle attempts that already ended. Profitability
 // continues its same live import inside the window turn a new start would take;
-// tracked Wing products and competitor catalogs use no window. The runs keep
-// the worker alive on their own, so the lifetime is not held until they end.
+// tracked Wing products and competitor catalogs use no window. The Wing catalog
+// import continues its same unexpired attempt after taking the import turn a
+// new start would take. The runs keep the worker alive on their own, so the
+// lifetime is not held until they end.
 function recoverCoupangCollections(environmentId) {
   for (const [label, recover] of [
     ["광고 캠페인 owner", () => adCampaignSourceOwner.recover(environmentId)],
@@ -1954,6 +1931,7 @@ function recoverCoupangCollections(environmentId) {
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
     ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
     ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
+    ["쿠팡 상품 수집", () => KidItemCoupangCatalogImport.recover(coupangCatalogImportDependencies(environmentId))],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
       console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));
