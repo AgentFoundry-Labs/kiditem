@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { buildDashboardContext } from '../domain/context';
@@ -16,8 +16,19 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
-import type { PrismaClient } from '@prisma/client';
 import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
+import { addDays, businessDateKey, evidenceCutoffDate } from '../../../common/kst';
+import type { PrismaClient } from '@prisma/client';
+
+/**
+ * 00:46 KST on 2026-09-15, which is still 2026-09-14 in UTC. The seed used to
+ * read the runner's local calendar, so on a UTC runner in the KST small hours
+ * it wrote the day before the service's latest closed KST day and every ad
+ * read fell outside the window. Pinning the clock reproduces that instant in
+ * any runner timezone, and keeps the anchor month off the 1st, where the
+ * closed-day window is empty by design (ADR-0001).
+ */
+const KST_DAWN = new Date('2026-09-14T15:46:00.000Z');
 
 describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows', () => {
   let prisma: PrismaClient;
@@ -56,35 +67,23 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(KST_DAWN);
   });
 
-  function latestClosedBusinessDate(): string {
-    const now = new Date();
-    const yesterday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() - 1));
-    return yesterday
-      .toISOString()
-      .slice(0, 10);
-  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-  function enumerateDates(from: string, to: string): string[] {
-    const result: string[] = [];
-    const cursor = new Date(`${from}T00:00:00.000Z`);
-    const end = new Date(`${to}T00:00:00.000Z`);
-    while (cursor.getTime() <= end.getTime()) {
-      result.push(cursor.toISOString().slice(0, 10));
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-    }
-    return result;
+  /** The latest closed KST business day, the day the service's window ends on. */
+  function latestClosedBusinessDate(): string {
+    return businessDateKey(evidenceCutoffDate(new Date()));
   }
 
   async function seedAdsTwoOrganizations() {
     // Seed the advertising target-day ledger, the one ad source. Reads assert
     // IDOR + value isolation on it.
-    const today = new Date();
-    today.setDate(today.getDate() - 1);
-    const businessDate = new Date(
-      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
-    );
+    const businessDate = evidenceCutoffDate(new Date());
 
     const accountT = await prisma.channelAccount.create({
       data: {
@@ -117,10 +116,10 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       },
     });
 
-    const date = businessDate.toISOString().slice(0, 10);
+    const date = businessDateKey(businessDate);
     // Both sweeps declare a window that covers the whole 30-day context, so
     // the days without rows are measured zeros rather than gaps.
-    const windowStart = new Date(businessDate.getTime() - 40 * 86_400_000).toISOString().slice(0, 10);
+    const windowStart = businessDateKey(addDays(businessDate, -40));
     const runs = new Map<string, string>();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
       runs.set(organizationId, await seedCompletedAdSweepRun(prisma, {

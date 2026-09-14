@@ -96,7 +96,9 @@ describe('integration test runtime contract', () => {
     expect(developWorkflowSource).not.toContain('pull_request:');
     expect(developWorkflowSource).toContain('cancel-in-progress: true');
     expect(developJobSource).toContain('runs-on: ubuntu-latest');
-    expect(developJobSource).toContain('timeout-minutes: 20');
+    // Full Testcontainers PG suite after builds + web unit tests needs more than
+    // 20 minutes on a GitHub runner (run 34856574982 was cancelled at 20:00).
+    expect(developJobSource).toContain('timeout-minutes: 60');
     expect(developJobSource).toContain('contents: read');
     expect(developJobSource).toContain(
       'DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci',
