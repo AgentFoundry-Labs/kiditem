@@ -11,10 +11,8 @@ import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
-import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
 import { queryKeys } from '@/lib/query-keys';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
   loadSavedRocketCollection,
   previewRocketPurchases,
@@ -25,8 +23,8 @@ import {
   fillRocketConfirmationWorkbook,
 } from '../lib/rocket-confirmation-workbook';
 import {
-  recoverRocketPreviewFreshness,
-  RocketPreviewFreshnessRecoveryError,
+  requireFreshRocketPreview,
+  RocketInventoryCollectionRequiredError,
 } from '../lib/rocket-preview-freshness-recovery';
 import type {
   RocketPoCatalogRow,
@@ -53,11 +51,10 @@ export type RocketWorkflowStage =
   | 'idle'
   | 'collecting'
   | 'persisting_collection'
-  | 'refreshing_inventory'
   | 'calculating'
   | 'review_required'
   | 'ready'
-  | 'attention_required';
+  | 'inventory_collection_required';
 
 function editFingerprint(quantities: Record<string, number>): string {
   return JSON.stringify(Object.entries(quantities).sort(([left], [right]) =>
@@ -207,7 +204,6 @@ export function useRocketPurchaseWorkflow({
 }) {
   const queryClient = useQueryClient();
   const rocketSource = useRocketPoSource(channelAccountId);
-  const { start: startSellpiaInventorySource } = useSellpiaInventorySourceOwner({ enabled: true });
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
     () => new Set(),
@@ -234,6 +230,7 @@ export function useRocketPurchaseWorkflow({
   const [loading, setLoading] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const requestGenerationRef = useRef(0);
   /**
    * 같은 수집본 안에서 날짜만 바꿀 때 재사용하는 원본.
@@ -282,7 +279,7 @@ export function useRocketPurchaseWorkflow({
     activeWaiterRef.current?.abort();
   }, []);
 
-  const previewWithFreshnessRecovery = async (input: {
+  const previewWithInventoryGate = async (input: {
     request: RocketPurchasePreviewRequest;
     generation: number;
     controller: AbortController;
@@ -305,31 +302,18 @@ export function useRocketPurchaseWorkflow({
     }
     if (input.notifyCatalogSaved && initial.catalog) onCatalogSaved?.();
 
-    return recoverRocketPreviewFreshness(initial, {
-      retryPreview: requestPreview,
-      getFreshnessState: sellpiaInventoryFreshnessApi.getState,
-      requestRetry: async () => {
-        await startSellpiaInventorySource('retry');
-        return sellpiaInventoryFreshnessApi.getState();
-      },
-      publishPending: (checkpoint) => {
-        if (!isCurrent()) return;
-        setPendingCheckpoint(checkpoint);
-        setPreview(previewForDeliveryDate({
-          status: 'ready',
-          collectionRunId: checkpoint.collectionRunId,
-          catalog: checkpoint.catalog,
-          inventoryGeneration: null,
-          rows: checkpoint.rows,
-        }, selectedDeliveryDate));
-        setStage('refreshing_inventory');
-      },
-      publishFreshnessState: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.inventory.freshness(),
-        });
-      },
-    }, input.controller.signal);
+    return requireFreshRocketPreview(initial, (checkpoint) => {
+      if (!isCurrent()) return;
+      setPendingCheckpoint(checkpoint);
+      setPreview(previewForDeliveryDate({
+        status: 'ready',
+        collectionRunId: checkpoint.collectionRunId,
+        catalog: checkpoint.catalog,
+        inventoryGeneration: null,
+        rows: checkpoint.rows,
+      }, selectedDeliveryDate));
+      setStage('inventory_collection_required');
+    });
   };
 
   const beginWaiter = (): AbortController => {
@@ -344,14 +328,13 @@ export function useRocketPurchaseWorkflow({
   };
 
   const stageForRecoveryFailure = (cause: unknown): RocketWorkflowStage => (
-    cause instanceof RocketPreviewFreshnessRecoveryError
-    && cause.code === 'attention_required'
-      ? 'attention_required'
+    cause instanceof RocketInventoryCollectionRequiredError
+      ? 'inventory_collection_required'
       : 'review_required'
   );
 
   const recoveryErrorMessage = (cause: unknown, fallback: string): string => (
-    cause instanceof RocketPreviewFreshnessRecoveryError
+    cause instanceof RocketInventoryCollectionRequiredError
       || cause instanceof RocketPoSourceError
       ? cause.message
       : rocketPreviewErrorMessage(cause, fallback)
@@ -410,7 +393,7 @@ export function useRocketPurchaseWorkflow({
         });
         setSourceRows(reviewRows);
         setCollectionRows(saved.rows);
-        const completeResult = cached?.complete ?? await previewWithFreshnessRecovery({
+        const completeResult = cached?.complete ?? await previewWithInventoryGate({
           request: {
           channelAccountId,
           sourceImportRunId: saved.sourceImportRunId,
@@ -469,6 +452,7 @@ export function useRocketPurchaseWorkflow({
     channelAccountId,
     from,
     onActivity,
+    reloadNonce,
     savedSourceImportRunId,
     selectedDeliveryDate,
     to,
@@ -526,7 +510,7 @@ export function useRocketPurchaseWorkflow({
           } satisfies RocketPurchasePreviewRequest;
         },
       });
-      const completeResult = await previewWithFreshnessRecovery({
+      const completeResult = await previewWithInventoryGate({
         request,
         generation,
         controller,
@@ -597,7 +581,7 @@ export function useRocketPurchaseWorkflow({
     setError(null);
     onActivity?.({ status: 'started', message: '검토수량을 현재 재고 기준으로 다시 검증하고 있습니다.' });
     try {
-      const completeResult = await previewWithFreshnessRecovery({
+      const completeResult = await previewWithInventoryGate({
         request: {
           channelAccountId,
           sourceImportRunId: collectionRun.sourceImportRunId,
@@ -644,6 +628,17 @@ export function useRocketPurchaseWorkflow({
       finishWaiter(controller);
       if (generation === requestGenerationRef.current) setLoading(false);
     }
+  };
+
+  // After the operator collected inventory: a saved load that stopped reloads
+  // its source, and a loaded preview revalidates the reviewed quantities.
+  const retryInventoryAndPreview = (): void => {
+    if (displayPreview || !savedSourceImportRunId) {
+      void revalidateEditedQuantities();
+      return;
+    }
+    loadedSourceRef.current = null;
+    setReloadNonce((value) => value + 1);
   };
 
   const collectionWarning = aggregateCollectionWarning(collectionRun);
@@ -705,7 +700,7 @@ export function useRocketPurchaseWorkflow({
     setError(null);
     onActivity?.({ status: 'started', message: '쿠팡 제출용 엑셀을 저장하고 있습니다.' });
     try {
-      const completeResult = await previewWithFreshnessRecovery({
+      const completeResult = await previewWithInventoryGate({
         request: {
           channelAccountId,
           sourceImportRunId: collectionRun.sourceImportRunId,
@@ -795,10 +790,11 @@ export function useRocketPurchaseWorkflow({
     loading: loading || rocketSource.isCollecting,
     collecting: collecting || rocketSource.isCollecting,
     error,
+    inventoryCollectionRequired: stage === 'inventory_collection_required',
     collectionWarning,
     canExport,
     recalculate,
-    retryInventoryAndPreview: revalidateEditedQuantities,
+    retryInventoryAndPreview,
     revalidateEditedQuantities,
     exportAndDownload,
   };

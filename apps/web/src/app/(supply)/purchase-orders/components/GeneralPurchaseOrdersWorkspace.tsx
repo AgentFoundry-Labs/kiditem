@@ -6,6 +6,7 @@ import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { SellpiaInventoryCollectionControl } from '@/app/(inventory)/_shared/SellpiaInventoryCollectionControl';
 import { usePurchaseOrderSubmission } from '../hooks/usePurchaseOrderSubmission';
 import { purchaseOrdersApi } from '../lib/purchase-orders-api';
 import CreateOrderModal from './CreateOrderModal';
@@ -138,6 +139,18 @@ export function GeneralPurchaseOrdersWorkspace({
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
           <button onClick={refreshData} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
+      {submission.inventoryCollectionRequired && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <div>
+            <p className="font-semibold">재고 수집이 필요합니다.</p>
+            <p className="mt-0.5 text-xs">셀피아 재고 수집이 끝난 뒤 발주 확정을 다시 눌러 주세요.</p>
+          </div>
+          <SellpiaInventoryCollectionControl />
         </div>
       )}
       <PurchaseOrderHeader

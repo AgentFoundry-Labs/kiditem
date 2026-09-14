@@ -41,10 +41,10 @@ fresh preview -> browser workbook generation -> direct download
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
 - `pending -> ordered` uses the submission hook with a browser-created stable
   idempotency key; it never uses generic status mutation.
-- Only `SELLPIA_SYNC_REQUIRED` may request/join a Sellpia refresh, wait for one
-  completed fresh generation, and retry exactly once with the same key. A
-  second gate error, provider/identity/inactive/login/quality failure, or
-  reconciliation-required result is never auto-retried.
+- `SELLPIA_SYNC_REQUIRED` shows 재고 수집이 필요합니다 with the shared Sellpia
+  inventory control. Submission never starts a collection or resubmits; the
+  operator submits again after collecting. Provider, identity, inactive, login,
+  quality, and reconciliation-required results are never auto-retried.
 - `provider_unknown` is displayed as an explicit reconciliation state; the UI
   records operator-confirmed success/failure through `reconcileSubmission`.
 - Submission settlement invalidates purchase-order queries on both success and
@@ -56,11 +56,10 @@ fresh preview -> browser workbook generation -> direct download
   including free-text `supplierName` creation.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Explicit new collection creates fresh provider evidence. A completed
-  persisted catalog snapshot may be reopened. Collected rows render immediately
-  from the pending checkpoint while the shared coordinator synchronizes Sellpia;
-  the UI labels those quantities as prior-snapshot advisory values, keeps export
-  disabled, and replaces them with the fresh-generation comparison before
-  review completes. An unresolved order-file intent never blocks this refresh.
+  persisted catalog snapshot may be reopened. A freshness-pending preview renders
+  its checkpoint rows as prior-snapshot advisory values, keeps export disabled,
+  and shows 재고 수집이 필요합니다 with the shared inventory control. It never
+  starts a collection and recalculates only when the operator retries.
 - Recollection intersects retained edit keys with fresh PO lines and sends all
   retained edits once using the backend's joint clamp mode. UI state uses the
   returned effective quantities because multiple rows may share component

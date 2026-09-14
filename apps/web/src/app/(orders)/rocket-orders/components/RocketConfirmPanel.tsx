@@ -26,6 +26,7 @@ import {
   rocketReviewedQuantityLimit,
   useRocketPurchaseWorkflow,
 } from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
+import { SellpiaInventoryCollectionControl } from "@/app/(inventory)/_shared/SellpiaInventoryCollectionControl";
 import type { RocketDecisionWorkspaceContext } from "./RocketOrdersWorkspace";
 import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 import {
@@ -196,10 +197,12 @@ export function RocketConfirmPanel({
     loading,
     collecting,
     error,
+    inventoryCollectionRequired,
     collectionWarning,
     canExport,
     recalculate,
     revalidateEditedQuantities,
+    retryInventoryAndPreview,
     exportAndDownload,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
@@ -501,6 +504,26 @@ export function RocketConfirmPanel({
           className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700"
         >
           {error}
+          {/* 재고 수집은 여기서 시작하지 않는다. 공용 재고 수집 컨트롤을 보여 주고, 계산은 운영자가 다시 누른다. */}
+          {inventoryCollectionRequired ? (
+            <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+              <p className="text-xs text-rose-600">
+                셀피아 재고 수집이 끝난 뒤 다시 계산해 주세요.
+              </p>
+              <div className="flex flex-wrap items-start gap-2">
+                <SellpiaInventoryCollectionControl />
+                <button
+                  type="button"
+                  onClick={() => retryInventoryAndPreview()}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  <RefreshCw size={13} />
+                  재고 반영해 다시 계산
+                </button>
+              </div>
+            </div>
+          ) : null}
           {/* 쿠키 과다(HTTP 400)는 재시도로 안 풀리고 쿠키를 비워야 복구된다. 그 자리에서 바로 조치. */}
           {isCoupangCookieBloatMessage(error) ? (
             <div className="mt-2">

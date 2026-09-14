@@ -22,6 +22,23 @@ vi.mock(
     useRocketPurchaseWorkflow: vi.fn(),
   }),
 );
+const inventoryStart = vi.hoisted(() => vi.fn());
+vi.mock("@/app/(inventory)/_shared/sellpia-inventory-source-owner", () => ({
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: "idle",
+      statusRead: "current",
+      running: null,
+      canStop: false,
+      notice: null,
+      start: inventoryStart,
+      stop: vi.fn(),
+    },
+    state: null,
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
+  }),
+}));
 vi.mock("./RocketMatchStatusModal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./RocketMatchStatusModal")>()),
   RocketMatchStatusModal: () => null,
@@ -110,10 +127,12 @@ const baseWorkflow = {
   loading: false,
   collecting: false,
   error: null as string | null,
+  inventoryCollectionRequired: false,
   collectionWarning: null,
   canExport: false,
   recalculate: vi.fn(),
   revalidateEditedQuantities: vi.fn(),
+  retryInventoryAndPreview: vi.fn(),
   exportAndDownload: vi.fn(),
 };
 
@@ -624,6 +643,24 @@ describe("<RocketConfirmPanel />", () => {
     expect(
       screen.getByText(/셀피아 재고 스냅샷이 최신이 아니어서/),
     ).toBeInTheDocument();
+  });
+
+  it("asks for Sellpia inventory collection with its control and recalculates only when the operator retries", () => {
+    renderPanel({
+      workflow: {
+        error: "재고 수집이 필요합니다.",
+        inventoryCollectionRequired: true,
+      },
+    });
+
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByText("재고 수집이 필요합니다.")).toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole("button", { name: "셀피아 재고 수집" }));
+    expect(inventoryStart).toHaveBeenCalledTimes(1);
+    expect(baseWorkflow.retryInventoryAndPreview).not.toHaveBeenCalled();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "재고 반영해 다시 계산" }));
+    expect(baseWorkflow.retryInventoryAndPreview).toHaveBeenCalledTimes(1);
   });
 
   it("explains that saved confirmed POs are not workbook review targets", () => {
