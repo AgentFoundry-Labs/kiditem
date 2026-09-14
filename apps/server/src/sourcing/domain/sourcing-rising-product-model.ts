@@ -1,3 +1,4 @@
+import { inclusiveDayCount, parseBusinessDate } from '../../common/kst';
 import {
   scoreSourcingOpportunity,
   type SourcingOpportunityScore,
@@ -127,7 +128,6 @@ const DEFAULT_CANDIDATE_LIMIT = 100;
 const MAX_CANDIDATE_LIMIT = 200;
 const REVIEW_YOUNG_THRESHOLD = 300;
 const REVIEW_BARRIER_THRESHOLD = 2500;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const MODEL_WEIGHTS: Record<keyof SourcingRisingProductCandidate['components'], number> = {
   momentum: 0.45,
@@ -797,10 +797,10 @@ function maxOrExisting(a: number | null, b: number | null): number | null {
 }
 
 function daysBetween(from: string, to: string): number {
-  const fromMs = Date.parse(`${from}T00:00:00.000Z`);
-  const toMs = Date.parse(`${to}T00:00:00.000Z`);
-  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return 0;
-  return Math.round((toMs - fromMs) / MS_PER_DAY);
+  const start = parseBusinessDate(from);
+  const end = parseBusinessDate(to);
+  if (!start || !end) return 0;
+  return inclusiveDayCount(start, end) - 1;
 }
 
 function normalizeLimit(limit: number | undefined): number {

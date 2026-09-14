@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { addDays, businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   buildSourcingRisingProductModel,
   SOURCING_RISING_PRODUCT_MODEL_VERSION,
@@ -24,7 +24,6 @@ import {
 const DEFAULT_WINDOW_DAYS = 14;
 const MIN_WINDOW_DAYS = 2;
 const MAX_WINDOW_DAYS = 60;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const RISING_SCOPE = 'coupang_rising_products' as const;
 
 export interface SourcingRisingProductDetectionInput {
@@ -129,9 +128,7 @@ export class SourcingRisingProductService {
     windowDays = 30,
   ): Promise<SourcingRisingProductDetectionResult | null> {
     const toBusinessDate = kstBusinessDate(new Date());
-    const fromBusinessDate = new Date(
-      toBusinessDate.getTime() - (windowDays - 1) * ONE_DAY_MS,
-    );
+    const fromBusinessDate = addDays(toBusinessDate, -(windowDays - 1));
     const rows = await this.snapshots.listRecent({
       organizationId,
       scope: RISING_SCOPE,

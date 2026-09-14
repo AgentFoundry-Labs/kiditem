@@ -1,3 +1,5 @@
+import { inclusiveDayCount, parseBusinessDate } from '../../common/kst';
+
 export type ProfitabilityMonthCoverage = Readonly<{
   from: string;
   to: string;
@@ -30,7 +32,8 @@ function validDate(value: string): boolean {
 }
 
 function daysInclusive(from: string, to: string): number {
-  return Math.floor(
-    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000,
-  ) + 1;
+  const start = parseBusinessDate(from);
+  const end = parseBusinessDate(to);
+  if (!start || !end) return 0;
+  return inclusiveDayCount(start, end);
 }

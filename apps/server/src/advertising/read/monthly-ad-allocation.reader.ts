@@ -1,4 +1,5 @@
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import { inclusiveDayCount } from '../../common/kst';
 import { clampProfitabilityMonthCoverage } from '../domain/profitability-month-coverage';
 import type { Prisma } from '@prisma/client';
 
@@ -93,7 +94,7 @@ export async function readMonthlyAdAllocationPublication(
     const coveredStartDate = calendarDate(row.coveredStartDate);
     const coveredEndDate = calendarDate(row.coveredEndDate);
     const allocatedSpend = Number(row.allocatedSpend);
-    const observedDayLimit = inclusiveDayCount(coveredStartDate, coveredEndDate);
+    const observedDayLimit = inclusiveDayCount(row.coveredStartDate, row.coveredEndDate);
     if (row.mappingGeneration.toString() !== mappingGeneration
       || month !== `${coveredStartDate.slice(0, 7)}-01`
       || coveredEndDate.slice(0, 7) !== month.slice(0, 7)
@@ -165,10 +166,6 @@ function calendarDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-function inclusiveDayCount(from: string, to: string): number {
-  return Math.floor((Date.parse(`${to}T00:00:00.000Z`)
-    - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000) + 1;
-}
 
 function findFrozenMonthSlice(
   value: Prisma.JsonValue,

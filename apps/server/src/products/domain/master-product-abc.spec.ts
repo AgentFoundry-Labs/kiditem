@@ -95,6 +95,36 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     expect(candidate).not.toHaveProperty('reliability');
   });
 
+  it('reads a Date cutoff on the Korean calendar day, not the UTC one', () => {
+    // 2026-07-31 23:59:59.999 KST and the KST midnight one millisecond later.
+    const beforeKstMidnight = new Date('2026-07-31T14:59:59.999Z');
+    const afterKstMidnight = new Date('2026-07-31T15:00:00.000Z');
+    const augustFirst = month({
+      yearMonth: '2026-08',
+      coverageStartDate: '2026-08-01',
+      coverageEndDate: '2026-08-01',
+      coveredDays: 1,
+    });
+
+    expect(evaluate([month()], formula, { cutoffDate: beforeKstMidnight })
+      .gradeBasisCutoffDate).toBe('2026-07-31');
+    expect(evaluate([month()], formula, { cutoffDate: afterKstMidnight })
+      .gradeBasisCutoffDate).toBe('2026-08-01');
+
+    // The August day is outside the window until KST itself enters August.
+    expect(() => evaluate([augustFirst], formula, { cutoffDate: beforeKstMidnight }))
+      .toThrow('observation days are empty');
+    expect(evaluate([augustFirst], formula, { cutoffDate: afterKstMidnight })
+      .validObservationDays).toBe(1);
+  });
+
+  it('counts a month inclusively and rejects coverage that crosses its end', () => {
+    expect(evaluate([month({ yearMonth: '2026-07' })]).validObservationDays).toBe(31);
+    expect(evaluate([month({ yearMonth: '2026-02' })]).validObservationDays).toBe(28);
+    expect(() => evaluate([month({ coverageEndDate: '2026-08-01', coveredDays: 32 })]))
+      .toThrow('coverage outside month 2026-07');
+  });
+
   it('computes operating profit from the three formula components', () => {
     const candidate = evaluate([month({
       recognizedRevenue: 1_000_000,
