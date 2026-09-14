@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../../test-helpers/real-prisma';
+import { SellpiaSalesSourceStatusSchema } from '@kiditem/shared/dashboard';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { SellpiaSalesController } from '../sellpia-sales.controller';
 import { SellpiaSalesService } from '../sellpia-sales.service';
@@ -490,6 +491,107 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
         },
       }),
     ).resolves.toMatchObject({ status: 'RESOLVED', attemptId: recovered.attemptId });
+  });
+
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl).post(`${base}/attempts/${attemptId}/cancel`).set('x-test-org', organizationId);
+
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-16' };
+    const attempt = await begin(range);
+    await cancel(attempt.attemptId, randomUUID()).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+    await request(httpUrl).get(`${base}/attempts/${attempt.attemptId}/control`).expect(409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = await begin(range);
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-16' };
+    const expired = await begin(range);
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(
+      prisma.alert.findUnique({
+        where: {
+          organizationId_dedupeKey: {
+            organizationId: ORG,
+            dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ status: 'OPEN', attemptId: expired.attemptId });
+
+    const completed = await begin(range);
+    const completedControl = await control(completed.attemptId);
+    await complete(completed.attemptId, completedControl.attemptToken, payload(range));
+    const view = (await request(httpUrl).get(`${base}/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
+  });
+
+  it('reads the latest attempt and the latest COMPLETE collection for the organization', async () => {
+    const read = async (organizationId = ORG) =>
+      SellpiaSalesSourceStatusSchema.parse(
+        (await request(httpUrl).get(`${base}/source`).set('x-test-org', organizationId).expect(200)).body,
+      );
+    expect(await read()).toEqual({ latestAttempt: null, latestComplete: null });
+
+    const range = { from: '2026-07-16', to: '2026-07-17' };
+    const first = await begin(range);
+    expect(await read()).toMatchObject({
+      latestAttempt: {
+        attemptId: first.attemptId,
+        state: 'RUNNING',
+        plan: { range },
+        errorCode: null,
+        errorMessage: null,
+      },
+      latestComplete: null,
+    });
+    const firstControl = await control(first.attemptId);
+    await complete(first.attemptId, firstControl.attemptToken, payload(range));
+
+    const refresh = await begin(range);
+    expect(await read()).toMatchObject({
+      latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
+      latestComplete: {
+        attemptId: first.attemptId,
+        plan: { range },
+        businessDates: ['2026-07-16', '2026-07-17'],
+        rowCount: 4,
+        sellerCount: 1,
+      },
+    });
+    await cancel(refresh.attemptId).expect(200);
+    expect(await read()).toMatchObject({
+      latestAttempt: {
+        attemptId: refresh.attemptId,
+        state: 'FAILED',
+        errorCode: 'USER_CANCELLED',
+        errorMessage: '운영자가 수집을 중단했습니다.',
+      },
+      latestComplete: { attemptId: first.attemptId },
+    });
+    expect(await read(randomUUID())).toEqual({ latestAttempt: null, latestComplete: null });
   });
 
   it('derives expired GET metadata without mutating the running database row', async () => {

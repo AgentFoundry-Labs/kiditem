@@ -4,12 +4,14 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
+import type { SellpiaSalesSourceStatus } from '@kiditem/shared/dashboard';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { SellpiaSalesService, parseCalendarDate } from './sellpia-sales.service';
 import {
@@ -97,6 +99,20 @@ export class SellpiaSalesController {
       body.errorCode,
       body.errorMessage,
     );
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelAttempt(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.source.cancelAttempt(organizationId, attemptId);
+  }
+
+  @Get('source')
+  readSourceStatus(@CurrentOrganization() organizationId: string): Promise<SellpiaSalesSourceStatus> {
+    return this.source.readSourceStatus(organizationId);
   }
 
   // 대시보드 '몰별 매출' read. 기본 범위는 현재 KST 월의 닫힌 날짜만 포함한다.
