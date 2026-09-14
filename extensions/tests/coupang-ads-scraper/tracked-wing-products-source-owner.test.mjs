@@ -572,6 +572,46 @@ test('fails the owner before clearing a cancelled local session', async () => {
   assert.equal(sessions.stored.has(attemptId), false);
 });
 
+test('clears a stored session whose attempt an operator stopped on the owner, so it neither resumes nor blocks the next start', async () => {
+  const sessions = createSessions();
+  sessions.stored.set(attemptId, {
+    attemptId,
+    environmentId: 'local',
+    producer: 'advertising.wing_tracked_products',
+    progress: { current: 0, total: 2, completed: 0, failed: 0, label: null },
+    attention: null,
+  });
+  const nextAttemptId = '33333333-3333-4333-8333-333333333333';
+  const requests = [];
+  const sourceOwner = loadSourceOwner({
+    sessions,
+    async request(_environmentId, pathName, init = {}) {
+      requests.push({ pathName, init });
+      if (pathName === `/api/ads/wing-tracked-products/attempts/${attemptId}`) {
+        return response({ ...ownerPlan(), state: 'FAILED', errorCode: 'USER_CANCELLED' });
+      }
+      if (pathName === '/api/ads/wing-tracked-products/attempts') {
+        return response({ ...ownerPlan(), attemptId: nextAttemptId });
+      }
+      throw new Error(`unexpected owner request: ${pathName}`);
+    },
+    async collectKeyword() {
+      return { success: false, attentionRequired: true, reason: 'marketplace_login', error: 'login' };
+    },
+  });
+
+  assert.equal(await sourceOwner.recover('local'), null);
+  assert.equal(sessions.stored.has(attemptId), false);
+
+  const result = await sourceOwner.run({
+    environmentId: 'local',
+    idempotencyKey: 'tracked-wing-after-stop',
+    keywords: ['first keyword', 'second keyword'],
+  });
+  assert.equal(result.attemptId, nextAttemptId);
+  assert.equal(requests.filter(({ pathName }) => pathName === '/api/ads/wing-tracked-products/attempts').length, 1);
+});
+
 test('registers the tracked-Wing owner as a direct extension action', () => {
   const worker = readFileSync(workerPath, 'utf8');
   const serviceWorker = readFileSync(serviceWorkerPath, 'utf8');

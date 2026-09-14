@@ -249,8 +249,11 @@
       if (typeof sessions.isActive === "function" &&
         !(await sessions.isActive(session.attemptId, environmentId, PRODUCER))) return null;
       const plan = await readAttemptControl(environmentId, session.attemptId, input);
-      if (plan) return plan;
-      await sessions.remove(session.attemptId);
+      if (plan?.state === "RUNNING") return plan;
+      // An attempt that ended on the owner, such as an operator stop from
+      // another browser, is not continued and does not hold later starts.
+      if (plan) await clearTerminalAttempt(environmentId, session.attemptId, null);
+      else await sessions.remove(session.attemptId);
       return null;
     }
 
@@ -477,7 +480,13 @@
           await sessions.remove(persisted[0].attemptId);
           return null;
         }
-        return plan.state === "RUNNING" ? execute(normalizedEnvironmentId, plan) : terminalReplayResult(plan);
+        if (plan.state !== "RUNNING") {
+          // An attempt that ended on the owner, such as an operator stop from
+          // another browser, is not continued and does not hold later starts.
+          await clearTerminalAttempt(normalizedEnvironmentId, plan.attemptId, null);
+          return null;
+        }
+        return execute(normalizedEnvironmentId, plan);
       });
     }
 
