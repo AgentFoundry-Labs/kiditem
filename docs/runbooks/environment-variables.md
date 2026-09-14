@@ -21,7 +21,7 @@ files from committed examples and never overwrites existing files.
 | File | Owner | Minimum local values | Secret boundary |
 |---|---|---|---|
 | `.env` | Prisma CLI and root dev-data scripts | `DATABASE_URL`; dev-data values only when syncing | Keep app/provider secrets out. |
-| `apps/server/.env` | NestJS API and Operation worker | `NODE_ENV`, `PORT`, `DATABASE_URL`, `WEB_ORIGIN`, `CORS_ORIGINS`, `S3_*`, `API_SELF_URL` | Server/provider/channel values may be secret; never expose them as `NEXT_PUBLIC_*`. |
+| `apps/server/.env` | NestJS API | `NODE_ENV`, `PORT`, `DATABASE_URL`, `WEB_ORIGIN`, `CORS_ORIGINS`, `S3_*`, `API_SELF_URL` | Server/provider/channel values may be secret; never expose them as `NEXT_PUBLIC_*`. |
 | `apps/web/.env.local` | Next.js | `NEXT_PUBLIC_API_URL`; optional query-devtools flag | Every `NEXT_PUBLIC_*` value is browser-visible and must not be a secret. |
 
 The checked-in local database value is exactly:
@@ -206,37 +206,6 @@ MCP_SDK_GENERATION
 MCP_PROTOCOL_NEGOTIATION
 ```
 
-## Operations Control Plane
-
-The operation worker and scheduler are deliberately disabled unless explicitly
-enabled. This prevents a newly deployed API from replaying scheduled work before
-the operator has confirmed the database migration, connected browser runtime,
-and schedule state. `OperationSchedule.enabled` is the per-workflow control;
-these variables only enable the server processes that honor it.
-
-| Variable | Required when | Consumed by | Notes |
-|---|---:|---|---|
-| `OPERATION_RUNTIME_WORKER_ENABLED` | Domain/composite OperationRuns should execute | Operation run worker | Set `1` only after the control-plane tables are deployed. Default is disabled; local `npm run dev:all` enables it explicitly. Browser operations transition to `waiting_runtime` and are claimed by the extension. |
-| `OPERATION_RUNTIME_WORKER_INTERVAL_MS` | Worker polling cadence needs tuning | Operation run worker | Optional positive integer; defaults to `2000`. |
-| `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
-| `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |
-| `OPERATION_RUN_LEASE_MS` | Operation worker/browser lease duration needs tuning | Operation worker and browser runtime API | Optional positive integer; defaults to `60000`. Extension heartbeats at no slower than one-third of the browser lease. |
-| `OPERATION_RESOURCE_CLASS_LIMITS` | API needs a non-default per-class capacity | API Operations worker | Optional complete JSON object. When absent, defaults are `default:2`, `naver_api:2`, `playwright_1688:1`, `snapshot_compute:2`, and `extension_coupang:4`. Every class must be present with a positive integer; unknown classes, zero/negative values, or malformed JSON fail API startup with `operation_resource_class_limits_invalid`. |
-
-Cron expressions use the standard five fields (`minute hour day-of-month month
-day-of-week`) and are evaluated in the schedule's explicit IANA timezone. The
-dashboard stores the cron, timezone, misfire policy, and enabled state per
-operation; disabling a schedule preserves its expression but sets its next run
-to `null`.
-
-Validate this value before an Office deployment without printing any protected
-environment file: compare the intended complete key set to the table above,
-then boot the isolated API. Do not use a partial JSON override: the parser does
-not merge omitted keys with defaults. A failed validation is fail-closed; keep
-the old runtime running and correct the configuration before attempting another
-API boot. Resource limits belong only to the API Operations owner, never the
-Agent worker or an MCP child.
-
 Web container, current Office shape:
 
 ```text
@@ -358,18 +327,17 @@ keyword research is intentionally enabled.
 
 The home server has one API process that owns durable capability admission and
 stateless private MCP HTTP. A native Agent Gateway, not any container, owns
-Codex/Claude processes, provider conversations, and provider history. The API,
-worker, and web containers never receive provider binaries or a provider login
-path. The Gateway service account keeps the existing CLI login outside
+Codex/Claude processes, provider conversations, and provider history. The API and
+web containers never receive provider binaries or a provider login path. The Gateway service account keeps the existing CLI login outside
 KidItem. No provider credential/history, transcript, durable control queue, or
 model default is an Office environment contract.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Deployment identity | Written from the immutable Office manifest. |
-| `KIDITEM_GIT_SHA` | Every API/worker deployment | Deployment identity | Full immutable deployment SHA, written from the manifest. |
-| `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Every API deployment | Gateway installation-token reader | Container path to the mounted Docker secret file; the raw 43-character bearer is never an environment value. The worker does not receive it. |
-| `KIDITEM_COPILOTKIT_SQLITE_PATH` | Every production API deployment using CopilotKit interaction history | API-local CopilotKit SQLite event runner | Explicit persistent SQLite file for completed canonical AG-UI event history only. Office fixes it to `/var/lib/kiditem/agent-os/copilotkit-events.sqlite` on the API-only `kiditem_copilotkit-event-history` volume; the worker never mounts or opens it. Tests use `:memory:` and development defaults below `.kiditem/agent-os/`. It is never a live-turn/stop authority or a provider transcript store. |
+| `KIDITEM_APPLICATION_VERSION` | Every API deployment | Deployment identity | Written from the immutable Office manifest. |
+| `KIDITEM_GIT_SHA` | Every API deployment | Deployment identity | Full immutable deployment SHA, written from the manifest. |
+| `KIDITEM_AGENT_GATEWAY_TOKEN_FILE` | Every API deployment | Gateway installation-token reader | Container path to the mounted Docker secret file; the raw 43-character bearer is never an environment value. |
+| `KIDITEM_COPILOTKIT_SQLITE_PATH` | Every production API deployment using CopilotKit interaction history | API-local CopilotKit SQLite event runner | Explicit persistent SQLite file for completed canonical AG-UI event history only. Office fixes it to `/var/lib/kiditem/agent-os/copilotkit-events.sqlite` on the API-only `kiditem_copilotkit-event-history` volume. Tests use `:memory:` and development defaults below `.kiditem/agent-os/`. It is never a live-turn/stop authority or a provider transcript store. |
 | `KIDITEM_AGENT_GATEWAY_INSTALLATION_ID` | Multiple distinguishable installations are operated | Gateway control session | Optional bounded operational label; defaults to `gateway-installation` and is not an authority credential. |
 | `MCP_SDK_GENERATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `v2`; another or missing value fails Gateway readiness. |
 | `MCP_PROTOCOL_NEGOTIATION` | Every API deployment | MCP readiness canary | Fixed non-secret value `auto`; there is no legacy fallback. |
@@ -431,9 +399,6 @@ The deployed API blocks current Coupang Wing scraping paths when
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
 | `PLAYWRITER_BIN` | Custom Playwriter binary path needed | Playwriter CLI wrapper | Optional override. |
-| `PLAYWRITER_BROWSER_PATH` | Managed Chrome path cannot be auto-detected | Coupang inventory scrape adapter | Local/operator use. |
-| `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
-| `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | The Office API image sets `/usr/bin/chromium`; image verification smoke-checks Puppeteer launch. |
 | `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | The Office version-2 1688 keyword domain Operation or generic sourcing URL-scrape runtime needs its managed Chrome session | Sourcing Playwright runtime | Office example: `http://kiditem-office:9444`. Accepts `http`, `https`, `ws`, or `wss` CDP endpoints. Keyword batches are CDP-only: no extension, anonymous-browser, or fresh-profile fallback. Initial same-PC Office HTTP needs no TLS/mTLS/auth proxy. A later HTTPS/WSS endpoint needs container reachability, a trusted certificate, and WebSocket proxying, but no Sourcing code change. Chrome runs manually or from an Office startup task using a persistent Office profile, which may be a full clone of an authenticated operator profile. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |

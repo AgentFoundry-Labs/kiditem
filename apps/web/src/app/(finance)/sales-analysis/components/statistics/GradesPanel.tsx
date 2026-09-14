@@ -1,22 +1,9 @@
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatKRW, getGradeTextColor } from '@/lib/utils';
 import type { StatisticsGradeRow } from '@kiditem/shared/statistics';
 
 type GradesPanelProps = {
   grades: StatisticsGradeRow[];
 };
-
-function getGradeTextColor(grade: string): string {
-  switch (grade) {
-    case 'A':
-      return 'text-[var(--primary)]';
-    case 'B':
-      return 'text-[var(--text-secondary)]';
-    case 'C':
-      return 'text-amber-600';
-    default:
-      return 'text-[var(--text-secondary)]';
-  }
-}
 
 export function GradesPanel({ grades }: GradesPanelProps) {
   return (

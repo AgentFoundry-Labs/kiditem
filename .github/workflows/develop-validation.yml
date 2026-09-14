@@ -33,6 +33,11 @@ jobs:
         run: npx prisma generate
 
       - name: Build deployable workspaces
+        env:
+          # packages/shared 의 tsup DTS worker 는 runner 기본 heap(1792MB)에서
+          # ERR_WORKER_OUT_OF_MEMORY 로 죽는다. 같은 단계의 templates/server/web
+          # build 도 이 한도 안에서 돈다.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           npm run build --workspace=packages/shared
           npm run build --workspace=packages/templates

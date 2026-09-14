@@ -444,7 +444,7 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
 | `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
 | `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
-| `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
+| `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build(heap 4096MB), web/extension tests, real PostgreSQL integration suite 실행 |
 
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
 같은 ref의 더 새 수동 실행은 이전 실행을 취소한다. 이 job 은 아래 workspace build와
@@ -452,14 +452,18 @@ unit/extension suite를 수행한 뒤 Testcontainers의 동적 Postgres lifecycl
 테스트를 실행한다.
 
 ```bash
-npm run build --workspace=packages/shared
-npm run build --workspace=packages/templates
-npm run build --workspace=apps/server
-npm run build --workspace=apps/web
+NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/shared
+NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/templates
+NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/server
+NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run
 node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
+
+workspace build 단계는 heap 을 4096MB 로 올린다. `packages/shared` 의 tsup DTS
+worker 가 runner 기본값에서 `ERR_WORKER_OUT_OF_MEMORY` 로 죽기 때문이다. server 와
+web 은 `.d.ts` 가 필요하므로 PR 체크처럼 DTS 를 빼는 방식은 쓸 수 없다.
 
 검증 실패는 Office 배포 또는 `main` promotion 전에 fix-forward 한다. 최종 Office
 배포는 `origin/release/office`의 clean exact-SHA worktree에서 API/web/Gateway를 함께

@@ -7,6 +7,7 @@ import {
 import {
   addDays,
   businessDateKey,
+  inclusiveDayCount,
   kstBusinessDate,
   kstMonthEnd,
   parseBusinessDate,
@@ -14,7 +15,6 @@ import {
 } from '../../common/kst';
 
 const EPOCH_BUSINESS_DATE = parseBusinessDate('1970-01-01')!;
-const DAY_MS = 86_400_000;
 
 /**
  * A source-owned, already eligible set of facts for one product.
@@ -427,7 +427,7 @@ function calendarDate(value: Date | string): string {
 function kstEpochDay(value: Date | string): number {
   const date = parseBusinessDate(calendarDate(value));
   if (!date) throw new Error(`invalid calendar date ${String(value)}`);
-  return Math.floor((date.getTime() - EPOCH_BUSINESS_DATE.getTime()) / DAY_MS);
+  return inclusiveDayCount(EPOCH_BUSINESS_DATE, date) - 1;
 }
 
 function yearMonthForEpochDay(epochDay: number): string {
