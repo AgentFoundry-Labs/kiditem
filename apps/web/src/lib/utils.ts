@@ -153,6 +153,16 @@ const PROFIT_POSITIVE_TONE = 'text-green-600';
 /** Ad spend is neither profit nor loss, so it carries the caution tone. */
 export const AD_COST_TEXT_COLOR = 'text-amber-600';
 
+/**
+ * The spend tone applies to a measured amount only.
+ *
+ * An ad cost that was never measured is a state, not a figure, so it takes the
+ * same neutral tone as an unmeasured profit instead of reading as spend.
+ */
+export function getAdCostColor(amount: number | null | undefined): string {
+  return amount == null ? PROFIT_UNAVAILABLE_TONE : AD_COST_TEXT_COLOR;
+}
+
 export function getProfitColor(rate: number | null | undefined): string {
   if (rate == null) return PROFIT_UNAVAILABLE_TONE;
   if (rate < 0) return `${PROFIT_NEGATIVE_TONE} font-bold`;

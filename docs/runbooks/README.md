@@ -40,9 +40,9 @@ Current runbooks:
 - [Sourcing Backend Normalized Cutover](sourcing-backend-cutover.md) — preserve
   canonical sourcing history and provenance while removing the lossy 1688
   hot-product storage and resetting only derived dashboard projections.
-- [Sourcing Collection Operations](sourcing-collection-operations.md) — operate
-  operation-backed sourcing collection, browser claims, lifecycle recovery,
-  provider outages, and the 14-route Chrome regression matrix.
+- [Sourcing Collection Operations](sourcing-collection-operations.md) — start and
+  inspect a source-owner collection attempt, run the Office Chrome 1688 keyword
+  search, and recover from provider failure, attention, and lost fences.
 - [Office Deploy](office-deploy.md) — build and deploy one exact remote SHA on
   the Office host, verify runtime identity and health, manage disk pressure,
   and perform archived runtime-only rollback.
