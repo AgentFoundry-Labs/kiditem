@@ -15,6 +15,15 @@ export const WING_ITEMWINNER_KPI_READ_PORT = Symbol(
 export const WING_ITEMWINNER_SOURCE = 'coupang_wing_itemwinner' as const;
 export const WING_ITEMWINNER_PARSER = 'wing-itemwinner-v1' as const;
 
+/**
+ * The Wing seller price-management page that lists item winners. The owner
+ * freezes it into the plan at admission: a start carries only the account, so
+ * no caller decides the page, and the extension opens `plan.targetUrl` and
+ * must report exactly that page in the capture.
+ */
+export const WING_ITEMWINNER_TARGET_URL =
+  'https://wing.coupang.com/tenants/seller-price-management' as const;
+
 export type WingItemwinnerSourcePlan = {
   sourceType: typeof WING_ITEMWINNER_SOURCE;
   parserVersion: typeof WING_ITEMWINNER_PARSER;
@@ -80,11 +89,17 @@ export type WingItemwinnerPublished = {
 };
 
 export interface WingItemwinnerKpiSourcePort {
+  /** One RUNNING attempt per account; the primary account when none is named. */
   begin(input: {
     organizationId: string;
     idempotencyKey: string;
-    targetUrl: string;
+    channelAccountId?: string;
   }): Promise<WingItemwinnerSourceControl>;
+  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
+  cancel(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<WingItemwinnerAttempt>;
   read(input: {
     organizationId: string;
     attemptId: string;
@@ -105,8 +120,10 @@ export interface WingItemwinnerKpiSourcePort {
 }
 
 export interface WingItemwinnerKpiReadPort {
+  /** The named account's attempts, or the primary account's when none is named. */
   readSourceStatus(input: {
     organizationId: string;
+    channelAccountId?: string;
   }): Promise<WingItemwinnerSourceStatus>;
   readPublished(input: {
     organizationId: string;
