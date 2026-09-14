@@ -421,10 +421,9 @@ export const queryKeys = {
   },
   coupangCatalogImports: {
     all: ['coupangCatalogImports'] as const,
-    run: (channelAccountId: string, runId: string) =>
-      [...queryKeys.coupangCatalogImports.all, channelAccountId, runId] as const,
-    extension: (runId: string) =>
-      [...queryKeys.coupangCatalogImports.all, 'extension', runId] as const,
+    /** One store account's latest Wing catalog import, which every 상품 받기 control reads. */
+    source: (channelAccountId: string) =>
+      [...queryKeys.coupangCatalogImports.all, 'source', channelAccountId] as const,
   },
   organizations: {
     all: ['organizations'] as const,

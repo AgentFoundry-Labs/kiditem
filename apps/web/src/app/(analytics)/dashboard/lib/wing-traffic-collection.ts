@@ -7,7 +7,7 @@ import {
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
@@ -57,7 +57,7 @@ export const wingTrafficCollection: CollectionSourceAdapter<AdTrafficSourceStatu
       : null;
   },
   start: (range) =>
-    startWindowCollection('dashboard.wing_sales', {
+    requestCollectionStart('dashboard.wing_sales', {
       startDate: range.startDate,
       endDate: range.endDate,
     }),

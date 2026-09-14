@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
@@ -68,7 +68,7 @@ export const advertisingProfitabilityCollection: CollectionSourceAdapter<Adverti
     status.latestAttempt?.state === 'RUNNING'
       ? { attemptId: status.latestAttempt.attemptId, scopeLabel: null }
       : null,
-  start: () => startWindowCollection('advertising.profitability_import', {}),
+  start: () => requestCollectionStart('advertising.profitability_import', {}),
   cancelOnServer: (attemptId) =>
     apiClient.post(`${SOURCE_PATH}/${encodeURIComponent(attemptId)}/cancel`),
   readCompleteId: (status) => status.latestComplete?.sourceImportRunId ?? null,

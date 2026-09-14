@@ -1,26 +1,10 @@
 import {
-  CoupangCatalogCollectionPermitSchema,
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogStageSchema,
-  type CoupangCatalogCollectionErrorRequest,
-  type CoupangCatalogCollectionPermit,
-  type CoupangCatalogCollectionRun,
-  type StartCoupangCatalogCollectionRequest,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-
-export const COUPANG_CATALOG_ATTEMPT_STORAGE_KEY =
-  'kiditem:coupang-catalog-import:active-attempt';
-
-export type ActiveCoupangCatalogAttempt = {
-  channelAccountId: string;
-  attemptId: string | null;
-  idempotencyKey: string | null;
-  stage?: CoupangCatalogStage;
-};
 
 export type CoupangCatalogCollectionLink = {
   attemptId: string;
@@ -59,66 +43,6 @@ export function readCoupangCatalogCollectionLink(
     stage: query.get('collectionStage') ?? undefined,
   });
   return parsed.success ? parsed.data : { invalid: true };
-}
-
-const ActiveCoupangCatalogAttemptSchema = CoupangCatalogCollectionRunSchema
-  .pick({ channelAccountId: true, attemptId: true, idempotencyKey: true })
-  .extend({
-    attemptId: CoupangCatalogCollectionRunSchema.shape.attemptId.nullable(),
-    idempotencyKey: z.string().uuid().nullable(),
-    stage: CoupangCatalogStageSchema.optional(),
-  })
-  .strict();
-
-export function readActiveCoupangCatalogAttempt(): ActiveCoupangCatalogAttempt | null {
-  return readActiveCoupangCatalogAttemptForStage('full');
-}
-
-export function readActiveCoupangCatalogAttemptForStage(
-  stage: CoupangCatalogStage,
-): ActiveCoupangCatalogAttempt | null {
-  const raw = safeStorageGet('local', storageKeyForStage(stage));
-  if (!raw) return null;
-  try {
-    const parsed = ActiveCoupangCatalogAttemptSchema.safeParse(JSON.parse(raw));
-    return parsed.success && (parsed.data.stage ?? 'full') === stage ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberCoupangCatalogAttempt(
-  attempt: ActiveCoupangCatalogAttempt,
-): void {
-  rememberCoupangCatalogAttemptForStage(attempt.stage ?? 'full', attempt);
-}
-
-export function rememberCoupangCatalogAttemptForStage(
-  stage: CoupangCatalogStage,
-  attempt: ActiveCoupangCatalogAttempt,
-): void {
-  if (!attempt.idempotencyKey) return;
-  // `full` is the legacy/default stage. Keep its historical storage shape so
-  // existing pending keys survive the staged rollout; staged attempts carry
-  // an explicit discriminator because their storage keys are separate.
-  const value = stage === 'full'
-    ? {
-        channelAccountId: attempt.channelAccountId,
-        attemptId: attempt.attemptId,
-        idempotencyKey: attempt.idempotencyKey,
-      }
-    : { ...attempt, stage };
-  safeStorageSet(
-    'local',
-    storageKeyForStage(stage),
-    JSON.stringify(value),
-  );
-}
-
-function storageKeyForStage(stage: CoupangCatalogStage): string {
-  return stage === 'full'
-    ? COUPANG_CATALOG_ATTEMPT_STORAGE_KEY
-    : `${COUPANG_CATALOG_ATTEMPT_STORAGE_KEY}:${stage}`;
 }
 
 export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
@@ -235,48 +159,5 @@ export const channelListingsApi = {
   },
   listAccounts(): Promise<ChannelAccountOption[]> {
     return apiClient.get<ChannelAccountOption[]>('/api/channels/accounts');
-  },
-  async startCoupangCatalogCollection(
-    channelAccountId: string,
-    request: StartCoupangCatalogCollectionRequest,
-    idempotencyKey: string,
-  ): Promise<CoupangCatalogCollectionPermit> {
-    const permit = CoupangCatalogCollectionPermitSchema.parse(await apiClient.post(
-      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
-        '/catalog-imports/coupang-wing/attempts',
-      request,
-      { headers: { 'Idempotency-Key': idempotencyKey } },
-    ));
-    if (permit.plan.channelAccountId !== channelAccountId) throw new Error('쿠팡 수집 계정 응답이 일치하지 않습니다.');
-    const expectedStage = request.stage ?? 'full';
-    if ((permit.plan.stage ?? 'full') !== expectedStage) throw new Error('쿠팡 수집 단계 응답이 일치하지 않습니다.');
-    return permit;
-  },
-  async getCoupangCatalogCollection(
-    channelAccountId: string,
-    attemptId: string,
-    expectedStage: CoupangCatalogStage = 'full',
-  ): Promise<CoupangCatalogCollectionRun> {
-    const owner = CoupangCatalogCollectionRunSchema.parse(await apiClient.get(
-      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
-        `/catalog-imports/coupang-wing/attempts/${encodeURIComponent(attemptId)}`,
-    ));
-    if (owner.attemptId !== attemptId || owner.channelAccountId !== channelAccountId ||
-        owner.plan.channelAccountId !== channelAccountId || (owner.plan.stage ?? 'full') !== expectedStage)
-      throw new Error('쿠팡 수집 시도 응답이 일치하지 않습니다.');
-    return owner;
-  },
-  async failCoupangCatalogCollection(
-    channelAccountId: string,
-    attemptId: string,
-    attemptToken: string,
-    request: CoupangCatalogCollectionErrorRequest,
-  ): Promise<void> {
-    await apiClient.post(
-      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
-        `/catalog-imports/coupang-wing/attempts/${encodeURIComponent(attemptId)}/fail`,
-      request,
-      { headers: { 'x-source-attempt-token': attemptToken } },
-    );
   },
 };

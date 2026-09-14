@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildCoupangCatalogProgress,
-  resolveCoupangCatalogError,
-} from './coupang-catalog-progress';
+import { buildCoupangCatalogProgress } from './coupang-catalog-progress';
 import type { CoupangCatalogCollectionRun } from '@kiditem/shared/coupang-catalog-snapshot';
 
 describe('Coupang catalog progress', () => {
@@ -109,66 +106,6 @@ describe('Coupang catalog progress', () => {
       percent: 70,
     });
     expect(progress.publishedLabel).not.toContain('완료');
-  });
-
-  it('suppresses only the stale extension timeout while browser activity remains', () => {
-    expect(resolveCoupangCatalogError({
-      browserActive: true,
-      extensionError: null,
-      startError: '익스텐션 응답 시간이 초과되었습니다.',
-      serverError: null,
-    })).toBeNull();
-
-    expect(resolveCoupangCatalogError({
-      browserActive: false,
-      extensionError: null,
-      startError: '익스텐션 응답 시간이 초과되었습니다.',
-      serverError: null,
-    })).toBe('익스텐션 응답 시간이 초과되었습니다.');
-
-    expect(resolveCoupangCatalogError({
-      browserActive: true,
-      extensionError: null,
-      startError: 'catalog start failed for another reason',
-      serverError: null,
-    })).toBe('catalog start failed for another reason');
-
-    expect(resolveCoupangCatalogError({
-      browserActive: true,
-      extensionError: 'extension reported a different error',
-      startError: null,
-      serverError: null,
-    })).toBeNull();
-
-    expect(resolveCoupangCatalogError({
-      browserActive: false,
-      extensionError: 'extension reported a different error',
-      startError: null,
-      serverError: null,
-    })).toBe('extension reported a different error');
-  });
-
-  it('keeps the current owner server error ahead of stale browser activity', () => {
-    expect(resolveCoupangCatalogError({
-      browserActive: true,
-      extensionError: null,
-      startError: null,
-      serverError: 'active user tab is collection-protected',
-    })).toBe('active user tab is collection-protected');
-
-    expect(resolveCoupangCatalogError({
-      browserActive: false,
-      extensionError: null,
-      startError: null,
-      serverError: 'active user tab is collection-protected',
-    })).toBe('active user tab is collection-protected');
-
-    expect(resolveCoupangCatalogError({
-      browserActive: true,
-      extensionError: null,
-      startError: '익스텐션 응답 시간이 초과되었습니다.',
-      serverError: 'active user tab is collection-protected',
-    })).toBe('active user tab is collection-protected');
   });
 });
 

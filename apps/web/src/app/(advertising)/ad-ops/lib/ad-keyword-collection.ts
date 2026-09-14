@@ -7,7 +7,7 @@ import {
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
@@ -43,7 +43,7 @@ export const adKeywordCollection: CollectionSourceAdapter<AdKeywordSourceStatus>
         }
       : null;
   },
-  start: () => startWindowCollection('advertising.ad_keyword', {}),
+  start: () => requestCollectionStart('advertising.ad_keyword', {}),
   cancelOnServer: (attemptId) =>
     apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`),
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,

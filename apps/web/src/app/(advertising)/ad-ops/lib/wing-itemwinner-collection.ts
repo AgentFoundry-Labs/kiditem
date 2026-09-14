@@ -7,7 +7,7 @@ import {
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
@@ -42,7 +42,7 @@ export const wingItemwinnerCollection: CollectionSourceAdapter<WingItemwinnerSou
       ? { attemptId: attempt.attemptId, scopeLabel: `${attempt.plan.businessDate} 기준` }
       : null;
   },
-  start: () => startWindowCollection('dashboard.wing_kpi', {}),
+  start: () => requestCollectionStart('dashboard.wing_kpi', {}),
   cancelOnServer: (attemptId) =>
     apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`),
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,

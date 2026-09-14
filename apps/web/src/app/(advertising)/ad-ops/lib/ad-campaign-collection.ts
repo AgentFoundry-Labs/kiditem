@@ -12,7 +12,7 @@ import type {
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
@@ -70,7 +70,7 @@ export const adCampaignSweepCollection: CollectionSourceAdapter<AdCampaignSource
   label: '광고 동기화',
   statusQuery: adCampaignSourceStatusQuery,
   readRunning: liveCampaignAttempt,
-  start: () => startWindowCollection('advertising.ad_sync', {}),
+  start: () => requestCollectionStart('advertising.ad_sync', {}),
   cancelOnServer: cancelCampaignAttempt,
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
   // A sweep that finished while the page was open republished the campaign
@@ -121,7 +121,7 @@ export const adCampaignManualReportCollection: CollectionSourceAdapter<
   statusQuery: adCampaignSourceStatusQuery,
   readRunning: liveCampaignAttempt,
   start: (range) =>
-    startWindowCollection('advertising.ad_sync', {
+    requestCollectionStart('advertising.ad_sync', {
       captureMode: 'manual_report',
       period: range.period,
       startDate: range.startDate,

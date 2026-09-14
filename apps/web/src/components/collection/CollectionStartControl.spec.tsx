@@ -4,7 +4,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { startWindowCollection } from '@/lib/collection-start';
+import { requestCollectionStart } from '@/lib/collection-start';
 import {
   detectBrowserCollectionExtensionIds,
   detectExtensionId,
@@ -77,7 +77,7 @@ const specCollection: CollectionSourceAdapter<SpecStatus> = {
           scopeLabel: `${status.latestAttempt.startDate} ~ ${status.latestAttempt.endDate}`,
         }
       : null,
-  start: () => startWindowCollection('advertising.ad_keyword', {}),
+  start: () => requestCollectionStart('advertising.ad_keyword', {}),
   cancelOnServer: (attemptId) => apiClient.post(`/api/spec/attempts/${attemptId}/cancel`),
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
   onNewComplete: (client) => {

@@ -37,11 +37,13 @@ function dispatchFailureMessage(reply: unknown): string | null {
 }
 
 /**
- * Starts a collection that shares the Coupang collection window. The
- * extension takes the window turn and opens the owner attempt; this page only
- * proposes the producer and scope and reads the decision.
+ * Asks the extension to start a collection through the start contract: one
+ * that takes turns in the Coupang collection window, or the Wing catalog
+ * import, which a browser runs for one store account at a time. The extension
+ * takes that turn and opens the owner attempt; this page only proposes the
+ * producer and scope and reads the decision.
  */
-export async function startWindowCollection<TProducer extends CollectionStartProducer>(
+export async function requestCollectionStart<TProducer extends CollectionStartProducer>(
   producer: TProducer,
   scope: CollectionStartScope<TProducer>,
 ): Promise<CollectionStartResult> {
