@@ -42,7 +42,6 @@ export async function createRocketPoCatalogSnapshot(
       plannedDeliveryDate: day(row.plannedDeliveryDate),
       poStatusCode: row.poStatusCode ?? null,
       businessDateBasis: row.businessDateBasis ?? null,
-      hasConfirmation: Boolean(row.confirmation),
       center: row.confirmation?.center ?? null,
       inboundType: row.confirmation?.inboundType ?? null,
       poStatus: row.confirmation?.poStatus ?? null,

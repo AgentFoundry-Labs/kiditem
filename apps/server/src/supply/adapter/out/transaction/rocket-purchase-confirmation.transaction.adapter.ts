@@ -38,13 +38,8 @@ const exportSelect = {
   artifactContentType: true,
   artifactSha256: true,
   artifactBytes: true,
-  artifactStoredAt: true,
   completedAt: true,
-  failureCode: true,
-  failureMessage: true,
-  releasedBy: true,
   releasedAt: true,
-  releaseReason: true,
   lines: { include: { allocations: true } },
   transmissions: true,
 } as const satisfies Prisma.RocketPurchaseConfirmationSelect;
@@ -166,7 +161,6 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
           artifactContentType: request.artifactContentType,
           artifactSha256,
           artifactBytes: Uint8Array.from(input.artifactBytes),
-          artifactStoredAt: now,
           completedAt: hasPositiveQuantity ? null : now,
           organization: { connect: { id: input.organizationId } },
           channelAccount: {
@@ -319,9 +313,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         where: { id: existing.id },
         data: {
           completedAt: new Date(),
-          releasedBy: input.userId,
           releasedAt: new Date(),
-          releaseReason: input.reason,
         },
         select: exportSelect,
       });
@@ -375,28 +367,15 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         intentKey ? [intentKey] : [],
       ),
     });
-    const failureCode =
-      projected.status === 'failed'
-        ? 'SELLPIA_TRANSMISSION_RETRY_REQUIRED'
-        : null;
-    const failureMessage =
-      projected.status === 'failed'
-        ? 'The linked Sellpia transmission must be retried or reconciled.'
-        : null;
-    if (
-      projected.status !== 'completed' &&
-      record.failureCode === failureCode &&
-      record.failureMessage === failureMessage
-    ) {
+    // Every open state, a failed transmission included, is derived again from
+    // the lines and the Orders-owned intents on each read. Only completion is
+    // persisted.
+    if (projected.status !== 'completed') {
       return { record, status: projected.status };
     }
     const updated = await tx.rocketPurchaseConfirmation.update({
       where: { id: record.id },
-      data: {
-        completedAt: projected.status === 'completed' ? new Date() : null,
-        failureCode,
-        failureMessage,
-      },
+      data: { completedAt: new Date() },
       select: exportSelect,
     });
     return { record: updated, status: projected.status };
@@ -661,6 +640,10 @@ function canAbandon(
   status: RocketWorkbookWorkflowStatus,
 ): boolean {
   if (status !== 'awaiting_coupang_confirmation') return false;
+  // A probe links workbook lines only by collecting their Coupang order lines,
+  // so the lines any probe linked are the positive lines collected so far.
+  // Abandonment needs that linked count to be zero and both transports probed
+  // after the export.
   if (
     record.lines.some(
       (line) => line.confirmedQuantity > 0 && line.collectedAt !== null,
@@ -672,11 +655,7 @@ function canAbandon(
   );
   return ['SHIPMENT', 'MILKRUN'].every((transport) => {
     const probe = probes.get(transport);
-    return Boolean(
-      probe &&
-      probe.matchedLineCount === 0 &&
-      probe.observedAt >= record.confirmedAt,
-    );
+    return Boolean(probe && probe.observedAt >= record.confirmedAt);
   });
 }
 

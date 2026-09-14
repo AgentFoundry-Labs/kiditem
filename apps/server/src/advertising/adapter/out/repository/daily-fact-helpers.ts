@@ -1,6 +1,6 @@
-// Shared metaJson / metric / observed-field helpers for the three
-// daily-fact repository adapters (channel-listing-daily, channel-option-
-// daily, channel-target-daily). Kept inside `adapter/out/repository/` so
+// Shared metaJson / metric / observed-field helpers for the daily-fact writers
+// in this directory (channel-option-daily, channel-target-daily, and the Wing
+// traffic source owner). Kept inside `adapter/out/repository/` so
 // ports/services never see this code path.
 //
 // metaJson namespacing rule:

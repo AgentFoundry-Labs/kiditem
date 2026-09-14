@@ -138,7 +138,6 @@ const BROWSER_QA_SELLPIA_INVENTORY_STATE = {
   activeGeneration: null,
   verifiedGeneration: 1n,
   failedGeneration: null,
-  lastAttemptStatus: 'completed',
   lastAttemptSyncScope: 'inventory',
   lastErrorCode: null,
   lastErrorMessage: null,

@@ -4,6 +4,7 @@ import {
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshReasonSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import { isSourceImportStatus } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   InventorySkuSnapshotListRepositoryPort,
@@ -85,11 +86,7 @@ export class InventorySkuSnapshotListRepositoryAdapter implements InventorySkuSn
 }
 
 function mapImportRun(row: ImportRunRow): SellpiaImportRunRepositoryRow {
-  if (
-    row.status !== 'running' &&
-    row.status !== 'completed' &&
-    row.status !== 'failed'
-  ) {
+  if (!isSourceImportStatus(row.status)) {
     throw new InternalServerErrorException(
       `Unknown source import status: ${row.status}`,
     );

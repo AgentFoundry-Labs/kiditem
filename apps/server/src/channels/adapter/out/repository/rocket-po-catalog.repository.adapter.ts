@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma, type SourceImportRun } from '@prisma/client';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import {
   RocketPoSourceBeginSchema,
   RocketPoSourcePlanSchema,
@@ -65,7 +69,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: request.channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (active && expired(active))
@@ -111,7 +115,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
             sourceType: SOURCE_TYPE,
             channelAccountId: request.channelAccountId,
             createdBy: input.userId,
-            status: 'running',
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
             idempotencyKey: input.idempotencyKey,
             requestFingerprint: fingerprint,
             plan,
@@ -154,7 +158,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
   ) {
     const failed = await tx.sourceImportRun.update({
       where: { id: run.id, organizationId: run.organizationId },
-      data: { status: 'failed', errorCode: code, errorMessage: message },
+      data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS, errorCode: code, errorMessage: message },
     });
     await this.alerts.recordTerminalOutcome(tx, {
       code,
@@ -202,7 +206,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
         .digest('hex');
       if (
         (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ||
-          run.status === 'failed') &&
+          run.status === SOURCE_IMPORT_RUN_FAILED_STATUS) &&
         run.contentChecksum === contentChecksum
       )
         return control(run);
@@ -389,7 +393,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       const run = await findAttempt(tx, input.organizationId, input.attemptId);
       fence(run, input.token);
       if (
-        run.status === 'failed' &&
+        run.status === SOURCE_IMPORT_RUN_FAILED_STATUS &&
         run.errorCode === input.code &&
         run.errorMessage === input.message
       )
@@ -491,13 +495,13 @@ function expired(run: SourceImportRun) {
   return !run.expiresAt || run.expiresAt.getTime() <= Date.now();
 }
 function control(run: SourceImportRun): RocketPoSourceControl {
-  const effectiveExpired = run.status === 'running' && expired(run);
+  const effectiveExpired = run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && expired(run);
   return {
     attemptId: run.id,
     attemptToken: run.attemptToken,
     channelAccountId: run.channelAccountId!,
     state:
-      effectiveExpired || run.status === 'failed'
+      effectiveExpired || run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
         ? 'FAILED'
         : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? 'COMPLETE'
@@ -582,7 +586,7 @@ function fence(run: SourceImportRun, token: string) {
     throw new ConflictException('ATTEMPT_FENCE_LOST');
 }
 function writable(run: SourceImportRun) {
-  if (run.status !== 'running')
+  if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS)
     throw new ConflictException('ATTEMPT_TERMINAL_CONFLICT');
   if (expired(run)) throw new ConflictException('ATTEMPT_EXPIRED');
 }

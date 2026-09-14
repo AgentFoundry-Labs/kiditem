@@ -177,7 +177,6 @@ function makeHydratedListing(
       code: `M-${id}`,
       name: `Listing ${id}`,
       abcGrade,
-      adTier: null,
     },
     primaryOption: null,
   };

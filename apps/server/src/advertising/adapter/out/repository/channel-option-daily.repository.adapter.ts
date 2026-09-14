@@ -1,7 +1,8 @@
 // `ChannelListingOptionDailySnapshot` upsert adapter.
 //
-// Idempotent on `(organizationId, listingOptionId, businessDate)`. Same
-// metric / metaJson semantics as `ChannelListingDailyRepositoryAdapter`.
+// Idempotent on `(organizationId, listingOptionId, businessDate)`. Observed
+// state overwrites on replay, and metaJson merges by namespace inside a single
+// $transaction. See `daily-fact-helpers.ts` for the shared helpers.
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';

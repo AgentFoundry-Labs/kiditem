@@ -60,10 +60,6 @@
           "reason": "Publishes validated listing-day CSV traffic into the canonical listing fact row inside the traffic owner's transaction."
         },
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts",
-          "reason": "Upserts owner-supplied listing-day facts through the canonical listing publication adapter."
-        },
-        {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts",
           "reason": "Publishes, resets, verifies, and reads back Wing traffic rows inside the source owner's fenced terminal workflow."
         },
@@ -160,7 +156,6 @@
       "prismaType": "OrderLineItem",
       "relationNames": [
         "lineItems",
-        "orderLineItem",
         "orderLineItems"
       ],
       "reader": "apps/server/src/orders/read/order-facts.reader.ts",
@@ -170,20 +165,6 @@
           "reason": "Publishes canonical line-item amounts and quantity with their owning order."
         }
       ],
-      "legacyReaders": []
-    },
-    {
-      "name": "Orders canonical return",
-      "table": "order_returns",
-      "prismaModel": "orderReturn",
-      "prismaType": "OrderReturn",
-      "relationNames": [
-        "orderReturns",
-        "return",
-        "returns"
-      ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
-      "ownerPublications": [],
       "legacyReaders": []
     },
     {

@@ -17,6 +17,11 @@ import {
   type AdCampaignSourceReceipt,
   type AdCampaignPayload,
 } from '@kiditem/shared/advertising';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
@@ -105,7 +110,7 @@ export class AdCampaignSourceRepository {
         where: {
           ...scope(org),
           channelAccountId: account.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (running) {
@@ -207,7 +212,7 @@ export class AdCampaignSourceRepository {
           where: {
             ...scope(org),
             channelAccountId: account.id,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
           orderBy: [{ freshnessGeneration: 'desc' }, { importedAt: 'desc' }, { id: 'desc' }],
         });
@@ -274,10 +279,10 @@ export class AdCampaignSourceRepository {
           orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         });
         const latest = rows.find(isCampaignSweepRow) ?? null;
-        const complete = rows.find((row) => row.status === 'completed' && isCampaignSweepRow(row)) ?? null;
+        const complete = rows.find((row) => row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && isCampaignSweepRow(row)) ?? null;
         // Readiness stays on the sweep. A manual report holds the account while
         // it runs, so the live attempt is read across capture modes.
-        const active = rows.find((row) => row.status === 'running' && !expired(row)) ?? null;
+        const active = rows.find((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !expired(row)) ?? null;
         const manual = rows.find(isManualReportRow) ?? null;
         const latestAttempt = latest ? await this.viewIn(tx, latest) : null;
         const latestComplete = complete
@@ -335,8 +340,8 @@ export class AdCampaignSourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.contentChecksum === checksum)
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.contentChecksum === checksum)
           return await this.viewIn(tx, row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
@@ -352,7 +357,7 @@ export class AdCampaignSourceRepository {
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
-      if (row.status !== 'running') return await this.viewIn(tx, row);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return await this.viewIn(tx, row);
       const failed = expired(row)
         ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad campaign collection expired.')
         : await this.failIn(
@@ -378,8 +383,8 @@ export class AdCampaignSourceRepository {
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
       const checksum = hash(payload);
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.contentChecksum === checksum)
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.contentChecksum === checksum)
           return { ...(await this.viewIn(tx, row)), receipt: null };
         throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
       }
@@ -725,7 +730,7 @@ export class AdCampaignSourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (row.contentChecksum === manifestChecksum) return this.viewIn(tx, row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
@@ -756,7 +761,7 @@ export class AdCampaignSourceRepository {
       const completed = await tx.sourceImportRun.update({
         where: { id, organizationId: org },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           contentChecksum: manifestChecksum,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -897,7 +902,7 @@ export class AdCampaignSourceRepository {
     const result = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -929,7 +934,7 @@ export class AdCampaignSourceRepository {
   }
 }
 function expired(row: Attempt) {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 function isCampaignSweepRow(row: Attempt): boolean {
@@ -967,14 +972,14 @@ function attemptView(row: Attempt, entries: ReceiptEntry[]): AdCampaignSourceAtt
     attemptId: row.id,
     channelAccountId: row.channelAccountId!,
     state:
-      row.status === 'completed'
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
     plan,
     expiresAt: row.expiresAt!.toISOString(),
-    actualCutoffAt: row.status === 'completed' ? row.importedAt!.toISOString() : null,
+    actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt!.toISOString() : null,
     manifestChecksum: hash({ plan, receipts: entries.map((e) => e.receipt) }),
     rowCount: row.rowCount,
     campaignCount: entries.flatMap((e) => e.page?.campaigns ?? []).length,

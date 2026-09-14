@@ -145,7 +145,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'KI-1',
         name: '운영 상품',
-        abcGrade: 'A',
       },
     });
     const inventorySku = await prisma.sellpiaInventorySku.create({

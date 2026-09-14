@@ -22,9 +22,6 @@ erDiagram
     Int targetRevenue
     Int targetOrders
     Int targetProfit
-    Int actualRevenue
-    Int actualOrders
-    Int actualProfit
     String notes
     DateTime createdAt
     DateTime updatedAt

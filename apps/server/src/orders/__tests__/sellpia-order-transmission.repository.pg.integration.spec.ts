@@ -72,7 +72,6 @@ describe('Sellpia order transmission repository (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, intentKey: INTENT_KEY },
     })).resolves.toMatchObject({
       status: 'finalized',
-      finalizedGeneration: null,
     });
     await expect(prisma.sellpiaInventoryState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },

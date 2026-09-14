@@ -236,7 +236,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       where: { organizationId_dedupeKey: { organizationId: TEST_ORGANIZATION_ID, dedupeKey: ALERT.dedupeKey } },
     })).resolves.toMatchObject({
       status: 'OPEN',
-      isRead: false,
+      readAt: null,
       attemptId: incomplete.attemptId,
     });
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({

@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import {
   BoundedCanonicalJsonSchema,
-  CapabilityInvocationApprovalStatusSchema,
   CapabilityInvocationErrorSchema,
   CapabilityInvocationStatusSchema,
   CapabilityResultReceiptSchema,
 } from '@kiditem/shared/agent-interaction';
+import {
+  CAPABILITY_APPROVAL_DECISIONS,
+  type CapabilityApprovalDecision,
+} from '../../../domain/capability/capability-invocation.policy';
 
 export const CAPABILITY_INVOCATION_REPOSITORY_PORT = Symbol(
   'CAPABILITY_INVOCATION_REPOSITORY_PORT',
@@ -26,10 +29,10 @@ export const CapabilityInvocationRecordSchema = z
     canonicalInput: BoundedCanonicalJsonSchema,
     inputHash: HashSchema,
     status: CapabilityInvocationStatusSchema,
-    approvalStatus: CapabilityInvocationApprovalStatusSchema,
     approvalInputHash: HashSchema.nullable(),
     approvalRequestedAt: z.date().nullable(),
     approvalExpiresAt: z.date().nullable(),
+    approvalDecision: z.enum(CAPABILITY_APPROVAL_DECISIONS).nullable(),
     approvalDecidedByUserId: UuidSchema.nullable(),
     approvalDecisionReason: z.string().trim().min(1).max(1_000).nullable(),
     approvalDecidedAt: z.date().nullable(),
@@ -83,7 +86,7 @@ export type AdmissionResult =
 export interface DecideInvocationApproval extends InvocationFence {
   userId: string;
   inputHash: string;
-  decision: 'approved' | 'rejected';
+  decision: CapabilityApprovalDecision;
   reason: string | null;
   decidedAt: Date;
 }

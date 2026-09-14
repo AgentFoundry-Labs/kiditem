@@ -11,7 +11,6 @@ const DEFAULTS: Record<string, unknown> = {
   'ads.budget.allocation': { A: 60, B: 30, C: 10 },
   'ads.roas.targetByGrade': { A: 300, B: 400, C: 500 },
   'ads.adRate.targetByGrade': { A: 12, B: 8, C: 5 },
-  'ads.tier.dailyBudget': { '1차': 150000, '2차': 100000, '3차': 50000 },
   'ads.benchmark.roas': { avg: 350, good: 500, excellent: 700, poor: 200 },
   'ads.benchmark.ctr': { avg: 0.3, good: 0.5, excellent: 1.0, poor: 0.15 },
   'ads.benchmark.cvr': { avg: 8, good: 12, excellent: 15, poor: 5 },
@@ -63,7 +62,6 @@ export class AdConfigService {
       budget: { allocation: get('ads.budget.allocation') },
       roasTargetByGrade: get('ads.roas.targetByGrade'),
       adRateTargetByGrade: get('ads.adRate.targetByGrade'),
-      tier: { dailyBudget: get('ads.tier.dailyBudget') },
       benchmark: {
         roas: get('ads.benchmark.roas'),
         ctr: get('ads.benchmark.ctr'),

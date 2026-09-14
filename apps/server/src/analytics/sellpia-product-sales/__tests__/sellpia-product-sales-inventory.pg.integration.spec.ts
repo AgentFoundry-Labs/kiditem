@@ -254,22 +254,18 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const reorderDestination = await seedDestinationForSku(prisma, {
       skuCode: 'REORDER',
       masterCode: 'MASTER-REORDER',
-      abcGrade: 'A',
     });
     await seedDestinationForSku(prisma, {
       skuCode: 'DEAD',
       masterCode: 'MASTER-DEAD',
-      abcGrade: 'B',
     });
     await seedDestinationForSku(prisma, {
       skuCode: 'SUMMER',
       masterCode: 'MASTER-SUMMER',
-      abcGrade: 'C',
     });
     const anomalyDestination = await seedDestinationForSku(prisma, {
       skuCode: 'ANOMALY',
       masterCode: 'MASTER-ANOMALY',
-      abcGrade: null,
     });
 
     const completeMonths = previousKstYearMonths(12);
@@ -682,7 +678,6 @@ async function seedDestinationForSku(
   input: {
     skuCode: string;
     masterCode: string;
-    abcGrade: 'A' | 'B' | 'C' | null;
   },
 ) {
   const sku = await prisma.sellpiaInventorySku.findFirstOrThrow({
@@ -692,7 +687,6 @@ async function seedDestinationForSku(
     organizationId: TEST_ORGANIZATION_ID,
     skuId: sku.id,
     code: input.masterCode,
-    abcGrade: input.abcGrade,
   });
 }
 
@@ -702,7 +696,6 @@ async function seedMasterRecipe(
     organizationId: string;
     skuId: string;
     code: string;
-    abcGrade?: 'A' | 'B' | 'C' | null;
   },
 ) {
   const master = await prisma.masterProduct.create({
@@ -710,7 +703,6 @@ async function seedMasterRecipe(
       organizationId: input.organizationId,
       code: input.code,
       name: input.code,
-      abcGrade: input.abcGrade ?? null,
     },
   });
   await prisma.sellpiaInventorySku.updateMany({

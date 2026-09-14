@@ -1,10 +1,9 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  THUMBNAIL_TRACKING_STATUSES,
-  type ThumbnailTrackingListResponse,
-  type ThumbnailTrackingRecord,
-  type ThumbnailTrackingStatus,
-  type UpdateThumbnailTrackingMetrics,
+import type {
+  ThumbnailTrackingListResponse,
+  ThumbnailTrackingRecord,
+  ThumbnailTrackingStatus,
+  UpdateThumbnailTrackingMetrics,
 } from '@kiditem/shared/ai';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
@@ -17,11 +16,10 @@ import {
   type ThumbnailTrackingSnapshotRow,
 } from '../port/out/repository/thumbnail-tracking.repository.port';
 import { businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { deriveThumbnailTrackingStatus } from '../../domain/thumbnail-tracking-status';
 
 function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
-  const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)
-    ? (row.status as ThumbnailTrackingStatus)
-    : 'tracking';
+  const status = deriveThumbnailTrackingStatus(row);
   const ctrChange =
     row.ctrBefore != null && row.ctrAfter != null ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10 : null;
   return {
@@ -55,11 +53,14 @@ function toSnapshotRecord(row: ThumbnailTrackingSnapshotRow): DailySnapshotRecor
     revenueKrw: row.revenueKrw,
     reviewCount: row.reviewCount,
     ratingAvg: row.ratingAvg,
-    scrapeStatus: row.scrapeStatus,
     errorMessage: row.errorMessage,
   };
 }
 
+/**
+ * One day's Wing sales facts for a tracking. A snapshot without an errorMessage
+ * is a collected scrape; an unmatched or failed search records why instead.
+ */
 export interface DailySnapshotRecord {
   id: string;
   trackingId: string;
@@ -70,7 +71,6 @@ export interface DailySnapshotRecord {
   revenueKrw: number | null;
   reviewCount: number | null;
   ratingAvg: number | null;
-  scrapeStatus: string;
   errorMessage: string | null;
 }
 
@@ -178,7 +178,6 @@ export class ThumbnailTrackingService {
 
     const today = kstBusinessDate(new Date());
 
-    let scrapeStatus: 'ok' | 'not_found' | 'error' = 'ok';
     let errorMessage: string | null = null;
     let unitsSold30d: number | null = null;
     let unitsSold7d: number | null = null;
@@ -190,10 +189,8 @@ export class ThumbnailTrackingService {
     try {
       const result = await this.salesScraper.scrapeByProductName(productName);
       if (result.error) {
-        scrapeStatus = 'error';
         errorMessage = result.error;
       } else if (!result.found || !result.row) {
-        scrapeStatus = 'not_found';
         errorMessage = `상품을 Wing 에서 찾지 못함: "${productName}"`;
       } else {
         unitsSold30d = result.row.unitsSold30d;
@@ -204,7 +201,6 @@ export class ThumbnailTrackingService {
         rawCellTexts = result.row.rawCellTexts;
       }
     } catch (err) {
-      scrapeStatus = 'error';
       errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.warn(`sales scrape error tracking=${trackingId}: ${errorMessage}`);
     }
@@ -219,9 +215,8 @@ export class ThumbnailTrackingService {
       reviewCount,
       ratingAvg,
       rawCellTexts,
-      scrapeStatus,
       errorMessage,
-      setSalesBefore: scrapeStatus === 'ok' && unitsSold30d !== null && tracking.salesBefore == null,
+      setSalesBefore: errorMessage === null && unitsSold30d !== null && tracking.salesBefore == null,
     });
 
     return toSnapshotRecord(upserted);
@@ -238,7 +233,8 @@ export class ThumbnailTrackingService {
 
   /**
    * 현재 active tracking 들 (appliedAt 으로부터 30일 미경과) 모두 순회하며
-   * snapshot 수집. cron / 수동 일일 trigger 에서 호출.
+   * snapshot 수집. cron / 수동 일일 trigger 에서 호출. errorMessage 없이 적재된
+   * snapshot 만 collected 로 센다.
    */
   async collectAllActiveSnapshots(organizationId: string): Promise<{ collected: number; failed: number }> {
     const trackings = await this.repository.findActiveTrackings(organizationId);
@@ -248,7 +244,7 @@ export class ThumbnailTrackingService {
     for (const t of trackings) {
       try {
         const snap = await this.collectDailySnapshot(t.id, organizationId);
-        if (snap.scrapeStatus === 'ok') collected += 1;
+        if (snap.errorMessage === null) collected += 1;
         else failed += 1;
       } catch (err) {
         failed += 1;

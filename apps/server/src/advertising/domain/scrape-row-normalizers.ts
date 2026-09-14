@@ -13,8 +13,16 @@
 //   campaign/raw-scrape handlers.
 
 import type { AdTargetType } from './util/ad-target-key';
-import type { ListingDailyState } from '../application/port/out/repository/channel-listing-daily.repository.port';
 import type { ListingOptionDailyState } from '../application/port/out/repository/channel-option-daily.repository.port';
+
+/** Listing-level state that one Wing item-winner row can observe. */
+export interface ListingDailyState {
+  productName: string | null;
+  isOfferWinner: boolean | null;
+  myPrice: number | null;
+  winnerPrice: number | null;
+  winnerGapPrice: number | null;
+}
 
 export type ScrapeRowPair = {
   rawRow: Record<string, any>;

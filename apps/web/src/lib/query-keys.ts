@@ -157,7 +157,6 @@ export const queryKeys = {
     recommend: (period?: string | number) => [...queryKeys.ads.all, 'recommend', period] as const,
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
-    scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
     // The organization's newest Wing rank batch, read by its shared collection control.
     wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,

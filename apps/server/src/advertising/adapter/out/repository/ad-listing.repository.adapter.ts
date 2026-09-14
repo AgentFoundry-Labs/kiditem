@@ -1,4 +1,4 @@
-// Product-owned advertising metadata hydrated through a scoped channel link.
+// Product identity and published grade hydrated through a scoped channel link.
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -49,7 +49,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
             id: true,
             code: true,
             name: true,
-            adTier: true,
           },
         },
       },
@@ -73,7 +72,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
           code: listing.externalId,
           name: listing.displayName ?? listing.channelName ?? listing.externalId,
           abcGrade: null,
-          adTier: null,
         },
       });
     }
@@ -90,22 +88,4 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     });
     return row != null;
   }
-
-  async changeAdTier(
-    listingId: string,
-    organizationId: string,
-    nextTier: string | null,
-  ): Promise<boolean> {
-    const updated = await this.prisma.masterProduct.updateMany({
-      where: {
-        organizationId,
-        channelListings: {
-          some: { id: listingId, organizationId, isActive: true },
-        },
-      },
-      data: { adTier: nextTier },
-    });
-    return updated.count === 1;
-  }
-
 }

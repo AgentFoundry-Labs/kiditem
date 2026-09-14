@@ -352,7 +352,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         confirmationId: created.exportId,
         sourceImportRunId: SOURCE_IMPORT_RUN_ID,
         transport,
-        matchedLineCount: 0,
         observedAt: confirmation.confirmedAt,
       })),
     });
@@ -360,7 +359,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       exportId: created.exportId,
-      reason: '쿠팡에 제출하지 않음',
     });
     expect(
       await adapter.listExportedPoLineIds({
@@ -371,7 +369,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     ).toEqual([]);
   });
 
-  it('completes only after finalized transmission and a newer verified generation', async () => {
+  it('completes only after every positive line is collected and its transmission is finalized', async () => {
     const created = await adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000019', 2),
     );
@@ -390,7 +388,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         sourceImportRunId: SOURCE_IMPORT_RUN_ID,
         transport: 'SHIPMENT',
         intentKey,
-        matchedLineCount: 1,
       },
     });
     await prisma.sellpiaOrderTransmissionIntent.create({
@@ -400,7 +397,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         status: 'finalized',
         createdBy: TEST_USER_ID,
         finalizedAt: new Date(),
-        finalizedGeneration: 13n,
       },
     });
 
@@ -414,6 +410,124 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         where: { id: created.exportId },
       }),
     ).toMatchObject({ completedAt: expect.any(Date) });
+  });
+
+  it('derives a failed Sellpia transmission on every read, keeps the workflow open, and completes after reconciliation', async () => {
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000051', 2),
+    );
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId },
+      data: {
+        collectedAt: new Date(),
+        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000052',
+      },
+    });
+    const intentKey = `rocket-final-order:${SOURCE_IMPORT_RUN_ID}:shipment`;
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport: 'SHIPMENT',
+        intentKey,
+      },
+    });
+    await prisma.sellpiaOrderTransmissionIntent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        intentKey,
+        status: 'aborted',
+        createdBy: TEST_USER_ID,
+        abortedAt: new Date(),
+      },
+    });
+    const workflowRow = () =>
+      prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+        where: { id: created.exportId },
+        select: { completedAt: true, updatedAt: true },
+      });
+
+    await expect(
+      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
+    ).resolves.toMatchObject({ exportId: created.exportId });
+    const failedRow = await workflowRow();
+    expect(failedRow.completedAt).toBeNull();
+
+    // The aborted intent keeps the workflow failed without a stored failure
+    // word: a new export is fenced and repeated reads do not rewrite the row.
+    await expect(
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000053', 2),
+      ),
+    ).rejects.toThrow(/must complete/);
+    await expect(
+      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
+    ).resolves.toMatchObject({ exportId: created.exportId });
+    await expect(workflowRow()).resolves.toEqual(failedRow);
+
+    await prisma.sellpiaOrderTransmissionIntent.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, intentKey },
+      data: { status: 'finalized', finalizedAt: new Date(), abortedAt: null },
+    });
+    await expect(
+      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
+    ).resolves.toBeNull();
+    await expect(workflowRow()).resolves.toMatchObject({
+      completedAt: expect.any(Date),
+    });
+  });
+
+  it('refuses abandonment while a workbook line is linked to a collected order, even after fresh probes', async () => {
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000041', 2),
+    );
+    const confirmation =
+      await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+        where: { id: created.exportId },
+        select: { confirmedAt: true },
+      });
+    // A second positive line that no order collected keeps the workbook
+    // awaiting Coupang confirmation, the only state abandonment considers.
+    await prisma.rocketPurchaseConfirmationLine.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        poLineId: '1001:P-2:8801234567891:1',
+        poNumber: '1001',
+        productNo: 'P-2',
+        barcode: '8801234567891',
+        productName: 'Rocket item 2',
+        orderQuantity: 1,
+        confirmedQuantity: 1,
+      },
+    });
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId, poLineId: PO_LINE_ID },
+      data: {
+        collectedAt: new Date(),
+        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000042',
+      },
+    });
+    await prisma.rocketPurchaseConfirmationTransmission.createMany({
+      data: ['SHIPMENT', 'MILKRUN'].map((transport) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport,
+        observedAt: confirmation.confirmedAt,
+      })),
+    });
+
+    await expect(adapter.abandonWorkbook({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      exportId: created.exportId,
+    })).rejects.toThrow(/Fresh SHIPMENT and MILKRUN collection probes/);
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: created.exportId },
+      select: { releasedAt: true },
+    })).resolves.toEqual({ releasedAt: null });
   });
 });
 

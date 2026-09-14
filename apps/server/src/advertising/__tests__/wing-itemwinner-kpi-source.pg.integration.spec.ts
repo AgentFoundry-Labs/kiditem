@@ -361,11 +361,6 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       winnerGapPrice: -500,
       rawSnapshotId: snapshot.id,
     });
-    expect(
-      await prisma.channelAccountDailyKpiSnapshot.count({
-        where: { organizationId: ORG, channelAccountId: accountId },
-      }),
-    ).toBe(0);
 
     const published = (await request(httpUrl).get(`${base}/published`).expect(200)).body;
     expect(published).toMatchObject({
@@ -585,7 +580,10 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       await prisma.channelScrapeRun.findFirstOrThrow({
         where: { sourceImportRunId: second.attemptId },
       }),
-    ).toMatchObject({ status: 'error', errorCount: 1 });
+    ).toMatchObject({
+      status: 'error',
+      errorJson: expect.objectContaining({ code: 'VENDOR_IDENTITY_MISMATCH' }),
+    });
 
     const third = (await begin()).body as WingItemwinnerSourceControl;
     await complete(
@@ -751,18 +749,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 
-  it('does not treat an unowned legacy KPI row as published evidence', async () => {
-    await prisma.channelAccountDailyKpiSnapshot.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: accountId,
-        channel: 'coupang',
-        source: 'wing',
-        kpiType: 'wing_itemwinner_kpi',
-        businessDate: new Date(),
-        normalizedJson: { kpis: { legacy: 'must-not-read' }, rowCount: 1 },
-      },
-    });
+  it('does not treat unowned legacy itemwinner scrape rows as published evidence', async () => {
     const legacyRun = await prisma.channelScrapeRun.create({
       data: {
         organizationId: ORG,

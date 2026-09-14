@@ -337,7 +337,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
-| `apps/server/src/orders` | Owner Domain | Orders, returns, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
+| `apps/server/src/orders` | Owner Domain | Orders, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |

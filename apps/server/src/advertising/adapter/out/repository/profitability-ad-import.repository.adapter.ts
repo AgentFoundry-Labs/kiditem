@@ -8,6 +8,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
@@ -59,9 +64,9 @@ const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
 const MAX_RESPONSE_BYTES = 50_000_000;
 const INSERT_CHUNK_SIZE = 1_000;
-const SOURCE_DB_RUNNING = 'running';
-const SOURCE_DB_COMPLETE = 'completed';
-const SOURCE_DB_FAILED = 'failed';
+const SOURCE_DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
+const SOURCE_DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
+const SOURCE_DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
 const SOURCE_STATE_RUNNING = 'RUNNING';
 const SOURCE_STATE_FAILED = 'FAILED';
 const RECEIPT_DB_RUNNING = 'running';
@@ -481,7 +486,6 @@ export class ProfitabilityAdImportRepositoryAdapter
         to: expected.to,
         mappingGeneration: attempt.mappingGeneration ?? 0n,
       });
-      const matchedCount = targetRows.filter((row) => row.listingId !== null).length;
       const receiptMeta = {
         sourceType: PROFITABILITY_SOURCE_TYPE,
         sliceId: expected.sliceId,
@@ -507,9 +511,6 @@ export class ProfitabilityAdImportRepositoryAdapter
         },
         data: {
           status: RECEIPT_DB_COMPLETE,
-          rowCount: targetRows.length,
-          matchedCount,
-          unmatchedCount: targetRows.length - matchedCount,
           finishedAt: new Date(),
           metaJson: receiptMeta,
         },
@@ -565,10 +566,7 @@ export class ProfitabilityAdImportRepositoryAdapter
           || payload.checksum === null
           || payload.payloadHash === null
           || payload.providerAdvertiserId !== expectedAdvertiserId(plan, expected)
-          || payload.inputRowCount === null
-          || payload.inputRowCount !== receipt.rowCount
-          || !validReceiptProof(payload, receipt.rowCount)
-          || receipt.matchedCount + receipt.unmatchedCount !== receipt.rowCount
+          || !validReceiptProof(payload)
           || !sameStringList(payload.businessDates, expected.businessDates)
           || (receipt.periodStart && businessDateKey(receipt.periodStart)) !== expected.from
           || (receipt.periodEnd && businessDateKey(receipt.periodEnd)) !== expected.to) {
@@ -594,12 +592,13 @@ export class ProfitabilityAdImportRepositoryAdapter
         rows.push(target);
         targetByReceipt.set(expected.sliceId, rows);
       }
+      // A slice publishes one target row per canonical provider row its receipt
+      // proved. Matching is derived from these rows again, and the conservation
+      // check below ties their spend to the allocations frozen at upload.
       for (const expected of expectedSlices) {
-        const receipt = receiptBySlice.get(expected.sliceId)!;
+        const proof = receiptPayload(receiptBySlice.get(expected.sliceId)!.metaJson);
         const rows = targetByReceipt.get(expected.sliceId) ?? [];
-        if (rows.length !== receipt.rowCount
-          || rows.filter((row) => row.listingId !== null).length !== receipt.matchedCount
-          || rows.filter((row) => row.listingId === null).length !== receipt.unmatchedCount) {
+        if (rows.length !== proof.inputRowCount) {
           throw incompleteImport();
         }
       }
@@ -1562,15 +1561,13 @@ function receiptPayload(value: Prisma.JsonValue | null) {
   };
 }
 
-function validReceiptProof(
-  payload: ReturnType<typeof receiptPayload>,
-  normalizedRowCount: number,
-): boolean {
+function validReceiptProof(payload: ReturnType<typeof receiptPayload>): boolean {
   if (payload.reportId === null
     || payload.campaignCount === null
     || payload.expectedRowCount === null
     || payload.collectedRowCount === null
-    || payload.responseBytes === null) {
+    || payload.responseBytes === null
+    || payload.inputRowCount === null) {
     return false;
   }
   return validReportProofFields({
@@ -1579,7 +1576,7 @@ function validReceiptProof(
     expectedRowCount: payload.expectedRowCount,
     collectedRowCount: payload.collectedRowCount,
     responseBytes: payload.responseBytes,
-  }, normalizedRowCount);
+  }, payload.inputRowCount);
 }
 
 function validReportProofFields(
@@ -2061,7 +2058,7 @@ function completedQualityReport(
 ) {
   const proofTotals = receipts.reduce((summary, receipt) => {
     const payload = receiptPayload(receipt.metaJson);
-    if (!validReceiptProof(payload, receipt.rowCount)) {
+    if (!validReceiptProof(payload)) {
       throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
     }
     return {

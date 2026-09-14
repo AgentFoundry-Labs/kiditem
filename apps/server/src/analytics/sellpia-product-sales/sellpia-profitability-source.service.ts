@@ -7,6 +7,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
+import {
   type SellpiaProfitabilityGenerationFacts,
   type SellpiaProfitabilitySourceCatalog,
   type SellpiaProfitabilitySourceReadPort,
@@ -111,7 +116,7 @@ export class SellpiaProfitabilitySourceService
         where: {
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           expiresAt: { lte: now },
         },
       }) as SourceAttemptRecord | null;
@@ -121,7 +126,7 @@ export class SellpiaProfitabilitySourceService
         where: {
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
         select: { id: true },
       });
@@ -137,7 +142,7 @@ export class SellpiaProfitabilitySourceService
         data: {
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: randomUUID(),
           idempotencyKey: key,
           requestFingerprint: fingerprint,
@@ -168,7 +173,7 @@ export class SellpiaProfitabilitySourceService
       await lockMapping(tx, organizationId);
       const attempt = await findAttempt(tx, organizationId, attemptId);
       assertAttemptToken(attempt, body.attemptToken);
-      if (attempt.status === 'completed') {
+      if (attempt.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         assertStagedReplay(attempt, checksum, byteCount);
         return;
       }
@@ -211,7 +216,7 @@ export class SellpiaProfitabilitySourceService
           id: attemptId,
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: body.attemptToken,
           contentChecksum: null,
         },
@@ -257,7 +262,7 @@ export class SellpiaProfitabilitySourceService
       await lockMapping(tx, organizationId);
       const attempt = await findAttempt(tx, organizationId, attemptId);
       assertAttemptToken(attempt, body.attemptToken);
-      if (attempt.status === 'completed') return toAttemptView(attempt);
+      if (attempt.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return toAttemptView(attempt);
       assertAttemptWritable(attempt, body.attemptToken);
       await assertMappingGeneration(tx, attempt);
       if (attempt.contentChecksum === null || attempt.contentByteCount === null) {
@@ -274,7 +279,7 @@ export class SellpiaProfitabilitySourceService
         where: {
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           publicationSequence: { not: null },
         },
         orderBy: { publicationSequence: 'desc' },
@@ -287,11 +292,11 @@ export class SellpiaProfitabilitySourceService
           id: attemptId,
           organizationId,
           sourceType: SOURCE_TYPE,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: body.attemptToken,
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           importedAt,
           publicationSequence,
           errorCode: null,
@@ -306,7 +311,7 @@ export class SellpiaProfitabilitySourceService
       });
       return toAttemptView({
         ...attempt,
-        status: 'completed',
+        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
         importedAt,
         publicationSequence,
         updatedAt: importedAt,
@@ -323,7 +328,7 @@ export class SellpiaProfitabilitySourceService
       await lockSource(tx, organizationId);
       const attempt = await findAttempt(tx, organizationId, attemptId);
       assertAttemptToken(attempt, body.attemptToken);
-      if (attempt.status === 'failed') return toAttemptView(attempt);
+      if (attempt.status === SOURCE_IMPORT_RUN_FAILED_STATUS) return toAttemptView(attempt);
       assertAttemptWritable(attempt, body.attemptToken);
       return toAttemptView(await this.failIn(tx, attempt, body.errorCode, body.errorMessage));
     }, { timeout: TRANSACTION_TIMEOUT_MS });
@@ -340,7 +345,7 @@ export class SellpiaProfitabilitySourceService
     return this.prisma.$transaction(async (tx) => {
       await lockSource(tx, organizationId);
       const attempt = await findAttempt(tx, organizationId, attemptId);
-      if (attempt.status !== 'running') return toAttemptSummary(attempt, new Date());
+      if (attempt.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return toAttemptSummary(attempt, new Date());
       const settled = isExpiredRunning(attempt, new Date())
         ? await this.expireAttempt(tx, attempt)
         : await this.failIn(tx, attempt, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
@@ -359,11 +364,11 @@ export class SellpiaProfitabilitySourceService
         id: attempt.id,
         organizationId: attempt.organizationId,
         sourceType: SOURCE_TYPE,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: attempt.attemptToken,
       },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode,
         errorMessage,
       },
@@ -377,7 +382,7 @@ export class SellpiaProfitabilitySourceService
     ));
     return {
       ...attempt,
-      status: 'failed',
+      status: SOURCE_IMPORT_RUN_FAILED_STATUS,
       errorCode,
       errorMessage,
       updatedAt: new Date(),
@@ -400,7 +405,7 @@ export class SellpiaProfitabilitySourceService
       if (isExpiredRunning(attempt, now)) {
         throw new ConflictException('ATTEMPT_EXPIRED');
       }
-      if (attempt.status !== 'running') {
+      if (attempt.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         throw new ConflictException('ATTEMPT_TERMINAL');
       }
       const plan = parsePlan(attempt.plan);
@@ -456,7 +461,7 @@ export class SellpiaProfitabilitySourceService
           where: {
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
             publicationSequence: { not: null },
           },
           orderBy: { publicationSequence: 'desc' },
@@ -604,11 +609,11 @@ export class SellpiaProfitabilitySourceService
         id: attempt.id,
         organizationId: attempt.organizationId,
         sourceType: SOURCE_TYPE,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: attempt.attemptToken,
       },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: 'ATTEMPT_EXPIRED',
         errorMessage: message,
       },
@@ -622,7 +627,7 @@ export class SellpiaProfitabilitySourceService
     ));
     return {
       ...attempt,
-      status: 'failed',
+      status: SOURCE_IMPORT_RUN_FAILED_STATUS,
       errorCode: 'ATTEMPT_EXPIRED',
       errorMessage: message,
       updatedAt: new Date(),

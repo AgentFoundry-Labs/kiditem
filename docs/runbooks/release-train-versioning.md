@@ -12,8 +12,8 @@ rewrites.
   train starts.
 - The operator can create a branch and PR targeting protected `develop`.
 - Schema/data PR authors can complete `.github/PULL_REQUEST_TEMPLATE.md`.
-- Office-impacting destructive changes have an approved expand, backfill,
-  contract, and rollback decision.
+- Office-impacting destructive changes follow the
+  [data-loss policy](deployment-architecture.md#data-loss-policy).
 
 ## Environment Variables
 
@@ -62,6 +62,7 @@ the release-start PR.
 | Compatible additive Prisma change | Keep | `keep VERSION <current>; compatible db:push only, no data backfill` |
 | Backfill or persisted semantic rewrite | Keep | `keep VERSION <current>; add registered v<current> data migration <id>` |
 | Expand or contract stage | Keep | Name the stage, runtime compatibility, migration, and rollback boundary |
+| Destructive cleanup under the data-loss policy | Keep | `keep VERSION <current>; destructive cleanup per ADR-0010, pre-schema cleanup migration <id>` |
 | Work discovered after the train reached `main` | Open next train first | Never append it to the released version |
 
 Increasing `VERSION` does not make a destructive schema change safe. Blue-green
@@ -74,10 +75,10 @@ slots may overlap, and runtime rollback does not revert schema or data.
 3. Make `id` start with `v<VERSION>:` and set `releaseVersion` to the same value
    without `v`.
 4. Register the exact module in `scripts/data-migrations/index.ts`.
-5. Run the migration twice against `local`, then verify it against the intended
-   Office test data or a restored Office backup, and
-   confirm the second run is a safe no-op or ledger skip.
-6. Record affected-row and rollback/blocker evidence in the PR.
+5. Run the migration twice against `local`, using the local QA database
+   `kiditem-qa-pg` for data-bearing checks, and confirm the second run is a safe
+   no-op or ledger skip.
+6. Record the local affected-row counts in the PR.
 
 Never edit an applied migration. A correction is a new idempotent migration in
 a later train.
@@ -153,7 +154,7 @@ PR body through the live PR or the checker's supported body/event input.
   work is ready to merge.
 - A new migration targets a version already present on `main`.
 - Migration path, `id`, `releaseVersion`, or registry import disagree.
-- A destructive change lacks expand/backfill/contract or rollback evidence.
+- A destructive change deletes rows the data-loss policy carries forward.
 - A promotion PR edits `VERSION` instead of carrying the assembled train.
 - The PR release decision is blank, placeholder text, or inconsistent with the
   changed files.

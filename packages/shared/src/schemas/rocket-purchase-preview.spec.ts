@@ -602,21 +602,23 @@ describe('Rocket purchase preview contract', () => {
     }).success).toBe(false);
   });
 
-  it('recognizes the confirmation request statuses and requires a reason to abandon a workbook', () => {
+  it('recognizes the confirmation request statuses and abandons a workbook by export id alone', () => {
     expect(ROCKET_CONFIRMATION_REQUEST_STATUSES).toEqual([
       '거래명세서확인요청',
       '거래처확인요청',
     ]);
     expect(RocketWorkbookAbandonRequestSchema.parse({
       exportId: CONFIRMATION_ID,
-      reason: '쿠팡에 업로드하지 않음',
     })).toEqual({
       exportId: CONFIRMATION_ID,
-      reason: '쿠팡에 업로드하지 않음',
     });
+    // A reason has nowhere to be stored, so the request no longer carries one.
     expect(() => RocketWorkbookAbandonRequestSchema.parse({
       exportId: CONFIRMATION_ID,
-      reason: ' ',
+      reason: '쿠팡에 업로드하지 않음',
+    })).toThrow();
+    expect(() => RocketWorkbookAbandonRequestSchema.parse({
+      exportId: 'not-a-uuid',
     })).toThrow();
   });
 });

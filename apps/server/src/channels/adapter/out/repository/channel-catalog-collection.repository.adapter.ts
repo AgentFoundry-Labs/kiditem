@@ -6,6 +6,11 @@ import {
   CoupangCatalogCollectionPlanSchema,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
@@ -109,7 +114,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         attemptToken: existing.attemptToken,
         stage,
       });
-      if (locked.status === 'running') {
+      if (locked.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         // Idempotent replay is also the status read for an expired
         // attempt. Preserve the immutable run and let readOwned expose
         // its effective FAILED state; only a new idempotency key may
@@ -161,7 +166,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       }
     }
     const active = await tx.sourceImportRun.findMany({
-      where: { ...catalogWhere(input, stage), status: 'running' },
+      where: { ...catalogWhere(input, stage), status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
     });
     for (const previous of active) {
       if (previous.expiresAt && previous.expiresAt.getTime() > Date.now())
@@ -173,7 +178,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         attemptToken: previous.attemptToken,
         stage,
       });
-      if (locked.status === 'running')
+      if (locked.status === SOURCE_IMPORT_RUN_RUNNING_STATUS)
         await this.saveFailure(tx, {
           ...input,
           runId: previous.id,
@@ -224,7 +229,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         id: ownerId,
         ...catalogWhere(input, stage),
         fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         idempotencyKey: input.idempotencyKey,
         requestFingerprint,
         plan,
@@ -270,14 +275,14 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       });
       if (!target) throw new NotFoundException('Catalog attempt not found');
       const stage = sourceStage(target.sourceType);
-      if (target.status === 'running' || stage !== 'basics') {
+      if (target.status === SOURCE_IMPORT_RUN_RUNNING_STATUS || stage !== 'basics') {
         await this.stopRunningAttempt(tx, input, target.id, stage);
         return;
       }
       const plan = CoupangCatalogCollectionPlanSchema.safeParse(target.plan);
       const detailsIdempotencyKey = plan.success ? plan.data.detailsIdempotencyKey : undefined;
       // A failed basics root, or a standalone basics publication, has nothing left to stop.
-      if (target.status !== 'completed' || !plan.success || !detailsIdempotencyKey) return;
+      if (target.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS || !plan.success || !detailsIdempotencyKey) return;
       const child = await tx.sourceImportRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -333,7 +338,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     });
     if (!run) throw new NotFoundException('Catalog attempt not found');
     const locked = await lockCatalogAttempt(tx, { ...input, runId, attemptToken: run.attemptToken, stage });
-    if (locked.status !== 'running') return;
+    if (locked.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return;
     const expired = !locked.expiresAt || locked.expiresAt.getTime() <= Date.now();
     await this.saveFailure(tx, {
       organizationId: input.organizationId,
@@ -434,7 +439,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       const stage = await ownerStage(tx, input);
       const owner = await lockCatalogAttempt(tx, { ...input, stage });
       const checksum = hashCatalogChunkPayload(input.error);
-      if (owner.status === 'failed' && owner.contentChecksum === checksum)
+      if (owner.status === SOURCE_IMPORT_RUN_FAILED_STATUS && owner.contentChecksum === checksum)
         return readOwned(tx, { ...input, stage, includePayload: false });
       assertCatalogRunning(owner);
       await this.saveFailure(tx, { ...input, stage });
@@ -456,11 +461,11 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: {
         ...catalogWhere(input, input.stage ?? 'full'),
         id: input.runId,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
       },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         importedAt: new Date(),
         errorCode: input.error.code,
         errorMessage: input.error.message,
@@ -492,7 +497,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: {
         ...catalogWhere(input, input.stage),
         id: input.runId,
-        status: 'running',
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
       },
       data: {
@@ -525,7 +530,7 @@ async function clearCatalogPause(
     where: {
       ...catalogWhere(input, input.stage),
       id: input.runId,
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       attemptToken: input.attemptToken,
     },
     data: {

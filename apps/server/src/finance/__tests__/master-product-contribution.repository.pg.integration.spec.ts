@@ -42,16 +42,16 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
   it('ignores grade, includes stopped and new products, and filters only after global windows', async () => {
     const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
     const active = await seedProductFact(prisma, sources, {
-      code: 'ACTIVE', isActive: true, abcGrade: 'C', revenue: 100, cost: 20, adSpend: 10,
+      code: 'ACTIVE', isActive: true, revenue: 100, cost: 20, adSpend: 10,
     });
     const stopped = await seedProductFact(prisma, sources, {
-      code: 'STOPPED', isActive: false, abcGrade: 'A', revenue: 100, cost: 20, adSpend: 10,
+      code: 'STOPPED', isActive: false, revenue: 100, cost: 20, adSpend: 10,
     });
     const newProduct = await seedProductFact(prisma, sources, {
-      code: 'NEW', isActive: true, abcGrade: null, revenue: 200, cost: 150, adSpend: 0,
+      code: 'NEW', isActive: true, revenue: 200, cost: 150, adSpend: 0,
     });
     await seedProductFact(prisma, sources, {
-      code: 'LOSS', isActive: true, abcGrade: 'B', revenue: 50, cost: 170, adSpend: 30,
+      code: 'LOSS', isActive: true, revenue: 50, cost: 170, adSpend: 30,
     });
     await seedForeignScenario(prisma);
 
@@ -416,7 +416,6 @@ async function seedProductFact(
     cost: number;
     adSpend: number;
     isActive?: boolean;
-    abcGrade?: string | null;
     costBasis?: string;
     vatIncluded?: boolean | null;
     omitSellpia?: boolean;
@@ -428,7 +427,6 @@ async function seedProductFact(
       code: fact.code,
       name: `${fact.code} product`,
       isActive: fact.isActive ?? true,
-      abcGrade: fact.abcGrade ?? null,
     },
   });
   const listing = await prisma.channelListing.create({

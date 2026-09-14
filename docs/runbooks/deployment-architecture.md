@@ -69,8 +69,8 @@ The protected `C:\ProgramData\Kiditem\.env.office`, server env file, and the
 external PostgreSQL, MinIO, and CopilotKit volumes remain in place. Before
 application recreation, the deployer records the active container image IDs,
 copies the current runtime manifest to transaction storage, and retains the old
-local images. API, worker, web, and nginx are then recreated with `--no-build`
-and `--force-recreate`; data services and volumes are preserved.
+local images. API, web, and nginx are then recreated with `--no-build` and
+`--force-recreate`; data services and volumes are preserved.
 
 An application-only failure automatically restores the previous Compose,
 deploy env, image references, Gateway pointer, and runtime manifest. A
@@ -87,11 +87,33 @@ normal deploy refuses any match. An approved cutover is explicit:
 npm run deploy:office:local -- --ref origin/release/office --cutover --confirm APPLY_SCHEMA_DATA
 ```
 
-The deployer stops writers, runs exact-SHA pre-schema migrations, applies
-Prisma with `--accept-data-loss`, runs exact-SHA post-schema migrations, and
-then starts the candidate. The runtime manifest records the changed paths and
-approval. `deploy:office:rollback` refuses an immediate runtime-only rollback
-from that cutover.
+The deployer stops writers, writes a custom-format `pg_dump` to
+`C:\ProgramData\KidItem\deployments\database-dumps`, runs exact-SHA pre-schema
+migrations, applies Prisma with `--accept-data-loss`, runs exact-SHA
+post-schema migrations, and then starts the candidate. The runtime manifest
+records the changed paths and approval. `deploy:office:rollback` refuses an
+immediate runtime-only rollback from that cutover.
+
+### Data-loss policy
+
+Until the owner declares that Office data must be preserved, schema cleanup
+takes priority over it
+([ADR-0010](../adr/0010-schema-cleanup-may-discard-office-data.md)).
+
+- Pre-schema data migrations delete rows that cannot fit the new schema instead
+  of stopping. They carry forward users and organizations, channel accounts,
+  confirmed recipes, orders, and transport receipts.
+- A cutover starts from one `pg_dump` of the Office database. Only a
+  successful cutover prunes, and it deletes only dumps older than the previous
+  successful cutover's dump: every dump written since then survives, including
+  the first failed attempt's, taken before any row was deleted. It needs no
+  restore test, Office-copy rehearsal, backfill or rollback evidence, or
+  confirmation of Office database state.
+- Verify a cutover on Testcontainers PostgreSQL and the local QA database
+  `kiditem-qa-pg` (port 5434). The QA database is disposable: restore it from a
+  local dump, apply the cutover, run real collections, and check the screens.
+  Keep external writes (Sellpia transmission, Rocket PO submission, marketplace
+  registration) out of QA.
 
 ## Gateway and CLI profile
 

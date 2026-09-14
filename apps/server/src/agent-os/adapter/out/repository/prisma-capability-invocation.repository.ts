@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import {
   CapabilityInvocationErrorSchema,
   CapabilityResultReceiptSchema,
+  type CapabilityInvocationApprovalStatus,
 } from '@kiditem/shared/agent-interaction';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
+import { deriveCapabilityApprovalState } from '../../../domain/capability/capability-invocation.policy';
 import type {
   AdmissionResult,
   AdmitCapabilityInvocation,
@@ -46,7 +48,6 @@ export class PrismaCapabilityInvocationRepository
           canonicalInput: toPrismaJson(input.canonicalInput),
           inputHash: input.inputHash,
           status: 'pending',
-          approvalStatus: input.approval.required ? 'pending' : 'not_required',
           approvalInputHash: input.approval.required ? input.inputHash : null,
           approvalRequestedAt: input.approval.required
             ? input.approval.requestedAt
@@ -109,7 +110,12 @@ export class PrismaCapabilityInvocationRepository
     input: ListApprovedPendingCapabilityInvocations,
   ): Promise<CapabilityInvocationRecord[]> {
     const rows = await this.prisma.capabilityInvocation.findMany({
-      where: { status: 'pending', approvalStatus: 'approved' },
+      where: {
+        AND: [
+          { status: 'pending' },
+          capabilityApprovalStateWhere('approved', this.now()),
+        ],
+      },
       orderBy: { createdAt: 'asc' },
       take: input.limit,
     });
@@ -119,39 +125,34 @@ export class PrismaCapabilityInvocationRepository
   async decideApproval(
     input: DecideInvocationApproval,
   ): Promise<DecideInvocationApprovalResult> {
-    let current = await this.findById({
-      organizationId: input.organizationId,
-      invocationId: input.invocationId,
-    });
-    if (!current) throw notFound();
-    if (current.approvalStatus === 'expired') throw approvalExpired();
-    if (current.approvalStatus === 'not_required') {
+    const current = await this.requiredCurrent(input);
+    const approval = deriveCapabilityApprovalState(current, input.decidedAt);
+    if (approval === 'expired') {
+      return this.refuseExpiredDecision(current, input.decidedAt);
+    }
+    if (approval === 'not_required') {
       throw new AgentOsError('APPROVAL_REQUIRED', 'This invocation does not await approval.');
     }
     if (current.approvalInputHash !== input.inputHash || current.inputHash !== input.inputHash) {
       throw new AgentOsError('REQUEST_KEY_CONFLICT', 'Approval input does not match the admitted invocation.');
     }
-    if (current.approvalStatus === input.decision) {
-      return { invocation: current, transitioned: false };
-    }
-    if (current.approvalStatus === 'approved' || current.approvalStatus === 'rejected') {
-      throw new AgentOsError('APPROVAL_REJECTED', 'Approval decision is immutable.');
-    }
-    if (current.status !== 'pending') return { invocation: current, transitioned: false };
+    if (approval !== 'pending') return settledDecision(current, approval, input.decision);
 
     const rejected = input.decision === 'rejected';
     const update = await this.prisma.capabilityInvocation.updateMany({
       where: {
-        id: input.invocationId,
-        organizationId: input.organizationId,
-        status: 'pending',
-        approvalStatus: 'pending',
-        approvalInputHash: input.inputHash,
-        inputHash: input.inputHash,
-        approvalExpiresAt: { gt: input.decidedAt },
+        AND: [
+          {
+            id: input.invocationId,
+            organizationId: input.organizationId,
+            approvalInputHash: input.inputHash,
+            inputHash: input.inputHash,
+          },
+          capabilityApprovalStateWhere('pending', input.decidedAt),
+        ],
       },
       data: {
-        approvalStatus: input.decision,
+        approvalDecision: input.decision,
         approvalDecidedByUserId: input.userId,
         approvalDecisionReason: input.reason,
         approvalDecidedAt: input.decidedAt,
@@ -168,37 +169,16 @@ export class PrismaCapabilityInvocationRepository
       },
     });
     if (update.count === 1) {
-      const updated = await this.findById({
-        organizationId: input.organizationId,
-        invocationId: input.invocationId,
-      });
-      if (!updated) throw notFound();
-      return { invocation: updated, transitioned: true };
+      return { invocation: await this.requiredCurrent(input), transitioned: true };
     }
 
-    current = await this.findById({
-      organizationId: input.organizationId,
-      invocationId: input.invocationId,
-    });
-    if (!current) throw notFound();
-    if (
-      current.status === 'pending'
-      && current.approvalStatus === 'pending'
-      && current.approvalExpiresAt
-      && current.approvalExpiresAt.getTime() <= input.decidedAt.getTime()
-    ) {
-      await this.expireIfNecessary(current, input.decidedAt);
-      current = await this.findById({
-        organizationId: input.organizationId,
-        invocationId: input.invocationId,
-      });
-      if (!current) throw notFound();
+    // A concurrent decision or the expiry sweep won the conditional write.
+    const winner = await this.requiredCurrent(input);
+    const settled = deriveCapabilityApprovalState(winner, input.decidedAt);
+    if (settled === 'expired') {
+      return this.refuseExpiredDecision(winner, input.decidedAt);
     }
-    if (current.approvalStatus === input.decision) {
-      return { invocation: current, transitioned: false };
-    }
-    if (current.approvalStatus === 'expired') throw approvalExpired();
-    throw new AgentOsError('APPROVAL_REJECTED', 'Approval decision is immutable.');
+    return settledDecision(winner, settled, input.decision);
   }
 
   async recordSucceeded(
@@ -209,10 +189,19 @@ export class PrismaCapabilityInvocationRepository
     if (current.status !== 'pending') return current;
     const update = await this.prisma.capabilityInvocation.updateMany({
       where: {
-        id: input.invocationId,
-        organizationId: input.organizationId,
-        status: 'pending',
-        approvalStatus: { in: ['not_required', 'approved'] },
+        AND: [
+          {
+            id: input.invocationId,
+            organizationId: input.organizationId,
+            status: 'pending',
+          },
+          {
+            OR: [
+              capabilityApprovalStateWhere('not_required', input.finishedAt),
+              capabilityApprovalStateWhere('approved', input.finishedAt),
+            ],
+          },
+        ],
       },
       data: {
         status: 'succeeded',
@@ -253,30 +242,41 @@ export class PrismaCapabilityInvocationRepository
     return current;
   }
 
-  /** Conditional update is the row-lock fence for lazy expiry. */
+  private async refuseExpiredDecision(
+    invocation: CapabilityInvocationRecord,
+    at: Date,
+  ): Promise<never> {
+    await this.expireIfNecessary(invocation, at);
+    throw approvalExpired();
+  }
+
+  /**
+   * Conditional update is the row-lock fence for lazy expiry. It fails the
+   * Invocation and stores no approval word: `failed` keeps it expired.
+   */
   private async expireIfNecessary(
     invocation: CapabilityInvocationRecord,
     at: Date,
   ): Promise<void> {
     if (
-      invocation.status !== 'pending' ||
-      invocation.approvalStatus !== 'pending' ||
-      !invocation.approvalExpiresAt ||
-      invocation.approvalExpiresAt.getTime() > at.getTime()
+      invocation.status !== 'pending'
+      || deriveCapabilityApprovalState(invocation, at) !== 'expired'
     ) {
       return;
     }
     await this.prisma.capabilityInvocation.updateMany({
       where: {
-        id: invocation.id,
-        organizationId: invocation.organizationId,
-        status: 'pending',
-        approvalStatus: 'pending',
-        approvalExpiresAt: { lte: at },
+        AND: [
+          {
+            id: invocation.id,
+            organizationId: invocation.organizationId,
+            status: 'pending',
+          },
+          capabilityApprovalStateWhere('expired', at),
+        ],
       },
       data: {
         status: 'failed',
-        approvalStatus: 'expired',
         error: toPrismaJson({
           code: 'APPROVAL_EXPIRED',
           message: 'Capability approval expired before execution.',
@@ -285,6 +285,65 @@ export class PrismaCapabilityInvocationRepository
       },
     });
   }
+}
+
+/**
+ * SQL form of `deriveCapabilityApprovalState` for this adapter's conditional
+ * writes and bootstrap claim. Every approval predicate is built here, and
+ * `capability-approval-state.pg.integration.spec.ts` proves each state selects
+ * exactly the rows the domain rule derives.
+ */
+export function capabilityApprovalStateWhere(
+  state: CapabilityInvocationApprovalStatus,
+  at: Date,
+): Prisma.CapabilityInvocationWhereInput {
+  switch (state) {
+    case 'approved':
+    case 'rejected':
+      return { approvalDecision: state };
+    case 'not_required':
+      return {
+        approvalDecision: null,
+        approvalInputHash: null,
+        approvalRequestedAt: null,
+        approvalExpiresAt: null,
+      };
+    case 'pending':
+      return {
+        approvalDecision: null,
+        status: 'pending',
+        approvalExpiresAt: { gt: at },
+      };
+    case 'expired':
+      return {
+        approvalDecision: null,
+        AND: [
+          {
+            OR: [
+              { approvalInputHash: { not: null } },
+              { approvalRequestedAt: { not: null } },
+              { approvalExpiresAt: { not: null } },
+            ],
+          },
+          {
+            OR: [
+              { status: { not: 'pending' } },
+              { approvalExpiresAt: null },
+              { approvalExpiresAt: { lte: at } },
+            ],
+          },
+        ],
+      };
+  }
+}
+
+function settledDecision(
+  invocation: CapabilityInvocationRecord,
+  approval: CapabilityInvocationApprovalStatus,
+  decision: DecideInvocationApproval['decision'],
+): DecideInvocationApprovalResult {
+  if (approval === decision) return { invocation, transitioned: false };
+  throw new AgentOsError('APPROVAL_REJECTED', 'Approval decision is immutable.');
 }
 
 function parseRow(row: unknown): CapabilityInvocationRecord {

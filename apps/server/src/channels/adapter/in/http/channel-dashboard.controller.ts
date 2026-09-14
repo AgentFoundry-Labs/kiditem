@@ -47,31 +47,4 @@ export class ChannelDashboardController {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getProductRanking(organizationId, from, to);
   }
-
-  @Get('return-summary')
-  async getReturnSummary(
-    @CurrentOrganization() organizationId: string,
-    @Query() query: CoupangDateRangeQueryDto,
-  ) {
-    const { from, to } = this.resolveDateRange(query.from, query.to);
-    return this.service.getReturnSummary(organizationId, from, to);
-  }
-
-  @Get('return-reasons')
-  async getReturnReasonBreakdown(
-    @CurrentOrganization() organizationId: string,
-    @Query() query: CoupangDateRangeQueryDto,
-  ) {
-    const { from, to } = this.resolveDateRange(query.from, query.to);
-    return this.service.getReturnReasonBreakdown(organizationId, from, to);
-  }
-
-  @Get('return-fault-split')
-  async getReturnFaultSplit(
-    @CurrentOrganization() organizationId: string,
-    @Query() query: CoupangDateRangeQueryDto,
-  ) {
-    const { from, to } = this.resolveDateRange(query.from, query.to);
-    return this.service.getReturnFaultSplit(organizationId, from, to);
-  }
 }

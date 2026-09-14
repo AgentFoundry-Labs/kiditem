@@ -3618,3 +3618,423 @@ test("pollUntil still gives up once the budget and the attempt floor are both sp
   assert.equal(result, null);
   assert.equal(attempts, 6);
 });
+
+test("a rejected running report stops the approved action before any Coupang write", async () => {
+  const labels = { rejected: "거절된 캠페인", accepted: "승인된 캠페인" };
+  const clicks = { rejected: 0, accepted: 0 };
+  const row = (key) => {
+    const editButton = { innerText: "수정", click: () => { clicks[key] += 1; } };
+    return {
+      innerText: labels[key],
+      querySelectorAll: () => [editButton],
+      click: () => { clicks[key] += 1; },
+    };
+  };
+  const rows = [row("rejected"), row("accepted")];
+  const reports = [];
+  const { messageListeners } = loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? rows : []),
+    },
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(`${report.id}:${report.action}`);
+      // The server refuses every report for the cancelled execution with 409;
+      // the worker still answers success:true because the request completed.
+      return report.id === "action-rejected"
+        ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+        : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await new Promise((resolve, reject) => {
+    const message = {
+      action: "executeApprovedAdActions",
+      payload: {
+        actions: [
+          { id: "action-rejected", actionType: "change_daily_budget", targetLabel: labels.rejected, proposedValue: 20000 },
+          { id: "action-accepted", actionType: "change_daily_budget", targetLabel: labels.accepted, proposedValue: 30000 },
+        ],
+      },
+    };
+    if (!messageListeners.some((listener) => listener(message, {}, resolve) === true)) {
+      reject(new Error("executeApprovedAdActions has no listener"));
+    }
+  });
+
+  assert.equal(clicks.rejected, 0, "a refused running report must keep the action off Coupang");
+  assert.ok(clicks.accepted > 0, "the next approved action still opens its Coupang editor");
+  // A refused report ends this executor's reporting for the action: a failure
+  // report would move an attempt that is not its own.
+  assert.deepEqual(reports, [
+    "action-rejected:markRunning",
+    "action-accepted:markRunning",
+    "action-accepted:markFailed",
+  ]);
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 2 });
+});
+
+test("a refused done report counts the action as skipped and sends no failure report", async () => {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "완료 보고 거절 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const tab = loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? [row] : []),
+    },
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(report.action);
+      // After a won claim no other executor can move the attempt, so a 409 here
+      // means the attempt changed on the server meanwhile. The executor must
+      // still send nothing more for it.
+      return report.action === "markDone"
+        ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+        : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-done-refused", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+  ]);
+
+  assert.equal(pauseClicks.count, 1, "the approved pause reached Coupang once");
+  // A failure report after the refused outcome would move an attempt that is
+  // no longer this executor's.
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 1 });
+});
+
+function openAdActionTestTab({ label, clicks, sendMessage }) {
+  const editButton = { innerText: "수정", click: () => { clicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [editButton], click: () => { clicks.count += 1; } };
+  return loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? [row] : []),
+    },
+    sendMessage,
+  });
+}
+
+function dispatchExecuteApprovedAdActions({ messageListeners }, actions) {
+  return new Promise((resolve, reject) => {
+    const message = { action: "executeApprovedAdActions", payload: { actions } };
+    if (!messageListeners.some((listener) => listener(message, {}, resolve) === true)) {
+      reject(new Error("executeApprovedAdActions has no listener"));
+    }
+  });
+}
+
+function openAdActionTestPage({ rows, sendMessage }) {
+  const rowLookups = { count: 0 };
+  const tab = loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => {
+        if (selector !== "table tbody tr") return [];
+        rowLookups.count += 1;
+        return rows;
+      },
+    },
+    sendMessage,
+  });
+  return { tab, rowLookups };
+}
+
+test("a second executor whose page lacks the action's row is refused at its claim and reads and reports nothing else", async () => {
+  // One server behind two ad-center tabs fences the attempt: the first claim
+  // wins and another claim for the same attempt is refused.
+  const serverLog = [];
+  const claimed = new Set();
+  const server = (tab) => async (message, callback) => {
+    if (message?.action === "waitForAdCollectorDelay") {
+      callback?.();
+      return undefined;
+    }
+    assert.equal(message?.action, "kiditemApiRequest");
+    const report = JSON.parse(message.init.body);
+    const refused = report.action === "markRunning" && claimed.has(report.id);
+    if (report.action === "markRunning" && !refused) claimed.add(report.id);
+    serverLog.push(`${tab}:${report.action}:${refused ? 409 : 201}`);
+    return refused
+      ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+      : { success: true, ok: true, status: 201, body: {} };
+  };
+  const label = "다른 탭에만 있는 캠페인";
+  const firstClicks = { count: 0 };
+  const firstTab = openAdActionTestTab({ label, clicks: firstClicks, sendMessage: server("first") });
+  const secondPage = openAdActionTestPage({ rows: [], sendMessage: server("second") });
+  const actions = [{ id: "action-row-elsewhere", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+
+  const [first, second] = await Promise.all([
+    dispatchExecuteApprovedAdActions(firstTab, actions),
+    dispatchExecuteApprovedAdActions(secondPage.tab, actions),
+  ]);
+
+  assert.equal(secondPage.rowLookups.count, 0, "the refused executor never reads the page for the action");
+  assert.ok(firstClicks.count > 0, "the executor that claimed the attempt still works it");
+  // A failure report from the second executor would close the first
+  // executor's attempt while it is still changing Coupang.
+  assert.deepEqual(serverLog, [
+    "first:markRunning:201",
+    "second:markRunning:409",
+    "first:markFailed:201",
+  ]);
+  assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...second }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("an executor whose page lacks the action's row claims the attempt, then fails it", async () => {
+  const reports = [];
+  const page = openAdActionTestPage({
+    rows: [],
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push({ action: report.action, errorMessage: report.errorMessage });
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    { id: "action-missing-row", actionType: "pause_keyword", targetLabel: "사라진 키워드", payload: { keyword: "사라진 키워드" } },
+  ]);
+
+  assert.deepEqual(reports.map(({ action }) => action), ["markRunning", "markFailed"]);
+  assert.equal(reports[1].errorMessage, "대상 행을 찾지 못했습니다: 사라진 키워드");
+  assert.equal(page.rowLookups.count, 1);
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("an executor that claims a keyword pause reports it done after the Coupang change", async () => {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "봄 신상 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const page = openAdActionTestPage({
+    rows: [row],
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      reports.push(JSON.parse(message.init.body).action);
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    { id: "action-pause", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+  ]);
+
+  assert.equal(pauseClicks.count, 1, "the approved pause reached Coupang once");
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, { success: true, executed: 1, skipped: 0 });
+});
+
+test("a second executor refused at its running report leaves Coupang untouched and cannot fail the first executor's attempt", async () => {
+  // One server behind two ad-center tabs. It fences the attempt the way the
+  // lifecycle policy does: the first running report starts it, and another
+  // running report for the same attempt is refused.
+  const serverLog = [];
+  const started = new Set();
+  const server = (tab) => async (message, callback) => {
+    if (message?.action === "waitForAdCollectorDelay") {
+      callback?.();
+      return undefined;
+    }
+    assert.equal(message?.action, "kiditemApiRequest");
+    const report = JSON.parse(message.init.body);
+    const refused = report.action === "markRunning" && started.has(report.id);
+    if (report.action === "markRunning" && !refused) started.add(report.id);
+    serverLog.push(`${tab}:${report.action}:${refused ? 409 : 201}`);
+    return refused
+      ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+      : { success: true, ok: true, status: 201, body: {} };
+  };
+  const label = "두 탭 캠페인";
+  const firstClicks = { count: 0 };
+  const secondClicks = { count: 0 };
+  const firstTab = openAdActionTestTab({ label, clicks: firstClicks, sendMessage: server("first") });
+  const secondTab = openAdActionTestTab({ label, clicks: secondClicks, sendMessage: server("second") });
+  const actions = [{ id: "action-shared", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+
+  const [first, second] = await Promise.all([
+    dispatchExecuteApprovedAdActions(firstTab, actions),
+    dispatchExecuteApprovedAdActions(secondTab, actions),
+  ]);
+
+  assert.equal(secondClicks.count, 0, "the refused executor must not open the Coupang editor");
+  assert.ok(firstClicks.count > 0, "the executor that started the attempt still works it");
+  // The fixture page has no budget dialog, so the first executor fails the
+  // attempt it owns. The refused executor sends nothing after its refusal.
+  assert.deepEqual(serverLog, [
+    "first:markRunning:201",
+    "second:markRunning:409",
+    "first:markFailed:201",
+  ]);
+  assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...second }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("a repeated Run in the same tab joins the approved-action execution already in flight", async () => {
+  const reports = [];
+  const clicks = { count: 0 };
+  const label = "다시 누른 실행";
+  const tab = openAdActionTestTab({
+    label,
+    clicks,
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      reports.push(JSON.parse(message.init.body).action);
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+  const actions = [{ id: "action-once", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+
+  const [first, second] = await Promise.all([
+    dispatchExecuteApprovedAdActions(tab, actions),
+    dispatchExecuteApprovedAdActions(tab, actions),
+  ]);
+
+  assert.equal(clicks.count, 1, "one approved action opens the Coupang editor once");
+  assert.deepEqual(reports, ["markRunning", "markFailed"]);
+  assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...second }, { ...first });
+});
+
+test("a Run in the same tab with other actions is refused while an execution is in flight", async () => {
+  const reports = [];
+  const clicks = { count: 0 };
+  const label = "진행 중인 실행";
+  const tab = openAdActionTestTab({
+    label,
+    clicks,
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(`${report.id}:${report.action}`);
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const inFlight = dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-in-flight", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 },
+  ]);
+  const refused = await dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-other", actionType: "change_daily_budget", targetLabel: label, proposedValue: 30000 },
+  ]);
+
+  // The popup shows `error` as the run's result, so the operator sees why the
+  // second list did not run instead of the first run's counts.
+  assert.deepEqual({ ...refused }, {
+    success: false,
+    error: "이미 다른 승인 액션 실행이 진행 중입니다. 끝난 뒤 다시 실행해 주세요.",
+  });
+  assert.deepEqual({ ...(await inFlight) }, { success: true, executed: 0, skipped: 1 });
+  assert.equal(clicks.count, 1, "only the in-flight action opened the Coupang editor");
+  assert.deepEqual(reports, ["action-in-flight:markRunning", "action-in-flight:markFailed"]);
+});
+
+const UNRECORDED_ACTION_WARNING =
+  "승인 액션 1개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.";
+
+async function runKeywordPauseWithDoneReport(doneReport) {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "기록 누락 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const page = openAdActionTestPage({
+    rows: [row],
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(report.action);
+      return report.action === "markDone" ? doneReport() : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    { id: "action-unrecorded", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+  ]);
+  return { reports, pauseClicks, response };
+}
+
+test("a done report lost in transport after the Coupang change sends no failure report and reports the action executed but not recorded", async () => {
+  const { reports, pauseClicks, response } = await runKeywordPauseWithDoneReport(() => {
+    // The extension reloaded, or its worker stopped, while reporting.
+    throw new Error("Could not establish connection. Receiving end does not exist.");
+  });
+
+  assert.equal(pauseClicks.count, 1, "the pause reached Coupang");
+  // A failure report would invite approving the action again and pausing twice.
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 0,
+    executedUnrecorded: 1,
+    skipped: 0,
+    warning: UNRECORDED_ACTION_WARNING,
+  });
+});
+
+test("a done report that gets a 500 after the Coupang change is handled like a lost report", async () => {
+  const { reports, pauseClicks, response } = await runKeywordPauseWithDoneReport(
+    () => ({ success: true, ok: false, status: 500, body: { message: "Internal server error" } }),
+  );
+
+  assert.equal(pauseClicks.count, 1, "the pause reached Coupang");
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 0,
+    executedUnrecorded: 1,
+    skipped: 0,
+    warning: UNRECORDED_ACTION_WARNING,
+  });
+});

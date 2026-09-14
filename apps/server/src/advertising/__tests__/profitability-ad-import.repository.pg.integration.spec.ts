@@ -15,7 +15,7 @@ import {
 } from '../adapter/out/repository/profitability-ad-import.repository.adapter';
 import { readMonthlyAdAllocationPublication } from '../read/monthly-ad-allocation.reader';
 import { lockProductMapping } from '../../common/product-mapping-generation';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   AdvertisingProfitabilityPlan,
   AdvertisingProfitabilitySliceUpload,
@@ -710,6 +710,95 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     });
     expect(generation).not.toHaveProperty('sourceImportRunProvenance');
     expect(generation).not.toHaveProperty('qualityReport');
+  });
+
+  const spendBearingTarget = (attemptId: string) =>
+    prisma.channelAdTargetDailySnapshot.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attemptId,
+        listingId: { not: null },
+        adSpend: { gt: 0 },
+      },
+      orderBy: [{ businessDate: 'asc' }, { id: 'asc' }],
+    });
+
+  it.each([
+    {
+      drift: 'a published target row disappears',
+      apply: async (attemptId: string) => {
+        const target = await spendBearingTarget(attemptId);
+        await prisma.channelAdTargetDailySnapshot.delete({ where: { id: target.id } });
+      },
+    },
+    {
+      drift: 'an extra target row appears inside a slice window',
+      apply: async (attemptId: string) => {
+        const target = await spendBearingTarget(attemptId);
+        await prisma.channelAdTargetDailySnapshot.create({
+          data: {
+            organizationId: target.organizationId,
+            sourceImportRunId: target.sourceImportRunId,
+            channelAccountId: target.channelAccountId,
+            channel: target.channel,
+            businessDate: target.businessDate,
+            targetType: target.targetType,
+            targetKey: `${target.targetKey}:extra`,
+            externalOptionId: 'EXTRA-OPTION',
+          },
+        });
+      },
+    },
+    {
+      drift: 'a slice receipt no longer proves the rows it published',
+      apply: async (attemptId: string) => {
+        const target = await spendBearingTarget(attemptId);
+        const sliceId = (target.metaJson as Prisma.JsonObject).sliceId as string;
+        const receipt = await prisma.channelScrapeRun.findFirstOrThrow({
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            sourceImportRunId: attemptId,
+            metaJson: { path: ['sliceId'], equals: sliceId },
+          },
+        });
+        const meta = receipt.metaJson as Prisma.JsonObject;
+        await prisma.channelScrapeRun.update({
+          where: { id: receipt.id },
+          data: {
+            metaJson: {
+              ...meta,
+              expectedRowCount: Number(meta.expectedRowCount) + 1,
+              collectedRowCount: Number(meta.collectedRowCount) + 1,
+            },
+          },
+        });
+      },
+    },
+    {
+      drift: 'a spend-bearing target row loses its listing match',
+      apply: async (attemptId: string) => {
+        const target = await spendBearingTarget(attemptId);
+        await prisma.channelAdTargetDailySnapshot.update({
+          where: { id: target.id },
+          data: { listingId: null, listingOptionId: null },
+        });
+      },
+    },
+  ])('refuses to publish when $drift after upload', async ({ apply }) => {
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await uploadAllSlices(owner, attempt);
+    await apply(attempt.attemptId);
+
+    await expect(owner.finalizeAttempt(fence(attempt))).rejects.toThrow(
+      'ADVERTISING_IMPORT_INCOMPLETE',
+    );
+    await expect(prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', publicationSequence: null });
+    await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }))
+      .resolves.toMatchObject({ latestComplete: null, ready: false });
   });
 
   it('preserves a monthly allocation whose total exceeds PostgreSQL INT4', async () => {

@@ -1,6 +1,7 @@
 import {
   CapabilityResultReceiptSchema,
   CapabilityResultEnvelopeSchema,
+  type CapabilityInvocationApprovalStatus,
   type CapabilityResultReceipt,
 } from '@kiditem/shared/agent-interaction';
 import {
@@ -14,8 +15,8 @@ import type { SourcingCapabilityAdmissionPort } from '../../../sourcing/applicat
 import { AGENT_DEFINITIONS } from '../../domain/agent-definition.registry';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
+  deriveCapabilityApprovalState,
   hasCapabilityApprovalPolicyDrift,
-  requiresAdmittedApproval,
   requiresUserApproval,
   CAPABILITY_APPROVAL_WINDOW_MS,
 } from '../../domain/capability/capability-invocation.policy';
@@ -43,10 +44,18 @@ export { OwnerKnownFailureError, OwnerResultAmbiguousError } from './capability-
 export type CapabilityInvocationResultReceipt = CapabilityResultReceipt;
 
 /**
+ * Internal capability/MCP status read: the persisted record plus the approval
+ * state derived with the server clock when it is read.
+ */
+export type CapabilityInvocationStatusView = CapabilityInvocationRecord & {
+  approvalStatus: CapabilityInvocationApprovalStatus;
+};
+
+/**
  * Authenticated receipt projection. It deliberately excludes canonical input,
  * hashes, owner output, and opaque invocation identifiers.
  */
-export type CapabilityInvocationReceipt = Pick<CapabilityInvocationRecord,
+export type CapabilityInvocationReceipt = Pick<CapabilityInvocationStatusView,
   | 'capabilityKey'
   | 'status'
   | 'approvalStatus'
@@ -80,7 +89,7 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     );
   }
 
-  async get(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationRecord> {
+  async get(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationStatusView> {
     const invocation = await this.repository.findById({
       organizationId: input.organizationId,
       invocationId: input.invocationId,
@@ -88,7 +97,10 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
     if (!invocation) {
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
     }
-    return invocation;
+    return {
+      ...invocation,
+      approvalStatus: deriveCapabilityApprovalState(invocation, this.now()),
+    };
   }
 
   async getReceipt(input: GetCapabilityInvocationInput): Promise<CapabilityInvocationReceipt> {
@@ -223,12 +235,12 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       return completedFromRecord(invocation);
     }
     if (invocation.status === 'failed') {
-      throw terminalInvocationError(invocation);
+      throw terminalInvocationError(invocation, this.now());
     }
 
-    const admittedApprovalRequired = requiresAdmittedApproval(invocation);
+    const approval = deriveCapabilityApprovalState(invocation, this.now());
     if (admission.kind === 'replay' && hasCapabilityApprovalPolicyDrift(
-      invocation,
+      approval,
       definition.approvalRisk,
     )) {
       throw new AgentOsError(
@@ -237,31 +249,26 @@ export class CapabilityInvocationService implements CapabilityInvocationPort {
       );
     }
 
-    if (admittedApprovalRequired) {
-      if (invocation.approvalStatus === 'pending') {
-        if (!invocation.approvalExpiresAt) {
-          throw new AgentOsError('APPROVAL_REQUIRED', 'Capability approval is required.');
-        }
-        return {
-          kind: 'input_required',
-          invocationId: invocation.id,
-          status: 'pending',
-          approvalStatus: 'pending',
-          approvalExpiresAt: invocation.approvalExpiresAt,
-        };
-      }
-      if (invocation.approvalStatus === 'rejected') {
-        throw new AgentOsError('APPROVAL_REJECTED', 'Capability approval was rejected.');
-      }
-      if (invocation.approvalStatus === 'expired') {
-        throw new AgentOsError('APPROVAL_EXPIRED', 'Capability approval expired.');
-      }
-      if (invocation.approvalStatus !== 'approved') {
+    if (approval === 'pending') {
+      if (!invocation.approvalExpiresAt) {
         throw new AgentOsError('APPROVAL_REQUIRED', 'Capability approval is required.');
       }
+      return {
+        kind: 'input_required',
+        invocationId: invocation.id,
+        status: 'pending',
+        approvalStatus: 'pending',
+        approvalExpiresAt: invocation.approvalExpiresAt,
+      };
+    }
+    if (approval === 'rejected') {
+      throw new AgentOsError('APPROVAL_REJECTED', 'Capability approval was rejected.');
+    }
+    if (approval === 'expired') {
+      throw new AgentOsError('APPROVAL_EXPIRED', 'Capability approval expired.');
     }
 
-    return terminalOrCompleted(await this.dispatcher.dispatch(invocation));
+    return terminalOrCompleted(await this.dispatcher.dispatch(invocation), this.now());
   }
 
   private async executeRead(input: {
@@ -340,17 +347,22 @@ function receiptResult(
 
 function terminalOrCompleted(
   invocation: CapabilityInvocationRecord,
+  at: Date,
 ): CapabilityInvocationResult {
   if (invocation.status === 'succeeded') return completedFromRecord(invocation);
-  if (invocation.status === 'failed') throw terminalInvocationError(invocation);
+  if (invocation.status === 'failed') throw terminalInvocationError(invocation, at);
   throw new OwnerResultAmbiguousError(invocation.id);
 }
 
-function terminalInvocationError(invocation: CapabilityInvocationRecord): AgentOsError {
-  if (invocation.approvalStatus === 'rejected') {
+function terminalInvocationError(
+  invocation: CapabilityInvocationRecord,
+  at: Date,
+): AgentOsError {
+  const approval = deriveCapabilityApprovalState(invocation, at);
+  if (approval === 'rejected') {
     return new AgentOsError('APPROVAL_REJECTED', 'Capability approval was rejected.');
   }
-  if (invocation.approvalStatus === 'expired') {
+  if (approval === 'expired') {
     return new AgentOsError('APPROVAL_EXPIRED', 'Capability approval expired.');
   }
   return new AgentOsError(

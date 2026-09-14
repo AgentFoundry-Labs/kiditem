@@ -51,9 +51,8 @@ export default function ProductInfoCards({
         </p>
       </InfoCard>
 
-      <InfoCard title="광고 · 수익 설정" icon={<ChartNoAxesCombined size={16} />}>
+      <InfoCard title="광고 설정" icon={<ChartNoAxesCombined size={16} />}>
         <InfoRow label="광고 예산 한도" value={product.adBudgetLimit === null ? '미설정' : `${formatKRW(product.adBudgetLimit)}원`} />
-        <InfoRow label="손익 태그" value={product.profitTag ?? '미설정'} />
       </InfoCard>
 
       <InfoCard title="변경 기록" icon={<History size={16} />}>

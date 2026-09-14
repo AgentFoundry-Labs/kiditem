@@ -82,9 +82,11 @@ generic guidance.
   Follow
   [`release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
 - Run `db push` only against an explicitly confirmed disposable or local target.
-  Drops, narrowing type changes, or `--accept-data-loss` require the explicit
-  data/cutover decision in the deployment runbook; never use them as routine
-  post-pull setup or against an operating database.
+  Drops, narrowing type changes, or `--accept-data-loss` reach Office only
+  through the deployment cutover, which may discard data that no longer fits
+  ([data-loss policy](../docs/runbooks/deployment-architecture.md#data-loss-policy)).
+  Keep them out of routine post-pull setup.
+
 ## Verification
 
 After Prisma model or schema-consumer changes:

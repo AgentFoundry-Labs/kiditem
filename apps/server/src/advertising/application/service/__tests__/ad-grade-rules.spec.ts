@@ -27,7 +27,6 @@ const listingBase = (
     code: 'M-00000001',
     name: '테스트 상품',
     abcGrade: 'A',
-    adTier: '1차',
     ...overrides,
   },
   primaryOption: option,
@@ -81,6 +80,17 @@ describe('AdGradeRulesService.calcActions', () => {
       expect(result).toHaveLength(1);
       expect(result[0].priority).toBe('urgent');
       expect(result[0].actionType).toBe('stop');
+    });
+
+    it('A-2 키워드 확장: 광고 티어 승격 문구 없이 키워드 추가만 권한다', () => {
+      const input = buildInput(
+        [adGroup({ spend: 10000, revenue: 35000, clicks: 100, impressions: 10000 })],
+        [listingBase()],
+        'A',
+      );
+      const [action] = service.calcActions(input);
+      expect(action.reason).toBe('ROAS 350% + CTR 1% — 매출최적화 키워드를 수동 캠페인에 추가');
+      expect(action.reason).not.toMatch(/승격|1차/);
     });
   });
 
@@ -151,7 +161,7 @@ describe('AdGradeRulesService.calcActions', () => {
       expect(result[0]?.reason).not.toContain('재고 없음');
     });
 
-    it('재고 0 + adTier 존재 + spend>0 → urgent (stop actionType)', () => {
+    it('재고 0 + 측정 광고비 발생 → urgent (stop actionType), 운영자 티어 없이 판단한다', () => {
       const input = buildInput(
         [adGroup({ spend: 10000, revenue: 50000 })],
         [
@@ -167,13 +177,14 @@ describe('AdGradeRulesService.calcActions', () => {
       const result = service.calcActions(input);
       expect(result[0].priority).toBe('urgent');
       expect(result[0].actionType).toBe('stop');
+      expect(result[0].reason).toContain('재고 없음');
     });
 
-    it('재고 0 + adTier null → 긴급 규칙 skip (일반 A-1 동작)', () => {
+    it('재고 0 이어도 측정 광고비가 0원이면 광고 중단을 내지 않는다', () => {
       const input = buildInput(
-        [adGroup({ spend: 10000, revenue: 50000 })],
+        [adGroup({ spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 })],
         [
-          listingBase({ adTier: null }, {
+          listingBase({}, {
             listingOptionId: 'LO1',
             sellableStock: 0,
             purchaseCost: 5000,
@@ -182,8 +193,7 @@ describe('AdGradeRulesService.calcActions', () => {
         ],
         'A',
       );
-      const result = service.calcActions(input);
-      expect(result[0].priority).toBe('high'); // A-1
+      expect(service.calcActions(input)).toEqual([]);
     });
   });
 

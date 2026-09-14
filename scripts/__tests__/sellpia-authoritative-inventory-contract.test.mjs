@@ -138,9 +138,22 @@ function modelBlock(source, modelName) {
 
 describe("Sellpia authoritative final-schema contract", () => {
   it("keeps the 0.1.8 rebuild boundary through release 0.1.22", () => {
-    assert.match(
+    // The 0.1.19 freshness backfill ran; the KID-90 schema drop removed a field
+    // it writes, so its registration moved to the inactive lineage catalog.
+    assert.doesNotMatch(
       migrationRegistry,
       /v0\.1\.19\/001_sellpia_inventory_freshness/,
+    );
+    const retiredCatalog = JSON.parse(
+      readFileSync(join(repoRoot, "scripts/data-migrations/retired.json"), "utf8"),
+    );
+    assert.ok(
+      retiredCatalog.some(
+        (entry) =>
+          entry.sourcePath ===
+          "scripts/data-migrations/v0.1.19/001_sellpia_inventory_freshness.ts",
+      ),
+      "Expected inactive lineage for the 0.1.19 freshness backfill",
     );
     assert.doesNotMatch(migrationRegistry, /v0\.1\.9/);
     assert.doesNotMatch(migrationRegistry, /buildSellpiaMasterIdentityMap/);
@@ -176,13 +189,14 @@ describe("Sellpia authoritative final-schema contract", () => {
       "verifiedGeneration",
       "failedGeneration",
       "lastAttemptAt",
-      "lastAttemptStatus",
       "lastErrorCode",
       "lastErrorMessage",
       "freshnessFence",
     ]) {
       assert.match(state, new RegExp(`^\\s*${field}\\s+`, "m"));
     }
+    // The last attempt outcome is derived, not stored (KID-90).
+    assert.doesNotMatch(state, /^\s*lastAttemptStatus\s+/m);
     assert.match(state, /^\s*organizationId\s+String\s+@id[^\n]*@db\.Uuid/m);
     assert.match(
       state,
@@ -254,7 +268,7 @@ describe("Sellpia authoritative final-schema contract", () => {
     );
   });
 
-  it("registers an idempotent freshness backfill that never writes current stock", () => {
+  it("keeps the applied idempotent freshness backfill that never writes current stock", () => {
     const migrationPath = join(
       repoRoot,
       "scripts/data-migrations/v0.1.19/001_sellpia_inventory_freshness.ts",

@@ -11,7 +11,6 @@ export interface AdsConfig {
   budget: { allocation: Record<string, number> };
   roasTargetByGrade: Record<string, number>;
   adRateTargetByGrade: Record<string, number>;
-  tier: { dailyBudget: Record<string, number> };
   benchmark: {
     roas: { avg: number; good: number; excellent: number; poor: number };
     ctr: { avg: number; good: number; excellent: number; poor: number };
@@ -50,7 +49,6 @@ export interface HydratedListing {
     code: string;
     name: string;
     abcGrade: 'A' | 'B' | 'C' | null;
-    adTier: string | null;
   };
   /**
    * B2b rules 평가용 primary option metadata. calcActions 는 primary option 의
@@ -114,11 +112,6 @@ export interface BudgetAllocatorInput {
   adGroups: AdAggregateRow[];
   listings: HydratedListing[];
   gradeMap: Map<string, 'A' | 'B' | 'C'>;
-}
-
-export interface TierAnalysisInput {
-  listings: HydratedListing[];
-  adGroups: AdAggregateRow[];
 }
 
 export interface Top20Input {

@@ -72,7 +72,6 @@ describe('AdCampaignsService', () => {
               code: 'M-00000001',
               name: '상품1',
               abcGrade: 'A',
-              adTier: null,
             },
           },
         ],

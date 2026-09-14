@@ -1,3 +1,4 @@
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import type { Prisma } from '@prisma/client';
 
 /**
@@ -11,7 +12,7 @@ export async function readLastCompletedSourceImports(
 ): Promise<ReadonlyMap<string, Date>> {
   const rows = await tx.sourceImportRun.groupBy({
     by: ['sourceType'],
-    where: { organizationId, status: 'completed', importedAt: { not: null } },
+    where: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS, importedAt: { not: null } },
     _max: { importedAt: true },
   });
   return new Map(rows.flatMap((row) =>

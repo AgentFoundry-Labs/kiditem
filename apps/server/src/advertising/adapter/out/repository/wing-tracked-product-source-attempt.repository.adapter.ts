@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
@@ -30,9 +35,9 @@ export const WING_TRACKED_PRODUCTS_PARSER_VERSION = 'wing-tracked-products-v1';
 export const WING_TRACKED_PRODUCTS_ALERT_DEDUPE_KEY = 'source:coupang-wing-tracked-products';
 
 const ATTEMPT_TTL_MS = 30 * 60_000;
-const DB_RUNNING = 'running';
-const DB_COMPLETE = 'completed';
-const DB_FAILED = 'failed';
+const DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
+const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
+const DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
 const MAX_ATTEMPT_PRODUCTS = 300;
 
 type Transaction = Prisma.TransactionClient;

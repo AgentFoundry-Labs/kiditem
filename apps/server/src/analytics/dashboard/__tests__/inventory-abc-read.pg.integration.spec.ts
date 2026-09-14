@@ -72,10 +72,6 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
 
   it('reads a complete source pair and the explicitly published absolute evaluation in Sellpia inventory', async () => {
     const cutoff = await publishProduct();
-    await expect(prisma.masterProduct.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, code: 'MASTER-OWN' },
-      select: { abcGrade: true },
-    })).resolves.toEqual({ abcGrade: null });
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
     }]);

@@ -19,7 +19,6 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
         code: 'M-00001',
         name: 'Test',
         abcGrade: 'A',
-        adTier: '1차',
       },
       primaryOption: null,
     };
@@ -44,7 +43,6 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
         code: 'M-00002',
         name: 'Aliased',
         abcGrade: null,
-        adTier: null,
       },
       primaryOption: null,
     };
@@ -53,7 +51,7 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
 });
 
 describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSummary', () => {
-  it('preserves abcGrade / adTier on master', () => {
+  it('preserves the published abcGrade on master', () => {
     const scoped: ScopedAdListingReadModel = {
       id: 'L3',
       externalId: 'EXT-3',
@@ -63,7 +61,6 @@ describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSum
         code: 'M-3',
         name: 'Scoped',
         abcGrade: 'B',
-        adTier: '2차',
       },
     };
     const result = scopedListingToSummary(scoped);
@@ -75,6 +72,5 @@ describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSum
       option: null,
     });
     expect(result.masterProduct.abcGrade).toBe('B');
-    expect(result.masterProduct.adTier).toBe('2차');
   });
 });

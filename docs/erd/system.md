@@ -9,53 +9,15 @@
 
 | Model | Table | Description |
 |---|---|---|
-| ActionTask | `action_tasks` | 액션 보드 (수동 할일 관리). |
-| ActivityEvent | `activity_events` | - |
 | Alert | `alerts` | - |
-| BusinessRule | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
 | DataMigrationRun | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
-| RulesEvaluationApplication | `rules_evaluation_applications` | Exactly-once Rules result-application receipt for one organization-scoped request. |
 | SystemSetting | `system_settings` | - |
 
 ## Mermaid ER Diagram
 
 ```mermaid
 erDiagram
-  ActionTask {
-    String id PK
-    String organizationId FK
-    String taskKey
-    String type
-    String label
-    String detail
-    String where
-    String href
-    String priority
-    String status
-    String role
-    Json apiCall
-    Json result
-    Json notes
-    Json activityLog
-    DateTime date
-    String assigneeUserId FK
-    String targetType
-    String targetId
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ActivityEvent {
-    String id PK
-    String organizationId FK
-    String objectType
-    String objectId
-    String eventType
-    String source
-    String title
-    Json data
-    DateTime createdAt
-  }
   Alert {
     String id PK
     String organizationId FK
@@ -63,39 +25,13 @@ erDiagram
     String attemptId
     String targetType
     String targetId
-    String kind
     String status
     String type
-    String severity
     String title
     String message
-    Boolean isRead
     DateTime readAt
     String sourceType
-    String sourceId
-    String actorUserId FK
     String href
-    Json metadata
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  BusinessRule {
-    String id PK
-    String organizationId FK
-    String name
-    String displayName
-    String description
-    String category
-    String severity
-    String field
-    String operator
-    Json threshold
-    String messageTemplate
-    String actionType
-    Json conditions
-    Boolean autoExecute
-    Boolean active
-    Int sortOrder
     DateTime createdAt
     DateTime updatedAt
   }
@@ -124,15 +60,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  RulesEvaluationApplication {
-    String id PK
-    String organizationId FK
-    String requestId
-    Int productCount
-    Int violationCount
-    Int criticalCount
-    DateTime appliedAt
-  }
   SystemSetting {
     String id PK
     String organizationId FK
@@ -147,11 +74,5 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ActionTask | assigneeUser | references external | Core | User |
-| ActionTask | organization | references external | Core | Organization |
-| ActivityEvent | organization | references external | Core | Organization |
-| Alert | actorUser | references external | Core | User |
 | Alert | organization | references external | Core | Organization |
-| BusinessRule | organization | references external | Core | Organization |
-| RulesEvaluationApplication | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |

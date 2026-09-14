@@ -23,15 +23,13 @@ function mapAlert(row: Alert): AlertItem {
     attemptId: row.attemptId,
     status: row.status as AlertItem['status'],
     type: row.type,
-    severity: row.severity,
     title: row.title,
     message: row.message,
     targetType: row.targetType,
     targetId: row.targetId,
     sourceType: row.sourceType,
     href: row.href,
-    // Read is the fact that `readAt` was stamped. The stored `isRead` column is
-    // a copy of it awaiting removal and is never read.
+    // Read is the fact that `readAt` was stamped.
     isRead: row.readAt !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -92,10 +90,7 @@ export class SourceFailureAlerts {
         organizationId,
         status: 'OPEN',
       },
-      // `readAt` is what readers use. `isRead` is still written so a runtime
-      // that predates the derivation — a rollback, an overlapping slot — reads
-      // the same answer; it leaves with the column in KID-90.
-      data: { isRead: true, readAt: new Date() },
+      data: { readAt: new Date() },
     });
     if (result.count === 0) throw new NotFoundException('Alert not found');
   }
@@ -196,17 +191,12 @@ function sourceFailureData(input: SourceFailureAlertInput) {
     dedupeKey: input.dedupeKey,
     sourceType: input.sourceType,
     attemptId: input.attemptId,
-    kind: 'signal',
     status: 'OPEN',
     type: SOURCE_FAILURE_ALERT_TYPE,
-    // Every production site passed 'error'. It was a parameter that never varied.
-    severity: 'error',
     title: input.title,
     message: redact(input.message).slice(0, MESSAGE_LIMIT),
     href: input.href,
-    // A newer failure is unread again. Both columns move together until KID-90
-    // drops `isRead`; see `dismiss`.
-    isRead: false,
+    // A newer failure is unread again.
     readAt: null,
   } satisfies Prisma.AlertUncheckedCreateInput;
 }

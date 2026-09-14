@@ -346,7 +346,10 @@ document.getElementById('btnRunApproved').addEventListener('click', async () => 
           showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '실행 실패'}`, true);
           return;
         }
-        showResult(`✅ ${response.executed || 0}개 실행, ${response.skipped || 0}개 보류`);
+        const unrecorded = response.executedUnrecorded || 0;
+        showResult(unrecorded > 0
+          ? `⚠️ ${response.executed || 0}개 실행, ${unrecorded}개는 실행됐지만 기록되지 않음, ${response.skipped || 0}개 보류. ${response.warning || ''}`.trim()
+          : `✅ ${response.executed || 0}개 실행, ${response.skipped || 0}개 보류`);
       },
     );
   } catch (error) {

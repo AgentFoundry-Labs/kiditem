@@ -8,9 +8,6 @@ model SalesPlan {
   targetRevenue  Int      @default(0) @map("target_revenue")
   targetOrders   Int      @default(0) @map("target_orders")
   targetProfit   Int      @default(0) @map("target_profit")
-  actualRevenue  Int      @default(0) @map("actual_revenue")
-  actualOrders   Int      @default(0) @map("actual_orders")
-  actualProfit   Int      @default(0) @map("actual_profit")
   notes          String?
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

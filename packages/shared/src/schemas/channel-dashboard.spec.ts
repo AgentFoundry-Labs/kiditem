@@ -3,7 +3,6 @@ import { ChannelDashboardSummarySchema } from './channel-dashboard.js';
 
 const base = {
   pendingAccept: 0,
-  pendingReturns: 0,
   lastModifiedAt: null,
 };
 

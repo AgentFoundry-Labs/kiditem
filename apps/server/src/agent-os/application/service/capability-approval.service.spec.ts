@@ -6,10 +6,12 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const INPUT_HASH = 'a'.repeat(64);
+const BEFORE_EXPIRY = new Date('2026-08-25T00:00:00.000Z');
+const EXPIRES_AT = new Date('2026-08-25T00:30:00.000Z');
 
 describe('CapabilityApprovalService', () => {
   it('dispatches the exact persisted invocation once after recording approval', async () => {
-    const approved = receipt({ approvalStatus: 'approved' });
+    const approved = receipt({ approvalDecision: 'approved' });
     const dispatched = {
       ...approved,
       status: 'succeeded' as const,
@@ -20,19 +22,19 @@ describe('CapabilityApprovalService', () => {
       finishedAt: new Date('2026-08-25T00:01:01.000Z'),
     };
     const repository = {
-      findById: vi.fn().mockResolvedValue(receipt({ approvalStatus: 'pending' })),
+      findById: vi.fn().mockResolvedValue(receipt({ approvalDecision: null })),
       decideApproval: vi.fn().mockResolvedValue({ invocation: approved, transitioned: true }),
     };
     // This callable double keeps the pre-dispatch constructor executable for
     // the red phase while exposing the target injected dispatcher contract.
     const dispatcher = Object.assign(
-      () => new Date('2026-08-25T00:00:00.000Z'),
+      () => BEFORE_EXPIRY,
       { dispatch: vi.fn().mockResolvedValue(dispatched) },
     );
     const service = new CapabilityApprovalService(
       repository as never,
       dispatcher as never,
-      () => new Date('2026-08-25T00:00:00.000Z'),
+      () => BEFORE_EXPIRY,
     );
 
     await expect(service.decide({
@@ -43,7 +45,7 @@ describe('CapabilityApprovalService', () => {
       reason: 'User confirmed the exact mutation.',
     })).resolves.toMatchObject({
       status: 'succeeded',
-      approvalStatus: 'approved',
+      approvalDecision: 'approved',
       inputHash: INPUT_HASH,
     });
     expect(repository.decideApproval).toHaveBeenCalledWith(expect.objectContaining({
@@ -52,6 +54,7 @@ describe('CapabilityApprovalService', () => {
       invocationId: INVOCATION_ID,
       decision: 'approved',
       inputHash: INPUT_HASH,
+      decidedAt: BEFORE_EXPIRY,
     }));
     expect(dispatcher.dispatch).toHaveBeenCalledTimes(1);
     expect(dispatcher.dispatch).toHaveBeenCalledWith(approved);
@@ -59,12 +62,12 @@ describe('CapabilityApprovalService', () => {
 
   it('does not let a browser supply a hash and reports immutable decision conflicts', async () => {
     const repository = {
-      findById: vi.fn().mockResolvedValue(receipt({ approvalStatus: 'pending' })),
+      findById: vi.fn().mockResolvedValue(receipt({ approvalDecision: null })),
       decideApproval: vi.fn().mockRejectedValue(new AgentOsError('APPROVAL_REJECTED')),
     };
     const service = new CapabilityApprovalService(repository as never, {
       dispatch: vi.fn(),
-    });
+    }, () => BEFORE_EXPIRY);
 
     await expect(service.decide({
       organizationId: ORGANIZATION_ID,
@@ -77,8 +80,30 @@ describe('CapabilityApprovalService', () => {
     }));
   });
 
+  it('refuses a decision once the approval window closed, even before the expiry sweep failed it', async () => {
+    const repository = {
+      findById: vi.fn().mockResolvedValue(receipt({ approvalDecision: null })),
+      decideApproval: vi.fn(),
+    };
+    const dispatcher = { dispatch: vi.fn() };
+    const service = new CapabilityApprovalService(
+      repository as never,
+      dispatcher,
+      () => EXPIRES_AT,
+    );
+
+    await expect(service.decide({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      invocationId: INVOCATION_ID,
+      decision: 'approved',
+    })).rejects.toMatchObject({ code: 'APPROVAL_EXPIRED' } satisfies Partial<AgentOsError>);
+    expect(repository.decideApproval).not.toHaveBeenCalled();
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
+  });
+
   it('does not turn an already-approved duplicate decision into an owner retry after the transition winner is ambiguous', async () => {
-    const approved = receipt({ approvalStatus: 'approved' });
+    const approved = receipt({ approvalDecision: 'approved' });
     const repository = {
       findById: vi.fn().mockResolvedValue(approved),
       decideApproval: vi.fn()
@@ -108,7 +133,8 @@ describe('CapabilityApprovalService', () => {
   });
 });
 
-function receipt(input: { approvalStatus: 'approved' | 'rejected' | 'expired' }) {
+function receipt(input: { approvalDecision: 'approved' | 'rejected' | null }) {
+  const decided = input.approvalDecision !== null;
   return {
     id: INVOCATION_ID,
     organizationId: ORGANIZATION_ID,
@@ -118,14 +144,14 @@ function receipt(input: { approvalStatus: 'approved' | 'rejected' | 'expired' })
     requestKey: 'request-1',
     canonicalInput: { preparationId: '00000000-0000-4000-8000-000000000004' },
     inputHash: INPUT_HASH,
-    status: input.approvalStatus === 'rejected' || input.approvalStatus === 'expired' ? 'failed' : 'pending',
-    approvalStatus: input.approvalStatus,
+    status: input.approvalDecision === 'rejected' ? 'failed' : 'pending',
     approvalInputHash: INPUT_HASH,
     approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
-    approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
-    approvalDecidedByUserId: USER_ID,
+    approvalExpiresAt: EXPIRES_AT,
+    approvalDecision: input.approvalDecision,
+    approvalDecidedByUserId: decided ? USER_ID : null,
     approvalDecisionReason: null,
-    approvalDecidedAt: new Date('2026-08-25T00:01:00.000Z'),
+    approvalDecidedAt: decided ? new Date('2026-08-25T00:01:00.000Z') : null,
     result: null,
     error: null,
     createdAt: new Date('2026-08-25T00:00:00.000Z'),

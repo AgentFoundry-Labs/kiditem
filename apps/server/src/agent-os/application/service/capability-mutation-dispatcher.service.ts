@@ -13,6 +13,7 @@ import {
 import { AGENT_DEFINITIONS } from '../../domain/agent-definition.registry';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
+  deriveCapabilityApprovalState,
   hasCapabilityApprovalPolicyDrift,
   ownerInvocationKey,
 } from '../../domain/capability/capability-invocation.policy';
@@ -144,14 +145,12 @@ export class CapabilityMutationDispatcher
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
     }
     if (invocation.status !== 'pending') return invocation;
-    if (
-      invocation.approvalStatus !== 'not_required'
-      && invocation.approvalStatus !== 'approved'
-    ) {
+    const approval = deriveCapabilityApprovalState(invocation, this.now());
+    if (approval !== 'not_required' && approval !== 'approved') {
       return invocation;
     }
     if (
-      invocation.approvalStatus === 'approved'
+      approval === 'approved'
       && invocation.approvalInputHash !== invocation.inputHash
     ) {
       throw capabilityDrift();
@@ -161,7 +160,7 @@ export class CapabilityMutationDispatcher
     if (!definition) {
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability was not found.');
     }
-    if (hasCapabilityApprovalPolicyDrift(invocation, definition.approvalRisk)) {
+    if (hasCapabilityApprovalPolicyDrift(approval, definition.approvalRisk)) {
       throw capabilityDrift();
     }
     if (!isMutation(definition.effects)) {

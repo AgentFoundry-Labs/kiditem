@@ -79,11 +79,6 @@ model ChannelScrapeRun {
   period        String?
   parserVersion String? @map("parser_version")
 
-  rowCount       Int @default(0) @map("row_count")
-  matchedCount   Int @default(0) @map("matched_count")
-  unmatchedCount Int @default(0) @map("unmatched_count")
-  errorCount     Int @default(0) @map("error_count")
-
   startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -173,10 +168,10 @@ model ChannelScrapeSnapshot {
   listingDailySnapshots  ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
   optionDailySnapshots   ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
   adTargetDailySnapshots ChannelAdTargetDailySnapshot[]      @relation("AdTargetDailyRawSnapshot")
-  accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
   @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
-  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source IN ('coupang_keyword_serp', 'coupang_wing_rank')"))
+  // PostgreSQL stores IN (...) as = ANY (ARRAY[...]); any other spelling makes db push re-plan the index (KID-143).
+  @@unique([sourceImportRunId, organizationId], map: "channel_scrape_snapshots_serp_capture_key", where: raw("source_import_run_id IS NOT NULL AND source = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text])"))
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
@@ -218,40 +213,14 @@ model ChannelListingDailySnapshot {
   productRank  Int? @map("product_rank")
   categoryRank Int? @map("category_rank")
 
-  // Ad additive metrics (Hard rewrite H1) — sums only, ratios recompute in reads.
-  adSpend              Int       @default(0) @map("ad_spend")
-  adRevenue            Int       @default(0) @map("ad_revenue")
-  adImpressions        Int       @default(0) @map("ad_impressions")
-  adClicks             Int       @default(0) @map("ad_clicks")
-  adConversions        Int       @default(0) @map("ad_conversions")
-  adOrders             Int       @default(0) @map("ad_orders")
-  adDirectOrders1d     Int       @default(0) @map("ad_direct_orders_1d")
-  adIndirectOrders1d   Int       @default(0) @map("ad_indirect_orders_1d")
-  adDirectQty1d        Int       @default(0) @map("ad_direct_qty_1d")
-  adIndirectQty1d      Int       @default(0) @map("ad_indirect_qty_1d")
-  adDirectRevenue1d    Int       @default(0) @map("ad_direct_revenue_1d")
-  adIndirectRevenue1d  Int       @default(0) @map("ad_indirect_revenue_1d")
-  adTotalOrders14d     Int       @default(0) @map("ad_total_orders_14d")
-  adDirectOrders14d    Int       @default(0) @map("ad_direct_orders_14d")
-  adIndirectOrders14d  Int       @default(0) @map("ad_indirect_orders_14d")
-  adTotalQty14d        Int       @default(0) @map("ad_total_qty_14d")
-  adDirectQty14d       Int       @default(0) @map("ad_direct_qty_14d")
-  adIndirectQty14d     Int       @default(0) @map("ad_indirect_qty_14d")
-  adTotalRevenue14d    Int       @default(0) @map("ad_total_revenue_14d")
-  adDirectRevenue14d   Int       @default(0) @map("ad_direct_revenue_14d")
-  adIndirectRevenue14d Int       @default(0) @map("ad_indirect_revenue_14d")
-  adCoverageStatus     String?   @map("ad_coverage_status")
-  adObservedAt         DateTime? @map("ad_observed_at") @db.Timestamptz
-
   // Traffic additive metrics (Hard rewrite H1)
-  trafficVisitors       Int       @default(0) @map("traffic_visitors")
-  trafficViews          Int       @default(0) @map("traffic_views")
-  trafficCartAdds       Int       @default(0) @map("traffic_cart_adds")
-  trafficOrders         Int       @default(0) @map("traffic_orders")
-  trafficSalesQty       Int       @default(0) @map("traffic_sales_qty")
-  trafficRevenue        Int       @default(0) @map("traffic_revenue")
-  trafficCoverageStatus String?   @map("traffic_coverage_status")
-  trafficObservedAt     DateTime? @map("traffic_observed_at") @db.Timestamptz
+  trafficVisitors   Int       @default(0) @map("traffic_visitors")
+  trafficViews      Int       @default(0) @map("traffic_views")
+  trafficCartAdds   Int       @default(0) @map("traffic_cart_adds")
+  trafficOrders     Int       @default(0) @map("traffic_orders")
+  trafficSalesQty   Int       @default(0) @map("traffic_sales_qty")
+  trafficRevenue    Int       @default(0) @map("traffic_revenue")
+  trafficObservedAt DateTime? @map("traffic_observed_at") @db.Timestamptz
 
   sampleCount     Int      @default(1) @map("sample_count")
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
@@ -427,40 +396,6 @@ model ChannelAdListingProductMonthlyFact {
   @@index([masterProductId, organizationId], map: "channel_ad_listing_product_monthly_facts_master_product_org_idx")
   @@index([organizationId, sourceImportRunId, month])
   @@map("channel_ad_listing_product_monthly_facts")
-}
-
-/// @namespace Channels
-/// @describe 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용).
-model ChannelAccountDailyKpiSnapshot {
-  id               String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  channelAccountId String    @map("channel_account_id") @db.Uuid
-  channel          String
-  source           String // 'wing' | 'advertising' | ...
-  kpiType          String    @map("kpi_type") // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
-  businessDate     DateTime  @map("business_date") @db.Date
-  periodStart      DateTime? @map("period_start") @db.Date
-  periodEnd        DateTime? @map("period_end") @db.Date
-
-  normalizedJson Json    @map("normalized_json")
-  rawJson        Json?   @map("raw_json")
-  rawSnapshotId  String? @map("raw_snapshot_id") @db.Uuid
-
-  sampleCount     Int      @default(1) @map("sample_count")
-  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
-  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  rawSnapshot    ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, channelAccountId, source, businessDate, kpiType], map: "channel_account_kpi_org_account_source_date_type_key")
-  @@index([organizationId, channel, businessDate])
-  @@index([rawSnapshotId])
-  @@index([channelAccountId, businessDate])
-  @@map("channel_account_daily_kpi_snapshots")
 }
 
 /// @namespace Channels
@@ -725,7 +660,6 @@ model RocketPoCatalogLine {
   plannedDeliveryDate DateTime @map("planned_delivery_date") @db.Date
   poStatusCode        String?  @map("po_status_code")
   businessDateBasis   String?  @map("business_date_basis")
-  hasConfirmation     Boolean  @default(false) @map("has_confirmation")
   center              String?
   inboundType         String?  @map("inbound_type")
   poStatus            String?  @map("po_status")
@@ -755,10 +689,10 @@ model RocketPoCatalogLine {
 /// @namespace Channels
 /// @describe Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량.
 model SellpiaSalesDailySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
-  businessDate   DateTime @map("business_date") @db.Date
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  businessDate      DateTime @map("business_date") @db.Date
 
   sellerId     String @map("seller_id") // Sellpia 판매처 id (예 "129")
   sellerName   String @map("seller_name") // 판매처명 (예 "쿠팡-직배송")
@@ -772,7 +706,7 @@ model SellpiaSalesDailySnapshot {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation("SellpiaSalesSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, businessDate, sellerId], map: "sellpia_sales_daily_source_run_key", where: raw("source_import_run_id IS NOT NULL"))

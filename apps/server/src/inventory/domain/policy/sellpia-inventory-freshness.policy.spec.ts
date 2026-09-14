@@ -40,7 +40,6 @@ describe('Sellpia inventory freshness policy', () => {
       activeSyncStartedAt: new Date('2026-07-14T23:55:00.000Z'),
       activeSyncLeaseExpiresAt: new Date('2026-07-14T23:59:00.000Z'),
       lastAttemptAt: new Date('2026-07-14T23:50:00.000Z'),
-      lastAttemptStatus: 'completed',
     });
 
     expect(deriveFreshnessStatus(state, NOW)).toBe('failed');
@@ -48,7 +47,6 @@ describe('Sellpia inventory freshness policy', () => {
       status: 'failed',
       activeSync: null,
       lastAttempt: {
-        status: 'failed',
         errorCode: null,
         errorMessage: 'Sellpia inventory collection attempt expired.',
       },
@@ -123,6 +121,32 @@ describe('Sellpia inventory freshness policy', () => {
     });
   });
 
+  describe('last attempt facts', () => {
+    const ATTEMPTED_AT = new Date('2026-07-14T23:50:00.000Z');
+
+    it('publishes no last attempt before one ended', () => {
+      expect(toFreshnessView(makeState({ lastAttemptAt: null }), NOW, null).lastAttempt)
+        .toBeNull();
+    });
+
+    it('publishes the last attempt facts without an outcome word', () => {
+      const state = makeState({
+        lastAttemptAt: ATTEMPTED_AT,
+        lastAttemptSyncScope: 'full',
+        refreshReason: 'retry',
+        lastErrorCode: 'sellpia_login_required',
+        lastErrorMessage: 'Sellpia login required.',
+      });
+
+      expect(toFreshnessView(state, NOW, null).lastAttempt).toEqual({
+        attemptedAt: ATTEMPTED_AT.toISOString(),
+        trigger: 'retry',
+        scope: 'full',
+        errorCode: 'sellpia_login_required',
+        errorMessage: 'Sellpia login required.',
+      });
+    });
+  });
 });
 
 function makeState(
@@ -148,7 +172,6 @@ function makeState(
     verifiedGeneration: 1n,
     failedGeneration: null,
     lastAttemptAt: null,
-    lastAttemptStatus: null,
     lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,

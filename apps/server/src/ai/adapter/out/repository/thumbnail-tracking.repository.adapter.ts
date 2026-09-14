@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { ThumbnailTrackingStatus } from '@kiditem/shared/ai';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateThumbnailTrackingInput,
@@ -19,13 +20,29 @@ const TRACKING_LISTING_INCLUDE = {
   },
 } as const;
 
+/**
+ * SQL for one status. Each predicate selects exactly the rows
+ * deriveThumbnailTrackingStatus derives, and a PostgreSQL spec pins the two
+ * together.
+ */
+function thumbnailTrackingStatusWhere(status: ThumbnailTrackingStatus): Prisma.ThumbnailTrackingWhereInput {
+  switch (status) {
+    case 'inconclusive':
+      return { markedInconclusiveAt: { not: null } };
+    case 'measured':
+      return { markedInconclusiveAt: null, ctrBefore: { not: null }, ctrAfter: { not: null } };
+    case 'tracking':
+      return { markedInconclusiveAt: null, OR: [{ ctrBefore: null }, { ctrAfter: null }] };
+  }
+}
+
 function trackingWhere(
-  query: { status?: string },
+  query: { status?: ThumbnailTrackingStatus },
   organizationId: string,
-): { organizationId: string; status?: string } {
-  const where: { organizationId: string; status?: string } = { organizationId };
-  if (query.status) where.status = query.status;
-  return where;
+): Prisma.ThumbnailTrackingWhereInput {
+  return query.status
+    ? { AND: [{ organizationId }, thumbnailTrackingStatusWhere(query.status)] }
+    : { organizationId };
 }
 
 function isDuplicateError(error: unknown): boolean {
@@ -103,40 +120,33 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
   }
 
   async updateMetrics(input: UpdateThumbnailTrackingInput) {
-    const existing = await this.prisma.thumbnailTracking.findFirst({
-      where: { id: input.id, organizationId: input.organizationId },
-      select: { ctrBefore: true, ctrAfter: true },
+    const where = { id: input.id, organizationId: input.organizationId };
+    const { inconclusive, ...metrics } = input.metrics;
+    const data: Prisma.ThumbnailTrackingUpdateManyMutationInput = {};
+    if (metrics.ctrBefore !== undefined) data.ctrBefore = metrics.ctrBefore;
+    if (metrics.ctrAfter !== undefined) data.ctrAfter = metrics.ctrAfter;
+    if (metrics.reviewsBefore !== undefined) data.reviewsBefore = metrics.reviewsBefore;
+    if (metrics.reviewsAfter !== undefined) data.reviewsAfter = metrics.reviewsAfter;
+    if (metrics.salesBefore !== undefined) data.salesBefore = metrics.salesBefore;
+    if (metrics.salesAfter !== undefined) data.salesAfter = metrics.salesAfter;
+    if (inconclusive === false) data.markedInconclusiveAt = null;
+
+    const found = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.thumbnailTracking.updateMany({ where, data });
+      if (updated.count === 0) return false;
+      if (inconclusive === true) {
+        // A repeated mark keeps the time the operator first judged the tracking inconclusive.
+        await tx.thumbnailTracking.updateMany({
+          where: { ...where, markedInconclusiveAt: null },
+          data: { markedInconclusiveAt: new Date() },
+        });
+      }
+      return true;
     });
-    if (!existing) return null;
-
-    const updateData: Record<string, unknown> = {};
-    if (input.metrics.ctrBefore !== undefined) updateData.ctrBefore = input.metrics.ctrBefore;
-    if (input.metrics.ctrAfter !== undefined) updateData.ctrAfter = input.metrics.ctrAfter;
-    if (input.metrics.reviewsBefore !== undefined) {
-      updateData.reviewsBefore = input.metrics.reviewsBefore;
-    }
-    if (input.metrics.reviewsAfter !== undefined) {
-      updateData.reviewsAfter = input.metrics.reviewsAfter;
-    }
-    if (input.metrics.salesBefore !== undefined) updateData.salesBefore = input.metrics.salesBefore;
-    if (input.metrics.salesAfter !== undefined) updateData.salesAfter = input.metrics.salesAfter;
-    if (input.metrics.status !== undefined) updateData.status = input.metrics.status;
-
-    if (
-      (input.metrics.ctrBefore !== undefined || existing.ctrBefore != null) &&
-      (input.metrics.ctrAfter !== undefined || existing.ctrAfter != null)
-    ) {
-      updateData.status = 'measured';
-    }
-
-    const result = await this.prisma.thumbnailTracking.updateMany({
-      where: { id: input.id, organizationId: input.organizationId },
-      data: updateData,
-    });
-    if (result.count === 0) return null;
+    if (!found) return null;
 
     return this.prisma.thumbnailTracking.findFirst({
-      where: { id: input.id, organizationId: input.organizationId },
+      where,
       include: TRACKING_LISTING_INCLUDE,
     });
   }
@@ -176,7 +186,6 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         reviewCount: input.reviewCount,
         ratingAvg: input.ratingAvg,
         rawCellTexts: input.rawCellTexts as Prisma.InputJsonValue,
-        scrapeStatus: input.scrapeStatus,
         errorMessage: input.errorMessage,
       },
       update: {
@@ -186,7 +195,6 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         reviewCount: input.reviewCount,
         ratingAvg: input.ratingAvg,
         rawCellTexts: input.rawCellTexts as Prisma.InputJsonValue,
-        scrapeStatus: input.scrapeStatus,
         errorMessage: input.errorMessage,
         capturedAt: new Date(),
       },

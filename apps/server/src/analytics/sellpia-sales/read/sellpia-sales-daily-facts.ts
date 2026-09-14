@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey, parseBusinessDate } from '../../../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
 import { SELLPIA_SALES_SOURCE_TYPE } from '../domain/sellpia-sales-source';
@@ -38,7 +39,7 @@ export async function readSellpiaSalesDailyFacts(
     where: {
       organizationId: input.organizationId,
       sourceType: SELLPIA_SALES_SOURCE_TYPE,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       publicationSequence: { not: null },
     },
     orderBy: { publicationSequence: 'desc' },

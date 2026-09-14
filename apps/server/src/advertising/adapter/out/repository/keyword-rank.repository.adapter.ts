@@ -9,6 +9,7 @@
 
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { businessDateKey } from '../../../../common/kst';
 import {
@@ -639,7 +640,7 @@ function completeSerpSource(organizationId: string) {
     organizationId,
     sourceType: "coupang_keyword_serp",
     parserVersion: "keyword-serp-v1",
-    status: "completed",
+    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   };
 }
 
@@ -655,7 +656,7 @@ function matchingCompleteSource(
     source.rankKeyword === keyword &&
     source.sourceType === "coupang_keyword_serp" &&
     source.parserVersion === "keyword-serp-v1" &&
-    source.status === "completed"
+    source.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
   );
 }
 
@@ -664,6 +665,6 @@ function completeWingRankSource(organizationId: string) {
     organizationId,
     sourceType: "coupang_wing_rank",
     parserVersion: "wing-rank-v1",
-    status: "completed",
+    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   };
 }

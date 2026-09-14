@@ -204,3 +204,16 @@ describe('ad-ops trends summary', () => {
     expect('AdTrendsSourceSchema' in adsContract).toBe(false);
   });
 });
+
+describe('ad hub and strategy plan contracts', () => {
+  // Whether a product is advertising is derived from its measured spend; no
+  // stored operator tier travels on the hub or the plan.
+  it('carries no operator ad tier', () => {
+    const listItemKeys = Object.keys(adsContract.AdsListItemSchema.shape);
+    expect(listItemKeys).not.toContain('tier');
+    expect(listItemKeys).not.toContain('adTier');
+    expect(Object.keys(adsContract.AdsHubSummarySchema.shape)).not.toContain('tierSpend');
+    expect(Object.keys(adsContract.AdStrategyPlanSchema.shape)).not.toContain('tierAnalysis');
+    expect('AdTierAnalysisSchema' in adsContract).toBe(false);
+  });
+});

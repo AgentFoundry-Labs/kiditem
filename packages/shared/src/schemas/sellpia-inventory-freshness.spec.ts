@@ -208,7 +208,6 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       },
       lastAttempt: {
         attemptedAt: '2026-07-15T00:01:00.000Z',
-        status: 'failed',
         trigger: 'manual_request',
         scope: 'inventory',
         errorCode: 'sellpia_network_failed',
@@ -255,6 +254,18 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         ownerUserId: ATTEMPT_ID,
       },
     })).toThrow();
+    // The last attempt publishes its facts; the view carries no outcome word.
+    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      lastAttempt: {
+        attemptedAt: '2026-07-15T00:01:00.000Z',
+        status: 'failed',
+        trigger: 'manual_request',
+        scope: 'inventory',
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'Network request failed',
+      },
+    })).toThrow();
   });
 });
 
@@ -274,7 +285,6 @@ describe('Sellpia freshness mutation contracts', () => {
       },
       lastAttempt: {
         attemptedAt: '2026-07-15T00:01:00.000Z',
-        status: 'failed',
         trigger: 'manual_request',
         scope: 'inventory',
         errorCode: 'sellpia_network_failed',

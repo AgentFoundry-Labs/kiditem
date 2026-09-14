@@ -21,7 +21,6 @@ import { OrderCollectionSourceController } from '../controllers/order-collection
 import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
 import { OrderCollectionMallAccountController } from '../controllers/order-collection-mall-account.controller';
 import { OrdersController } from '../controllers/orders.controller';
-import { ReturnsController } from '../controllers/returns.controller';
 import { ReviewsController } from '../controllers/reviews.controller';
 import { SellpiaOrderTransmissionController } from '../controllers/sellpia-order-transmission.controller';
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
@@ -33,7 +32,6 @@ import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-sn
 import { OrderCollectionService } from '../services/order-collection.service';
 import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import { OrdersService } from '../services/orders.service';
-import { ReturnsService } from '../services/returns.service';
 import { ReviewIngestService } from '../services/review-ingest.service';
 import { ReviewsService } from '../services/reviews.service';
 
@@ -55,7 +53,6 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionSourceController,
       SellpiaShipmentTrackingSourceController,
       OrderCollectionMallAccountController,
-      ReturnsController,
       ReviewsController,
       ReturnTransfersController,
       SellpiaOrderTransmissionController,
@@ -66,7 +63,6 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionMallAccountService,
       CoupangDirectPoSnapshotService,
       CoupangDirectshipService,
-      ReturnsService,
       ReviewsService,
       ReviewIngestService,
       ReturnTransfersService,

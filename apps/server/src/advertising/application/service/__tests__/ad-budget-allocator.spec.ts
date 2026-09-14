@@ -20,7 +20,6 @@ const listingA: HydratedListing = {
     code: 'M-A',
     name: 'A 상품',
     abcGrade: 'A',
-    adTier: '1차',
   },
   primaryOption: null,
 };
@@ -35,7 +34,6 @@ const listingB: HydratedListing = {
     code: 'M-B',
     name: 'B 상품',
     abcGrade: 'B',
-    adTier: '2차',
   },
   primaryOption: null,
 };
@@ -50,7 +48,6 @@ const listingC: HydratedListing = {
     code: 'M-C',
     name: 'C 상품',
     abcGrade: 'C',
-    adTier: '3차',
   },
   primaryOption: null,
 };
@@ -61,7 +58,6 @@ const emptyConfig: AdsConfig = {
   budget: { allocation: { A: 0.5, B: 0.3, C: 0.2 } },
   roasTargetByGrade: {},
   adRateTargetByGrade: {},
-  tier: { dailyBudget: {} },
   benchmark: {
     roas: { avg: 0, good: 0, excellent: 0, poor: 0 },
     ctr: { avg: 0, good: 0, excellent: 0, poor: 0 },
@@ -144,79 +140,6 @@ describe('AdBudgetAllocatorService.calcBudgetAllocation', () => {
 });
 
 // ─────────────────────────────────────────────
-// calcTierAnalysis
-// ─────────────────────────────────────────────
-
-describe('AdBudgetAllocatorService.calcTierAnalysis', () => {
-  let service: AdBudgetAllocatorService;
-  beforeEach(() => {
-    service = new AdBudgetAllocatorService();
-  });
-
-  it('groups listings by masterProduct.adTier with count + spend + revenue + roas', () => {
-    const result = service.calcTierAnalysis({
-      listings: [listingA, listingB, listingC],
-      adGroups: [
-        { listingId: 'L_A', spend: 5000, impressions: 0, clicks: 0, conversions: 0, revenue: 15000 },
-        { listingId: 'L_B', spend: 2000, impressions: 0, clicks: 0, conversions: 0, revenue: 4000 },
-      ],
-    });
-    const tier1 = result.find((r) => r.tier === '1차')!;
-    const tier2 = result.find((r) => r.tier === '2차')!;
-    const tier3 = result.find((r) => r.tier === '3차')!;
-    expect(tier1.count).toBe(1);
-    expect(tier1.spend).toBe(5000);
-    expect(tier1.revenue).toBe(15000);
-    expect(tier1.roas).toBeCloseTo(300);
-    expect(tier2.count).toBe(1);
-    expect(tier2.roas).toBeCloseTo(200);
-    expect(tier3.count).toBe(1);
-    expect(tier3.spend).toBe(0);
-    expect(tier3.revenue).toBe(0);
-    expect(tier3.roas).toBeNull();
-  });
-
-  it('rolls up multiple listings sharing the same tier', () => {
-    const listingA2: HydratedListing = {
-      ...listingA,
-      id: 'L_A2',
-      masterProduct: { ...listingA.masterProduct, id: 'M-A2', code: 'M-A2' },
-    };
-    const result = service.calcTierAnalysis({
-      listings: [listingA, listingA2],
-      adGroups: [
-        { listingId: 'L_A', spend: 3000, impressions: 0, clicks: 0, conversions: 0, revenue: 9000 },
-        { listingId: 'L_A2', spend: 2000, impressions: 0, clicks: 0, conversions: 0, revenue: 1000 },
-      ],
-    });
-    expect(result).toHaveLength(1);
-    expect(result[0].tier).toBe('1차');
-    expect(result[0].count).toBe(2);
-    expect(result[0].spend).toBe(5000);
-    expect(result[0].revenue).toBe(10000);
-    expect(result[0].roas).toBeCloseTo(200);
-  });
-
-  it('groups listings with null adTier into "미분류" bucket', () => {
-    const ungraded: HydratedListing = {
-      ...listingA,
-      id: 'L_X',
-      masterProduct: { ...listingA.masterProduct, id: 'M-X', code: 'M-X', adTier: null },
-    };
-    const result = service.calcTierAnalysis({
-      listings: [ungraded],
-      adGroups: [
-        { listingId: 'L_X', spend: 1000, impressions: 0, clicks: 0, conversions: 0, revenue: 2000 },
-      ],
-    });
-    const bucket = result.find((r) => r.tier === '미분류')!;
-    expect(bucket).toBeDefined();
-    expect(bucket.count).toBe(1);
-    expect(bucket.spend).toBe(1000);
-  });
-});
-
-// ─────────────────────────────────────────────
 // calcTop20
 // ─────────────────────────────────────────────
 
@@ -274,7 +197,6 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
           code: `M-${i}`,
           name: `상품${i}`,
           abcGrade: 'B',
-          adTier: '2차',
         },
         primaryOption: null,
       });

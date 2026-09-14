@@ -28,13 +28,10 @@ test('persists exact source provenance for absolute ABC publication', () => {
     assert.match(coreSchema, new RegExp(`\\b${field}\\b`));
   }
 
-  for (const field of [
-    'adCoverageStatus',
-    'adObservedAt',
-    'trafficCoverageStatus',
-    'trafficObservedAt',
-  ]) {
-    assert.match(channelsSchema, new RegExp(`\\b${field}\\b`));
+  assert.match(channelsSchema, /\btrafficObservedAt\b/);
+  // KID-90 dropped the listing-day coverage words and ad columns.
+  for (const field of ['adCoverageStatus', 'adObservedAt', 'trafficCoverageStatus']) {
+    assert.doesNotMatch(channelsSchema, new RegExp(`\\b${field}\\b`));
   }
 });
 

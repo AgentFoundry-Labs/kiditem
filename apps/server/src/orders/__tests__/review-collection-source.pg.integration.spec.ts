@@ -285,7 +285,6 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       where: { organizationId: ORG, sourceType: 'coupang_reviews', attemptId: attempt.attemptId },
     })).resolves.toMatchObject({
       status: 'OPEN',
-      severity: 'error',
       href: '/reviews',
     });
 

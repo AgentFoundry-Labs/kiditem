@@ -44,7 +44,6 @@ const makeAlert = (
   id: 'alert-1',
   status: 'OPEN',
   type: 'stock_low',
-  severity: 'warning',
   title: '재고 부족',
   message: '재고를 확인하세요',
   sourceType: 'inventory',

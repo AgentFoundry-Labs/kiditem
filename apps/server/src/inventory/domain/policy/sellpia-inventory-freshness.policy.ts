@@ -33,7 +33,6 @@ export type SellpiaInventoryFreshnessState = {
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   lastAttemptAt: Date | null;
-  lastAttemptStatus: 'completed' | 'failed' | 'cancelled' | null;
   lastAttemptSyncScope: SellpiaSyncScope | null;
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
@@ -69,7 +68,6 @@ export function createInitialFreshnessState(input: {
     verifiedGeneration: 0n,
     failedGeneration: null,
     lastAttemptAt: null,
-    lastAttemptStatus: null,
     lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
@@ -118,16 +116,14 @@ export function toFreshnessView(
   const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
     ? {
       attemptedAt: state.activeSyncStartedAt.toISOString(),
-      status: 'failed' as const,
       trigger: state.refreshReason,
       scope: state.activeSyncScope ?? state.requestedSyncScope,
       errorCode: null,
       errorMessage: 'Sellpia inventory collection attempt expired.',
     }
-    : state.lastAttemptAt && state.lastAttemptStatus
+    : state.lastAttemptAt
       ? {
         attemptedAt: state.lastAttemptAt.toISOString(),
-        status: state.lastAttemptStatus,
         trigger: state.refreshReason,
         scope: state.lastAttemptSyncScope ?? 'inventory',
         errorCode: state.lastErrorCode,

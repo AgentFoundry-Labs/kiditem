@@ -15,14 +15,12 @@ export interface ScopedAdListingReadModel {
     code: string;
     name: string;
     abcGrade: string | null;
-    adTier: string | null;
   };
 }
 
 export interface ScopedAdListingSummary extends AdListingSummary {
   masterProduct: AdListingSummary['masterProduct'] & {
     abcGrade: string | null;
-    adTier: string | null;
   };
 }
 
@@ -36,17 +34,6 @@ export interface AdListingRepositoryPort {
     organizationId: string,
     listingIds: Array<string | null | undefined>,
   ): Promise<Map<string, ScopedAdListingReadModel>>;
-
-  /**
-   * Change the channel listing's `adTier`. Returns `false` when the listing is
-   * not tenant-scoped or inactive; callers
-   * throw `NotFoundException` based on the boolean. Pass `null` to OFF.
-   */
-  changeAdTier(
-    listingId: string,
-    organizationId: string,
-    nextTier: string | null,
-  ): Promise<boolean>;
 
   /**
    * IDOR guard helper — confirm a listing id belongs to the organization and

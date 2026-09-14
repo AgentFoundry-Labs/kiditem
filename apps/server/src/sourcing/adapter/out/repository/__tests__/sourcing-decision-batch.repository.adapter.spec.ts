@@ -34,12 +34,13 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
             productName: '컬러 점토 세트',
             baselineScore: 82.25,
             confidence: 0.72,
-            policyProbability: null,
           },
         ],
       },
     });
     expect(result.kind === 'created' && result.record.items[0]).not.toHaveProperty('evidence');
+    // The record never publishes a policy probability.
+    expect(result.kind === 'created' && result.record.items[0]).not.toHaveProperty('policyProbability');
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -55,7 +56,6 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
       requestedByUserId: 'user-1',
       idempotencyKey: 'decision:stationery:2026-08-01',
       requestHash: 'request-hash-1',
-      decisionMode: 'shadow',
       status: 'shadow',
       businessDate: new Date('2026-08-01T00:00:00.000Z'),
       decisionAt: new Date('2026-07-31T16:30:00.000Z'),
@@ -83,7 +83,6 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
         heuristicScore: 82.25,
         decisionConfidence: 0.72,
         confidenceKind: 'calibrated_probability',
-        policyProbability: null,
         evidenceFamilyCount: 3,
         evidencePlatformCount: 2,
         hasCoupangEvidence: true,
@@ -313,7 +312,6 @@ function createCommand(
         baselineScore: 82.25,
         confidence: 0.72,
         confidenceKind: 'calibrated_probability',
-        policyProbability: null,
         evidenceFamilyCount: 3,
         evidencePlatformCount: 2,
         hasCoupangEvidence: true,
@@ -362,7 +360,6 @@ function batchRow(input: { evidenceRole?: string } = {}) {
     requestedByUserId: 'user-1',
     idempotencyKey: 'decision:stationery:2026-08-01',
     requestHash: 'request-hash-1',
-    decisionMode: 'shadow',
     businessDate: new Date('2026-08-01T00:00:00.000Z'),
     decisionAt: new Date('2026-07-31T16:30:00.000Z'),
     evidenceCutoffAt: new Date('2026-07-31T18:00:00.000Z'),
@@ -375,10 +372,6 @@ function batchRow(input: { evidenceRole?: string } = {}) {
     modelPipeline: 'heuristic-v1',
     modelGeneratorVersion: 'generator-v1',
     expiresAt: new Date('2026-08-04T16:30:00.000Z'),
-    heuristicArtifactHash: null,
-    capitalBudgetKrw: null,
-    testSlotLimit: null,
-    constraintSetHash: null,
     createdAt,
     items: [
       {
@@ -395,7 +388,6 @@ function batchRow(input: { evidenceRole?: string } = {}) {
         decision: 'test_order',
         executionEligible: true,
         confidenceKind: 'calibrated_probability',
-        policyProbability: null,
         evidenceFamilyCount: 3,
         evidencePlatformCount: 2,
         hasCoupangEvidence: true,
@@ -403,12 +395,9 @@ function batchRow(input: { evidenceRole?: string } = {}) {
         nextEvidenceAction: null,
         heuristicScore: new Prisma.Decimal('82.25'),
         decisionConfidence: new Prisma.Decimal('0.72'),
-        expectedContributionProfit90dKrw: null,
-        capitalAtRiskKrw: null,
         reasonCodes: ['all_test_order_gates_passed'],
         riskCodes: [],
         modelOutput: { scoreVersion: 'v1' },
-        featureManifestHash: null,
         createdAt,
         evidence: [
           {

@@ -262,6 +262,22 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       { poNumber: '2002', skuCount: 1, orderQuantity: 4, orderAmount: 3960 },
     ]);
   });
+  it('reopens a saved line with its confirmation exactly when that evidence was stored', async () => {
+    const attempt = (
+      await start(randomUUID(), { ...plan, requireConfirmation: false })
+    ).body;
+    const unconfirmed: SubmittedRow = row('P2');
+    delete unconfirmed.confirmation;
+    await finish(attempt, [row('P1'), unconfirmed]).expect(200);
+
+    const saved = await catalog.loadSavedCollection({
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      sourceImportRunId: attempt.attemptId,
+    });
+
+    expect(saved?.rows).toEqual([row('P1'), unconfirmed]);
+  });
   it('dates the COMPLETE cutoff by its KST business day across the 00:30 KST boundary', async () => {
     const attempt = (await start()).body;
     await finish(attempt).expect(200);
@@ -415,7 +431,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     ).toBeNull();
     await prisma.sourceImportRun.update({
       where: { id: a.attemptId },
-      data: { status: 'complete', parserVersion: null, plan: {} },
+      data: { parserVersion: null, plan: {} },
     });
     expect((await readSource()).body).toMatchObject({
       ready: false,

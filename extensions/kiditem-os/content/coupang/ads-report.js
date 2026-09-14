@@ -2467,11 +2467,50 @@
   }
 
   async function reportAction(action, type, payload) {
-    await kiditemApiRequest("/api/ads/actions", {
+    const result = await kiditemApiRequest("/api/ads/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
+    // The worker answers every HTTP status with success:true. The server refuses
+    // a report with 409 when the attempt is not this executor's to report:
+    // another executor started it, or it was cancelled or closed. That must stop
+    // the action before it touches Coupang, and this executor reports nothing
+    // more for it. Any other status is a failed request, not a refusal.
+    if (!result.ok) {
+      const refused = result.status === 409;
+      const error = new Error(`실행 보고 ${refused ? "거절" : "실패"} (${type}): ${result.status}`);
+      error.executionReportRefused = refused;
+      throw error;
+    }
+  }
+
+  async function reportActionFailure(action, payload) {
+    try {
+      await reportAction(action, "markFailed", payload);
+    } catch (error) {
+      console.warn("[KidItem] 실행 실패 보고를 남기지 못했습니다:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Called only after the change reached Coupang. A refused done report (409)
+  // means the attempt is no longer this executor's; any other failure leaves the
+  // server without the outcome. Neither becomes a failure report, which would
+  // invite approving the action again and changing Coupang twice. The attempt
+  // stays running until it is recovered (KID-160).
+  async function reportActionDone(action, afterJson) {
+    try {
+      await reportAction(action, "markDone", { afterJson });
+      return "recorded";
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : error;
+      if (error?.executionReportRefused) {
+        console.warn("[KidItem] 실행 완료 보고가 거절되어 액션을 멈춥니다:", reason);
+        return "refused";
+      }
+      console.warn("[KidItem] 광고센터에 반영했지만 실행 완료 보고를 남기지 못했습니다:", reason);
+      return "unrecorded";
+    }
   }
 
   async function fetchApprovedQueuedActions(limit = 20) {
@@ -2684,11 +2723,18 @@
     };
   }
 
-  async function executeSingleAction(action) {
+  // The claim (markRunning) is an executor's first report for an action, for
+  // every action type. The executor reads the page, touches Coupang or reports
+  // an outcome only after the server accepts the claim, so a refused claim ends
+  // the action before any of that and every outcome is for an attempt it claimed.
+  function claimEvidence(action) {
+    return action.actionType === "create_campaign"
+      ? { url: window.location.href, payload: action.payload || {} }
+      : { url: window.location.href };
+  }
+
+  async function executeClaimedAction(action) {
     if (action.actionType === "create_campaign") {
-      await reportAction(action, "markRunning", {
-        beforeJson: { url: window.location.href, payload: action.payload || {} },
-      });
       return executeCreateCampaign(action);
     }
 
@@ -2696,10 +2742,6 @@
     if (!row) {
       return { success: false, errorMessage: `대상 행을 찾지 못했습니다: ${action.targetLabel}` };
     }
-
-    await reportAction(action, "markRunning", {
-      beforeJson: { rowText: normalizeText(row.innerText), url: window.location.href },
-    });
 
     if (action.actionType === "pause_keyword") {
       return executePauseKeyword(action, row);
@@ -2727,30 +2769,53 @@
     }
 
     let executed = 0;
+    let executedUnrecorded = 0;
     let skipped = actions.length - runnable.length;
 
     for (const action of runnable) {
       try {
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
-        const result = await executeSingleAction(action);
-        if (result.success) {
-          executed++;
-          await reportAction(action, "markDone", { afterJson: result.afterJson || {} });
-        } else {
-          skipped++;
-          await reportAction(action, "markFailed", {
-            errorMessage: result.errorMessage || "실행 실패",
-            afterJson: result.afterJson || {},
-          });
-        }
+        await reportAction(action, "markRunning", { beforeJson: claimEvidence(action) });
       } catch (error) {
+        // No accepted claim: another executor may own the attempt, so this one
+        // reports nothing for the action and never touches Coupang for it.
         skipped++;
-        await reportAction(action, "markFailed", {
+        console.warn(
+          "[KidItem] 실행 선점이 받아들여지지 않아 액션을 건너뜁니다:",
+          error instanceof Error ? error.message : error,
+        );
+        continue;
+      }
+      let result;
+      try {
+        result = await executeClaimedAction(action);
+      } catch (error) {
+        // The action failed while it was being worked on Coupang.
+        skipped++;
+        await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
+        continue;
       }
+      if (!result.success) {
+        skipped++;
+        await reportActionFailure(action, {
+          errorMessage: result.errorMessage || "실행 실패",
+          afterJson: result.afterJson || {},
+        });
+        continue;
+      }
+      const done = await reportActionDone(action, result.afterJson || {});
+      if (done === "recorded") executed++;
+      else if (done === "refused") skipped++;
+      else executedUnrecorded++;
     }
 
+    if (executedUnrecorded > 0) {
+      const warning = `승인 액션 ${executedUnrecorded}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`;
+      showBadge(`⚠️ ${warning}`, "#f59e0b");
+      return { success: true, executed, executedUnrecorded, skipped, warning };
+    }
     showBadge(`✅ 승인 액션 ${executed}개 실행 완료`, "#22c55e");
     return { success: true, executed, skipped };
   }
@@ -5680,22 +5745,40 @@
     return currentSync;
   }
 
+  // One approved-action execution per tab. A second Run for the same actions
+  // joins the execution already in flight; a Run for other actions is refused
+  // until it ends, so a list is never silently dropped. Another tab is refused
+  // by the server at its running report.
+  const ACTION_EXECUTION_BUSY_MESSAGE =
+    "이미 다른 승인 액션 실행이 진행 중입니다. 끝난 뒤 다시 실행해 주세요.";
   let currentActionExecution = null;
-  function runApprovedActionsOnce() {
-    if (!currentActionExecution) {
-      currentActionExecution = fetchApprovedQueuedActions(20)
-        .then((actions) => {
-          if (actions.length === 0) {
-            showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
-            return { success: true, executed: 0, skipped: 0 };
-          }
-          return executeApprovedActions(actions);
-        })
-        .finally(() => {
-          currentActionExecution = null;
-        });
+  let currentActionExecutionKey = null;
+  function runActionExecutionOnce(key, execute) {
+    if (currentActionExecution) {
+      return key === currentActionExecutionKey
+        ? currentActionExecution
+        : Promise.resolve({ success: false, error: ACTION_EXECUTION_BUSY_MESSAGE });
     }
+    currentActionExecutionKey = key;
+    currentActionExecution = Promise.resolve()
+      .then(execute)
+      .finally(() => {
+        currentActionExecution = null;
+        currentActionExecutionKey = null;
+      });
     return currentActionExecution;
+  }
+
+  function runApprovedActionsOnce() {
+    return runActionExecutionOnce("queued", () =>
+      fetchApprovedQueuedActions(20).then((actions) => {
+        if (actions.length === 0) {
+          showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
+          return { success: true, executed: 0, skipped: 0 };
+        }
+        return executeApprovedActions(actions);
+      }),
+    );
   }
 
   // Pure parser contract used by fixture tests. Content scripts run in an isolated
@@ -5902,7 +5985,9 @@
 
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
-      executeApprovedActions(payload.actions || [])
+      const actions = payload.actions || [];
+      const key = `actions:${Array.isArray(actions) ? actions.map((action) => action?.id).join(",") : ""}`;
+      runActionExecutionOnce(key, () => executeApprovedActions(actions))
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;

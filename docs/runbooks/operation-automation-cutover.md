@@ -16,8 +16,8 @@ credentials, cookies, provider payloads, or row data into a ticket or report.
 ## Preconditions
 
 - Confirm the checkout and runtime are the intended Office deployment.
-- Confirm a restorable database backup exists and the writer-stop window is
-  approved. This command does not create or verify that backup.
+- Confirm the writer-stop window. The cutover starts from the dump described
+  in the [data-loss policy](deployment-architecture.md#data-loss-policy).
 - Set `DATABASE_URL` to the explicit PostgreSQL connection URL for the intended
   database. The preflight does not read a fallback URL from the environment.
 - Set `KIDITEM_DEPLOYED_SHA` and `KIDITEM_RELEASE_OFFICE_SHA` to the full,
@@ -43,7 +43,10 @@ npm run preflight:operation-automation-cutover -- --database-url "$env:DATABASE_
 All inventory queries run against one repeatable-read, read-only snapshot. The
 output is one sanitized JSON object containing `generatedAt`, the two SHA
 identities, the nine named counts, active operation keys, enabled schedule
-keys, and installed workflow names. Lists are bounded; row payloads, operation
+keys, and installed workflow names. The KID-90 schema drop removed
+`rules_evaluation_applications`, `action_tasks`, and `alerts.kind`; a database
+without one counts it as zero and lists it in `absentOptionalTables` or
+`absentOptionalColumns`. Lists are bounded; row payloads, operation
 inputs/results, credentials, and the database URL are not emitted.
 
 ## Decision gate
@@ -63,10 +66,9 @@ not use `--apply`; the command rejects writable execution modes.
 
 ## Approved cutover sequence
 
-The preflight JSON, backup reference, and writer-stop approval are the
-admission record. The following steps run only against the backed-up,
-writer-stopped target. Use a disposable clone for rehearsal; never use the
-operating clone at `localhost:5433` for these commands.
+The preflight JSON is the admission record. The following steps run against
+the writer-stopped target after its dump. Rehearse on the local QA database
+`kiditem-qa-pg`, not on the developer database at `localhost:5433`.
 
 1. Stop every API, worker, scheduler, and other database writer after the
    read-only preflight passes. Keep the backup and the exact deployed/release
@@ -74,15 +76,18 @@ operating clone at `localhost:5433` for these commands.
 2. Run the v0.1.31 pre-schema migrations. The preparation migration repeats
    the active-run and enabled-schedule guard inside its transaction, clears
    retired Alerts and Rules application receipts, removes only the retired
-   generic rows, and verifies that dormant `ActionTask` rows are unchanged:
+   generic rows, and, while `action_tasks` still exists, verifies that its
+   row count did not move. The schema-drop cleanup (`v0.1.31:013`) removes
+   account-day KPI rows, the raw scrape rows only they used, and the retired
+   `ads.tier.dailyBudget` setting. Tables and columns a database no longer
+   has are skipped:
 
    ```powershell
    npm run data:migrate -- up --target office --phase pre-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
    ```
 
    If this step fails, do not continue to schema application. The transaction
-   rolls back; correct the writer-stop or data issue and rerun from the backup
-   decision gate.
+   rolls back; correct the writer-stop or data issue and rerun.
 3. Survey what the schema step would hit in this database's data. An empty
    database accepts every schema change, so this is the first point where the
    answer is the real one: the pre-schema migrations have run, and `db push` has
@@ -96,9 +101,11 @@ operating clone at `localhost:5433` for these commands.
    ```
 
 4. Apply the reviewed Prisma schema drop on the same stopped target, then
-   regenerate the client. This removes only the generic Operation/Workflow/
+   regenerate the client. This removes the generic Operation/Workflow/
    Automation Marketplace models and their Organization/User relations. The
-   `ActionTask` table and existing rows remain dormant; Channels marketplace
+   KID-90 drop in the same schema removes `action_tasks`,
+   `rules_evaluation_applications`, and the other retired tables and columns
+   with their rows under the data-loss policy; Channels marketplace
    registration models remain:
 
    ```powershell
@@ -107,7 +114,7 @@ operating clone at `localhost:5433` for these commands.
    ```
 
 5. Run the post-schema migrations and the release checks. Record the migration
-   ledger output, schema hash, dormant task count, and focused test results:
+   ledger output, schema hash, and focused test results:
 
    ```powershell
    npm run data:migrate -- up --target office --phase post-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
@@ -118,16 +125,16 @@ operating clone at `localhost:5433` for these commands.
 
 ### Irreversible boundary and recovery
 
-Before step 4, stop and restore the approved backup if the pre-schema result,
-writer state, or SHA identity is not exact. Step 4 is destructive: this
+Before step 4, stop if the pre-schema result, writer state, or SHA identity
+is not exact. Step 4 is destructive: this
 runbook does not define an in-place rollback or recreate deleted generic rows.
-After schema application, recovery means restoring the backup into a separate
-database, verifying it, and redeploying the previously approved exact SHA
-through the Office release process. Do not manually reinsert Operation,
+After schema application, recover by fixing forward, or by restoring the
+cutover dump and redeploying the previously approved exact SHA through the
+Office release process. Do not manually reinsert Operation,
 Workflow, Marketplace, or Alert history rows, and do not run a second generic
 compatibility migration. If any post-schema check fails, keep writers stopped,
-preserve the failure and migration-ledger evidence, and use the approved
-backup/redeploy decision.
+preserve the failure and migration-ledger evidence, and fix forward or
+restore the cutover dump.
 
 If the URL is malformed, a required table is absent, a count is invalid, or any
 query fails, treat the preflight as blocked. Keep writers in their current safe

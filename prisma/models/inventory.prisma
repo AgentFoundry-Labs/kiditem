@@ -67,7 +67,6 @@ model SellpiaInventoryState {
   verifiedGeneration       BigInt    @default(0) @map("verified_generation") @db.BigInt
   failedGeneration         BigInt?   @map("failed_generation") @db.BigInt
   lastAttemptAt            DateTime? @map("last_attempt_at") @db.Timestamptz
-  lastAttemptStatus        String?   @map("last_attempt_status")
   lastAttemptSyncScope     String?   @map("last_attempt_sync_scope")
   lastErrorCode            String?   @map("last_error_code")
   lastErrorMessage         String?   @map("last_error_message")

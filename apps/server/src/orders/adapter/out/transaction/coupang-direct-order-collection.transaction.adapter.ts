@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
@@ -97,7 +102,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
           organizationId: input.organizationId,
           sourceType: DIRECT_SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
@@ -181,8 +186,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
       }
       const captureBytes = Buffer.from(canonicalOwnerInputJson(input.capture), 'utf8');
       const contentChecksum = checksum(captureBytes);
-      if (row.status !== 'running') {
-        if (row.status === 'completed' && row.contentChecksum === contentChecksum) {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && row.contentChecksum === contentChecksum) {
           return this.attemptView(tx, row);
         }
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
@@ -207,7 +212,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       const completed = await tx.sourceImportRun.update({
         where: { id: row.id, organizationId: input.organizationId },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: input.capture.pos.length,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -240,8 +245,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
-      if (row.status !== 'completed') {
-        throw new ConflictException(row.status === 'failed'
+      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
+        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           ? 'SOURCE_ATTEMPT_FAILED'
           : 'SOURCE_ATTEMPT_NOT_COMPLETE');
       }
@@ -352,9 +357,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
       }
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (
-          row.status === 'failed'
+          row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           && row.errorCode === input.code
           && row.errorMessage === message
         ) {
@@ -383,8 +388,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
       if (input.channelAccountId && input.channelAccountId !== plan.channelAccountId) {
         throw new ConflictException('COUPANG_DIRECT_ACCOUNT_MISMATCH');
       }
-      if (row.status !== 'completed') {
-        throw new ConflictException(row.status === 'failed'
+      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
+        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           ? 'SOURCE_ATTEMPT_FAILED'
           : 'SOURCE_ATTEMPT_NOT_COMPLETE');
       }
@@ -401,8 +406,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
     return this.prisma.$transaction(async (tx) => {
       const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
       const plan = readPlan(row.plan);
-      if (row.status !== 'completed') {
-        throw new ConflictException(row.status === 'failed'
+      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
+        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
           ? 'SOURCE_ATTEMPT_FAILED'
           : 'SOURCE_ATTEMPT_NOT_COMPLETE');
       }
@@ -478,7 +483,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
         channelAccountId: request.channelAccountId,
         sourceType: SOURCE_TYPE,
         fileHash: payloadChecksum,
-        status: 'completed',
+        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       },
       select: { id: true },
     });
@@ -583,7 +588,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       sourceImportRunId: ownerRunId,
       exportId: reconciled.exportId,
       transmissionIntentKey: reconciled.transmissionIntentKey,
-      matchedLineCount: reconciled.matchedLineCount,
+      matchedLineCount: reconciled.reconciledRows,
       reconciledRows: reconciled.reconciledRows,
       collectedLines,
       matchedLines: collectedLines.filter(({ poNumber, productNo }) =>
@@ -635,7 +640,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
       select: {
         confirmationId: true,
         intentKey: true,
-        matchedLineCount: true,
       },
     });
     const orders = await tx.order.findMany({
@@ -655,7 +659,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
         });
       }
     }
-    const matchedLineIds = transmission
+    // The workbook lines this run actually linked: positive lines of the
+    // transmission's workbook whose collected order line belongs to the run.
+    const linkedLines = transmission
       ? await tx.rocketPurchaseConfirmationLine.findMany({
         where: {
           organizationId,
@@ -667,7 +673,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       })
       : [];
     const matched = new Set(
-      matchedLineIds
+      linkedLines
         .map(({ collectedOrderLineItemId }) => collectedOrderLineItemId)
         .filter((value): value is string => Boolean(value)),
     );
@@ -677,7 +683,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
         .filter((ref): ref is CoupangDirectCollectionLineRef => Boolean(ref)),
     );
     const matchedKeys = new Set(matchedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)));
-    const fallbackMatchedCount = transmission?.matchedLineCount ?? matchedLines.length;
     return {
       transport,
       payloadChecksum,
@@ -687,8 +692,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
         ?? (collectedLines.length > 0
           ? `rocket-final-order:${sourceImportRunId}:${transport.toLowerCase()}`
           : null),
-      matchedLineCount: fallbackMatchedCount,
-      reconciledRows: fallbackMatchedCount,
+      matchedLineCount: linkedLines.length,
+      reconciledRows: linkedLines.length,
       collectedLines,
       matchedLines,
       unmatchedLines: collectedLines.filter(({ poNumber, productNo }) =>
@@ -722,9 +727,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
     return {
       attemptId: row.id,
       sourceImportRunId: row.id,
-      state: row.status === 'completed'
+      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
       plan,
@@ -755,7 +760,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
     const failed = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: redact(message).slice(0, 300),
       },
@@ -1055,7 +1060,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function expired(row: Pick<Prisma.SourceImportRunGetPayload<{}>, 'status' | 'expiresAt'>): boolean {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
 

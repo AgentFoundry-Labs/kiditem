@@ -10,13 +10,13 @@ export interface ThumbnailTrackingRow {
   originalGrade: string;
   originalScore: number;
   appliedAt: Date;
-  status: string;
   ctrBefore: number | null;
   ctrAfter: number | null;
   reviewsBefore: number | null;
   reviewsAfter: number | null;
   salesBefore: number | null;
   salesAfter: number | null;
+  markedInconclusiveAt: Date | null;
   listing: {
     id: string;
     displayName: string | null;
@@ -45,7 +45,6 @@ export interface ThumbnailTrackingSnapshotRow {
   revenueKrw: number | null;
   reviewCount: number | null;
   ratingAvg: number | null;
-  scrapeStatus: string;
   errorMessage: string | null;
 }
 
@@ -73,7 +72,6 @@ export interface UpsertThumbnailTrackingDailySnapshotInput {
   reviewCount: number | null;
   ratingAvg: number | null;
   rawCellTexts: string[];
-  scrapeStatus: string;
   errorMessage: string | null;
   setSalesBefore: boolean;
 }

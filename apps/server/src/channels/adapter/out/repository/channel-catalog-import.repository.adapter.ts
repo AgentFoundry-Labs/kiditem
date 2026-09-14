@@ -11,6 +11,9 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   CompletedSourceArtifactRunSchema,
   type CoupangWingCatalogImportResponse,
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
 import type {
   ChannelCatalogImportClaim,
@@ -152,21 +155,21 @@ implements ChannelCatalogImportRepositoryPort {
         );
       }
 
-      if (lockedRun.status === 'completed') {
+      if (lockedRun.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         const completed = await tx.sourceImportRun.findFirstOrThrow({
           where: {
             id: input.runId,
             organizationId: input.organizationId,
             sourceType: SOURCE_TYPE,
             channelAccountId: input.channelAccountId,
-            status: 'completed',
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
         });
         return importResponse(completed, true, zeroChanges());
       }
 
       if (
-        lockedRun.status !== 'running' ||
+        lockedRun.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS ||
         lockedRun.attemptToken !== input.attemptToken
       ) {
         throw new ConflictException(
@@ -439,11 +442,11 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: input.attemptToken,
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: input.rows.length,
           importedAt,
           publicationSequence,
@@ -466,7 +469,7 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           attemptToken: input.attemptToken,
         },
       });
@@ -498,10 +501,10 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId,
           sourceType: SOURCE_TYPE,
           channelAccountId,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken,
         },
-        data: { status: 'failed' },
+        data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS },
       });
       if (failed.count === 0) return;
       await this.alerts.recordTerminalOutcome(tx, {
@@ -551,7 +554,7 @@ implements ChannelCatalogImportRepositoryPort {
           fileHash: input.fileHash,
         },
       });
-      if (existing?.status === 'completed') {
+      if (existing?.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         return {
           kind: 'duplicate',
           response: importResponse(existing, true, zeroChanges()),
@@ -567,7 +570,7 @@ implements ChannelCatalogImportRepositoryPort {
             channelAccountId: input.channelAccountId,
             fileName: input.fileName,
             fileHash: input.fileHash,
-            status: 'running',
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
             rowCount: input.rowCount,
             importedAt: null,
             createdBy: input.userId,
@@ -580,7 +583,7 @@ implements ChannelCatalogImportRepositoryPort {
           attemptToken: created.attemptToken,
         };
       }
-      if (existing.status !== 'running' && existing.status !== 'failed') {
+      if (existing.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS && existing.status !== SOURCE_IMPORT_RUN_FAILED_STATUS) {
         return { kind: 'running', attemptId: existing.id };
       }
       // A stale running import is reclaimed and a failed one retried, each
@@ -593,11 +596,11 @@ implements ChannelCatalogImportRepositoryPort {
           sourceType: SOURCE_TYPE,
           channelAccountId: input.channelAccountId,
           status: existing.status,
-          ...(existing.status === 'running' ? { updatedAt: existing.updatedAt } : {}),
+          ...(existing.status === SOURCE_IMPORT_RUN_RUNNING_STATUS ? { updatedAt: existing.updatedAt } : {}),
           attemptToken: existing.attemptToken,
         },
         data: {
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           fileName: input.fileName,
           rowCount: input.rowCount,
           createdBy: input.userId,

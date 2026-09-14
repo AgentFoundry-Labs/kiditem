@@ -233,7 +233,6 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       status: 'failed',
       activeSync: null,
       lastAttempt: {
-        status: 'failed',
         errorCode: null,
         errorMessage: 'Sellpia inventory collection attempt expired.',
       },
@@ -320,7 +319,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         verifiedGeneration: verified.verifiedGeneration,
         lastVerifiedAt: verified.lastVerifiedAt,
         activeSync: null,
-        lastAttempt: { status: 'cancelled', errorCode: null, errorMessage: null },
+        lastAttempt: { errorCode: null, errorMessage: null },
       });
     }
 
@@ -374,6 +373,26 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     });
     expect(view).toMatchObject({ status: 'syncing', activeSync: { attemptId: null } });
     expect(JSON.stringify(view)).not.toContain(claimToken);
+  });
+
+  it('publishes the last attempt error facts without an outcome word and clears them on completion', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+
+    const failed = await begin('last-attempt-failed');
+    await fail(failed, 'sellpia_network_failed').expect(201);
+    const failedAttempt = (await readFreshness()).lastAttempt;
+    expect(failedAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
+    expect(failedAttempt).not.toHaveProperty('status');
+
+    const next = await begin('last-attempt-next');
+    await complete(next, snapshot(4)).expect(201);
+    expect((await readFreshness()).lastAttempt).toMatchObject({
+      errorCode: null,
+      errorMessage: null,
+    });
   });
 
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {

@@ -80,12 +80,12 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
       updatedAt: dismissed.updatedAt,
       readAt: dismissed.readAt,
     };
+    expect(timestamps.readAt).toBeInstanceOf(Date);
 
     await inTransaction((tx) => alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1)));
     const replayed = await prisma.alert.findUniqueOrThrow({ where: { id: created.id } });
     expect(replayed).toMatchObject({
       status: 'OPEN',
-      isRead: true,
       attemptId: ATTEMPT_ID_1,
     });
     expect(replayed.createdAt).toEqual(timestamps.createdAt);
@@ -104,7 +104,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
 
     await expect(prisma.alert.findUniqueOrThrow({ where: { id: created.id } })).resolves.toMatchObject({
       status: 'OPEN',
-      isRead: false,
+      readAt: null,
       attemptId: ATTEMPT_ID_2,
     });
     await expect(prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID, dedupeKey: DEDUPE_KEY } })).resolves.toBe(1);
@@ -165,7 +165,6 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         dedupeKey: 'rules.violation:product:rule',
         type: 'retired_rules_signal',
-        severity: 'critical',
         title: '광고비율 위험',
         message: 'stop_ads',
         status: 'OPEN',
@@ -201,10 +200,10 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
     ]);
     await expect(alerts.list(TEST_ORGANIZATION_ID, { isRead: false })).resolves.toEqual([]);
 
-    // The retiring column says otherwise; the timestamp is the fact.
+    // Clearing the timestamp is what makes it unread again.
     await prisma.alert.update({
       where: { id: opened!.id },
-      data: { isRead: true, readAt: null },
+      data: { readAt: null },
     });
     await expect(alerts.list(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
       { id: opened!.id, isRead: false },

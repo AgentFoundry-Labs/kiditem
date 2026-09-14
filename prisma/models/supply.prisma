@@ -328,40 +328,30 @@ model RocketPurchaseConfirmation {
   idempotencyKey      String    @map("idempotency_key") @db.Uuid
   requestHash         String    @map("request_hash") @db.VarChar(64)
   freshnessGeneration BigInt?   @map("freshness_generation") @db.BigInt
-  status              String    @default("awaiting_coupang_confirmation")
   confirmedBy         String    @map("confirmed_by") @db.Uuid
   confirmedAt         DateTime  @default(now()) @map("confirmed_at") @db.Timestamptz
   artifactFileName    String?   @map("artifact_file_name") @db.VarChar(240)
   artifactContentType String?   @map("artifact_content_type") @db.VarChar(120)
   artifactSha256      String?   @map("artifact_sha256") @db.VarChar(64)
   artifactBytes       Bytes?    @map("artifact_bytes")
-  artifactStoredAt    DateTime? @map("artifact_stored_at") @db.Timestamptz
-  ordersCollectedAt   DateTime? @map("orders_collected_at") @db.Timestamptz
   completedAt         DateTime? @map("completed_at") @db.Timestamptz
-  failureCode         String?   @map("failure_code") @db.VarChar(80)
-  failureMessage      String?   @map("failure_message") @db.VarChar(500)
-  releasedBy          String?   @map("released_by") @db.Uuid
   releasedAt          DateTime? @map("released_at") @db.Timestamptz
-  releaseReason       String?   @map("release_reason") @db.VarChar(500)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount  ChannelAccount                           @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceImportRun SourceImportRun                          @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  confirmer       User                                     @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
-  releaser        User?                                    @relation("RocketPurchaseConfirmationReleaser", fields: [releasedBy], references: [id], onDelete: Restrict)
-  lines           RocketPurchaseConfirmationLine[]
-  transmissions   RocketPurchaseConfirmationTransmission[]
+  organization                   Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                 ChannelAccount                           @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun                SourceImportRun                          @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  confirmer                      User                                     @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
+  lines                          RocketPurchaseConfirmationLine[]
+  transmissions                  RocketPurchaseConfirmationTransmission[]
   coupangDirectTransportReceipts CoupangDirectTransportReceipt[]
 
   @@unique([id, organizationId], map: "rocket_purchase_confirmations_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "rocket_purchase_confirmations_org_idempotency_key")
-  @@index([organizationId, status, confirmedAt])
   @@index([channelAccountId])
   @@index([sourceImportRunId])
   @@index([confirmedBy])
-  @@index([releasedBy])
   @@map("rocket_purchase_confirmations")
 }
 
@@ -426,7 +416,6 @@ model RocketPurchaseConfirmationTransmission {
   sourceImportRunId String   @map("source_import_run_id") @db.Uuid
   transport         String   @db.VarChar(20)
   intentKey         String?  @map("intent_key") @db.VarChar(500)
-  matchedLineCount  Int      @default(0) @map("matched_line_count")
   observedAt        DateTime @default(now()) @map("observed_at") @db.Timestamptz
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

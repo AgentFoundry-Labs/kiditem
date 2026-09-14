@@ -117,7 +117,11 @@ test("the 0.1.31 reset is followed only by un-published current installation", a
     "masterProductAbcFormulaState",
     "masterProductAbcFormulaVersion",
   ]) assert.match(reset, new RegExp(`${table}\\.deleteMany`));
-  assert.match(reset, /abcGrade:\s*null/);
+  // The cached product grade is cleared through fixed identifiers guarded on
+  // information_schema, because the KID-90 schema drop removes the column.
+  assert.match(reset, /column_name = 'abc_grade'/);
+  assert.match(reset, /SET abc_grade = NULL/);
+  assert.doesNotMatch(reset, /abcGrade:/);
   assert.match(initialize, /PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH/);
   assert.match(initialize, /formulaRevision:\s*1/);
   assert.match(initialize, /publicationRevision:\s*0/);

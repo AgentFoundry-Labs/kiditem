@@ -41,7 +41,7 @@ describe('Alert ledger schemas', () => {
     expect(parsed.sourceType).toBe('sellpia_product_profitability');
     // The alert follows its attempt, and that does travel.
     expect(parsed.attemptId).toBe(ATTEMPT_ID);
-    for (const dropped of ['kind', 'organizationId', 'dedupeKey', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
+    for (const dropped of ['kind', 'severity', 'organizationId', 'dedupeKey', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
       expect(parsed).not.toHaveProperty(dropped);
     }
   });

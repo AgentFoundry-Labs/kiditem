@@ -38,8 +38,6 @@ export class AdvertisingActionsController {
           body.afterJson,
           organizationId,
         );
-      case 'resetFailed':
-        return this.adActionService.resetFailed(organizationId);
       default:
         throw new BadRequestException(`Unknown action: ${body.action}`);
     }

@@ -22,6 +22,11 @@ import {
   type AdKeywordSourceControl,
   type AdKeywordSourceAttempt,
 } from '@kiditem/shared/advertising';
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
@@ -84,7 +89,7 @@ export class AdKeywordSourceRepository {
         where: {
           ...scope(org),
           channelAccountId: account.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (running) {
@@ -181,7 +186,7 @@ export class AdKeywordSourceRepository {
             orderBy: { freshnessGeneration: 'desc' },
           }),
           tx.sourceImportRun.findFirst({
-            where: { ...where, status: 'completed' },
+            where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
             orderBy: { freshnessGeneration: 'desc' },
           }),
         ]);
@@ -221,8 +226,8 @@ export class AdKeywordSourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.contentChecksum === checksum)
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.contentChecksum === checksum)
           return await this.attemptIn(tx, row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
@@ -288,8 +293,8 @@ export class AdKeywordSourceRepository {
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
       const checksum = hash(payload);
       const terminalChecksum = hash({ kind, sequence, checksum });
-      if (row.status !== 'running') {
-        if (row.status === 'failed' && row.contentChecksum === terminalChecksum)
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        if (row.status === SOURCE_IMPORT_RUN_FAILED_STATUS && row.contentChecksum === terminalChecksum)
           return await this.attemptIn(tx, row);
         throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
       }
@@ -506,7 +511,7 @@ export class AdKeywordSourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
-      if (row.status !== 'running') {
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (row.contentChecksum === manifestChecksum) return await this.attemptIn(tx, row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
@@ -564,7 +569,7 @@ export class AdKeywordSourceRepository {
       const complete = await tx.sourceImportRun.update({
         where: { id, organizationId: org },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           contentChecksum: manifestChecksum,
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
@@ -696,7 +701,7 @@ export class AdKeywordSourceRepository {
     const result = await tx.sourceImportRun.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: {
-        status: 'failed',
+        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
         errorCode: code,
         errorMessage: message,
         ...(checksum ? { contentChecksum: checksum } : {}),
@@ -727,7 +732,7 @@ export class AdKeywordSourceRepository {
   }
 }
 function expired(row: Attempt) {
-  return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 function attemptView(
   row: Attempt,
@@ -745,14 +750,14 @@ function attemptView(
     attemptId: row.id,
     channelAccountId: row.channelAccountId!,
     state:
-      row.status === 'completed'
+      row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
         ? 'COMPLETE'
-        : row.status === 'running' && !isExpired
+        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
           ? 'RUNNING'
           : 'FAILED',
     plan,
     expiresAt: row.expiresAt!.toISOString(),
-    actualCutoffAt: row.status === 'completed' ? row.importedAt!.toISOString() : null,
+    actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt!.toISOString() : null,
     manifestChecksum: hash({
       plan,
       receipts: chunks.map(({ kind, sequence, checksum }) => ({

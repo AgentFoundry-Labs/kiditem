@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
-import { PrismaCapabilityInvocationRepository } from './prisma-capability-invocation.repository';
+import {
+  capabilityApprovalStateWhere,
+  PrismaCapabilityInvocationRepository,
+} from './prisma-capability-invocation.repository';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const NOW = new Date('2026-08-25T00:00:00.000Z');
+const APPROVAL_EXPIRED_ERROR = {
+  code: 'APPROVAL_EXPIRED',
+  message: 'Capability approval expired before execution.',
+};
 
 describe('PrismaCapabilityInvocationRepository', () => {
   it('uses the unique insert winner for exact replay and rejects request-key drift', async () => {
@@ -62,12 +69,37 @@ describe('PrismaCapabilityInvocationRepository', () => {
     });
   });
 
+  it('admits approval facts without storing an approval word', async () => {
+    const expiresAt = new Date('2026-08-25T00:30:00.000Z');
+    const create = vi.fn().mockResolvedValue(invocationRow({
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: expiresAt,
+    }));
+    const repository = subject({ create, findFirst: vi.fn(), updateMany: vi.fn() });
+
+    await repository.admit({
+      ...admission(),
+      approval: { required: true, requestedAt: NOW, expiresAt },
+    });
+
+    const data = create.mock.calls[0]?.[0]?.data;
+    expect(data).toMatchObject({
+      status: 'pending',
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: expiresAt,
+    });
+    expect(data).not.toHaveProperty('approvalStatus');
+    expect(data).not.toHaveProperty('approvalDecision');
+  });
+
   it('lists only a bounded approved-pending bootstrap recovery set', async () => {
     const approved = invocationRow({
-      approvalStatus: 'approved',
       approvalInputHash: INPUT_HASH,
       approvalRequestedAt: NOW,
       approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+      approvalDecision: 'approved',
       approvalDecidedByUserId: USER_ID,
       approvalDecidedAt: NOW,
     });
@@ -81,7 +113,7 @@ describe('PrismaCapabilityInvocationRepository', () => {
 
     await expect(repository.listApprovedPending({ limit: 7 })).resolves.toEqual([approved]);
     expect(findMany).toHaveBeenCalledWith({
-      where: { status: 'pending', approvalStatus: 'approved' },
+      where: { AND: [{ status: 'pending' }, { approvalDecision: 'approved' }] },
       orderBy: { createdAt: 'asc' },
       take: 7,
     });
@@ -111,26 +143,18 @@ describe('PrismaCapabilityInvocationRepository', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it('lazily expires a pending approval with a conditional row fence', async () => {
-    const expiredAt = new Date('2026-08-25T00:00:00.000Z');
+  it('lazily expires a lapsed approval by failing the invocation, not by storing a word', async () => {
     const pending = invocationRow({
-      approvalStatus: 'pending',
       approvalInputHash: INPUT_HASH,
       approvalRequestedAt: new Date('2026-08-24T23:30:00.000Z'),
-      approvalExpiresAt: expiredAt,
+      approvalExpiresAt: NOW,
     });
-    const expired = invocationRow({
+    const expired = {
+      ...pending,
       status: 'failed',
-      approvalStatus: 'expired',
-      approvalInputHash: INPUT_HASH,
-      approvalRequestedAt: new Date('2026-08-24T23:30:00.000Z'),
-      approvalExpiresAt: expiredAt,
-      error: {
-        code: 'APPROVAL_EXPIRED',
-        message: 'Capability approval expired before execution.',
-      },
+      error: APPROVAL_EXPIRED_ERROR,
       finishedAt: NOW,
-    });
+    };
     const findFirst = vi
       .fn()
       .mockResolvedValueOnce(pending)
@@ -140,39 +164,36 @@ describe('PrismaCapabilityInvocationRepository', () => {
 
     await expect(
       repository.findById({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID }),
-    ).resolves.toMatchObject({ status: 'failed', approvalStatus: 'expired' });
+    ).resolves.toMatchObject({
+      status: 'failed',
+      approvalDecision: null,
+      error: APPROVAL_EXPIRED_ERROR,
+    });
     expect(updateMany).toHaveBeenCalledWith({
       where: {
-        id: INVOCATION_ID,
-        organizationId: ORGANIZATION_ID,
-        status: 'pending',
-        approvalStatus: 'pending',
-        approvalExpiresAt: { lte: NOW },
+        AND: [
+          { id: INVOCATION_ID, organizationId: ORGANIZATION_ID, status: 'pending' },
+          capabilityApprovalStateWhere('expired', NOW),
+        ],
       },
       data: {
         status: 'failed',
-        approvalStatus: 'expired',
-        error: {
-          code: 'APPROVAL_EXPIRED',
-          message: 'Capability approval expired before execution.',
-        },
+        error: APPROVAL_EXPIRED_ERROR,
         finishedAt: NOW,
       },
     });
   });
 
-  it('fences approval on the admitted hash and replays the identical decision', async () => {
-    const pending = invocationRow({
-      approvalStatus: 'pending',
+  it('fences approval on the admitted hash, records only the decision fact, and replays the identical decision', async () => {
+    const admitted = {
       approvalInputHash: INPUT_HASH,
       approvalRequestedAt: NOW,
       approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
-    });
+    };
+    const pending = invocationRow(admitted);
     const approved = invocationRow({
-      approvalStatus: 'approved',
-      approvalInputHash: INPUT_HASH,
-      approvalRequestedAt: NOW,
-      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+      ...admitted,
+      approvalDecision: 'approved',
       approvalDecidedByUserId: USER_ID,
       approvalDecisionReason: 'Reviewed',
       approvalDecidedAt: NOW,
@@ -191,18 +212,37 @@ describe('PrismaCapabilityInvocationRepository', () => {
     await expect(repository.decideApproval(approval())).resolves.toMatchObject({
       invocation: {
         status: 'pending',
-        approvalStatus: 'approved',
+        approvalDecision: 'approved',
       },
       transitioned: true,
     });
     await expect(repository.decideApproval(approval())).resolves.toMatchObject({
       invocation: {
         status: 'pending',
-        approvalStatus: 'approved',
+        approvalDecision: 'approved',
       },
       transitioned: false,
     });
     expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          {
+            id: INVOCATION_ID,
+            organizationId: ORGANIZATION_ID,
+            approvalInputHash: INPUT_HASH,
+            inputHash: INPUT_HASH,
+          },
+          capabilityApprovalStateWhere('pending', NOW),
+        ],
+      },
+      data: {
+        approvalDecision: 'approved',
+        approvalDecidedByUserId: USER_ID,
+        approvalDecisionReason: 'Reviewed',
+        approvalDecidedAt: NOW,
+      },
+    });
 
     const fencedRepository = subject({
       create: vi.fn(),
@@ -214,57 +254,64 @@ describe('PrismaCapabilityInvocationRepository', () => {
     ).rejects.toMatchObject({ code: 'REQUEST_KEY_CONFLICT' });
   });
 
-  it('fences approval at the expiry boundary before its conditional write', async () => {
+  it('refuses a decision at the expiry boundary and fails the invocation without a doomed write', async () => {
     const expiresAt = new Date('2026-08-25T00:00:00.001Z');
     const pending = invocationRow({
-      approvalStatus: 'pending',
       approvalInputHash: INPUT_HASH,
       approvalRequestedAt: NOW,
       approvalExpiresAt: expiresAt,
     });
-    const expired = invocationRow({
-      status: 'failed',
-      approvalStatus: 'expired',
-      approvalInputHash: INPUT_HASH,
-      approvalRequestedAt: NOW,
-      approvalExpiresAt: expiresAt,
-      error: {
-        code: 'APPROVAL_EXPIRED',
-        message: 'Capability approval expired before execution.',
-      },
-      finishedAt: expiresAt,
-    });
-    const findFirst = vi
-      .fn()
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(expired)
-      .mockResolvedValueOnce(expired);
-    const updateMany = vi
-      .fn()
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 1 });
+    const findFirst = vi.fn().mockResolvedValue(pending);
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = subject({ create: vi.fn(), findFirst, updateMany });
     const decision = { ...approval(), decidedAt: expiresAt };
 
     await expect(repository.decideApproval(decision)).rejects.toMatchObject({
       code: 'APPROVAL_EXPIRED',
     });
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        approvalExpiresAt: { gt: decision.decidedAt },
-      }),
-    }));
-    expect(updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      where: expect.objectContaining({
-        approvalExpiresAt: { lte: decision.decidedAt },
-      }),
-      data: expect.objectContaining({
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          { id: INVOCATION_ID, organizationId: ORGANIZATION_ID, status: 'pending' },
+          capabilityApprovalStateWhere('expired', expiresAt),
+        ],
+      },
+      data: {
         status: 'failed',
-        approvalStatus: 'expired',
-      }),
+        error: APPROVAL_EXPIRED_ERROR,
+        finishedAt: expiresAt,
+      },
+    });
+  });
+
+  it('reports the expiry sweep when it wins the conditional write against a decision', async () => {
+    const pending = invocationRow({
+      approvalInputHash: INPUT_HASH,
+      approvalRequestedAt: NOW,
+      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+    });
+    const swept = {
+      ...pending,
+      status: 'failed',
+      error: APPROVAL_EXPIRED_ERROR,
+      finishedAt: new Date('2026-08-25T00:30:00.000Z'),
+    };
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(swept)
+      .mockResolvedValueOnce(swept);
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const repository = subject({ create: vi.fn(), findFirst, updateMany });
+
+    await expect(repository.decideApproval(approval())).rejects.toMatchObject({
+      code: 'APPROVAL_EXPIRED',
+    });
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ approvalDecision: 'approved' }),
     }));
   });
 
@@ -295,10 +342,15 @@ describe('PrismaCapabilityInvocationRepository', () => {
     ).resolves.toMatchObject({ status: 'succeeded', result: completed });
     expect(updateMany).toHaveBeenCalledWith({
       where: {
-        id: INVOCATION_ID,
-        organizationId: ORGANIZATION_ID,
-        status: 'pending',
-        approvalStatus: { in: ['not_required', 'approved'] },
+        AND: [
+          { id: INVOCATION_ID, organizationId: ORGANIZATION_ID, status: 'pending' },
+          {
+            OR: [
+              capabilityApprovalStateWhere('not_required', NOW),
+              capabilityApprovalStateWhere('approved', NOW),
+            ],
+          },
+        ],
       },
       data: {
         status: 'succeeded',
@@ -360,10 +412,10 @@ function invocationRow(overrides: Record<string, unknown> = {}) {
     canonicalInput: INPUT,
     inputHash: INPUT_HASH,
     status: 'pending',
-    approvalStatus: 'not_required',
     approvalInputHash: null,
     approvalRequestedAt: null,
     approvalExpiresAt: null,
+    approvalDecision: null,
     approvalDecidedByUserId: null,
     approvalDecisionReason: null,
     approvalDecidedAt: null,

@@ -592,10 +592,10 @@ class InMemoryInvocationRepository {
       canonicalInput: input.canonicalInput,
       inputHash: input.inputHash,
       status: 'pending',
-      approvalStatus: input.approval.required ? 'pending' : 'not_required',
       approvalInputHash: input.approval.required ? input.inputHash : null,
       approvalRequestedAt: input.approval.required ? input.approval.requestedAt : null,
       approvalExpiresAt: input.approval.expiresAt,
+      approvalDecision: null,
       approvalDecidedByUserId: null,
       approvalDecisionReason: null,
       approvalDecidedAt: null,
@@ -625,7 +625,7 @@ class InMemoryInvocationRepository {
 
   async listApprovedPending(): Promise<CapabilityInvocationRecord[]> {
     return [...this.records.values()].filter(
-      (record) => record.status === 'pending' && record.approvalStatus === 'approved',
+      (record) => record.status === 'pending' && record.approvalDecision === 'approved',
     );
   }
 
@@ -634,17 +634,17 @@ class InMemoryInvocationRepository {
     if (current.approvalInputHash !== input.inputHash) {
       throw new Error('approval_input_hash_mismatch');
     }
-    if (current.approvalStatus === input.decision) {
+    if (current.approvalDecision === input.decision) {
       return { invocation: current, transitioned: false };
     }
-    if (current.approvalStatus !== 'pending') {
+    if (current.approvalDecision !== null) {
       throw new Error('approval_decision_immutable');
     }
     const rejected = input.decision === 'rejected';
     const updated: CapabilityInvocationRecord = {
       ...current,
       status: rejected ? 'failed' : 'pending',
-      approvalStatus: input.decision,
+      approvalDecision: input.decision,
       approvalDecidedByUserId: input.userId,
       approvalDecisionReason: input.reason,
       approvalDecidedAt: input.decidedAt,

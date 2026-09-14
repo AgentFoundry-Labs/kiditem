@@ -27,6 +27,10 @@ import {
   ChannelSkuAvailabilityListResponseSchema,
   type ChannelSkuAvailabilityItem,
 } from "@kiditem/shared/channel-sku-availability";
+import {
+  PRODUCT_ADVERTISING_LABELS,
+  deriveProductAdvertisingStatus,
+} from "@kiditem/shared/product-operations";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
@@ -314,8 +318,10 @@ function GradeCardPanel({
   });
   const products = (adsHub?.products ?? []).filter((product) => product.grade === cfg.grade);
 
-  const adProducts = products.filter((p) => p.adTier);
-  const noAdProducts = products.filter((p) => !p.adTier);
+  // Whether a product is advertising comes from its measured hub spend — the
+  // same derivation Product Hub uses — not from a stored operator tier.
+  const adProducts = products.filter((p) => deriveProductAdvertisingStatus(p.metrics.spend) === "active");
+  const noAdProducts = products.filter((p) => deriveProductAdvertisingStatus(p.metrics.spend) !== "active");
   const filteredProducts = (filter === "ad" ? adProducts : filter === "noad" ? noAdProducts : products)
     .filter((p) => !search || adsProductName(p).toLowerCase().includes(search.toLowerCase()));
   const filteredActions = filter === "noad"
@@ -351,7 +357,7 @@ function GradeCardPanel({
   };
 
   return (
-    <div className={`rounded-2xl overflow-hidden border-2 ${cfg.border} flex flex-col shadow-sm`}>
+    <div data-testid={`strategy-grade-card-${cfg.grade}`} className={`rounded-2xl overflow-hidden border-2 ${cfg.border} flex flex-col shadow-sm`}>
       <div className={`${cfg.headerBg} px-4 py-3`}>
         <div className="flex items-center gap-2.5 mb-2">
           <span className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-xl font-black text-white">{cfg.grade}</span>
@@ -367,7 +373,7 @@ function GradeCardPanel({
         <div className="text-xl font-black text-white tabular-nums mb-1.5">{formatNumber(gradeBudget)}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
         <div className="flex flex-wrap items-center gap-1">
           {urgentCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentCount}</span>}
-          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">광고중 {adProducts.length}</span>
+          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">{PRODUCT_ADVERTISING_LABELS.active} {adProducts.length}</span>
           <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">추천 {gradeActions.length}</span>
         </div>
       </div>
@@ -413,8 +419,8 @@ function GradeCardPanel({
         <div className="flex rounded-md p-0.5" style={{ background: "var(--surface-sunken)" }}>
           {([
             { key: "all" as const, label: `전체 ${products.length}` },
-            { key: "ad" as const, label: `광고중 ${adProducts.length}` },
-            { key: "noad" as const, label: `미광고 ${noAdProducts.length}` },
+            { key: "ad" as const, label: `${PRODUCT_ADVERTISING_LABELS.active} ${adProducts.length}` },
+            { key: "noad" as const, label: `${PRODUCT_ADVERTISING_LABELS.inactive} ${noAdProducts.length}` },
           ]).map((item) => (
             <button
               key={item.key}
@@ -462,6 +468,7 @@ function GradeCardPanel({
                 );
               }
               const { product: p } = row;
+              const advertising = deriveProductAdvertisingStatus(p.metrics.spend);
               return (
                 <div key={p.listingId} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
@@ -472,15 +479,14 @@ function GradeCardPanel({
                       </div>
                     )}
                   </div>
-                  {p.adTier ? (
-                    <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: `${cfg.color}15`, color: cfg.color }}>
-                      광고중 {p.adTier}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)" }}>
-                      추천 없음
-                    </span>
-                  )}
+                  <span
+                    className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold"
+                    style={advertising === "active"
+                      ? { background: `${cfg.color}15`, color: cfg.color }
+                      : { background: "var(--surface-sunken)", color: "var(--text-tertiary)" }}
+                  >
+                    {PRODUCT_ADVERTISING_LABELS[advertising]}
+                  </span>
                 </div>
               );
             })}

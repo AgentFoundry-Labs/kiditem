@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
+import { deriveProductAdvertisingStatus } from '@kiditem/shared/product-operations';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../domain/model/strategy-types';
 import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
 import { channelAccountSalesCosts } from '../../../channels/domain/channel-account-sales-costs';
@@ -78,7 +79,9 @@ export class AdGradeRulesService {
       const recs: Array<{ rule: string; reason: string; priority: Priority }> = [];
 
       // ═══ 공통 긴급 규칙 ═══
-      if (sellableStock === 0 && listing.masterProduct.adTier && spend > 0) {
+      // "광고ON" is the measured spend, derived the same way Product Hub derives
+      // advertising status; no stored operator tier decides it.
+      if (sellableStock === 0 && deriveProductAdvertisingStatus(spend) === 'active') {
         recs.push({
           rule: '긴급: 재고0 광고ON',
           reason: '재고 없음 — 광고 즉시 중단. 재입고 확인 후 재개',
@@ -121,7 +124,7 @@ export class AdGradeRulesService {
         } else if (roas >= 300 && ctr >= 0.3) {
           recs.push({
             rule: 'A-2 키워드 확장',
-            reason: `ROAS ${roas}% + CTR ${ctr}% — ${listing.masterProduct.adTier ?? '없음'}→1차 승격. 매출최적화 키워드를 수동 캠페인에 추가`,
+            reason: `ROAS ${roas}% + CTR ${ctr}% — 매출최적화 키워드를 수동 캠페인에 추가`,
             priority: 'high',
           });
         } else if (roas < 200 && spend > 3000) {
