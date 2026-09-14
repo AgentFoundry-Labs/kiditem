@@ -226,6 +226,27 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       await expectReadiness(productId, { sellpia: true, advertising: true }, 'READY');
     });
 
+    it('publishes at the month end when advertising holds the first day of the month', async () => {
+      const { skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Noon KST on 2026-09-02: advertising sees spend on 2026-08-31 and none on 2026-09-01, so it confirms 2026-08-31.
+      const advertisingEnd = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-02T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-01',
+      });
+      const sellpiaEnd = await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-02T03:00:00.000Z' });
+      expect([sellpiaEnd, advertisingEnd]).toEqual(['2026-09-01', '2026-08-31']);
+
+      await expect(recalculateAt('2026-09-02T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-08-31',
+        classifiedProductCount: 1,
+      });
+    });
+
     it('refuses without writing when Sellpia runs past the advertising end and no generation ends on it', async () => {
       const { skuCode } = await seedSellingProduct(prisma);
       await seedFormulaState(prisma);
