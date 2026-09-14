@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
+  isSellpiaInventoryLastAttemptStopped,
   SellpiaInventoryGenerationSchema,
   SellpiaSyncScopeSchema,
   type SellpiaInventoryFreshnessStatus,
@@ -212,7 +213,7 @@ export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: bo
         ? freshness.lastAttempt?.errorMessage ?? null
         : null,
       sourceBindingConfirmed: freshness.sourceBinding.confirmed,
-      stopped: freshness.status !== 'syncing' && freshness.lastAttempt?.status === 'cancelled',
+      stopped: isSellpiaInventoryLastAttemptStopped(freshness),
     }
     : null;
 

@@ -105,11 +105,10 @@ function freshness(
   };
 }
 
-/** How the owner records a stopped attempt: cancelled, with no failure code or message. */
+/** How the owner publishes a stopped attempt: ended after the verified snapshot, with no error facts. */
 function stoppedLastAttempt() {
   return {
     attemptedAt: '2026-09-14T01:00:00.000Z',
-    status: 'cancelled',
     trigger: 'manual_request',
     scope: 'inventory',
     errorCode: null,

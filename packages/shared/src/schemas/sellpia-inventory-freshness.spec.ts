@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ErrorCodes } from '../errors/codes';
 import {
   deriveSellpiaInventoryFreshness,
+  isSellpiaInventoryLastAttemptStopped,
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
   SELLPIA_INVENTORY_FRESHNESS_STATUSES,
   SELLPIA_INVENTORY_REFRESH_REASONS,
@@ -260,6 +261,63 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         errorMessage: 'Network request failed',
       },
     })).toThrow();
+  });
+});
+
+describe('isSellpiaInventoryLastAttemptStopped', () => {
+  // createFreshnessView() verified its snapshot at 00:00:01.
+  const lastAttempt = (patch: Record<string, unknown> = {}) => ({
+    attemptedAt: '2026-07-15T00:05:00.000Z',
+    trigger: 'manual_request',
+    scope: 'inventory',
+    errorCode: null,
+    errorMessage: null,
+    ...patch,
+  });
+  const view = (patch: Record<string, unknown>) => SellpiaInventoryFreshnessViewSchema.parse({
+    ...createFreshnessView(),
+    status: 'refresh_required',
+    requestedGeneration: '5',
+    ...patch,
+  });
+
+  it('reads an attempt that ended after the verified snapshot without error facts as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: lastAttempt() }))).toBe(true);
+  });
+
+  it('reads a stop before any verified snapshot as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastVerifiedAt: null,
+      expiresAt: null,
+      verifiedGeneration: '0',
+      lastAttempt: lastAttempt(),
+    }))).toBe(true);
+  });
+
+  it('never reads a completion as stopped, even once its snapshot needs a refresh', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({ attemptedAt: '2026-07-15T00:00:01.000Z' }),
+    }))).toBe(false);
+  });
+
+  it('never reads an attempt with an error fact as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'Network request failed',
+      }),
+    }))).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({ errorMessage: 'Sellpia inventory collection attempt expired.' }),
+    }))).toBe(false);
+  });
+
+  it('reads no stop outside refresh_required or without a last attempt', () => {
+    const stopped = view({ lastAttempt: lastAttempt() });
+    for (const status of ['fresh', 'syncing', 'failed'] as const) {
+      expect(isSellpiaInventoryLastAttemptStopped({ ...stopped, status })).toBe(false);
+    }
+    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: null }))).toBe(false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isSellpiaInventoryLastAttemptStopped } from '@kiditem/shared/sellpia-inventory-freshness';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -393,6 +394,41 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       errorCode: null,
       errorMessage: null,
     });
+  });
+
+  it('publishes last attempt facts that tell an operator stop from a completion and a failure', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+
+    const completed = await begin('stop-facts-complete');
+    await complete(completed, snapshot(5)).expect(201);
+    const afterCompletion = await readFreshness();
+    expect(afterCompletion.lastAttempt).toMatchObject({ errorCode: null, errorMessage: null });
+    // A completion verifies the snapshot at the attempt's own instant.
+    expect(afterCompletion.lastAttempt?.attemptedAt).toBe(afterCompletion.lastVerifiedAt);
+    expect(isSellpiaInventoryLastAttemptStopped(afterCompletion)).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped({ ...afterCompletion, status: 'refresh_required' }))
+      .toBe(false);
+
+    await cancel((await begin('stop-facts-stop')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      lastVerifiedAt: afterCompletion.lastVerifiedAt,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    const stoppedAt = Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing');
+    expect(stoppedAt).toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+
+    await fail(await begin('stop-facts-failure'), 'sellpia_network_failed').expect(201);
+    const afterFailure = await readFreshness();
+    expect(afterFailure.lastAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
+    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped({ ...afterFailure, status: 'refresh_required' }))
+      .toBe(false);
   });
 
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {

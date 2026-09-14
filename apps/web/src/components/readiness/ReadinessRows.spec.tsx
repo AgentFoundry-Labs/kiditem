@@ -437,7 +437,6 @@ describe('readiness Sellpia row', () => {
       ...sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z'),
       lastAttempt: {
         attemptedAt: '2026-09-06T01:00:00.000Z',
-        status: 'cancelled',
         trigger: 'manual_request',
         scope: 'inventory',
         errorCode: null,
