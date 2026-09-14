@@ -23,7 +23,7 @@ import {
   SELLPIA_INVENTORY_SOURCE,
   type DashboardSourceName,
 } from '../../domain/evidence';
-import { businessDateText } from '../../domain/period/dashboard-period';
+import { businessDateText, resolveDashboardPeriod } from '../../domain/period/dashboard-period';
 import type {
   DashboardInventorySummary,
   DashboardMetricBasisMap,
@@ -47,6 +47,11 @@ export class DashboardInventoryService {
     organizationId: string,
   ): Promise<DashboardInventorySummary> {
     try {
+      // The per-listing warnings count over the anchor's month clipped to
+      // closed KST days (ADR-0001): the dates an Orders collection and the ad
+      // sweep can have covered, and the window finance's profit screens
+      // evaluate. On the 1st it is empty.
+      const perListingPeriod = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_clipped').month;
       const [
         abcFacts,
         unreadAlerts,
@@ -58,11 +63,7 @@ export class DashboardInventoryService {
         this.repository.readProductAbcFacts(organizationId),
         this.repository.findUnreadAlerts(organizationId, 10),
         this.repository.countActiveProducts(organizationId),
-        this.repository.fetchPerListingMetrics(
-          organizationId,
-          ctx.monthStart,
-          ctx.monthEnd,
-        ),
+        this.repository.fetchPerListingMetrics(organizationId, perListingPeriod),
         this.repository.readInventoryAvailabilityFacts(organizationId),
         this.repository.countLowCtrThumbnails(organizationId),
       ]);
@@ -208,11 +209,11 @@ export class DashboardInventoryService {
    * period aggregation — and these values genuinely have no included/missing
    * date partition to publish. A warning count is a count of products
    * *currently* in a warning state: a missing day does not remove a day's
-   * worth of it, it silently changes which products cross the threshold. The
-   * only period-shaped thing available would be the selected month window,
-   * and publishing that as `includedDates` would assert continuous coverage
-   * this read model never verified — exactly the implied-continuous-range the
-   * amendment forbids.
+   * worth of it, it silently changes which products cross the threshold. So a
+   * count read over a window is published whole or not at all: publishing the
+   * dates it did cover as `includedDates` would present a different count as
+   * a partial one — exactly the implied-continuous-range the amendment
+   * forbids.
    *
    * A key is never omitted. An omitted key and a value with no evidence look
    * identical to a reader, so an absent basis is published as `unavailable`
@@ -271,18 +272,23 @@ export class DashboardInventoryService {
       withheldCount: abcFacts.withheldContributionProductCount,
     });
 
-    // Per-listing profit warnings read order rows for revenue and settlement
-    // cost, and channel listing daily snapshots for listing-level ad spend —
-    // not Advertising's account KPI rows, so not `coupang_ads`.
+    // The three per-listing profit warnings count listings over the anchor's
+    // month clipped to closed KST days, from collected order lines, their
+    // recipe and channel-account costs, and the campaign sweep's target-day
+    // ledger. Each count is a measurement only when both of these hold:
     //
-    // A listing whose advertising evidence had a hole is withheld rather than
-    // counted from a partial ad sum, so these three counts can be drawn from
-    // fewer listings than the month actually sold. That is a real number over
-    // a smaller population, which the amendment displays with partial status
-    // — but only while some listing survived. A window whose every listing was
-    // withheld has an empty computable subset: its zero is not a counted zero,
-    // so the value is unavailable and the cards blank rather than claiming no
-    // product is loss-making.
+    // - The Orders collection covered every date of that window. Short of it
+    //   the rows are only the orders collected so far: reading no row is not
+    //   "no product is loss-making", and reading some is not a complete count.
+    //   An empty window, on the 1st, covers no date. Either way the value is
+    //   unavailable, whether rows exist or not.
+    // - Some listing survived. A listing with an unmeasured input — an
+    //   advertising date the sweep never measured, or a line with no recorded
+    //   cost — is withheld rather than counted from a partial sum, so a count
+    //   can be drawn from fewer listings than the window sold. That is a real
+    //   number over a smaller population, displayed with partial status. A
+    //   window whose every listing was withheld has an empty computable
+    //   subset: its zero is not a counted zero either.
     const measuredListingCount = perListingMetrics.rows.length;
     const withheldListingCount = perListingMetrics.withheldListings;
     const perListing = snapshotEvidence({
@@ -290,7 +296,8 @@ export class DashboardInventoryService {
       requiredAsOf: readAsOf,
       observedAt: ctx.now,
       sources: [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
-      measured: measuredListingCount > 0 || withheldListingCount === 0,
+      measured: perListingMetrics.orderWindowComplete
+        && (measuredListingCount > 0 || withheldListingCount === 0),
       withheldCount: withheldListingCount,
     });
     const inventoryAsOf = inventoryFacts.snapshot.verifiedAt

@@ -510,7 +510,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       const partial = await buildPerListingMetricsCoverage(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED', false),
       );
-      expect(partial).toEqual({ metrics: [], withheldListings: 2 });
+      expect(partial).toEqual({ metrics: [], withheldListings: 2, orderWindowComplete: true });
 
       const measured = await buildPerListingMetrics(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'),
@@ -633,7 +633,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
         // account-wide miss must show up there rather than as a counted zero.
         await expect(buildPerListingMetricsCoverage(
           prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('MISSING'),
-        )).resolves.toEqual({ metrics: [], withheldListings: 1 });
+        )).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
       });
 
       it('does not read an empty listing calendar as a measured zero once the source published', async () => {
@@ -743,7 +743,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       });
       await expect(buildPerListingMetricsCoverage(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'),
-      )).resolves.toEqual({ metrics: [], withheldListings: 1 });
+      )).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
     });
 
     it('leaves the profit rate unavailable for a listing that earned no revenue', async () => {

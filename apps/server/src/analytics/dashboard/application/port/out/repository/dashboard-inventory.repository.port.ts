@@ -1,5 +1,6 @@
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type { ProductAbcDisplayStatus, ProductAbcFormulaPayload } from '@kiditem/shared/product-abc';
+import type { ResolvedDashboardPeriod } from '../../../../domain/period/dashboard-period';
 
 export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
   'DashboardInventoryRepositoryPort',
@@ -96,15 +97,22 @@ export interface DashboardPerListingMetrics {
 }
 
 /**
- * The measured listings together with the size of the population they were
- * drawn from that could not be measured. The counts and their evidence come
- * from one read, so they travel as one result — the same reason
- * `AbcStatusCounts` carries its own `evaluatedAsOf`.
+ * The measured listings, the size of the population they were drawn from that
+ * could not be measured, and whether the Orders collection covered the window
+ * that population sold in. The counts and their evidence come from one read,
+ * so they travel as one result — the same reason `AbcStatusCounts` carries its
+ * own `evaluatedAsOf`.
  */
 export interface DashboardPerListingMetricsResult {
   rows: DashboardPerListingMetrics[];
-  /** Listings withheld for incomplete advertising coverage. */
+  /** Listings withheld because a profit input was not measured. */
   withheldListings: number;
+  /**
+   * Whether a completed Orders collection covered every business date of the
+   * window. Without it `rows` and `withheldListings` describe only the orders
+   * collected so far, so no count over them is a measurement.
+   */
+  orderWindowComplete: boolean;
 }
 
 export interface DashboardInventoryAvailabilityFacts {
@@ -124,8 +132,7 @@ export interface DashboardInventoryRepositoryPort {
   countActiveProducts(organizationId: string): Promise<number>;
   fetchPerListingMetrics(
     organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<DashboardPerListingMetricsResult>;
   readInventoryAvailabilityFacts(
     organizationId: string,

@@ -39,6 +39,7 @@ import type {
   DashboardPerListingMetricsResult,
   AGradeReviewRow,
 } from "../../../application/port/out/repository/dashboard-inventory.repository.port";
+import type { ResolvedDashboardPeriod } from "../../../domain/period/dashboard-period";
 
 @Injectable()
 export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRepositoryPort {
@@ -180,33 +181,34 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
 
   async fetchPerListingMetrics(
     organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<DashboardPerListingMetricsResult> {
     // Which listings the ad source actually covered is the helper's rule
-    // (ADR-0006); this adapter only carries its answer, including how many
-    // listings it withheld, across the port. Whether advertising applies to
-    // the organization at all, and which dates the sweep measured, is read
-    // from the advertising ledger for the same window.
-    const { metrics, withheldListings } = await this.prisma.$transaction(
+    // (ADR-0006); this adapter only carries its answer across the port: the
+    // measured rows, how many listings it withheld, and whether the Orders
+    // collection covered the window. Whether advertising applies to the
+    // organization at all, and which dates the sweep measured, is read from
+    // the advertising ledger for the same resolved window.
+    const { from, to } = period.queryWindow;
+    const { metrics, withheldListings, orderWindowComplete } = await this.prisma.$transaction(
       async (tx) => {
         const accountAdEvidence = await readAdEvidenceFromLedger(
           tx,
           organizationId,
-          monthStart,
-          monthEnd,
+          from,
+          to,
         );
         return buildPerListingMetricsCoverage(
           tx,
           organizationId,
-          monthStart,
-          monthEnd,
+          from,
+          to,
           accountAdEvidence,
         );
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return { rows: metrics, withheldListings };
+    return { rows: metrics, withheldListings, orderWindowComplete };
   }
 
   async readInventoryAvailabilityFacts(organizationId: string) {
