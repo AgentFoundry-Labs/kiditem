@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import {
   cancelWingTrafficSource,
@@ -10,6 +11,7 @@ import {
 } from '../lib/wing-traffic-source-owner';
 import { resolveWingTrafficCollectionRange } from '../hooks/use-wing-traffic-collection';
 import { WingDailyTrafficCollection } from './WingDailyTrafficCollection';
+import type { AdTrafficSourceAttempt, AdTrafficSourceStatus } from '@kiditem/shared/advertising';
 
 vi.mock('../lib/wing-traffic-source-owner', async () => {
   const actual = await vi.importActual<typeof import('../lib/wing-traffic-source-owner')>(
@@ -23,12 +25,16 @@ vi.mock('../lib/wing-traffic-source-owner', async () => {
   };
 });
 
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+}));
+
 const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 
 function attempt(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED',
-  overrides: Record<string, unknown> = {},
-) {
+  overrides: Partial<AdTrafficSourceAttempt> = {},
+): AdTrafficSourceAttempt {
   return {
     attemptId: '11111111-1111-4111-8111-111111111111',
     channelAccountId: ACCOUNT_ID,
@@ -60,13 +66,13 @@ function attempt(
 }
 
 function source(
-  latestAttempt: ReturnType<typeof attempt> | null,
-  latestComplete: ReturnType<typeof attempt> | null = null,
-) {
+  latestAttempt: AdTrafficSourceAttempt | null,
+  latestComplete: AdTrafficSourceAttempt | null = null,
+): AdTrafficSourceStatus {
   return {
     channelAccountId: ACCOUNT_ID,
     knownThrough: '2026-09-07',
-    status: latestComplete ? 'READY' : 'MISSING',
+    ready: latestComplete !== null,
     latestAttempt,
     latestComplete,
     actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
@@ -172,7 +178,11 @@ describe('WingDailyTrafficCollection', () => {
 
   it('starts an explicit requested range and discloses the owner range while running', async () => {
     const completed = attempt('COMPLETE');
-    vi.mocked(collectWingTrafficSource).mockResolvedValue(completed as never);
+    vi.mocked(collectWingTrafficSource).mockResolvedValue({
+      attempt: completed,
+      release: 'terminal',
+      extensionReply: null,
+    } as never);
     const view = renderControl();
     await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
 
@@ -183,6 +193,65 @@ describe('WingDailyTrafficCollection', () => {
       endDate: '2026-09-07',
       url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-01&end_date=2026-09-07',
     });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      'Wing 일별 트래픽 수집 완료 · 2026-09-01 ~ 2026-09-07',
+    ));
+    view.unmount();
+  });
+
+  it('releases the button for an unresponsive extension, then shows its late failure until the attempt progresses', async () => {
+    const running = attempt('RUNNING', { receiptCount: 0 });
+    let answer!: (reply: { ok: false; message: string }) => void;
+    const extensionReply = new Promise<{ ok: false; message: string }>((resolve) => {
+      answer = resolve;
+    });
+    vi.mocked(collectWingTrafficSource).mockImplementation(async () => {
+      vi.mocked(readWingTrafficSource).mockResolvedValue(source(running));
+      return { attempt: running, release: 'extension-unresponsive', extensionReply } as never;
+    });
+    const view = renderControl();
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('wing-traffic-collect'));
+
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-extension-notice'))
+      .toHaveTextContent('확장이 응답하지 않습니다'));
+    expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled();
+    expect(screen.getByTestId('wing-traffic-collect')).toHaveTextContent('이어서 수집');
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('확장이 응답하지 않습니다'));
+
+    answer({ ok: false, message: 'Wing 로그인이 필요합니다.' });
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-extension-notice'))
+      .toHaveTextContent('Wing 로그인이 필요합니다.'));
+    expect(toast.error).toHaveBeenCalledWith('Wing 로그인이 필요합니다.');
+
+    vi.mocked(readWingTrafficSource).mockResolvedValue(source({ ...running, receiptCount: 1 }));
+    const refresh = screen.getByRole('button', { name: 'Wing 트래픽 상태 새로고침' });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    fireEvent.click(refresh);
+    await waitFor(() => expect(screen.queryByTestId('wing-traffic-extension-notice')).not.toBeInTheDocument());
+    view.unmount();
+  });
+
+  it('shows an extension failure reply instead of swallowing it', async () => {
+    const running = attempt('RUNNING', { receiptCount: 0 });
+    vi.mocked(collectWingTrafficSource).mockImplementation(async () => {
+      vi.mocked(readWingTrafficSource).mockResolvedValue(source(running));
+      return {
+        attempt: running,
+        release: 'extension-replied',
+        extensionReply: Promise.resolve({ ok: false, message: '다른 Wing 트래픽 수집이 진행 중입니다.' }),
+      } as never;
+    });
+    const view = renderControl();
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId('wing-traffic-collect'));
+
+    await waitFor(() => expect(screen.getByTestId('wing-traffic-extension-notice'))
+      .toHaveTextContent('다른 Wing 트래픽 수집이 진행 중입니다.'));
+    expect(toast.error).toHaveBeenCalledWith('다른 Wing 트래픽 수집이 진행 중입니다.');
+    expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled();
     view.unmount();
   });
 

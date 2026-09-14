@@ -170,11 +170,17 @@ describe('Wing traffic source owner bridge', () => {
     });
 
     expect(sendToExtension).toHaveBeenCalledWith('wing-extension', { action: 'ping' });
+    // Only attempt creation gets a deadline; a hung POST must not pin the
+    // dashboard button, and status reads keep the client read default.
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/ads/traffic/attempts',
       expect.objectContaining({ startDate: '2026-09-01', endDate: '2026-09-07' }),
-      { headers: { 'Idempotency-Key': '33333333-3333-4333-8333-333333333333' } },
+      {
+        headers: { 'Idempotency-Key': '33333333-3333-4333-8333-333333333333' },
+        timeoutMs: 30_000,
+      },
     );
+    for (const call of vi.mocked(apiClient.get).mock.calls) expect(call).toHaveLength(1);
   });
 
   it('re-checks an admitted running range before dispatching after a create race', async () => {
@@ -226,5 +232,136 @@ describe('Wing traffic source owner bridge', () => {
       expect.any(Number),
     );
     expect(transferExtensionAuthTo).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Wing traffic dispatch release', () => {
+  const request = {
+    startDate: '2026-09-01',
+    endDate: '2026-09-07',
+    url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis',
+  };
+  const created = { ...attempt('RUNNING'), receiptCount: 0 };
+  const neverAnswered = () => new Promise<never>(() => undefined);
+
+  function dispatchReplies(reply: () => Promise<unknown>) {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+      if ((message as { action?: string }).action === 'ping') {
+        return {
+          success: true,
+          capabilities: { wingTrafficSourceOwnerV1: true, wingTrafficSourceOwnerV2: true },
+        };
+      }
+      return reply();
+    });
+  }
+
+  function track(promise: ReturnType<typeof collectWingTrafficSource>) {
+    const seen: { outcome?: Awaited<typeof promise>; error?: unknown } = {};
+    promise.then((outcome) => { seen.outcome = outcome; }, (error) => { seen.error = error; });
+    return seen;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.post).mockReset().mockResolvedValue(created);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('releases on the terminal owner attempt while the extension dispatch is still unanswered', async () => {
+    const expired = {
+      ...attempt('FAILED'),
+      errorCode: 'ATTEMPT_EXPIRED',
+      errorMessage: 'Wing traffic collection expired.',
+    };
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValueOnce(created)
+      .mockResolvedValue(expired);
+    dispatchReplies(neverAnswered);
+
+    const seen = track(collectWingTrafficSource(request));
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(seen.error).toBeUndefined();
+    expect(seen.outcome).toMatchObject({
+      release: 'terminal',
+      attempt: { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' },
+    });
+  });
+
+  it('reports an unresponsive extension after 30 seconds without attempt progress and leaves the attempt running', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValue(created);
+    dispatchReplies(neverAnswered);
+
+    const seen = track(collectWingTrafficSource(request));
+    await vi.advanceTimersByTimeAsync(28_000);
+    expect(seen.outcome).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(seen.error).toBeUndefined();
+    expect(seen.outcome).toMatchObject({
+      release: 'extension-unresponsive',
+      attempt: { attemptId: created.attemptId, state: 'RUNNING' },
+    });
+    // The owner attempt is not failed on the extension's behalf.
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the request pending past 30 seconds once the attempt shows extension progress', async () => {
+    const progressed = { ...created, receiptCount: 1 };
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValueOnce(created)
+      .mockResolvedValue(progressed);
+    dispatchReplies(neverAnswered);
+
+    const seen = track(collectWingTrafficSource(request));
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(seen.outcome).toBeUndefined();
+
+    vi.mocked(apiClient.get).mockResolvedValue(attempt('COMPLETE'));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(seen.outcome).toMatchObject({ release: 'terminal', attempt: { state: 'COMPLETE' } });
+  });
+
+  it.each([
+    [
+      'a {success:false} reply',
+      () => Promise.resolve({
+        success: false,
+        attemptId: created.attemptId,
+        terminalState: 'RUNNING',
+        continuationRequired: false,
+        error: '다른 Wing 트래픽 수집이 진행 중입니다.',
+      }),
+      '다른 Wing 트래픽 수집이 진행 중입니다.',
+    ],
+    [
+      'a failed dispatch',
+      () => Promise.reject(new Error('The message port closed before a response was received.')),
+      'The message port closed before a response was received.',
+    ],
+  ])('surfaces %s from the extension while the attempt keeps running', async (_label, reply, message) => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(source(attempt('FAILED')))
+      .mockResolvedValue(created);
+    dispatchReplies(reply);
+
+    const seen = track(collectWingTrafficSource(request));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(seen.error).toBeUndefined();
+    expect(seen.outcome).toMatchObject({
+      release: 'extension-replied',
+      attempt: { state: 'RUNNING' },
+    });
+    await expect(seen.outcome?.extensionReply).resolves.toEqual({ ok: false, message });
   });
 });

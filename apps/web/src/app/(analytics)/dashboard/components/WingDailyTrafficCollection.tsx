@@ -201,6 +201,12 @@ export function WingDailyTrafficCollection({
           {collection.actionError}
         </p>
       )}
+      {collection.extensionNotice && (
+        <p className="mt-2 text-[13px] text-amber-700" data-testid="wing-traffic-extension-notice">
+          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+          {collection.extensionNotice}
+        </p>
+      )}
       {collection.source.isError && !collection.actionError && (
         <p className="mt-2 text-[13px] text-red-600">Wing 수집 상태를 불러오지 못했습니다.</p>
       )}

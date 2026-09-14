@@ -8,6 +8,7 @@ import {
   cancelWingTrafficSource,
   collectWingTrafficSource,
   readWingTrafficSource,
+  wingTrafficAttemptProgress,
   WingTrafficRangeMismatchError,
 } from '../lib/wing-traffic-source-owner';
 import type {
@@ -17,6 +18,10 @@ import type {
 } from '@kiditem/shared/advertising';
 import { closedMonthRangeFromCutoff, shiftBusinessDateKey } from '@kiditem/shared/common';
 
+const EXTENSION_UNRESPONSIVE_MESSAGE =
+  '확장이 응답하지 않습니다. 확장 상태를 확인한 뒤 이어서 수집해 주세요.';
+const STILL_RUNNING_MESSAGE =
+  'Wing 일별 트래픽 수집이 아직 진행 중입니다. 같은 범위로 이어받을 수 있습니다.';
 
 export type DashboardPeriod = 'month' | 'week' | 'day' | 'custom';
 
@@ -25,6 +30,20 @@ export type WingTrafficCollectionRange = Readonly<{
   endDate: string;
   source: 'dashboard-period' | 'selected-custom-range' | 'default-seven-days';
 }>;
+
+/**
+ * An extension notice speaks for one RUNNING attempt at one progress point.
+ * It stops rendering once the owner records progress or settles the attempt.
+ */
+type ExtensionNotice = Readonly<{
+  attemptId: string;
+  progress: string;
+  message: string;
+}>;
+
+function extensionNoticeFor(attempt: AdTrafficSourceAttempt, message: string): ExtensionNotice {
+  return { attemptId: attempt.attemptId, progress: wingTrafficAttemptProgress(attempt), message };
+}
 
 export const wingTrafficSourceQueryKey = [
   ...queryKeys.dashboard.all,
@@ -113,6 +132,9 @@ export function useWingTrafficCollection({
   const [actionPending, setActionPending] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [extensionNotice, setExtensionNotice] = useState<ExtensionNotice | null>(null);
+  // A newer request or a cancel supersedes announcements from an older dispatch.
+  const requestGeneration = useRef(0);
   const observedCompleteId = useRef<string | null | undefined>(undefined);
   const source = useQuery<AdTrafficSourceStatus>({
     queryKey: [...wingTrafficSourceQueryKey, channelAccountId ?? 'primary'],
@@ -157,12 +179,31 @@ export function useWingTrafficCollection({
   const activeRangeMatches = activeRange && range
     ? sameRange(activeRange, range)
     : false;
+  const visibleExtensionNotice = extensionNotice
+    && latestAttempt?.state === 'RUNNING'
+    && latestAttempt.attemptId === extensionNotice.attemptId
+    && wingTrafficAttemptProgress(latestAttempt) === extensionNotice.progress
+    ? extensionNotice.message
+    : null;
   const request: AdTrafficSourceBegin | null = range ? {
     ...(channelAccountId ? { channelAccountId } : {}),
     startDate: range.startDate,
     endDate: range.endDate,
     url: wingTrafficTargetUrl(range),
   } : null;
+
+  const announceAttempt = useCallback(async (attempt: AdTrafficSourceAttempt) => {
+    if (attempt.state === 'COMPLETE') {
+      toast.success(`Wing 일별 트래픽 수집 완료 · ${formatWingTrafficRange(attempt.plan)}`);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    } else if (attempt.state === 'FAILED') {
+      const message = attempt.errorMessage ?? 'Wing 일별 트래픽 수집에 실패했습니다.';
+      setActionError(message);
+      toast.warning(message);
+    } else {
+      toast.info(STILL_RUNNING_MESSAGE);
+    }
+  }, [queryClient]);
 
   const collect = useCallback(async (): Promise<AdTrafficSourceAttempt | null> => {
     if (actionPending || cancelPending) return null;
@@ -181,36 +222,69 @@ export function useWingTrafficCollection({
     }
 
     setActionError(null);
+    setExtensionNotice(null);
     setActionPending(true);
+    const generation = ++requestGeneration.current;
     try {
-      const attempt = await collectWingTrafficSource(request);
+      const outcome = await collectWingTrafficSource(request);
       await source.refetch();
-      if (attempt.state === 'COMPLETE') {
-        toast.success(`Wing 일별 트래픽 수집 완료 · ${formatWingTrafficRange(attempt.plan)}`);
-        await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      } else if (attempt.state === 'FAILED') {
-        const message = attempt.errorMessage ?? 'Wing 일별 트래픽 수집에 실패했습니다.';
-        setActionError(message);
-        toast.warning(message);
+      if (outcome.release === 'terminal') {
+        await announceAttempt(outcome.attempt);
+      } else if (outcome.release === 'extension-replied') {
+        const reply = await outcome.extensionReply;
+        if (reply?.ok === false) {
+          setExtensionNotice(extensionNoticeFor(outcome.attempt, reply.message));
+          toast.error(reply.message);
+        } else {
+          toast.info(STILL_RUNNING_MESSAGE);
+        }
       } else {
-        toast.info('Wing 일별 트래픽 수집이 아직 진행 중입니다. 같은 범위로 이어받을 수 있습니다.');
+        // No extension progress yet. The attempt stays RUNNING and resumable;
+        // the extension's eventual answer is still announced once.
+        setExtensionNotice(extensionNoticeFor(outcome.attempt, EXTENSION_UNRESPONSIVE_MESSAGE));
+        toast.warning(EXTENSION_UNRESPONSIVE_MESSAGE);
+        void outcome.extensionReply?.then(async (reply) => {
+          if (requestGeneration.current !== generation) return;
+          const current = (await source.refetch()).data?.latestAttempt;
+          if (requestGeneration.current !== generation) return;
+          if (current?.attemptId !== outcome.attempt.attemptId) return;
+          if (current.state !== 'RUNNING') {
+            await announceAttempt(current);
+          } else if (!reply.ok) {
+            setExtensionNotice(extensionNoticeFor(current, reply.message));
+            toast.error(reply.message);
+          }
+        });
       }
-      return attempt;
+      return outcome.attempt;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Wing 일별 트래픽 수집 실패';
       setActionError(message);
       if (!(error instanceof WingTrafficRangeMismatchError)) toast.error(message);
+      // A timed-out or interrupted request may still have admitted an attempt.
+      void source.refetch();
       return null;
     } finally {
       setActionPending(false);
     }
-  }, [actionPending, cancelPending, knownThrough, period, queryClient, range, rangeReady, request, source]);
+  }, [
+    actionPending,
+    announceAttempt,
+    cancelPending,
+    knownThrough,
+    period,
+    range,
+    rangeReady,
+    request,
+    source,
+  ]);
 
   const cancel = useCallback(async (): Promise<AdTrafficSourceAttempt | null> => {
     if (cancelPending || actionPending) return null;
     const active = source.data?.latestAttempt;
     if (!active || active.state !== 'RUNNING') return null;
 
+    requestGeneration.current += 1;
     setActionError(null);
     setCancelPending(true);
     try {
@@ -243,6 +317,7 @@ export function useWingTrafficCollection({
     actionPending,
     cancelPending,
     actionError,
+    extensionNotice: visibleExtensionNotice,
     collect,
     cancel,
   };
