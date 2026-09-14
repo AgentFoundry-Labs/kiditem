@@ -164,6 +164,15 @@ export class SourcingLiveCommerceSourceAttemptService {
     });
   }
 
+  /** Operator stop without the attempt token; only a browser live-commerce attempt of this organization. */
+  async cancelBrowser(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SourcingBrowserSourceAttempt> {
+    await this.requireBrowserAttempt(input.organizationId, input.attemptId);
+    return this.attempts.cancelAttempt(input);
+  }
+
   private async requireBrowserAttempt(
     organizationId: string,
     attemptId: string,

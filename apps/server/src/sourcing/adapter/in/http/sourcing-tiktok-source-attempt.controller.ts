@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -88,6 +89,15 @@ export class SourcingTiktokSourceAttemptController {
       code: typeof body?.code === 'string' ? body.code : '',
       message: typeof body?.message === 'string' ? body.message : '',
     }).then(toPublicAttempt);
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelTiktok(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourceAttempts.cancelTiktok({ organizationId, attemptId }).then(toPublicAttempt);
   }
 }
 

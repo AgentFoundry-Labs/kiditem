@@ -9,7 +9,13 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { SourcingBrowserSourceAttemptController } from '../adapter/in/http/sourcing-browser-source-attempt.controller';
+import { SourcingLiveCommerceSourceAttemptController } from '../adapter/in/http/sourcing-live-commerce-source-attempt.controller';
+import { SourcingTiktokSourceAttemptController } from '../adapter/in/http/sourcing-tiktok-source-attempt.controller';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { SourcingBrowserSourceAttemptService } from '../application/service/sourcing-browser-source-attempt.service';
+import { SourcingLiveCommerceSourceAttemptService } from '../application/service/sourcing-live-commerce-source-attempt.service';
+import { SourcingTiktokSourceAttemptService } from '../application/service/sourcing-tiktok-source-attempt.service';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
 import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
@@ -633,6 +639,79 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       expect(new Set(typed.map((row) => row.ingestionRunId))).toEqual(new Set(ids));
     },
   );
+
+  it('stops a running 1688, TikTok or live-commerce attempt through its own owner route, without its token or an Alert, then admits the next begin at once', async () => {
+    // A stop reads and ends the attempt only; the plan sources are never consulted.
+    const plans = {} as never;
+    const collectors = [
+      {
+        begin,
+        cancel: (attemptId: string, organizationId = TEST_ORGANIZATION_ID) =>
+          new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(owner, plans))
+            .cancel1688(attemptId, organizationId),
+      },
+      {
+        begin: beginTiktok,
+        cancel: (attemptId: string, organizationId = TEST_ORGANIZATION_ID) =>
+          new SourcingTiktokSourceAttemptController(new SourcingTiktokSourceAttemptService(owner, plans))
+            .cancelTiktok(attemptId, organizationId),
+      },
+      {
+        begin: beginLive,
+        cancel: (attemptId: string, organizationId = TEST_ORGANIZATION_ID) =>
+          new SourcingLiveCommerceSourceAttemptController(new SourcingLiveCommerceSourceAttemptService(owner))
+            .cancelBrowser(attemptId, organizationId),
+      },
+    ];
+
+    for (const [index, collector] of collectors.entries()) {
+      const attempt = await collector.begin(`operator-stop-${index}`);
+      const otherCollector = collectors[(index + 1) % collectors.length]!;
+      await expect(otherCollector.cancel(attempt.attemptId)).rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+      await expect(collector.cancel(attempt.attemptId, OTHER_ORGANIZATION_ID))
+        .rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+
+      const stopped = await collector.cancel(attempt.attemptId);
+      expect(stopped).toMatchObject({
+        attemptId: attempt.attemptId,
+        state: 'FAILED',
+        errorCode: 'USER_CANCELLED',
+        errorMessage: '운영자가 수집을 중단했습니다.',
+      });
+      expect(stopped).not.toHaveProperty('attemptToken');
+      await expect(collector.cancel(attempt.attemptId)).resolves.toEqual(stopped);
+
+      const next = await collector.begin(`operator-stop-next-${index}`);
+      expect(next).toMatchObject({ state: 'RUNNING' });
+      expect(next.attemptId).not.toBe(attempt.attemptId);
+    }
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
+  });
+
+  it('settles a sourcing collector stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const controller = new SourcingBrowserSourceAttemptController(
+      new SourcingBrowserSourceAttemptService(owner, {} as never),
+    );
+    const expired = await begin('operator-stop-expired');
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: expired.attemptId },
+      data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
+    });
+
+    await expect(controller.cancel1688(expired.attemptId, TEST_ORGANIZATION_ID))
+      .resolves.toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, status: 'OPEN' },
+    })).toBe(1);
+
+    const finished = await begin('operator-stop-complete');
+    await complete(finished, 'operator-stop-complete');
+    const before = await prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: finished.attemptId } });
+    await expect(controller.cancel1688(finished.attemptId, TEST_ORGANIZATION_ID))
+      .resolves.toMatchObject({ attemptId: finished.attemptId, state: 'COMPLETE' });
+    await expect(prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: finished.attemptId } }))
+      .resolves.toEqual(before);
+  });
 
   async function begin(idempotencyKey: string) {
     return (await owner.beginAttempt(beginInput(idempotencyKey))).attempt;
