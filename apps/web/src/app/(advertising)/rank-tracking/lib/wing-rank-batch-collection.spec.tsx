@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
+import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -21,7 +22,6 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 vi.mock('@/lib/browser-collection-session', () => ({
-  // No extension session carries the batch key, so a stop reaches the batch cancel.
   sendBrowserCollectionControl: vi.fn(async () => {
     throw new Error('no extension session');
   }),
@@ -223,8 +223,40 @@ describe('Wing rank batch collection control', () => {
     expect(runWingSalesRankCheck).not.toHaveBeenCalled();
   });
 
-  it('stops the whole batch by its key through the extension and the owner route', async () => {
+  it('names the running keyword attempt, not the batch key, as the running collection', async () => {
     owner = current(KEY, ['COMPLETE', 'RUNNING']);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useCollectionSourceControl(wingRankBatchCollection), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    await waitFor(() => expect(result.current.running).toEqual({
+      attemptId: IDS[1],
+      scopeLabel: '1/2개 키워드',
+    }));
+  });
+
+  it('stops the whole batch by its key through the extension batch stop, never a session stop', async () => {
+    owner = current(KEY, ['COMPLETE', 'RUNNING']);
+    vi.mocked(cancelWingRankBatch).mockImplementation(async () => {
+      owner = current(KEY, ['COMPLETE', 'FAILED']);
+    });
+    renderControls(<WingRankControl label="순위 추적" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByRole('button', { name: '순위 받기' })).toBeEnabled();
+    expect(cancelWingRankBatch).toHaveBeenCalledWith(EXTENSION_ID, KEY);
+    expect(sendBrowserCollectionControl).not.toHaveBeenCalled();
+    // The extension's batch stop ended every keyword, so the owner route is not asked again.
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it("stops the batch through the owner's batch cancel by its key when the extension cannot", async () => {
+    owner = current(KEY, ['COMPLETE', 'RUNNING']);
+    vi.mocked(cancelWingRankBatch).mockRejectedValue(new Error('순위 수집 취소 실패 (401)'));
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== CANCEL_PATH) throw new Error(`unexpected POST ${path}`);
       owner = current(KEY, ['COMPLETE', 'FAILED']);
@@ -235,7 +267,7 @@ describe('Wing rank batch collection control', () => {
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
     expect(await screen.findByRole('button', { name: '순위 받기' })).toBeEnabled();
-    expect(cancelWingRankBatch).toHaveBeenCalledWith(EXTENSION_ID, KEY);
+    expect(sendBrowserCollectionControl).not.toHaveBeenCalled();
     expect(apiClient.post).toHaveBeenCalledWith(CANCEL_PATH, undefined, {
       headers: { 'Idempotency-Key': KEY },
     });

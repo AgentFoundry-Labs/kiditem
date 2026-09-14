@@ -135,7 +135,9 @@ describe('DashboardChartPanel collection cells', () => {
 
     fireEvent.click(dashboard.getByRole('button', { name: '수집 중단' }));
 
-    await waitFor(() => expect(harness.sellpia.cancelOnServer).toHaveBeenCalledWith('attempt-1'));
+    await waitFor(() => expect(harness.sellpia.cancelOnServer).toHaveBeenCalledWith('attempt-1', {
+      status: { running: true },
+    }));
     expect(await inventory.findByRole('button', { name: '셀피아 재고 수집' })).toBeEnabled();
     await waitFor(() => expect(dashboard.getByRole('button', { name: /셀피아 동기화/ })).toBeEnabled());
   });

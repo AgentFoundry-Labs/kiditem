@@ -36,6 +36,11 @@ export type CollectionStartContext<TStatus> = Readonly<{
   status: TStatus | undefined;
 }>;
 
+export type CollectionStopContext<TStatus> = Readonly<{
+  /** The last status read this stop was decided against. */
+  status: TStatus | undefined;
+}>;
+
 export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
   sourceKey: string;
   label: string;
@@ -43,7 +48,13 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
   readRunning: (status: TStatus) => CollectionRunning | null;
   start: (input: TInput, context: CollectionStartContext<TStatus>) => Promise<CollectionStartOutcome>;
   /** The owner's operator stop. A source without one shows its running collection without a stop. */
-  cancelOnServer?: (attemptId: string) => Promise<unknown>;
+  cancelOnServer?: (attemptId: string, context: CollectionStopContext<TStatus>) => Promise<unknown>;
+  /**
+   * Ends the extension's side of the running collection, releasing its tabs
+   * and window. Defaults to the extension's session stop for the attempt; a
+   * source whose extension run spans several attempts stops that run instead.
+   */
+  cancelInExtension?: (attemptId: string, context: CollectionStopContext<TStatus>) => Promise<unknown>;
   readCompleteId?: (status: TStatus) => string | null;
   onNewComplete?: (queryClient: QueryClient) => void;
 }>;
@@ -105,9 +116,13 @@ type StartState<TStatus, TInput> = MutationState<
   unknown
 >;
 
-type StopVariables = Readonly<{ attemptId: string }>;
+type StopVariables<TStatus> = Readonly<{
+  attemptId: string;
+  /** The status this stop was decided against. */
+  statusAtStop: TStatus | undefined;
+}>;
 
-type StopState = MutationState<void, Error, StopVariables, unknown>;
+type StopState<TStatus> = MutationState<void, Error, StopVariables<TStatus>, unknown>;
 
 function withDeadline<T>(operation: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -153,8 +168,8 @@ function startNotice<TStatus, TInput>(
   return null;
 }
 
-function stopNotice(
-  latest: StopState | undefined,
+function stopNotice<TStatus>(
+  latest: StopState<TStatus> | undefined,
   running: CollectionRunning | null,
 ): CollectionControlNotice | null {
   if (!running || latest?.status !== 'error') return null;
@@ -192,11 +207,14 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   const stopKey = collectionControlMutationKey(adapter.sourceKey, 'stop');
   const stopMutation = useMutation({
     mutationKey: stopKey,
-    mutationFn: async ({ attemptId }: StopVariables) => {
+    mutationFn: async ({ attemptId, statusAtStop }: StopVariables<TStatus>) => {
+      const context: CollectionStopContext<TStatus> = { status: statusAtStop };
       let extensionAnswered = false;
       try {
         await withDeadline(
-          sendBrowserCollectionControl(attemptId, 'cancelCollectionSession'),
+          adapter.cancelInExtension
+            ? adapter.cancelInExtension(attemptId, context)
+            : sendBrowserCollectionControl(attemptId, 'cancelCollectionSession'),
           EXTENSION_STOP_DEADLINE_MS,
         );
         extensionAnswered = true;
@@ -204,7 +222,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
         // No session for this attempt, a failed cancel, or no answer in time.
       }
       if (!extensionAnswered || (await attemptStillRunning(attemptId))) {
-        await adapter.cancelOnServer?.(attemptId);
+        await adapter.cancelOnServer?.(attemptId, context);
       }
       await queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true });
     },
@@ -213,7 +231,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   const latestStop = latestSubmitted(
     useMutationState({
       filters: { mutationKey: stopKey },
-      select: (mutation) => mutation.state as StopState,
+      select: (mutation) => mutation.state as StopState<TStatus>,
     }),
   );
 
@@ -276,7 +294,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     const attemptId = running?.attemptId;
     if (!attemptId || !canStop || state !== 'running') return;
     if (queryClient.isMutating({ mutationKey: stopKey }) > 0) return;
-    stopMutation.mutate({ attemptId });
+    stopMutation.mutate({ attemptId, statusAtStop: query.data });
   };
 
   return {

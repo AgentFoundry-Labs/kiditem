@@ -54,19 +54,26 @@ function startWingRankBatch(): Promise<CollectionStartOutcome> {
   });
 }
 
-async function stopWingRankBatch(batchKey: string): Promise<void> {
-  // The extension stops its worker and cancels with the owner; the owner route decides either way.
-  const gate = await detectRankExtensionGate().catch(() => null);
-  if (gate?.status === 'ready') {
-    await cancelWingRankBatch(gate.extensionId, batchKey).catch(() => undefined);
-  }
-  await cancelWingRankBatchOnServer(batchKey);
+function batchKeyOf(batch: WingRankCurrentBatch | null | undefined): string {
+  if (!batch) throw new Error('중단할 Wing 판매순위 수집을 찾지 못했습니다.');
+  return batch.batchKey;
+}
+
+/**
+ * The extension runs the whole batch, one keyword attempt after another, so it
+ * stops the batch by its key rather than one keyword's session.
+ */
+async function stopWingRankBatchInExtension(batchKey: string): Promise<void> {
+  const gate = await detectRankExtensionGate();
+  if (gate.status !== 'ready') throw new Error('no Wing rank extension to stop the batch');
+  await cancelWingRankBatch(gate.extensionId, batchKey);
 }
 
 /**
  * The organization's Wing sales-rank batch for the shared control. One start
- * admits a batch of keyword attempts under a key; the control runs, shows and
- * stops the whole batch by that key.
+ * admits a batch of keyword attempts under a key. The running collection names
+ * its current keyword attempt; stop ends the whole batch by its key, in the
+ * extension and with the owner.
  */
 export const wingRankBatchCollection: CollectionSourceAdapter<WingRankCurrentBatch | null> = {
   sourceKey: 'advertising.wing_rank',
@@ -83,16 +90,17 @@ export const wingRankBatchCollection: CollectionSourceAdapter<WingRankCurrentBat
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (batch) => {
-    const running = runningBatch(batch);
-    if (!running) return null;
-    const settled = running.attempts.filter((attempt) => attempt.state !== 'RUNNING').length;
+    const current = batch?.attempts.find((attempt) => attempt.state === 'RUNNING');
+    if (!batch || !current) return null;
+    const settled = batch.attempts.filter((attempt) => attempt.state !== 'RUNNING').length;
     return {
-      attemptId: running.batchKey,
-      scopeLabel: `${settled}/${running.attempts.length}개 키워드`,
+      attemptId: current.attemptId,
+      scopeLabel: `${settled}/${batch.attempts.length}개 키워드`,
     };
   },
   start: () => startWingRankBatch(),
-  cancelOnServer: stopWingRankBatch,
+  cancelInExtension: (_attemptId, { status }) => stopWingRankBatchInExtension(batchKeyOf(status)),
+  cancelOnServer: (_attemptId, { status }) => cancelWingRankBatchOnServer(batchKeyOf(status)),
   readCompleteId: (batch) =>
     batch && batch.attempts.length > 0 && !runningBatch(batch) ? batch.batchKey : null,
   // A finished batch republished rank snapshots the rank, dashboard, traffic and readiness reads use.

@@ -416,6 +416,35 @@ describe('CollectionStartControl stop', () => {
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
+  it("uses the source's own extension stop and hands both stops the status the stop was decided against", async () => {
+    const running = serverStatus;
+    const cancelInExtension = vi.fn(async () => {
+      throw new Error('extension could not stop the batch');
+    });
+    const cancelOnServer = vi.fn(async () => {
+      serverStatus = cancelled();
+    });
+    function OwnStopControl() {
+      const control = useCollectionSourceControl({ ...specCollection, cancelInExtension, cancelOnServer });
+      return (
+        <CollectionStartControl
+          control={control}
+          startLabel="키워드 수집"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
+      );
+    }
+    renderControls(<OwnStopControl />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByRole('button', { name: '키워드 수집' })).toBeEnabled();
+    expect(cancelInExtension).toHaveBeenCalledWith(ATTEMPT_ID, { status: running });
+    expect(cancelOnServer).toHaveBeenCalledWith(ATTEMPT_ID, { status: running });
+    expect(sentMessages('cancelCollectionSession')).toEqual([]);
+  });
+
   it('reports a stop that could not reach the owner while the collection keeps running', async () => {
     extensionReplies.cancelCollectionSession = () => ({
       success: false,
