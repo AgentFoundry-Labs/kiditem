@@ -5,6 +5,10 @@ import {
   type AdCampaignSourceAttempt,
   type AdCampaignSourceStatus,
 } from '@kiditem/shared/advertising';
+import {
+  MANUAL_CAMPAIGN_REPORT_DAYS,
+  type ManualCampaignReportPeriod,
+} from '@kiditem/shared/collection-start';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import type {
   CollectionRunning,
@@ -17,11 +21,10 @@ import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/ad-campaigns';
-const MANUAL_REPORT_DAYS = { '7d': 7, '1d': 1 } as const;
 
 /** The exact range a manual campaign report captures. */
 export type ManualCampaignReportRange = Readonly<{
-  period: keyof typeof MANUAL_REPORT_DAYS;
+  period: ManualCampaignReportPeriod;
   startDate: string;
   endDate: string;
 }>;
@@ -79,33 +82,25 @@ export const adCampaignSweepCollection: CollectionSourceAdapter<AdCampaignSource
   },
 };
 
-/** The manual report range for a page period ending at the ad data cutoff, or null when none fits. */
+/**
+ * The manual report range for a report period ending at the ad data cutoff,
+ * or null until the cutoff is known. The report period is the control's own
+ * choice, independent of the page period.
+ */
 export function exactManualReportRange(
-  period: string,
+  period: ManualCampaignReportPeriod,
   knownThrough: string | null | undefined,
 ): ManualCampaignReportRange | null {
-  if ((period !== '7d' && period !== '1d') || !knownThrough) return null;
+  if (!knownThrough) return null;
   return {
     period,
-    startDate: shiftBusinessDateKey(knownThrough, 1 - MANUAL_REPORT_DAYS[period]),
+    startDate: shiftBusinessDateKey(knownThrough, 1 - MANUAL_CAMPAIGN_REPORT_DAYS[period]),
     endDate: knownThrough,
   };
 }
 
-/** Why the displayed period cannot start a manual report; null when it can. */
-export function manualReportRangeBlockedReason(
-  period: string,
-  knownThrough: string | null | undefined,
-): string | null {
-  if (period !== '7d' && period !== '1d') {
-    return '원본 보고서는 1일 또는 7일 범위로만 받을 수 있습니다. 기간을 7일로 바꿔 주세요.';
-  }
-  if (!knownThrough) return '광고 데이터 기준일을 확인한 뒤 원본 보고서를 받을 수 있습니다.';
-  return null;
-}
-
 /**
- * The ad center's own campaign report for one exact 7-day or 1-day range,
+ * The ad center's own campaign report for one exact 1-day or 7-day range,
  * started through the extension's collection window. A new complete report
  * republishes the manual reports the campaign tab reads.
  */

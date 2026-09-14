@@ -8,6 +8,7 @@ import {
   type AdCampaignSnapshot,
   type AdTrendsData,
 } from "@kiditem/shared/advertising";
+import type { ManualCampaignReportPeriod } from "@kiditem/shared/collection-start";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { cn, formatKRW, formatNumber } from "@/lib/utils";
@@ -30,6 +31,8 @@ export default function CampaignContent({
 }) {
   const [sortBy, setSortBy] = useState<"revenue" | "roas">("revenue");
   const [selectedCampaign, setSelectedCampaign] = useState<CampaignSelection | null>(initialCampaign);
+  // The manual report has its own 1-day or 7-day range; the page period does not choose it.
+  const [manualPeriod, setManualPeriod] = useState<ManualCampaignReportPeriod>("7d");
   const previousPeriod = useRef(period);
 
   const { data: adsConfig } = useQuery({
@@ -54,7 +57,7 @@ export default function CampaignContent({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
   });
-  const manualRange = exactManualReportRange(period, trendsQuery.data?.knownThrough);
+  const manualRange = exactManualReportRange(manualPeriod, trendsQuery.data?.knownThrough);
   const manualReportsQuery = useQuery({
     queryKey: queryKeys.ads.manualReports(
       manualRange?.startDate ?? "disabled",
@@ -174,7 +177,11 @@ export default function CampaignContent({
         </div>
       )}
 
-      <ManualCampaignReportControl period={period} knownThrough={trendsQuery.data?.knownThrough} />
+      <ManualCampaignReportControl
+        period={manualPeriod}
+        onPeriodChange={setManualPeriod}
+        knownThrough={trendsQuery.data?.knownThrough}
+      />
       <ManualCampaignReportPanel reports={manualReports} />
 
       <div className="space-y-4" aria-busy={isRefreshing}>

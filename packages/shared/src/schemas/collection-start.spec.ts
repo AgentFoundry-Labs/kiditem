@@ -3,6 +3,7 @@ import {
   COLLECTION_START_PRODUCERS,
   CollectionStartRequestSchema,
   CollectionStartResultSchema,
+  MANUAL_CAMPAIGN_REPORT_DAYS,
 } from './collection-start';
 
 const idempotencyKey = '3f1b8c3e-2a4d-4f7e-9c1a-5b6d7e8f9a0b';
@@ -46,6 +47,10 @@ describe('collection start request', () => {
         }).success,
       ).toBe(true);
     }
+  });
+
+  it('names the manual campaign report periods by their day counts', () => {
+    expect(MANUAL_CAMPAIGN_REPORT_DAYS).toEqual({ '7d': 7, '1d': 1 });
   });
 
   it('accepts a manual campaign report whose range matches its period', () => {

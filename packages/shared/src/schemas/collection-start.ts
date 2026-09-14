@@ -35,7 +35,9 @@ const AccountScopeSchema = z
   .object({ channelAccountId: z.string().uuid().optional() })
   .strict();
 
-const MANUAL_CAMPAIGN_REPORT_DAYS = { '7d': 7, '1d': 1 } as const;
+/** The manual campaign report periods and the days each one covers. */
+export const MANUAL_CAMPAIGN_REPORT_DAYS = { '7d': 7, '1d': 1 } as const;
+export type ManualCampaignReportPeriod = keyof typeof MANUAL_CAMPAIGN_REPORT_DAYS;
 
 /**
  * A manual campaign report captures the ad center's own report for one exact

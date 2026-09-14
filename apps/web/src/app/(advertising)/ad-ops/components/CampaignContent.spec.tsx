@@ -75,10 +75,10 @@ function campaignAttempt(
   };
 }
 
-function manualReportPlan(startDate: string, endDate: string) {
+function manualReportPlan(startDate: string, endDate: string, period: "7d" | "1d" = "7d") {
   return {
     captureMode: "manual_report",
-    period: "7d",
+    period,
     startDate,
     endDate,
     targetUrl: "https://advertising.coupang.com/campaigns",
@@ -674,7 +674,7 @@ describe("CampaignContent manual campaign report control", () => {
       const request = message as {
         action: string;
         producer?: string;
-        scope?: { startDate: string; endDate: string };
+        scope?: { period: "7d" | "1d"; startDate: string; endDate: string };
       };
       if (request.action === "ping") {
         return { success: true, capabilities: { collectionStartV1: true } };
@@ -682,7 +682,7 @@ describe("CampaignContent manual campaign report control", () => {
       if (request.action === "startCollection") {
         const attempt = campaignAttempt(
           "RUNNING",
-          manualReportPlan(request.scope!.startDate, request.scope!.endDate),
+          manualReportPlan(request.scope!.startDate, request.scope!.endDate, request.scope!.period),
         );
         campaignSource = { ...idleCampaignSource, activeAttempt: attempt, latestManualReport: attempt };
         return { success: true, outcome: "started", producer: request.producer, attemptId: MANUAL_ATTEMPT_ID };
@@ -721,14 +721,33 @@ describe("CampaignContent manual campaign report control", () => {
     }]);
   });
 
-  it("explains in Korean why a 14-day period cannot start a manual report", async () => {
+  it("starts a 1-day report for the ad data cutoff on any page period and reads that range's reports", async () => {
     render(<CampaignContent initialCampaign={null} period="14d" />, { wrapper: wrapper() });
+    expect(await screen.findByRole("radio", { name: "7일" })).toHaveAttribute("aria-checked", "true");
 
-    expect(await screen.findByRole("button", { name: "원본 보고서 받기" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "1일" }));
+    const start = screen.getByRole("button", { name: "원본 보고서 받기" });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+
     expect(
-      screen.getByText("원본 보고서는 1일 또는 7일 범위로만 받을 수 있습니다. 기간을 7일로 바꿔 주세요."),
+      await screen.findByText("수집 중 · 원본 보고서 1일 · 2026-07-23 ~ 2026-07-23"),
     ).toBeInTheDocument();
-    expect(startMessages()).toEqual([]);
+    expect(startMessages()).toEqual([{
+      action: "startCollection",
+      producer: "advertising.ad_sync",
+      idempotencyKey: expect.any(String),
+      scope: {
+        captureMode: "manual_report",
+        period: "1d",
+        startDate: "2026-07-23",
+        endDate: "2026-07-23",
+      },
+    }]);
+    await waitFor(() =>
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/api/ads/ad-campaigns/reports?startDate=2026-07-23&endDate=2026-07-23",
+      ));
   });
 
   it("shows a running campaign sweep, the account's live attempt, on the manual report control", async () => {
