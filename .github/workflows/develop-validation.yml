@@ -11,7 +11,9 @@ jobs:
   full-validation:
     name: Develop full validation
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 빌드 3.5분 + web 단위 11분 뒤 Testcontainers 전체 PG가 돈다. 20분이면 PG 도중에
+    # 취소된다(run 34856574982). 수동 실행 전용이라 PR 체크 시간과 무관하다.
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
