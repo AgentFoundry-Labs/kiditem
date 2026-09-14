@@ -430,6 +430,15 @@ async function seedFormulaState(prisma: PrismaClient): Promise<string> {
   return version.id;
 }
 
+/**
+ * Every seeded listing's sale start, fixed rather than counted back from the
+ * real date. Tests that fake the clock after seeding evaluate cutoffs in
+ * 2026-09, and a start derived from a later real date would leave the product
+ * under the 30-day minimum sale age there. It precedes every evaluation window
+ * these tests reach.
+ */
+const SALE_STARTED_AT = '2025-01-01';
+
 async function seedSellingProduct(
   prisma: PrismaClient,
   options: { advertised?: boolean } = {},
@@ -454,7 +463,7 @@ async function seedSellingProduct(
       masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
-      rawJson: { source: 'wing_app_data', saleStartedAt: daysBefore(latestClosedKstDate(), 500) },
+      rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },
     },
   });
   const option = await prisma.channelListingOption.create({
@@ -536,7 +545,7 @@ async function seedSellingProduct(
       masterProductId: product.id,
       externalId: `AD-LISTING-${randomUUID()}`,
       status: 'active',
-      rawJson: { source: 'wing_app_data', saleStartedAt: daysBefore(latestClosedKstDate(), 500) },
+      rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },
     },
   });
   const advertisedOptionId = `AD-OPTION-${randomUUID()}`;
@@ -757,12 +766,6 @@ function latestClosedKstDate(now = new Date()): string {
     kst.getUTCMonth(),
     kst.getUTCDate() - 1,
   )).toISOString().slice(0, 10);
-}
-
-function daysBefore(date: string, days: number): string {
-  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() - days * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
 }
 
 function monthsBefore(yearMonth: string, months: number): string {
