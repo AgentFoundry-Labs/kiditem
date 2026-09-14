@@ -118,7 +118,7 @@ describe('ProductOperationsDataStatusAction', () => {
       sellpia: source(true),
       advertising: { ...source(true), requiredCutoff: '2026-09-05' },
       pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
-      message: '쿠팡이 어제 광고비를 아직 보고하지 않아 등급을 갱신하지 않았습니다. 기존 공식 등급을 유지합니다. 보고 뒤 광고 손익을 다시 수집해 주세요. 공식 등급 기준일 2026-07-31',
+      message: '마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. 공식 등급 기준일 2026-07-31',
     },
     {
       reason: 'advertising ends before Sellpia',

@@ -116,7 +116,7 @@ describe('DashboardGradeCards', () => {
     );
   });
 
-  it('says Coupang has not reported yesterday when advertising held the end it cannot pair on', async () => {
+  it('words a held advertising end as the last collection result with a step for a late report and for paused ads', async () => {
     recalculateProductAbc.mockResolvedValue({
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 7,
@@ -133,7 +133,7 @@ describe('DashboardGradeCards', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
 
     expect(await screen.findByText(
-      '쿠팡이 어제 광고비를 아직 보고하지 않아 등급을 갱신하지 않았습니다. 기존 공식 등급을 유지합니다. 보고 뒤 광고 손익을 다시 수집해 주세요. 공식 등급 기준일 2026-08-31',
+      '마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. 공식 등급 기준일 2026-08-31',
     )).toBeInTheDocument();
   });
 });
