@@ -22,6 +22,13 @@ vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+vi.mock('@/lib/browser-collection-session', () => ({
+  // This browser holds no session for the attempt, so a stop reaches the owner route.
+  sendBrowserCollectionControl: vi.fn(async () => {
+    throw new Error('no extension session');
+  }),
+}));
+
 vi.mock('./WingTrackedHistoryChart', () => ({
   WingTrackedHistoryChart: () => <div>history chart</div>,
   TrendSparkline: () => <div>trend sparkline</div>,
@@ -283,6 +290,40 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
 
     expect(toast.error).toHaveBeenCalledWith('한 번에 수집할 수 있는 추적 키워드는 최대 12개입니다');
     expect(apiClient.post).not.toHaveBeenCalled();
+    expect(sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('shows the running collection with a stop that ends it through the owner route, then shows it stopped', async () => {
+    const runningId = '30000000-0000-4000-8000-000000000002';
+    const cancelPath = `${BASE}/attempts/${runningId}/cancel`;
+    const latest = (state: 'RUNNING' | 'FAILED') => ({
+      attemptId: runningId,
+      state,
+      startedAt: '2026-09-03T04:00:00.000Z',
+      capturedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
+      errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
+    });
+    let current = { ...sourceStatus(), latestAttempt: latest('RUNNING') };
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path === BASE) return [trackedProduct(0)];
+      if (path === `${BASE}/history?days=30`) return { items: [] };
+      if (path === `${BASE}/attempts/current`) return current;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path !== cancelPath) throw new Error(`unexpected POST ${path}`);
+      current = { ...sourceStatus(), latestAttempt: latest('FAILED') };
+      return current;
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(sendToExtension).not.toHaveBeenCalled();
   });
 

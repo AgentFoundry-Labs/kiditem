@@ -19,20 +19,22 @@ import {
 } from 'lucide-react';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   beginWingTrackedProductAttempt,
   collectWingTrackedProductsFromExtension,
   deleteWingTrackedProduct,
   fetchWingTrackedHistories,
-  fetchWingTrackedProductSourceStatus,
   listWingTrackedProducts,
   requireWingTrackedProductExtension,
   type WingTrackedProduct,
   type WingTrackedProductSourceStatus,
   type WingTrackedSnapshot,
 } from '../../lib/wing-tracking-api';
+import { wingTrackedProductsCollection } from '../../lib/wing-tracked-products-collection';
 import {
   resolveCoupangCatalogImageUrl,
 } from '../../wing-catalog/lib/wing-catalog-presenter';
@@ -72,13 +74,9 @@ export function ProductTrackingPage() {
     queryKey: queryKeys.sourcing.wingTrackedHistories(30),
     queryFn: () => fetchWingTrackedHistories(30),
   });
-  const { data: sourceStatus } = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY,
-    queryFn: fetchWingTrackedProductSourceStatus,
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
-    ),
-  }));
+  // 지표 새로고침 starts the collection; the shared control shows it running and stops it.
+  const trackedSource = useCollectionSourceControl(wingTrackedProductsCollection);
+  const sourceStatus = trackedSource.status;
   const historyByTrackedProductId = useMemo(
     () => new Map(
       (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),
@@ -176,7 +174,7 @@ export function ProductTrackingPage() {
       void queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
     },
   });
-  const refreshing = refreshMutation.isPending || sourceStatus?.latestAttempt?.state === 'RUNNING';
+  const refreshing = refreshMutation.isPending || trackedSource.running !== null;
 
   const handleRefresh = () => {
     if (enabledProducts.length === 0) {
@@ -231,7 +229,7 @@ export function ProductTrackingPage() {
           </div>
         </header>
 
-        <TrackedWingSourceStatus source={sourceStatus} />
+        <TrackedWingSourceStatus source={sourceStatus} control={trackedSource} />
 
         {isLoading ? (
           <div className="flex h-64 items-center justify-center text-[var(--text-tertiary)]">
@@ -582,8 +580,10 @@ function shortDate(businessDate: string): string {
 
 function TrackedWingSourceStatus({
   source,
+  control,
 }: {
   source: WingTrackedProductSourceStatus | undefined;
+  control: CollectionControlView & Readonly<{ stop: () => void }>;
 }) {
   if (!source) return null;
   const summary = source.ready
@@ -592,14 +592,26 @@ function TrackedWingSourceStatus({
       ? '이전 완료 스냅샷 표시 중'
       : '완료된 추적 스냅샷 없음';
   const latest = source.latestAttempt;
+  const stopped = stoppedAttempt(latest);
   return (
     <section
       aria-label="추적 Wing 수집 상태"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-tertiary)]"
     >
       <span className="text-[var(--text-secondary)]">{summary}</span>
-      {latest?.state === 'RUNNING' && <span>새 수집 진행 중</span>}
-      {latest?.state === 'FAILED' && (
+      {latest?.state === 'RUNNING' && (
+        <>
+          <span>새 수집 진행 중</span>
+          <CollectionStartControl
+            control={control}
+            startLabel="지표 새로고침"
+            onStart={() => undefined}
+            onStop={control.stop}
+          />
+        </>
+      )}
+      {stopped && <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>}
+      {latest?.state === 'FAILED' && !stopped && (
         <span role="alert" className="text-rose-600">
           마지막 수집 실패: {latest.errorCode ?? 'UNKNOWN'}{latest.errorMessage ? ` — ${latest.errorMessage}` : ''}
         </span>

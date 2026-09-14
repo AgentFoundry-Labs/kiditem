@@ -203,6 +203,11 @@ export function fetchWingTrackedProductSourceStatus(): Promise<WingTrackedProduc
   return apiClient.get<WingTrackedProductSourceStatus>(`${BASE}/attempts/current`);
 }
 
+/** The owner's operator stop for a running tracked Wing products attempt; it needs no attempt token. */
+export function cancelWingTrackedProductAttempt(attemptId: string): Promise<unknown> {
+  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
 export async function requireWingTrackedProductExtension(): Promise<string> {
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error('KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.');
