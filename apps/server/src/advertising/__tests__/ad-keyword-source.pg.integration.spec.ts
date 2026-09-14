@@ -727,6 +727,45 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
       vi.useRealTimers();
     }
   });
+  const cancel = (id: string, organizationId = ORG) =>
+    request(httpUrl).post(`${base}/attempts/${id}/cancel`).set('x-test-org', organizationId);
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const attempt = (await admit()).body;
+    await cancel(attempt.attemptId, randomUUID()).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await alerts.list(ORG)).toEqual([]);
+    await put(attempt, 'roster', roster()).expect(409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = (await admit()).body;
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = (await admit()).body;
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    expect(await alerts.list(ORG)).toMatchObject([
+      { status: 'OPEN', attemptId: expired.attemptId },
+    ]);
+    const completed = await stage();
+    expect((await finish(completed)).status).toBe(201);
+    const completeView = (await get(`/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(completeView.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(completeView);
+  });
   it('reads expiry purely, then next admission persists FAILED and Alert before a new attempt', async () => {
     const attempt = (await admit()).body;
     await prisma.sourceImportRun.update({

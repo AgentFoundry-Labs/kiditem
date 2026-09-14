@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -99,5 +100,10 @@ export class AdCampaignSourceController {
     if (!input.success || !z.string().uuid().safeParse(token).success)
       throw new BadRequestException('INVALID_CAMPAIGN_FAILURE');
     return this.owner.fail(org, id, token, input.data.code, input.data.message);
+  }
+  @Post('ad-campaigns/attempts/:id/cancel')
+  @HttpCode(200)
+  cancel(@CurrentOrganization() org: string, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.owner.cancel(org, id);
   }
 }

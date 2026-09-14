@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -130,6 +131,15 @@ export class ProfitabilityAdImportController {
       attemptToken: attemptToken(rawAttemptToken),
       ...parsed.data,
     });
+  }
+
+  @Post(':attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.service.cancelAttempt({ organizationId, attemptId });
   }
 }
 

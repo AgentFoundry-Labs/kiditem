@@ -30,6 +30,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { isNewerAttempt } from '../../../../common/current-row';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import {
@@ -1083,6 +1084,27 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         await this.failIn(tx, row, input.code, message, hash({ code: input.code, message }));
       }
       return this.sourceStatusIn(tx, input.organizationId, row.channelAccountId!);
+    });
+  }
+
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdTrafficSourceAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, input.organizationId);
+      const row = await this.find(tx, input.organizationId, input.attemptId);
+      if (row.status !== 'running') return this.attemptView(tx, row);
+      const failed = expired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.')
+        : await this.failIn(
+            tx,
+            row,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
+            hash({ code: OPERATOR_CANCEL_CODE, message: OPERATOR_CANCEL_MESSAGE }),
+          );
+      return this.attemptView(tx, failed);
     });
   }
 

@@ -39,4 +39,8 @@ export interface ProfitabilityAdImportRepositoryPort {
     code: string;
     message: string;
   }): Promise<AdvertisingProfitabilitySourceView>;
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdvertisingProfitabilitySourceView>;
 }

@@ -49,6 +49,11 @@ export interface AdTrafficSourcePort {
     code: string;
     message: string;
   }): Promise<AdTrafficSourceStatus>;
+  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdTrafficSourceAttempt>;
 }
 
 export interface AdTrafficReadPort {

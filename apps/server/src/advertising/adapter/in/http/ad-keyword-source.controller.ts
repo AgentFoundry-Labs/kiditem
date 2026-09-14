@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   ParseIntPipe,
@@ -113,5 +114,13 @@ export class AdKeywordSourceController {
     if (!input.success || !z.string().uuid().safeParse(token).success)
       throw new BadRequestException('INVALID_KEYWORD_FAILURE');
     return this.owner.fail(org, id, token, input.data.code, input.data.message);
+  }
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() org: string,
+    @Param('attemptId', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.owner.cancel(org, id);
   }
 }

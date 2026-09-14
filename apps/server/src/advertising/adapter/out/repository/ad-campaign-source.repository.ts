@@ -20,6 +20,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import {
   addDays,
@@ -324,6 +325,25 @@ export class AdCampaignSourceRepository {
       const failed = expired(row)
         ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad campaign collection expired.')
         : await this.failIn(tx, row, code, clean, checksum);
+      return await this.viewIn(tx, failed);
+    });
+  }
+
+  /** Operator stop without the attempt token; a terminal attempt is returned as it is. */
+  async cancel(org: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, org);
+      const row = await this.find(tx, org, id);
+      if (row.status !== 'running') return await this.viewIn(tx, row);
+      const failed = expired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad campaign collection expired.')
+        : await this.failIn(
+            tx,
+            row,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
+            hash({ code: OPERATOR_CANCEL_CODE, message: OPERATOR_CANCEL_MESSAGE }),
+          );
       return await this.viewIn(tx, failed);
     });
   }

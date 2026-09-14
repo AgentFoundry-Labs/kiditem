@@ -940,6 +940,80 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     expect(alert?.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await expect(owner.cancelAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+    const stopped = await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    });
+    expect(stopped.latestAttempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    await expect(prisma.alert.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(owner.uploadSlice(plannedUploads(attempt)[0]!)).rejects.toThrow(/ATTEMPT_/);
+    await expect(owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).resolves.toEqual(stopped);
+    const next = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: SECOND_KEY,
+    });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await prisma.sourceImportRun.updateMany({
+      where: { id: expired.attemptId, organizationId: TEST_ORGANIZATION_ID },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    const settled = await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: expired.attemptId,
+    });
+    expect(settled.latestAttempt).toMatchObject({
+      attemptId: expired.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUnique({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.alert.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        dedupeKey: 'source:coupang-ad-profitability',
+        status: 'OPEN',
+      },
+    })).resolves.toBe(1);
+
+    const complete = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: SECOND_KEY,
+    });
+    await uploadAllSlices(owner, complete);
+    const published = await owner.finalizeAttempt(fence(complete));
+    await expect(owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: complete.attemptId,
+    })).resolves.toEqual(published);
+  });
+
   it('replays complete and failed terminal commands idempotently', async () => {
     const complete = await owner.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,

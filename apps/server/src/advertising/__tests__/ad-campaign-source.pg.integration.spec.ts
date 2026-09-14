@@ -595,6 +595,56 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     expect((await get(`/attempts/${a.attemptId}`)).body.state).toBe('FAILED');
     expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
   });
+  const cancel = (id: string, organizationId = ORG) =>
+    request(httpUrl).post(`${base}/attempts/${id}/cancel`).set('x-test-org', organizationId);
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const a = (await admit()).body;
+    await cancel(a.attemptId, randomUUID()).expect(404);
+    const keyword = await prisma.sourceImportRun.create({
+      data: { organizationId: ORG, sourceType: 'coupang_ad_keyword', channelAccountId: accountId },
+    });
+    await cancel(keyword.id).expect(404);
+    const stopped = (await cancel(a.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: a.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+    await upload(a, 0, page([])).expect(409);
+    expect((await cancel(a.attemptId).expect(200)).body).toEqual(stopped);
+    const next = (await admit()).body;
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(a.attemptId);
+  });
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves terminal attempts unchanged', async () => {
+    const expired = (await admit()).body;
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(
+      prisma.sourceImportRun.findFirstOrThrow({ where: { id: expired.attemptId, organizationId: ORG } }),
+    ).resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.count({ where: { organizationId: ORG, status: 'OPEN' } })).toBe(1);
+
+    const failed = (await admit()).body;
+    await post(failed, 'fail', { code: 'PROVIDER_ERROR', message: 'No response' }).expect(201);
+    const failedView = (await get(`/attempts/${failed.attemptId}`).expect(200)).body;
+    expect((await cancel(failed.attemptId).expect(200)).body).toEqual(failedView);
+
+    const completed = await full();
+    await finish(completed);
+    const completeView = (await get(`/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(completeView.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(completeView);
+  });
   it('rechecks account identity at final publication and never promotes staged facts after drift', async () => {
     const a = await full();
     await prisma.channelAccount.update({
