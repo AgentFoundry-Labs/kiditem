@@ -10,14 +10,29 @@ const attemptId = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
 const channelAccountId = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 
 describe('collection start request', () => {
-  it('covers exactly the producers that share the Coupang collection window', () => {
+  it('covers the Coupang collection window producers and the Wing catalog import', () => {
     expect([...COLLECTION_START_PRODUCERS].sort()).toEqual([
       'advertising.ad_keyword',
       'advertising.ad_sync',
       'advertising.profitability_import',
+      'channels.coupang_catalog',
       'dashboard.wing_kpi',
       'dashboard.wing_sales',
     ]);
+  });
+
+  it('accepts a catalog import only for exactly one channel account', () => {
+    const catalog = (scope: unknown) =>
+      CollectionStartRequestSchema.safeParse({
+        action: 'startCollection',
+        producer: 'channels.coupang_catalog',
+        idempotencyKey,
+        scope,
+      }).success;
+    expect(catalog({ channelAccountId })).toBe(true);
+    expect(catalog({})).toBe(false);
+    expect(catalog({ channelAccountId: 'not-a-uuid' })).toBe(false);
+    expect(catalog({ channelAccountId, stage: 'basics' })).toBe(false);
   });
 
   it('accepts a campaign sweep with or without an account', () => {
@@ -127,6 +142,18 @@ describe('collection start result', () => {
       message: '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
     });
     expect(refused.outcome === 'refused' && refused.holder.name).toBe('쿠팡 광고 캠페인');
+  });
+
+  it('reads a catalog import refused by another account import in the same browser', () => {
+    const refused = CollectionStartResultSchema.parse({
+      success: true,
+      outcome: 'refused',
+      producer: 'channels.coupang_catalog',
+      holder: { producer: 'channels.coupang_catalog', name: '키드아이템 계정의 쿠팡 상품 수집', attemptId },
+      message:
+        '키드아이템 계정의 쿠팡 상품 수집이 이 브라우저에서 진행 중입니다. 한 브라우저에서는 쿠팡 계정 하나씩 상품을 받을 수 있습니다. 끝난 뒤 다시 시작해 주세요.',
+    });
+    expect(refused.outcome === 'refused' && refused.holder.producer).toBe('channels.coupang_catalog');
   });
 
   it('does not accept a refusal without a holder name or message', () => {

@@ -2,11 +2,15 @@ import { z } from 'zod';
 import { shiftBusinessDateKey } from '../common';
 
 /**
- * Producers whose collections share one Coupang collection window per browser
- * environment. Any path that starts one of them asks the extension through the
- * single start contract below (KID-147). The extension takes the window turn
- * and opens the attempt with the source owner. When another collection holds
- * the window, it refuses without opening an attempt.
+ * Producers whose collection needs a browser resource that one collection in a
+ * browser environment holds at a time. Any path that starts one of them asks
+ * the extension through the single start contract below (KID-147):
+ * - the five collections that take turns in the Coupang collection window;
+ * - the Coupang Wing catalog import, which reads Wing through the browser's one
+ *   Wing login and so imports one channel account at a time.
+ * The extension takes the resource's turn and opens the attempt with the
+ * source owner. When another collection holds it, the extension refuses
+ * without opening an attempt.
  */
 export const COLLECTION_START_PRODUCERS = [
   'advertising.ad_sync',
@@ -14,6 +18,7 @@ export const COLLECTION_START_PRODUCERS = [
   'advertising.profitability_import',
   'dashboard.wing_sales',
   'dashboard.wing_kpi',
+  'channels.coupang_catalog',
 ] as const;
 
 export const CollectionStartProducerSchema = z.enum(COLLECTION_START_PRODUCERS);
@@ -89,15 +94,24 @@ export const CollectionStartRequestSchema = z.discriminatedUnion('producer', [
       }),
   ),
   startRequest('dashboard.wing_kpi', AccountScopeSchema),
+  // One store account per import: the extension opens its basics attempt and
+  // hands off to details inside the same import.
+  startRequest(
+    'channels.coupang_catalog',
+    z.object({ channelAccountId: z.string().uuid() }).strict(),
+  ),
 ]);
 export type CollectionStartRequest = z.infer<typeof CollectionStartRequestSchema>;
 
 /**
  * The extension answers once the start is decided, never when the collection
  * ends. The server attempt carries the collection's state from then on.
- * - `started`: an attempt was opened and runs inside the window turn.
- * - `running`: the same source is already running; nothing new was opened.
- * - `refused`: another collection holds the window; nothing was opened.
+ * - `started`: an attempt was opened, or an idempotent replay returned it, and
+ *   it runs inside the resource's turn.
+ * - `running`: the same source and scope is already running; nothing new was
+ *   opened.
+ * - `refused`: another collection holds the resource; nothing was opened. The
+ *   holder's Korean name includes a catalog import's store account when known.
  */
 export const CollectionStartResultSchema = z.discriminatedUnion('outcome', [
   z.object({
