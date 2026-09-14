@@ -3412,6 +3412,47 @@ test("a rejected running report stops the approved action before any Coupang wri
   assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 2 });
 });
 
+test("a refused done report counts the action as skipped and sends no failure report", async () => {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "완료 보고 거절 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const tab = loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? [row] : []),
+    },
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(report.action);
+      // The attempt was closed while Coupang was being changed (for example an
+      // approval released it as abandoned), so the server refuses the outcome.
+      return report.action === "markDone"
+        ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+        : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-done-refused", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+  ]);
+
+  assert.equal(pauseClicks.count, 1, "the approved pause reached Coupang once");
+  // A failure report after the refused outcome would move an attempt that is
+  // no longer this executor's.
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 1 });
+});
+
 function openAdActionTestTab({ label, clicks, sendMessage }) {
   const editButton = { innerText: "수정", click: () => { clicks.count += 1; } };
   const row = { innerText: label, querySelectorAll: () => [editButton], click: () => { clicks.count += 1; } };
