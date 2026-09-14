@@ -3668,3 +3668,40 @@ test("a repeated Run in the same tab joins the approved-action execution already
   assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
   assert.deepEqual({ ...second }, { ...first });
 });
+
+test("a Run in the same tab with other actions is refused while an execution is in flight", async () => {
+  const reports = [];
+  const clicks = { count: 0 };
+  const label = "진행 중인 실행";
+  const tab = openAdActionTestTab({
+    label,
+    clicks,
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(`${report.id}:${report.action}`);
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const inFlight = dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-in-flight", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 },
+  ]);
+  const refused = await dispatchExecuteApprovedAdActions(tab, [
+    { id: "action-other", actionType: "change_daily_budget", targetLabel: label, proposedValue: 30000 },
+  ]);
+
+  // The popup shows `error` as the run's result, so the operator sees why the
+  // second list did not run instead of the first run's counts.
+  assert.deepEqual({ ...refused }, {
+    success: false,
+    error: "이미 다른 승인 액션 실행이 진행 중입니다. 끝난 뒤 다시 실행해 주세요.",
+  });
+  assert.deepEqual({ ...(await inFlight) }, { success: true, executed: 0, skipped: 1 });
+  assert.equal(clicks.count, 1, "only the in-flight action opened the Coupang editor");
+  assert.deepEqual(reports, ["action-in-flight:markRunning", "action-in-flight:markFailed"]);
+});

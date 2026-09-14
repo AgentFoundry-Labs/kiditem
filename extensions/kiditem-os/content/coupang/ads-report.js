@@ -5733,23 +5733,32 @@
     return currentSync;
   }
 
-  // One approved-action execution per tab. A second Run, from the popup or the
-  // worker, joins the execution already in flight instead of starting the same
-  // actions again; another tab is refused by the server at its running report.
+  // One approved-action execution per tab. A second Run for the same actions
+  // joins the execution already in flight; a Run for other actions is refused
+  // until it ends, so a list is never silently dropped. Another tab is refused
+  // by the server at its running report.
+  const ACTION_EXECUTION_BUSY_MESSAGE =
+    "이미 다른 승인 액션 실행이 진행 중입니다. 끝난 뒤 다시 실행해 주세요.";
   let currentActionExecution = null;
-  function runActionExecutionOnce(execute) {
-    if (!currentActionExecution) {
-      currentActionExecution = Promise.resolve()
-        .then(execute)
-        .finally(() => {
-          currentActionExecution = null;
-        });
+  let currentActionExecutionKey = null;
+  function runActionExecutionOnce(key, execute) {
+    if (currentActionExecution) {
+      return key === currentActionExecutionKey
+        ? currentActionExecution
+        : Promise.resolve({ success: false, error: ACTION_EXECUTION_BUSY_MESSAGE });
     }
+    currentActionExecutionKey = key;
+    currentActionExecution = Promise.resolve()
+      .then(execute)
+      .finally(() => {
+        currentActionExecution = null;
+        currentActionExecutionKey = null;
+      });
     return currentActionExecution;
   }
 
   function runApprovedActionsOnce() {
-    return runActionExecutionOnce(() =>
+    return runActionExecutionOnce("queued", () =>
       fetchApprovedQueuedActions(20).then((actions) => {
         if (actions.length === 0) {
           showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
@@ -5963,7 +5972,9 @@
 
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
-      runActionExecutionOnce(() => executeApprovedActions(payload.actions || []))
+      const actions = payload.actions || [];
+      const key = `actions:${Array.isArray(actions) ? actions.map((action) => action?.id).join(",") : ""}`;
+      runActionExecutionOnce(key, () => executeApprovedActions(actions))
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;
