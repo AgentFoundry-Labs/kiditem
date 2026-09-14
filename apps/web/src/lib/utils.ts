@@ -145,11 +145,31 @@ export function sumOrUnavailable(
   return total;
 }
 
+/** The one money palette: profit and loss figures take these tones only. */
+const PROFIT_UNAVAILABLE_TONE = 'text-slate-400';
+const PROFIT_NEGATIVE_TONE = 'text-red-600';
+const PROFIT_POSITIVE_TONE = 'text-green-600';
+
+/** Ad spend is neither profit nor loss, so it carries the caution tone. */
+export const AD_COST_TEXT_COLOR = 'text-amber-600';
+
 export function getProfitColor(rate: number | null | undefined): string {
-  if (rate == null) return 'text-slate-400';
-  if (rate < 0) return 'text-red-600 font-bold';
+  if (rate == null) return PROFIT_UNAVAILABLE_TONE;
+  if (rate < 0) return `${PROFIT_NEGATIVE_TONE} font-bold`;
   if (rate <= 3) return 'text-orange-500 font-semibold';
-  return 'text-green-600';
+  return PROFIT_POSITIVE_TONE;
+}
+
+/**
+ * The same palette for a profit amount rather than a margin rate.
+ *
+ * `getProfitColor`'s 0-3 band reads a percentage: 3% is a thin margin, while
+ * 3원 of profit is simply positive. An amount therefore takes only the sign
+ * tones, and the caller keeps its own font weight.
+ */
+export function getProfitAmountColor(amount: number | null | undefined): string {
+  if (amount == null) return PROFIT_UNAVAILABLE_TONE;
+  return amount < 0 ? PROFIT_NEGATIVE_TONE : PROFIT_POSITIVE_TONE;
 }
 
 /**

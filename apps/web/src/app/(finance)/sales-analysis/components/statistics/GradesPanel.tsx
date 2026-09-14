@@ -1,4 +1,10 @@
-import { cn, formatKRW, getGradeTextColor } from '@/lib/utils';
+import {
+  AD_COST_TEXT_COLOR,
+  cn,
+  formatKRW,
+  getGradeTextColor,
+  getProfitAmountColor,
+} from '@/lib/utils';
 import type { StatisticsGradeRow } from '@kiditem/shared/statistics';
 
 type GradesPanelProps = {
@@ -31,19 +37,14 @@ export function GradesPanel({ grades }: GradesPanelProps) {
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">순이익</span>
                 <span
-                  className={cn(
-                    'font-semibold tabular-nums',
-                    grade.profit === null
-                      ? 'text-slate-400'
-                      : grade.profit < 0 ? 'text-red-600' : 'text-green-600',
-                  )}
+                  className={cn('font-semibold tabular-nums', getProfitAmountColor(grade.profit))}
                 >
                   {grade.profit === null ? '-' : `${formatKRW(grade.profit)}원`}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">광고비</span>
-                <span className="font-semibold tabular-nums text-amber-600">
+                <span className={cn('font-semibold tabular-nums', AD_COST_TEXT_COLOR)}>
                   {grade.adCost === null ? '-' : `${formatKRW(grade.adCost)}원`}
                 </span>
               </div>
