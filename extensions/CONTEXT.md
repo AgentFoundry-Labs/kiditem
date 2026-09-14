@@ -21,7 +21,8 @@ the attempt there is nothing left to attend to.
 _Avoid_: awaiting confirmation, 확인 대기, stuck session
 
 **Collection window**:
-The single browser window that all Coupang collections in one environment take
-turns using. A collection may take it only after the previous collection has
-reported its outcome and released it.
+The single browser window that the Coupang ad center and Wing report collections
+in one environment take turns using; the catalog import has a window of its own,
+and other collections open their own tabs. A collection may take it only after
+the previous collection has reported its outcome and released it.
 _Avoid_: collection tab, shared tab
