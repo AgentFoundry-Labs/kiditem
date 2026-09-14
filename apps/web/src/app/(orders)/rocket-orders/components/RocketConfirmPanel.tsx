@@ -28,7 +28,7 @@ import {
   rocketReviewedQuantityLimit,
   useRocketPurchaseWorkflow,
 } from "@/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow";
-import { SellpiaInventoryCollectionControl } from "@/app/(inventory)/_shared/SellpiaInventoryCollectionControl";
+import { SellpiaInventoryCollectionControl } from "@/components/collection/SellpiaInventoryCollectionControl";
 import type { RocketDecisionWorkspaceContext } from "./RocketOrdersWorkspace";
 import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 import {

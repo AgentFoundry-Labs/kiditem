@@ -1,12 +1,13 @@
 'use client';
 
-import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
-import { useSellpiaInventoryCollection } from './sellpia-inventory-source-owner';
+import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
+import { CollectionStartControl } from './CollectionStartControl';
 
 /**
  * The shared Sellpia inventory control for a screen that needs a fresh
- * generation before the operator continues. It only collects; the screen's own
- * action is pressed again afterwards.
+ * generation before the operator continues, used by Supply's purchase orders
+ * and the Rocket order review. It only collects; the screen's own action is
+ * pressed again afterwards.
  */
 export function SellpiaInventoryCollectionControl({ className }: { className?: string }) {
   const { control } = useSellpiaInventoryCollection();

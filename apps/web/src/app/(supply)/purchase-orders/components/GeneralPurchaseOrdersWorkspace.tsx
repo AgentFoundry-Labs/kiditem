@@ -6,7 +6,7 @@ import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { SellpiaInventoryCollectionControl } from '@/app/(inventory)/_shared/SellpiaInventoryCollectionControl';
+import { SellpiaInventoryCollectionControl } from '@/components/collection/SellpiaInventoryCollectionControl';
 import { usePurchaseOrderSubmission } from '../hooks/usePurchaseOrderSubmission';
 import { purchaseOrdersApi } from '../lib/purchase-orders-api';
 import CreateOrderModal from './CreateOrderModal';
