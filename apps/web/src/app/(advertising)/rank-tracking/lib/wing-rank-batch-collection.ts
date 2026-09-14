@@ -21,8 +21,6 @@ import {
 import type { QueryKey } from '@tanstack/react-query';
 import type { WingRankCurrentBatch } from '@kiditem/shared/advertising';
 
-const RUNNING_POLL_MS = 2_000;
-
 function runningBatch(batch: WingRankCurrentBatch | null): WingRankCurrentBatch | null {
   return batch?.attempts.some((attempt) => attempt.state === 'RUNNING') ? batch : null;
 }
@@ -86,7 +84,6 @@ export const wingRankBatchCollection: CollectionSourceAdapter<WingRankCurrentBat
   >({
     queryKey: queryKeys.ads.wingRankCurrentBatch(),
     queryFn: readCurrentWingRankBatch,
-    refetchInterval: (query) => (runningBatch(query.state.data ?? null) ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (batch) => {

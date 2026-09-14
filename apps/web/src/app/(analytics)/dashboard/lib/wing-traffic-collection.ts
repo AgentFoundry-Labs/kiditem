@@ -12,7 +12,6 @@ import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/traffic';
-const RUNNING_POLL_MS = 2_000;
 
 export type WingTrafficRange = Readonly<{ startDate: string; endDate: string }>;
 
@@ -45,8 +44,6 @@ export const wingTrafficCollection: CollectionSourceAdapter<AdTrafficSourceStatu
   >({
     queryKey: [...wingTrafficSourceQueryKey, 'primary'],
     queryFn: readWingTrafficSource,
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   }),

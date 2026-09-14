@@ -17,7 +17,6 @@ import type { QueryKey } from '@tanstack/react-query';
 const SOURCE_PATH = '/api/sellpia-sales';
 const REQUIRED_CAPABILITY = 'collectSellpiaSaleSummaryAuthoritativeV1';
 const EXTENSION_ACTION = 'collectSellpiaSaleSummary';
-const RUNNING_POLL_MS = 2_000;
 const IDLE_POLL_MS = 60_000;
 
 export type SellpiaSalesSourceStatus = z.infer<typeof SellpiaSalesSourceStatusSchema>;
@@ -103,8 +102,7 @@ export const sellpiaSalesCollection: CollectionSourceAdapter<
   >({
     queryKey: queryKeys.dashboard.sellpiaSalesSource(),
     queryFn: () => apiClient.getParsed(`${SOURCE_PATH}/source`, SellpiaSalesSourceStatusSchema),
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : IDLE_POLL_MS,
+    refetchInterval: IDLE_POLL_MS,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   }),

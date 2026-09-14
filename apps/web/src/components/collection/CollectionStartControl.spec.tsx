@@ -517,6 +517,31 @@ describe('CollectionStartControl without a stop', () => {
   });
 });
 
+describe('CollectionStartControl polling', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads a running collection's owner status every two seconds without the source asking, and stops once it ends", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    serverStatus = { latestAttempt: attempt('RUNNING'), latestComplete: null };
+    renderControls(<SpecControl />);
+    expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
+    const reads = () => vi.mocked(apiClient.get).mock.calls.length;
+
+    const whileRunning = reads();
+    await act(() => vi.advanceTimersByTimeAsync(2_100));
+    expect(reads()).toBeGreaterThan(whileRunning);
+
+    serverStatus = { latestAttempt: attempt('COMPLETE'), latestComplete: attempt('COMPLETE') };
+    await act(() => vi.advanceTimersByTimeAsync(2_100));
+    expect(await screen.findByRole('button', { name: '키워드 수집' })).toBeEnabled();
+    const afterEnd = reads();
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reads()).toBe(afterEnd);
+  });
+});
+
 describe('CollectionStartControl completion', () => {
   const statusKey = ['collection-start-control-spec'];
   const ledgerKey = ['spec-ledger'];

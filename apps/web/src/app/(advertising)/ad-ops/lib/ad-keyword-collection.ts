@@ -12,7 +12,6 @@ import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/ad-keywords';
-const RUNNING_POLL_MS = 2_000;
 
 async function readAdKeywordSource(): Promise<AdKeywordSourceStatus> {
   return AdKeywordSourceStatusSchema.parse(await apiClient.get(`${SOURCE_PATH}/source`));
@@ -30,8 +29,6 @@ export const adKeywordCollection: CollectionSourceAdapter<AdKeywordSourceStatus>
   >({
     queryKey: queryKeys.ads.keywordSource(),
     queryFn: readAdKeywordSource,
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (status) => {

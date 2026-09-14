@@ -13,7 +13,6 @@ import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { collectTrendSources, type TrendSourceCollectionResult } from '@/lib/source-trend-api';
 
 const STATUS_PATH = '/api/sourcing/trend/status';
-const RUNNING_POLL_MS = 2_000;
 const START_CONFIRM_POLL_MS = 1_000;
 const START_CONFIRM_READS = 10;
 
@@ -109,10 +108,6 @@ export const trendSourceCollection: CollectionSourceAdapter<TrendStatus, TrendCo
   statusQuery: collectionSourceStatusQueryOptions<TrendStatus, Error, TrendStatus, QueryKey>({
     queryKey: [...queryKeys.sourcing.trend(), 'source-status'],
     queryFn: readTrendStatus,
-    refetchInterval: (query) =>
-      Object.values(query.state.data ?? {}).some((row) => row.latestAttempt?.state === 'RUNNING')
-        ? RUNNING_POLL_MS
-        : false,
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (status) => {

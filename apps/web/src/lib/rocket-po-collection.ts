@@ -30,7 +30,10 @@ export function loadRocketPoSource(channelAccountId: string): Promise<RocketPoSo
   );
 }
 
-/** The account-scoped Channels source read every Rocket screen shares. */
+/**
+ * The account-scoped Channels source read every Rocket screen shares. Views
+ * that read it without the collection control keep its own running poll.
+ */
 export function rocketPoSourceQueryOptions(channelAccountId: string) {
   return collectionSourceStatusQueryOptions<RocketPoSource, Error, RocketPoSource, QueryKey>({
     queryKey: queryKeys.orders.rocketPoSource(channelAccountId),

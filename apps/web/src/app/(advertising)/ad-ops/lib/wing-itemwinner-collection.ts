@@ -14,7 +14,6 @@ import type { QueryKey } from '@tanstack/react-query';
 export type { WingItemwinnerSourceStatus } from '@kiditem/shared/advertising';
 
 const SOURCE_PATH = '/api/ads/wing-itemwinner';
-const RUNNING_POLL_MS = 2_000;
 
 async function readWingItemwinnerSource(): Promise<WingItemwinnerSourceStatus> {
   return WingItemwinnerSourceStatusSchema.parse(await apiClient.get(`${SOURCE_PATH}/source`));
@@ -32,8 +31,6 @@ export const wingItemwinnerCollection: CollectionSourceAdapter<WingItemwinnerSou
   >({
     queryKey: queryKeys.ads.itemwinnerSource(),
     queryFn: readWingItemwinnerSource,
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (status) => {

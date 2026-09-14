@@ -135,7 +135,6 @@ function sellpiaInventoryRunning(freshness: SellpiaInventoryFreshnessView): Coll
   return freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
 }
 
-const SOURCE_RUNNING_POLL_MS = 2_000;
 const SOURCE_IDLE_POLL_MS = 60_000;
 
 /**
@@ -160,10 +159,7 @@ export function sellpiaInventoryCollection({
       queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? ''),
       queryFn: () => sellpiaInventoryFreshnessApi.getState(),
       enabled: Boolean(organizationId),
-      refetchInterval: (query) =>
-        query.state.data && sellpiaInventoryRunning(query.state.data)
-          ? SOURCE_RUNNING_POLL_MS
-          : SOURCE_IDLE_POLL_MS,
+      refetchInterval: SOURCE_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

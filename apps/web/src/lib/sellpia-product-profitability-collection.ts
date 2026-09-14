@@ -20,8 +20,6 @@ export const SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_ACTION = 'collectSellpiaPro
 export const SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_CAPABILITY =
   'sellpiaProductProfitabilitySourceOwnerV1';
 
-const RUNNING_POLL_MS = 2_000;
-
 async function detectSellpiaProductProfitabilityExtension(): Promise<string> {
   const runtime = await detectOrderCollectionExtensionRuntime(1_200, [
     SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_CAPABILITY,
@@ -61,8 +59,6 @@ export const sellpiaProductProfitabilityCollection: CollectionSourceAdapter<Sell
         `${SELLPIA_PROFITABILITY_SOURCE_PATH}/status`,
         SellpiaProfitabilitySourceStatusSchema,
       ),
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (status) => {

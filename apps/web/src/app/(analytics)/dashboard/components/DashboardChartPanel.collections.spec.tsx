@@ -30,6 +30,8 @@ const harness = vi.hoisted(() => {
     cancelOnServer: vi.fn(async () => {
       state.running = false;
     }),
+    readCompleteId: () => null,
+    onNewComplete: () => undefined,
   };
   return { state, sellpia, start: vi.fn() };
 });

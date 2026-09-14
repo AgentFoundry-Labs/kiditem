@@ -56,8 +56,10 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
    * source whose extension run spans several attempts stops that run instead.
    */
   cancelInExtension?: (attemptId: string, context: CollectionStopContext<TStatus>) => Promise<unknown>;
-  readCompleteId?: (status: TStatus) => string | null;
-  onNewComplete?: (queryClient: QueryClient) => void;
+  /** The latest complete collection's identity; a change while mounted is a newly finished collection. */
+  readCompleteId: (status: TStatus) => string | null;
+  /** Refreshes the reads a newly finished collection republished. */
+  onNewComplete: (queryClient: QueryClient) => void;
 }>;
 
 export type CollectionControlState =
@@ -99,6 +101,8 @@ const ALREADY_RUNNING = '이미 진행 중인 수집이 있습니다.';
 const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
+// Every screen that shows a running collection reads its owner this often.
+const RUNNING_POLL_MS = 2_000;
 
 type StartVariables<TStatus, TInput> = Readonly<{
   input: TInput;
@@ -178,7 +182,17 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   adapter: CollectionSourceAdapter<TStatus, TInput>,
 ): CollectionSourceControl<TStatus, TInput> {
   const queryClient = useQueryClient();
-  const query = useQuery(adapter.statusQuery);
+  const query = useQuery({
+    ...adapter.statusQuery,
+    refetchInterval: (current) => {
+      const data = current.state.data;
+      if (current.state.status !== 'error' && data !== undefined && adapter.readRunning(data)) {
+        return RUNNING_POLL_MS;
+      }
+      const own = adapter.statusQuery.refetchInterval;
+      return typeof own === 'function' ? own(current) : own;
+    },
+  });
   const statusQueryKey = adapter.statusQuery.queryKey;
   const startKey = queryKeys.collectionControl.mutation(adapter.sourceKey, 'start');
 
@@ -240,10 +254,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     return status === undefined || adapter.readRunning(status)?.attemptId === attemptId;
   }
 
-  const completeId =
-    query.data === undefined || !adapter.readCompleteId
-      ? undefined
-      : adapter.readCompleteId(query.data);
+  const completeId = query.data === undefined ? undefined : adapter.readCompleteId(query.data);
   const observedCompleteId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (completeId === undefined) return;
@@ -252,7 +263,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     // The first read is the COMPLETE this mount already renders; only a later
     // one is a collection that finished while the page was open.
     if (previous === undefined || completeId === null || completeId === previous) return;
-    adapter.onNewComplete?.(queryClient);
+    adapter.onNewComplete(queryClient);
   }, [adapter, completeId, queryClient]);
 
   const statusRead = collectionSourceStatusRead(query);

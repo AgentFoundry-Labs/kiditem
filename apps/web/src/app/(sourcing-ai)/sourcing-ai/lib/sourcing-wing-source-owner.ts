@@ -14,7 +14,6 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
 
 const SOURCE_PATH = '/api/sourcing/workspace/wing-catalog';
-const RUNNING_POLL_MS = 2_000;
 const START_CONFIRM_POLL_MS = 1_000;
 const START_CONFIRM_READS = 15;
 const EXTENSION_MISSING = 'KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.';
@@ -138,7 +137,6 @@ export const sourcingWingCatalogCollection: CollectionSourceAdapter<
   >({
     queryKey: [...queryKeys.sourcing.all, 'wing-source-attempt', 'current'],
     queryFn: readCurrentWingCatalogAttempt,
-    refetchInterval: (query) => (query.state.data?.state === 'RUNNING' ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (attempt) =>

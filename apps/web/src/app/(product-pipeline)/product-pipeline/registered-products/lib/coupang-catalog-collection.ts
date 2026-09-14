@@ -56,7 +56,11 @@ export function catalogImportStopped(status: CoupangCatalogSourceStatus | undefi
     Boolean(currentCatalogAttempt(status)?.error?.code.endsWith('_CANCELLED'));
 }
 
-/** The account's latest import read, shared by every control and progress view for the account. */
+/**
+ * The account's latest import read, shared by every control and progress view
+ * for the account. Progress views read it without the control, so it keeps its
+ * own running poll.
+ */
 export function coupangCatalogSourceQueryOptions(channelAccountId: string) {
   return collectionSourceStatusQueryOptions<
     CoupangCatalogSourceStatus,

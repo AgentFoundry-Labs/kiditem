@@ -17,7 +17,6 @@ import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/ad-campaigns';
-const RUNNING_POLL_MS = 2_000;
 const MANUAL_REPORT_DAYS = { '7d': 7, '1d': 1 } as const;
 
 /** The exact range a manual campaign report captures. */
@@ -48,8 +47,6 @@ const adCampaignSourceStatusQuery = collectionSourceStatusQueryOptions<
 >({
   queryKey: queryKeys.ads.campaignSource(),
   queryFn: readAdCampaignSource,
-  refetchInterval: (query) =>
-    query.state.data?.activeAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
   meta: { suppressGlobalErrorToast: true },
 });
 

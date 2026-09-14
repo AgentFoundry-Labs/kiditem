@@ -9,7 +9,6 @@ import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
 const SOURCE_PATH = '/api/ads/profitability-imports';
-const RUNNING_POLL_MS = 2_000;
 
 const SourceAttemptSchema = z.object({
   attemptId: z.string().uuid(),
@@ -60,8 +59,6 @@ export const advertisingProfitabilityCollection: CollectionSourceAdapter<Adverti
     queryKey: queryKeys.ads.profitabilitySource(),
     queryFn: readAdvertisingProfitabilitySource,
     refetchOnWindowFocus: true,
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
     meta: { suppressGlobalErrorToast: true },
   }),
   readRunning: (status) =>
