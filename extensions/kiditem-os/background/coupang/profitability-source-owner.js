@@ -487,6 +487,13 @@
       );
       const active = activeExecutions.get(normalizedEnvironmentId);
       if (active) return active;
+      // A restart with no stored import to continue never takes the window's
+      // turn, so it cannot refuse a collection that starts meanwhile.
+      const stored = (await sessions.list(normalizedEnvironmentId))
+        .some((session) => session?.producer === PRODUCER && !session.attention);
+      if (!stored) return null;
+      const started = activeExecutions.get(normalizedEnvironmentId);
+      if (started) return started;
       return launch(normalizedEnvironmentId, () => takeWindowTurn(normalizedEnvironmentId, async () => {
         const plan = await rehydrate(normalizedEnvironmentId);
         return plan ? execute(normalizedEnvironmentId, plan) : null;

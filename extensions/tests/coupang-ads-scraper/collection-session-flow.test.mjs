@@ -127,15 +127,25 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
   assert.doesNotMatch(worker, /function prepareScrapeTargets\(/);
-  assert.match(worker, /beginSourceOwnerAttempt[\s\S]*async function doMonthlyScrape/);
+  assert.doesNotMatch(worker, /FromPopup|monthlyScrape|beginSourceOwnerAttempt/);
   assert.doesNotMatch(wingUnified, /syncToServer/);
 });
 
-test('retains direct source-owner entrypoints for explicit manual capture', () => {
-  assert.match(worker, /collectAdvertisingWingTraffic:/);
-  assert.match(worker, /collectAdvertisingWingItemwinner:/);
-  assert.match(worker, /collectAdvertisingCampaigns:/);
-  assert.match(worker, /collectAdvertisingKeywords:/);
+test('starts window collections only through the collection start contract', () => {
+  assert.match(worker, /startCollection:\s*\{/);
+  for (const retired of [
+    'collectAdvertisingWingTraffic',
+    'collectAdvertisingWingItemwinner',
+    'collectAdvertisingCampaigns',
+    'collectAdvertisingKeywords',
+    'collectAdvertisingProfitability',
+    'cancelAdvertisingCampaigns',
+    'cancelAdvertisingKeywords',
+    'cancelAdvertisingWingTraffic',
+    'cancelAdvertisingWingItemwinner',
+  ]) {
+    assert.doesNotMatch(worker, new RegExp(`\\b${retired}:`), retired);
+  }
 });
 
 test('retires the advertising account-day KPI owner from every extension surface', () => {

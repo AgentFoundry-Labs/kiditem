@@ -46,15 +46,27 @@
       Number.isFinite(requestedContentScriptTimeoutMs) && requestedContentScriptTimeoutMs > 0
         ? requestedContentScriptTimeoutMs
         : CONTENT_SCRIPT_TIMEOUT_MS;
-    let executionQueue = Promise.resolve();
+    // One collection holds the window's turn at a time, from its admission until
+    // its run settles. A turn never waits: a collection that finds it held is
+    // refused instead of queued behind a collection that may run for an hour.
+    let turn = null;
 
-    function runExclusive(operation) {
-      const result = executionQueue.catch(() => undefined).then(operation);
-      executionQueue = result.then(
-        () => undefined,
-        () => undefined,
-      );
-      return result;
+    function turnHolder() {
+      return turn ? { producer: turn.producer, attemptId: turn.attemptId } : null;
+    }
+
+    function claimTurn(holder) {
+      if (turn) return null;
+      const claimed = { producer: holder.producer, attemptId: holder.attemptId || null };
+      turn = claimed;
+      return Object.freeze({
+        setAttempt(attemptId) {
+          if (turn === claimed) claimed.attemptId = attemptId;
+        },
+        release() {
+          if (turn === claimed) turn = null;
+        },
+      });
     }
 
     async function readRecord() {
@@ -245,16 +257,21 @@
       }
     }
 
-    function windowInUseError(runId, session) {
-      let name = null;
+    // A session the window can name belongs to one of the collections that take
+    // turns in it.
+    function collectionNameOf(session) {
       try {
         const value = session && typeof options.collectionName === "function"
           ? options.collectionName(session)
           : null;
-        if (typeof value === "string" && value.trim()) name = value.trim();
+        return typeof value === "string" && value.trim() ? value.trim() : null;
       } catch {
-        name = null;
+        return null;
       }
+    }
+
+    function windowInUseError(runId, session) {
+      const name = collectionNameOf(session);
       return collectionWindowError(
         "collection_window_owner_conflict",
         `${name || "다른 데이터"} ${WINDOW_IN_USE_MESSAGE}`,
@@ -296,6 +313,20 @@
           // A leftover that cannot be cleared now is tried again on the next turn.
         }
       }
+    }
+
+    // After clearEndedSessions, the sessions left are those whose attempts were
+    // not confirmed as ended. One of this window's collections among them still
+    // protects the window, even when no run of this worker holds the turn; the
+    // window record's own run is named first.
+    async function protectingSession(environmentId) {
+      if (typeof sessions?.list !== "function") return null;
+      const listed = await sessions.list(environmentId);
+      const protecting = (Array.isArray(listed) ? listed : [])
+        .filter((session) => collectionNameOf(session) !== null);
+      if (protecting.length === 0) return null;
+      const record = await validate(await readRecord());
+      return protecting.find((session) => session.attemptId === record?.runId) || protecting[0];
     }
 
     function reuseDecision(value) {
@@ -712,6 +743,7 @@
 
     return Object.freeze({
       bindTab: bindOwnedTab,
+      claimTurn,
       clearEndedSessions,
       close,
       getOrCreate,
@@ -720,13 +752,14 @@
       isMissingMessageReceiver,
       isNavigationMessageChannelClosed,
       navigate,
+      protectingSession,
       recover,
       reloadTab,
       reattach,
-      runExclusive,
       sendMessage,
       sendMessageWhenReady,
       sendMessageWithReload,
+      turnHolder,
       waitForTabComplete,
     });
   }

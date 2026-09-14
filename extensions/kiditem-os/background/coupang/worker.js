@@ -31,19 +31,6 @@ const CATALOG_COLLECTION_WINDOW_STORAGE_KEY =
   "kiditem_coupang_catalog_collection_window";
 const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
 const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
-const WING_TRAFFIC_URL = "https://wing.coupang.com/tenants/business-insight/sales-analysis";
-const WING_ITEMWINNER_URL = "https://wing.coupang.com/tenants/seller-price-management";
-const WING_ITEMWINNER_PATH = "/tenants/seller-price-management";
-const OWNER_ATTEMPT_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const OWNER_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const POPUP_OWNER_CORRELATION_PREFIX = "kiditem_popup_source_owner_v1";
-const popupOwnerCorrelationWire = KidItemSourcingAttemptWire.create({
-  chrome,
-  sourcePath: "/api",
-  requestFailureMessage: "Popup source owner request failed",
-});
-
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
@@ -66,7 +53,7 @@ const collectionWindows = Object.fromEntries(
       sessions: collectionSessions,
       bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
       attemptEnded: (session) => coupangCollectionAttemptEnded(environmentId, session),
-      collectionName: (session) => COUPANG_COLLECTION_NAMES[session?.producer] || null,
+      collectionName: (session) => KidItemCoupangCollectionStart.collectionName(session?.producer),
     }),
   ]),
 );
@@ -90,6 +77,30 @@ function catalogCollectionWindowFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return catalogCollectionWindows[environmentId];
 }
+
+// Every start of a collection that takes turns in the Coupang collection
+// window goes through this admission (KID-147). It answers the web app once the
+// start is decided and runs the source owner afterwards.
+const coupangCollectionStart = KidItemCoupangCollectionStart.create({
+  windowFor: collectionWindowFor,
+  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
+  keepAlive: KidItemWorkerKeepAlive,
+  manualReportUrl: KidItemAdCenterCollector.manualReportUrl,
+  runs: {
+    "advertising.ad_sync": ({ environmentId, attemptId }) =>
+      adCampaignSourceOwner.run({ environmentId, attemptId }),
+    "advertising.ad_keyword": ({ environmentId, attemptId }) =>
+      adKeywordSourceOwner.run({ environmentId, attemptId }),
+    // The profitability owner opens its import from the idempotency key, so
+    // its run replays the begin the admission already made.
+    "advertising.profitability_import": ({ environmentId, idempotencyKey }) =>
+      profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
+    [WING_TRAFFIC_PRODUCER]: ({ environmentId, attemptId }) =>
+      runWingTrafficSourceOwner({ environmentId, attemptId }),
+    [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
+      wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
+  },
+});
 
 const adCenterCollectors = Object.fromEntries(
   adsEnvironmentContext.environmentIds.map((environmentId) => [
@@ -122,127 +133,6 @@ function adCenterCollectorFor(environmentId) {
 function wingReportCollectorFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return wingReportCollectors[environmentId];
-}
-
-function displayedWingTrafficRange(value) {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new Error("Wing 매출분석 URL이 없습니다.");
-  }
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Wing 매출분석 URL이 유효하지 않습니다.");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.hostname.toLowerCase() !== "wing.coupang.com" ||
-    !/business-insight\/sales-analysis/i.test(url.pathname)
-  ) {
-    throw new Error("Wing 매출분석 페이지가 아닙니다.");
-  }
-  const startDate = url.searchParams.get("start_date") || url.searchParams.get("startDate");
-  const endDate = url.searchParams.get("end_date") || url.searchParams.get("endDate");
-  if (!OWNER_DATE.test(startDate || "") || !OWNER_DATE.test(endDate || "")) {
-    throw new Error("Wing 매출분석 displayed 날짜 범위가 없습니다.");
-  }
-  const start = Date.parse(`${startDate}T00:00:00Z`);
-  const end = Date.parse(`${endDate}T00:00:00Z`);
-  const periodDays = Math.round((end - start) / 86400000) + 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || periodDays < 1 || periodDays > 366) {
-    throw new Error("Wing 매출분석 displayed 날짜 범위가 owner 허용 범위를 벗어났습니다.");
-  }
-  return { url: value, startDate, endDate, periodDays };
-}
-
-function displayedWingItemwinnerPage(value) {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new Error("Wing 아이템위너 URL이 없습니다.");
-  }
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Wing 아이템위너 URL이 유효하지 않습니다.");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.hostname.toLowerCase() !== "wing.coupang.com" ||
-    url.pathname !== WING_ITEMWINNER_PATH
-  ) {
-    throw new Error("Wing 아이템위너 페이지가 아닙니다.");
-  }
-  return value;
-}
-
-function displayedAdvertisingDashboard(value) {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new Error("광고센터 URL이 없습니다.");
-  }
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("광고센터 URL이 유효하지 않습니다.");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.hostname.toLowerCase() !== "advertising.coupang.com" ||
-    !/\/marketing\/dashboard\/sales/i.test(url.pathname)
-  ) {
-    throw new Error("광고 캠페인 대시보드 페이지가 아닙니다.");
-  }
-  return value;
-}
-
-function advertisingManualReportScope(value) {
-  const targetUrl = displayedAdvertisingDashboard(value);
-  const url = new URL(targetUrl);
-  const targetDate = /(?:^|[#&])targetDate=(\d{4}-\d{2}-\d{2})(?:&|$)/i.exec(url.hash || "")?.[1] || null;
-  if (targetDate) {
-    return {
-      captureMode: "manual_report",
-      period: "1d",
-      startDate: targetDate,
-      endDate: targetDate,
-      targetUrl,
-    };
-  }
-  const yesterday = new Date();
-  yesterday.setHours(0, 0, 0, 0);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const endDate = formatOwnerDate(yesterday);
-  const start = new Date(yesterday);
-  start.setDate(start.getDate() - 6);
-  const startDate = formatOwnerDate(start);
-  const requestedStart = url.searchParams.get("startDate") || url.searchParams.get("start_date");
-  const requestedEnd = url.searchParams.get("endDate") || url.searchParams.get("end_date");
-  if (OWNER_DATE.test(requestedStart || "") && OWNER_DATE.test(requestedEnd || "") &&
-    ownerDateSpan(requestedStart, requestedEnd) === 7) {
-    return { captureMode: "manual_report", period: "7d", startDate: requestedStart, endDate: requestedEnd, targetUrl };
-  }
-  return { captureMode: "manual_report", period: "7d", startDate, endDate, targetUrl };
-}
-
-function formatOwnerDate(value) {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-}
-
-function ownerDateSpan(startDate, endDate) {
-  const start = Date.parse(`${startDate}T00:00:00Z`);
-  const end = Date.parse(`${endDate}T00:00:00Z`);
-  return Number.isFinite(start) && Number.isFinite(end)
-    ? Math.round((end - start) / 86_400_000) + 1
-    : 0;
-}
-
-async function ownerJson(environmentId, path, init) {
-  const response = await authedFetch(environmentId, path, init);
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(body?.message || body?.error || `Source owner 요청 실패 (${response.status})`);
-  }
-  return body;
 }
 
 async function exportWingInventoryWorkbook(products, sender) {
@@ -305,177 +195,6 @@ function parseContentDispositionFilename(header) {
   return /filename="([^"]+)"/i.exec(header)?.[1] || null;
 }
 
-async function beginSourceOwnerAttempt(environmentId, sourcePath, request = {}, scope = null) {
-  const correlationKey = `${POPUP_OWNER_CORRELATION_PREFIX}:${environmentId}:${encodeURIComponent(sourcePath)}`;
-  const fingerprint = JSON.stringify({ request, scope });
-  const stored = await popupOwnerCorrelationWire.getCorrelation(correlationKey);
-  let correlation = stored && stored.fingerprint === fingerprint &&
-    typeof stored.idempotencyKey === "string" && stored.idempotencyKey.trim() &&
-    (stored.attemptId === null || OWNER_ATTEMPT_UUID.test(stored.attemptId))
-    ? stored
-    : null;
-  const status = await ownerJson(environmentId, `${sourcePath}/source`);
-  let attempt = status?.latestAttempt;
-  if (attempt?.state === "RUNNING") {
-    if (scope && (
-      (scope.startDate && attempt.plan?.startDate !== scope.startDate) ||
-      (scope.endDate && attempt.plan?.endDate !== scope.endDate) ||
-      (scope.url && attempt.plan?.targetUrl && attempt.plan.targetUrl !== scope.url) ||
-      (scope.targetUrl && attempt.plan?.targetUrl !== scope.targetUrl) ||
-      (scope.captureMode && attempt.plan?.captureMode !== scope.captureMode) ||
-      (scope.period && attempt.plan?.period !== scope.period)
-    )) {
-      throw new Error("다른 displayed 범위의 source owner 수집이 진행 중입니다.");
-    }
-    if (!correlation) {
-      throw new Error("다른 source owner 수집이 진행 중입니다.");
-    }
-    if (correlation.attemptId === attempt.attemptId) return attempt;
-    if (correlation.attemptId !== null) {
-      throw new Error("다른 source owner 수집이 진행 중입니다.");
-    }
-  } else if (stored) {
-    await popupOwnerCorrelationWire.clearCorrelation(correlationKey);
-    correlation = null;
-  }
-  const idempotencyKey = correlation?.idempotencyKey || crypto.randomUUID();
-  await popupOwnerCorrelationWire.setCorrelation(correlationKey, {
-    fingerprint,
-    idempotencyKey,
-    attemptId: null,
-  });
-  attempt = await ownerJson(environmentId, `${sourcePath}/attempts`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey,
-    },
-    body: JSON.stringify(request),
-  });
-  if (!OWNER_ATTEMPT_UUID.test(attempt?.attemptId || "")) {
-    throw new Error("Source owner attempt 응답이 유효하지 않습니다.");
-  }
-  await popupOwnerCorrelationWire.setCorrelation(correlationKey, {
-    fingerprint,
-    idempotencyKey,
-    attemptId: attempt.attemptId,
-  });
-  return attempt;
-}
-
-function parsePopupOwnerRequest(message, action, requiresUrl = true) {
-  const allowed = requiresUrl
-    ? ["action", "environmentId", "url"]
-    : ["action", "environmentId"];
-  if (
-    !message ||
-    message.action !== action ||
-    Object.keys(message).some((key) => !allowed.includes(key)) ||
-    typeof message.environmentId !== "string" ||
-    (requiresUrl && typeof message.url !== "string")
-  ) {
-    throw new Error("Invalid popup source owner request");
-  }
-  adsEnvironmentContext.requireEnvironment(message.environmentId);
-  return message;
-}
-
-const WING_TRAFFIC_DAILY_PARSER_VERSION = "wing-traffic-daily-v2";
-const MONTHLY_YEAR_MIN = 2000;
-const MONTHLY_YEAR_MAX = 2100;
-
-function parseMonthlyScrapeRequest(message) {
-  if (
-    !message ||
-    typeof message !== "object" ||
-    Array.isArray(message) ||
-    Object.keys(message).length !== 4 ||
-    Object.keys(message).some((key) =>
-      !["action", "year", "month", "environmentId"].includes(key),
-    ) ||
-    message.action !== "monthlyScrape" ||
-    !Number.isInteger(message.year) ||
-    message.year < MONTHLY_YEAR_MIN ||
-    message.year > MONTHLY_YEAR_MAX ||
-    String(message.year).length !== 4 ||
-    !Number.isInteger(message.month) ||
-    message.month < 1 ||
-    message.month > 12 ||
-    (message.environmentId !== "local" && message.environmentId !== "office")
-  ) {
-    throw new Error("Invalid monthly Wing traffic request");
-  }
-  return {
-    action: message.action,
-    year: message.year,
-    month: message.month,
-    environmentId: message.environmentId,
-  };
-}
-
-function kstCalendarDate(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const values = Object.fromEntries(
-    parts
-      .filter(({ type }) => type !== "literal")
-      .map(({ type, value }) => [type, Number(value)]),
-  );
-  return {
-    year: values.year,
-    month: values.month,
-    day: values.day,
-  };
-}
-
-function monthlyWingTrafficRange(year, month, now = new Date()) {
-  const current = kstCalendarDate(now);
-  const requestedKey = year * 100 + month;
-  const currentKey = current.year * 100 + current.month;
-  if (requestedKey > currentKey) {
-    throw new Error("아직 종료된 날짜가 없는 미래 월은 수집할 수 없습니다.");
-  }
-
-  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-  const kstToday = new Date(Date.UTC(current.year, current.month - 1, current.day));
-  const kstYesterday = new Date(kstToday.getTime() - 86_400_000);
-  const yesterdayDate = kstYesterday.toISOString().slice(0, 10);
-  const endDate = monthEnd < yesterdayDate ? monthEnd : yesterdayDate;
-  if (endDate < startDate) {
-    throw new Error("선택한 월에 종료된 수집일이 없습니다.");
-  }
-
-  return {
-    startDate,
-    endDate,
-    url: `${WING_TRAFFIC_URL}?start_date=${startDate}&end_date=${endDate}`,
-    periodDays: ownerDateSpan(startDate, endDate),
-  };
-}
-
-function monthlyWingTrafficAdmission(attempt, range) {
-  const terminalState = attempt?.state;
-  if (!["RUNNING", "COMPLETE", "FAILED"].includes(terminalState)) {
-    throw new Error("Source owner attempt 응답 상태가 유효하지 않습니다.");
-  }
-  if (attempt?.plan && attempt.plan.parserVersion !== WING_TRAFFIC_DAILY_PARSER_VERSION) {
-    throw new Error("Wing 월별 수집은 daily-v2 source owner만 사용할 수 있습니다.");
-  }
-  return {
-    success: true,
-    attemptId: attempt.attemptId,
-    terminalState,
-    startDate: range.startDate,
-    endDate: range.endDate,
-  };
-}
-
 const collectionRuns = KidItemCollectionRuns.create({
   chrome,
   sessions: collectionSessions,
@@ -515,27 +234,14 @@ const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create(
 });
 
 // The source owners that close through collectionWindowFor share one window
-// per environment. Each run takes the window's turn and keeps it until its
-// outcome is reported and its window and session are released, so the next
-// collection never meets a window that is still finishing. Taking the turn
-// first clears the sessions that ended collections left behind; only their
-// source owners can tell that an attempt ended.
-function takeCoupangWindowTurn(environmentId, operation) {
-  const collectionWindow = collectionWindowFor(environmentId);
-  return collectionWindow.runExclusive(async () => {
-    await collectionWindow.clearEndedSessions(environmentId);
-    return operation();
-  });
+// per environment. A run holds the window's turn until its outcome is reported
+// and its window and session are released. The turn never waits: a run finds
+// the window free, enters the turn the admission that started it holds, or is
+// refused because another collection holds the window.
+function coupangWindowTurn(producer) {
+  return (environmentId, operation) =>
+    coupangCollectionStart.takeTurn(environmentId, producer, operation);
 }
-
-// Names the collection that holds the window when another one is refused.
-const COUPANG_COLLECTION_NAMES = Object.freeze({
-  "advertising.ad_sync": "쿠팡 광고 캠페인",
-  "advertising.ad_keyword": "쿠팡 광고 키워드",
-  "advertising.profitability_import": "쿠팡 상품별 광고 보고서",
-  [WING_TRAFFIC_PRODUCER]: "쿠팡 Wing 트래픽",
-  [WING_ITEMWINNER_PRODUCER]: "쿠팡 Wing 아이템위너",
-});
 
 // A leftover session can hold the window after its attempt ended. Only the
 // producer's own source owner can tell, through its attempt control read.
@@ -569,7 +275,7 @@ const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
   collectSlice: collectAdvertisingProfitabilitySlice,
   closeAttempt: (environmentId, attemptId) =>
     collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn("advertising.profitability_import"),
 });
 const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   chrome,
@@ -580,7 +286,7 @@ const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectKeywords({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn("advertising.ad_keyword"),
 });
 chrome.runtime.onMessage.addListener(adKeywordSourceOwner.handleMessage);
 const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
@@ -591,7 +297,7 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectCampaigns({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn("advertising.ad_sync"),
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
 const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
@@ -603,7 +309,7 @@ const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn(WING_TRAFFIC_PRODUCER),
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwner.handleMessage);
 const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
@@ -615,16 +321,12 @@ const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn(WING_TRAFFIC_PRODUCER),
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwnerV2.handleMessage);
 
-function runWingTrafficSourceOwnerV2(args) {
-  return wingTrafficSourceOwnerV2.run(args);
-}
-
 function runWingTrafficSourceOwner(args) {
-  return runWingTrafficSourceOwnerV2(args).catch((error) => {
+  return wingTrafficSourceOwnerV2.run(args).catch((error) => {
     if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") return wingTrafficSourceOwner.run(args);
     throw error;
   });
@@ -647,7 +349,7 @@ const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectItemwinner({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: takeCoupangWindowTurn,
+  takeWindowTurn: coupangWindowTurn(WING_ITEMWINNER_PRODUCER),
 });
 chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
 const coupangSerpCollector = KidItemCoupangSerpCollector.create({
@@ -879,112 +581,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         success: false,
         error: error?.message || "Wing 상품목록 엑셀 변환 실패",
       }));
-    return true;
-  }
-
-  if (msg.action === "collectAdvertisingWingTrafficFromPopup") {
-    Promise.resolve()
-      .then(async () => {
-        const request = parsePopupOwnerRequest(
-          msg,
-          "collectAdvertisingWingTrafficFromPopup",
-        );
-        const range = displayedWingTrafficRange(request.url);
-        const attempt = await beginSourceOwnerAttempt(
-          request.environmentId,
-          "/api/ads/traffic",
-          {
-            startDate: range.startDate,
-            endDate: range.endDate,
-            url: range.url,
-          },
-          range,
-        );
-        return KidItemWorkerKeepAlive.during(
-          runWingTrafficSourceOwner({
-            environmentId: request.environmentId,
-            attemptId: attempt.attemptId,
-          }),
-        );
-      })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error?.message || "Wing 트래픽 owner 수집 실패" }));
-    return true;
-  }
-
-  if (msg.action === "collectAdvertisingWingItemwinnerFromPopup") {
-    Promise.resolve()
-      .then(async () => {
-        const request = parsePopupOwnerRequest(
-          msg,
-          "collectAdvertisingWingItemwinnerFromPopup",
-        );
-        const targetUrl = displayedWingItemwinnerPage(request.url);
-        const attempt = await beginSourceOwnerAttempt(
-          request.environmentId,
-          "/api/ads/wing-itemwinner",
-          { targetUrl },
-          { targetUrl },
-        );
-        return KidItemWorkerKeepAlive.during(
-          wingItemwinnerSourceOwner.run({
-            environmentId: request.environmentId,
-            attemptId: attempt.attemptId,
-          }),
-        );
-      })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error?.message || "Wing 아이템위너 owner 수집 실패" }));
-    return true;
-  }
-
-  if (msg.action === "collectAdvertisingCampaignsFromPopup") {
-    Promise.resolve()
-      .then(async () => {
-        const request = parsePopupOwnerRequest(
-          msg,
-          "collectAdvertisingCampaignsFromPopup",
-        );
-        const scope = advertisingManualReportScope(request.url);
-        const attempt = await beginSourceOwnerAttempt(
-          request.environmentId,
-          "/api/ads/ad-campaigns",
-          scope,
-          scope,
-        );
-        return KidItemWorkerKeepAlive.during(
-          adCampaignSourceOwner.run({
-            environmentId: request.environmentId,
-            attemptId: attempt.attemptId,
-          }),
-        );
-      })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error?.message || "광고 캠페인 owner 수집 실패" }));
-    return true;
-  }
-
-  if (msg.action === "monthlyScrape") {
-    let request;
-    let range;
-    try {
-      request = parseMonthlyScrapeRequest(msg);
-      range = monthlyWingTrafficRange(request.year, request.month);
-    } catch (error) {
-      sendResponse({
-        success: false,
-        error: error?.message || "Invalid monthly Wing traffic request",
-      });
-      return;
-    }
-    doMonthlyScrape(request.year, request.month, request.environmentId, range)
-      .then(sendResponse)
-      .catch((error) =>
-        sendResponse({
-          success: false,
-          error: error?.message || "Wing 월별 owner 수집 승인 실패",
-        }),
-      );
     return true;
   }
 
@@ -2341,92 +1937,27 @@ async function cancelCollectionSession(runId, environmentId) {
   throw new Error("Collection producer source owner does not support cancellation");
 }
 
-/**
- * 월별 Wing 트래픽 source owner 승인 — 하나의 고정 범위를 승인하고
- * 서비스워커 keepalive 아래 일별-v2 owner를 시작한다. 진행률과 terminal
- * 상태는 서버 attempt가 소유하며, 이 함수는 승인 ACK만 반환한다.
- */
-async function doMonthlyScrape(year, month, environmentId, frozenRange = null) {
-  const range = frozenRange || monthlyWingTrafficRange(year, month);
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  const attempt = await beginSourceOwnerAttempt(
-    environmentId,
-    "/api/ads/traffic",
-    {
-      startDate: range.startDate,
-      endDate: range.endDate,
-      url: range.url,
-    },
-    range,
-  );
-  const admission = monthlyWingTrafficAdmission(attempt, range);
-  if (admission.terminalState === "RUNNING") {
-    const dispatch = KidItemWorkerKeepAlive.during(
-      runWingTrafficSourceOwnerV2({
-        environmentId,
-        attemptId: admission.attemptId,
-      }),
-    );
-    dispatch.catch((error) =>
-      console.error(
-        "[KIDITEM] Wing 월별 owner dispatch 실패:",
-        error?.message || error,
-      ),
-    );
+// A restarted worker continues a collection only through the web-app lifetime,
+// which recovers an environment after it confirms a connected KidItem tab there
+// and settles its stop requests. The ad campaign, keyword, Wing traffic and
+// itemwinner owners only settle attempts that already ended. Profitability
+// continues its same live import inside the window turn a new start would take;
+// tracked Wing products and competitor catalogs use no window. The runs keep
+// the worker alive on their own, so the lifetime is not held until they end.
+function recoverCoupangCollections(environmentId) {
+  for (const [label, recover] of [
+    ["광고 캠페인 owner", () => adCampaignSourceOwner.recover(environmentId)],
+    ["광고 키워드 owner", () => adKeywordSourceOwner.recover(environmentId)],
+    ["Wing 트래픽 owner", () => wingTrafficSourceOwner.recover(environmentId)],
+    ["Wing 트래픽 일별 owner", () => wingTrafficSourceOwnerV2.recover(environmentId)],
+    ["Wing 아이템위너 owner", () => wingItemwinnerSourceOwner.recover(environmentId)],
+    ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
+    ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
+    ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
+  ]) {
+    KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
+      console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));
   }
-  return admission;
-}
-
-for (const environmentId of adsEnvironmentContext.environmentIds) {
-  KidItemWorkerKeepAlive.during(adCampaignSourceOwner.recover(environmentId))
-    .catch(error => console.error("[KIDITEM] 광고 캠페인 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(adKeywordSourceOwner.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] 광고 키워드 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(wingTrafficSourceOwner.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] Wing 트래픽 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(wingTrafficSourceOwnerV2.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] Wing 트래픽 일별 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(wingItemwinnerSourceOwner.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] Wing 아이템위너 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(profitabilitySourceOwner.recover(environmentId))
-    .catch((error) =>
-      console.error(
-        "[KIDITEM] 수익성 광고비 source owner 복구 실패:",
-        error?.message || error,
-      ),
-    );
-  KidItemWorkerKeepAlive.during(
-    trackedWingProductsSourceOwner.recover(environmentId),
-  ).catch((error) =>
-    console.error(
-      "[KIDITEM] 추적 Wing source owner 복구 실패:",
-      error?.message || error,
-    ),
-  );
-  KidItemWorkerKeepAlive.during(
-    competitorCatalogSourceOwner.recover(environmentId),
-  ).catch((error) =>
-    console.error(
-      "[KIDITEM] 경쟁 판매자 source owner 복구 실패:",
-      error?.message || error,
-    ),
-  );
-}
-
-function parseAdvertisingProfitabilityStart(message) {
-  if (
-    !message ||
-    typeof message !== "object" ||
-    Array.isArray(message) ||
-    Object.keys(message).some((key) =>
-      key !== "action" && key !== "idempotencyKey") ||
-    typeof message.idempotencyKey !== "string" ||
-    message.idempotencyKey.trim().length === 0 ||
-    message.idempotencyKey.length > 128
-  ) {
-    throw new Error("Invalid Advertising profitability collection request");
-  }
-  return { idempotencyKey: message.idempotencyKey.trim() };
 }
 
 // ── 통합 서비스워커 등록 ──
@@ -2437,6 +1968,11 @@ KidItemDomains.register({
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
   externalActions: {
+    startCollection: {
+      validate: KidItemCoupangCollectionStart.parseRequest,
+      handle: (request, environmentId) =>
+        KidItemWorkerKeepAlive.during(coupangCollectionStart.start(request, environmentId)),
+    },
     collectAdvertisingSellerIdentities: {
       validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "identity"),
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -2484,62 +2020,6 @@ KidItemDomains.register({
       validate: parseSourcingKeywordSuggestionStart,
       handle: ({ idempotencyKey, input }, environmentId) =>
         KidItemWorkerKeepAlive.during(runSourcingKeywordSuggestions({ environmentId, idempotencyKey, input })),
-    },
-    collectAdvertisingProfitability: {
-      validate: parseAdvertisingProfitabilityStart,
-      handle: ({ idempotencyKey }, environmentId) =>
-        KidItemWorkerKeepAlive.during(
-          profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
-        ),
-    },
-    collectAdvertisingKeywords: {
-      validate: (message) => KidItemAdKeywordSourceOwner.parseAction(message, "collectAdvertisingKeywords"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adKeywordSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    collectAdvertisingCampaigns: {
-      validate: message => KidItemAdCampaignSourceOwner.parseAction(message, "collectAdvertisingCampaigns"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(adCampaignSourceOwner.run({ environmentId, attemptId })),
-    },
-    cancelAdvertisingCampaigns: {
-      validate: message => KidItemAdCampaignSourceOwner.parseAction(message, "cancelAdvertisingCampaigns"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adCenterCollectorFor(environmentId).cancelRun({ attemptId })
-          .then(() => adCampaignSourceOwner.cancel({ environmentId, attemptId })),
-      ),
-    },
-    cancelAdvertisingKeywords: {
-      validate: (message) => KidItemAdKeywordSourceOwner.parseAction(message, "cancelAdvertisingKeywords"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adCenterCollectorFor(environmentId).cancelRun({ attemptId })
-          .then(() => adKeywordSourceOwner.cancel({ environmentId, attemptId })),
-      ),
-    },
-    collectAdvertisingWingTraffic: {
-      validate: message => KidItemWingTrafficSourceOwner.parseAction(message, "collectAdvertisingWingTraffic"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        runWingTrafficSourceOwner({ environmentId, attemptId }),
-      ),
-    },
-    cancelAdvertisingWingTraffic: {
-      validate: message => KidItemWingTrafficSourceOwner.parseAction(message, "cancelAdvertisingWingTraffic"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        cancelWingTrafficSourceOwner({ environmentId, attemptId }),
-      ),
-    },
-    collectAdvertisingWingItemwinner: {
-      validate: message => KidItemWingItemwinnerSourceOwner.parseAction(message, "collectAdvertisingWingItemwinner"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    cancelAdvertisingWingItemwinner: {
-      validate: message => KidItemWingItemwinnerSourceOwner.parseAction(message, "cancelAdvertisingWingItemwinner"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        wingReportCollectorFor(environmentId).cancelRun({ attemptId })
-          .then(() => wingItemwinnerSourceOwner.cancel({ environmentId, attemptId })),
-      ),
     },
     collectAdvertisingTrackedWingProducts: {
       validate: parseAdvertisingTrackedWingProductsStart,
@@ -2595,6 +2075,7 @@ KidItemDomains.register({
     coupangReviewCollectionWindowReceiptsV1: true,
     coupangReviewCollectionSource: "wing-cs-product-review",
     browserCollectionSessions: true,
+    collectionStartV1: true,
     advertisingKeywordSourceOwnerV1: true,
     advertisingCampaignSourceOwnerV1: true,
     wingTrafficSourceOwnerV1: true,
@@ -2615,4 +2096,5 @@ KidItemDomains.register({
       coupangReviewCollectorDependencies(environmentId),
     ),
   cancelCollectionSession,
+  recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),
 });
