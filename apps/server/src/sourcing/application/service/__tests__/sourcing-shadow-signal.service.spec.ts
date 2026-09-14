@@ -159,6 +159,19 @@ describe('SourcingShadowSignalService', () => {
     expect(linkfox.fetchNewProductRank).not.toHaveBeenCalled();
   });
 
+  // NOW is 01:30 KST: the KST business date's UTC midnight is 09:00 KST, which
+  // is later than the capture, so a window starting there would be reversed.
+  it('starts the source window at the KST day start when collecting before dawn', async () => {
+    await service.collect(input, NOW);
+
+    expect(attempts.completeAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceWindowStartAt: new Date('2026-07-15T15:00:00.000Z'),
+        sourceWindowEndAt: NOW,
+      }),
+    );
+  });
+
   it('replays the exact receipt before seeds, configuration and external IO on another day', async () => {
     const first = await service.collect(input, NOW);
     vi.mocked(snapshots.findAttemptIdByKey).mockResolvedValue(first.attemptId);
