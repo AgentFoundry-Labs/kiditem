@@ -10,7 +10,7 @@ const dashboard = 'https://advertising.coupang.com/marketing/dashboard/sales';
 const detail = dashboard + '/campaign/123/group/456/product';
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function harness({ metadata = false, rawOnly = false, manual = false, manualPeriod = '7d', failDate = null, failKeywords = false, failProductSales = false, metadataRows = null, metadataPageSize = null, metadataNextDisabled = false, detailFailures = 0, onDetailFailure = null, onDelay = null, gridMissing = false } = {}) {
+function harness({ metadata = false, rawOnly = false, manual = false, manualPeriod = '7d', failDate = null, failKeywords = false, failProductSales = false, metadataRows = null, metadataPageSize = null, metadataNextDisabled = false, detailFailures = 0, onDetailFailure = null, onDelay = null, gridMissing = false, failProductSalesRuns = 0 } = {}) {
   const dom = new JSDOM('', { url: dashboard });
   Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', { get() { return this.textContent; } });
   dom.window.HTMLElement.prototype.getClientRects = () => [{}];
@@ -22,7 +22,7 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
         startDate: manualPeriod === '1d' ? '2026-07-31' : '2026-07-25', endDate: '2026-07-31', businessDates: ['2026-07-31'] }
       : { expectedAdvertiserId: 'A0001', captureMode: 'campaign_sweep', startDate: '2026-07-01', endDate: '2026-07-31',
         businessDates: Array.from({length:31}, (_,i) => `2026-07-${String(31-i).padStart(2,'0')}`) } };
-  let now = Date.parse('2026-08-01T14:59:00Z'), selectedDate, listener;
+  let now = Date.parse('2026-08-01T14:59:00Z'), selectedDate, listener, runsStarted = 0;
   const receipts = [], requests = [], appliedDates = [], delays = [];
   const name = metadata ? 'AI 스마트 광고' : rawOnly ? 'AI 스마트 광고 (HUB)' : 'OFF campaign';
   const identity = '<dl><dt>업체코드</dt><dd>A0001</dd></dl>';
@@ -123,7 +123,8 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
       if (failKeywords && keywordRequest) {
         return { ok: false, status: 503, text: async () => '' };
       }
-      if (failProductSales && body?.tableType === 'product_sales') {
+      const productSalesDown = failProductSales || (failProductSalesRuns > 0 && runsStarted <= failProductSalesRuns);
+      if (productSalesDown && body?.tableType === 'product_sales') {
         return { ok: false, status: 503, text: async () => '' };
       }
       if (url.includes('/tetris-api/campaigns')) {
@@ -170,8 +171,11 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
   vm.runInContext(productMetricsSource, context, { filename: 'ad-product-metrics.js' });
   vm.runInContext(source, context);
   return { control, receipts, requests, appliedDates, delays, contract: context.KidItemAdsReportContract, close: () => dom.window.close(),
-    run: () => new Promise(resolve => listener({ action:'manualSync', collectionRunId:control.attemptId,
-      collectionAttempt:1, environmentId:'local', syncMode:manual ? 'campaign_manual_report' : 'campaign_sweep', campaignControl:structuredClone(control) }, {}, resolve)) };
+    run: () => new Promise(resolve => {
+      runsStarted += 1;
+      listener({ action:'manualSync', collectionRunId:control.attemptId,
+        collectionAttempt:1, environmentId:'local', syncMode:manual ? 'campaign_manual_report' : 'campaign_sweep', campaignControl:structuredClone(control) }, {}, resolve);
+    }) };
 }
 
 function linklessSweepHarness() {
@@ -815,11 +819,15 @@ test('two linkless campaigns survive 12-day handoffs and content recreation with
 
 // The page-world recorder the collector installs while a sweep runs
 // (background/coupang/ad-center-collector.js) writes Coupang dialogs here.
-function recordCoupangAlert(dom, message) {
+function recordCoupangDialog(dom, kind, message) {
   const key = 'kiditem_ads_dialog_log_v1';
   const log = JSON.parse(dom.window.sessionStorage.getItem(key) || '[]');
-  log.push({ seq: (log.at(-1)?.seq || 0) + 1, kind: 'alert', message });
+  log.push({ seq: (log.at(-1)?.seq || 0) + 1, kind, message });
   dom.window.sessionStorage.setItem(key, JSON.stringify(log));
+}
+
+function recordCoupangAlert(dom, message) {
+  recordCoupangDialog(dom, 'alert', message);
 }
 
 test('a campaign whose detail page never loads gets one retry in the attempt, then fails it with a named reason', async () => {
@@ -884,7 +892,7 @@ test('a dashboard whose campaign grid never loads answers with the dashboard fai
     assert.deepEqual(plain({ success: result.success, errorCode: result.errorCode, error: result.error }), {
       success: false,
       errorCode: 'AD_DASHBOARD_NOT_LOADED',
-      error: '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.',
+      error: '쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.',
     });
     assert.equal(h.receipts.length, 0);
   } finally { h.close(); }
@@ -905,7 +913,63 @@ test('a Coupang alert while the dashboard grid loads is named in the dashboard f
     assert.equal(result.errorCode, 'AD_DASHBOARD_NOT_LOADED');
     assert.equal(
       result.error,
-      "쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요. 쿠팡 알림: '세션이 만료되었습니다.'",
+      "쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요. 쿠팡 알림: '세션이 만료되었습니다.'",
     );
+  } finally { h.close(); }
+});
+
+test('a Coupang confirm during the detail wait is quoted in the failure reason', async () => {
+  const h = harness({
+    detailFailures: 2,
+    onDetailFailure: (dom) => recordCoupangDialog(dom, 'confirm', '이 페이지를 떠나시겠습니까?'),
+  });
+  try {
+    const first = await h.run();
+    assert.equal(first.resumeRequired, true, JSON.stringify(first));
+
+    const second = await h.run();
+
+    assert.equal(second.success, false, JSON.stringify(second));
+    assert.equal(second.errors[0].error, 'coupang_confirm', 'a confirm answered false ends the wait too');
+    assert.equal(
+      second.error,
+      "쿠팡 광고 캠페인 1개를 불러오지 못했습니다: OFF campaign. 쿠팡 확인 창: '이 페이지를 떠나시겠습니까?'",
+    );
+  } finally { h.close(); }
+});
+
+test('a day that fails is revisited in the retry pass, which resumes the campaign and completes the attempt', async () => {
+  const h = harness({ failProductSalesRuns: 1 });
+  try {
+    const first = await h.run();
+    assert.equal(first.resumeRequired, true, 'the failed day waits for the retry pass instead of ending the attempt');
+    assert.equal(first.resumeUrl, dashboard);
+
+    let result = first;
+    for (let invocation = 0; invocation < 6 && result.resumeRequired; invocation += 1) {
+      result = await h.run();
+    }
+
+    assert.equal(result.success, true, JSON.stringify(result));
+    assert.equal(result.campaignReceipt.complete, true);
+    assert.deepEqual(
+      h.receipts.filter((receipt) => receipt.kind === 'campaign_day').map((receipt) => receipt.businessDate),
+      h.control.plan.businessDates,
+    );
+  } finally { h.close(); }
+});
+
+test('a day that keeps failing fails the attempt after its retry with the named reason', async () => {
+  const h = harness({ failProductSales: true });
+  try {
+    const first = await h.run();
+    assert.equal(first.resumeRequired, true, 'the failed day waits for the retry pass instead of ending the attempt');
+
+    const second = await h.run();
+
+    assert.equal(second.success, false, JSON.stringify(second));
+    assert.equal(second.campaignReceipt.complete, false);
+    assert.equal(second.error, '쿠팡 광고 캠페인 1개를 불러오지 못했습니다: OFF campaign.');
+    assert.equal(h.receipts.some((receipt) => receipt.kind === 'campaign_day'), false);
   } finally { h.close(); }
 });

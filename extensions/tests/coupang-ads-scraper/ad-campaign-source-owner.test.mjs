@@ -169,7 +169,7 @@ test('local checkpoint validates owned tab, actual identity, fixed expiry and ne
 });
 
 test('a failed sweep reports the collector reason and code in the owner failure', async () => {
-  const dashboardReason = '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.';
+  const dashboardReason = '쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.';
   const campaignReason = '쿠팡 광고 캠페인 2개를 불러오지 못했습니다: A, B.';
   for (const [collected, body] of [
     [{ success: false, error: campaignReason }, { code: 'AD_CAMPAIGN_COLLECTION_FAILED', message: campaignReason }],

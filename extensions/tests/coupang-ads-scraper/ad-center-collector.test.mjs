@@ -440,7 +440,7 @@ test('source interface does not expose the old universal target loop', () => {
 const dashboardNotLoaded = {
   success: false,
   errorCode: 'AD_DASHBOARD_NOT_LOADED',
-  error: '쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.',
+  error: '쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.',
 };
 const sweepControl = { attemptId: 'attempt', plan: { captureMode: 'campaign_sweep' } };
 
@@ -456,6 +456,7 @@ test('a campaign sweep reloads the tab once when the dashboard grid does not loa
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'AD_DASHBOARD_NOT_LOADED');
   assert.equal(result.error, dashboardNotLoaded.error);
+  assert.equal(result.attentionRequired, false, 'a dashboard that did not load is not a login problem');
   assert.deepEqual(reloads, [41], 'one reload and one more wait, then the sweep fails');
   assert.equal(fake.calls.messages.length, 2);
 });
@@ -513,6 +514,8 @@ test('a campaign sweep keeps Coupang dialogs from blocking its page and restores
   const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'ad-status', cancelKey: 'ad-cancel', delay: async () => {} });
 
   const result = await collector.collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+  // The capture never waits for the page to get its dialogs back.
+  await eventually(() => events.at(-1) === 'page:removeAdsDialogRecorder:MAIN:41');
 
   assert.equal(result.success, true, JSON.stringify(result));
   assert.deepEqual(events, [
@@ -546,4 +549,142 @@ test('a campaign sweep keeps Coupang dialogs from blocking its page and restores
   } finally {
     dom.window.close();
   }
+});
+
+async function eventually(predicate, turns = 200) {
+  for (let turn = 0; turn < turns; turn += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail('the expected page work did not happen');
+}
+
+function within(promise, milliseconds, message) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+const dialogBlockedReason = '쿠팡 광고 화면이 알림 창에 멈춰 수집을 진행하지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
+
+function sweepCollector(api, fake) {
+  return api.create({
+    window: fake.resource,
+    chrome: fake.chrome,
+    sessions: fake.sessions,
+    statusKey: 'ad-status',
+    cancelKey: 'ad-cancel',
+    delay: async () => {},
+    pageScriptTimeoutMs: 20,
+  });
+}
+
+test('a sweep page held by a native dialog is reloaded once, then the capture fails instead of waiting forever', async () => {
+  const api = load();
+  const fake = harness([], { producer: 'advertising.ad_sync' });
+  const reloads = [];
+  fake.resource.reloadTab = async (tabId) => { reloads.push(tabId); };
+  // A page held by a native dialog never answers a script.
+  fake.chrome.scripting = { executeScript: () => new Promise(() => {}) };
+
+  const result = await within(
+    sweepCollector(api, fake).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl }),
+    2000,
+    'the capture waited on a page held by a dialog',
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'AD_PAGE_DIALOG_BLOCKED');
+  assert.equal(result.error, dialogBlockedReason);
+  assert.equal(result.attentionRequired, false);
+  assert.deepEqual(reloads, [41], 'one reload closes the dialog before the capture gives up');
+  assert.equal(fake.calls.messages.length, 0);
+});
+
+test('a sweep page freed by its reload takes the recorder and the sweep continues', async () => {
+  const api = load();
+  const fake = harness([{ success: true, campaignReceipt: { complete: true } }], { producer: 'advertising.ad_sync' });
+  const reloads = [];
+  fake.resource.reloadTab = async (tabId) => { reloads.push(tabId); };
+  let installs = 0;
+  fake.chrome.scripting = {
+    executeScript: (details) => {
+      if (details.func.name !== 'installAdsDialogRecorder') return Promise.resolve([{ result: true }]);
+      installs += 1;
+      return installs === 1 ? new Promise(() => {}) : Promise.resolve([{ result: true }]);
+    },
+  };
+
+  const result = await within(
+    sweepCollector(api, fake).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl }),
+    2000,
+    'the capture waited on a page held by a dialog',
+  );
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.deepEqual(reloads, [41]);
+  assert.equal(installs, 2);
+  assert.equal(fake.calls.messages.length, 1);
+});
+
+test('restoring the page dialogs never holds a finished capture open', async () => {
+  const api = load();
+  const fake = harness([{ success: true, campaignReceipt: { complete: true } }], { producer: 'advertising.ad_sync' });
+  const removals = [];
+  fake.chrome.scripting = {
+    executeScript: (details) => {
+      if (details.func.name !== 'removeAdsDialogRecorder') return Promise.resolve([{ result: true }]);
+      removals.push(details.target.tabId);
+      return new Promise(() => {});
+    },
+  };
+
+  const result = await within(
+    sweepCollector(api, fake).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl }),
+    2000,
+    'the capture waited for the page to get its dialogs back',
+  );
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  await eventually(() => removals.length === 1);
+});
+
+test('the dialog recorder goes only into the Coupang advertising page the collector opened', async () => {
+  const api = load();
+  const fake = harness([{ success: true, campaignReceipt: { complete: true } }], { producer: 'advertising.ad_sync' });
+  fake.resource.getTab = async () => ({ id: 41, windowId: 7, status: 'complete', url: 'https://xauth.coupang.com/login' });
+  const scripts = [];
+  fake.chrome.scripting = {
+    async executeScript(details) {
+      scripts.push(details.func.name);
+      return [{ result: true }];
+    },
+  };
+
+  const result = await sweepCollector(api, fake).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+  for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.deepEqual(scripts, []);
+});
+
+test('a known collector failure is not read as a login problem even when the quoted Coupang text mentions login', async () => {
+  const api = load();
+  const quotedLogin = {
+    success: false,
+    errorCode: 'AD_DASHBOARD_NOT_LOADED',
+    error: "쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요. 쿠팡 알림: '로그인 세션이 만료되었습니다.'",
+  };
+  const fake = harness([quotedLogin, structuredClone(quotedLogin)], { producer: 'advertising.ad_sync' });
+
+  const result = await sweepCollector(api, fake).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+
+  assert.equal(result.attentionRequired, false);
+  assert.equal(result.reason, null);
+
+  const uncoded = harness([{ success: false, error: '쿠팡 광고센터 로그인이 필요합니다.' }], { producer: 'advertising.ad_sync' });
+  const uncodedResult = await sweepCollector(api, uncoded).collectCampaigns({ environmentId: 'local', attemptId: 'attempt', control: sweepControl });
+  assert.equal(uncodedResult.attentionRequired, true, 'an uncoded login failure still asks the operator to log in');
 });

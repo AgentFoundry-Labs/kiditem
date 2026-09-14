@@ -2655,7 +2655,7 @@ test("successful resume clears the prior campaign error and recalculates failed"
   assert.match(source, /let failed = errors\.length;/);
 });
 
-test("partial campaign collection failure stops for operator retry without terminalizing", () => {
+test("a day-level campaign failure is left for the end-of-sweep retry instead of ending the sweep", () => {
   const contract = loadContract();
   const campaign = {
     identity: "campaign:100",
@@ -2684,10 +2684,8 @@ test("partial campaign collection failure stops for operator retry without termi
   const failureBranch = source.slice(failureBranchStart, dashboardReturnStart);
   assert.ok(failureBranchStart > 0 && dashboardReturnStart > failureBranchStart);
   assert.match(failureBranch, /retryable: true/);
-  assert.match(failureBranch, /recordCampaignFailure\([\s\S]*false,/);
-  assert.match(failureBranch, /success: false/);
-  assert.match(failureBranch, /광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행/);
-  assert.doesNotMatch(failureBranch, /resumeRequired: true/);
+  assert.match(failureBranch, /recordCampaignFailure\(/);
+  assert.doesNotMatch(failureBranch, /return \{/, "the sweep moves on to the next campaign");
 });
 
 test("content waits through the extension worker instead of a throttled page timer", async () => {
@@ -2738,7 +2736,7 @@ test("the campaign failure reason names a few campaigns and the latest Coupang a
     identity: `campaign:${index + 1}`,
     name,
     error: "campaign_detail_identity_or_surface_timeout",
-    ...(index === 3 ? { alertMessage: "일시적인 오류가 발생했습니다." } : {}),
+    ...(index === 3 ? { dialogKind: "alert", dialogMessage: "일시적인 오류가 발생했습니다." } : {}),
   }));
 
   assert.equal(
@@ -2752,9 +2750,45 @@ test("the campaign failure reason names a few campaigns and the latest Coupang a
   const bounded = contract.campaignSweepFailureReason(errors.map((entry) => ({
     ...entry,
     name: "긴".repeat(200),
-    alertMessage: "알림".repeat(200),
+    dialogKind: "confirm",
+    dialogMessage: "알림".repeat(200),
   })));
   assert.ok(bounded.length <= 300, `the owner failure message allows 300 characters, got ${bounded.length}`);
+});
+
+test("dashboard sweep failures read as Korean reasons and quote the Coupang dialog", () => {
+  const contract = loadContract();
+
+  assert.equal(
+    contract.dashboardSweepErrorReason("dashboard_next_page_not_loaded", { kind: "alert", message: "세션이 만료되었습니다." }),
+    "쿠팡 광고 대시보드의 다음 페이지를 불러오지 못했습니다. 쿠팡 알림: '세션이 만료되었습니다.'",
+  );
+  assert.equal(
+    contract.dashboardSweepErrorReason("dashboard_return_after_identity_probe_failed", { kind: "confirm", message: "이동할까요?" }),
+    "쿠팡 광고 캠페인 화면에서 대시보드로 돌아오지 못했습니다. 쿠팡 확인 창: '이동할까요?'",
+  );
+  for (const code of [
+    "campaign_identity_missing",
+    "dashboard_pagination_unverified",
+    "dashboard_page_navigation_failed",
+    "dashboard_page_number_not_increased",
+    "dashboard_pagination_limit_exceeded",
+    "an_unknown_failure",
+    "constructor",
+  ]) {
+    const reason = contract.dashboardSweepErrorReason(code);
+    assert.equal(typeof reason, "string", code);
+    assert.doesNotMatch(reason, /[a-z]+_[a-z]+/, `${code} must not reach the screen as an English code`);
+  }
+
+  const sweepErrorReturn = source.slice(
+    source.indexOf("if (sweepError) {"),
+    source.indexOf("if (totalDiscovered === 0 && rawOnlyCampaigns === 0)"),
+  );
+  assert.match(
+    sweepErrorReturn,
+    /const sweepErrorReason = dashboardSweepErrorReason\(sweepError, sweepDialog\);[\s\S]*error: sweepErrorReason,/,
+  );
 });
 
 test("only a campaign with no detail report gets a metadata-only envelope", () => {

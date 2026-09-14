@@ -3769,10 +3769,10 @@
   // While a campaign sweep runs, the collector replaces Coupang's alert and
   // confirm in this tab's page world with a recorder so the page never blocks
   // (background/coupang/ad-center-collector.js). Both worlds share the tab's
-  // sessionStorage, and an alert recorded during a page wait is a page error.
+  // sessionStorage, and a dialog recorded during a page wait is a page error.
   const ADS_DIALOG_LOG_KEY = "kiditem_ads_dialog_log_v1";
   const DASHBOARD_NOT_LOADED_REASON =
-    "쿠팡 광고센터 대시보드를 불러오지 못했습니다. 로그인 상태를 확인한 뒤 다시 시도해 주세요.";
+    "쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.";
   const FAILED_CAMPAIGN_NAMES_SHOWN = 3;
 
   function recordedDialogs() {
@@ -3790,17 +3790,27 @@
     return recordedDialogs().reduce((cursor, entry) => Math.max(cursor, entry.seq), 0);
   }
 
-  // The text of the latest alert recorded after `cursor`, or null when none was.
-  function recordedAlertSince(cursor) {
-    const alert = recordedDialogs()
-      .filter((entry) => entry.kind === "alert" && entry.seq > cursor)
+  // The latest alert or confirm recorded after `cursor` as { kind, message }, or
+  // null when the page showed none. A recorded confirm was answered false, so
+  // the page did not go on either.
+  function recordedDialogSince(cursor) {
+    const dialog = recordedDialogs()
+      .filter((entry) => (entry.kind === "alert" || entry.kind === "confirm") && entry.seq > cursor)
       .at(-1);
-    return alert ? normalizeText(String(alert.message ?? "")).slice(0, 120) : null;
+    return dialog
+      ? { kind: dialog.kind, message: normalizeText(String(dialog.message ?? "")).slice(0, 120) }
+      : null;
   }
 
-  function withCoupangAlert(reason, alertMessage) {
-    const text = typeof alertMessage === "string" ? normalizeText(alertMessage).slice(0, 120) : null;
-    return (text === null ? reason : `${reason} 쿠팡 알림: '${text}'`).slice(0, 300);
+  function withCoupangDialog(reason, dialog) {
+    if (!dialog) return reason.slice(0, 300);
+    const label = dialog.kind === "confirm" ? "쿠팡 확인 창" : "쿠팡 알림";
+    const text = normalizeText(String(dialog.message ?? "")).slice(0, 120);
+    return `${reason} ${label}: '${text}'`.slice(0, 300);
+  }
+
+  function dialogFailureDetails(dialog) {
+    return dialog ? { dialogKind: dialog.kind, dialogMessage: dialog.message } : {};
   }
 
   // The owner failure message for campaigns still failing after their retry.
@@ -3815,14 +3825,30 @@
     const names = shown.length > 0
       ? `: ${shown.join(", ")}${hidden > 0 ? ` 외 ${hidden}개` : ""}`
       : "";
-    const alertMessage = failures
-      .map((entry) => entry?.alertMessage)
-      .filter((message) => typeof message === "string")
-      .at(-1);
-    return withCoupangAlert(
+    const latest = failures.filter((entry) => typeof entry?.dialogMessage === "string").at(-1);
+    return withCoupangDialog(
       `쿠팡 광고 캠페인 ${failures.length}개를 불러오지 못했습니다${names}.`,
-      alertMessage ?? null,
+      latest ? { kind: latest.dialogKind, message: latest.dialogMessage } : null,
     );
+  }
+
+  // Korean reasons for a sweep that stopped at the dashboard itself. The codes
+  // stay in the sweep's error list; this message is what reaches the screen.
+  const DASHBOARD_SWEEP_ERROR_REASONS = Object.freeze({
+    campaign_identity_missing: "쿠팡 광고 대시보드에서 캠페인을 구분할 정보를 찾지 못했습니다.",
+    dashboard_pagination_unverified: "쿠팡 광고 대시보드의 페이지 정보를 확인하지 못했습니다.",
+    dashboard_page_navigation_failed: "쿠팡 광고 대시보드의 다음 페이지로 넘어가지 못했습니다.",
+    dashboard_next_page_not_loaded: "쿠팡 광고 대시보드의 다음 페이지를 불러오지 못했습니다.",
+    dashboard_page_number_not_increased: "쿠팡 광고 대시보드의 다음 페이지로 넘어가지 않았습니다.",
+    dashboard_return_after_identity_probe_failed: "쿠팡 광고 캠페인 화면에서 대시보드로 돌아오지 못했습니다.",
+    dashboard_pagination_limit_exceeded: "쿠팡 광고 대시보드의 페이지가 너무 많아 수집을 멈췄습니다.",
+  });
+
+  function dashboardSweepErrorReason(sweepError, dialog = null) {
+    const reason = Object.hasOwn(DASHBOARD_SWEEP_ERROR_REASONS, sweepError)
+      ? DASHBOARD_SWEEP_ERROR_REASONS[sweepError]
+      : "쿠팡 광고 대시보드 수집을 마치지 못했습니다.";
+    return withCoupangDialog(reason, dialog);
   }
 
   // 대시보드 그리드 렌더 대기 (rows + .dashboard-title 둘 다 채워질 때까지)
@@ -3835,8 +3861,8 @@
     // pollUntil: 백그라운드 창의 타이머 스로틀에도 최소 시도 횟수를 보장한다.
     const found = await pollUntil(
       () => {
-        // A Coupang alert while the grid loads is a page error, not a slow render.
-        if (recordedAlertSince(dialogCursor) !== null) return "alert";
+        // A Coupang dialog while the grid loads is a page error, not a slow render.
+        if (recordedDialogSince(dialogCursor)) return "dialog";
         // 상세 화면에도 campaign table/empty-state가 존재한다. URL 경계를 먼저
         // 확인하지 않으면 상세 화면을 dashboard 복귀 완료로 오판할 수 있다.
         if (!isDashboardListPage()) return false;
@@ -3865,8 +3891,8 @@
     // 기존 루프는 여기서 1회 시도 후 타임아웃했다.
     const ready = await pollUntil(
       () => {
-        // A Coupang alert while the detail page loads is a page error.
-        if (recordedAlertSince(dialogCursor) !== null) return { alert: true };
+        // A Coupang dialog while the detail page loads is a page error.
+        if (recordedDialogSince(dialogCursor)) return { dialog: true };
         const snapshot = readReportPageSnapshot();
         const isReady = campaignDetailReady({
           onDashboardList: isDashboardListPage(),
@@ -3883,13 +3909,13 @@
       },
       { timeoutMs, intervalMs: 300 },
     );
-    const alertMessage = recordedAlertSince(dialogCursor);
-    if (alertMessage !== null) {
+    const dialog = recordedDialogSince(dialogCursor);
+    if (dialog) {
       return {
         ok: false,
-        error: "coupang_alert",
+        error: `coupang_${dialog.kind}`,
         identity: expectedCampaign?.identity || null,
-        alertMessage,
+        dialog,
       };
     }
     if (ready) {
@@ -3965,17 +3991,17 @@
     }
     const resolved = await pollUntil(
       () => {
-        // A Coupang alert while the campaign opens is a page error.
-        if (recordedAlertSince(dialogCursor) !== null) return { alert: true };
+        // A Coupang dialog while the campaign opens is a page error.
+        if (recordedDialogSince(dialogCursor)) return { dialog: true };
         if (isDashboardListPage()) return false;
         return campaignWithIdentityFromHref(campaign, window.location.href) || false;
       },
       { timeoutMs, intervalMs: 200 },
     );
-    const alertMessage = recordedAlertSince(dialogCursor);
-    if (alertMessage !== null) {
+    const dialog = recordedDialogSince(dialogCursor);
+    if (dialog) {
       clearPendingCampaignNavigation();
-      return { ok: false, error: "coupang_alert", alertMessage };
+      return { ok: false, error: `coupang_${dialog.kind}`, dialog };
     }
     if (resolved) {
       return { ok: true, campaign: resolved, navigated: true };
@@ -4627,7 +4653,7 @@
         return {
           success: false,
           errorCode: "AD_DASHBOARD_NOT_LOADED",
-          error: withCoupangAlert(DASHBOARD_NOT_LOADED_REASON, recordedAlertSince(dialogCursor)),
+          error: withCoupangDialog(DASHBOARD_NOT_LOADED_REASON, recordedDialogSince(dialogCursor)),
         };
       }
     }
@@ -4666,6 +4692,8 @@
     let resumeAfterDateBudget = false;
     let sweepError = null;
     let sweepErrorDetail = null;
+    // The Coupang dialog, if any, shown while the sweep stopped at the dashboard.
+    let sweepDialog = null;
     let sweepFinished = false;
     // Campaigns still failing when the sweep ends get one more visit in the
     // same attempt. The flag survives the document reloads of that retry.
@@ -4916,9 +4944,11 @@
           sweepFinished = true;
           break;
         }
+        const nextPageDialogCursor = recordedDialogCursor();
         const moved = await goToNextPage();
         if (!moved) {
           sweepError = "dashboard_page_navigation_failed";
+          sweepDialog = recordedDialogSince(nextPageDialogCursor);
           break;
         }
         const dashboardReady = await waitForDashboardGrid(15000);
@@ -4927,6 +4957,7 @@
           sweepError = dashboardReady
             ? "dashboard_page_number_not_increased"
             : "dashboard_next_page_not_loaded";
+          sweepDialog = recordedDialogSince(nextPageDialogCursor);
           break;
         }
         await sleep(800);
@@ -4973,7 +5004,7 @@
         await recordCampaignFailure(
           camp,
           identityProbe.error,
-          identityProbe.alertMessage === undefined ? {} : { alertMessage: identityProbe.alertMessage },
+          dialogFailureDetails(identityProbe.dialog),
           `${camp.name}: 캠페인 식별 실패`,
         );
         await returnToDashboard(20000);
@@ -4985,9 +5016,11 @@
       if (seen.has(camp.identity)) {
         clearPendingCampaignNavigation();
         persistTerminalLinklessNavigation(camp, completedNavigationKeys);
+        const returnDialogCursor = recordedDialogCursor();
         const backOk = await returnToDashboard(20000);
         if (!backOk) {
           sweepError = "dashboard_return_after_identity_probe_failed";
+          sweepDialog = recordedDialogSince(returnDialogCursor);
           break;
         }
         await sleep(800);
@@ -5051,7 +5084,7 @@
           await recordCampaignFailure(
             camp,
             detail.error,
-            detail.alertMessage === undefined ? {} : { alertMessage: detail.alertMessage },
+            dialogFailureDetails(detail.dialog),
           );
           await returnToDashboard(20000);
           await sleep(800);
@@ -5426,29 +5459,18 @@
           "#22c55e",
         );
       } else if (campaignFailure) {
-        const stoppedProgressSnapshot = await recordCampaignFailure(
+        // A day that fails is left for the end-of-sweep retry, which revisits
+        // the campaign and resumes from the dates the owner already accepted.
+        await recordCampaignFailure(
           camp,
           campaignFailure.error,
           { ...campaignFailure.details, retryable: true },
-          `${camp.name}: ${campaignFailure.error}`,
-          false,
+          `${camp.name}: 일부 날짜를 불러오지 못해 마지막에 다시 수집`,
         );
         showBadge(
-          `❌ ${camp.name}: ${campaignFailure.error} — 확인 후 다시 실행해주세요`,
-          "#ef4444",
+          `⚠️ ${camp.name}: 일부 날짜를 불러오지 못해 마지막에 다시 수집합니다`,
+          "#f59e0b",
         );
-        return {
-          success: false,
-          type: "ad_sync",
-          campaigns: synced,
-          failed,
-          totalRows,
-          error:
-            `${camp.name}: ${campaignFailure.error}. ` +
-            "광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행해주세요.",
-          errors,
-          progress: stoppedProgressSnapshot,
-        };
       }
       if (!campaignFailure) {
         saveSweepProgress();
@@ -5520,18 +5542,19 @@
         ...(sweepErrorDetail ? { detail: sweepErrorDetail } : {}),
       });
       saveSweepProgress({ failed: failed + 1 });
+      const sweepErrorReason = dashboardSweepErrorReason(sweepError, sweepDialog);
       const failedProgressSnapshot = await reportCurrentSweepProgress({
         failedCount: failed + 1,
-        label: sweepError,
+        label: sweepErrorReason,
       });
-      showBadge(`❌ 광고 동기화 중단: ${sweepError}`, "#ef4444");
+      showBadge(`❌ 광고 동기화 중단: ${sweepErrorReason}`, "#ef4444");
       return {
         success: false,
         type: "ad_sync",
         campaigns: synced,
         failed: failed + 1,
         totalRows,
-        error: sweepError,
+        error: sweepErrorReason,
         errors,
         progress: failedProgressSnapshot,
       };
@@ -5780,6 +5803,7 @@
     shouldRunProfitabilityReport,
     unresolvedCampaignWorkKeys,
     campaignSweepFailureReason,
+    dashboardSweepErrorReason,
     withCollectionRunId,
   });
 

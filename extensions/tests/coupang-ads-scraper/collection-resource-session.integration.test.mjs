@@ -632,7 +632,7 @@ async function settle(turns = 25) {
 // Wires two Coupang source owners onto one shared collection window, the way
 // the Coupang worker does: each owner takes the window's turn for its whole
 // run and reports whether an earlier attempt has ended.
-function createOwnerRuntime(harness) {
+function createOwnerRuntime(harness, adCenterOptions = {}) {
   const owners = {};
   const binding = {
     environment: null,
@@ -659,7 +659,7 @@ function createOwnerRuntime(harness) {
   const { context, sessions, window } = runtime;
   const server = createOwnerServer();
   const collectorOptions = { window, chrome: harness.chrome, sessions, bindTab: binding.bindTab, delay: async () => {} };
-  const adCenter = context.KidItemAdCenterCollector.create({ ...collectorOptions, statusKey: 'ad-status', cancelKey: 'ad-cancel' });
+  const adCenter = context.KidItemAdCenterCollector.create({ ...collectorOptions, ...adCenterOptions, statusKey: 'ad-status', cancelKey: 'ad-cancel' });
   const wingReport = context.KidItemWingReportCollector.create({ ...collectorOptions, statusKey: 'wing-status', cancelKey: 'wing-cancel' });
   const ownerOptions = {
     chrome: harness.chrome,
@@ -742,4 +742,63 @@ test('another collection clears the attention leftover of an ended ad attempt th
   assert.equal(await runtime.sessions.get(adId), null, 'the leftover session is cleared');
   assert.deepEqual(harness.calls.windowsRemove, [20, 21]);
   assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['campaign_sweep', 'wing_traffic']);
+});
+
+function within(promise, milliseconds, message) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+test('a sweep page held by a native dialog fails its capture and hands the window to the next collection', async () => {
+  const harness = createChromeHarness();
+  const runtime = createOwnerRuntime(harness, { pageScriptTimeoutMs: 20 });
+  const adId = attemptId(51);
+  const wingId = attemptId(52);
+  runtime.server.put(adCampaignControl(adId));
+  runtime.server.put(wingTrafficControl(wingId));
+  const executeScript = harness.chrome.scripting.executeScript;
+  // A native Coupang dialog holds the ads page, so it never answers a script.
+  harness.chrome.scripting.executeScript = (details) =>
+    details.world === 'MAIN' && details.func?.name === 'installAdsDialogRecorder'
+      ? new Promise(() => {})
+      : executeScript(details);
+  harness.responses.push({ success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' });
+
+  const [adOutcome, wingOutcome] = await within(Promise.all([
+    runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId }),
+    runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId }),
+  ]), 3000, 'a page held by a dialog kept the collection window');
+
+  assert.equal(adOutcome.terminalState, 'FAILED');
+  assert.equal(adOutcome.errorCode, 'AD_PAGE_DIALOG_BLOCKED');
+  assert.equal(adOutcome.error, '쿠팡 광고 화면이 알림 창에 멈춰 수집을 진행하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+  assert.deepEqual(harness.calls.tabsReload, [200], 'one reload before the capture gives up');
+  assert.equal(await runtime.sessions.get(adId), null);
+  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the next collection took the window');
+  assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['wing_traffic']);
+});
+
+test('a dashboard that does not load fails the attempt without leaving a login attention session', async () => {
+  const harness = createChromeHarness();
+  const runtime = createOwnerRuntime(harness);
+  const adId = attemptId(61);
+  runtime.server.put(adCampaignControl(adId));
+  const gridFailure = {
+    success: false,
+    errorCode: 'AD_DASHBOARD_NOT_LOADED',
+    error: "쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요. 쿠팡 알림: '로그인 세션이 만료되었습니다.'",
+  };
+  harness.responses.push(gridFailure, structuredClone(gridFailure));
+
+  const outcome = await runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId });
+
+  assert.equal(outcome.terminalState, 'FAILED');
+  assert.equal(outcome.errorCode, 'AD_DASHBOARD_NOT_LOADED');
+  assert.equal(outcome.error, gridFailure.error);
+  assert.equal(await runtime.sessions.get(adId), null, 'no login attention keeps the failed attempt around');
+  assert.equal(harness.storage['owned-window'], undefined, 'and its window is closed');
+  assert.deepEqual(harness.calls.tabsReload, [200]);
 });
