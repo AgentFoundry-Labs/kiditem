@@ -93,6 +93,9 @@ jobs:
         run: npx prisma generate
 
       - name: Build shared package
+        env:
+          # The tsup DTS worker runs out of the default heap on hosted runners.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build --workspace=packages/shared
 
       - name: Run script contract tests
