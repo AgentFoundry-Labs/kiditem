@@ -465,7 +465,7 @@ describe('CollectionStartControl stop', () => {
 });
 
 describe('CollectionStartControl without a stop', () => {
-  function renderAdapter(adapter: CollectionSourceAdapter<SpecStatus>) {
+  function renderAdapter(adapter: CollectionSourceAdapter<SpecStatus> | Omit<CollectionSourceAdapter<SpecStatus>, 'start'>) {
     function AdapterControl() {
       const control = useCollectionSourceControl(adapter);
       return (
@@ -502,6 +502,22 @@ describe('CollectionStartControl without a stop', () => {
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '키워드 수집' })).not.toBeInTheDocument();
+  });
+
+  it('shows only the running collection and its stop for a source its screen starts itself', async () => {
+    const { start: _start, ...screenStarted } = specCollection;
+    const view = renderAdapter(screenStarted);
+
+    expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
+
+    serverStatus = { latestAttempt: attempt('COMPLETE'), latestComplete: attempt('COMPLETE') };
+    view.unmount();
+    renderAdapter(screenStarted);
+    await waitFor(() => expect(vi.mocked(apiClient.get)).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/수집 중/)).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '키워드 수집' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '수집 중단' })).not.toBeInTheDocument();
   });
 
   it('decides a start against the status it last read', async () => {

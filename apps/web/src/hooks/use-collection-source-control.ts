@@ -47,7 +47,11 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
   label: string;
   statusQuery: UseQueryOptions<TStatus, Error, TStatus, QueryKey>;
   readRunning: (status: TStatus) => CollectionRunning | null;
-  start: (input: TInput, context: CollectionStartContext<TStatus>) => Promise<CollectionStartOutcome>;
+  /**
+   * Starts the collection. A source whose screen starts it through its own
+   * action has none; the control then shows only its running collection and stop.
+   */
+  start?: (input: TInput, context: CollectionStartContext<TStatus>) => Promise<CollectionStartOutcome>;
   /** The owner's operator stop. A source without one shows its running collection without a stop. */
   cancelOnServer?: (attemptId: string, context: CollectionStopContext<TStatus>) => Promise<unknown>;
   /**
@@ -88,6 +92,8 @@ export type CollectionControlView = Readonly<{
   running: CollectionRunning | null;
   /** Whether the running collection can be stopped from here: the owner has a stop and named the attempt. */
   canStop: boolean;
+  /** False for a source whose screen starts it itself; the control then offers no start. */
+  canStart?: boolean;
   notice: CollectionControlNotice | null;
 }>;
 
@@ -263,6 +269,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   const startMutation = useMutation({
     mutationKey: startKey,
     mutationFn: async ({ input, statusAtStart }: StartVariables<TStatus, TInput>) => {
+      if (!adapter.start) throw new Error(`${adapter.label} starts from its own screen action`);
       const outcome = await adapter.start(input, { status: statusAtStart });
       // Running state is the owner's to report; read it before settling.
       if (outcome.outcome !== 'refused') {
@@ -362,7 +369,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
                 : 'idle';
 
   const start = (input: TInput) => {
-    if (state !== 'idle' && state !== 'refused') return;
+    if (!adapter.start || (state !== 'idle' && state !== 'refused')) return;
     // Another mounted control may have asked in this same moment; its
     // mutation is already pending in the shared cache before it re-renders.
     if (queryClient.isMutating({ mutationKey: startKey }) > 0) return;
@@ -383,6 +390,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     statusRead,
     running,
     canStop,
+    canStart: Boolean(adapter.start),
     notice,
     query,
     status: query.data,

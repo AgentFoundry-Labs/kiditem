@@ -49,7 +49,7 @@ export function CollectionStartControl({
   runningLink?: Readonly<{ href: string; label: string }>;
   className?: string;
 }) {
-  const { state, running, notice, statusRead, canStop } = control;
+  const { state, running, notice, statusRead, canStop, canStart = true } = control;
   const active = state === 'running' || state === 'stopping';
   const canRequestStart = (state === 'idle' || state === 'refused') && !startBlockedReason;
 
@@ -83,7 +83,7 @@ export function CollectionStartControl({
             </a>
           )}
         </div>
-      ) : (
+      ) : canStart && (
         <button
           type="button"
           onClick={onStart}
