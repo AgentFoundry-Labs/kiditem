@@ -9,7 +9,7 @@ import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE } from '@/lib/collection-so
 import { cn } from '@/lib/utils';
 
 const NOTICE_CLASS: Record<CollectionControlNotice['tone'], string> = {
-  refused: 'text-amber-700',
+  refused: 'text-[var(--warning)]',
   error: 'text-[var(--danger)]',
   info: 'text-[var(--text-secondary)]',
 };
@@ -106,7 +106,7 @@ export function CollectionStartControl({
           <p className="text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
         )}
         {startBlockedReason && !active && (
-          <p className="text-amber-700">{startBlockedReason}</p>
+          <p className="text-[var(--warning)]">{startBlockedReason}</p>
         )}
         {notice && (
           <p className={NOTICE_CLASS[notice.tone]}>

@@ -211,7 +211,7 @@ function CatalogImportProgress({ status }: { status: CoupangCatalogSourceStatus 
         <div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${progress.percent}%` }} />
       </div>
       {state === 'RUNNING' && progress.resumeLabel && (
-        <p className="mt-1 text-[11px] text-amber-700">{progress.resumeLabel}</p>
+        <p className="mt-1 text-[11px] text-[var(--warning)]">{progress.resumeLabel}</p>
       )}
       {state === 'FAILED' && (
         <p className="mt-1 text-[11px] text-[var(--danger)]">
@@ -219,7 +219,7 @@ function CatalogImportProgress({ status }: { status: CoupangCatalogSourceStatus 
         </p>
       )}
       {state === 'COMPLETE' && current.publication && (
-        <p className="mt-1 text-[11px] text-emerald-700">
+        <p className="mt-1 text-[11px] text-[var(--success)]">
           {current.publication.duplicate
             ? '변경 없이 최신 상품 상태를 확인했습니다.'
             : '상품·옵션·이미지 반영 결과를 확인했습니다.'}
