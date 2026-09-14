@@ -133,7 +133,8 @@ control, the extension popup or a page timer. A start collects exactly one
 source, and its end never starts another collection. It never opens a second
 attempt for a source and scope that already has one running; it shows the
 running one instead. When it needs a browser resource another collection is
-using, it is refused before any attempt opens, naming that collection.
+using, such as the Coupang collection window or the Wing login a catalog import
+reads through, it is refused before any attempt opens, naming that collection.
 _Avoid_: sync, refresh, trigger
 
 **Transport receipt**:

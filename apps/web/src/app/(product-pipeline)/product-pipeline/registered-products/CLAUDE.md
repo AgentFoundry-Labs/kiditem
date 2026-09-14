@@ -13,10 +13,11 @@ handoff screens.
 - Keep listing navigation and workspace projection helpers pure and tested.
 - Use `queryKeys.channelListings` and `queryKeys.contentWorkspaces` for shared
   server state.
-- Poll owner collection status every two seconds. Show staged-detail progress
-  separately from publication; invalidate listing, product-operations, mapping,
-  and availability queries once the owner confirms the whole catalog commit.
-  Preserve the card layout and reuse the existing poll.
+- 상품 받기 is the account's shared collection control over the owner source
+  read (`lib/coupang-catalog-collection.ts`). It polls every two seconds while
+  the import runs, shows staged-detail progress separately from publication,
+  and invalidates listing, product-operations, mapping, and availability
+  queries once the whole import completes.
 - Products owns channel-origin product/variant creation or exact reuse;
   Channels extracts typed evidence and writes final still-null links. Names and
   AI never auto-confirm identity.

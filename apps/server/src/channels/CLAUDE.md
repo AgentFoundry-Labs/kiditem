@@ -68,6 +68,9 @@ sync, registration, matching, and capacity behavior is executable in
   Consumers import the published capability, never the concrete service.
 - Catalog imports use a fenced `SourceImportRun` attempt and publish only a
   complete source snapshot; stale or post-terminal submissions are rejected.
+- An operator stop of a catalog import's root ends the whole import: a running
+  details child stops, and a pending handoff gets its child admitted and
+  stopped. The source read returns the account's latest root and its child.
 - New sync/matching paths carry `channelAccountId` and preserve
   parent/child/account consistency atomically.
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be

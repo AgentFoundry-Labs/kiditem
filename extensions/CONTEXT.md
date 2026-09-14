@@ -26,3 +26,10 @@ in one environment take turns using; the catalog import has a window of its own,
 and other collections open their own tabs. A collection may take it only after
 the previous collection has reported its outcome and released it.
 _Avoid_: collection tab, shared tab
+
+**Catalog import**:
+One store account's Wing catalog collection, basics then details, started
+through `startCollection`. It reads Wing through the browser's single Wing
+login, so an environment runs one import at a time: a start for another account
+is refused before any attempt opens, naming the account whose import runs.
+_Avoid_: catalog sync, product sync

@@ -34,6 +34,9 @@ the nearest scoped guide owns route-specific composition.
   `useCollectionSourceControl`, rendered by `CollectionStartControl`. Running
   state comes from the owner status read, and every mounted copy shares start
   and stop; do not add a screen-local start, lock, or running flag.
+  Collections that hold a browser resource (the Coupang collection window
+  producers and the Wing catalog import) start through
+  `requestCollectionStart`; the extension opens their attempts.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a
