@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { OrderCollectionExtensionError } from './order-collection-extension';
+import {
+  OrderCollectionExtensionError,
+  OrderCollectionExtensionUnavailableError,
+} from './order-collection-extension';
 import { collectedOutcome, failedCollectionOutcome } from './order-collection-outcome';
 
 const base = {
@@ -50,11 +53,24 @@ describe('failedCollectionOutcome', () => {
       outcome: 'failed',
       reasonCode: 'provider_contract_changed',
     });
-    expect(failedCollectionOutcome({ ...base, hasRun: false })).toMatchObject({
+    expect(failedCollectionOutcome({
+      ...base,
+      error: new OrderCollectionExtensionUnavailableError('확장을 찾지 못했습니다.'),
+      hasRun: false,
+    })).toMatchObject({
       outcome: 'failed',
       reasonCode: 'extension_unavailable',
     });
     expect(failedCollectionOutcome(base)).toMatchObject({ outcome: 'failed', reasonCode: 'unknown_failure' });
+  });
+
+  /** 서버가 시작을 거절한 것(앞선 수집이 아직 진행 중)은 확장이 답을 안 한 것이 아니다. */
+  it('⭐ a start the owner refused is a failed start, not a missing extension', () => {
+    expect(failedCollectionOutcome({
+      ...base,
+      error: new Error('이 몰의 앞선 수집이 아직 끝나지 않았습니다.'),
+      hasRun: false,
+    })).toMatchObject({ outcome: 'failed', reasonCode: 'start_failed' });
   });
 
   it('cancel and no-new-orders win over the error', () => {

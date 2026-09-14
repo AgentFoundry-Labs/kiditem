@@ -1,6 +1,9 @@
 import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
 import type { MallOperationOutcomeInput } from '@/lib/mall-operation-outcomes-api';
-import { OrderCollectionExtensionError } from './order-collection-extension';
+import {
+  OrderCollectionExtensionError,
+  OrderCollectionExtensionUnavailableError,
+} from './order-collection-extension';
 
 /**
  * 몰 주문수집 한 번의 결과를 기억(몰 작업 결과) 한 줄로 접는다.
@@ -35,7 +38,7 @@ export function failedCollectionOutcome(input: {
   attentionKind: 'auth' | 'login' | null;
   noNewOrders: boolean;
   aborted: boolean;
-  /** 확장 run 을 받았는가. 못 받았으면 확장이 없거나 호환되지 않는 것이다. */
+  /** 확장 run 을 받았는가. 못 받았으면 수집을 시작하지 못한 것이다. */
   hasRun: boolean;
 }): OrderCollectionOutcome {
   if (input.aborted) return { outcome: 'cancelled', reasonCode: 'cancelled', message: null, itemCount: null };
@@ -49,7 +52,12 @@ export function failedCollectionOutcome(input: {
     };
   }
   if (!input.hasRun) {
-    return { outcome: 'failed', reasonCode: 'extension_unavailable', message: input.message, itemCount: null };
+    // 시작하지 못한 이유가 확장일 때만 확장 문제다. 서버가 시작을 거절한 것(이미 진행 중 등)을
+    // 확장으로 적으면 카드가 '응답 없음'이라고 해 사람이 무엇을 할지 가려진다.
+    const reasonCode = input.error instanceof OrderCollectionExtensionUnavailableError
+      ? 'extension_unavailable'
+      : 'start_failed';
+    return { outcome: 'failed', reasonCode, message: input.message, itemCount: null };
   }
   // 확장이 제 시간에 답하지 않은 것은 몰이 실패한 게 아니다 — 물어봤는데 못 들은 것이다.
   // 따로 적어 두어야 다음 바퀴에 다시 물어볼 일인지, 우리 수집 코드를 봐야 할 일인지 갈린다.

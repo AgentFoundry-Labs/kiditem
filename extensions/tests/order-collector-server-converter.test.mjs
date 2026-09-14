@@ -334,6 +334,34 @@ test('reports explicit NO_NEW_ORDERS with retained original Icecream evidence wh
   );
 });
 
+// 티쳐몰 · 롯데ON · GS샵 · 올웨이즈 · 보리보리 · 꼬망세 수집기는 주문이 없으면 파일 없이
+// `{ success: true, empty: true }` 를 준다. 파일 모양을 먼저 검사하면 '신규 주문 없음'이
+// '캡처 형식이 올바르지 않음'으로 바뀌어 수집 실패로 남는다.
+for (const mallKey of ['teacher-mall', 'lotte-on', 'gs-shop', 'always', 'boribori', 'kkomangse']) {
+  test(`reports an explicit empty ${mallKey} capture as NO_NEW_ORDERS without requesting conversion`, async () => {
+    const converter = createConverter(async () => {
+      throw new Error('the empty path must not request conversion');
+    });
+    const capture = { success: true, empty: true, rowCount: 0 };
+
+    await assert.rejects(
+      converter.convert({
+        environmentId: ENVIRONMENT_ID,
+        attempt: attempt(mallKey),
+        mallKey,
+        capture,
+        plan: { collectionDate: '2026-09-10' },
+      }),
+      (error) => {
+        assert.equal(error.code, 'NO_NEW_ORDERS');
+        assert.equal(error.empty, true);
+        assert.equal(error.conversionLocal, true);
+        return true;
+      },
+    );
+  });
+}
+
 test('marks a request-dispatch rejection as transport-ambiguous', async () => {
   const converter = createConverter(async () => {
     throw new Error('request timed out');

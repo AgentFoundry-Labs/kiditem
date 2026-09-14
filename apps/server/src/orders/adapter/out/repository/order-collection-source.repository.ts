@@ -129,7 +129,12 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       });
       const active = running.find((row) => !expired(row));
       if (active) {
-        throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: active.id });
+        // Without a message the error response carries only "Conflict Exception".
+        throw new ConflictException({
+          code: 'ATTEMPT_IN_PROGRESS',
+          attemptId: active.id,
+          message: 'ATTEMPT_IN_PROGRESS',
+        });
       }
       for (const expiredRun of running) {
         await this.failIn(

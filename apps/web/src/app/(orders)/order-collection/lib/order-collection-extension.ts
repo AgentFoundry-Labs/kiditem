@@ -71,6 +71,14 @@ export class OrderCollectionExtensionError extends Error {
   }
 }
 
+/** 확장이 없거나 이 웹과 맞지 않아 수집을 시작하지 못했다. 몰이 실패한 것이 아니다. */
+export class OrderCollectionExtensionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrderCollectionExtensionUnavailableError';
+  }
+}
+
 export function createOrderCollectionExtensionError(
   response: OrderCollectionFailureResponse | null | undefined,
   fallbackMessage: string,

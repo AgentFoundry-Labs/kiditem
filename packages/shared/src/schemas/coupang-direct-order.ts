@@ -65,7 +65,15 @@ export const CoupangDirectCenterSchema = z.object({
   addr: optionalDisplayText,
   zip: optionalDisplayZip,
   contact: optionalDisplayText,
-}).strict();
+}).strict().transform((center) => {
+  // A blank field is left out, not kept as `undefined`: the owner hashes and
+  // stores the capture as canonical JSON, which has no undefined value.
+  const clean: { addr?: string; zip?: string | number; contact?: string } = {};
+  if (center.addr !== undefined) clean.addr = center.addr;
+  if (center.zip !== undefined) clean.zip = center.zip;
+  if (center.contact !== undefined) clean.contact = center.contact;
+  return clean;
+});
 export type CoupangDirectCenter = z.infer<typeof CoupangDirectCenterSchema>;
 
 export const CoupangDirectOrderCollectionRequestSchema = z.object({

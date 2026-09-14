@@ -14,6 +14,7 @@ import {
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
 import {
+  OrderCollectionExtensionUnavailableError,
   type OrderCollectionExtensionRun,
 } from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import { EXTENSION_TIMEOUT_MESSAGE, type ExtensionRuntimeStatus } from '@/lib/extension-bridge';
@@ -138,7 +139,7 @@ export function useAllMarketplaceOrderCollection({
           activeRun = await prepareRun(account, undefined, knownExtensionStatus) ?? undefined;
         }
         if (!activeRun) {
-          throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+          throw new OrderCollectionExtensionUnavailableError('주문수집 확장프로그램을 찾을 수 없습니다.');
         }
         const collected = await collectBrowserMall(account, activeRun, { directship });
         if (collected.rowCount === 0) {
@@ -148,11 +149,18 @@ export function useAllMarketplaceOrderCollection({
           // probe, so it must remain a successful no-op rather than issuing
           // a terminal failure against the completed source owner.
           if (activeRun.sourceOwner !== 'coupang_directship') {
-            await failRun(
-              activeRun,
-              'NO_NEW_ORDERS',
-              `${account.name} 배송준비전 주문이 없습니다.`,
-            );
+            // Confirmed-coverage malls (해법몰 · 도매꾹) complete the owner with an
+            // empty snapshot themselves. Failing an attempt that is no longer
+            // running is refused as a terminal replay and would turn "no new
+            // orders" into a failed collection.
+            const current = await syncRun(activeRun.attemptId);
+            if (current.state === 'RUNNING') {
+              await failRun(
+                activeRun,
+                'NO_NEW_ORDERS',
+                `${account.name} 배송준비전 주문이 없습니다.`,
+              );
+            }
           }
         } else {
           // Server conversion endpoints complete the source owner after the
