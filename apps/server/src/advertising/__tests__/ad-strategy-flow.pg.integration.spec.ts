@@ -197,7 +197,12 @@ describe('AdStrategy flow (PG integration)', () => {
     return { master, option, listing, listingOption };
   }
 
-  /** A measured listing-day ad fact in the advertising target-day ledger. */
+  /**
+   * A measured listing-day ad fact in the advertising target-day ledger, on the
+   * clock's last closed KST day or `daysAgo` days before it. The date is a KST
+   * business date written out, never the machine's local midnight, which on a
+   * UTC host would land on the still-open 20th outside every ad window.
+   */
   async function seedAd(params: {
     organizationId: string;
     listingId: string;
@@ -211,13 +216,10 @@ describe('AdStrategy flow (PG integration)', () => {
     conversions?: number;
     conversionsObserved?: boolean;
   }) {
-    const date = new Date();
-    date.setDate(date.getDate() - (params.daysAgo ?? 0));
-    date.setHours(0, 0, 0, 0);
     await seedAdTargetDay(prisma, {
       organizationId: params.organizationId,
       listingId: params.listingId,
-      date: date.toISOString().slice(0, 10),
+      date: septemberDay(19 - (params.daysAgo ?? 0)),
       spend: params.spend,
       revenue: params.revenue,
       clicks: params.clicks ?? 0,
