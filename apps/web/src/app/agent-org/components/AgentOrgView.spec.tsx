@@ -47,7 +47,6 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
           attemptId: null,
           status: 'RESOLVED',
           type: 'source_failure',
-          severity: 'error',
           title: '쿠팡 키워드 순위 수집 실패',
           message: null,
           targetType: null,

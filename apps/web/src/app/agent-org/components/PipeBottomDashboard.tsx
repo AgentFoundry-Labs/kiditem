@@ -38,12 +38,8 @@ const HEALTH_ORDER: readonly { key: PipeAgentHealth; label: string; dot: string;
   { key: 'unknown', label: '모름', dot: 'bg-slate-600', text: 'text-slate-400' },
 ];
 
-const SEVERITY_TONE: Readonly<Record<string, string>> = {
-  critical: '#f87171',
-  error: '#f87171',
-  warning: '#fbbf24',
-  info: '#22d3ee',
-};
+/** 열린 알림은 모두 원천 실패, 곧 오류다 — 그래서 알림 읽기에 심각도가 없다. */
+const ALERT_TONE = '#f87171';
 
 function ChangeBadge({ value, suffix = '%' }: { value: number | null | undefined; suffix?: string }) {
   if (value == null || !Number.isFinite(value)) return null;
@@ -203,7 +199,7 @@ export function PipeBottomDashboard({
         <ul className="flex-1 space-y-1.5 overflow-y-auto pr-1">
           {openAlerts.length > 0 ? (
             openAlerts.map((alert) => {
-              const color = SEVERITY_TONE[alert.severity] ?? '#94a3b8';
+              const color = ALERT_TONE;
               const body = (
                 <div className="flex items-start gap-2.5">
                   <CircleAlert size={14} className="mt-0.5 shrink-0" style={{ color }} aria-hidden />

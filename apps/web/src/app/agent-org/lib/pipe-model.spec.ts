@@ -14,7 +14,6 @@ function alert(overrides: Partial<AlertItem> = {}): AlertItem {
     attemptId: '33333333-3333-4333-8333-333333333333',
     status: 'OPEN',
     type: 'source_failure',
-    severity: 'error',
     title: '몰 주문수집 실패',
     message: '주문 목록을 읽지 못했습니다.',
     targetType: null,

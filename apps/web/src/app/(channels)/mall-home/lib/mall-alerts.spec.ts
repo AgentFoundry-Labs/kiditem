@@ -18,7 +18,6 @@ function alert(id: string, overrides: Partial<AlertItem> = {}): AlertItem {
     attemptId: null,
     status: 'OPEN',
     type: 'source_failure',
-    severity: 'error',
     title: '쿠팡 쉽먼트 수집 실패',
     message: null,
     targetType: null,
