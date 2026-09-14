@@ -3705,3 +3705,65 @@ test("a Run in the same tab with other actions is refused while an execution is 
   assert.equal(clicks.count, 1, "only the in-flight action opened the Coupang editor");
   assert.deepEqual(reports, ["action-in-flight:markRunning", "action-in-flight:markFailed"]);
 });
+
+const UNRECORDED_ACTION_WARNING =
+  "승인 액션 1개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.";
+
+async function runKeywordPauseWithDoneReport(doneReport) {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "기록 누락 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const page = openAdActionTestPage({
+    rows: [row],
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(report.action);
+      return report.action === "markDone" ? doneReport() : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    { id: "action-unrecorded", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+  ]);
+  return { reports, pauseClicks, response };
+}
+
+test("a done report lost in transport after the Coupang change sends no failure report and reports the action executed but not recorded", async () => {
+  const { reports, pauseClicks, response } = await runKeywordPauseWithDoneReport(() => {
+    // The extension reloaded, or its worker stopped, while reporting.
+    throw new Error("Could not establish connection. Receiving end does not exist.");
+  });
+
+  assert.equal(pauseClicks.count, 1, "the pause reached Coupang");
+  // A failure report would invite approving the action again and pausing twice.
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 0,
+    executedUnrecorded: 1,
+    skipped: 0,
+    warning: UNRECORDED_ACTION_WARNING,
+  });
+});
+
+test("a done report that gets a 500 after the Coupang change is handled like a lost report", async () => {
+  const { reports, pauseClicks, response } = await runKeywordPauseWithDoneReport(
+    () => ({ success: true, ok: false, status: 500, body: { message: "Internal server error" } }),
+  );
+
+  assert.equal(pauseClicks.count, 1, "the pause reached Coupang");
+  assert.deepEqual(reports, ["markRunning", "markDone"]);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 0,
+    executedUnrecorded: 1,
+    skipped: 0,
+    warning: UNRECORDED_ACTION_WARNING,
+  });
+});

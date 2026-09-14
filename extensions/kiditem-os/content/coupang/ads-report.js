@@ -2491,10 +2491,11 @@
     // a report with 409 when the attempt is not this executor's to report:
     // another executor started it, or it was cancelled or closed. That must stop
     // the action before it touches Coupang, and this executor reports nothing
-    // more for it.
+    // more for it. Any other status is a failed request, not a refusal.
     if (!result.ok) {
-      const error = new Error(`실행 보고 거절 (${type}): ${result.status}`);
-      error.executionReportRefused = true;
+      const refused = result.status === 409;
+      const error = new Error(`실행 보고 ${refused ? "거절" : "실패"} (${type}): ${result.status}`);
+      error.executionReportRefused = refused;
       throw error;
     }
   }
@@ -2503,7 +2504,27 @@
     try {
       await reportAction(action, "markFailed", payload);
     } catch (error) {
-      console.warn("[KidItem] 실행 실패 보고 거절:", error instanceof Error ? error.message : error);
+      console.warn("[KidItem] 실행 실패 보고를 남기지 못했습니다:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Called only after the change reached Coupang. A refused done report (409)
+  // means the attempt is no longer this executor's; any other failure leaves the
+  // server without the outcome. Neither becomes a failure report, which would
+  // invite approving the action again and changing Coupang twice. The attempt
+  // stays running until it is recovered (KID-160).
+  async function reportActionDone(action, afterJson) {
+    try {
+      await reportAction(action, "markDone", { afterJson });
+      return "recorded";
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : error;
+      if (error?.executionReportRefused) {
+        console.warn("[KidItem] 실행 완료 보고가 거절되어 액션을 멈춥니다:", reason);
+        return "refused";
+      }
+      console.warn("[KidItem] 광고센터에 반영했지만 실행 완료 보고를 남기지 못했습니다:", reason);
+      return "unrecorded";
     }
   }
 
@@ -2763,6 +2784,7 @@
     }
 
     let executed = 0;
+    let executedUnrecorded = 0;
     let skipped = actions.length - runnable.length;
 
     for (const action of runnable) {
@@ -2779,31 +2801,36 @@
         );
         continue;
       }
+      let result;
       try {
-        const result = await executeClaimedAction(action);
-        if (result.success) {
-          await reportAction(action, "markDone", { afterJson: result.afterJson || {} });
-          executed++;
-        } else {
-          skipped++;
-          await reportActionFailure(action, {
-            errorMessage: result.errorMessage || "실행 실패",
-            afterJson: result.afterJson || {},
-          });
-        }
+        result = await executeClaimedAction(action);
       } catch (error) {
+        // The action failed while it was being worked on Coupang.
         skipped++;
-        if (error?.executionReportRefused) {
-          // A failure report would move an attempt that is not this executor's.
-          console.warn("[KidItem] 실행 보고가 거절되어 액션을 멈춥니다:", error.message);
-          continue;
-        }
         await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
+        continue;
       }
+      if (!result.success) {
+        skipped++;
+        await reportActionFailure(action, {
+          errorMessage: result.errorMessage || "실행 실패",
+          afterJson: result.afterJson || {},
+        });
+        continue;
+      }
+      const done = await reportActionDone(action, result.afterJson || {});
+      if (done === "recorded") executed++;
+      else if (done === "refused") skipped++;
+      else executedUnrecorded++;
     }
 
+    if (executedUnrecorded > 0) {
+      const warning = `승인 액션 ${executedUnrecorded}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`;
+      showBadge(`⚠️ ${warning}`, "#f59e0b");
+      return { success: true, executed, executedUnrecorded, skipped, warning };
+    }
     showBadge(`✅ 승인 액션 ${executed}개 실행 완료`, "#22c55e");
     return { success: true, executed, skipped };
   }
