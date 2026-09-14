@@ -15,7 +15,18 @@ const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const ITEM_A_KEY = 'a'.repeat(64);
 const ITEM_B_KEY = 'b'.repeat(64);
 const trendMocks = vi.hoisted(() => ({ collect: vi.fn() }));
-vi.mock('@/hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ collect: trendMocks.collect, isCollecting: false, error: null, actualCutoffAt: null }) }));
+vi.mock('@/hooks/use-trend-source-collection', () => ({
+  useTrendSourceCollection: () => ({
+    control: {
+      state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+      start: vi.fn(), stop: vi.fn(),
+    },
+    start: trendMocks.collect,
+    isCollecting: false,
+    error: null,
+    actualCutoffAt: null,
+  }),
+}));
 
 const sourceOwnerMocks = vi.hoisted(() => ({
   collect: vi.fn(),
@@ -270,7 +281,7 @@ describe('EntryRecommendationBoard review state', () => {
     expect(trendMocks.collect).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '지금 수집' }));
-    await waitFor(() => expect(trendMocks.collect).toHaveBeenCalledWith({}));
+    await waitFor(() => expect(trendMocks.collect).toHaveBeenCalledTimes(1));
   });
 });
 

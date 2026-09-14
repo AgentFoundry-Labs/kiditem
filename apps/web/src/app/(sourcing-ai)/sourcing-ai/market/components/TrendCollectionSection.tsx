@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
-import type { TrendSourceResult } from '@/lib/source-trend-api';
+import { CheckCircle2, XCircle } from 'lucide-react';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import type { TrendSourceCollectionResult, TrendSourceResult } from '@/lib/source-trend-api';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
@@ -19,18 +20,14 @@ import { TrendCollectionViews } from './TrendCollectionViews';
 
 const pressable =
   'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
-const DEFAULT_TREND_OPERATION_INPUT = {
-  sources: [...TREND_SOURCE_ORDER],
-} as const;
 /** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
   const [collectSources, setCollectSources] = useState<Set<TrendSource>>(
     new Set(TREND_SOURCE_ORDER),
   );
-  const trendSource = useTrendSourceCollection({
-    input: DEFAULT_TREND_OPERATION_INPUT,
-    snapshotQueryKey: queryKeys.sourcing.trend(),
-  });
+  const selectedSources = TREND_SOURCE_ORDER.filter((source) => collectSources.has(source));
+  const trendSource = useTrendSourceCollection({ sources: selectedSources });
+  const [lastResult, setLastResult] = useState<TrendSourceCollectionResult | null>(null);
 
   const seedsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendSeeds(),
@@ -38,7 +35,6 @@ export function TrendCollectionSection() {
     staleTime: 60 * 1000,
   });
   const enabledSeedCount = (seedsQuery.data ?? []).filter((seed) => seed.enabled).length;
-  const lastResult = trendSource.result;
   const lastSourceResults = lastResult?.results ?? [];
 
   const toggleCollectSource = (source: TrendSource) => {
@@ -51,7 +47,6 @@ export function TrendCollectionSection() {
   };
 
   const running = trendSource.isCollecting;
-  const canCollect = collectSources.size > 0 && !running;
 
   return (
     <div className="space-y-5">
@@ -86,20 +81,13 @@ export function TrendCollectionSection() {
                 })}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void trendSource.collect({
-                sources: TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
-              })}
-              disabled={!canCollect}
-              className={cn(
-                'inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-purple-600 px-5 text-sm font-semibold text-white hover:bg-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-                pressable,
-              )}
-            >
-              {running ? <Loader2 size={17} className="animate-spin" /> : <RefreshCw size={17} />}
-              {running ? '수집 중…' : '트렌드 수집'}
-            </button>
+            <CollectionStartControl
+              control={trendSource.control}
+              startLabel="트렌드 수집"
+              startBlockedReason={selectedSources.length === 0 ? '수집할 소스를 하나 이상 고르세요.' : null}
+              onStart={() => trendSource.start(setLastResult)}
+              onStop={trendSource.control.stop}
+            />
           </div>
         </div>
 

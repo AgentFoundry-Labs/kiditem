@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
   Database,
@@ -15,6 +15,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import {
@@ -26,7 +28,6 @@ import {
   type ToySortKey,
 } from '../lib/toy-keyword-intelligence';
 import {
-  collectNaverTrend,
   fetchNaverKeywordTrends,
   fetchPopularKeywordBoards,
   fetchTrendSeeds,
@@ -54,8 +55,9 @@ const sortOptions: Array<{ value: ToySortKey; label: string }> = [
   { value: 'trend', label: '검색지수 상승순' },
 ];
 
+const TOY_TREND_SOURCES = ['naver'] as const;
+
 export function ToyCategorySourcingPage() {
-  const queryClient = useQueryClient();
   const [draftFilters, setDraftFilters] = useState<ToyKeywordFilters>(() => ({ ...defaultFilters }));
   const [appliedFilters, setAppliedFilters] = useState<ToyKeywordFilters>(() => ({ ...defaultFilters }));
   const [view, setView] = useState<ResultView>('map');
@@ -115,16 +117,7 @@ export function ToyCategorySourcingPage() {
   const queryError = popularQuery.error ?? keywordQuery.error ?? seedsQuery.error;
   const filtersDirty = JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters);
 
-  const collectMutation = useMutation({
-    mutationFn: collectNaverTrend,
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend() });
-      const failed = result.results.find((row) => !row.ok);
-      if (failed) toast.error(failed.error ?? '네이버 수집 실패. 수집 버튼으로 재시도하세요.');
-      else toast.success('네이버 트렌드 수집을 완료했습니다.');
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '네이버 수집을 시작하지 못했습니다.'),
-  });
+  const naverTrend = useTrendSourceCollection({ sources: TOY_TREND_SOURCES });
 
   function toggleKeyword(keywordId: string) {
     setSelectedIds((current) => {
@@ -220,21 +213,18 @@ export function ToyCategorySourcingPage() {
             <button
               type="button"
               onClick={() => void refreshStoredData()}
-              disabled={manualRefreshing || collectMutation.isPending}
+              disabled={manualRefreshing}
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] disabled:opacity-50"
             >
               <RefreshCw size={14} className={cn(manualRefreshing && 'animate-spin')} />
               {manualRefreshing ? '새로고침 중' : '새로고침'}
             </button>
-            <button
-              type="button"
-              onClick={() => collectMutation.mutate()}
-              disabled={collectMutation.isPending || manualRefreshing}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-4 text-xs font-black text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {collectMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
-              {collectMutation.isPending ? '수집 중… 최대 1분' : '지금 수집'}
-            </button>
+            <CollectionStartControl
+              control={naverTrend.control}
+              startLabel="지금 수집"
+              onStart={() => naverTrend.start()}
+              onStop={naverTrend.control.stop}
+            />
             <button
               type="button"
               onClick={resetAll}

@@ -9,7 +9,11 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
-import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import {
+  useTrendSourceCollection,
+  type TrendSourceCollection,
+} from '@/hooks/use-trend-source-collection';
 import {
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
@@ -65,11 +69,7 @@ export function EntryRecommendationBoard() {
   const recommendationRunId = recommendationsQuery.data?.data?.runId ?? null;
   const selectionsQuery = useSourcingReviewSelections('entry', recommendationRunId);
   const interestTargetsQuery = useSourcingInterestTargets();
-  const dailyTrendSource = useTrendSourceCollection({
-    input: {},
-    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-  });
-  const isCollecting = dailyTrendSource.isCollecting;
+  const dailyTrendSource = useTrendSourceCollection();
 
   const recommendationItems = recommendationsQuery.data?.data?.items ?? [];
   const allItems = useMemo(() => toEntryRecommendations(recommendationItems), [recommendationItems]);
@@ -212,9 +212,8 @@ export function EntryRecommendationBoard() {
         <Toolbar
           selectedCount={selectedIds.size}
           totalCount={items.length}
-          isCollecting={isCollecting}
+          collection={dailyTrendSource}
           isRefreshing={recommendationsQuery.isFetching}
-          onCollect={() => void dailyTrendSource.collect({})}
           onRefresh={() => void recommendationsQuery.refetch()}
         />
 
@@ -279,16 +278,14 @@ export function EntryRecommendationBoard() {
 function Toolbar({
   selectedCount,
   totalCount,
-  isCollecting,
+  collection,
   isRefreshing,
-  onCollect,
   onRefresh,
 }: {
   selectedCount: number;
   totalCount: number;
-  isCollecting: boolean;
+  collection: TrendSourceCollection;
   isRefreshing: boolean;
-  onCollect: () => void;
   onRefresh: () => void;
 }) {
   return (
@@ -312,19 +309,12 @@ function Toolbar({
           />
           새로고침
         </button>
-        <button
-          type="button"
-          onClick={onCollect}
-          disabled={isCollecting}
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3.5 py-1.5 text-[11px] font-black text-white transition-[filter] hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCollecting ? (
-            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          ) : (
-            <Sparkles size={12} aria-hidden="true" />
-          )}
-          {isCollecting ? '수집 중…' : '지금 수집'}
-        </button>
+        <CollectionStartControl
+          control={collection.control}
+          startLabel="지금 수집"
+          onStart={() => collection.start()}
+          onStop={collection.control.stop}
+        />
       </div>
     </div>
   );

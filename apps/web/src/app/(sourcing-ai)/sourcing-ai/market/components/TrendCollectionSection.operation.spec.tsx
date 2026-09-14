@@ -5,8 +5,6 @@ import { TrendCollectionSection } from './TrendCollectionSection';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
-  cancel: vi.fn(),
-  retryAttention: vi.fn(),
   useAction: vi.fn(),
 }));
 
@@ -44,51 +42,57 @@ function renderSection() {
   );
 }
 
-describe('TrendCollectionSection operation migration', () => {
+describe('TrendCollectionSection trend control', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.start.mockResolvedValue({ id: 'run-1' });
-    mocks.cancel.mockResolvedValue(null);
-    mocks.retryAttention.mockResolvedValue(null);
     mocks.useAction.mockReturnValue({
-      error: null, actualCutoffAt: null, result: null,
-      collect: mocks.start,
-      cancel: mocks.cancel,
-      retryAttention: mocks.retryAttention,
+      control: {
+    state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+    start: vi.fn(), stop: vi.fn(),
+  },
+      start: mocks.start,
       isCollecting: false,
-      isCancelling: false,
-      isRetrying: false,
+      error: null,
+      actualCutoffAt: null,
     });
   });
 
-  it('mounts persisted reads only and starts one parent operation from the CTA', async () => {
+  it('mounts persisted reads only and starts the selected trend sources from the shared control', async () => {
     renderSection();
 
     expect(mocks.start).not.toHaveBeenCalled();
     expect(screen.getByText('persisted-trend-snapshots')).toBeInTheDocument();
+    expect(mocks.useAction).toHaveBeenLastCalledWith({ sources: ['naver', 'shorts'] });
 
     fireEvent.click(screen.getByRole('button', { name: '트렌드 수집' }));
 
     await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
-    expect(mocks.start).toHaveBeenCalledWith({
-      sources: ['naver', 'shorts'],
-    });
-    expect(mocks.useAction).toHaveBeenCalledWith({
-      input: { sources: ['naver', 'shorts'] },
-      snapshotQueryKey: ['sourcing', 'trend'],
-    });
   });
 
-  it('shows source failure and permits an explicit retry without a false success panel', () => {
-    mocks.useAction.mockReturnValue({ collect: mocks.start, isCollecting: false, error: 'Shorts provider failed', actualCutoffAt: null,
-      result: { businessDate: '2026-09-06', results: [
+  it('shows the owner failure and the settled source results after an explicit collection', async () => {
+    mocks.useAction.mockReturnValue({
+      control: {
+    state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+    start: vi.fn(), stop: vi.fn(),
+  },
+      start: mocks.start,
+      isCollecting: false,
+      error: 'Shorts provider failed',
+      actualCutoffAt: null,
+    });
+    mocks.start.mockImplementation((onSettled?: (result: unknown) => void) => onSettled?.({
+      businessDate: '2026-09-06',
+      results: [
         { source: 'naver', state: 'COMPLETE', ok: true, collected: 12 },
         { source: 'shorts', state: 'FAILED', ok: false, collected: 0, error: 'Shorts provider failed' },
-      ] } });
+      ],
+    }));
     renderSection();
+
     expect(screen.getByRole('alert')).toHaveTextContent('Shorts provider failed');
-    expect(screen.getByText('12건')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '트렌드 수집' }));
+
+    expect(await screen.findByText('12건')).toBeInTheDocument();
     expect(mocks.start).toHaveBeenCalledOnce();
   });
 });

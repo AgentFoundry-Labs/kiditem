@@ -5,8 +5,6 @@ import { GlobalSourcingOverview } from './GlobalSourcingOverview';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
-  cancel: vi.fn(),
-  retryAttention: vi.fn(),
   useAction: vi.fn(),
   fetchNaver: vi.fn(),
 }));
@@ -45,15 +43,15 @@ describe('GlobalSourcingOverview Naver source boundary', () => {
       opportunities: [],
       warnings: [],
     });
-    mocks.start.mockResolvedValue({ id: 'naver-run' });
     mocks.useAction.mockReturnValue({
-      error: null, actualCutoffAt: null, result: null,
-      collect: mocks.start,
-      cancel: mocks.cancel,
-      retryAttention: mocks.retryAttention,
+      control: {
+        state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+        start: vi.fn(), stop: vi.fn(),
+      },
+      start: mocks.start,
       isCollecting: false,
-      isCancelling: false,
-      isRetrying: false,
+      error: null,
+      actualCutoffAt: null,
     });
   });
 
@@ -62,13 +60,10 @@ describe('GlobalSourcingOverview Naver source boundary', () => {
 
     await waitFor(() => expect(mocks.fetchNaver).toHaveBeenCalledOnce());
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.useAction).toHaveBeenCalledWith({
-      input: { sources: ['naver'] },
-      snapshotQueryKey: ['sourcing', 'trend', 'naver-keywords', 30],
-    });
+    expect(mocks.useAction).toHaveBeenCalledWith({ sources: ['naver'] });
 
     fireEvent.click(screen.getByRole('button', { name: '네이버 스냅샷 수집' }));
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ sources: ['naver'] }));
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
 
     view.unmount();
     renderOverview();

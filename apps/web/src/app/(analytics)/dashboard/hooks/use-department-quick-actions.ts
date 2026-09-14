@@ -38,7 +38,7 @@ function currentMonthRange(): { from: string; to: string } {
  * screens. Inventory collection is admitted by the Sellpia source owner.
  */
 export function useDepartmentQuickActions() {
-  const { collect: collectTrend } = useTrendSourceCollection();
+  const trend = useTrendSourceCollection();
   const { rocketAccounts, isBootstrapping: rocketAccountBootstrapping } =
     useRocketChannelAccounts();
   const rocketAccountId = rocketAccounts[0]?.id ?? null;
@@ -78,26 +78,18 @@ export function useDepartmentQuickActions() {
     }
 
     if (action === 'collectTrend') {
-      const result = await collectTrend();
-      if (!result) return;
-      if (result.results.length > 0 && result.results.every((source) => source.state === 'COMPLETE' && source.ok)) {
-        toast.success('트렌드 수집이 완료됐습니다.');
-      } else if (result.results.length > 0 && result.results.every((source) =>
-        source.state === 'RUNNING' || (source.state === 'COMPLETE' && source.ok))) {
-        toast.info('트렌드 수집이 진행 중입니다.');
-      } else {
-        toast.error('일부 트렌드 수집에 실패했습니다. 다시 시도해주세요.');
-      }
+      // The same control as the sourcing screens: one server status, no stop.
+      trend.start();
       return;
     }
     await startSellpiaInventoryRefresh();
     toast.success('셀피아 재고 동기화를 시작했습니다.');
   }, [
     collectAllOrders,
-    collectTrend,
     collectRocketPurchaseOrders,
     collectShipmentSummary,
     startSellpiaInventoryRefresh,
+    trend,
   ]);
 
   return { start };
