@@ -295,14 +295,14 @@ describe('Wing traffic dispatch release', () => {
     });
   });
 
-  it('reports an unresponsive extension after 30 seconds without attempt progress and leaves the attempt running', async () => {
+  it('releases as unresponsive (the card notice) after 90 seconds without attempt progress and leaves the attempt running', async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce(source(attempt('FAILED')))
       .mockResolvedValue(created);
     dispatchReplies(neverAnswered);
 
     const seen = track(collectWingTrafficSource(request));
-    await vi.advanceTimersByTimeAsync(28_000);
+    await vi.advanceTimersByTimeAsync(88_000);
     expect(seen.outcome).toBeUndefined();
 
     await vi.advanceTimersByTimeAsync(4_000);
@@ -315,16 +315,20 @@ describe('Wing traffic dispatch release', () => {
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the request pending past 30 seconds once the attempt shows extension progress', async () => {
-    const progressed = { ...created, receiptCount: 1 };
+  it('keeps the request pending without the unresponsive release when progress first arrives at 60 seconds', async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce(source(attempt('FAILED')))
-      .mockResolvedValueOnce(created)
-      .mockResolvedValue(progressed);
+      .mockResolvedValue(created);
     dispatchReplies(neverAnswered);
 
     const seen = track(collectWingTrafficSource(request));
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(seen.outcome).toBeUndefined();
+
+    // Real Chrome runs have uploaded their first receipt 30 to 50 seconds in.
+    vi.mocked(apiClient.get).mockResolvedValue({ ...created, receiptCount: 1 });
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(seen.error).toBeUndefined();
     expect(seen.outcome).toBeUndefined();
 
     vi.mocked(apiClient.get).mockResolvedValue(attempt('COMPLETE'));
@@ -391,8 +395,8 @@ describe('Wing traffic dispatch release', () => {
     }));
 
     const seen = track(collectWingTrafficSource(request));
-    // A success reply proves the extension ran, so the no-progress grace no longer applies.
-    await vi.advanceTimersByTimeAsync(40_000);
+    // A success reply proves the extension ran, so the 90-second no-progress grace no longer applies.
+    await vi.advanceTimersByTimeAsync(100_000);
     expect(seen.outcome).toBeUndefined();
 
     vi.mocked(apiClient.get).mockResolvedValue(attempt('COMPLETE'));

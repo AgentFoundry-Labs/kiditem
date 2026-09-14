@@ -19,7 +19,8 @@ const EXTENSION_TIMEOUT_MS = 35 * 60_000;
 // client's read default and the dispatch keeps its long extension wait.
 const ATTEMPT_CREATE_TIMEOUT_MS = 30_000;
 const ATTEMPT_POLL_MS = 2_000;
-const EXTENSION_START_GRACE_MS = 30_000;
+// Real Chrome runs upload their first receipt 30 to 50 seconds after dispatch.
+const EXTENSION_START_GRACE_MS = 90_000;
 // The screen speaks Korean: Korean bridge and extension messages pass through,
 // while browser transport errors and English reasons get these sentences.
 const EXTENSION_FAILURE_FALLBACK = 'Wing 트래픽 수집 확장이 작업을 마치지 못했습니다.';
