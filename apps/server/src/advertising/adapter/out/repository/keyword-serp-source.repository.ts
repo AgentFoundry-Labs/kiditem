@@ -37,7 +37,6 @@ import { runWithAdIngestTransaction } from "./ad-ingest-transaction-context";
 const SOURCE = "coupang_keyword_serp";
 const PARSER = "keyword-serp-v1";
 const TTL_MS = 10 * 60_000;
-const BATCH_CANCEL_CHUNK_SIZE = 50;
 type Attempt = Prisma.SourceImportRunGetPayload<{}>;
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -211,10 +210,12 @@ export class KeywordSerpSourceRepository {
         const byId = new Map(rows.map((row) => [row.id, row]));
         if (rows.length !== admission.attemptIds.length)
           throw new NotFoundException("SERP_BATCH_MEMBER_NOT_FOUND");
+        // One stop ends every running member. A browser still running the batch
+        // then finds its remaining keywords stopped, so it cannot fail them as
+        // interrupted, which would raise failure Alerts.
         const pending = admission.attemptIds
           .map((id) => byId.get(id)!)
-          .filter((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS)
-          .slice(0, BATCH_CANCEL_CHUNK_SIZE);
+          .filter((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS);
         for (const row of pending) {
           await this.failIn(
             tx,
@@ -227,6 +228,7 @@ export class KeywordSerpSourceRepository {
         }
         return this.batchView(tx, org, anchor);
       },
+      { timeout: 30_000 },
     );
   }
 
