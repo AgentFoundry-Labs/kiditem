@@ -21,7 +21,6 @@ function makeAlert(overrides: Record<string, unknown> = {}) {
     title: 'Sellpia 수집 실패',
     message: '공급가를 확인할 수 없습니다.',
     status: 'OPEN',
-    severity: 'error',
     isRead: false,
     href: '/stock-ops',
     createdAt: '2026-09-04T00:00:00.000Z',

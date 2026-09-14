@@ -282,7 +282,6 @@ function toInventoryReportRow(item: InventorySkuSnapshotItem) {
 function toAdvertisingReportRow(item: AdsListItem) {
   return {
     등급: item.grade,
-    광고등급: item.adTier,
     상품명: item.channelName ?? item.masterProduct.name,
     셀피아상품코드: item.masterProduct.code,
     광고비: item.metrics.spend,
@@ -383,7 +382,6 @@ function emptyAdsHub(): AdsHubData {
       totalRevenue: 0,
       totalRoas: null,
       gradeSpend: { A: 0, B: 0, C: 0 },
-      tierSpend: {},
       gradeSpendPercent: { A: 0, B: 0, C: 0 },
     },
   };

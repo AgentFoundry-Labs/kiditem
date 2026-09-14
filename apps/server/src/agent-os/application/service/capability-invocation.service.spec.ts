@@ -133,7 +133,6 @@ describe('CapabilityInvocationService', () => {
     const inputHash = canonicalOwnerInputHash(input);
     const pending = {
       ...invocation({ input, status: 'pending' }),
-      approvalStatus: 'pending' as const,
       approvalInputHash: inputHash,
       approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
       approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
@@ -165,10 +164,10 @@ describe('CapabilityInvocationService', () => {
     const definition = { ...mutationDefinition, approvalRisk: 'medium' as const };
     const approved = {
       ...invocation({ input, status: 'pending' }),
-      approvalStatus: 'approved' as const,
       approvalInputHash: inputHash,
       approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
       approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+      approvalDecision: 'approved' as const,
       approvalDecidedByUserId: USER_ID,
       approvalDecidedAt: new Date('2026-08-25T00:01:00.000Z'),
     };
@@ -438,10 +437,10 @@ describe('CapabilityInvocationService', () => {
       requestKey: 'retry-after-owner-commit',
       canonicalInput: canonicalizeOwnerInput(input),
       inputHash: canonicalOwnerInputHash(input),
-      approvalStatus: 'approved' as const,
       approvalInputHash: canonicalOwnerInputHash(input),
       approvalRequestedAt: new Date(now - 100),
       approvalExpiresAt: new Date(now + 1_000),
+      approvalDecision: 'approved' as const,
       approvalDecidedByUserId: USER_ID,
       approvalDecidedAt: new Date(now - 1),
     };
@@ -595,11 +594,48 @@ describe('CapabilityInvocationService', () => {
     expect(owner.invoke).not.toHaveBeenCalled();
   });
 
+  it('reads a lapsed undecided approval as expired before the sweep fails it', async () => {
+    const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
+    const inputHash = canonicalOwnerInputHash(input);
+    const definition = { ...mutationDefinition, approvalRisk: 'medium' as const };
+    const lapsed = {
+      ...invocation({ input, status: 'pending' }),
+      approvalInputHash: inputHash,
+      approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
+      approvalExpiresAt: new Date('2026-08-25T00:30:00.000Z'),
+    };
+    const repository = {
+      findById: vi.fn().mockResolvedValue(lapsed),
+      admit: vi.fn().mockResolvedValue({ kind: 'replay', invocation: lapsed }),
+      recordSucceeded: vi.fn(),
+      recordKnownFailure: vi.fn(),
+    };
+    const owner = { capabilityKey: definition.key, invoke: vi.fn() };
+    const dispatcher = { dispatch: vi.fn() };
+    const service = new CapabilityInvocationService(
+      repository as never,
+      registry(definition, owner) as never,
+      () => new Date('2026-08-25T00:30:00.000Z'),
+      undefined,
+      dispatcher as never,
+    );
+
+    await expect(service.getReceipt({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID }))
+      .resolves.toMatchObject({ status: 'pending', approvalStatus: 'expired' });
+    await expect(service.get({ organizationId: ORGANIZATION_ID, invocationId: INVOCATION_ID }))
+      .resolves.toMatchObject({ approvalDecision: null, approvalStatus: 'expired' });
+    await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
+      code: 'APPROVAL_EXPIRED',
+    } satisfies Partial<AgentOsError>);
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    expect(owner.invoke).not.toHaveBeenCalled();
+  });
+
   it('returns the conditional finalization winner instead of inventing a second outcome', async () => {
     const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
     const rejected = {
       ...invocation({ input, status: 'failed' }),
-      approvalStatus: 'rejected' as const,
+      approvalDecision: 'rejected' as const,
       error: {
         code: 'APPROVAL_REJECTED',
         message: 'User rejected the exact capability invocation.',
@@ -652,10 +688,10 @@ function invocation(input: { input: unknown; status: 'pending' | 'succeeded' | '
     canonicalInput: { alpha: 'candidate', nested: { a: 1, b: 2 } },
     inputHash: canonicalOwnerInputHash(input.input),
     status: input.status,
-    approvalStatus: 'not_required',
     approvalInputHash: null,
     approvalRequestedAt: null,
     approvalExpiresAt: null,
+    approvalDecision: null,
     approvalDecidedByUserId: null,
     approvalDecisionReason: null,
     approvalDecidedAt: null,

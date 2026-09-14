@@ -7,13 +7,16 @@ const ATTEMPT_ID_1 = '11111111-1111-4111-8111-111111111111';
 const ATTEMPT_ID_2 = '22222222-2222-4222-8222-222222222222';
 const ALERT_ID = '33333333-3333-4333-8333-333333333333';
 const DEDUPE_KEY = 'sellpia:profitability:2026-08';
+const READ_AT = new Date('2026-09-03T00:10:00.000Z');
+
+/** Columns the schema cutover drops. Nothing this module writes names them. */
+const RETIRED_COLUMNS = ['isRead', 'kind', 'severity'];
 
 type AlertState = Record<string, unknown> & {
   organizationId: string;
   dedupeKey: string;
   attemptId: string;
   status: string;
-  isRead: boolean;
   readAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -44,7 +47,6 @@ function existingAlert(overrides: Partial<AlertState> = {}): AlertState {
     message: '공급가를 확인할 수 없습니다.',
     href: '/analytics/sellpia-product-sales',
     status: 'OPEN',
-    isRead: false,
     readAt: null,
     createdAt,
     updatedAt: createdAt,
@@ -102,6 +104,12 @@ function makeDb(initial: AlertState | null = null) {
   return { db: { alert } as any, getRow: () => row };
 }
 
+function expectNoRetiredColumns(row: AlertState | null) {
+  for (const column of RETIRED_COLUMNS) {
+    expect(row).not.toHaveProperty(column);
+  }
+}
+
 describe('SourceFailureAlerts', () => {
   it('creates one focused source-failure row in the supplied transaction', async () => {
     const { db, getRow } = makeDb();
@@ -115,13 +123,13 @@ describe('SourceFailureAlerts', () => {
       sourceType: 'sellpia_product_profitability',
       attemptId: ATTEMPT_ID_1,
       status: 'OPEN',
-      isRead: false,
+      readAt: null,
     });
+    expectNoRetiredColumns(getRow());
   });
 
   it('treats replay of the same attempt as a true no-op', async () => {
-    const readAt = new Date('2026-09-03T00:10:00.000Z');
-    const original = existingAlert({ isRead: true, readAt });
+    const original = existingAlert({ readAt: READ_AT });
     const { db, getRow } = makeDb(original);
     const alerts = new SourceFailureAlerts(db);
     const before = { ...getRow()! };
@@ -134,7 +142,7 @@ describe('SourceFailureAlerts', () => {
   });
 
   it('reopens the same dedupe row unread for a newer failed attempt', async () => {
-    const { db, getRow } = makeDb(existingAlert({ isRead: true, readAt: new Date() }));
+    const { db, getRow } = makeDb(existingAlert({ readAt: READ_AT }));
     const alerts = new SourceFailureAlerts(db);
 
     await alerts.recordTerminalOutcome(db, failure(ATTEMPT_ID_2));
@@ -144,13 +152,13 @@ describe('SourceFailureAlerts', () => {
       dedupeKey: DEDUPE_KEY,
       attemptId: ATTEMPT_ID_2,
       status: 'OPEN',
-      isRead: false,
       readAt: null,
     });
+    expectNoRetiredColumns(getRow());
   });
 
   it('resolves the open dedupe row for the completing attempt and leaves read state alone', async () => {
-    const { db, getRow } = makeDb(existingAlert({ isRead: false }));
+    const { db, getRow } = makeDb(existingAlert({ readAt: READ_AT }));
     const alerts = new SourceFailureAlerts(db);
 
     await alerts.resolveSourceFailure(db, {
@@ -159,7 +167,7 @@ describe('SourceFailureAlerts', () => {
       attemptId: ATTEMPT_ID_2,
     });
 
-    expect(getRow()).toMatchObject({ status: 'RESOLVED', isRead: false, attemptId: ATTEMPT_ID_2 });
+    expect(getRow()).toMatchObject({ status: 'RESOLVED', readAt: READ_AT, attemptId: ATTEMPT_ID_2 });
 
     // A replay after resolution is a no-op: the row is no longer OPEN.
     await alerts.resolveSourceFailure(db, {
@@ -167,7 +175,7 @@ describe('SourceFailureAlerts', () => {
       dedupeKey: DEDUPE_KEY,
       attemptId: ATTEMPT_ID_2,
     });
-    expect(getRow()).toMatchObject({ status: 'RESOLVED', isRead: false, attemptId: ATTEMPT_ID_2 });
+    expect(getRow()).toMatchObject({ status: 'RESOLVED', readAt: READ_AT, attemptId: ATTEMPT_ID_2 });
   });
 
   /**
@@ -222,11 +230,11 @@ describe('SourceFailureAlerts', () => {
     }));
 
     await expect(alerts.dismiss(ALERT_ID, OTHER_ORGANIZATION_ID)).rejects.toThrow();
-    expect(getRow()!.isRead).toBe(false);
+    expect(getRow()!.readAt).toBeNull();
 
     await alerts.dismiss(ALERT_ID, ORGANIZATION_ID);
-    // `readAt` is what readers derive read state from; `isRead` is still written
-    // for a runtime that predates the derivation until the column is dropped.
-    expect(getRow()).toMatchObject({ isRead: true, readAt: expect.any(Date) });
+    // Dismissal stamps `readAt`, the one fact read state is derived from.
+    expect(getRow()).toMatchObject({ readAt: expect.any(Date) });
+    expectNoRetiredColumns(getRow());
   });
 });

@@ -5,6 +5,7 @@ import {
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
 import {
+  CapabilityInvocationApprovalStatusSchema,
   CapabilityResultReceiptSchema,
   type CapabilityResultEnvelope,
   type CapabilityResultReceipt,
@@ -237,12 +238,17 @@ function searchCatalog(
     .map(capabilityDefinitionToCatalogEntry);
 }
 
+/** The persisted record plus the approval state the service derived when reading it. */
+const CapabilityInvocationStatusViewSchema = CapabilityInvocationRecordSchema.extend({
+  approvalStatus: CapabilityInvocationApprovalStatusSchema,
+});
+
 async function getInvocation(
   invocations: Pick<CapabilityInvocationPort, 'get'>,
   organizationId: string,
   invocationId: string,
 ) {
-  const parsed = CapabilityInvocationRecordSchema.safeParse(await invocations.get({
+  const parsed = CapabilityInvocationStatusViewSchema.safeParse(await invocations.get({
     organizationId,
     invocationId,
   }));

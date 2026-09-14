@@ -285,7 +285,6 @@ describe('KidItem stateless capability MCP server', () => {
       requestKey: 'provider-failure-1',
       canonicalInput,
       inputHash: canonicalOwnerInputHash(canonicalInput),
-      approvalStatus: 'not_required' as const,
       approvalInputHash: null,
       approvalRequestedAt: null,
       approvalExpiresAt: null,
@@ -480,7 +479,7 @@ function makeHandler(): {
           },
         };
       }),
-      get: vi.fn(async () => invocation),
+      get: vi.fn(async () => ({ ...invocation, approvalStatus: 'pending' as const })),
     },
     capabilities: {
       listDefinitions: () => FINAL_CAPABILITY_DEFINITIONS.slice(),
@@ -567,10 +566,10 @@ function invocationRecord() {
     canonicalInput: { purchaseOrderId: '00000000-0000-4000-8000-000000000005' },
     inputHash: 'a'.repeat(64),
     status: 'pending' as const,
-    approvalStatus: 'pending' as const,
     approvalInputHash: 'a'.repeat(64),
     approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
     approvalExpiresAt: new Date('2026-08-26T00:00:00.000Z'),
+    approvalDecision: null,
     approvalDecidedByUserId: null,
     approvalDecisionReason: null,
     approvalDecidedAt: null,

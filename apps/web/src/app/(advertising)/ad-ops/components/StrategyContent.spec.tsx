@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import StrategyContent from './StrategyContent';
 import type {
+  AdsHubData,
   AdStrategyAction,
   AdTrendsData,
   AdWeeklyPlan,
@@ -50,10 +51,52 @@ const strategy: AdWeeklyPlan = {
   week: { start: '2026-07-06', end: '2026-07-12' },
   actions: [action],
   issues: { zeroConversion: [], lowRoas: [], highSpend: [] },
-  tierAnalysis: [],
   top20: [],
   profitWithheldListings: 0,
   orderWindowComplete: true,
+};
+
+function hubProduct(
+  listingId: string,
+  name: string,
+  spend: number,
+): AdsHubData['products'][number] {
+  return {
+    listingId,
+    externalId: `external-${listingId}`,
+    channelName: name,
+    masterProduct: {
+      id: '55555555-5555-4555-8555-555555555555',
+      code: `MASTER-${listingId}`,
+      name,
+    },
+    option: null,
+    metrics: {
+      spend,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      revenue: 0,
+      ctr: null,
+      roas: null,
+      cvr: null,
+    },
+    grade: 'A',
+  };
+}
+
+const hub: AdsHubData = {
+  products: [
+    hubProduct('66666666-6666-4666-8666-666666666666', '광고비 쓴 상품', 12_000),
+    hubProduct('77777777-7777-4777-8777-777777777777', '광고비 없는 상품', 0),
+  ],
+  summary: {
+    totalSpend: 12_000,
+    totalRevenue: 0,
+    totalRoas: null,
+    gradeSpend: { A: 12_000, B: 0, C: 0 },
+    gradeSpendPercent: { A: 100, B: 0, C: 0 },
+  },
 };
 
 function availabilityResponse(sellableStock: number | null) {
@@ -201,5 +244,35 @@ describe('StrategyContent account totals', () => {
     expect(within(card).getByText('-')).toBeInTheDocument();
     expect(within(card).getAllByText('- / -')).toHaveLength(2);
     expect(card).not.toHaveTextContent('0.00%');
+  });
+});
+
+describe('StrategyContent grade card advertising status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
+  });
+
+  it('labels hub products from their measured spend instead of an operator tier', async () => {
+    vi.mocked(apiClient.getParsed).mockImplementation(((url: string) => Promise.resolve(
+      url === '/api/ads/hub' ? hub : availabilityResponse(3),
+    )) as never);
+    renderStrategy();
+
+    const card = await screen.findByTestId('strategy-grade-card-A');
+    expect(await within(card).findByText('광고비 쓴 상품')).toBeInTheDocument();
+    expect(within(card).getByText('광고비 없는 상품')).toBeInTheDocument();
+    expect(within(card).getByText('광고비 발생')).toBeInTheDocument();
+    expect(within(card).getByText('광고비 0원')).toBeInTheDocument();
+    // Header chip and filter tab both count the one product with measured spend.
+    expect(within(card).getAllByText('광고비 발생 1')).toHaveLength(2);
+    expect(card).not.toHaveTextContent('광고중');
+    expect(card).not.toHaveTextContent('추천 없음');
+
+    fireEvent.click(within(card).getByRole('button', { name: '광고비 0원 1' }));
+
+    expect(within(card).queryByText('광고비 쓴 상품')).not.toBeInTheDocument();
+    expect(within(card).queryByText('테스트 채널 상품')).not.toBeInTheDocument();
+    expect(within(card).getByText('광고비 없는 상품')).toBeInTheDocument();
   });
 });

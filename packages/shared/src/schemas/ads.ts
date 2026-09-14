@@ -54,8 +54,6 @@ export type AdMetrics = z.infer<typeof AdMetricsSchema>;
 export const AdsListItemSchema = AdListingSummarySchema.merge(z.object({
   metrics: AdMetricsSchema,
   grade: z.enum(['A', 'B', 'C']).nullable(),
-  tier: z.string().nullable(),
-  adTier: z.string().nullable(),
 }));
 export type AdsListItem = z.infer<typeof AdsListItemSchema>;
 
@@ -64,7 +62,6 @@ export const AdsHubSummarySchema = z.object({
   totalRevenue: z.number().int(),
   totalRoas: z.number().nullable(),
   gradeSpend: z.record(z.enum(['A', 'B', 'C']), z.number().int()),
-  tierSpend: z.record(z.string(), z.number().int()),
   gradeSpendPercent: z.record(z.enum(['A', 'B', 'C']), z.number()),
 });
 export type AdsHubSummary = z.infer<typeof AdsHubSummarySchema>;
@@ -352,15 +349,6 @@ export const AdTop20ItemSchema = z.object({
 });
 export type AdTop20Item = z.infer<typeof AdTop20ItemSchema>;
 
-export const AdTierAnalysisSchema = z.object({
-  tier: z.string(),
-  count: z.number().int(),
-  spend: z.number().int(),
-  revenue: z.number().int(),
-  roas: z.number().nullable(),
-});
-export type AdTierAnalysis = z.infer<typeof AdTierAnalysisSchema>;
-
 export const AdIssuesSchema = z.object({
   zeroConversion: z.array(AdStrategyActionSchema),
   lowRoas: z.array(AdStrategyActionSchema),
@@ -380,7 +368,6 @@ export type AdRulesData = z.infer<typeof AdRulesDataSchema>;
 export const AdStrategyPlanSchema = z.object({
   actions: z.array(AdStrategyActionSchema),
   issues: AdIssuesSchema,
-  tierAnalysis: z.array(AdTierAnalysisSchema),
   top20: z.array(AdTop20ItemSchema),
 });
 export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;

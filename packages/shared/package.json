@@ -210,11 +210,6 @@
       "import": "./dist/alerts.js",
       "require": "./dist/alerts.cjs"
     },
-    "./return-summary": {
-      "types": "./dist/return-summary.d.ts",
-      "import": "./dist/return-summary.js",
-      "require": "./dist/return-summary.cjs"
-    },
     "./feature-gate": {
       "types": "./dist/feature-gate.d.ts",
       "import": "./dist/feature-gate.js",
@@ -369,9 +364,6 @@
       ],
       "alerts": [
         "dist/alerts.d.ts"
-      ],
-      "return-summary": [
-        "dist/return-summary.d.ts"
       ],
       "feature-gate": [
         "dist/feature-gate.d.ts"

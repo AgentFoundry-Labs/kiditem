@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -112,8 +112,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     });
     // The evaluation table is the publication. The retired MasterProduct
     // cache is deliberately untouched until KID-90 removes the column.
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
     await expect(prisma.masterProductAbcEvaluation.findUniqueOrThrow({
       where: { masterProductId_organizationId: { masterProductId: productId, organizationId: TEST_ORGANIZATION_ID } },
     })).resolves.toMatchObject({
@@ -203,8 +201,55 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
+  });
+
+  // Publication compares, records history, and clears from the retained
+  // evaluations alone; the product row has no grade column (KID-90).
+  it('publishes grade changes and clears from retained evaluations alone', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'B')],
+    }));
+    const restore = 'roll back both publications';
+
+    await expect(prisma.$transaction(async (tx) => {
+      const inTransaction = new MasterProductAbcRepositoryAdapter({
+        $transaction: (run: (client: Prisma.TransactionClient) => Promise<unknown>) => run(tx),
+      } as never);
+
+      await expect(inTransaction.publish(publication({
+        formulaVersionId,
+        expectedPublicationRevision: 1,
+        sourceFences: sources,
+        targetProductIds: [productId],
+        candidates: [candidate(productId, sources, 'A')],
+      }))).resolves.toEqual({ outcome: 'PUBLISHED', publicationRevision: 2, changedProductCount: 1 });
+      await expect(tx.masterProductAbcGradeHistory.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { oldGrade: true, newGrade: true, publicationRevision: true },
+      })).resolves.toEqual([{ oldGrade: 'B', newGrade: 'A', publicationRevision: 2 }]);
+
+      // A product that stops selling leaves the target set; its retained
+      // evaluation is the one publication clears.
+      await tx.masterProduct.updateMany({
+        where: { id: productId, organizationId: TEST_ORGANIZATION_ID },
+        data: { isActive: false },
+      });
+      await expect(inTransaction.publish(publication({
+        formulaVersionId,
+        expectedPublicationRevision: 2,
+        sourceFences: sources,
+        targetProductIds: [],
+        candidates: [],
+      }))).resolves.toEqual({ outcome: 'PUBLISHED', publicationRevision: 3, changedProductCount: 1 });
+      await expect(tx.masterProductAbcEvaluation.count({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toBe(0);
+      throw new Error(restore);
+    }, { maxWait: 10_000, timeout: 60_000 })).rejects.toThrow(restore);
   });
 
   it('preserves an old official grade when a current product becomes insufficient', async () => {
@@ -242,8 +287,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcGradeHistory.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
     await expect(repository.readPublication(TEST_ORGANIZATION_ID, [productId]))
       .resolves.toMatchObject({
         publication: { publicationRevision: 2 },
@@ -292,8 +335,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
   });
 
   it('rejects candidate provenance that does not match the selected source IDs', async () => {
@@ -353,8 +394,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         targetProductIds: [productId],
         candidates: [candidate(productId, sources, 'A')],
       }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 1 });
-      await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-        .resolves.toMatchObject({ abcGrade: null });
     },
   );
 
@@ -430,7 +469,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         organizationId: OTHER_ORGANIZATION_ID,
         code: `FOREIGN-${randomUUID()}`,
         name: 'Foreign ABC product',
-        abcGrade: 'C',
       },
     });
     const { productId, formulaVersionId, sources } = await fixture(prisma);
@@ -442,8 +480,9 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       candidates: [candidate(productId, sources, 'A')],
     }));
 
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: foreign.id } }))
-      .resolves.toMatchObject({ abcGrade: 'C' });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: OTHER_ORGANIZATION_ID, masterProductId: foreign.id },
+    })).resolves.toBe(0);
     await expect(prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: OTHER_ORGANIZATION_ID },
     })).resolves.toBeNull();
@@ -473,8 +512,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
   });
 });
 

@@ -203,10 +203,7 @@ export class ProcurementController {
       return this.rocketWorkbooks.abandonWorkbook({
         organizationId,
         userId: user.id,
-        request: {
-          exportId: body.exportId!,
-          reason: body.abandonReason!,
-        },
+        request: { exportId: body.exportId! },
       });
     }
     if (body.action === 'listSavedRocketPos') {

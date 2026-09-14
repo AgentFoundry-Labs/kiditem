@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { SELLPIA_PROFITABILITY_SOURCE_TYPE } from '../domain/sellpia-profitability-source';
 
 export type SellpiaProductMonthlyGeneration = Readonly<{
@@ -82,7 +83,7 @@ function publishedGenerationWhere(
   return {
     organizationId,
     sourceType: SELLPIA_PROFITABILITY_SOURCE_TYPE,
-    status: 'completed',
+    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
     publicationSequence: { not: null },
   };
 }

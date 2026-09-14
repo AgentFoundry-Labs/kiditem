@@ -1,92 +1,6 @@
 // system.prisma — System domain
 
 /// @namespace System
-/// @describe 온톨로지 룰 엔진 (조건→액션 자동화).
-model BusinessRule {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  name            String // "deficit-detection"
-  displayName     String   @map("display_name") // "적자 상품 감지"
-  description     String?
-  category        String // profitability | advertising | inventory | feedback | order
-  severity        String // critical | warning | info
-  field           String // context field: "profitRate", "currentStock", "adCostRate"
-  operator        String // gt | lt | gte | lte | eq | between | custom
-  threshold       Json // { value: 0 } or { min: 0, max: 3 }
-  messageTemplate String   @map("message_template") // "순이익률 {{value}}% — 즉시 검토 필요"
-  actionType      String?  @map("action_type") // from action catalog: product.stop_ads, etc.
-  conditions      Json? // [{field, op, value}] — compound AND. null = legacy single-field
-  autoExecute     Boolean  @default(false) @map("auto_execute")
-  active          Boolean  @default(true)
-  sortOrder       Int      @default(0) @map("sort_order")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, name])
-  @@index([organizationId, active])
-  @@index([category])
-  @@map("business_rules")
-}
-
-/// @namespace System
-/// @describe Exactly-once Rules result-application receipt for one organization-scoped request.
-model RulesEvaluationApplication {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  requestId      String   @map("request_id") @db.VarChar(64)
-  productCount   Int      @map("product_count")
-  violationCount Int      @map("violation_count")
-  criticalCount  Int      @map("critical_count")
-  appliedAt      DateTime @default(now()) @map("applied_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, requestId], map: "rules_evaluation_applications_request_org_key")
-  @@index([organizationId, appliedAt])
-  @@map("rules_evaluation_applications")
-}
-
-/// @namespace System
-/// @describe 액션 보드 (수동 할일 관리).
-model ActionTask {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  taskKey        String   @map("task_key")
-  type           String   @default("human")
-  label          String
-  detail         String?
-  where          String?
-  href           String?
-  priority       String   @default("medium")
-  // status vocab: pending|active|done — business-task lifecycle, not workflow-run canonical status
-  status         String   @default("pending")
-  role           String?
-  apiCall        Json?    @map("api_call")
-  result         Json?
-  notes          Json     @default("[]")
-  activityLog    Json     @default("[]") @map("activity_log")
-  date           DateTime @db.Date
-  assigneeUserId String?  @map("assignee_user_id") @db.Uuid
-  targetType     String?  @map("target_type")
-  targetId       String?  @map("target_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  assigneeUser User?        @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
-
-  @@unique([organizationId, taskKey, date])
-  @@index([organizationId, date])
-  @@index([organizationId, assigneeUserId])
-  @@index([assigneeUserId])
-  @@index([organizationId, targetType, targetId])
-  @@map("action_tasks")
-}
-
-/// @namespace System
 /// @describe 피처 플래그. allowedOrganizations: string[] 로 회사별 enable.
 model FeatureGate {
   id                   String   @id @default(uuid()) @db.Uuid
@@ -103,71 +17,37 @@ model FeatureGate {
 }
 
 /// @namespace System
-model ActivityEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  objectType     String   @map("object_type")
-  objectId       String   @map("object_id") @db.Uuid
-  eventType      String   @map("event_type")
-  source         String   @default("manual")
-  title          String
-  data           Json?
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@index([objectType, objectId])
-  @@index([eventType])
-  @@index([createdAt])
-  @@map("activity_events")
-}
-
-/// @namespace System
 model Alert {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  // Focused source-failure identity. Rules signals may omit attemptId but use
-  // the same owner-defined dedupe key.
+  // Focused source-failure identity: the owner-defined dedupe key and, when
+  // one exists, the failed attempt.
   dedupeKey String  @default(uuid()) @map("dedupe_key")
   attemptId String? @map("attempt_id") @db.Uuid
 
   targetType String? @map("target_type")
   targetId   String? @map("target_id") @db.Uuid
 
-  kind     String    @default("signal")
-  status   String    @default("OPEN")
-  type     String
-  severity String    @default("warning")
-  title    String
-  message  String?
-  isRead   Boolean   @default(false) @map("is_read")
-  readAt   DateTime? @map("read_at") @db.Timestamptz
+  status  String    @default("OPEN")
+  type    String
+  title   String
+  message String?
+  readAt  DateTime? @map("read_at") @db.Timestamptz
 
-  sourceType  String? @map("source_type")
-  sourceId    String? @map("source_id")
-  actorUserId String? @map("actor_user_id") @db.Uuid
-  href        String?
-  metadata    Json    @default("{}") @db.JsonB
+  sourceType String? @map("source_type")
+  href       String?
 
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  actorUser    User?        @relation("AlertActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, dedupeKey], map: "alerts_organization_id_dedupe_key_key")
   @@index([organizationId])
   @@index([organizationId, dedupeKey])
   @@index([organizationId, sourceType, attemptId])
-  @@index([organizationId, isRead, createdAt])
-  @@index([organizationId, kind, status, createdAt])
-  @@index([organizationId, actorUserId, status, createdAt])
   @@index([organizationId, targetType, targetId])
-  @@index([organizationId, sourceType, sourceId])
-  @@index([actorUserId])
-  @@index([isRead])
   @@index([type])
   @@index([createdAt])
   @@map("alerts")

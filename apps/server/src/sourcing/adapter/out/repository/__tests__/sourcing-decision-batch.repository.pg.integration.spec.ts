@@ -249,7 +249,6 @@ function createCommand(
         baselineScore: 72,
         confidence: 0.72,
         confidenceKind: 'coverage',
-        policyProbability: null,
         evidenceFamilyCount: 1,
         evidencePlatformCount: 1,
         hasCoupangEvidence: false,

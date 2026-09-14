@@ -38,10 +38,9 @@ type FormulaStateRow = Readonly<{
 
 type ExistingAbcRow = Readonly<{
   masterProductId: string;
-  evaluationId: string | null;
-  evaluationGrade: string | null;
-  sellpiaSourceImportRunId: string | null;
-  advertisingSourceImportRunId: string | null;
+  evaluationGrade: string;
+  sellpiaSourceImportRunId: string;
+  advertisingSourceImportRunId: string;
 }>;
 
 @Injectable()
@@ -135,8 +134,7 @@ async function publishTx(
   // its last normal evaluation. Only products that left the target set clear.
   const clearRows = existing.filter((row) =>
     !candidateSet.has(row.masterProductId)
-    && !targetSet.has(row.masterProductId)
-    && row.evaluationId !== null,
+    && !targetSet.has(row.masterProductId),
   );
   const existingById = new Map(existing.map((row) => [row.masterProductId, row]));
   const changedProductCount = input.candidates.filter((candidate) => {
@@ -291,6 +289,11 @@ async function insertHistory(
   }
 }
 
+/**
+ * Each product's retained official evaluation: the one row per product that a
+ * publication compares a new grade against, replaces, or clears. A product
+ * without one has no official grade to compare or clear.
+ */
 async function readExistingAbcRows(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -299,16 +302,14 @@ async function readExistingAbcRows(
   const lock = forUpdate ? Prisma.sql`FOR UPDATE OF mp` : Prisma.empty;
   return tx.$queryRaw<ExistingAbcRow[]>(Prisma.sql`
     SELECT mp.id AS "masterProductId",
-           e.id AS "evaluationId",
            e.abc_grade AS "evaluationGrade",
            e.sellpia_source_import_run_id AS "sellpiaSourceImportRunId",
            e.advertising_source_import_run_id AS "advertisingSourceImportRunId"
     FROM master_products mp
-    LEFT JOIN master_product_abc_evaluations e
+    JOIN master_product_abc_evaluations e
       ON e.organization_id = mp.organization_id
      AND e.master_product_id = mp.id
     WHERE mp.organization_id = ${organizationId}::uuid
-      AND (mp.abc_grade IS NOT NULL OR e.id IS NOT NULL)
     ORDER BY mp.id ASC
     ${lock}
   `);

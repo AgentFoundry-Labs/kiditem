@@ -116,21 +116,14 @@ erDiagram
     String idempotencyKey
     String requestHash
     BigInt freshnessGeneration
-    String status
     String confirmedBy FK
     DateTime confirmedAt
     String artifactFileName
     String artifactContentType
     String artifactSha256
     Bytes artifactBytes
-    DateTime artifactStoredAt
-    DateTime ordersCollectedAt
     DateTime completedAt
-    String failureCode
-    String failureMessage
-    String releasedBy FK
     DateTime releasedAt
-    String releaseReason
     DateTime createdAt
     DateTime updatedAt
   }
@@ -167,7 +160,6 @@ erDiagram
     String sourceImportRunId FK
     String transport
     String intentKey
-    Int matchedLineCount
     DateTime observedAt
     DateTime createdAt
     DateTime updatedAt
@@ -292,7 +284,6 @@ erDiagram
 | RocketPurchaseConfirmation | channelAccount | references external | Core | ChannelAccount |
 | RocketPurchaseConfirmation | confirmer | references external | Core | User |
 | RocketPurchaseConfirmation | organization | references external | Core | Organization |
-| RocketPurchaseConfirmation | releaser | references external | Core | User |
 | RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
 | RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |

@@ -76,8 +76,8 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
   production read and inventories the remaining exact owner and legacy paths.
   A day the sweep never reported is absent, never a
-  cost of zero. `ChannelListingDailySnapshot`'s ad columns are a dead rollup
-  of this ledger awaiting a schema cutover; nothing writes or reads them.
+  cost of zero. `ChannelListingDailySnapshot` has no advertising columns;
+  listing-day advertising comes only from this ledger.
 - Account totals are sums of the campaign sweep's target rows; there is no
   separate account-day KPI collection. A provider grid without conversion
   columns stores 0 with an unobserved stamp, and readers publish that count as

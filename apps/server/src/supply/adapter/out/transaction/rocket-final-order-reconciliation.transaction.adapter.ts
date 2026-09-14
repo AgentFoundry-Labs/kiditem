@@ -127,12 +127,15 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       return {
         exportId: null,
         transmissionIntentKey,
-        matchedLineCount: 0,
         reconciledRows: 0,
         unmatchedLines,
       };
     }
 
+    // The probe records which run and transport observed the export. Which
+    // workbook lines it linked, and whether every positive line is collected,
+    // live on the lines themselves (`collectedOrderLineItemId` and the
+    // first-link `collectedAt`), so readers derive both.
     await tx.rocketPurchaseConfirmationTransmission.upsert({
       where: {
         confirmationId_transport: {
@@ -146,7 +149,6 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
         sourceImportRunId: input.sourceImportRunId,
         transport: input.transport,
         intentKey: transmissionIntentKey,
-        matchedLineCount: reconciledRows,
       },
       update:
         transmissionIntentKey === null
@@ -157,39 +159,13 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
           : {
               sourceImportRunId: input.sourceImportRunId,
               intentKey: transmissionIntentKey,
-              matchedLineCount: reconciledRows,
               observedAt: new Date(),
             },
     });
 
-    const remainingPositiveLines =
-      await tx.rocketPurchaseConfirmationLine.count({
-        where: {
-          organizationId: input.organizationId,
-          confirmationId: exportId,
-          confirmedQuantity: { gt: 0 },
-          collectedOrderLineItemId: null,
-        },
-      });
-    if (remainingPositiveLines === 0) {
-      await tx.rocketPurchaseConfirmation.updateMany({
-        where: {
-          id: exportId,
-          organizationId: input.organizationId,
-          completedAt: null,
-          releasedAt: null,
-          ordersCollectedAt: null,
-        },
-        data: {
-          ordersCollectedAt: new Date(),
-        },
-      });
-    }
-
     return {
       exportId,
       transmissionIntentKey,
-      matchedLineCount: reconciledRows,
       reconciledRows,
       unmatchedLines,
     };

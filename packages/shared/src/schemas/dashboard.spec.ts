@@ -351,6 +351,8 @@ describe('dashboard schemas', () => {
 
     expect(summary.alerts[0].status).toBe('RESOLVED');
     expect(summary.alerts[0].href).toBe('/product-pipeline/thumbnail-ai?generationId=gen-1');
+    // An older payload still naming a severity parses; the word does not travel.
+    expect(summary.alerts[0]).not.toHaveProperty('severity');
   });
 
   it('rejects retired ABC statuses and operation alert vocabulary', () => {
@@ -389,7 +391,6 @@ describe('dashboard schemas', () => {
       id: 'alert-legacy',
       status: 'succeeded',
       type: 'thumbnail_edit_job',
-      severity: 'info',
       title: 'legacy',
       message: null,
       isRead: false,

@@ -9,6 +9,7 @@ import {
   CoupangCatalogStageSchema,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 
 export const CATALOG_SOURCE = 'coupang_wing_catalog';
@@ -73,7 +74,7 @@ export function assertCatalogToken(expected: string, received: string) {
     throw new ConflictException('Catalog attempt token mismatch');
 }
 export function assertCatalogRunning(run: { status: string; expiresAt: Date | null }) {
-  if (run.status !== 'running') throw new ConflictException('Catalog attempt is terminal');
+  if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('Catalog attempt is terminal');
   if (!run.expiresAt || run.expiresAt.getTime() <= Date.now())
     throw new ConflictException('ATTEMPT_EXPIRED');
 }
@@ -156,7 +157,7 @@ export async function catalogPublicationRevision(
       organizationId: scope.organizationId,
       channelAccountId: scope.channelAccountId,
       sourceType: catalogSourceForStage(stage),
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
     },
     _max: { publicationSequence: true },
   });
@@ -232,7 +233,7 @@ export async function latestCompletedCatalogBasics(
   const run = await tx.sourceImportRun.findFirst({
     where: {
       ...catalogWhere(scope, 'basics'),
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       ...(basisId ? { id: basisId } : {}),
     },
     orderBy: [{ publicationSequence: 'desc' }, { importedAt: 'desc' }],

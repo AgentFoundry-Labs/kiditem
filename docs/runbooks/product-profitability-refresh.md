@@ -237,9 +237,9 @@ with `releaseVersion: '0.1.30'`, while the repository `VERSION` is currently
 `0.1.31`. This release-train mismatch is unresolved. Do not rename, retag,
 apply, or silently reinterpret the migration in this runbook. The release
 owner must reconcile the migration identity and release gate separately before
-any destructive cutover decision. Existing protected-reference checks and the
-reviewed backup/preflight requirements remain prerequisites when that gate is
-resolved.
+any destructive cutover decision. Existing protected-reference checks remain
+prerequisites when that gate is resolved; backups follow the
+[data-loss policy](deployment-architecture.md#data-loss-policy).
 
 This runbook never writes the operating database. Do not point disposable QA
 commands, schema pushes, or data-migration commands at the Office/operating

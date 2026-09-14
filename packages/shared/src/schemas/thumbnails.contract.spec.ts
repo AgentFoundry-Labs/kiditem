@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ThumbnailGenerationItemSchema,
   ThumbnailTrackingRecordSchema,
+  UpdateThumbnailTrackingMetricsSchema,
 } from './thumbnails';
 import * as thumbnailContracts from './thumbnails';
 
@@ -67,5 +68,15 @@ describe('thumbnail identity contracts', () => {
 
     expect(parsed.channelListingId).toBe(LISTING_ID);
     expect(parsed).not.toHaveProperty('productId');
+  });
+});
+
+describe('thumbnail tracking update contract', () => {
+  it('takes the operator inconclusive mark instead of a tracking status', () => {
+    expect(UpdateThumbnailTrackingMetricsSchema.parse({ ctrAfter: 2.4, inconclusive: true }))
+      .toEqual({ ctrAfter: 2.4, inconclusive: true });
+    expect(UpdateThumbnailTrackingMetricsSchema.parse({ inconclusive: false }))
+      .toEqual({ inconclusive: false });
+    expect(UpdateThumbnailTrackingMetricsSchema.safeParse({ status: 'inconclusive' }).success).toBe(false);
   });
 });

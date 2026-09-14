@@ -96,7 +96,6 @@ describe('classifySellpiaStockSync', () => {
       status: 'failed',
       lastAttempt: {
         attemptedAt: '2026-07-26T14:39:31.669Z',
-        status: 'failed',
         trigger: 'manual_request',
         errorCode: 'sellpia_login_required',
         errorMessage: '셀피아 로그인이 필요합니다.',

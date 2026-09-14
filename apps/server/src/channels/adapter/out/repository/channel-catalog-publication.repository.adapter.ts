@@ -9,6 +9,7 @@ import {
   type CoupangCatalogFullDetailsChunkV1,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   CATALOG_MEDIA_PUBLICATION_PORT,
@@ -201,7 +202,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         runId: input.attemptId,
         stage,
       });
-      if (sourceRun.status === 'completed') {
+      if (sourceRun.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
         const metadata = jsonRecord(sourceRun.qualityReport);
         if (
           metadata?.snapshotHash !== input.snapshotHash ||
@@ -344,12 +345,12 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         where: {
           ...catalogWhere(input, stage),
           id: sourceRun.id,
-          status: 'running',
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           attemptToken: input.attemptToken,
           expiresAt: { gt: new Date() },
         },
         data: {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           importedAt: new Date(),
           rowCount: optionCount,
           publicationSequence,

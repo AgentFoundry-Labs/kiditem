@@ -28,15 +28,12 @@ const OTHER_ORDER_FACT_RUN_ID = '20000000-0000-4000-8000-000000000002';
  *  - I3 canonical: revenue == SUM(lineItem.totalPrice), NOT SUM(order.totalPrice).
  *  - I8 half-open: `lt to` excludes upper boundary.
  *  - R-07 rename: `lastModifiedAt` populated from ChannelListing.updatedAt.
- *  - R-12 flat _count: Prisma groupBy returns `_count: number`.
- *  - C-11 unknown faultBy drop: only CUSTOMER/VENDOR surfaces.
  *  - KST day bucket: orderedAt 2026-04-14T15:00Z (KST 2026-04-15 00:00) buckets as 2026-04-15.
  *  - IDOR isolation: TEST_ORGANIZATION_ID result excludes OTHER_ORGANIZATION_ID rows.
  *
  * Fixture shape for primary organization (TEST_ORGANIZATION_ID):
  *  - 1 ChannelListing 'CL-A' (externalId EXT-A) + 1 ChannelListingOption.
  *  - 3 Orders @ KST day boundaries + line items (I3 canonical revenue != order.totalPrice).
- *  - 2 OrderReturns (1 CUSTOMER '단순변심' + 1 VENDOR '제품불량') + 1 COURIER fault (C-11 drop).
  */
 
 describe('Channel dashboard (PG integration)', () => {
@@ -260,51 +257,6 @@ describe('Channel dashboard (PG integration)', () => {
       },
     });
 
-    // OrderReturns — 2 in-window + 1 COURIER (C-11 drop)
-    await prisma.orderReturn.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: o1.id,
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        externalReturnId: 'RET-1',
-        status: 'return_request',
-        type: 'RETURN',
-        reason: '단순변심',
-        faultBy: 'CUSTOMER',
-        requesterName: 'A',
-        requestedAt: new Date('2026-04-14T16:00:00.000Z'),
-      },
-    });
-    await prisma.orderReturn.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: o2.id,
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        externalReturnId: 'RET-2',
-        status: 'return_request',
-        type: 'RETURN',
-        reason: '제품불량',
-        faultBy: 'VENDOR',
-        requesterName: 'B',
-        requestedAt: new Date('2026-04-15T16:00:00.000Z'),
-      },
-    });
-    // C-11: COURIER row persisted — service must drop (returns 0 in split).
-    await prisma.orderReturn.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: o2.id,
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        externalReturnId: 'RET-3',
-        status: 'return_request',
-        type: 'RETURN',
-        reason: '배송사고',
-        faultBy: 'COURIER',
-        requesterName: 'B',
-        requestedAt: new Date('2026-04-15T16:30:00.000Z'),
-      },
-    });
-
     // Cross-tenant pollution row (OTHER_ORGANIZATION_ID) for IDOR verification.
     const otherListing = await prisma.channelListing.create({
       data: {
@@ -344,27 +296,12 @@ describe('Channel dashboard (PG integration)', () => {
         externalLineId: 'LI-OTHER',
       },
     });
-    await prisma.orderReturn.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        orderId: otherOrder.id,
-        channelAccountId: OTHER_ACCOUNT_ID,
-        externalReturnId: 'RET-OTHER',
-        status: 'return_request',
-        type: 'RETURN',
-        reason: '단순변심',
-        faultBy: 'CUSTOMER',
-        requesterName: 'X',
-        requestedAt: new Date('2026-04-14T17:00:00.000Z'),
-      },
-    });
 
     return { listingA, loA, orders: { o1, o2, o3 } };
   }
 
   // ---------------------------------------------------------------------------
   // #1 getSummary — pendingAccept uses status 'accept_wait',
-  //                  pendingReturns uses OrderReturn.status 'return_request',
   //                  lastModifiedAt from ChannelListing.updatedAt.
   // ---------------------------------------------------------------------------
   describe('getSummary', () => {
@@ -382,12 +319,11 @@ describe('Channel dashboard (PG integration)', () => {
       expect((result as unknown as Record<string, unknown>).lastSyncedAt).toBeUndefined();
     });
 
-    it('pendingAccept counts orders with status=accept_wait; pendingReturns counts returns with status=return_request', async () => {
+    it('pendingAccept counts orders with status=accept_wait', async () => {
       await seedFixture();
-      // Seed fixture has no accept_wait orders; 3 return_request returns
+      // Seed fixture has no accept_wait orders
       const result = await service.getSummary(TEST_ORGANIZATION_ID);
       expect(result.pendingAccept).toBe(0);
-      expect(result.pendingReturns).toBe(3); // RET-1 + RET-2 + RET-3 (COURIER still counts as a pending return)
     });
 
     it('returns null order metrics when today has not been observed', async () => {
@@ -584,363 +520,7 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #4 getReturnSummary — counts the window's collected orders. Returns have no
-  //    owner publication, so no return count, rate or orphan count is published.
-  // ---------------------------------------------------------------------------
-  describe('getReturnSummary', () => {
-    it('counts the orders placed in the window and publishes no return count', async () => {
-      await seedFixture();
-
-      // Narrow window: only O1 (orderedAt 2026-04-14T15:00Z) is in range; O2 is
-      // excluded by `lt to`. RET-1..RET-3 exist, but nothing collects returns,
-      // so none of them is a measured return.
-      const from = new Date('2026-04-14T15:00:00.000Z');
-      const to = new Date('2026-04-15T15:00:00.000Z'); // excludes O2
-      const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
-
-      expect(result).toEqual({
-        orderCount: 1,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-    });
-
-    it('publishes no return rate for a window without orders', async () => {
-      await seedFixture();
-      const from = new Date('2030-01-01T00:00:00.000Z');
-      const to = new Date('2030-01-02T00:00:00.000Z');
-      const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
-      expect(result).toEqual({
-        orderCount: 0,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // #4b return summary edge cases (inline helpers, isolated beforeEach).
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Inline seed helpers — NOT exported to test-helpers (scope guard).
-   * Required Order fields from prisma/models/orders.prisma:
-   *   organizationId, channelAccountId, externalOrderId
-   *   (+ defaults: orderedAt, status, totalPrice, shippingPrice).
-   */
-  async function seedOrderInline(opts: {
-    organizationId: string;
-    orderedAt: string;
-    externalOrderId: string;
-  }): Promise<string> {
-    const o = await prisma.order.create({
-      data: {
-        organizationId: opts.organizationId,
-        channelAccountId: accountIdFor(opts.organizationId),
-        sourceImportRunId: opts.organizationId === TEST_ORGANIZATION_ID
-          ? ORDER_FACT_RUN_ID
-          : OTHER_ORDER_FACT_RUN_ID,
-        externalOrderId: opts.externalOrderId,
-        orderedAt: new Date(opts.orderedAt),
-        status: 'accepted',
-        totalPrice: 10000,
-        shippingPrice: 3000,
-      },
-    });
-    return o.id;
-  }
-
-  /**
-   * Required OrderReturn fields from prisma/models/orders.prisma:
-   *   organizationId, channelAccountId, externalReturnId, requestedAt
-   *   (+ defaults: status, reason, faultBy, type).
-   */
-  async function seedReturnInline(opts: {
-    organizationId: string;
-    orderId: string | null;
-    requestedAt: string;
-    externalReturnId?: string;
-  }): Promise<string> {
-    const r = await prisma.orderReturn.create({
-      data: {
-        organizationId: opts.organizationId,
-        orderId: opts.orderId,
-        channelAccountId: accountIdFor(opts.organizationId),
-        externalReturnId: opts.externalReturnId ?? `RET-INLINE-${Date.now()}-${Math.random()}`,
-        requestedAt: new Date(opts.requestedAt),
-        status: 'requested',
-        reason: 'test',
-        type: 'RETURN',
-        faultBy: 'CUSTOMER',
-      },
-    });
-    return r.id;
-  }
-
-  function accountIdFor(organizationId: string): string {
-    return organizationId === TEST_ORGANIZATION_ID
-      ? PRIMARY_ACCOUNT_ID
-      : OTHER_ACCOUNT_ID;
-  }
-
-  describe('return summary edge cases', () => {
-    beforeEach(async () => {
-      await resetDb(prisma);
-      await seedBaseFixture(prisma);
-      await seedDashboardAccounts();
-    });
-
-    it('publishes no return count or rate even when returns name orders of the window', async () => {
-      // March order — outside April range
-      const marchOrderId = await seedOrderInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderedAt: '2026-03-15T00:00:00Z',
-        externalOrderId: 'OLD-1',
-      });
-      // April orders — inside range
-      const aprOrder1Id = await seedOrderInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderedAt: '2026-04-05T00:00:00Z',
-        externalOrderId: 'NEW-1',
-      });
-      await seedOrderInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderedAt: '2026-04-10T00:00:00Z',
-        externalOrderId: 'NEW-2',
-      });
-      // NEW-3 at 2026-04-20 is IN range (Apr 20 < May 1 upper bound)
-      await seedOrderInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderedAt: '2026-04-20T00:00:00Z',
-        externalOrderId: 'NEW-3',
-      });
-      // Return on march order with april requestedAt — orderId linked to march order (out-of-range)
-      await seedReturnInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: marchOrderId,
-        requestedAt: '2026-04-07T00:00:00Z',
-        externalReturnId: 'PAST-RET-1',
-      });
-      // Return on april order with future requestedAt — orderId linked to apr order (in-range)
-      await seedReturnInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: aprOrder1Id,
-        requestedAt: '2026-04-22T00:00:00Z',
-        externalReturnId: 'PAST-RET-2',
-      });
-
-      const result = await service.getReturnSummary(
-        TEST_ORGANIZATION_ID,
-        new Date('2026-04-01'),
-        new Date('2026-05-01'),
-      );
-      // orderCount: NEW-1 + NEW-2 + NEW-3 = 3 (all April orders). The return
-      // rows are not measured returns, so no count or rate exists.
-      expect(result).toEqual({
-        orderCount: 3,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-    });
-
-    it('publishes no orphan return count for a return without an order', async () => {
-      await seedOrderInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderedAt: '2026-04-05T00:00:00Z',
-        externalOrderId: 'APR-1',
-      });
-      await seedReturnInline({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: null,
-        requestedAt: '2026-04-10T00:00:00Z',
-        externalReturnId: 'ORPHAN-1',
-      });
-
-      const result = await service.getReturnSummary(
-        TEST_ORGANIZATION_ID,
-        new Date('2026-04-01'),
-        new Date('2026-05-01'),
-      );
-      expect(result).toEqual({
-        orderCount: 1,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-    });
-
-    it('IDOR — returns from OTHER_COMPANY do not leak into TEST_COMPANY', async () => {
-      const otherOrderId = await seedOrderInline({
-        organizationId: OTHER_ORGANIZATION_ID,
-        orderedAt: '2026-04-15T00:00:00Z',
-        externalOrderId: 'OTHER-1',
-      });
-      await seedReturnInline({
-        organizationId: OTHER_ORGANIZATION_ID,
-        orderId: otherOrderId,
-        requestedAt: '2026-04-20T00:00:00Z',
-        externalReturnId: 'OTHER-RET-1',
-      });
-
-      const result = await service.getReturnSummary(
-        TEST_ORGANIZATION_ID,
-        new Date('2026-04-01'),
-        new Date('2026-05-01'),
-      );
-      expect(result).toEqual({
-        orderCount: 0,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-
-      // Double-blind: verify OTHER_COMPANY actually returns the data (service isn't universally broken)
-      const otherResult = await service.getReturnSummary(OTHER_ORGANIZATION_ID, new Date('2026-04-01'), new Date('2026-05-01'));
-      expect(otherResult).toEqual({
-        orderCount: 1,
-        returnCount: null,
-        returnRate: null,
-        orphanReturnCount: null,
-      });
-    });
-
-    it('perf baseline: 1000 orders + 200 returns completes under 2s', async () => {
-      // Bulk-seed 1000 orders via createMany for speed
-      const orderData = Array.from({ length: 1000 }, (_, i) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        sourceImportRunId: ORDER_FACT_RUN_ID,
-        externalOrderId: `PERF-${i}`,
-        orderedAt: new Date(
-          `2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
-        ),
-        status: 'accepted',
-        totalPrice: 10000,
-        shippingPrice: 3000,
-      }));
-      await prisma.order.createMany({ data: orderData });
-
-      // Fetch IDs (needed for FK in returns)
-      const orders = await prisma.order.findMany({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          externalOrderId: { startsWith: 'PERF-' },
-        },
-        select: { id: true },
-        orderBy: { orderedAt: 'asc' },
-      });
-      const orderIds = orders.map((o) => o.id);
-
-      // 150 linked returns + 50 orphan returns via createMany
-      const linkedReturnData = Array.from({ length: 150 }, (_, i) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: orderIds[i],
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        externalReturnId: `PERF-RET-LINKED-${i}`,
-        requestedAt: new Date('2026-04-15T00:00:00Z'),
-        status: 'requested',
-        reason: 'test',
-        type: 'RETURN',
-        faultBy: 'CUSTOMER',
-      }));
-      const orphanReturnData = Array.from({ length: 50 }, (_, i) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: null,
-        channelAccountId: PRIMARY_ACCOUNT_ID,
-        externalReturnId: `PERF-RET-ORPHAN-${i}`,
-        requestedAt: new Date('2026-04-15T00:00:00Z'),
-        status: 'requested',
-        reason: 'test',
-        type: 'RETURN',
-        faultBy: 'CUSTOMER',
-      }));
-      await prisma.orderReturn.createMany({ data: linkedReturnData });
-      await prisma.orderReturn.createMany({ data: orphanReturnData });
-
-      const start = Date.now();
-      const result = await service.getReturnSummary(
-        TEST_ORGANIZATION_ID,
-        new Date('2026-04-01'),
-        new Date('2026-05-01'),
-      );
-      const latencyMs = Date.now() - start;
-
-      expect(result.orderCount).toBe(1000);
-      expect(result.returnCount).toBeNull();
-      expect(result.orphanReturnCount).toBeNull();
-      expect(latencyMs).toBeLessThan(2000);
-      console.log(`[perf] getReturnSummary 1000 orders + 200 returns → ${latencyMs}ms`);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // #5 getReturnReasonBreakdown — flat `_count: true` shape (R-12).
-  // ---------------------------------------------------------------------------
-  describe('getReturnReasonBreakdown', () => {
-    it('groups returns by reason; scoped to organizationId; flat _count number', async () => {
-      await seedFixture();
-
-      const from = new Date('2026-04-14T15:00:00.000Z');
-      const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getReturnReasonBreakdown(TEST_ORGANIZATION_ID, from, to);
-
-      // TEST_ORGANIZATION_ID: 단순변심 × 1, 제품불량 × 1, 배송사고 × 1
-      const byReason = new Map(result.map((r) => [r.reason, r.count]));
-      expect(byReason.get('단순변심')).toBe(1);
-      expect(byReason.get('제품불량')).toBe(1);
-      expect(byReason.get('배송사고')).toBe(1);
-      // count must be a plain number (R-12 flat shape)
-      for (const row of result) {
-        expect(typeof row.count).toBe('number');
-      }
-    });
-
-    it('IDOR: OTHER_ORGANIZATION_ID reasons never leak', async () => {
-      await seedFixture();
-
-      const from = new Date('2026-04-14T00:00:00.000Z');
-      const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getReturnReasonBreakdown(TEST_ORGANIZATION_ID, from, to);
-
-      // TEST_ORGANIZATION_ID has a 단순변심 (RET-1). OTHER also has a 단순변심 (RET-OTHER).
-      // Result for TEST_ORGANIZATION_ID should show '단순변심': 1 (not 2).
-      const customerCount = result.find((r) => r.reason === '단순변심')?.count ?? 0;
-      expect(customerCount).toBe(1);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // #6 getReturnFaultSplit — CUSTOMER/VENDOR only (C-11 drop).
-  // ---------------------------------------------------------------------------
-  describe('getReturnFaultSplit', () => {
-    it('drops unknown faultBy (COURIER); returns customer + vendor only', async () => {
-      await seedFixture();
-
-      const from = new Date('2026-04-14T15:00:00.000Z');
-      const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getReturnFaultSplit(TEST_ORGANIZATION_ID, from, to);
-
-      // TEST_ORGANIZATION_ID has 1 CUSTOMER (RET-1), 1 VENDOR (RET-2), 1 COURIER (RET-3, dropped)
-      expect(result).toEqual({ customer: 1, vendor: 1 });
-    });
-
-    it('IDOR: OTHER_ORGANIZATION_ID returns never leak', async () => {
-      await seedFixture();
-
-      const from = new Date('2026-04-14T00:00:00.000Z');
-      const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getReturnFaultSplit(TEST_ORGANIZATION_ID, from, to);
-
-      // OTHER has 1 CUSTOMER — must NOT inflate TEST_ORGANIZATION_ID's customer count.
-      expect(result.customer).toBe(1); // only RET-1, NOT +RET-OTHER
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // #7 2-hop defense-in-depth (R1/R2) — composite FKs reject cross-organization
+  // #4 2-hop defense-in-depth (R1/R2) — composite FKs reject cross-organization
   //    Order/ChannelSku links, while raw-SQL aggregations still bind organizationId
   //    on every joined tenant-owned table.
   // ---------------------------------------------------------------------------

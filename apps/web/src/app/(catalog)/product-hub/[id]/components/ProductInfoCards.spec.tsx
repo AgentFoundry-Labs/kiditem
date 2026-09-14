@@ -13,6 +13,14 @@ describe('ProductInfoCards', () => {
     expect(screen.queryByText('상품 코드')).not.toBeInTheDocument();
     expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
   });
+
+  it('shows the ad budget setting without a manual profit tag', () => {
+    render(<ProductInfoCards product={product()} onOpenAbcDetail={() => undefined} />);
+
+    expect(screen.getByText('광고 설정')).toBeInTheDocument();
+    expect(screen.getByText('광고 예산 한도')).toBeInTheDocument();
+    expect(screen.queryByText('손익 태그')).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsDetail {
@@ -33,8 +41,6 @@ function product(): MasterProductOperationsDetail {
     displayImageUrls: [],
     abcGrade: null,
     abcEvaluation: null,
-    profitTag: null,
-    adTier: null,
     adBudgetLimit: null,
     isActive: true,
     createdAt: '2026-08-01T00:00:00.000Z',

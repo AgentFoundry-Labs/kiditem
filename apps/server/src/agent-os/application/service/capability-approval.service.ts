@@ -1,4 +1,5 @@
 import { AgentOsError } from '../../domain/agent-os.errors';
+import { deriveCapabilityApprovalState } from '../../domain/capability/capability-invocation.policy';
 import type { CapabilityMutationDispatcherPort } from './capability-mutation-dispatcher.service';
 import type {
   CapabilityApprovalPort,
@@ -30,10 +31,12 @@ export class CapabilityApprovalService implements CapabilityApprovalPort {
     if (!current) {
       throw new AgentOsError('CAPABILITY_NOT_FOUND', 'Capability invocation was not found.');
     }
-    if (current.approvalStatus === 'expired') {
+    const decidedAt = this.now();
+    const approval = deriveCapabilityApprovalState(current, decidedAt);
+    if (approval === 'expired') {
       throw new AgentOsError('APPROVAL_EXPIRED', 'Capability approval expired.');
     }
-    if (current.approvalStatus === 'rejected' && input.decision === 'approved') {
+    if (approval === 'rejected' && input.decision === 'approved') {
       throw new AgentOsError('APPROVAL_REJECTED', 'Capability approval was rejected.');
     }
     const decision = await this.repository.decideApproval({
@@ -43,7 +46,7 @@ export class CapabilityApprovalService implements CapabilityApprovalPort {
       inputHash: current.inputHash,
       decision: input.decision,
       reason: normalizeReason(input.reason),
-      decidedAt: this.now(),
+      decidedAt,
     });
     return input.decision === 'approved' && decision.transitioned
       ? this.dispatcher.dispatch(decision.invocation)

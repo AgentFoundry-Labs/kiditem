@@ -160,7 +160,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           id: a.id,
           status: a.status as DashboardAlertItem["status"],
           type: a.type,
-          severity: a.severity,
           title: a.title,
           message: a.message,
           sourceType: a.sourceType,

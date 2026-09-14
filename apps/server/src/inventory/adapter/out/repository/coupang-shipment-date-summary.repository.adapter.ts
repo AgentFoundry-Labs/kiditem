@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, type SourceImportRun } from "@prisma/client";
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
+import {
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  SOURCE_IMPORT_RUN_FAILED_STATUS,
+  SOURCE_IMPORT_RUN_RUNNING_STATUS,
+} from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { SourceFailureAlerts } from "../../../../alerts/alerts.service";
 import type { CoupangShipmentDateSummaryRepositoryPort } from "../../../application/port/out/repository/coupang-shipment-date-summary.repository.port";
@@ -66,7 +70,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
           organizationId,
           sourceType: SOURCE,
           parserVersion: PARSER,
-          status: "running",
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
       if (running && expired(running))
@@ -90,7 +94,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
         data: {
           organizationId,
           sourceType: SOURCE,
-          status: "running",
+          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
           idempotencyKey,
           requestFingerprint: fingerprint,
           plan,
@@ -212,7 +216,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
       const run = await find(tx, organizationId, attemptId);
       fence(run, token);
       if (
-        run.status === "failed" &&
+        run.status === SOURCE_IMPORT_RUN_FAILED_STATUS &&
         run.errorCode === code &&
         run.errorMessage === message
       )
@@ -230,7 +234,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
   ) {
     const failed = await tx.sourceImportRun.update({
       where: { id: run.id, organizationId: run.organizationId },
-      data: { status: "failed", errorCode: code, errorMessage: message },
+      data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS, errorCode: code, errorMessage: message },
     });
     await this.alerts.recordTerminalOutcome(tx, {
       code,
@@ -274,7 +278,7 @@ function fence(run: SourceImportRun, token: string) {
     throw new ConflictException("ATTEMPT_FENCE_LOST");
 }
 function writable(run: SourceImportRun) {
-  if (run.status !== "running")
+  if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS)
     throw new ConflictException("ATTEMPT_TERMINAL_CONFLICT");
   if (expired(run)) throw new ConflictException("ATTEMPT_EXPIRED");
 }

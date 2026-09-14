@@ -28,6 +28,11 @@ const ACTION_DEDUP_HOURS = 24;
  *
  * Tenant scoping (`organizationId`) is enforced by the persistence layer; this
  * service supplies it from the controller's `@CurrentOrganization()`.
+ *
+ * Execution state lives on the action's latest ExecutionTask. The browser
+ * extension's markRunning / markDone / markFailed reports move that task; a
+ * second markRunning for a running task is another executor and is refused.
+ * Approving a failed action queues a new one.
  */
 @Injectable()
 export class AdActionService {
@@ -154,19 +159,16 @@ export class AdActionService {
   }
 
   async markRunning(id: string, beforeJson: Record<string, unknown> | undefined, organizationId: string) {
-    await this.repo.updateActionOrThrow(id, organizationId, {
-      executeStatus: 'running',
-      beforeJson: beforeJson,
-      errorMessage: null,
+    await this.repo.reportActionExecution(id, organizationId, {
+      status: 'running',
+      beforeJson,
     });
   }
 
   async markDone(id: string, afterJson: Record<string, unknown> | undefined, organizationId: string) {
-    await this.repo.updateActionOrThrow(id, organizationId, {
-      executeStatus: 'done',
-      executedAt: new Date(),
-      afterJson: afterJson,
-      errorMessage: null,
+    await this.repo.reportActionExecution(id, organizationId, {
+      status: 'done',
+      afterJson,
     });
   }
 
@@ -176,14 +178,10 @@ export class AdActionService {
     afterJson: Record<string, unknown> | undefined,
     organizationId: string,
   ) {
-    await this.repo.updateActionOrThrow(id, organizationId, {
-      executeStatus: 'failed',
+    await this.repo.reportActionExecution(id, organizationId, {
+      status: 'failed',
       errorMessage: errorMessage || '실행 실패',
-      afterJson: afterJson,
+      afterJson,
     });
-  }
-
-  async resetFailed(organizationId: string) {
-    await this.repo.resetFailedAdActions(organizationId);
   }
 }

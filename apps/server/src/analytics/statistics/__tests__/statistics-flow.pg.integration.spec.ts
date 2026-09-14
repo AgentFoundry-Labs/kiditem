@@ -66,7 +66,6 @@ describe('Statistics flow (PG integration)', () => {
       code: `${prefix}-M-001`,
       name: `${prefix} Master M1`,
       category: '유아용품',
-      abcGrade: null,
       thumbnailUrl: 'https://cdn/m1.jpg',
     });
     const { id: masterM2 } = await setupMaster(prisma, {
@@ -74,7 +73,6 @@ describe('Statistics flow (PG integration)', () => {
       code: `${prefix}-M-002`,
       name: `${prefix} Master M2`,
       category: '완구',
-      abcGrade: null,
     });
     await seedPublishedProductAbcGrades(prisma, {
       organizationId,

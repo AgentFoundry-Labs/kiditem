@@ -46,9 +46,7 @@ describe('recommendation decision policy', () => {
       decision: 'test_order',
       executionEligible: true,
       nextEvidenceAction: null,
-      reasonCodes: ['all_test_order_gates_passed'],
-      policyProbability: null,
-    });
+      reasonCodes: ['all_test_order_gates_passed'],    });
   });
 
   it.each(['order', 'observe_3d'] as const)(
@@ -63,9 +61,7 @@ describe('recommendation decision policy', () => {
       expect(decision).toMatchObject({
         decision: 'hold',
         executionEligible: false,
-        nextEvidenceAction: 'obtain_calibrated_probability',
-        policyProbability: null,
-      });
+        nextEvidenceAction: 'obtain_calibrated_probability',      });
       expect(decision.reasonCodes).toContain('coverage_confidence_not_executable');
     },
   );
@@ -79,9 +75,7 @@ describe('recommendation decision policy', () => {
       decision: 'reject',
       executionEligible: false,
       nextEvidenceAction: null,
-      reasonCodes: ['baseline_model_excluded'],
-      policyProbability: null,
-    });
+      reasonCodes: ['baseline_model_excluded'],    });
   });
 
   it('rejects a Phase 0 candidate when a hard gate is blocked', () => {
@@ -99,9 +93,7 @@ describe('recommendation decision policy', () => {
       decision: 'reject',
       executionEligible: false,
       nextEvidenceAction: null,
-      reasonCodes: ['compliance_blocked'],
-      policyProbability: null,
-    });
+      reasonCodes: ['compliance_blocked'],    });
   });
 
   it.each([0, -1])(
@@ -113,9 +105,7 @@ describe('recommendation decision policy', () => {
       }))).toMatchObject({
         decision: 'reject',
         executionEligible: false,
-        reasonCodes: ['profit_p10_not_positive'],
-        policyProbability: null,
-      });
+        reasonCodes: ['profit_p10_not_positive'],      });
     },
   );
 
@@ -161,9 +151,7 @@ describe('recommendation decision policy', () => {
       ))).toMatchObject({
         decision: 'hold',
         executionEligible: false,
-        nextEvidenceAction,
-        policyProbability: null,
-      });
+        nextEvidenceAction,      });
     },
   );
 
@@ -179,9 +167,7 @@ describe('recommendation decision policy', () => {
       expect(decideSourcingRecommendation(input)).toMatchObject({
         decision: 'hold',
         executionEligible: false,
-        nextEvidenceAction,
-        policyProbability: null,
-      });
+        nextEvidenceAction,      });
     },
   );
 
@@ -211,9 +197,7 @@ describe('recommendation decision policy', () => {
       expect(decideSourcingRecommendation(input)).toMatchObject({
         decision: 'reject',
         executionEligible: false,
-        reasonCodes: [`${gate}_blocked`],
-        policyProbability: null,
-      });
+        reasonCodes: [`${gate}_blocked`],      });
     },
   );
 
@@ -224,9 +208,7 @@ describe('recommendation decision policy', () => {
       decision: 'hold',
       executionEligible: false,
       nextEvidenceAction: 'resolve_unknown_risk',
-      reasonCodes: ['unknown_risk:supplier_identity_unverified'],
-      policyProbability: null,
-    });
+      reasonCodes: ['unknown_risk:supplier_identity_unverified'],    });
 
     expect(decideSourcingRecommendation(qualifiedInput({
       blockingRiskCodes: ['prohibited_ip'],
@@ -234,9 +216,7 @@ describe('recommendation decision policy', () => {
       decision: 'reject',
       executionEligible: false,
       nextEvidenceAction: null,
-      reasonCodes: ['blocking_risk:prohibited_ip'],
-      policyProbability: null,
-    });
+      reasonCodes: ['blocking_risk:prohibited_ip'],    });
   });
 
   it('does not let duplicate evidence labels fabricate family or platform coverage', () => {
@@ -248,9 +228,7 @@ describe('recommendation decision policy', () => {
     expect(decision).toMatchObject({
       decision: 'hold',
       executionEligible: false,
-      nextEvidenceAction: 'collect_supporting_evidence',
-      policyProbability: null,
-    });
+      nextEvidenceAction: 'collect_supporting_evidence',    });
     expect(decision.reasonCodes).toContain(
       'supporting_evidence_families_below_minimum',
     );
@@ -270,7 +248,9 @@ describe('recommendation decision policy', () => {
       'hold',
       'reject',
     ]);
-    expect(decisions.every((decision) => decision.policyProbability === null)).toBe(true);
+    for (const decision of decisions) {
+      expect(decision).not.toHaveProperty('policyProbability');
+    }
   });
 
   it('rejects invalid probability-like inputs instead of coercing them', () => {

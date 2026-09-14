@@ -7,6 +7,10 @@ import {
   InventoryAvailabilityBatchSchema,
   type InventoryAvailabilityBatch,
 } from '@kiditem/shared/inventory-availability';
+import {
+  isSourceImportStatus,
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+} from '@kiditem/shared/source-import';
 import { lockSellpiaInventoryTransaction } from '../adapter/out/repository/sellpia-inventory-transaction-lock';
 import type { SellpiaInventorySkuReadModel } from '../application/port/in/stock/sellpia-inventory-sku-read.port';
 import type { InventoryAvailabilityCandidate } from '../application/port/in/stock/inventory-availability.port';
@@ -646,7 +650,7 @@ async function readPublishedInventoryImport(
       organizationId,
       sourceType: 'sellpia_inventory',
       channelAccountId: null,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
     },
     select: INVENTORY_IMPORT_RUN_SELECT,
   });
@@ -781,11 +785,7 @@ function mapInventoryImportRun(
     select: typeof INVENTORY_IMPORT_RUN_SELECT;
   }>,
 ): SellpiaImportRunRepositoryRow {
-  if (
-    row.status !== 'running' &&
-    row.status !== 'completed' &&
-    row.status !== 'failed'
-  ) {
+  if (!isSourceImportStatus(row.status)) {
     throw new InternalServerErrorException(
       `Unknown source import status: ${row.status}`,
     );
@@ -893,7 +893,7 @@ async function loadPublishedInventoryBasis(
       organizationId,
       sourceType: 'sellpia_inventory',
       channelAccountId: null,
-      status: 'completed',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
     },
     select: { id: true },
   });

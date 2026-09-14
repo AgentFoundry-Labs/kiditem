@@ -28,7 +28,6 @@ type FormState = {
   brand: string;
   tags: string;
   imageUrls: string;
-  profitTag: string;
   adBudgetLimit: string;
   isActive: boolean;
 };
@@ -115,7 +114,6 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
               <Field label="상품명" required value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} />
               <Field label="카테고리" value={form.category} onChange={(category) => setForm((value) => ({ ...value, category }))} />
               <Field label="브랜드" value={form.brand} onChange={(brand) => setForm((value) => ({ ...value, brand }))} />
-              <Field label="손익 태그" value={form.profitTag} onChange={(profitTag) => setForm((value) => ({ ...value, profitTag }))} />
               <NumberField label="광고 예산 한도" value={form.adBudgetLimit} min={0} onChange={(adBudgetLimit) => setForm((value) => ({ ...value, adBudgetLimit }))} />
               <Field label="태그" value={form.tags} placeholder="쉼표로 구분" onChange={(tags) => setForm((value) => ({ ...value, tags }))} />
               <Field label="이미지 URL" value={form.imageUrls} placeholder="쉼표로 구분" onChange={(imageUrls) => setForm((value) => ({ ...value, imageUrls }))} />
@@ -217,7 +215,6 @@ function toFormState(product?: MasterProductOperationsMetadata): FormState {
     brand: product?.brand ?? '',
     tags: product?.tags.join(', ') ?? '',
     imageUrls: product?.imageUrls.join(', ') ?? '',
-    profitTag: product?.profitTag ?? '',
     adBudgetLimit: product?.adBudgetLimit?.toString() ?? '',
     isActive: product?.isActive ?? true,
   };
@@ -240,7 +237,6 @@ function toEditableProductFields(form: FormState) {
     brand: nullable(form.brand),
     tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
     imageUrls: form.imageUrls.split(',').map((url) => url.trim()).filter(Boolean),
-    profitTag: nullable(form.profitTag),
     adBudgetLimit: nullableNumber(form.adBudgetLimit),
     isActive: form.isActive,
   };

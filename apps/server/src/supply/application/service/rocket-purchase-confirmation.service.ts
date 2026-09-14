@@ -183,7 +183,6 @@ implements RocketWorkbookExportPort {
         organizationId: input.organizationId,
         userId: input.userId,
         exportId: request.exportId,
-        reason: request.reason,
       }),
     );
   }

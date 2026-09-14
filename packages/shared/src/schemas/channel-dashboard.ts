@@ -19,7 +19,6 @@ export const ChannelDashboardSummarySchema = z.object({
     z.object({ count: z.null(), revenue: z.null() }),
   ]),
   pendingAccept: z.number().int().nonnegative(),
-  pendingReturns: z.number().int().nonnegative(),
   lastModifiedAt: zIsoDate.nullable(),
 });
 export type ChannelDashboardSummary = z.infer<typeof ChannelDashboardSummarySchema>;
@@ -47,20 +46,3 @@ export const ProductRankingRowSchema = z.object({
   orderCount: z.number().int().nonnegative(),
 });
 export type ProductRankingRow = z.infer<typeof ProductRankingRowSchema>;
-
-/** `/api/coupang-dashboard/return-reasons?from=&to=` response element. */
-export const ReturnReasonRowSchema = z.object({
-  reason: z.string(),
-  count: z.number().int().nonnegative(),
-});
-export type ReturnReasonRow = z.infer<typeof ReturnReasonRowSchema>;
-
-/**
- * `/api/coupang-dashboard/return-fault-split?from=&to=` response.
- * `faultBy` is `VarChar(20)` — CUSTOMER/VENDOR only per C-11 (Plan B2c.dashboard).
- */
-export const ReturnFaultSplitSchema = z.object({
-  customer: z.number().int().nonnegative(),
-  vendor: z.number().int().nonnegative(),
-});
-export type ReturnFaultSplit = z.infer<typeof ReturnFaultSplitSchema>;

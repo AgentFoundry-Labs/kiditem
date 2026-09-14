@@ -9,10 +9,6 @@ import {
 import {
   readOrderByIdFact,
   readOrderListFacts,
-  readOrderReturnByIdFact,
-  readOrderReturns,
-  readOrderReturnWindowFacts,
-  readOrderReturnStatusCounts,
   readOrderStatusCounts,
   readObservedOrderBounds,
   readObservedOrderCount,
@@ -535,89 +531,6 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     expect(result.one).toMatchObject({ id: order.id, totalPrice: 19_000 });
     expect(result.incomplete).toBeNull();
     expect(result.statuses).toEqual({ total: 1, byStatus: { paid: 1 } });
-  });
-
-  it('serves organization-scoped return screen facts and status totals', async () => {
-    const own = await prisma.orderReturn.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: ACCOUNT_ID,
-        externalReturnId: 'RETURN-OWN',
-        type: 'RETURN',
-        status: 'UC',
-        reason: 'damaged',
-        requestedAt: new Date('2026-05-01T04:00:00.000Z'),
-      },
-    });
-    await prisma.orderReturnLineItem.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        returnId: own.id,
-        productName: 'Reader return item',
-        quantity: 2,
-      },
-    });
-    await prisma.orderReturn.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        channelAccountId: OTHER_ACCOUNT_ID,
-        externalReturnId: 'RETURN-FOREIGN',
-        type: 'RETURN',
-        status: 'COMPLETED',
-        reason: 'foreign',
-        requestedAt: new Date('2026-05-01T04:00:00.000Z'),
-      },
-    });
-
-    const result = await prisma.$transaction(async (tx) => ({
-      list: await readOrderReturns(tx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        type: 'RETURN',
-        from: FROM,
-        to: TO,
-      }),
-      one: await readOrderReturnByIdFact(tx, TEST_ORGANIZATION_ID, own.id),
-      statuses: await readOrderReturnStatusCounts(tx, TEST_ORGANIZATION_ID),
-    }));
-
-    expect(result.list).toHaveLength(1);
-    expect(result.list[0]).toMatchObject({
-      id: own.id,
-      lineItems: [{ productName: 'Reader return item', quantity: 2 }],
-    });
-    expect(result.one?.id).toBe(own.id);
-    expect(result.statuses).toEqual({ total: 1, byStatus: { UC: 1 } });
-  });
-
-  it('counts the collected orders of a window but publishes no return count, returns having no source', async () => {
-    const order = await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'RETURNED-ORDER', 10_000, [
-      { totalPrice: 10_000, quantity: 1 },
-    ]);
-    for (const [externalReturnId, orderId] of [['RETURN-LINKED', order.id], ['RETURN-ORPHAN', null]] as const) {
-      await prisma.orderReturn.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ACCOUNT_ID,
-          orderId,
-          externalReturnId,
-          type: 'RETURN',
-          status: 'UC',
-          reason: 'damaged',
-          requestedAt: new Date('2026-05-01T04:00:00.000Z'),
-        },
-      });
-    }
-
-    const facts = await prisma.$transaction((tx) => readOrderReturnWindowFacts(tx, {
-      organizationId: TEST_ORGANIZATION_ID,
-      from: FROM,
-      to: TO,
-    }));
-
-    // Nothing collects returns or declares a window of them observed, so the
-    // rows the table holds are not a count: these are not 1, and an empty
-    // table would not be 0.
-    expect(facts).toEqual({ orderCount: 1, returnCount: null, orphanReturnCount: null });
   });
 
   async function seedOrder(

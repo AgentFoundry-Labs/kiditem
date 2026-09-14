@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey } from '../../common/kst';
 import { currentRowTieBreakSql } from '../../common/current-row';
 import {
@@ -154,7 +155,7 @@ export async function readListingTrafficWindowFacts(
         where: {
           organizationId: input.organizationId,
           sourceType: 'coupang_wing_traffic',
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           channelAccountId: { in: relevantAccountIds },
         },
         select: {

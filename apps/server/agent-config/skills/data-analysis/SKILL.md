@@ -12,9 +12,10 @@ description: >
 ### 1. 상품 성과 진단
 
 ```sql
--- 상품별 현재 ABC/기여이익과 물리 재고
-SELECT mp.id, mp.name, mp.abc_grade,
-       ev.weighted_contribution_profit,
+-- 상품별 공식 ABC 등급·기여이익과 물리 재고
+-- 공식 ABC 등급은 Products가 발행한 평가(master_product_abc_evaluations)에만 있다.
+SELECT mp.id, mp.name, ev.abc_grade,
+       ev.weighted_operating_profit,
        sis.current_stock AS available_stock
 FROM master_products mp
 LEFT JOIN master_product_abc_evaluations ev
@@ -25,7 +26,7 @@ LEFT JOIN sellpia_inventory_skus sis
  AND sis.organization_id = mp.organization_id
 WHERE mp.organization_id = '{{organization_id}}'
   AND mp.is_active = true
-ORDER BY ev.weighted_contribution_profit DESC NULLS LAST
+ORDER BY ev.weighted_operating_profit DESC NULLS LAST
 ```
 
 전체 회사 손익은 저장 테이블이 아니라 `GET /api/profit-loss`의 실시간 집계를

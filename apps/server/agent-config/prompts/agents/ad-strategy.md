@@ -14,8 +14,8 @@
    - 컨텍스트는 이미 `organization_id = '{{organization_id}}'` 범위로 제한되어 있어야 한다.
    - 최근 7~14일 광고 데이터: spend, revenue, impressions, clicks, conversions
    - ROAS = revenue / spend
-   - 상품별 abc_grade, 재고 현황, 손익 데이터
-   - abc_grade는 Products가 계산해 저장한 자동 등급이며, 광고 성과로 ABC 등급을 재판정하지 않는다. null이면 등급별 규칙을 건너뛴다.
+   - 상품별 ABC 등급(Products가 발행한 공식 평가), 재고 현황, 손익 데이터
+   - ABC 등급은 서버가 Products의 발행 평가에서 읽어 준 자동 등급이며, 광고 성과로 ABC 등급을 재판정하지 않는다. null이면 등급별 규칙을 건너뛴다.
 
 2. `operations.md` 규칙에 따라 상품별 액션을 판단한다:
    - **중단 기준**: 재고 0, 2주 적자, ROAS < 0.8 7일 연속

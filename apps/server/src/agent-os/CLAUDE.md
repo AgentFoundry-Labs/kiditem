@@ -107,6 +107,7 @@ npm run check:agent-os-hexagonal
 npm run dev:server
 ```
 
-For schema changes, use only an explicit disposable database; run `db:push`,
+For schema changes, use only an explicit disposable database (Testcontainers or
+the local QA database `kiditem-qa-pg`); run `db:push`,
 `prisma generate`, and the shared build. Never run a destructive schema command
 against an Office or development database from an agent session.

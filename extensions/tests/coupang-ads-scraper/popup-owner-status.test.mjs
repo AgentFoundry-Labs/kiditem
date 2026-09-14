@@ -50,7 +50,11 @@ function ownerStatus({
   };
 }
 
-function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmission = false } = {}) {
+function createPopupHarness({
+  connected = ['local', 'office'],
+  deferMonthlyAdmission = false,
+  runApprovedResponse = { success: true, executed: 0, skipped: 0 },
+} = {}) {
   const dom = new JSDOM(popupHtml, {
     url: 'chrome-extension://kiditem/popup.html',
   });
@@ -108,7 +112,7 @@ function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmis
         return [];
       },
       sendMessage(_tabId, _message, callback) {
-        callback({ success: true, executed: 0, skipped: 0 });
+        callback(runApprovedResponse);
       },
       create() {},
     },
@@ -557,4 +561,27 @@ test('monthly admission is single-flight so a second same-environment click cann
     harness.requests.filter((request) => request.message.path === '/api/ads/traffic/attempts/monthly-attempt-1').length,
     1,
   );
+});
+
+test('a Run whose done report was lost warns to check the ad center instead of showing plain success', async () => {
+  const warning = '승인 액션 1개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.';
+  const harness = createPopupHarness({
+    connected: ['local'],
+    runApprovedResponse: { success: true, executed: 0, executedUnrecorded: 1, skipped: 0, warning },
+  });
+  await completeStatusLoad(harness, 'local', {
+    '/api/ads/traffic/source': response(ownerStatus()),
+    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
+    '/api/ads/ad-campaigns/source': response(ownerStatus()),
+  });
+
+  harness.document.getElementById('btnRunApproved').click();
+  const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
+  await harness.reply(queued, response({ items: [{ id: 'action-1' }] }));
+  await harness.flush();
+
+  const result = harness.document.getElementById('syncResult');
+  assert.equal(result.textContent, `⚠️ 0개 실행, 1개는 실행됐지만 기록되지 않음, 0개 보류. ${warning}`);
+  // Executed but not recorded is never shown as a failure.
+  assert.equal(result.className, 'sync-result success');
 });

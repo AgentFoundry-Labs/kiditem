@@ -586,7 +586,6 @@ export class SourcingDecisionBatchService {
       baselineScore: input.candidate.score,
       confidence: input.confidence,
       confidenceKind: 'coverage',
-      policyProbability: null,
       evidenceFamilyCount: supportingFamilies.length,
       evidencePlatformCount: supportingPlatforms.length,
       hasCoupangEvidence: hasCoupangDemandEvidence,

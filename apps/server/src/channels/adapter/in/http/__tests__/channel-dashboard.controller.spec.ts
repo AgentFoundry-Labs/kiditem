@@ -8,9 +8,6 @@ function makeController() {
   const service = {
     getRevenueTrend: vi.fn(),
     getProductRanking: vi.fn(),
-    getReturnSummary: vi.fn(),
-    getReturnReasonBreakdown: vi.fn(),
-    getReturnFaultSplit: vi.fn(),
   };
   return {
     controller: new ChannelDashboardController(service as never),

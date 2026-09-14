@@ -37,7 +37,7 @@ export class AdActionQueryDto {
 
 export class AdActionCommandDto {
   @IsString()
-  @IsIn(['generate', 'approve', 'reject', 'markRunning', 'markDone', 'markFailed', 'resetFailed'])
+  @IsIn(['generate', 'approve', 'reject', 'markRunning', 'markDone', 'markFailed'])
   action: string;
 
   @IsOptional()

@@ -15,7 +15,10 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ownerInvocationKey } from '../domain/capability/capability-invocation.policy';
+import {
+  CAPABILITY_APPROVAL_WINDOW_MS,
+  ownerInvocationKey,
+} from '../domain/capability/capability-invocation.policy';
 import type {
   CapabilityDefinition,
   CapabilityApprovalRisk,
@@ -129,11 +132,11 @@ describe('CapabilityInvocation PostgreSQL races', () => {
 
     expect(first).toMatchObject({
       id: invocationId,
-      approvalStatus: 'approved',
+      approvalDecision: 'approved',
     });
     expect(replay).toMatchObject({
       id: invocationId,
-      approvalStatus: 'approved',
+      approvalDecision: 'approved',
     });
     expect([first.status, replay.status]).toContain('succeeded');
     expect(owner.ownerKeys).toEqual([ownerInvocationKey(invocationId)]);
@@ -166,9 +169,9 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]?.reason).toMatchObject({ code: 'APPROVAL_REJECTED' });
-    const winningDecision = fulfilled[0]?.value as { approvalStatus?: string } | undefined;
+    const winningDecision = fulfilled[0]?.value as { approvalDecision?: string } | undefined;
     expect(owner.ownerKeys).toEqual(
-      winningDecision?.approvalStatus === 'approved'
+      winningDecision?.approvalDecision === 'approved'
         ? [ownerInvocationKey(invocationId)]
         : [],
     );
@@ -197,10 +200,122 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     });
     expect(invocation).toMatchObject({
       status: 'failed',
-      approvalStatus: 'expired',
+      approvalDecision: null,
       error: { code: 'APPROVAL_EXPIRED' },
     });
+    await expect(service.getReceipt({
+      organizationId: TEST_ORGANIZATION_ID,
+      invocationId,
+    })).resolves.toMatchObject({ status: 'failed', approvalStatus: 'expired' });
     expect(owner.ownerKeys).toEqual([]);
+  });
+
+  it('reports expiry when the sweep commits between a decision check and its conditional write', async () => {
+    const owner = new DirectReceiptOwner(primaryPrisma);
+    const definition = mutationDefinition('medium');
+    const admittedAt = new Date('2026-08-26T00:00:00.000Z');
+    const expiresAt = new Date(admittedAt.getTime() + CAPABILITY_APPROVAL_WINDOW_MS);
+    const decidedAt = new Date(expiresAt.getTime() - 1);
+    const sweptAt = new Date(expiresAt.getTime() + 1);
+    const service = invocationService(
+      primaryPrisma,
+      definition,
+      owner,
+      new PrismaCapabilityInvocationRepository(primaryPrisma as unknown as PrismaService, () => admittedAt),
+      () => admittedAt,
+    );
+    const invocationId = inputRequiredInvocationId(await service.invoke(mutationRequest()));
+    const sweeper = new PrismaCapabilityInvocationRepository(
+      contenderPrisma as unknown as PrismaService,
+      () => sweptAt,
+    );
+    const deciderRepository = new PrismaCapabilityInvocationRepository(
+      interleaveBeforeUpdate(
+        primaryPrisma,
+        (args) => 'approvalDecision' in args.data,
+        () => sweeper.findById({ organizationId: TEST_ORGANIZATION_ID, invocationId }),
+      ),
+      () => decidedAt,
+    );
+    const dispatcher = new CapabilityMutationDispatcher(
+      deciderRepository,
+      capabilityRegistry(definition, owner),
+      () => decidedAt,
+    );
+    const decider = new CapabilityApprovalService(deciderRepository, dispatcher, () => decidedAt);
+
+    await expect(decider.decide(approvalRequest(invocationId, 'approved'))).rejects.toMatchObject({
+      code: 'APPROVAL_EXPIRED',
+    });
+
+    await expect(primaryPrisma.capabilityInvocation.findFirstOrThrow({
+      where: { id: invocationId, organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toMatchObject({
+      status: 'failed',
+      approvalDecision: null,
+      approvalDecidedAt: null,
+      error: { code: 'APPROVAL_EXPIRED' },
+      finishedAt: sweptAt,
+    });
+    // The service clock is still before expiry; the failed sweep keeps it expired.
+    await expect(service.getReceipt({
+      organizationId: TEST_ORGANIZATION_ID,
+      invocationId,
+    })).resolves.toMatchObject({ status: 'failed', approvalStatus: 'expired' });
+    expect(owner.ownerKeys).toEqual([]);
+  });
+
+  it('keeps a decision that commits between the expiry check and its conditional write', async () => {
+    const owner = new DirectReceiptOwner(primaryPrisma);
+    const definition = mutationDefinition('medium');
+    const admittedAt = new Date('2026-08-26T00:00:00.000Z');
+    const expiresAt = new Date(admittedAt.getTime() + CAPABILITY_APPROVAL_WINDOW_MS);
+    const decidedAt = new Date(expiresAt.getTime() - 1);
+    const sweptAt = new Date(expiresAt.getTime() + 1);
+    const service = invocationService(
+      primaryPrisma,
+      definition,
+      owner,
+      new PrismaCapabilityInvocationRepository(primaryPrisma as unknown as PrismaService, () => admittedAt),
+      () => admittedAt,
+    );
+    const invocationId = inputRequiredInvocationId(await service.invoke(mutationRequest()));
+    const deciderRepository = new PrismaCapabilityInvocationRepository(
+      primaryPrisma as unknown as PrismaService,
+      () => decidedAt,
+    );
+    const dispatcher = new CapabilityMutationDispatcher(
+      deciderRepository,
+      capabilityRegistry(definition, owner),
+      () => decidedAt,
+    );
+    const decider = new CapabilityApprovalService(deciderRepository, dispatcher, () => decidedAt);
+    let decision: Promise<unknown> | undefined;
+    const sweeper = new PrismaCapabilityInvocationRepository(
+      interleaveBeforeUpdate(
+        contenderPrisma,
+        (args) => args.data.status === 'failed',
+        () => {
+          decision = decider.decide(approvalRequest(invocationId, 'approved'));
+          return decision;
+        },
+      ),
+      () => sweptAt,
+    );
+
+    await expect(sweeper.findById({
+      organizationId: TEST_ORGANIZATION_ID,
+      invocationId,
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      approvalDecision: 'approved',
+      error: null,
+    });
+    await expect(decision).resolves.toMatchObject({
+      status: 'succeeded',
+      approvalDecision: 'approved',
+    });
+    expect(owner.ownerKeys).toEqual([ownerInvocationKey(invocationId)]);
   });
 
   it('keeps an Invocation pending when its owner result is ambiguous', async () => {
@@ -226,7 +341,8 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     });
     expect(invocation).toMatchObject({
       status: 'pending',
-      approvalStatus: 'not_required',
+      approvalExpiresAt: null,
+      approvalDecision: null,
       result: null,
       error: null,
     });
@@ -252,7 +368,7 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     await expect(right.decide(approvalRequest(invocationId, 'approved'))).resolves.toMatchObject({
       id: invocationId,
       status: 'pending',
-      approvalStatus: 'approved',
+      approvalDecision: 'approved',
     });
 
     expect(owner.ownerKeys).toEqual([ownerInvocationKey(invocationId)]);
@@ -437,6 +553,30 @@ function approvalRuntime(
     left: new CapabilityApprovalService(primaryRepository, dispatcher),
     right: new CapabilityApprovalService(contenderRepository, dispatcher),
   };
+}
+
+/** Runs the interleave callback once, just before the first matching conditional write reaches PostgreSQL. */
+function interleaveBeforeUpdate(
+  prisma: PrismaClient,
+  matches: (args: { data: Record<string, unknown> }) => boolean,
+  interleave: () => Promise<unknown>,
+): PrismaService {
+  const delegate = prisma.capabilityInvocation;
+  let interleaved = false;
+  return {
+    capabilityInvocation: {
+      create: (args: never) => delegate.create(args),
+      findFirst: (args: never) => delegate.findFirst(args),
+      findMany: (args: never) => delegate.findMany(args),
+      updateMany: async (args: { data: Record<string, unknown> }) => {
+        if (!interleaved && matches(args)) {
+          interleaved = true;
+          await interleave();
+        }
+        return delegate.updateMany(args as never);
+      },
+    },
+  } as unknown as PrismaService;
 }
 
 function mutationRequest(overrides: Partial<{

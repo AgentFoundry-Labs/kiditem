@@ -1,8 +1,8 @@
 Before working in this directory, always read this document first rather than relying on memory.
 
-# orders — Orders, Returns, And Reviews
+# orders — Orders And Reviews
 
-`src/orders/` owns the channel-agnostic Order aggregate, returns, reviews,
+`src/orders/` owns the channel-agnostic Order aggregate, reviews,
 record-only return transfers, Coupang directship collection conversion, and
 durable Sellpia transmission intents. Channels owns marketplace identity;
 Inventory owns physical stock; Supply owns Rocket catalog/workbook evidence.
@@ -47,8 +47,8 @@ Action, collection, transmission, and reconciliation behavior is executable in
 
 ## Boundaries
 
-- Order mutations keep the existing action-enum endpoint; returns and reviews
-  remain paginated.
+- Order mutations keep the existing action-enum endpoint; reviews remain
+  paginated.
 - Time filters use ISO values plus the established hour-boundary normalization.
 - Creator authority handles normal transmission resolution; owner/admin is
   reserved for reconciliation.

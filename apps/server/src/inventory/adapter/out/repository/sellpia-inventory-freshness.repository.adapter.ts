@@ -173,7 +173,6 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
     verifiedGeneration: row.verifiedGeneration,
     failedGeneration: row.failedGeneration,
     lastAttemptAt: row.lastAttemptAt,
-    lastAttemptStatus: parseAttemptStatus(row.lastAttemptStatus),
     lastAttemptSyncScope: row.lastAttemptSyncScope === null
       ? null
       : SellpiaSyncScopeSchema.parse(row.lastAttemptSyncScope),
@@ -183,9 +182,4 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
     lastErrorMessage: row.lastErrorMessage,
     freshnessFence: row.freshnessFence,
   };
-}
-
-function parseAttemptStatus(value: string | null): 'completed' | 'failed' | null {
-  if (value === null || value === 'completed' || value === 'failed') return value;
-  throw new ConflictException('Sellpia inventory state has an invalid attempt status');
 }

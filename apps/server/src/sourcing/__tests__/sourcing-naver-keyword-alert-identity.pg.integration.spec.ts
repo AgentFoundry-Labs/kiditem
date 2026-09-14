@@ -76,19 +76,19 @@ describe('Naver keyword analysis Alert identity (disposable PostgreSQL)', () => 
     const bDedupeKey = `source:naver.keyword_analysis:${failedB.attempt.targetKey}`;
     expect(aDedupeKey).not.toBe(bDedupeKey);
     await expect(alertRows()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ dedupeKey: aDedupeKey, status: 'OPEN', isRead: false }),
-      expect.objectContaining({ dedupeKey: bDedupeKey, status: 'OPEN', isRead: false }),
+      expect.objectContaining({ dedupeKey: aDedupeKey, status: 'OPEN', readAt: null }),
+      expect.objectContaining({ dedupeKey: bDedupeKey, status: 'OPEN', readAt: null }),
     ]));
 
     const completedB = await collect(inputB, 'b-complete');
     expect(completedB.attempt.state).toBe('COMPLETE');
     await expect(alertRows()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ dedupeKey: aDedupeKey, status: 'OPEN', isRead: false }),
+      expect.objectContaining({ dedupeKey: aDedupeKey, status: 'OPEN', readAt: null }),
       expect.objectContaining({ dedupeKey: bDedupeKey, status: 'RESOLVED' }),
     ]));
     await prisma.alert.updateMany({
       where: { organizationId: ORGANIZATION_ID, dedupeKey: aDedupeKey },
-      data: { isRead: true, readAt: new Date(GENERATED_AT) },
+      data: { readAt: new Date(GENERATED_AT) },
     });
 
     searchRelatedKeywords.mockRejectedValueOnce(new Error('A retry failed'));
@@ -100,7 +100,6 @@ describe('Naver keyword analysis Alert identity (disposable PostgreSQL)', () => 
       dedupeKey: aDedupeKey,
       attemptId: retryFailedA.attempt.attemptId,
       status: 'OPEN',
-      isRead: false,
       readAt: null,
     });
 

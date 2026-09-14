@@ -107,8 +107,4 @@ export class PurchaseOrderActionBodyDto {
   @IsUUID()
   exportId?: string;
 
-  @ValidateIf(o => o.action === 'abandonRocketWorkbook')
-  @IsString() @MinLength(1) @MaxLength(500)
-  abandonReason?: string;
-
 }

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { readMonthlyAdAllocationPublication } from '../../../../advertising/read/monthly-ad-allocation.reader';
@@ -156,7 +157,7 @@ export class MasterProductContributionRepositoryAdapter
             FALSE
           ) AS sellpia_ready,
           COALESCE(
-            candidates.advertising_attempt_status = 'completed'
+            candidates.advertising_attempt_status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
             AND candidates.advertising_publication_ready
             AND candidates.advertising_publication_sequence IS NOT NULL
             AND candidates.advertising_mapping_generation IS NOT NULL

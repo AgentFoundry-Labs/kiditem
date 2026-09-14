@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AdvertisingService } from '../advertising.service';
 import type { AdBenchmarkRepositoryPort } from '../../port/out/repository/ad-benchmark.repository.port';
 import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
@@ -22,7 +21,6 @@ describe('AdvertisingService', () => {
     budget: { allocation: {} },
     roasTargetByGrade: {},
     adRateTargetByGrade: {},
-    tier: { dailyBudget: {} },
     benchmark: {
       roas: { avg: 300, good: 500, excellent: 700, poor: 200 },
       ctr: { avg: 1, good: 2, excellent: 3, poor: 0.5 },
@@ -49,7 +47,6 @@ describe('AdvertisingService', () => {
       perListing: [],
     });
     listingRepo.findScopedAdListings.mockResolvedValue(new Map());
-    listingRepo.changeAdTier.mockResolvedValue(true);
     adConfig = { getConfig: vi.fn().mockResolvedValue(baseConfig) };
     service = new AdvertisingService(
       benchmarkRepo as unknown as AdBenchmarkRepositoryPort,
@@ -103,7 +100,6 @@ describe('AdvertisingService', () => {
               code: 'M-00000001',
               name: 'A상품',
               abcGrade: 'A',
-              adTier: '1차',
             },
           },
         ],
@@ -118,7 +114,6 @@ describe('AdvertisingService', () => {
               code: 'M-00000002',
               name: 'C상품',
               abcGrade: 'C',
-              adTier: null,
             },
           },
         ],
@@ -131,8 +126,6 @@ describe('AdvertisingService', () => {
     const l1 = result.products.find((p) => p.listingId === 'L1')!;
     expect(l1.masterProduct.code).toBe('M-00000001');
     expect(l1.grade).toBe('A');
-    expect(l1.adTier).toBe('1차');
-    expect(l1.tier).toBe('1차');
     expect(l1.metrics.spend).toBe(80000);
     expect(l1.option).toBeNull();
 
@@ -141,40 +134,6 @@ describe('AdvertisingService', () => {
     expect(result.summary.gradeSpend.A).toBe(80000);
     expect(result.summary.gradeSpend.C).toBe(20000);
     expect(result.summary.gradeSpendPercent.A).toBe(80);
-    expect(result.summary.tierSpend['1차']).toBe(80000);
-  });
-
-  it('changeTier throws NotFoundException when id crosses tenant', async () => {
-    listingRepo.changeAdTier.mockResolvedValue(false);
-
-    await expect(service.changeTier('listing-x', '1차', 'organization-A')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-    expect(listingRepo.changeAdTier).toHaveBeenCalledWith(
-      'listing-x',
-      'organization-A',
-      '1차',
-    );
-  });
-
-  it('changeTier OFF sets masterProduct.adTier to null', async () => {
-    listingRepo.changeAdTier.mockResolvedValue(true);
-
-    const result = await service.changeTier('listing-1', 'OFF', 'organization-1');
-
-    expect(result).toEqual({ ok: true });
-    expect(listingRepo.changeAdTier).toHaveBeenCalledWith(
-      'listing-1',
-      'organization-1',
-      null,
-    );
-  });
-
-  it('changeTier rejects invalid tier', async () => {
-    await expect(service.changeTier('listing-1', '4차', 'organization-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    expect(listingRepo.changeAdTier).not.toHaveBeenCalled();
   });
 
   it('findAll paginates with default page=1 limit=50', async () => {
@@ -212,7 +171,6 @@ describe('AdvertisingService', () => {
               code: 'M-00000001',
               name: '상품1',
               abcGrade: 'B',
-              adTier: '2차',
             },
           },
         ],
@@ -228,8 +186,8 @@ describe('AdvertisingService', () => {
     expect(result.items[0].listingId).toBe('L1');
   });
 
-  // organizationId propagation removed — changeTier IDOR test above + check:idor /
-  // check:tenant-scope scanners cover the tenant scope risk.
+  // Tenant scope risk is covered by the check:idor / check:tenant-scope
+  // scanners.
   it('empty-state — no daily-fact rows returns explicit empty hub (legacy Ad rows ignored)', async () => {
     const result = await service.getHubData('organization-1');
 
@@ -274,7 +232,6 @@ describe('AdvertisingService', () => {
               code: 'M-1',
               name: '상품1',
               abcGrade: 'A',
-              adTier: '1차',
             },
           },
         ],

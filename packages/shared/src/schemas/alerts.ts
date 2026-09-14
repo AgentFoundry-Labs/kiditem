@@ -34,7 +34,8 @@ export const SourceFailureAlertInputSchema = z.object({
 // place that executed it was its own unit test. Six fields — organizationId,
 // dedupeKey, sourceId, actorUserId, metadata, readAt — travelled to the browser
 // and were read by nobody; they stay on the row, where the module that owns
-// them uses them, and leave the read.
+// them uses them, and leave the read. `severity` left too: every source
+// failure is an error, so the word told a screen nothing.
 //
 // `attemptId` stays. No screen shows it, but "the alert follows the attempt" is
 // the rule behind the replay no-op and resolve-by-attempt, and seven suites
@@ -45,7 +46,6 @@ export const AlertItemSchema = z.object({
   attemptId: z.string().uuid().nullable().optional(),
   status: AlertStatusSchema,
   type: z.string(),
-  severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
   // No current writer names a target: a source failure is about a source, not
