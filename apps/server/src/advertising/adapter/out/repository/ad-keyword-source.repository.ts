@@ -243,7 +243,7 @@ export class AdKeywordSourceRepository {
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
-      if (row.status !== 'running') return await this.attemptIn(tx, row);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return await this.attemptIn(tx, row);
       const failed = expired(row)
         ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.')
         : await this.failIn(

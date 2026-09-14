@@ -1091,7 +1091,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
-      if (row.status !== 'running') return this.attemptView(tx, row);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(tx, row);
       const failed = expired(row)
         ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.')
         : await this.failIn(

@@ -113,10 +113,10 @@ export async function liveCatalogImport(
       organizationId: scope.organizationId,
       channelAccountId: scope.channelAccountId,
       OR: [
-        { status: 'running', ...liveBrowserAttempt(now) },
-        { status: 'running', ...liveWorkbookImport(now) },
+        { status: SOURCE_IMPORT_RUN_RUNNING_STATUS, ...liveBrowserAttempt(now) },
+        { status: SOURCE_IMPORT_RUN_RUNNING_STATUS, ...liveWorkbookImport(now) },
         {
-          status: 'completed',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           parserVersion: CATALOG_PARSER,
           sourceType: CATALOG_BASICS_SOURCE,
           expiresAt: { gt: now },
@@ -127,7 +127,7 @@ export async function liveCatalogImport(
     select: { id: true, status: true, sourceType: true, parserVersion: true, plan: true },
   });
   for (const run of candidates) {
-    if (run.status === 'running') {
+    if (run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) {
       return run.parserVersion === CATALOG_PARSER
         ? { attemptId: browserImportRoot(run), source: 'browser' }
         : { attemptId: run.id, source: 'workbook' };
@@ -173,7 +173,7 @@ export function liveCatalogWorkbookImport(tx: Prisma.TransactionClient, scope: C
     where: {
       organizationId: scope.organizationId,
       channelAccountId: scope.channelAccountId,
-      status: 'running',
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
       ...liveWorkbookImport(now),
     },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

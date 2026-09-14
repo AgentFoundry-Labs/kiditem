@@ -412,7 +412,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       );
       await lockSource(tx, input.organizationId, original.channelAccountId!);
       const run = await findAttempt(tx, input.organizationId, input.attemptId);
-      if (run.status !== 'running') return control(run);
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return control(run);
       if (expired(run))
         return control(
           await this.failRun(

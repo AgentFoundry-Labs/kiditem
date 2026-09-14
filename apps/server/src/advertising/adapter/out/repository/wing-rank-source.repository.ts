@@ -197,7 +197,7 @@ export class WingRankSourceRepository {
         const newest = { orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }], select: { id: true } };
         const member =
           (await tx.sourceImportRun.findFirst({
-            where: { ...batch, status: "running", expiresAt: { gt: new Date() } },
+            where: { ...batch, status: SOURCE_IMPORT_RUN_RUNNING_STATUS, expiresAt: { gt: new Date() } },
             ...newest,
           })) ?? (await tx.sourceImportRun.findFirst({ where: batch, ...newest }));
         if (!member) return null;

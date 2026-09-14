@@ -280,7 +280,7 @@ implements SellpiaImportRunRepositoryPort {
       await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const run = await findOwnerAttempt(tx, input.organizationId, { id: input.attemptId });
       if (!run) throw new NotFoundException('SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND');
-      if (run.status !== 'running') return ownerAttemptView(run);
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return ownerAttemptView(run);
       const state = await lockedState(tx, input.organizationId);
       const failed = isExpired(run)
         ? await failOwnerIn(
