@@ -166,7 +166,6 @@ function calendarDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-
 function findFrozenMonthSlice(
   value: Prisma.JsonValue,
   expected: Readonly<{

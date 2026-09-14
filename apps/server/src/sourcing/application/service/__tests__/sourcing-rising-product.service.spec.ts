@@ -6,7 +6,6 @@ describe('SourcingRisingProductService', () => {
     vi.useRealTimers();
   });
 
-
   it('keeps latest as a pure persisted read and exposes no latest-or-detect write path', async () => {
     const snapshots = {
       listRecent: vi.fn().mockResolvedValue([]),
