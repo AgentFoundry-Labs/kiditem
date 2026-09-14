@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 const NOTICE_CLASS: Record<CollectionControlNotice['tone'], string> = {
   refused: 'text-[var(--warning)]',
   error: 'text-[var(--danger)]',
+  warning: 'text-[var(--warning)]',
   info: 'text-[var(--text-secondary)]',
 };
 

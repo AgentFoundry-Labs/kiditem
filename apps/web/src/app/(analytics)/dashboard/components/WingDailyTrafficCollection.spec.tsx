@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
@@ -253,6 +254,23 @@ describe('WingDailyTrafficCollection', () => {
     );
     expect(screen.getByText('수집 중단됨')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: START_LABEL })).toBeEnabled();
+  });
+
+  it('tells the operator when the running collection shows no extension progress for 90 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      serverStatus = source(attempt('RUNNING', { receiptCount: 0, rowCount: 0, expectedPages: null }));
+      renderControl();
+      expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
+
+      await act(() => vi.advanceTimersByTimeAsync(88_000));
+      expect(screen.queryByText(/90초 넘게 진행 소식이 없습니다/)).not.toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+      expect(screen.getByText(/90초 넘게 진행 소식이 없습니다/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows a collection stopped with its browser session as stopped, not failed', async () => {

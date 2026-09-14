@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react-query';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,6 +37,7 @@ type SpecAttempt = {
   state: 'RUNNING' | 'COMPLETE' | 'FAILED';
   startDate: string;
   endDate: string;
+  receipts?: number;
 };
 type SpecStatus = { latestAttempt: SpecAttempt | null; latestComplete: SpecAttempt | null };
 
@@ -539,6 +540,81 @@ describe('CollectionStartControl polling', () => {
     const afterEnd = reads();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(reads()).toBe(afterEnd);
+  });
+});
+
+describe('CollectionStartControl no-progress notice', () => {
+  const NO_PROGRESS =
+    '확장에서 90초 넘게 진행 소식이 없습니다. 확장 상태를 확인하고, 멈췄다면 수집을 중단한 뒤 다시 시작해 주세요.';
+  const progressCollection: CollectionSourceAdapter<SpecStatus> = {
+    ...specCollection,
+    readProgress: (status) =>
+      status.latestAttempt?.state === 'RUNNING' ? String(status.latestAttempt.receipts ?? 0) : null,
+  };
+
+  function ProgressControl() {
+    const control = useCollectionSourceControl(progressCollection);
+    return (
+      <CollectionStartControl
+        control={control}
+        startLabel="키워드 수집"
+        onStart={() => control.start()}
+        onStop={control.stop}
+      />
+    );
+  }
+
+  function LateSecondControl() {
+    const [second, setSecond] = useState(false);
+    return (
+      <>
+        <ProgressControl />
+        {second ? (
+          <ProgressControl />
+        ) : (
+          <button type="button" onClick={() => setSecond(true)}>
+            다른 화면 열기
+          </button>
+        )}
+      </>
+    );
+  }
+
+  function running(receipts: number): SpecStatus {
+    return { latestAttempt: { ...attempt('RUNNING'), receipts }, latestComplete: null };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('tells every mounted control, however late it mounted, once a running collection shows no progress for 90 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    serverStatus = running(0);
+    renderControls(<LateSecondControl />);
+    expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    fireEvent.click(screen.getByRole('button', { name: '다른 화면 열기' }));
+    await act(() => vi.advanceTimersByTimeAsync(28_000));
+    expect(screen.queryByText(NO_PROGRESS)).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(screen.getAllByText(NO_PROGRESS)).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: '수집 중단' })).toHaveLength(2);
+  });
+
+  it('stays quiet once the collection shows progress, even when the first progress comes after a minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    serverStatus = running(0);
+    renderControls(<ProgressControl />);
+    expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    serverStatus = running(1);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(screen.queryByText(NO_PROGRESS)).not.toBeInTheDocument();
   });
 });
 

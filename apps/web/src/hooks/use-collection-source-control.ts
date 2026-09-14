@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   useIsMutating,
   useMutation,
@@ -56,6 +56,12 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
    * source whose extension run spans several attempts stops that run instead.
    */
   cancelInExtension?: (attemptId: string, context: CollectionStopContext<TStatus>) => Promise<unknown>;
+  /**
+   * A fingerprint of the running collection's progress, for a source whose
+   * status shows it. A collection whose fingerprint has not changed for 90
+   * seconds since the page first saw it gets the no-progress notice.
+   */
+  readProgress?: (status: TStatus) => string | null;
   /** The latest complete collection's identity; a change while mounted is a newly finished collection. */
   readCompleteId: (status: TStatus) => string | null;
   /** Refreshes the reads a newly finished collection republished. */
@@ -72,7 +78,7 @@ export type CollectionControlState =
   | 'refused';
 
 export type CollectionControlNotice = Readonly<{
-  tone: 'refused' | 'error' | 'info';
+  tone: 'refused' | 'error' | 'warning' | 'info';
   message: string;
 }>;
 
@@ -103,6 +109,10 @@ const HANGUL = /[가-힣]/;
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
 // Every screen that shows a running collection reads its owner this often.
 const RUNNING_POLL_MS = 2_000;
+// A real Wing traffic run uploads its first receipt 30 to 50 seconds in (KID-132).
+const NO_PROGRESS_NOTICE_MS = 90_000;
+const NO_PROGRESS =
+  '확장에서 90초 넘게 진행 소식이 없습니다. 확장 상태를 확인하고, 멈췄다면 수집을 중단한 뒤 다시 시작해 주세요.';
 
 type StartVariables<TStatus, TInput> = Readonly<{
   input: TInput;
@@ -139,6 +149,60 @@ function withDeadline<T>(operation: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
+}
+
+type ProgressWatch = { attemptId: string; baseline: string; since: number; progressed: boolean };
+
+// The first time any mounted control of a source saw a running attempt's
+// progress, per query client, so every copy shows the notice at the same moment.
+const progressWatches = new WeakMap<QueryClient, Map<string, ProgressWatch>>();
+
+function watchProgress(
+  queryClient: QueryClient,
+  sourceKey: string,
+  attemptId: string,
+  progress: string,
+): ProgressWatch {
+  let watches = progressWatches.get(queryClient);
+  if (!watches) {
+    watches = new Map();
+    progressWatches.set(queryClient, watches);
+  }
+  const current = watches.get(sourceKey);
+  if (!current || current.attemptId !== attemptId) {
+    const next = { attemptId, baseline: progress, since: Date.now(), progressed: false };
+    watches.set(sourceKey, next);
+    return next;
+  }
+  if (current.baseline !== progress) current.progressed = true;
+  return current;
+}
+
+/** Whether a running attempt has shown no progress for 90 seconds since any control first saw it. */
+function useNoProgress(
+  queryClient: QueryClient,
+  sourceKey: string,
+  attemptId: string | null,
+  progress: string | null,
+): boolean {
+  const [noProgress, setNoProgress] = useState(false);
+  useEffect(() => {
+    if (attemptId === null || progress === null) {
+      setNoProgress(false);
+      return undefined;
+    }
+    const watch = watchProgress(queryClient, sourceKey, attemptId, progress);
+    if (watch.progressed) {
+      setNoProgress(false);
+      return undefined;
+    }
+    const remaining = watch.since + NO_PROGRESS_NOTICE_MS - Date.now();
+    setNoProgress(remaining <= 0);
+    if (remaining <= 0) return undefined;
+    const timer = setTimeout(() => setNoProgress(true), remaining);
+    return () => clearTimeout(timer);
+  }, [queryClient, sourceKey, attemptId, progress]);
+  return noProgress;
 }
 
 function latestSubmitted<TState extends { submittedAt: number }>(
@@ -269,11 +333,18 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   const statusRead = collectionSourceStatusRead(query);
   const running = query.data === undefined ? null : adapter.readRunning(query.data);
   const canStop = Boolean(adapter.cancelOnServer) && running?.attemptId != null;
+  const noProgress = useNoProgress(
+    queryClient,
+    adapter.sourceKey,
+    running?.attemptId ?? null,
+    running && adapter.readProgress && query.data !== undefined ? adapter.readProgress(query.data) : null,
+  );
   const notice =
     starting || stopping
       ? null
       : running
-        ? stopNotice(latestStop, running)
+        ? stopNotice(latestStop, running) ??
+          (noProgress ? { tone: 'warning' as const, message: NO_PROGRESS } : null)
         : startNotice(latestStart, query.data);
   const state: CollectionControlState =
     statusRead === 'loading'

@@ -53,6 +53,14 @@ export const wingTrafficCollection: CollectionSourceAdapter<AdTrafficSourceStatu
       ? { attemptId: attempt.attemptId, scopeLabel: formatWingTrafficRange(attempt.plan) }
       : null;
   },
+  // The owner records nothing when the extension picks the run up; uploads
+  // are the only sign it began.
+  readProgress: (status) => {
+    const attempt = status.latestAttempt;
+    return attempt?.state === 'RUNNING'
+      ? [attempt.receiptCount, attempt.rowCount, attempt.expectedPages ?? '-', attempt.terminalPageObserved].join(':')
+      : null;
+  },
   start: (range) =>
     requestCollectionStart('dashboard.wing_sales', {
       startDate: range.startDate,
