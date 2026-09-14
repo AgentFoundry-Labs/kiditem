@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
@@ -33,11 +33,28 @@ import {
   seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
-import { kstMonthEnd, kstMonthStart } from '../../../common/kst';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstBusinessDate,
+  kstMonthEnd,
+  kstMonthStart,
+  parseBusinessDate,
+} from '../../../common/kst';
 import { ProfitLossService } from '../../../finance/services/profit-loss.service';
 import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
 import { periodOf } from './test-helpers/period';
 import type { PrismaClient } from '@prisma/client';
+
+/**
+ * 00:46 KST on 2026-09-15, which is still 2026-09-14 in UTC. A seed built from
+ * the runner's local calendar wrote the day before the service's latest closed
+ * KST day there, so the Wing month looked one day short of complete. Pinning
+ * the clock reproduces that instant in any runner timezone.
+ */
+const KST_DAWN = new Date('2026-09-14T15:46:00.000Z');
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -80,6 +97,15 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The anchor's KST calendar month as `YYYY-MM`, whatever the runner's timezone. */
+  function anchorMonth(): string {
+    return businessDateKey(kstBusinessDate(new Date())).slice(0, 7);
+  }
+
   /**
    * The campaign sweep visited every day of the anchor month and found no
    * advertising: a measured zero on each date. The real collector never
@@ -88,8 +114,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
    */
   let sweepGeneration = 0;
   async function seedConfirmedZeroMonth(): Promise<void> {
-    const now = new Date();
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const month = anchorMonth();
     await seedCompletedAdSweepRun(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       generation: ++sweepGeneration,
@@ -118,9 +143,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     return { masterId, optionId, listingId, listingOptionId };
   }
 
+  /** 03:00 KST on the 15th of the anchor's KST month — inside the month window everywhere. */
   function midMonth(): Date {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 15, 3, 0, 0);
+    const [year, month] = anchorMonth().split('-').map(Number);
+    return new Date(addDays(kstMonthStart(year, month), 14).getTime() + 3 * 60 * 60 * 1000);
   }
 
   async function readMeasuredSummary(
@@ -697,29 +723,22 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   });
 
   it('T4b: complete v2 Wing monthlyTrend keeps profit unavailable without settlement data', async () => {
+    // The month and its closed days are KST facts. Reading the runner's local
+    // calendar instead left the seed a day behind the service in the KST small
+    // hours of a UTC runner, and the month never looked complete.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(KST_DAWN);
     const { listingId } = await seedTestListing('4B');
-    const now = new Date();
-    const businessDate = new Date(Date.UTC(
-      now.getFullYear(),
-      now.getMonth(),
-      Math.max(1, now.getDate() - 1),
-    ));
-    const trafficDate = businessDate.toISOString().slice(0, 10);
-    const monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    const month = anchorMonth();
+    const monthStart = parseBusinessDate(`${month}-01`)!;
     // The owner source is complete only through the latest closed KST
     // business day. Do not manufacture future zero rows merely to make a
     // current-month range look complete.
-    const latestClosedDate = new Date(Date.UTC(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() - 1,
-    ));
-    const monthLastDate = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0));
+    const latestClosedDate = evidenceCutoffDate(new Date());
+    const monthLastDate = parseBusinessDate(kstMonthEnd(month))!;
     const monthEnd = latestClosedDate < monthLastDate ? latestClosedDate : monthLastDate;
-    const monthDates: string[] = [];
-    for (const cursor = new Date(monthStart); cursor <= monthEnd; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-      monthDates.push(cursor.toISOString().slice(0, 10));
-    }
+    const monthDates = datesInclusive(monthStart, monthEnd).map(businessDateKey);
+    const trafficDate = monthDates.at(-1)!;
     await prisma.channelListingDailySnapshot.createMany({
       data: monthDates.map((date) => ({
         organizationId: TEST_ORGANIZATION_ID,
