@@ -7,7 +7,8 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
 
 ## Issue Relationships And Evidence
 
-- Use the assignee for the accountable human and native priority for urgency.
+- Use the assignee for the accountable human, the delegate for the Dev Leader
+  orchestrating the issue, and native priority for urgency.
 - Link sub-issues to their parent spec or `wayfinder:map` issue, and record
   dependencies with blocks/blocked-by relations. Issue boundaries do not
   determine branch or PR boundaries.
@@ -53,24 +54,31 @@ the issue. Backlog and Todo stay empty.
   those exact names; and the `PR` group. Each label's description is its rule;
   read them with `list_issue_labels`.
 - When a PR opens, create its `PR` child label `#<number> <short title>` with
-  the PR URL as the description, and apply it to every issue that PR
-  completes: one PR label per issue.
+  the PR URL and its Dev Leader as the description, and apply it to every
+  issue that PR completes: one PR label per issue.
 
 ## Orchestration
 
 Linear is the durable memory of an orchestrating session: another session must
 be able to resume the work from Linear alone.
 
+Each orchestrating session acts as one **Dev Leader** and drives one PR. A Dev
+Leader is a Linear agent app user (`Dev Leader`, `Dev Leader 2`, …; list them
+with `list_users`) that a workspace admin installs. Before claiming, take a
+leader that no open issue delegates to.
+
 1. **Frontier.** From Ready issues, keep those without `HITL`,
    `wayfinder:grilling`, or `wayfinder:prototype`, without open sub-issues, and
    whose blocked-by issues are all Done. Read each blocker's status: resolved
    blockers stay listed. The frontier is complete when every Ready issue is
    either on it or excluded by one of these rules.
-2. **Claim.** Move the issue to In Progress and comment the branch, worktree,
-   and agent. Release it by moving it back to Ready with a comment.
+2. **Claim.** Move the issue to In Progress, set its delegate to your leader
+   while the human stays assignee, and comment the branch, worktree, and
+   agent. Release it by moving it back to Ready with the delegate cleared and a
+   comment.
 3. **Checkpoint.** Keep one current-state comment on the spec or map issue
-   (done; running, with agent and worktree; next) and update it at each
-   checkpoint.
+   (leader; done; running, with agent and worktree; next) and update it at
+   each checkpoint.
 4. **Found work** goes to Triage with a relation to the issue that found it.
 5. **PR.** When the PR opens, apply its `PR` label and move its issues to In
    Review; after merge, mark them Done with the PR and merge commit.
