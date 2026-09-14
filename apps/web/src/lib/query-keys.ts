@@ -131,6 +131,8 @@ export const queryKeys = {
     sellpiaSalesAll: () => [...queryKeys.dashboard.all, 'sellpia-sales'] as const,
     sellpiaSales: (from?: string, to?: string) =>
       [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
+    // The Sellpia sales collection control's owner status read.
+    sellpiaSalesSource: () => [...queryKeys.dashboard.all, 'sellpia-sales-source'] as const,
   },
   ads: {
     all: ['ads'] as const,

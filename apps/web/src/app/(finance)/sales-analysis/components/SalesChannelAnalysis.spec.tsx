@@ -66,8 +66,6 @@ describe('SalesChannelAnalysis', () => {
       isLoading={false}
       isError={false}
       onRetry={vi.fn()}
-      onSync={vi.fn()}
-      syncing={false}
       selectedChannel={selectedChannel}
       onChannelChange={vi.fn()}
     />,
@@ -125,8 +123,7 @@ describe('SalesChannelAnalysis', () => {
         isLoading={false}
         isError={false}
         onRetry={vi.fn()}
-        onSync={vi.fn()}
-        syncing={false}
+        collectionControl={<button type="button">지금 수집</button>}
         selectedChannel="others"
         onChannelChange={onChannelChange}
         periodControl={<select aria-label="매출 기간"><option>2026년 7월</option></select>}
@@ -145,5 +142,21 @@ describe('SalesChannelAnalysis', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /쿠팡 로켓/ }));
     expect(onChannelChange).toHaveBeenCalledWith('rocket');
+  });
+  it('offers the shared collection control again when the period has no collected sales', () => {
+    render(
+      <SalesChannelAnalysis
+        summary={{ ...summary, hasData: false }}
+        isLoading={false}
+        isError={false}
+        onRetry={vi.fn()}
+        selectedChannel="all"
+        onChannelChange={vi.fn()}
+        collectionControl={<button type="button">지금 수집</button>}
+      />,
+    );
+
+    expect(screen.getByText('선택한 기간에 수집된 몰별 매출이 없습니다.')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '지금 수집' })).toHaveLength(2);
   });
 });

@@ -29,6 +29,10 @@ import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/Sellpia
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import {
+  sellpiaSalesCollection,
+  sellpiaSalesReadinessRange,
+} from '@/lib/sellpia-sales-source-collection';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import {
@@ -54,7 +58,6 @@ function getDisplay(check: ReadinessCheck): DisplayMeta {
 
 function collectLabel(check: ReadinessCheck, catalog?: CatalogReadinessState): string {
   const overallState = catalog ? catalogOverallState(catalog) : null;
-  if (check.key === 'wing_sales') return '매출 받기';
   if (check.key === 'wing_kpi') return '순위 받기';
   if (check.key === 'coupang_products' && catalog && catalogWholeFlowPending(catalog)) {
     return '상태 확인 중';
@@ -509,6 +512,21 @@ export function CompactOkRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
+/** The readiness card's Sellpia sales control: the same collection as the sales screens. */
+function SellpiaSalesCardControl({ check }: { check: ReadinessCheck }) {
+  const control = useCollectionSourceControl(sellpiaSalesCollection);
+  return (
+    <CollectionStartControl
+      control={control}
+      startLabel="매출 받기"
+      startTitle="준비 상태에서 비어 있는 날짜의 셀피아 판매현황을 받습니다."
+      onStart={() => control.start(sellpiaSalesReadinessRange(check))}
+      onStop={control.stop}
+      className="self-center"
+    />
+  );
+}
+
 export function ActionCheckCard({
   check,
   onCollect,
@@ -538,6 +556,8 @@ export function ActionCheckCard({
   // The campaign sweep keeps one control in this modal, 광고 동기화 below;
   // the ad readiness card only points to it.
   const collectsThroughAdSync = check.key === 'coupang_ads';
+  // Sellpia sales keeps one shared control across readiness and the sales screens.
+  const collectsThroughSalesControl = check.key === 'wing_sales';
 
   const subline = (() => {
     if (missingCount > 0) {
@@ -602,6 +622,8 @@ export function ActionCheckCard({
           <p className="shrink-0 self-center text-[11px] text-[var(--text-muted)]">
             {'아래 ‘광고 동기화’에서 받아요'}
           </p>
+        ) : collectsThroughSalesControl ? (
+          <SellpiaSalesCardControl check={check} />
         ) : (
           <button
             onClick={() => onCollect(check)}

@@ -1,9 +1,8 @@
 import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchSellpiaSalesSummary } from '@/lib/sellpia-sales-api';
-import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
   sellpiaMonthRange,
   sellpiaPeriodRange,
@@ -13,16 +12,6 @@ import {
 
 vi.mock('@/lib/sellpia-sales-api', () => ({
   fetchSellpiaSalesSummary: vi.fn(),
-  sellpiaSalesErrorMessage: (error: unknown) =>
-    error instanceof Error ? error.message : '판매현황 수집에 실패했습니다.',
-}));
-
-vi.mock('@/lib/sellpia-sales-collection', () => ({
-  collectSellpiaSaleSummaryFromExtension: vi.fn(),
-}));
-
-vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 function makeQueryClient() {
@@ -36,44 +25,27 @@ function wrapper(queryClient: QueryClient) {
     createElement(QueryClientProvider, { client: queryClient }, children);
 }
 
-describe('useSellpiaChannelSales synchronization', () => {
+describe('useSellpiaChannelSales reads', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-07-18T10:00:00.000Z'));
     vi.clearAllMocks();
     vi.mocked(fetchSellpiaSalesSummary).mockResolvedValue({} as never);
-    vi.mocked(collectSellpiaSaleSummaryFromExtension).mockResolvedValue({
-      success: true,
-      terminalState: 'COMPLETE',
-      attemptId: '11111111-1111-4111-8111-111111111111',
-      state: 'COMPLETE',
-      sourceType: 'sellpia_sales_daily',
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      plan: {} as never,
-      actualCutoffAt: '2026-07-18T00:00:00.000Z',
-      completedAt: '2026-07-18T10:00:00.000Z',
-      contentChecksum: 'a'.repeat(64),
-      contentByteCount: 100,
-      rowCount: 2,
-      sellerCount: 1,
-      businessDates: ['2026-07-17', '2026-07-18'],
-      errorCode: null,
-      errorMessage: null,
-    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('does not start provider collection while the dashboard only reads data', async () => {
-    renderHook(
+  it('only reads Sellpia sales; collection belongs to the shared source control', async () => {
+    const { result } = renderHook(
       () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
       { wrapper: wrapper(makeQueryClient()) },
     );
 
     await waitFor(() => expect(fetchSellpiaSalesSummary).toHaveBeenCalledTimes(1));
-    expect(collectSellpiaSaleSummaryFromExtension).not.toHaveBeenCalled();
+    expect(result.current).not.toHaveProperty('sync');
+    expect(result.current).not.toHaveProperty('syncing');
   });
 
   it('uses the server response as the closed-date clock', async () => {
@@ -87,48 +59,6 @@ describe('useSellpiaChannelSales synchronization', () => {
     });
 
     await waitFor(() => expect(result.current).toBe('2026-07-17'));
-  });
-
-  it('starts the frozen source owner only on explicit sync and invalidates reads', async () => {
-    const queryClient = makeQueryClient();
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-    const { result } = renderHook(
-      () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
-      { wrapper: wrapper(queryClient) },
-    );
-
-    await act(async () => {
-      await result.current.sync();
-    });
-
-    expect(collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledTimes(1);
-    expect(collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith();
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: ['dashboard', 'sellpia-sales'],
-    });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['readiness'] });
-    expect(result.current.syncing).toBe(false);
-  });
-
-  it('keeps failed owner publication hidden from dashboard invalidation', async () => {
-    vi.mocked(collectSellpiaSaleSummaryFromExtension).mockResolvedValueOnce({
-      success: false,
-      terminalState: 'FAILED',
-      errorMessage: '로그인이 필요합니다.',
-    } as never);
-    const queryClient = makeQueryClient();
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-    const { result } = renderHook(
-      () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
-      { wrapper: wrapper(queryClient) },
-    );
-
-    await act(async () => {
-      await result.current.sync();
-    });
-
-    expect(invalidate).not.toHaveBeenCalled();
-    expect(result.current.syncing).toBe(false);
   });
 });
 

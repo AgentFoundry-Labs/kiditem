@@ -134,7 +134,6 @@ const COMPATIBLE_PING = {
 const mocks = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
-  collectSellpiaSaleSummaryFromExtension: vi.fn(),
   detectRankExtensionGate: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
   startCoupangCatalogBrowser: vi.fn(),
@@ -171,10 +170,6 @@ vi.mock('@/lib/api-client', () => ({
 vi.mock('@/lib/coupang-catalog-extension', () => ({
   startCoupangCatalogBrowser: mocks.startCoupangCatalogBrowser,
   getCoupangCatalogBrowserStatus: mocks.getCoupangCatalogBrowserStatus,
-}));
-
-vi.mock('@/lib/sellpia-sales-collection', () => ({
-  collectSellpiaSaleSummaryFromExtension: mocks.collectSellpiaSaleSummaryFromExtension,
 }));
 
 vi.mock('@/lib/sellpia-sales-api', async (importOriginal) => ({
@@ -235,12 +230,6 @@ describe('readiness extension collection', () => {
       version: '1.2.42',
     });
     vi.mocked(sendToExtension).mockResolvedValue(COMPATIBLE_PING);
-    mocks.collectSellpiaSaleSummaryFromExtension.mockResolvedValue({
-      success: true,
-      terminalState: 'COMPLETE',
-      businessDates: ['2026-07-14'],
-      sellerCount: 0,
-    });
     mocks.runWingSalesRankCheck.mockResolvedValue({
       success: true,
       started: true,
@@ -288,64 +277,7 @@ describe('readiness extension collection', () => {
     vi.unstubAllEnvs();
   });
 
-  it('collects only the missing Sellpia span through today and refreshes dashboard readiness', async () => {
-    mocks.collectSellpiaSaleSummaryFromExtension.mockResolvedValueOnce({
-      success: true,
-      terminalState: 'COMPLETE',
-      businessDates: ['2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15'],
-      sellerCount: 0,
-    });
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const salesCheck = check('wing_sales');
-    salesCheck.expectedDates = ['2026-07-12', '2026-07-13', '2026-07-14'];
-    salesCheck.missingDates = ['2026-07-14', '2026-07-12'];
-    const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper(queryClient) },
-    );
-
-    await act(async () => {
-      await result.current.handleCollect(salesCheck);
-    });
-
-    expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith({
-      startDate: '2026-07-12',
-      endDate: '2026-07-15',
-    });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] });
-    expect(refetchReadiness).toHaveBeenCalledTimes(1);
-    expect(result.current.pendingKey).toBeNull();
-    expect(toast.success).toHaveBeenCalledWith('셀피아 판매현황 4일 수집 완료');
-  });
-
-  it('does not expand a first-of-month Sellpia repair into the entire prior month', async () => {
-    const salesCheck = check('wing_sales');
-    salesCheck.referenceDate = '2026-06-30';
-    salesCheck.expectedDates = ['2026-06-17', '2026-06-30', '2026-07-01'];
-    salesCheck.missingDates = ['2026-07-01'];
-    const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
-      { wrapper: wrapper() },
-    );
-
-    await act(async () => {
-      await result.current.handleCollect(salesCheck);
-    });
-
-    expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith({
-      startDate: '2026-07-01',
-      endDate: '2026-07-01',
-    });
-  });
-
-  it('hides the raw Prisma timeout message and always clears pending state', async () => {
-    mocks.collectSellpiaSaleSummaryFromExtension.mockRejectedValueOnce(
-      new Error('P2028: A rollback cannot be executed on an expired transaction'),
-    );
+  it("leaves Sellpia sales to the card's shared control and starts no collection from the readiness hook", async () => {
     const { result } = renderHook(
       () => useReadinessCollection({ refetchReadiness: vi.fn() }),
       { wrapper: wrapper() },
@@ -355,8 +287,11 @@ describe('readiness extension collection', () => {
       await result.current.handleCollect(check('wing_sales'));
     });
 
-    expect(toast.error).toHaveBeenCalledWith(
-      '매출 저장 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.',
+    expect(requestedApiPaths().filter((path) => path.startsWith('/api/sellpia-sales'))).toEqual([]);
+    expect(mocks.sendToExtension).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: 'collectSellpiaSaleSummary' }),
+      expect.anything(),
     );
     expect(result.current.pendingKey).toBeNull();
   });
@@ -390,14 +325,12 @@ describe('readiness extension collection', () => {
     );
 
     await act(async () => {
-      await result.current.handleCollect(check('wing_sales'));
       await result.current.handleCollect(check('coupang_products'));
       await result.current.handleCollect(check('wing_kpi'));
     });
 
     // Readiness keys use their concrete owner, never the retired generic
     // scrapeTargets/runId session transport.
-    expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalled();
     expect(
       requestedApiPaths().filter((path) => path.startsWith(RETIRED_AD_ACCOUNT_DAY_PATH)),
     ).toEqual([]);

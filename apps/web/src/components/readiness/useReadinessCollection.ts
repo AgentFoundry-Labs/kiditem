@@ -19,7 +19,6 @@ import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-stat
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
   readActiveCoupangCatalogAttempt,
   readActiveCoupangCatalogAttemptForStage,
@@ -28,7 +27,6 @@ import {
   type CoupangCatalogCollectionLinkResult,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { useCoupangCatalogImport } from '@/app/(product-pipeline)/product-pipeline/registered-products/hooks/useCoupangCatalogImport';
-import { sellpiaSalesErrorMessage } from '@/lib/sellpia-sales-api';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
 interface UseReadinessCollectionOptions {
@@ -68,34 +66,6 @@ export interface CatalogReadinessState {
 
 function makeClientRunKey(): string {
   return createSecureRandomUuid();
-}
-
-function sellpiaCollectionRange(check: ReadinessCheck): {
-  startDate: string;
-  endDate: string;
-} | undefined {
-  const targetDates = check.missingDates?.length
-    ? [...check.missingDates]
-    : check.expectedDates?.length
-      ? [check.expectedDates[0]!]
-      : check.referenceDate
-        ? [check.referenceDate]
-        : [];
-  const sorted = [...targetDates].sort();
-  if (sorted.length === 0) return undefined;
-  const nextReferenceDate = check.referenceDate
-    ? new Date(`${check.referenceDate}T00:00:00.000Z`)
-    : null;
-  if (nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())) {
-    nextReferenceDate.setUTCDate(nextReferenceDate.getUTCDate() + 1);
-  }
-  return {
-    startDate: sorted[0]!,
-    // readiness는 어제까지 판정하지만 홈의 월 누적 합계는 오늘까지 조회한다.
-    endDate: nextReferenceDate && !Number.isNaN(nextReferenceDate.getTime())
-      ? nextReferenceDate.toISOString().slice(0, 10)
-      : sorted.at(-1)!,
-  };
 }
 
 export function useReadinessCollection({
@@ -219,14 +189,6 @@ export function useReadinessCollection({
         : false,
   }));
 
-  const invalidateCollectedData = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
-      queryClient.invalidateQueries({ queryKey: ['traffic'] }),
-    ]);
-  };
-
   useEffect(() => {
     if (wingOwner.isError) {
       toast.error('서버의 Wing 수집 결과를 확인하지 못했습니다.');
@@ -270,30 +232,6 @@ export function useReadinessCollection({
   const handleCollect = async (
     check: ReadinessCheck,
   ) => {
-    // 일별 매출(wing_sales) 수집은 셀피아 판매현황 수집으로 대체한다.
-    // (원래 Wing 브라우저 수집 로직은 코드에 그대로 남겨두고 여기서만 우회.)
-    // 셀피아 몰별 일별 매출을 수집·적재해 비어있는 날짜를 채운다.
-    if (check.key === 'wing_sales') {
-      setPendingKey(check.key);
-      try {
-        const collectionRange = sellpiaCollectionRange(check);
-        const result = await collectSellpiaSaleSummaryFromExtension({
-          ...(collectionRange ?? {}),
-        });
-        if (!result.success) {
-          throw new Error(result.errorMessage ?? '셀피아 판매현황 수집에 실패했습니다.');
-        }
-        toast.success(`셀피아 판매현황 ${result.businessDates.length}일 수집 완료`);
-        await invalidateCollectedData();
-        await refetchReadiness();
-      } catch (error) {
-        toast.error(sellpiaSalesErrorMessage(error, '셀피아 판매현황 수집 실패'));
-      } finally {
-        setPendingKey(null);
-      }
-      return;
-    }
-
     if (check.key === 'coupang_products') {
       if (catalogLinkError) {
         toast.error(catalogLinkError);
