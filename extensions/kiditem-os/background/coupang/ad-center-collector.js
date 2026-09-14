@@ -750,38 +750,38 @@
       if (normalized) await sessions.progress(runId, normalized);
     }
 
+    // The source owner holds the collection window's turn for its whole
+    // attempt, so a capture runs inside that turn instead of taking another.
     async function collectSingle({ environmentId, attemptId, control, producer, target, mode, extra = {}, receiptKey = null }) {
-      return windowResource.runExclusive(async () => {
-        let owned;
-        let result;
-        try {
-          await activeRun(attemptId, environmentId, producer);
-          owned = await getResource(attemptId, target.url, producer, environmentId);
-          await writeStatus({ runId: attemptId, status: "running", current: 1, total: 1, currentTabId: owned.tabId, startedAt: Date.now() });
-          result = await collectTarget(attemptId, target, environmentId, mode, control, producer, extra);
-          if (result.progress) await publishProgress(attemptId, result.progress);
-          await writeStatus({ runId: attemptId, status: result.attentionRequired ? "attention_required" : (result.success ? "running" : "error"), current: 1, total: 1, completed: result.success ? 1 : 0, failed: result.success ? 0 : 1, currentTabId: owned.tabId, error: result.success ? null : result.error });
+      let owned;
+      let result;
+      try {
+        await activeRun(attemptId, environmentId, producer);
+        owned = await getResource(attemptId, target.url, producer, environmentId);
+        await writeStatus({ runId: attemptId, status: "running", current: 1, total: 1, currentTabId: owned.tabId, startedAt: Date.now() });
+        result = await collectTarget(attemptId, target, environmentId, mode, control, producer, extra);
+        if (result.progress) await publishProgress(attemptId, result.progress);
+        await writeStatus({ runId: attemptId, status: result.attentionRequired ? "attention_required" : (result.success ? "running" : "error"), current: 1, total: 1, completed: result.success ? 1 : 0, failed: result.success ? 0 : 1, currentTabId: owned.tabId, error: result.success ? null : result.error });
+        notify();
+        return {
+          ...result,
+          runId: attemptId,
+          receipt: receiptKey ? result.response?.[receiptKey] || null : null,
+        };
+      } catch (error) {
+        if (error?.code === "USER_CANCELLED") {
+          await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
           notify();
-          return {
-            ...result,
-            runId: attemptId,
-            receipt: receiptKey ? result.response?.[receiptKey] || null : null,
-          };
-        } catch (error) {
-          if (error?.code === "USER_CANCELLED") {
-            await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
-            notify();
-            return cancelledResult(attemptId);
-          }
-          if (error?.code === "SOURCE_OWNER_UNAVAILABLE" && owned) {
-            await windowResource.close(attemptId).catch(() => undefined);
-          }
-          const message = errorMessage(error);
-          if (owned) await writeStatus({ runId: attemptId, status: "error", current: 1, total: 1, completed: 0, failed: 1, currentTabId: owned.tabId, error: message });
-          notify();
-          throw error;
+          return cancelledResult(attemptId);
         }
-      });
+        if (error?.code === "SOURCE_OWNER_UNAVAILABLE" && owned) {
+          await windowResource.close(attemptId).catch(() => undefined);
+        }
+        const message = errorMessage(error);
+        if (owned) await writeStatus({ runId: attemptId, status: "error", current: 1, total: 1, completed: 0, failed: 1, currentTabId: owned.tabId, error: message });
+        notify();
+        throw error;
+      }
     }
 
     async function collectCampaigns({ environmentId, attemptId, control }) {

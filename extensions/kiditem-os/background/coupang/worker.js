@@ -65,6 +65,8 @@ const collectionWindows = Object.fromEntries(
       storageKey: coupangEnvironment.stateKey(COLLECTION_WINDOW_STORAGE_KEY, environmentId),
       sessions: collectionSessions,
       bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
+      attemptEnded: (session) => coupangCollectionAttemptEnded(environmentId, session),
+      collectionName: (session) => COUPANG_COLLECTION_NAMES[session?.producer] || null,
     }),
   ]),
 );
@@ -511,12 +513,57 @@ const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create(
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collect: (input) => coupangKeywordSuggestionCollector.collect(input),
 });
+
+// The source owners that close through collectionWindowFor share one window
+// per environment. Each run takes the window's turn and keeps it until its
+// outcome is reported and its window and session are released, so the next
+// collection never meets a window that is still finishing.
+function takeCoupangWindowTurn(environmentId, operation) {
+  return collectionWindowFor(environmentId).runExclusive(operation);
+}
+
+// Names the collection that holds the window when another one is refused.
+const COUPANG_COLLECTION_NAMES = Object.freeze({
+  "advertising.ad_sync": "쿠팡 광고 캠페인",
+  "advertising.ad_keyword": "쿠팡 광고 키워드",
+  "advertising.profitability_import": "쿠팡 상품별 광고 보고서",
+  [WING_TRAFFIC_PRODUCER]: "쿠팡 Wing 트래픽",
+  [WING_ITEMWINNER_PRODUCER]: "쿠팡 Wing 아이템위너",
+});
+
+// A leftover session can hold the window after its attempt ended. Only the
+// producer's own source owner can tell, through its attempt control read.
+async function coupangCollectionAttemptEnded(environmentId, session) {
+  if (session?.environmentId !== environmentId) return false;
+  const { attemptId } = session;
+  switch (session.producer) {
+    case "advertising.ad_sync":
+      return adCampaignSourceOwner.attemptEnded(environmentId, attemptId);
+    case "advertising.ad_keyword":
+      return adKeywordSourceOwner.attemptEnded(environmentId, attemptId);
+    case "advertising.profitability_import":
+      return profitabilitySourceOwner.attemptEnded(environmentId, attemptId);
+    case WING_TRAFFIC_PRODUCER:
+      return wingTrafficSourceOwnerV2.attemptEnded(environmentId, attemptId).catch((error) => {
+        if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") {
+          return wingTrafficSourceOwner.attemptEnded(environmentId, attemptId);
+        }
+        throw error;
+      });
+    case WING_ITEMWINNER_PRODUCER:
+      return wingItemwinnerSourceOwner.attemptEnded(environmentId, attemptId);
+    default:
+      return false;
+  }
+}
+
 const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
   sessions: collectionSessions,
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collectSlice: collectAdvertisingProfitabilitySlice,
   closeAttempt: (environmentId, attemptId) =>
     collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   chrome,
@@ -527,6 +574,7 @@ const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectKeywords({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(adKeywordSourceOwner.handleMessage);
 const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
@@ -537,6 +585,7 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectCampaigns({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
 const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
@@ -548,6 +597,7 @@ const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwner.handleMessage);
 const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
@@ -559,6 +609,7 @@ const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwnerV2.handleMessage);
 
@@ -590,6 +641,7 @@ const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectItemwinner({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
 const coupangSerpCollector = KidItemCoupangSerpCollector.create({

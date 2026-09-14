@@ -287,7 +287,7 @@
         if (running.promise) return running.promise;
       }
       const work = running || { attemptId };
-      work.promise = Promise.resolve().then(() => execute(environmentId, attemptId))
+      work.promise = Promise.resolve().then(() => takeWindowTurn(environmentId, () => execute(environmentId, attemptId)))
         .finally(() => { work.promise = null; if (active.get(environmentId) === work && !work.terminal) active.delete(environmentId); });
       active.set(environmentId, work);
       return work.promise;
@@ -314,7 +314,22 @@
         if (owner.state !== "RUNNING") await finish(environmentId, owner);
       }
     }
-    return Object.freeze({ run, recover, handleMessage, cancel });
+    // A run holds the environment's collection window from its first read until
+    // its outcome is reported and its window and session are released.
+    function takeWindowTurn(environmentId, operation) {
+      return typeof options.takeWindowTurn === "function"
+        ? options.takeWindowTurn(environmentId, operation)
+        : operation();
+    }
+
+    // Completed, failed and expired attempts have ended; a session left behind
+    // by one is a leftover for the next collection to clear.
+    async function attemptEnded(environmentId, attemptId) {
+      const control = await read(environmentId, attemptId);
+      return control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt);
+    }
+
+    return Object.freeze({ run, recover, handleMessage, cancel, attemptEnded });
   }
 
   function validAdvertisingDashboardUrl(value) {

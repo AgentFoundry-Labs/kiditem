@@ -263,58 +263,56 @@
       };
     }
 
+    // Source owners hold the collection window's turn for their whole attempt,
+    // so these captures run inside that turn instead of taking another.
     async function collectTraffic({ environmentId, attemptId, control }) {
-      return windowResource.runExclusive(async () => {
-        const resourceRef = { value: null };
-        try {
-          return await capture({
-            environmentId,
-            attemptId,
-            control,
-            producer: WING_TRAFFIC_PRODUCER,
-            target: { url: trafficUrl(control) },
-            mode: "wing_traffic",
-            receiptKey: "trafficReceipt",
-            resourceRef,
-          });
-        } catch (error) {
-          if (error?.code !== "USER_CANCELLED" && error?.code !== "SOURCE_OWNER_UNAVAILABLE") throw error;
-          if (error?.code === "SOURCE_OWNER_UNAVAILABLE") {
-            if (resourceRef.value) await windowResource.close(attemptId).catch(() => undefined);
-            throw error;
-          }
-          await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
-          notify();
-          return cancelledResult(attemptId);
+      const resourceRef = { value: null };
+      try {
+        return await capture({
+          environmentId,
+          attemptId,
+          control,
+          producer: WING_TRAFFIC_PRODUCER,
+          target: { url: trafficUrl(control) },
+          mode: "wing_traffic",
+          receiptKey: "trafficReceipt",
+          resourceRef,
+        });
+      } catch (error) {
+        if (error?.code !== "USER_CANCELLED" && error?.code !== "SOURCE_OWNER_UNAVAILABLE") throw error;
+        if (error?.code === "SOURCE_OWNER_UNAVAILABLE") {
+          if (resourceRef.value) await windowResource.close(attemptId).catch(() => undefined);
+          throw error;
         }
-      });
+        await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
+        notify();
+        return cancelledResult(attemptId);
+      }
     }
 
     async function collectItemwinner({ environmentId, attemptId, control }) {
-      return windowResource.runExclusive(async () => {
-        const resourceRef = { value: null };
-        try {
-          return await capture({
-            environmentId,
-            attemptId,
-            control,
-            producer: WING_ITEMWINNER_PRODUCER,
-            target: { url: itemwinnerUrl(control) },
-            mode: "wing_itemwinner",
-            receiptKey: "itemwinnerReceipt",
-            resourceRef,
-          });
-        } catch (error) {
-          if (error?.code !== "USER_CANCELLED" && error?.code !== "SOURCE_OWNER_UNAVAILABLE") throw error;
-          if (error?.code === "SOURCE_OWNER_UNAVAILABLE") {
-            if (resourceRef.value) await windowResource.close(attemptId).catch(() => undefined);
-            throw error;
-          }
-          await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
-          notify();
-          return cancelledResult(attemptId);
+      const resourceRef = { value: null };
+      try {
+        return await capture({
+          environmentId,
+          attemptId,
+          control,
+          producer: WING_ITEMWINNER_PRODUCER,
+          target: { url: itemwinnerUrl(control) },
+          mode: "wing_itemwinner",
+          receiptKey: "itemwinnerReceipt",
+          resourceRef,
+        });
+      } catch (error) {
+        if (error?.code !== "USER_CANCELLED" && error?.code !== "SOURCE_OWNER_UNAVAILABLE") throw error;
+        if (error?.code === "SOURCE_OWNER_UNAVAILABLE") {
+          if (resourceRef.value) await windowResource.close(attemptId).catch(() => undefined);
+          throw error;
         }
-      });
+        await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
+        notify();
+        return cancelledResult(attemptId);
+      }
     }
 
     async function cancelRun(input) {
