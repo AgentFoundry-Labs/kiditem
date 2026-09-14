@@ -31,7 +31,7 @@ interface LegacyAction {
  * recorded, so the derived state reads the same words, and it is a zero-row
  * no-op on every later run, including after `db push` drops the stored columns.
  */
-describe('v0.1.31:010 backfill ad action execution tasks (PostgreSQL)', () => {
+describe('v0.1.31:011 backfill ad action execution tasks (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let recreatedStoredColumns = false;
 

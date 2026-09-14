@@ -33,9 +33,11 @@ export const SourceFailureAlertInputSchema = z.object({
 // This was the whole Prisma row, 23 fields, and it parsed nothing: the only
 // place that executed it was its own unit test. Six fields — organizationId,
 // dedupeKey, sourceId, actorUserId, metadata, readAt — travelled to the browser
-// and were read by nobody; they stay on the row, where the module that owns
-// them uses them, and leave the read. `severity` left too: every source
-// failure is an error, so the word told a screen nothing.
+// and were read by nobody, so they left the read. organizationId, dedupeKey and
+// readAt stay on the row, where the module that owns them uses them; sourceId,
+// actorUserId and metadata had no writer left and the KID-90 schema cleanup
+// dropped the columns. `severity` left too: every source failure is an error,
+// so the word told a screen nothing.
 //
 // `attemptId` stays. No screen shows it, but "the alert follows the attempt" is
 // the rule behind the replay no-op and resolve-by-attempt, and seven suites
