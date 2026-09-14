@@ -15,7 +15,9 @@ import {
   Sparkles,
   TrendingUp,
 } from 'lucide-react';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
@@ -32,9 +34,9 @@ import {
 } from '../lib/trend-collection-api';
 import { fetchLiveCommerceKeywords, type LiveTrendKeywordView } from '../lib/live-commerce-api';
 import { isDouyinTrendSourceKeyword } from '../lib/douyin-trend';
+import { sourcingTiktokCcCollection } from '../../lib/sourcing-tiktok-collection';
 import {
   collectSourcingTiktokCcTrendsFromExtension,
-  fetchSourcingTiktokCcSourceStatus,
   type SourcingTiktokCcSourceStatus,
 } from '../../lib/sourcing-tiktok-source-owner';
 import { LiveCommerceSection } from './LiveCommerceSection';
@@ -46,6 +48,8 @@ const SHORTS_DAYS = 7;
 const TIKTOK_CC_DAYS = 7;
 const LIVE_KEYWORD_DAYS = 7;
 const TIKTOK_SOURCE_REQUEST_FINGERPRINT = 'tiktok.creative:default';
+// The CTA below starts the collection; the shared control shows it running and stops it.
+const tiktokCcCollection = sourcingTiktokCcCollection(TIKTOK_CC_DAYS);
 
 const EMPTY_HINT = '아직 수집 안 됨 — 지금 트렌드 수집 눌러주세요';
 
@@ -147,7 +151,7 @@ function LiveKeywordCard({ keyword }: { keyword: LiveTrendKeywordView }) {
 /** 틱톡 크리에이티브 센터 인기 해시태그·키워드·상품. */
 function TiktokCcTrendView() {
   const snapshotQueryKey = queryKeys.sourcing.trendTiktokCc(TIKTOK_CC_DAYS);
-  const sourceStatusQueryKey = [...snapshotQueryKey, 'source-status'] as const;
+  const sourceStatusQueryKey = tiktokCcCollection.statusQuery.queryKey;
   const queryClient = useQueryClient();
   const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
 
@@ -156,19 +160,14 @@ function TiktokCcTrendView() {
     queryFn: () => fetchTiktokCcTrends(TIKTOK_CC_DAYS),
     staleTime: 5 * 60 * 1000,
   });
-  const sourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: sourceStatusQueryKey,
-    queryFn: fetchSourcingTiktokCcSourceStatus,
-    refetchInterval: (statusQuery) => (
-      statusQuery.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
-    ),
-  }));
+  const sourceControl = useCollectionSourceControl(tiktokCcCollection);
+  const latestAttempt = sourceControl.status?.latestAttempt;
   useEffect(() => {
-    const state = sourceStatusQuery.data?.latestAttempt?.state;
+    const state = latestAttempt?.state;
     if (state === 'COMPLETE' || state === 'FAILED') {
       retryKeysByRequestFingerprint.current.delete(TIKTOK_SOURCE_REQUEST_FINGERPRINT);
     }
-  }, [sourceStatusQuery.data?.latestAttempt?.attemptId, sourceStatusQuery.data?.latestAttempt?.state]);
+  }, [latestAttempt?.attemptId, latestAttempt?.state]);
   const collectionMutation = useMutation({
     mutationFn: async () => {
       // This view has no collection options. Keep the former empty CTA semantics
@@ -205,13 +204,13 @@ function TiktokCcTrendView() {
       void queryClient.invalidateQueries({ queryKey: sourceStatusQueryKey });
     },
   });
-  const collecting = collectionMutation.isPending
-    || sourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
+  const collecting = collectionMutation.isPending || sourceControl.running !== null;
 
   return (
     <div className="space-y-3">
       <TiktokCcSourceStatus
-        source={sourceStatusQuery.data}
+        source={sourceControl.status}
+        control={sourceControl}
         collectionError={collectionMutation.error}
       />
       <ViewCard
@@ -251,36 +250,55 @@ function TiktokCcTrendView() {
 
 function TiktokCcSourceStatus({
   source,
+  control,
   collectionError,
 }: {
   source: SourcingTiktokCcSourceStatus | undefined;
+  control: CollectionControlView & Readonly<{ stop: () => void }>;
   collectionError: Error | null;
 }) {
   const errorMessage = collectionError?.message ?? null;
-  if ((!source || source.ready && source.latestAttempt?.state !== 'RUNNING') && !errorMessage) return null;
-
   const refreshing = source?.latestAttempt?.state === 'RUNNING';
+  const stopped = stoppedAttempt(source?.latestAttempt);
+  if ((!source || source.ready && !refreshing && !stopped) && !errorMessage) return null;
+
   const message = refreshing
     ? '틱톡 트렌드를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
-    : source?.errorMessage ?? errorMessage ?? '틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.';
+    : stopped
+      ? COLLECTION_STOPPED_MESSAGE
+      : source?.errorMessage ?? errorMessage ?? '틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.';
 
   return (
-    <p
+    <div
       role="status"
       className={cn(
-        'rounded-lg border px-3 py-2 text-xs font-semibold',
-        refreshing ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-amber-200 bg-amber-50 text-amber-800',
+        'flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold',
+        refreshing
+          ? 'border-sky-200 bg-sky-50 text-sky-700'
+          : stopped
+            ? 'border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-secondary)]'
+            : 'border-amber-200 bg-amber-50 text-amber-800',
       )}
     >
-      {message}
-      {source?.actualCutoffAt && (
-        <span className="ml-1.5 font-medium opacity-80">
-          최근 완료 기준 {formatDateTime(source.actualCutoffAt, {
-            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-          })}
-        </span>
+      <span>
+        {message}
+        {source?.actualCutoffAt && (
+          <span className="ml-1.5 font-medium opacity-80">
+            최근 완료 기준 {formatDateTime(source.actualCutoffAt, {
+              month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+            })}
+          </span>
+        )}
+      </span>
+      {refreshing && (
+        <CollectionStartControl
+          control={control}
+          startLabel="틱톡 수집"
+          onStart={() => undefined}
+          onStop={control.stop}
+        />
       )}
-    </p>
+    </div>
   );
 }
 

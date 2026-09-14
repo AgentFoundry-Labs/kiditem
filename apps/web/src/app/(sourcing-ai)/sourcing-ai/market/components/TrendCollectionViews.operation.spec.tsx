@@ -8,6 +8,7 @@ import { TrendCollectionViews } from './TrendCollectionViews';
 const directOwnerMocks = vi.hoisted(() => ({
   collect: vi.fn(),
   fetchStatus: vi.fn(),
+  cancel: vi.fn(),
 }));
 const trendMocks = vi.hoisted(() => ({
   fetch1688HotProducts: vi.fn(),
@@ -32,6 +33,14 @@ vi.mock('../lib/trend-collection-api', () => ({
 vi.mock('../../lib/sourcing-tiktok-source-owner', () => ({
   collectSourcingTiktokCcTrendsFromExtension: directOwnerMocks.collect,
   fetchSourcingTiktokCcSourceStatus: directOwnerMocks.fetchStatus,
+  cancelSourcingTiktokCcAttempt: directOwnerMocks.cancel,
+}));
+
+vi.mock('@/lib/browser-collection-session', () => ({
+  // This browser holds no session for the attempt, so a stop reaches the owner route.
+  sendBrowserCollectionControl: vi.fn(async () => {
+    throw new Error('no extension session');
+  }),
 }));
 
 vi.mock('../lib/live-commerce-api', () => ({
@@ -164,6 +173,36 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
     await waitFor(() => expect(directOwnerMocks.collect).toHaveBeenCalledTimes(2));
     expect(directOwnerMocks.collect.mock.calls[1][0].idempotencyKey)
       .not.toBe(directOwnerMocks.collect.mock.calls[0][0].idempotencyKey);
+  });
+
+  it('shows the running TikTok collection with a stop that ends it through its owner, then shows it stopped', async () => {
+    const attemptId = '00000000-0000-4000-8000-000000000778';
+    const status = (state: 'RUNNING' | 'FAILED') => ({
+      ready: true,
+      latestAttempt: {
+        attemptId,
+        state,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
+        errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
+      },
+      latestComplete: null,
+      actualCutoffAt: null,
+      errorCode: null,
+      errorMessage: null,
+    });
+    directOwnerMocks.fetchStatus.mockResolvedValue(status('RUNNING'));
+    directOwnerMocks.cancel.mockImplementation(async () => {
+      directOwnerMocks.fetchStatus.mockResolvedValue(status('FAILED'));
+    });
+    renderViews();
+
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(directOwnerMocks.cancel).toHaveBeenCalledWith(attemptId);
+    expect(directOwnerMocks.collect).not.toHaveBeenCalled();
+    expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
   });
 
   it('shows stale source failure and its actual cutoff without hiding the previous snapshot', async () => {

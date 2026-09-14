@@ -58,6 +58,11 @@ export function fetchSourcingTiktokCcSourceStatus(): Promise<SourcingTiktokCcSou
   return apiClient.get<SourcingTiktokCcSourceStatus>(`${BASE}/current`);
 }
 
+/** The owner's operator stop for a running TikTok Creative Center attempt; it needs no attempt token. */
+export function cancelSourcingTiktokCcAttempt(attemptId: string): Promise<unknown> {
+  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
 function parseCollectionReply(value: unknown): SourcingTiktokCcCollectionReply {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('KidItem OS 익스텐션이 틱톡 수집 결과를 올바르게 반환하지 않았습니다.');
