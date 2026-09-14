@@ -1796,25 +1796,27 @@
     return { period, periodLabel, dateFrom, dateTo };
   }
 
-  // URL hash에서 #targetDate=YYYY-MM-DD 읽기
-  function getTargetDateFromHash() {
-    const hash = window.location.hash || "";
-    const match = hash.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
-    return match ? match[1] : null;
-  }
-
   function normalizeDisplayedDate(value) {
     const match = String(value || "").match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
     if (!match) return null;
     return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
   }
 
-  function displayedRangeMatchesTarget(text, targetDate) {
+  // 기간은 "YYYY.MM.DD ~ YYYY.MM.DD"로, 하루는 그 날짜 한 번 또는 양쪽 모두로 표시된다.
+  function displayedRangeMatches(text, startDate, endDate) {
     const displayedDates = String(text || "")
       .match(/\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}/g)
       ?.map(normalizeDisplayedDate)
       .filter(Boolean) || [];
-    return displayedDates.length > 0 && displayedDates.every((date) => date === targetDate);
+    if (displayedDates.length === 0) return false;
+    if (startDate === endDate) return displayedDates.every((date) => date === startDate);
+    return displayedDates.length === 2 &&
+      displayedDates[0] === startDate &&
+      displayedDates[1] === endDate;
+  }
+
+  function displayedRangeMatchesTarget(text, targetDate) {
+    return displayedRangeMatches(text, targetDate, targetDate);
   }
 
   function dailyReportSelectionSettled(text, targetDate, pagination) {
@@ -1832,56 +1834,26 @@
     );
   }
 
-  async function waitForDisplayedTargetDateValue(targetDate, timeoutMs = 8000) {
-    const settled = await pollUntil(
-      () => {
-        const trigger = getDateRangeTrigger();
-        return displayedTargetDateSettled(
-          normalizeText(trigger?.innerText || trigger?.textContent || ""),
-          targetDate,
-        );
-      },
-      { timeoutMs, intervalMs: 250 },
-    );
-    return settled === true;
-  }
-
-  async function waitForDisplayedTargetDate(targetDate, timeoutMs = 8000) {
+  // 날짜 표시가 요청 기간이 될 때까지, firstPage면 보고서가 1페이지로 돌아올 때까지 기다린다.
+  async function waitForDisplayedRange(startDate, endDate, options = {}) {
     const settled = await pollUntil(
       () => {
         const trigger = getDateRangeTrigger();
         const displayed = normalizeText(
           trigger?.innerText || trigger?.textContent || "",
         );
-        return dailyReportSelectionSettled(
-          displayed,
-          targetDate,
-          parsePaginationInfo(),
-        );
+        if (!displayedRangeMatches(displayed, startDate, endDate)) return false;
+        return !options.firstPage ||
+          (Number(parsePaginationInfo().currentPage) || 1) === 1;
       },
-      { timeoutMs, intervalMs: 250 },
+      {
+        timeoutMs: Number(options.timeoutMs) || 8000,
+        intervalMs: 250,
+        now: options.now,
+        wait: options.wait,
+      },
     );
     return settled === true;
-  }
-
-  // "최근 7일" 기간 프리셋 버튼 클릭
-  // TODO: Playwriter로 실제 셀렉터 확인 후 교체 — 현재는 텍스트 매칭 휴리스틱
-  async function ensureLast7Days() {
-    const { dateFrom, dateTo, periodLabel } = detectPeriod();
-    if (periodLabel && periodLabel.includes("7일")) return true;
-    if (dateFrom && dateTo) {
-      const diff = Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1;
-      if (diff === 7) return true;
-    }
-
-    const btn = Array.from(document.querySelectorAll("button, [role='button'], [role='tab']")).find((el) => {
-      const t = normalizeText(el.innerText || "");
-      return t === "최근 7일" || t === "7일" || t === "지난 7일";
-    });
-    if (!btn) return false;
-    btn.click();
-    await sleep(2500);
-    return true;
   }
 
   // 페이지네이션: 다음 페이지 버튼 클릭 후 테이블 재로딩 대기
@@ -2002,53 +1974,59 @@
     return reset === true;
   }
 
-  // 날짜 피커를 특정 날짜로 설정.
-  // 쿠팡 광고 대시보드는 AntD range calendar. 트리거 → popup → 좌측 패널 월 네비 → 날짜 셀 두 번 클릭 → 적용.
-  async function setDateRange(ymd) {
-    const [targetY, targetM, targetD] = ymd.split("-").map((v) => parseInt(v, 10));
-    if (
-      !Number.isInteger(targetY) ||
-      !Number.isInteger(targetM) ||
-      !Number.isInteger(targetD) ||
-      targetM < 1 ||
-      targetM > 12 ||
-      targetD < 1 ||
-      targetD > 31
-    ) {
-      console.warn(`[KIDITEM] setDateRange: invalid date ${ymd}`);
+  // 날짜 피커를 특정 기간으로 설정한다.
+  // 쿠팡 광고 대시보드는 AntD range calendar다. 트리거 → popup → 시작 달과 끝 달이
+  // 함께 보일 때까지 월 네비 → 시작일 셀과 끝일 셀 클릭(하루는 같은 셀 두 번) → 적용 →
+  // 표시 기간과 1페이지 복귀를 확인한다.
+  async function selectReportDateRange(startDate, endDate, options = {}) {
+    const wait = options.wait || sleep;
+    const now = options.now || (() => Date.now());
+    const parseDay = (value) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+      if (!match) return null;
+      const [y, m, d] = match.slice(1).map((part) => parseInt(part, 10));
+      if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+      return { y, m, d, monthIndex: y * 12 + m };
+    };
+    const start = parseDay(startDate);
+    const end = parseDay(endDate);
+    // 두 패널은 이어진 두 달만 보여 준다. 그보다 긴 기간은 한 번에 고를 수 없다.
+    if (!start || !end || startDate > endDate || end.monthIndex - start.monthIndex > 1) {
+      console.warn(`[KIDITEM] selectReportDateRange: invalid range ${startDate} ~ ${endDate}`);
       return false;
     }
-    const targetMonthIndex = targetY * 12 + targetM;
 
-    // 1) 트리거 버튼 클릭 — SPA mount 가 늦으면 즉시 못 잡으므로 최대 15초 폴링
+    // 1) 트리거 버튼 — SPA mount 가 늦으면 즉시 못 잡으므로 최대 15초 폴링
     const triggerSelector = "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger";
     let trigger = null;
     for (let i = 0; i < 30; i++) {
       trigger = document.querySelector(triggerSelector);
       if (trigger) break;
-      await sleep(500);
+      await wait(500);
     }
     if (!trigger) {
-      console.warn("[KIDITEM] setDateRange: trigger not found after 15s polling");
+      console.warn("[KIDITEM] selectReportDateRange: trigger not found after 15s polling");
       return false;
     }
     // 2) AntD가 다시 마운트되며 첫 클릭을 버릴 수 있으므로 트리거를
     // 다시 찾고 제한된 횟수만큼 팝업 열기를 재시도한다.
     const popup = await openDateRangePopup({
       getTrigger: () => document.querySelector(triggerSelector),
+      wait,
+      now,
     });
     if (!popup) {
-      console.warn("[KIDITEM] setDateRange: popup not found after retries");
+      console.warn("[KIDITEM] selectReportDateRange: popup not found after retries");
       return false;
     }
     const left = popup.querySelector(".ant-calendar-range-left");
     const right = popup.querySelector(".ant-calendar-range-right");
     if (!left) {
-      console.warn("[KIDITEM] setDateRange: left panel not found");
+      console.warn("[KIDITEM] selectReportDateRange: left panel not found");
       return false;
     }
 
-    // 3) 좌/우 패널 중 타겟 월이 보일 때까지 네비게이션
+    // 3) 시작 달과 끝 달이 좌/우 패널에 함께 보일 때까지 네비게이션
     const readPanel = (panel, name) => {
       if (!panel) return null;
       const yearText = panel.querySelector(".ant-calendar-year-select")?.textContent || "";
@@ -2061,22 +2039,31 @@
       return { panel, name, y, m, monthIndex: y * 12 + m };
     };
     const readPanels = () => [readPanel(left, "left"), readPanel(right, "right")].filter(Boolean);
-    const findTargetPanel = () => readPanels().find((panel) => panel.monthIndex === targetMonthIndex) || null;
+    const panelFor = (monthIndex) =>
+      readPanels().find((panel) => panel.monthIndex === monthIndex) || null;
+    const rangeVisible = () => Boolean(panelFor(start.monthIndex) && panelFor(end.monthIndex));
     const panelKey = (panels) => panels.map((panel) => `${panel.name}:${panel.monthIndex}`).join("|");
 
-    let targetPanel = findTargetPanel();
-    if (!targetPanel) {
+    if (!rangeVisible()) {
       let guard = 0;
       while (guard++ < 60) {
         const panels = readPanels();
         if (panels.length === 0) {
-          console.warn("[KIDITEM] setDateRange: calendar header unreadable");
+          console.warn("[KIDITEM] selectReportDateRange: calendar header unreadable");
           return false;
         }
 
         const first = panels[0];
         const last = panels[panels.length - 1];
-        const direction = targetMonthIndex < first.monthIndex ? "prev" : "next";
+        const direction = start.monthIndex < first.monthIndex
+          ? "prev"
+          : end.monthIndex > last.monthIndex
+            ? "next"
+            : null;
+        if (!direction) {
+          console.warn(`[KIDITEM] selectReportDateRange: ${startDate} ~ ${endDate} months are not shown together`);
+          return false;
+        }
         const beforeKey = panelKey(panels);
         const btn = direction === "prev"
           ? left.querySelector(".ant-calendar-prev-month-btn")
@@ -2084,29 +2071,26 @@
             || left.querySelector(".ant-calendar-next-month-btn");
 
         if (!btn) {
-          console.warn(`[KIDITEM] setDateRange: month nav btn not found (direction=${direction})`);
+          console.warn(`[KIDITEM] selectReportDateRange: month nav btn not found (direction=${direction})`);
           return false;
         }
 
         btn.click();
-        await sleep(220);
-
-        targetPanel = findTargetPanel();
-        if (targetPanel) break;
+        await wait(220);
+        if (rangeVisible()) break;
 
         let afterPanels = readPanels();
         let afterKey = panelKey(afterPanels);
-        for (let wait = 0; wait < 5 && afterPanels.length > 0 && afterKey === beforeKey; wait++) {
-          await sleep(200);
-          targetPanel = findTargetPanel();
-          if (targetPanel) break;
+        for (let settle = 0; settle < 5 && afterPanels.length > 0 && afterKey === beforeKey; settle++) {
+          await wait(200);
+          if (rangeVisible()) break;
           afterPanels = readPanels();
           afterKey = panelKey(afterPanels);
         }
-        if (targetPanel) break;
+        if (rangeVisible()) break;
 
         if (afterPanels.length === 0 || afterKey === beforeKey) {
-          console.warn(`[KIDITEM] setDateRange: month nav stalled at ${beforeKey}`);
+          console.warn(`[KIDITEM] selectReportDateRange: month nav stalled at ${beforeKey}`);
           return false;
         }
 
@@ -2116,41 +2100,45 @@
           (direction === "next" && afterLast.monthIndex <= last.monthIndex) ||
           (direction === "prev" && afterFirst.monthIndex >= first.monthIndex)
         ) {
-          console.warn(`[KIDITEM] setDateRange: month nav moved unexpectedly (${beforeKey} -> ${afterKey})`);
+          console.warn(`[KIDITEM] selectReportDateRange: month nav moved unexpectedly (${beforeKey} -> ${afterKey})`);
           return false;
         }
       }
     }
 
-    if (!targetPanel) {
-      console.warn(`[KIDITEM] setDateRange: target month ${targetY}-${String(targetM).padStart(2, "0")} not visible`);
+    if (!rangeVisible()) {
+      console.warn(`[KIDITEM] selectReportDateRange: ${startDate} ~ ${endDate} months not visible`);
       return false;
     }
 
-    const findTargetCell = () => {
-      const cells = targetPanel.panel.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
-      for (const c of cells) {
-        const txt = c.querySelector(".ant-calendar-date")?.textContent?.trim();
-        if (txt === String(targetD)) {
-          return c.querySelector(".ant-calendar-date");
-        }
+    // 4) 날짜 셀 찾기 (이전/다음 달 셀 제외). 클릭할 때마다 패널이 다시 그려지므로
+    // 셀은 누르기 직전에 다시 찾는다.
+    const findCell = (monthIndex, day) => {
+      const panel = panelFor(monthIndex);
+      if (!panel) return null;
+      const cells = panel.panel.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
+      for (const cell of cells) {
+        const date = cell.querySelector(".ant-calendar-date");
+        if (date?.textContent?.trim() === String(day)) return date;
       }
       return null;
     };
 
-    // 4) 날짜 셀 찾기 (이전/다음 달 셀 제외)
-    let targetCell = findTargetCell();
-    if (!targetCell) {
-      console.warn(`[KIDITEM] setDateRange: target cell ${targetD} not found in ${targetPanel.name} panel`);
+    // 5) 시작일 → 끝일 클릭. 하루는 같은 날짜를 두 번 눌러 start=end로 만든다.
+    const startCell = findCell(start.monthIndex, start.d);
+    if (!startCell) {
+      console.warn(`[KIDITEM] selectReportDateRange: start cell ${startDate} not found`);
       return false;
     }
-
-    // 5) 같은 날짜 두 번 클릭 → range start=end=ymd
-    targetCell.click();
-    await sleep(200);
-    targetCell = findTargetCell() || targetCell;
-    targetCell.click();
-    await sleep(300);
+    startCell.click();
+    await wait(200);
+    const endCell = findCell(end.monthIndex, end.d) || (startDate === endDate ? startCell : null);
+    if (!endCell) {
+      console.warn(`[KIDITEM] selectReportDateRange: end cell ${endDate} not found`);
+      return false;
+    }
+    endCell.click();
+    await wait(300);
 
     // 6) 적용 버튼 — "적용" 텍스트 우선, 없으면 popup 내 primary 버튼 fallback
     const primaryBtns = Array.from(popup.querySelectorAll("button.ant-btn.ant-btn-primary"));
@@ -2162,31 +2150,35 @@
       applyBtn = primaryBtns[0];
     }
     if (!applyBtn) {
-      console.warn("[KIDITEM] setDateRange: apply button not found", primaryBtns.map((b) => b.textContent));
+      console.warn("[KIDITEM] selectReportDateRange: apply button not found", primaryBtns.map((b) => b.textContent));
       return false;
     }
     applyBtn.click();
 
-    // 테이블 재로딩 대기 후 트리거가 요청 날짜를 실제 표시하는지 확인한다.
-    // 날짜가 바뀌어도 React-Table은 직전 날짜의 page=2를 유지할 수 있으므로
+    // 테이블 재로딩 대기 후 트리거가 요청 기간을 실제 표시하는지 확인한다.
+    // 기간이 바뀌어도 React-Table은 직전 기간의 page=2를 유지할 수 있으므로
     // jump input을 실제 1페이지로 이동시키고 rows 정착까지 확인한다.
-    await sleep(3500);
-    const dateConfirmed = await waitForDisplayedTargetDateValue(ymd);
-    const pageReset = dateConfirmed
-      ? await resetReportPaginationToFirstPage()
+    await wait(3500);
+    const rangeShown = await waitForDisplayedRange(startDate, endDate, { now, wait });
+    const pageReset = rangeShown
+      ? await resetReportPaginationToFirstPage({ now, wait })
       : false;
     const confirmed = pageReset
-      ? await waitForDisplayedTargetDate(ymd)
+      ? await waitForDisplayedRange(startDate, endDate, { firstPage: true, now, wait })
       : false;
     if (!confirmed) {
-      const displayed = normalizeText(getDateRangeTrigger()?.innerText || "");
+      const displayed = normalizeText(getDateRangeTrigger()?.innerText || getDateRangeTrigger()?.textContent || "");
       const page = parsePaginationInfo().currentPage;
       console.warn(
-        `[KIDITEM] setDateRange: requested ${ymd}, displayed ` +
+        `[KIDITEM] selectReportDateRange: requested ${startDate} ~ ${endDate}, displayed ` +
         `${displayed || "(empty)"}, page=${page || "unknown"}`,
       );
     }
     return confirmed;
+  }
+
+  function setDateRange(ymd) {
+    return selectReportDateRange(ymd, ymd);
   }
 
   async function doSync(campaignControl = null) {
@@ -2208,32 +2200,25 @@
     // 로그인 화면에 떨어졌으면 날짜 피커를 만지기 전에 자동 로그인/재개로 넘긴다.
     const loginHandoff = advertisingLoginHandoffResponse();
     if (loginHandoff) return loginHandoff;
-    // A manual report keeps its existing plan/hash behavior.
-    const targetDate = manualCampaignControl?.plan?.period === "1d"
-      ? manualCampaignControl.plan.startDate
-      : getTargetDateFromHash();
-    if (targetDate) {
-      showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
-      const ok = await setDateRange(targetDate);
-      if (!ok) {
-        // 날짜 설정 실패 시 7일 기본값으로 저장하면 일별 집계와 섞여 중복 계산됨. 차라리 중단.
-        showBadge(`❌ ${targetDate} 날짜 피커 설정 실패 — 수집 중단 (7일치 오염 방지)`, "#ef4444");
-        return {
-          success: false,
-          complete: false,
-          reason: "date_picker_failed",
-          error: `${targetDate} 날짜를 광고센터에 적용하지 못했습니다.`,
-          targetDate,
-          expectedPages: 0,
-          visitedPages: [],
-        };
-      }
-      await sleep(1500);
-    } else {
-      // 캠페인 상세 페이지 진입 시 기본을 7일로 맞춤
-      showBadge(`📅 최근 7일 기간 설정 중...`, "#6366f1");
-      await ensureLast7Days();
+    // 보고서는 행을 읽기 전에 계획한 1일 또는 7일 기간을 정확히 표시해야 한다.
+    // 화면이 그 기간을 확인해 주지 않으면 다른 기간이 섞이지 않도록 시도를 실패시킨다.
+    const reportPlan = manualCampaignControl.plan;
+    const targetDate = reportPlan.period === "1d" ? reportPlan.startDate : null;
+    const reportRange = `${reportPlan.startDate} ~ ${reportPlan.endDate}`;
+    showBadge(`📅 ${reportRange} 기간 설정 중...`, "#6366f1");
+    if (!(await selectReportDateRange(reportPlan.startDate, reportPlan.endDate))) {
+      showBadge(`❌ ${reportRange} 기간을 맞추지 못해 수집을 멈췄습니다.`, "#ef4444");
+      return {
+        success: false,
+        complete: false,
+        reason: "date_picker_failed",
+        errorCode: "MANUAL_REPORT_SCOPE_MISMATCH",
+        error: `광고 보고서 기간을 ${reportRange}로 맞추지 못했습니다.`,
+        expectedPages: 0,
+        visitedPages: [],
+      };
     }
+    await sleep(1500);
 
     const campaignName = detectCampaignName();
     let { period, periodLabel, dateFrom, dateTo } = detectPeriod();
@@ -5798,6 +5783,7 @@
     resetReportPaginationToFirstPage,
     returnToDashboard,
     savePendingCampaignNavigation,
+    selectReportDateRange,
     sleep,
     shouldRunDashboardSweep,
     shouldRunProfitabilityReport,

@@ -87,10 +87,16 @@ function harness({ metadata = false, rawOnly = false, manual = false, manualPeri
       popup.className = 'ant-dropdown dashboard-metric-widget-calendar-dropdown';
       popup.innerHTML = '<div class="ant-calendar-range-left"><span class="ant-calendar-year-select">2026년</span><span class="ant-calendar-month-select">7월</span><table><tbody><tr>' +
         Array.from({length:31}, (_,i) => `<td class="ant-calendar-cell"><span class="ant-calendar-date">${i+1}</span></td>`).join('') + '</tr></tbody></table></div><button class="ant-btn ant-btn-primary">적용</button>';
-      for (const cell of popup.querySelectorAll('.ant-calendar-date')) cell.onclick = () => { selectedDate = `2026-07-${cell.textContent.padStart(2,'0')}`; };
+      // A range calendar takes a start pick and an end pick; one day is picked twice.
+      const picks = [];
+      for (const cell of popup.querySelectorAll('.ant-calendar-date')) cell.onclick = () => {
+        selectedDate = `2026-07-${cell.textContent.padStart(2,'0')}`;
+        picks.push(selectedDate);
+      };
       popup.querySelector('button').onclick = () => {
         appliedDates.push(selectedDate);
-        dom.window.document.querySelector('.dashboard-metric-widget-date-indicator-revamp').textContent = selectedDate === failDate ? '이전 날짜' : `${selectedDate} ~ ${selectedDate}`;
+        const [rangeStart, rangeEnd] = picks.length >= 2 ? picks.slice(-2).sort() : [selectedDate, selectedDate];
+        dom.window.document.querySelector('.dashboard-metric-widget-date-indicator-revamp').textContent = selectedDate === failDate ? '이전 날짜' : `${rangeStart} ~ ${rangeEnd}`;
         popup.remove();
       };
       dom.window.document.body.append(popup);
@@ -714,7 +720,7 @@ test('successful visited-group auxiliary capture shares campaign receipt ownersh
   } finally { h.close(); }
 });
 
-test('manual displayed seven-day report publishes one exact-period owner receipt without legacy sync', async () => {
+test('manual seven-day report picks its planned range and publishes one exact-period owner receipt without legacy sync', async () => {
   const h = harness({ manual: true });
   try {
     const result = await h.run();

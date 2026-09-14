@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { JSDOM } from "jsdom";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -77,6 +78,7 @@ function loadContract(options = {}) {
     showBadge() {},
     URL,
     URLSearchParams,
+    ...options.globals,
   });
   context.window = context;
   context.window.location = location;
@@ -1017,6 +1019,275 @@ test("date range popup opener retries when the first trigger click is dropped", 
 
   assert.equal(opened, popup);
   assert.equal(clicks, 2);
+});
+
+// The ad center's report date indicator opens an AntD range calendar: a left
+// and a right panel for two consecutive months, previous/next month controls,
+// day cells (with other-month days mixed in) and an apply button. Every click
+// re-renders the panels, as React does, and applying shows the picked range in
+// the indicator. `applyRange` lets a fixture show something other than what was
+// picked.
+function reportCalendar({ displayed, leftMonth, applyRange = (picked) => picked }) {
+  const dom = new JSDOM(`<!doctype html><body>
+    <dl><dt>업체코드</dt><dd>A0001</dd></dl>
+    <button class="dashboard-metric-widget-date-indicator-revamp ant-dropdown-trigger"></button>
+    <div class="ant-dropdown dashboard-metric-widget-calendar-dropdown ant-dropdown-hidden">
+      <div class="ant-calendar-range">
+        <div class="ant-calendar-range-part ant-calendar-range-left"></div>
+        <div class="ant-calendar-range-part ant-calendar-range-right"></div>
+      </div>
+      <div class="ant-calendar-footer">
+        <button class="ant-btn">취소</button><button class="ant-btn ant-btn-primary">적용</button>
+      </div>
+    </div>
+  </body>`, { url: "https://advertising.coupang.com/marketing/dashboard/sales" });
+  const { document } = dom.window;
+  dom.window.HTMLElement.prototype.getClientRects = () => [{ width: 1, height: 1 }];
+  const trigger = document.querySelector(".ant-dropdown-trigger");
+  const popup = document.querySelector(".ant-dropdown");
+  const parts = {
+    left: document.querySelector(".ant-calendar-range-left"),
+    right: document.querySelector(".ant-calendar-range-right"),
+  };
+  const state = { left: { ...leftMonth }, picks: [], clicks: [], navigations: [], displayed: { ...displayed } };
+  const monthAt = ({ y, m }, delta) => {
+    const index = y * 12 + (m - 1) + delta;
+    return { y: Math.floor(index / 12), m: (index % 12) + 1 };
+  };
+  const dateKey = ({ y, m }, day) => `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const showDisplayed = () => {
+    const dotted = (value) => value.replaceAll("-", ".");
+    trigger.textContent = `${dotted(state.displayed.start)} ~ ${dotted(state.displayed.end)}`;
+  };
+  const pick = (value) => {
+    state.clicks.push(value);
+    state.picks.push(value);
+    render();
+  };
+  const navigate = (direction) => {
+    state.navigations.push(direction);
+    state.left = monthAt(state.left, direction === "prev" ? -1 : 1);
+    render();
+  };
+  function renderPanel(part, month, navClass, direction) {
+    part.replaceChildren();
+    const header = document.createElement("div");
+    header.className = "ant-calendar-header";
+    const nav = document.createElement("a");
+    nav.className = navClass;
+    nav.addEventListener("click", () => navigate(direction));
+    const year = document.createElement("a");
+    year.className = "ant-calendar-year-select";
+    year.textContent = `${month.y}년`;
+    const monthSelect = document.createElement("a");
+    monthSelect.className = "ant-calendar-month-select";
+    monthSelect.textContent = `${month.m}월`;
+    header.append(nav, year, monthSelect);
+    const row = document.createElement("tr");
+    const addCell = (className, day, value) => {
+      const cell = document.createElement("td");
+      cell.className = className;
+      const date = document.createElement("div");
+      date.className = "ant-calendar-date";
+      date.textContent = String(day);
+      date.addEventListener("click", () => pick(value));
+      cell.append(date);
+      row.append(cell);
+    };
+    // A trailing day of the previous month repeats a real day number.
+    addCell("ant-calendar-cell ant-calendar-last-month-cell", 30, dateKey(monthAt(month, -1), 30));
+    const days = new Date(Date.UTC(month.y, month.m, 0)).getUTCDate();
+    for (let day = 1; day <= days; day += 1) addCell("ant-calendar-cell", day, dateKey(month, day));
+    addCell("ant-calendar-cell ant-calendar-next-month-cell", 1, dateKey(monthAt(month, 1), 1));
+    const table = document.createElement("table");
+    table.className = "ant-calendar-table";
+    table.append(row);
+    part.append(header, table);
+  }
+  function render() {
+    renderPanel(parts.left, state.left, "ant-calendar-prev-month-btn", "prev");
+    renderPanel(parts.right, monthAt(state.left, 1), "ant-calendar-next-month-btn", "next");
+  }
+  trigger.addEventListener("click", () => {
+    popup.classList.remove("ant-dropdown-hidden");
+    render();
+  });
+  document.querySelector(".ant-btn-primary").addEventListener("click", () => {
+    if (state.picks.length >= 2) {
+      const [first, second] = state.picks.slice(-2);
+      state.displayed = applyRange(first <= second
+        ? { start: first, end: second }
+        : { start: second, end: first });
+    }
+    state.picks = [];
+    popup.classList.add("ant-dropdown-hidden");
+    showDisplayed();
+  });
+  showDisplayed();
+  return { document, state, trigger };
+}
+
+function virtualClock() {
+  let clock = 0;
+  return {
+    now: () => clock,
+    wait: async (milliseconds) => {
+      clock += milliseconds;
+    },
+  };
+}
+
+test("report range picker selects a 7-day range inside one month and confirms it", async () => {
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 9 },
+  });
+  const contract = loadContract({ document: calendar.document });
+
+  const selected = await contract.selectReportDateRange("2026-09-07", "2026-09-13", virtualClock());
+
+  assert.equal(selected, true);
+  assert.deepEqual(calendar.state.navigations, []);
+  assert.deepEqual(calendar.state.clicks, ["2026-09-07", "2026-09-13"]);
+  assert.equal(calendar.trigger.textContent, "2026.09.07 ~ 2026.09.13");
+});
+
+test("report range picker moves back a month for a range that starts in the previous month", async () => {
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 9 },
+  });
+  const contract = loadContract({ document: calendar.document });
+
+  const selected = await contract.selectReportDateRange("2026-08-30", "2026-09-05", virtualClock());
+
+  assert.equal(selected, true);
+  assert.deepEqual(calendar.state.navigations, ["prev"]);
+  assert.deepEqual(calendar.state.clicks, ["2026-08-30", "2026-09-05"], "the previous month's trailing 30 is not clicked");
+  assert.equal(calendar.trigger.textContent, "2026.08.30 ~ 2026.09.05");
+});
+
+test("report range picker moves forward across a year boundary until both months are visible", async () => {
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 9 },
+  });
+  const contract = loadContract({ document: calendar.document });
+
+  const selected = await contract.selectReportDateRange("2026-12-29", "2027-01-04", virtualClock());
+
+  assert.equal(selected, true);
+  assert.deepEqual(calendar.state.navigations, ["next", "next", "next"]);
+  assert.deepEqual(calendar.state.clicks, ["2026-12-29", "2027-01-04"]);
+  assert.equal(calendar.trigger.textContent, "2026.12.29 ~ 2027.01.04");
+});
+
+test("report range picker picks one day twice for a 1-day range", async () => {
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 8 },
+  });
+  const contract = loadContract({ document: calendar.document });
+
+  const selected = await contract.selectReportDateRange("2026-09-13", "2026-09-13", virtualClock());
+
+  assert.equal(selected, true);
+  assert.deepEqual(calendar.state.clicks, ["2026-09-13", "2026-09-13"]);
+  assert.equal(calendar.trigger.textContent, "2026.09.13 ~ 2026.09.13");
+});
+
+test("report range picker reports failure when the indicator does not show the picked range", async () => {
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 9 },
+    // The page keeps its own preset instead of the picked range.
+    applyRange: () => ({ start: "2026-09-08", end: "2026-09-14" }),
+  });
+  const contract = loadContract({ document: calendar.document, console: { log() {}, warn() {}, error() {} } });
+
+  const selected = await contract.selectReportDateRange("2026-09-07", "2026-09-13", virtualClock());
+
+  assert.equal(selected, false);
+  assert.deepEqual(calendar.state.clicks, ["2026-09-07", "2026-09-13"]);
+});
+
+// A clock that moves a second every time the page reads it, so a confirmation
+// that never succeeds runs out of time without real waiting.
+function advancingDate() {
+  let clock = Date.parse("2026-09-14T00:00:00.000Z");
+  return class AdvancingDate extends Date {
+    constructor(...args) {
+      super(...(args.length > 0 ? args : [clock]));
+    }
+
+    static now() {
+      clock += 1000;
+      return clock;
+    }
+  };
+}
+
+test("a manual report fails with a scope mismatch when its report range cannot be confirmed", async () => {
+  const attemptId = "11111111-1111-4111-8111-111111111111";
+  const targetUrl = "https://advertising.coupang.com/marketing/dashboard/sales#kiditemManualReport=2026-09-07_2026-09-13";
+  const url = new URL(targetUrl);
+  const calendar = reportCalendar({
+    displayed: { start: "2026-09-08", end: "2026-09-14" },
+    leftMonth: { y: 2026, m: 9 },
+    applyRange: () => ({ start: "2026-09-08", end: "2026-09-14" }),
+  });
+  const control = {
+    attemptId,
+    state: "RUNNING",
+    expiresAt: "2030-01-02T00:00:00.000Z",
+    receipts: [],
+    pages: [],
+    campaigns: [],
+    plan: {
+      captureMode: "manual_report",
+      period: "7d",
+      startDate: "2026-09-07",
+      endDate: "2026-09-13",
+      targetUrl,
+      expectedAdvertiserId: "A0001",
+      businessDates: ["2026-09-13"],
+    },
+  };
+  const steps = [];
+  const runtime = loadContract({
+    exposeRuntime: true,
+    document: calendar.document,
+    location: { href: targetUrl, pathname: url.pathname, search: url.search, hash: url.hash },
+    globals: { Date: advancingDate() },
+    console: { log() {}, warn() {}, error() {} },
+    sendMessage(message, callback) {
+      if (message.action === "advertisingCampaignSourceStep") {
+        steps.push(message.step);
+        callback?.({ success: true, control });
+        return;
+      }
+      callback?.({ success: true });
+    },
+  });
+
+  const response = await new Promise((resolve) => {
+    for (const listener of runtime.messageListeners) {
+      listener({
+        action: "manualSync",
+        collectionRunId: attemptId,
+        collectionAttempt: 1,
+        environmentId: "local",
+        syncMode: "campaign_manual_report",
+        campaignControl: control,
+      }, {}, resolve);
+    }
+  });
+
+  assert.equal(response.success, false);
+  assert.equal(response.errorCode, "MANUAL_REPORT_SCOPE_MISMATCH");
+  assert.equal(response.error, "광고 보고서 기간을 2026-09-07 ~ 2026-09-13로 맞추지 못했습니다.");
+  assert.deepEqual(calendar.state.clicks, ["2026-09-07", "2026-09-13"], "the report picked the planned range");
+  assert.deepEqual(steps, ["resume"], "nothing was sent to the owner for an unconfirmed range");
 });
 
 test("empty target date builds an explicit all-zero daily fact", () => {
