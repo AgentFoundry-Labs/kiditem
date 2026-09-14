@@ -106,6 +106,11 @@ export class DashboardSalesService {
       const orderPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'order_timestamps');
       const closedDayPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_clipped');
       const profitPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_month');
+      // The rules often resolve the same window: a month selection's calendar
+      // and profit windows are the month's own, and a day, week or custom
+      // selection's profit window is its calendar window. Each distinct window
+      // is read once.
+      const readProfit = this.profitReader(organizationId);
 
       const [
         curMonth,
@@ -125,12 +130,12 @@ export class DashboardSalesService {
         latestWingDataDate,
         trafficFunnel,
       ] = await Promise.all([
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.month),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousMonth),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.selected),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousSelected),
-        this.profitCalculation.calculateForRange(organizationId, profitPeriods.month),
-        this.profitCalculation.calculateForRange(organizationId, profitPeriods.selected),
+        readProfit(orderPeriods.month),
+        readProfit(orderPeriods.previousMonth),
+        readProfit(orderPeriods.selected),
+        readProfit(orderPeriods.previousSelected),
+        readProfit(profitPeriods.month),
+        readProfit(profitPeriods.selected),
         this.salesRepository.fetchTodayKpis(organizationId, todayStart, todayEnd),
         // Top products sits inside the period section, under the period
         // filter. Reading the anchor month there meant a July selection
@@ -318,6 +323,29 @@ export class DashboardSalesService {
       this.logger.error('Failed to get sales summary', error);
       throw new InternalServerErrorException('Failed to get sales summary');
     }
+  }
+
+  /**
+   * A profit read that answers each distinct `[from, to)` window once per
+   * summary. The port's result depends only on the organization and the
+   * resolved window, so a period another closure rule resolved to the same
+   * window shares that read, and its Repeatable Read transaction, instead of
+   * opening another.
+   */
+  private profitReader(
+    organizationId: string,
+  ): (period: ResolvedDashboardPeriod) => Promise<RangeProfitMetrics> {
+    const reads = new Map<string, Promise<RangeProfitMetrics>>();
+    return (period) => {
+      const { from, to } = period.queryWindow;
+      const key = `${from.getTime()}/${to.getTime()}`;
+      let read = reads.get(key);
+      if (!read) {
+        read = this.profitCalculation.calculateForRange(organizationId, period);
+        reads.set(key, read);
+      }
+      return read;
+    };
   }
 
   // ── monthly mapping ─────────────────────────────────────────────────────

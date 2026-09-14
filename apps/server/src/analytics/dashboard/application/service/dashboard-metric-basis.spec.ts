@@ -166,7 +166,15 @@ function salesService(options: {
   return {
     sales: new DashboardSalesService(profit, sales, wing),
     ad: new DashboardAdService(profit, wing),
+    profit,
   };
+}
+
+/** The `[from, to)` windows the profit port was asked for, as sorted ISO pairs. */
+function profitWindowsRead(profit: ReturnType<typeof buildMockProfitCalculationRepo>): string[] {
+  return profit.calculateForRange.mock.calls
+    .map(([, period]) => `${period.queryWindow.from.toISOString()}/${period.queryWindow.to.toISOString()}`)
+    .sort();
 }
 
 /** Selected-range aggregates only; other windows report no evidence. */
@@ -194,7 +202,7 @@ describe('dashboard sales metricBasis', () => {
   it('reads the profit, rate and inputs of a month selection over its closed days while revenue keeps the calendar month', async () => {
     // 12:00 KST on 20 September: 1–19 September are closed.
     const anchor = new Date('2026-09-20T03:00:00.000Z');
-    const { sales } = salesService({
+    const { sales, profit } = salesService({
       profitFor: (period) => {
         const lastDate = period.selectedDates.at(-1);
         // Orders and the sweep cover every closed day: a measured profit.
@@ -238,6 +246,44 @@ describe('dashboard sales metricBasis', () => {
     for (const key of ['monthly.revenue', 'rangeKpi.revenue', 'topProducts.netProfit'] as const) {
       expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
     }
+    // Each distinct window is read once: August, September's closed days and
+    // calendar September. The month selection's own calendar and profit
+    // windows are the month's, so they share those reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+    ]);
+  });
+
+  it("shares a week selection's calendar read for its profit, whose window is the same", async () => {
+    // 12:00 KST on 20 September: the week is 13–19 September.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales, profit } = salesService({
+      profitFor: (period) => period.selectedDates[0] === '2026-09-13' && period.selectedDates.length === 7
+        ? profitMetrics(period, { revenue: 50_000, netProfit: 10_000 })
+        : profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null }),
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('week', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rangeKpi).toMatchObject({ revenue: 50_000, profit: 10_000, profitRate: 20 });
+    expect(result.profitInputs).toMatchObject({ revenue: 50_000 });
+    for (const key of ['rangeKpi.revenue', 'rangeKpi.profit', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-13', to: '2026-09-19' });
+    }
+    // August, September's closed days, calendar September, the week before
+    // and the week: five windows, five reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+      '2026-09-05T15:00:00.000Z/2026-09-12T15:00:00.000Z',
+      '2026-09-12T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+    ]);
   });
 
   it('publishes a partial revenue basis that keeps an internal hole visible', async () => {
