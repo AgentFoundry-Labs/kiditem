@@ -27,12 +27,18 @@ function gitSucceeds(args, cwd = repoRoot()) {
   }
 }
 
+function camelCase(flag) {
+  return flag.replace(/-([a-z0-9])/g, (_, character) => character.toUpperCase());
+}
+
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (!key.startsWith('--')) continue;
-    args[key.slice(2)] = argv[i + 1];
+    // Flags are read as camelCase properties, so `--body-file` has to land on
+    // `bodyFile` rather than on a key no reader spells.
+    args[camelCase(key.slice(2))] = argv[i + 1];
     i += 1;
   }
   return args;

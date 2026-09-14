@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   analyzePrReleaseContract,
   migrationReleaseFromPath,
@@ -670,5 +671,77 @@ test('still allows an undeclared historical migration in a promotion PR', () => 
     assert.deepEqual(result.errors, []);
   } finally {
     destroyFixture(fixture);
+  }
+});
+
+const guardPath = fileURLToPath(
+  new URL('../check-pr-release-contract.mjs', import.meta.url),
+);
+
+// `gh pr view` is the last-resort body source. Shadow it so a `--body-file`
+// regression cannot be masked by whatever PR body the current branch has.
+function withoutGh() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'pr-release-guard-'));
+  writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  return dir;
+}
+
+function runGuard(bodyPath, shimDir) {
+  return execFileSync(
+    'node',
+    [
+      guardPath,
+      '--base',
+      'HEAD',
+      '--files',
+      'prisma/models/thing.prisma',
+      '--body-file',
+      bodyPath,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        GITHUB_ACTIONS: '',
+        GITHUB_EVENT_PATH: '',
+        GITHUB_BASE_REF: '',
+        GITHUB_HEAD_REF: '',
+      },
+    },
+  );
+}
+
+test('--body-file with a release decision passes', () => {
+  const shimDir = withoutGh();
+  const bodyPath = path.join(shimDir, 'body.md');
+  writeFileSync(
+    bodyPath,
+    '## DB\nRelease decision: no version bump, schema-only change on the current release\n',
+  );
+
+  try {
+    assert.match(runGuard(bodyPath, shimDir), /check:pr-release-contract PASS/);
+  } finally {
+    rmSync(shimDir, { recursive: true, force: true });
+  }
+});
+
+test('--body-file without a release decision fails', () => {
+  const shimDir = withoutGh();
+  const bodyPath = path.join(shimDir, 'body.md');
+  writeFileSync(bodyPath, emptyBody);
+
+  try {
+    assert.throws(
+      () => runGuard(bodyPath, shimDir),
+      (error) => {
+        assert.equal(error.status, 1);
+        assert.match(error.stderr, /Release decision: field is required/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(shimDir, { recursive: true, force: true });
   }
 });
