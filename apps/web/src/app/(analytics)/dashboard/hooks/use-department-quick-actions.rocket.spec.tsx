@@ -8,8 +8,8 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Keep Rocket's control, fetch, parsers and public Chrome bridge real.
 vi.mock('@/hooks/useAllMarketplaceOrderCollection', () => ({ usePersistedAllMarketplaceOrderCollection: () => ({ collectAllOrders: vi.fn() }) }));
 vi.mock('@/hooks/useRocketChannelAccounts', () => ({ useRocketChannelAccounts: () => ({ rocketAccounts: [{ id: '22222222-2222-4222-8222-222222222222' }], isBootstrapping: false }) }));
-vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventorySourceOwner: () => ({ start: vi.fn(), state: null, isStarting: false }) }));
-vi.mock('@/hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ collect: vi.fn() }) }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventoryCollection: () => ({ control: { start: vi.fn(), stop: vi.fn() }, state: null }) }));
+vi.mock('@/hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ control: { start: vi.fn(), stop: vi.fn() }, start: vi.fn() }) }));
 vi.mock('@/lib/coupang-shipment-summary-action', () => ({ collectAndPersistCoupangShipmentSummary: vi.fn() }));
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); localStorage.clear(); });

@@ -10,7 +10,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Other department actions are outside this Trend integration. The trend control and React Query are real.
 vi.mock('@/hooks/useAllMarketplaceOrderCollection', () => ({ usePersistedAllMarketplaceOrderCollection: () => ({ collectAllOrders: vi.fn() }) }));
 vi.mock('@/hooks/useRocketChannelAccounts', () => ({ useRocketChannelAccounts: () => ({ rocketAccounts: [], isBootstrapping: false }) }));
-vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventorySourceOwner: () => ({ start: vi.fn(), state: null, isStarting: false }) }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventoryCollection: () => ({ control: { start: vi.fn(), stop: vi.fn() }, state: null }) }));
 vi.mock('@/lib/coupang-shipment-summary-action', () => ({ collectAndPersistCoupangShipmentSummary: vi.fn() }));
 vi.mock('@/hooks/use-rocket-po-source', () => ({ useRocketPoCollection: () => ({ start: vi.fn() }) }));
 
