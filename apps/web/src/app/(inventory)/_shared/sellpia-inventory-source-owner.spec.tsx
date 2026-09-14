@@ -66,7 +66,9 @@ beforeEach(() => {
 const CANCEL_PATH = `/api/inventory/sellpia-source/attempts/${ATTEMPT_ID}/cancel`;
 
 function startCollection() {
-  return sellpiaInventoryCollection({ organizationId: 'org-1' }).start(undefined, { status: undefined });
+  const { start } = sellpiaInventoryCollection({ organizationId: 'org-1' });
+  if (!start) throw new Error('The Sellpia inventory adapter has no start.');
+  return start(undefined, { status: undefined });
 }
 
 describe('Sellpia inventory source-owner transport', () => {

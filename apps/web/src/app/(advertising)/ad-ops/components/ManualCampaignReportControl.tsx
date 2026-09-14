@@ -1,6 +1,6 @@
 "use client";
 
-import type { ManualCampaignReportPeriod } from "@kiditem/shared/collection-start";
+import { useRef, type KeyboardEvent } from "react";
 import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
 import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
 import { cn } from "@/lib/utils";
@@ -8,11 +8,20 @@ import {
   adCampaignManualReportCollection,
   exactManualReportRange,
 } from "../lib/ad-campaign-collection";
+import type { ManualCampaignReportPeriod } from "@kiditem/shared/collection-start";
 
 const PERIODS: ReadonlyArray<Readonly<{ value: ManualCampaignReportPeriod; label: string }>> = [
   { value: "1d", label: "1일" },
   { value: "7d", label: "7일" },
 ];
+
+// A radio group's arrow keys check the previous or next choice, wrapping at either end.
+const ARROW_STEPS: Readonly<Partial<Record<string, number>>> = {
+  ArrowLeft: -1,
+  ArrowUp: -1,
+  ArrowRight: 1,
+  ArrowDown: 1,
+};
 
 /**
  * The manual campaign report control beside the report panel. It captures the
@@ -31,6 +40,20 @@ export default function ManualCampaignReportControl({
 }) {
   const control = useCollectionSourceControl(adCampaignManualReportCollection);
   const range = exactManualReportRange(period, knownThrough);
+  const choices = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // The checked choice is the group's only tab stop; an arrow key checks and
+  // focuses the neighbouring choice.
+  function moveChoice(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const step = ARROW_STEPS[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    const nextIndex = (index + step + PERIODS.length) % PERIODS.length;
+    const next = PERIODS.at(nextIndex);
+    if (!next) return;
+    onPeriodChange(next.value);
+    choices.current[nextIndex]?.focus();
+  }
 
   return (
     <div
@@ -48,13 +71,18 @@ export default function ManualCampaignReportControl({
             className="flex rounded-md p-0.5"
             style={{ background: "var(--surface-sunken)" }}
           >
-            {PERIODS.map((option) => (
+            {PERIODS.map((option, index) => (
               <button
                 key={option.value}
+                ref={(element) => {
+                  choices.current[index] = element;
+                }}
                 type="button"
                 role="radio"
                 aria-checked={period === option.value}
+                tabIndex={period === option.value ? 0 : -1}
                 onClick={() => onPeriodChange(option.value)}
+                onKeyDown={(event) => moveChoice(event, index)}
                 className={cn(
                   "rounded px-2.5 py-0.5 text-xs font-semibold transition-colors",
                   period === option.value

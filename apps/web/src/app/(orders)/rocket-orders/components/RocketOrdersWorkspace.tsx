@@ -487,7 +487,7 @@ export function RocketOrdersWorkspace({
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
               stoppedAttempt(rocketSource.data.latestAttempt)
                 ? <span> · 수집 중단됨 · {COLLECTION_STOPPED_MESSAGE}</span>
-                : <span className="text-amber-700"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
+                : <span className="text-[var(--danger)]"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
             )}
           </>
         )}

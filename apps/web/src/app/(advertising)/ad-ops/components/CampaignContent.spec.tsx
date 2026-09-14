@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendToExtension } from "@/lib/extension-bridge";
 import { queryKeys } from "@/lib/query-keys";
@@ -723,7 +724,7 @@ describe("CampaignContent manual campaign report control", () => {
 
   it("starts a 1-day report for the ad data cutoff on any page period and reads that range's reports", async () => {
     render(<CampaignContent initialCampaign={null} period="14d" />, { wrapper: wrapper() });
-    expect(await screen.findByRole("radio", { name: "7일" })).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByRole("radio", { name: "7일" })).toBeChecked();
 
     fireEvent.click(screen.getByRole("radio", { name: "1일" }));
     const start = screen.getByRole("button", { name: "원본 보고서 받기" });
@@ -748,6 +749,33 @@ describe("CampaignContent manual campaign report control", () => {
       expect(mockApiGet).toHaveBeenCalledWith(
         "/api/ads/ad-campaigns/reports?startDate=2026-07-23&endDate=2026-07-23",
       ));
+  });
+
+  it("moves the report period with the arrow keys as one radio group with one tab stop", async () => {
+    const user = userEvent.setup();
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+    const sevenDays = await screen.findByRole("radio", { name: "7일" });
+    const oneDay = screen.getByRole("radio", { name: "1일" });
+    expect(await screen.findByText("2026-07-17 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.click(sevenDays);
+    await user.keyboard("{ArrowLeft}");
+
+    expect(oneDay).toBeChecked();
+    expect(oneDay).toHaveFocus();
+    expect(sevenDays).not.toBeChecked();
+    expect(screen.getByText("2026-07-23 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowRight}");
+
+    expect(sevenDays).toBeChecked();
+    expect(sevenDays).toHaveFocus();
+    expect(screen.getByText("2026-07-17 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.tab({ shift: true });
+
+    expect(oneDay).not.toHaveFocus();
+    expect(sevenDays).not.toHaveFocus();
   });
 
   it("shows a running campaign sweep, the account's live attempt, on the manual report control", async () => {
