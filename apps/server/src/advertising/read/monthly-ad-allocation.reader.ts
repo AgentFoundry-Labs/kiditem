@@ -1,5 +1,5 @@
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { inclusiveDayCount } from '../../common/kst';
+import { businessDateKey, inclusiveDayCount } from '../../common/kst';
 import { clampProfitabilityMonthCoverage } from '../domain/profitability-month-coverage';
 import type { Prisma } from '@prisma/client';
 
@@ -84,15 +84,15 @@ export async function readMonthlyAdAllocationPublication(
   if (rows.length > MAX_MONTHLY_AD_ALLOCATION_ROWS) {
     throw new Error('SOURCE_FACTS_OVERFLOW');
   }
-  const coverageStartDate = calendarDate(run.coverageStartDate);
-  const coveredThrough = calendarDate(run.coverageEndDate);
+  const coverageStartDate = businessDateKey(run.coverageStartDate);
+  const coveredThrough = businessDateKey(run.coverageEndDate);
   if (coverageStartDate > coveredThrough) return null;
   const mappingGeneration = run.mappingGeneration.toString();
   const allocations: MonthlyAdAllocationFact[] = [];
   for (const row of rows) {
-    const month = calendarDate(row.month);
-    const coveredStartDate = calendarDate(row.coveredStartDate);
-    const coveredEndDate = calendarDate(row.coveredEndDate);
+    const month = businessDateKey(row.month);
+    const coveredStartDate = businessDateKey(row.coveredStartDate);
+    const coveredEndDate = businessDateKey(row.coveredEndDate);
     const allocatedSpend = Number(row.allocatedSpend);
     const observedDayLimit = inclusiveDayCount(row.coveredStartDate, row.coveredEndDate);
     if (row.mappingGeneration.toString() !== mappingGeneration
@@ -160,10 +160,6 @@ export async function readMonthlyAdAllocationPublication(
     adSourcePolicyHash: run.adSourcePolicyHash,
     allocations,
   };
-}
-
-function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 function findFrozenMonthSlice(
