@@ -16,8 +16,6 @@ import {
 } from '@/hooks/use-collection-source-control';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { attemptInProgress } from '@/lib/collection-start';
 import {
@@ -31,8 +29,6 @@ import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-
 import { invalidateSellpiaInventory } from './invalidate-sellpia-inventory';
 
 export const SELLPIA_INVENTORY_SOURCE_PATH = '/api/inventory/sellpia-source';
-export const SELLPIA_INVENTORY_SOURCE_ATTEMPT_STORAGE_PREFIX =
-  'kiditem:inventory:sellpia-source-attempt';
 export const SELLPIA_INVENTORY_EXTENSION_ACTION = 'collectSellpiaInventory';
 export const SELLPIA_INVENTORY_EXTENSION_CAPABILITY =
   'sellpiaInventorySourceOwnerV1';
@@ -85,41 +81,6 @@ export type SellpiaInventorySourceAttempt = z.infer<
 export type SellpiaInventorySourceOwnerTrigger = z.infer<
   typeof SellpiaSourceOwnerTriggerSchema
 >;
-/** The browser origin distinguishes local and office extension environments. */
-export function getSellpiaInventoryEnvironmentKey(): string {
-  if (typeof window === 'undefined') return 'server';
-  const origin = window.location.origin;
-  return origin && origin !== 'null'
-    ? origin
-    : `${window.location.protocol}//${window.location.host}`;
-}
-
-export function sellpiaInventorySourceAttemptStorageKey(
-  organizationId: string,
-  environmentKey = getSellpiaInventoryEnvironmentKey(),
-): string {
-  return [
-    SELLPIA_INVENTORY_SOURCE_ATTEMPT_STORAGE_PREFIX,
-    encodeURIComponent(organizationId),
-    encodeURIComponent(environmentKey),
-  ].join(':');
-}
-
-export function readSellpiaInventorySourceAttempt(
-  attemptId: string,
-): Promise<SellpiaInventorySourceAttempt> {
-  return apiClient
-    .getParsed(
-      `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}`,
-      SellpiaInventorySourceAttemptSchema,
-    )
-    .then((attempt) => {
-      if (attempt.attemptId !== attemptId) {
-        throw new Error('셀피아 재고 수집 시도 응답이 일치하지 않습니다.');
-      }
-      return attempt;
-    });
-}
 
 export function beginSellpiaInventorySourceAttempt(
   idempotencyKey: string,
@@ -153,50 +114,12 @@ export async function prepareSellpiaInventoryExtension(): Promise<string> {
   return runtime.extensionId;
 }
 
-function isNotFound(error: unknown): boolean {
-  return isApiError(error) && error.status === 404;
-}
-
 export type SellpiaInventorySourceOwnerState = {
   status: SellpiaInventoryFreshnessStatus;
   lastVerifiedAt: string | null;
   errorMessage: string | null;
   sourceBindingConfirmed: boolean;
 };
-
-const RememberedAttemptSchema = z
-  .object({ attemptId: z.string().uuid().nullable() })
-  .passthrough();
-
-/** The attempt this browser began or joined for the organization and environment. */
-export function readRememberedSellpiaInventoryAttemptId(
-  organizationId: string,
-  environmentKey = getSellpiaInventoryEnvironmentKey(),
-): string | null {
-  const raw = safeStorageGet(
-    'local',
-    sellpiaInventorySourceAttemptStorageKey(organizationId, environmentKey),
-  );
-  if (!raw) return null;
-  try {
-    const parsed = RememberedAttemptSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data.attemptId : null;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberSellpiaInventoryAttemptId(
-  organizationId: string,
-  attemptId: string | null,
-  environmentKey = getSellpiaInventoryEnvironmentKey(),
-): void {
-  safeStorageSet(
-    'local',
-    sellpiaInventorySourceAttemptStorageKey(organizationId, environmentKey),
-    JSON.stringify({ attemptId }),
-  );
-}
 
 /**
  * Sends the begun attempt's id to the extension. The extension answers only
@@ -211,36 +134,16 @@ export function dispatchSellpiaInventoryCollection(extensionId: string, attemptI
   ).catch(() => undefined);
 }
 
-export type SellpiaInventorySourceStatus = Readonly<{
-  freshness: SellpiaInventoryFreshnessView;
-  /**
-   * The attempt this browser began or joined. The freshness view reports a
-   * live lease without naming its attempt, so only this attempt can be stopped.
-   */
-  attempt: SellpiaInventorySourceAttempt | null;
-}>;
-
-async function readRememberedSellpiaInventoryAttempt(
-  organizationId: string,
-  environmentKey: string,
-): Promise<SellpiaInventorySourceAttempt | null> {
-  const attemptId = readRememberedSellpiaInventoryAttemptId(organizationId, environmentKey);
-  if (!attemptId) return null;
-  try {
-    return await readSellpiaInventorySourceAttempt(attemptId);
-  } catch (error) {
-    if (!isNotFound(error)) throw error;
-    // A pruned or foreign attempt is no longer this browser's collection.
-    rememberSellpiaInventoryAttemptId(organizationId, null, environmentKey);
-    return null;
+/**
+ * The owner's freshness read names the attempt holding the live lease, so every
+ * browser shows and stops the same collection. A manual upload holds the lease
+ * without an attempt and shows as running without a stop.
+ */
+function sellpiaInventoryRunning(freshness: SellpiaInventoryFreshnessView): CollectionRunning | null {
+  if (freshness.activeSync) {
+    return { attemptId: freshness.activeSync.attemptId, scopeLabel: null };
   }
-}
-
-function sellpiaInventoryRunning(status: SellpiaInventorySourceStatus): CollectionRunning | null {
-  if (status.attempt?.state === 'RUNNING') {
-    return { attemptId: status.attempt.attemptId, scopeLabel: null };
-  }
-  return status.freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
+  return freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
 }
 
 const SOURCE_RUNNING_POLL_MS = 2_000;
@@ -253,28 +156,20 @@ const SOURCE_IDLE_POLL_MS = 60_000;
  */
 export function sellpiaInventoryCollection({
   organizationId,
-  environmentKey,
 }: Readonly<{
   organizationId: string | null;
-  environmentKey: string;
-}>): CollectionSourceAdapter<SellpiaInventorySourceStatus> {
+}>): CollectionSourceAdapter<SellpiaInventoryFreshnessView> {
   return {
     sourceKey: 'inventory.sellpia',
     label: '셀피아 재고 수집',
     statusQuery: collectionSourceStatusQueryOptions<
-      SellpiaInventorySourceStatus,
+      SellpiaInventoryFreshnessView,
       Error,
-      SellpiaInventorySourceStatus,
+      SellpiaInventoryFreshnessView,
       QueryKey
     >({
-      queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? '', environmentKey),
-      queryFn: async () => {
-        const [freshness, attempt] = await Promise.all([
-          sellpiaInventoryFreshnessApi.getState(),
-          readRememberedSellpiaInventoryAttempt(organizationId ?? '', environmentKey),
-        ]);
-        return { freshness, attempt };
-      },
+      queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? ''),
+      queryFn: () => sellpiaInventoryFreshnessApi.getState(),
       enabled: Boolean(organizationId),
       refetchInterval: (query) =>
         query.state.data && sellpiaInventoryRunning(query.state.data)
@@ -285,23 +180,16 @@ export function sellpiaInventoryCollection({
     }),
     readRunning: sellpiaInventoryRunning,
     start: async (_input, { status }) => {
-      if (!organizationId) {
-        throw new Error('셀피아 재고 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
-      }
       const extensionId = await prepareSellpiaInventoryExtension();
-      const trigger = status?.freshness.status === 'failed' ? 'retry' : 'manual_request';
+      const trigger = status?.status === 'failed' ? 'retry' : 'manual_request';
       let started: SellpiaInventorySourceAttempt;
       try {
         started = await beginSellpiaInventorySourceAttempt(createSecureRandomUuid(), trigger);
       } catch (error) {
         const inProgress = attemptInProgress(error);
         if (!inProgress) throw error;
-        if (inProgress.attemptId) {
-          rememberSellpiaInventoryAttemptId(organizationId, inProgress.attemptId, environmentKey);
-        }
         return { outcome: 'running', attemptId: inProgress.attemptId };
       }
-      rememberSellpiaInventoryAttemptId(organizationId, started.attemptId, environmentKey);
       if (started.state === 'RUNNING') {
         dispatchSellpiaInventoryCollection(extensionId, started.attemptId);
       }
@@ -311,7 +199,7 @@ export function sellpiaInventoryCollection({
       apiClient.post(
         `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
       ),
-    readCompleteId: (status) => status.freshness.verifiedGeneration,
+    readCompleteId: (freshness) => freshness.verifiedGeneration,
     // A newer verified generation republished the snapshot every stock screen reads.
     onNewComplete: (queryClient) => {
       void invalidateSellpiaInventory(queryClient);
@@ -327,10 +215,9 @@ export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: bo
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const organizationId = enabled ? user?.organizationId ?? null : null;
-  const environmentKey = getSellpiaInventoryEnvironmentKey();
   const adapter = useMemo(
-    () => sellpiaInventoryCollection({ organizationId, environmentKey }),
-    [environmentKey, organizationId],
+    () => sellpiaInventoryCollection({ organizationId }),
+    [organizationId],
   );
   const control = useCollectionSourceControl(adapter);
   const statusQueryKey = adapter.statusQuery.queryKey;
@@ -338,7 +225,7 @@ export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: bo
     mutationFn: sellpiaInventoryFreshnessApi.confirmSourceBinding,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true }),
   });
-  const freshness = control.status?.freshness;
+  const freshness = control.status;
   const state: SellpiaInventorySourceOwnerState | null = freshness
     ? {
       status: freshness.status,

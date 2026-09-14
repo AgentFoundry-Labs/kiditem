@@ -2,14 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   beginSellpiaInventorySourceAttempt,
   dispatchSellpiaInventoryCollection,
-  getSellpiaInventoryEnvironmentKey,
-  readRememberedSellpiaInventoryAttemptId,
-  rememberSellpiaInventoryAttemptId,
-  sellpiaInventorySourceAttemptStorageKey,
 } from './sellpia-inventory-source-owner';
 
 const api = vi.hoisted(() => ({
-  getParsed: vi.fn(),
   post: vi.fn(),
 }));
 const extension = vi.hoisted(() => ({
@@ -24,9 +19,7 @@ vi.mock('@/lib/extension-bridge', () => ({
 }));
 
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const NEXT_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
-const OLD_KEY = '44444444-4444-4444-8444-444444444444';
 const NEW_KEY = '55555555-5555-4555-8555-555555555555';
 const FILE_HASH = 'a'.repeat(64);
 
@@ -62,7 +55,6 @@ function attempt(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  localStorage.clear();
   extension.send.mockResolvedValue({ success: true });
 });
 
@@ -106,32 +98,5 @@ describe('Sellpia inventory source-owner transport', () => {
     expect(() => dispatchSellpiaInventoryCollection('sellpia-extension', ATTEMPT_ID)).not.toThrow();
     await Promise.resolve();
     expect(extension.send).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('Sellpia inventory attempt persistence scope', () => {
-  it('keeps organization and environment correlations independent', () => {
-    const local = 'http://localhost:3000';
-    const office = 'http://kiditem-office';
-    rememberSellpiaInventoryAttemptId('org-1', ATTEMPT_ID, local);
-    rememberSellpiaInventoryAttemptId('org-2', NEXT_ATTEMPT_ID, local);
-    rememberSellpiaInventoryAttemptId('org-1', NEXT_ATTEMPT_ID, office);
-
-    expect(readRememberedSellpiaInventoryAttemptId('org-1', local)).toBe(ATTEMPT_ID);
-    expect(readRememberedSellpiaInventoryAttemptId('org-2', local)).toBe(NEXT_ATTEMPT_ID);
-    expect(readRememberedSellpiaInventoryAttemptId('org-1', office)).toBe(NEXT_ATTEMPT_ID);
-    expect(sellpiaInventorySourceAttemptStorageKey('org-1', local))
-      .not.toBe(sellpiaInventorySourceAttemptStorageKey('org-1', office));
-    expect(getSellpiaInventoryEnvironmentKey()).toBe(window.location.origin);
-  });
-
-  it('still reads an attempt this browser remembered in the earlier stored shape', () => {
-    const local = 'http://localhost:3000';
-    localStorage.setItem(
-      sellpiaInventorySourceAttemptStorageKey('org-1', local),
-      JSON.stringify({ attemptId: ATTEMPT_ID, idempotencyKey: OLD_KEY, trigger: 'manual_request' }),
-    );
-
-    expect(readRememberedSellpiaInventoryAttemptId('org-1', local)).toBe(ATTEMPT_ID);
   });
 });

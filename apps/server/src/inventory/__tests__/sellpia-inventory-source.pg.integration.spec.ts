@@ -299,6 +299,48 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
   });
 
+  it('names the running attempt in the organization freshness read by its id, never its token, so any browser can stop it', async () => {
+    const attempt = await begin('freshness-names-attempt');
+    const running = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(running).toMatchObject({
+      status: 'syncing',
+      activeSync: { attemptId: attempt.attemptId },
+    });
+    expect(JSON.stringify(running)).not.toContain(attempt.attemptToken);
+
+    expect((await cancel(running.activeSync?.attemptId ?? attempt.attemptToken).expect(200)).body)
+      .toMatchObject({ attemptId: attempt.attemptId, state: 'FAILED', errorCode: 'USER_CANCELLED' });
+    expect(await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    })).toMatchObject({ activeSync: null });
+  });
+
+  it('names no attempt while a manual upload claim holds the lease', async () => {
+    const claimToken = randomUUID();
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        activeSyncToken: claimToken,
+        activeSyncOwnerUserId: TEST_USER_ID,
+        activeSyncStartedAt: new Date(),
+        activeSyncLeaseExpiresAt: new Date(Date.now() + 90_000),
+        activeSyncScope: 'inventory',
+        activeGeneration: 1n,
+      },
+    });
+
+    const view = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(view).toMatchObject({ status: 'syncing', activeSync: { attemptId: null } });
+    expect(JSON.stringify(view)).not.toContain(claimToken);
+  });
+
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {
     const identity = await prisma.sellpiaInventorySku.create({
       data: {

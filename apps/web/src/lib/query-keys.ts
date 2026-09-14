@@ -88,9 +88,9 @@ export const queryKeys = {
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
     freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
-    // The collection control's read: freshness plus the attempt this browser began.
-    sellpiaSource: (organizationId: string, environmentKey: string) =>
-      [...queryKeys.inventory.freshness(), 'source', organizationId, environmentKey] as const,
+    // The collection control's read: the organization's freshness, which names its running attempt.
+    sellpiaSource: (organizationId: string) =>
+      [...queryKeys.inventory.freshness(), 'source', organizationId] as const,
     currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>

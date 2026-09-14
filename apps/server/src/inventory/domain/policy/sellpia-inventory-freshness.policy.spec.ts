@@ -44,7 +44,7 @@ describe('Sellpia inventory freshness policy', () => {
     });
 
     expect(deriveFreshnessStatus(state, NOW)).toBe('failed');
-    expect(toFreshnessView(state, NOW, null)).toMatchObject({
+    expect(toFreshnessView(state, NOW, null, null)).toMatchObject({
       status: 'failed',
       activeSync: null,
       lastAttempt: {

@@ -83,7 +83,12 @@ const SellpiaInventorySourceBindingViewSchema = z.discriminatedUnion(
 
 const SellpiaInventoryActiveSyncViewSchema = z
   .object({
-    runId: z.string().uuid(),
+    /**
+     * The browser source attempt holding the lease, which an operator stops by
+     * id from any browser. A manual upload holds the lease without one. The
+     * lease token is the attempt's write fence and is never part of the view.
+     */
+    attemptId: z.string().uuid().nullable(),
     generation: SellpiaInventoryGenerationSchema,
     scope: SellpiaSyncScopeSchema,
     startedAt: IsoDateTimeStringSchema,

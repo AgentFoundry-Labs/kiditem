@@ -11,13 +11,9 @@ import {
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { SellpiaSyncAction } from './SellpiaSyncAction';
-import {
-  readRememberedSellpiaInventoryAttemptId,
-  rememberSellpiaInventoryAttemptId,
-} from './sellpia-inventory-source-owner';
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
+  apiClient: { get: vi.fn(), post: vi.fn() },
 }));
 vi.mock('@/lib/extension-bridge', () => ({
   detectBrowserCollectionExtensionIds: vi.fn(),
@@ -87,7 +83,7 @@ function freshness(
     syncNotBefore: null,
     activeSync: status === 'syncing'
       ? {
-          runId: ATTEMPT_TOKEN,
+          attemptId: ATTEMPT_ID,
           generation: '8',
           scope: 'inventory',
           startedAt: '2026-09-14T01:00:00.000Z',
@@ -110,7 +106,6 @@ function freshness(
 }
 
 let freshnessView: ReturnType<typeof freshness>;
-let attempts: Record<string, ReturnType<typeof attempt>>;
 
 function renderActions(ui: ReactNode) {
   const client = new QueryClient({
@@ -127,9 +122,7 @@ function extensionMessages(action: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  localStorage.clear();
   freshnessView = freshness('refresh_required');
-  attempts = {};
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
     status: 'ready',
     extensionId: 'sellpia-extension',
@@ -142,17 +135,10 @@ beforeEach(() => {
     if (path === FRESHNESS_PATH) return freshnessView;
     throw new Error(`unexpected GET ${path}`);
   });
-  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
-    const id = path.split('/').at(-1) ?? '';
-    const found = attempts[id];
-    if (!found) throw new ApiError(404, 'SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND', 'not found');
-    return found;
-  });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
     if (path === BEGIN_PATH) {
-      attempts[ATTEMPT_ID] = attempt('RUNNING');
       freshnessView = freshness('syncing');
-      return attempts[ATTEMPT_ID];
+      return attempt('RUNNING');
     }
     throw new Error(`unexpected POST ${path}`);
   });
@@ -178,7 +164,6 @@ describe('SellpiaSyncAction', () => {
     expect(extensionMessages('collectSellpiaInventory')).toEqual([
       ['sellpia-extension', { action: 'collectSellpiaInventory', attemptId: ATTEMPT_ID }, 190_000],
     ]);
-    expect(readRememberedSellpiaInventoryAttemptId('org-1')).toBe(ATTEMPT_ID);
   });
 
   it('asks for a retry after a failed collection', async () => {
@@ -197,7 +182,6 @@ describe('SellpiaSyncAction', () => {
   it('joins the attempt the owner reports as already running instead of starting another', async () => {
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-      attempts[ATTEMPT_ID] = attempt('RUNNING');
       freshnessView = freshness('syncing');
       throw new ApiError(409, 'Conflict', 'Conflict', {
         code: 'ATTEMPT_IN_PROGRESS',
@@ -210,11 +194,11 @@ describe('SellpiaSyncAction', () => {
 
     expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
     expect(extensionMessages('collectSellpiaInventory')).toEqual([]);
-    expect(readRememberedSellpiaInventoryAttemptId('org-1')).toBe(ATTEMPT_ID);
   });
 
-  it("shows another browser's live collection as running without a stop it cannot name", async () => {
-    freshnessView = freshness('syncing');
+  it('shows a live lease that names no attempt, such as a manual upload, as running without a stop', async () => {
+    const syncing = freshness('syncing');
+    freshnessView = freshness('syncing', { activeSync: { ...syncing.activeSync, attemptId: null } });
     renderActions(<SellpiaSyncAction />);
 
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
@@ -222,13 +206,10 @@ describe('SellpiaSyncAction', () => {
     expect(screen.queryByRole('button', { name: '셀피아 재고 동기화' })).not.toBeInTheDocument();
   });
 
-  it('stops through the owner route when no extension holds the session', async () => {
-    rememberSellpiaInventoryAttemptId('org-1', ATTEMPT_ID);
-    attempts[ATTEMPT_ID] = attempt('RUNNING');
+  it('stops a collection another browser started, by the attempt the owner read names', async () => {
     freshnessView = freshness('syncing');
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`) throw new Error(`unexpected POST ${path}`);
-      attempts[ATTEMPT_ID] = attempt('FAILED', { errorCode: 'USER_CANCELLED', errorMessage: STOPPED });
       freshnessView = freshness('failed', {
         lastAttempt: {
           attemptedAt: '2026-09-14T01:00:00.000Z',
@@ -239,7 +220,7 @@ describe('SellpiaSyncAction', () => {
           errorMessage: STOPPED,
         },
       });
-      return attempts[ATTEMPT_ID];
+      return attempt('FAILED', { errorCode: 'USER_CANCELLED', errorMessage: STOPPED });
     });
     renderActions(<SellpiaSyncAction />);
 
@@ -259,14 +240,6 @@ describe('SellpiaSyncAction', () => {
       await screen.findByText('셀피아 재고 수집 익스텐션을 연결한 뒤 다시 시도해 주세요.'),
     ).toBeInTheDocument();
     expect(apiClient.post).not.toHaveBeenCalled();
-  });
-
-  it('forgets a remembered attempt the owner no longer has', async () => {
-    rememberSellpiaInventoryAttemptId('org-1', ATTEMPT_ID);
-    renderActions(<SellpiaSyncAction />);
-
-    expect(await screen.findByRole('button', { name: '셀피아 재고 동기화' })).toBeEnabled();
-    await waitFor(() => expect(readRememberedSellpiaInventoryAttemptId('org-1')).toBeNull());
   });
 
   it('refreshes inventory readers only when a newer verified generation appears', async () => {

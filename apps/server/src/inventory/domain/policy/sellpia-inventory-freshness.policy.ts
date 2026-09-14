@@ -96,6 +96,7 @@ export function toFreshnessView(
   state: SellpiaInventoryFreshnessState,
   now: Date,
   userId: string | null,
+  leaseAttemptId: string | null,
 ): SellpiaInventoryFreshnessView {
   const status = deriveFreshnessStatus(state, now);
   const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
@@ -105,7 +106,8 @@ export function toFreshnessView(
     && state.activeSyncStartedAt
     && state.activeSyncLeaseExpiresAt
     ? {
-      runId: state.activeSyncToken,
+      // The lease token is the attempt's write fence; the view names the attempt.
+      attemptId: leaseAttemptId,
       generation: state.activeGeneration.toString(),
       scope: state.activeSyncScope ?? 'inventory',
       startedAt: state.activeSyncStartedAt.toISOString(),

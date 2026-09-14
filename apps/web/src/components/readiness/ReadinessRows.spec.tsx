@@ -170,7 +170,7 @@ function sellpiaFreshness(
     syncNotBefore: null,
     activeSync: status === 'syncing'
       ? {
-          runId: SELLPIA_TOKEN,
+          attemptId: ATTEMPT_ID,
           generation: '8',
           scope: 'inventory',
           startedAt: '2026-09-05T16:30:00.000Z',

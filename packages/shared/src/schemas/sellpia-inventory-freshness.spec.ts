@@ -12,7 +12,7 @@ import {
 } from './sellpia-inventory-freshness';
 
 const VERIFIED_AT = new Date('2026-07-15T00:00:00.000Z');
-const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const ATTEMPT_ID = '00000000-0000-4000-8000-000000000001';
 
 const createFreshnessView = () => ({
   status: 'fresh' as const,
@@ -199,7 +199,7 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       ...createFreshnessView(),
       status: 'syncing',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         scope: 'inventory',
         startedAt: '2026-07-15T00:02:00.000Z',
@@ -215,14 +215,20 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         errorMessage: 'Network request failed',
       },
     });
-    expect(parsed.activeSync?.runId).toBe(RUN_ID);
+    expect(parsed.activeSync?.attemptId).toBe(ATTEMPT_ID);
     expect(parsed.activeSync).not.toHaveProperty('ownerUserId');
+    // A manual upload holds the lease without a source attempt.
+    expect(SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      status: 'syncing',
+      activeSync: { ...parsed.activeSync, attemptId: null },
+    }).activeSync?.attemptId).toBeNull();
   });
 
   it('rejects unknown keys throughout the view', () => {
     expect(() => SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
-      activeRunId: RUN_ID,
+      activeRunId: ATTEMPT_ID,
     })).toThrow();
     expect(() => SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
@@ -235,12 +241,12 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       ...createFreshnessView(),
       status: 'syncing',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         startedAt: '2026-07-15T00:02:00.000Z',
         leaseExpiresAt: '2026-07-15T00:03:30.000Z',
         canControl: true,
-        ownerUserId: RUN_ID,
+        ownerUserId: ATTEMPT_ID,
       },
     })).toThrow();
   });
@@ -253,7 +259,7 @@ describe('Sellpia freshness mutation contracts', () => {
       ...createFreshnessView(),
       requestedSyncScope: 'full',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         scope: 'full',
         startedAt: '2026-07-15T00:02:00.000Z',
