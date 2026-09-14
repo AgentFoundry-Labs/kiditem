@@ -3434,8 +3434,9 @@ test("a refused done report counts the action as skipped and sends no failure re
       assert.equal(message?.action, "kiditemApiRequest");
       const report = JSON.parse(message.init.body);
       reports.push(report.action);
-      // The attempt was closed while Coupang was being changed (for example an
-      // approval released it as abandoned), so the server refuses the outcome.
+      // After a won claim no other executor can move the attempt, so a 409 here
+      // means the attempt changed on the server meanwhile. The executor must
+      // still send nothing more for it.
       return report.action === "markDone"
         ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
         : { success: true, ok: true, status: 201, body: {} };
