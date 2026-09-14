@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { WingItemwinnerSourceStatusSchema } from '@kiditem/shared/advertising';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   WING_ITEMWINNER_KPI_READ_PORT,
@@ -76,14 +77,16 @@ export class WingItemwinnerKpiSourceController {
   }
 
   @Get('source')
-  sourceStatus(
+  async sourceStatus(
     @CurrentOrganization() organizationId: string,
     @Query('channelAccountId') channelAccountId?: string,
   ) {
     if (channelAccountId && !z.string().uuid().safeParse(channelAccountId).success) {
       throw new BadRequestException('INVALID_COUPANG_ACCOUNT');
     }
-    return this.read.readSourceStatus({ organizationId, channelAccountId });
+    return WingItemwinnerSourceStatusSchema.parse(
+      await this.read.readSourceStatus({ organizationId, channelAccountId }),
+    );
   }
 
   @Get('published')

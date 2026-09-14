@@ -1,3 +1,9 @@
+import type {
+  WingItemwinnerSourceAttempt,
+  WingItemwinnerSourcePlan as SharedWingItemwinnerSourcePlan,
+  WingItemwinnerSourceStatus as SharedWingItemwinnerSourceStatus,
+} from '@kiditem/shared/advertising';
+
 /**
  * Incoming capability for the single-page Coupang Wing item-winner source.
  *
@@ -24,15 +30,8 @@ export const WING_ITEMWINNER_PARSER = 'wing-itemwinner-v1' as const;
 export const WING_ITEMWINNER_TARGET_URL =
   'https://wing.coupang.com/tenants/seller-price-management' as const;
 
-export type WingItemwinnerSourcePlan = {
-  sourceType: typeof WING_ITEMWINNER_SOURCE;
-  parserVersion: typeof WING_ITEMWINNER_PARSER;
-  channelAccountId: string;
-  expectedVendorId: string;
-  businessDate: string;
-  pageType: 'itemwinner';
-  targetUrl: string;
-};
+/** Plan, attempt and status views are the shared `@kiditem/shared/advertising` contract. */
+export type WingItemwinnerSourcePlan = SharedWingItemwinnerSourcePlan;
 
 export type WingItemwinnerCapture = {
   providerVendorId?: string | null;
@@ -44,32 +43,13 @@ export type WingItemwinnerCapture = {
   timestamp?: string;
 };
 
-export type WingItemwinnerAttempt = {
-  attemptId: string;
-  channelAccountId: string;
-  generation: string;
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-  plan: WingItemwinnerSourcePlan;
-  expiresAt: string;
-  actualCutoffAt: string | null;
-  observedAt: string | null;
-  contentChecksum: string | null;
-  itemCount: number;
-  errorCode: string | null;
-  errorMessage: string | null;
-};
+export type WingItemwinnerAttempt = WingItemwinnerSourceAttempt;
 
 export type WingItemwinnerSourceControl = WingItemwinnerAttempt & {
   attemptToken: string;
 };
 
-export type WingItemwinnerSourceStatus = {
-  channelAccountId: string | null;
-  ready: boolean;
-  latestAttempt: WingItemwinnerAttempt | null;
-  latestComplete: WingItemwinnerAttempt | null;
-  actualCutoffAt: string | null;
-};
+export type WingItemwinnerSourceStatus = SharedWingItemwinnerSourceStatus;
 
 export type WingItemwinnerListingObservation = {
   listingId: string;

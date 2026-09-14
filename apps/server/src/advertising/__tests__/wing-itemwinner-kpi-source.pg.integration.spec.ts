@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import { WingItemwinnerSourceStatusSchema } from '@kiditem/shared/advertising';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
 import { WingItemwinnerKpiSourceController } from '../adapter/in/http/wing-itemwinner-kpi-source.controller';
@@ -220,13 +221,19 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
 
     const sourceOf = (channelAccountId: string) =>
       request(httpUrl).get(`${base}/source`).query({ channelAccountId });
-    expect((await source()).body).toMatchObject({
+    expect(WingItemwinnerSourceStatusSchema.parse((await source()).body)).toMatchObject({
       channelAccountId: accountId,
       latestAttempt: { attemptId: primary.attemptId, state: 'RUNNING' },
     });
-    expect((await sourceOf(second.id).expect(200)).body).toMatchObject({
+    expect(
+      WingItemwinnerSourceStatusSchema.parse((await sourceOf(second.id).expect(200)).body),
+    ).toMatchObject({
       channelAccountId: second.id,
-      latestAttempt: { attemptId: other.attemptId, state: 'RUNNING' },
+      latestAttempt: {
+        attemptId: other.attemptId,
+        state: 'RUNNING',
+        plan: { channelAccountId: second.id, targetUrl: WING_ITEMWINNER_TARGET_URL },
+      },
       latestComplete: null,
     });
     await sourceOf(randomUUID()).expect(404);
@@ -240,9 +247,13 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       observedAt: secondObservedAt,
       timestamp: secondObservedAt,
     })).expect(201);
-    expect((await sourceOf(second.id).expect(200)).body).toMatchObject({
+    expect(
+      WingItemwinnerSourceStatusSchema.parse((await sourceOf(second.id).expect(200)).body),
+    ).toMatchObject({
+      ready: true,
       latestAttempt: { attemptId: other.attemptId, state: 'COMPLETE' },
-      latestComplete: { attemptId: other.attemptId },
+      latestComplete: { attemptId: other.attemptId, observedAt: secondObservedAt },
+      actualCutoffAt: secondObservedAt,
     });
     expect((await source()).body).toMatchObject({
       latestAttempt: { attemptId: primary.attemptId, state: 'RUNNING' },
