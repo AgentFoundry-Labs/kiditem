@@ -37,6 +37,7 @@ const HANDOFF_SESSION_READ_TIMEOUT_MS = 2_000;
 const EXTENSION_RUN_REPLY_TIMEOUT_MS = 190_000;
 const HANDOFF_REFUSED = '확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
 const HANDOFF_UNANSWERED = '확장 프로그램이 수집을 넘겨받지 않았습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
+const HANDOFF_OTHER_RUN = '확장 프로그램이 다른 수집을 처리하느라 이 수집을 넘겨받지 못했습니다. 잠시 후 다시 시작해 주세요.';
 
 function koreanReason(message: unknown, fallback: string): string {
   const text = typeof message === 'string' ? message.trim() : '';
@@ -162,10 +163,15 @@ export async function startWebOpenedCollection(
 
 type RunAnswer = Readonly<{ taken: boolean; reason: string }>;
 
-function runAnswer(reply: unknown): RunAnswer {
-  const { success, terminalState, error } = (
+function runAnswer(reply: unknown, attemptId: string): RunAnswer {
+  const { success, terminalState, error, attemptId: answeredAttemptId } = (
     typeof reply === 'object' && reply !== null ? reply : {}
-  ) as { success?: unknown; terminalState?: unknown; error?: unknown };
+  ) as { success?: unknown; terminalState?: unknown; error?: unknown; attemptId?: unknown };
+  // An answer that names another attempt came from another run, such as an
+  // older one still active in this browser, and says nothing about this one.
+  if (typeof answeredAttemptId === 'string' && answeredAttemptId !== attemptId) {
+    return { taken: false, reason: HANDOFF_OTHER_RUN };
+  }
   // A finished run, or an attempt the owner already ended, needs nothing more
   // from the page; any other answer came before the extension took the attempt.
   return {
@@ -183,8 +189,9 @@ const wait = (ms: number) =>
  * Hands an attempt to an extension run that answers only when its collection
  * ends. The extension took the attempt once it shows the attempt's session, even
  * when it already answered without finishing (a login it waits on, say). Any
- * other answer is a refusal unless the attempt already ended, and no sign
- * within the deadline is a refusal too.
+ * other answer is a refusal unless the attempt already ended, an answer that
+ * names another attempt is always one, and no sign within the deadline is a
+ * refusal too.
  */
 export async function handOffToExtensionRun(
   extensionId: string,
@@ -194,7 +201,7 @@ export async function handOffToExtensionRun(
   const state: { answer: RunAnswer | null } = { answer: null };
   const answered = sendToExtension<unknown>(extensionId, message, EXTENSION_RUN_REPLY_TIMEOUT_MS).then(
     (reply) => {
-      state.answer = runAnswer(reply);
+      state.answer = runAnswer(reply, attemptId);
     },
     (error: unknown) => {
       state.answer = {

@@ -17,6 +17,8 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HANDOFF_REFUSED = '확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
 const HANDOFF_UNANSWERED = '확장 프로그램이 수집을 넘겨받지 않았습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
+const HANDOFF_OTHER_RUN = '확장 프로그램이 다른 수집을 처리하느라 이 수집을 넘겨받지 못했습니다. 잠시 후 다시 시작해 주세요.';
+const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 
 describe('startWebOpenedCollection', () => {
   const events: string[] = [];
@@ -233,6 +235,20 @@ describe('handOffToExtensionRun', () => {
 
     runReply = async () => ({ success: true, attemptId: ATTEMPT_ID, terminalState: 'COMPLETE' });
     await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).resolves.toBeUndefined();
+  });
+
+  it("refuses an answer that names another attempt, even a finished one, as another run's answer", async () => {
+    // An older run still active in this browser answers for its own attempt.
+    runReply = async () => ({ success: true, attemptId: OTHER_ATTEMPT_ID, terminalState: 'COMPLETE' });
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).rejects.toThrow(HANDOFF_OTHER_RUN);
+
+    runReply = async () => ({
+      success: false,
+      attemptId: OTHER_ATTEMPT_ID,
+      terminalState: 'FAILED',
+      error: '쿠팡 윙 로그인이 필요합니다.',
+    });
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).rejects.toThrow(HANDOFF_OTHER_RUN);
   });
 
   it('hands over a message that names its attempt only through the session the extension opens', async () => {

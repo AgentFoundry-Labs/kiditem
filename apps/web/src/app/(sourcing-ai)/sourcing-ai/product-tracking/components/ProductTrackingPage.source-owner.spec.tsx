@@ -15,6 +15,7 @@ const CANCEL_PATH = `${BASE}/attempts/${ATTEMPT_ID}/cancel`;
 const TRACKED_ACTION = 'collectAdvertisingTrackedWingProducts';
 const HANDOFF_REFUSED = '확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
 const HANDOFF_UNANSWERED = '확장 프로그램이 수집을 넘겨받지 않았습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
+const HANDOFF_OTHER_RUN = '확장 프로그램이 다른 수집을 처리하느라 이 수집을 넘겨받지 못했습니다. 잠시 후 다시 시작해 주세요.';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), delete: vi.fn(), post: vi.fn() },
@@ -219,6 +220,23 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
     fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
     expect(await screen.findByText(HANDOFF_REFUSED)).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(CANCEL_PATH);
+    expect(screen.getByRole('button', { name: '지표 새로고침' })).toBeEnabled();
+  });
+
+  it('stops the opened attempt through the owner when the tracked run answers with an older attempt it still runs', async () => {
+    // After a stop from another browser, this browser's older tracked run is
+    // still active, and the run answers with that attempt's result.
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      (message as { action: string }).action === TRACKED_ACTION
+        ? { success: true, attemptId: '10000000-0000-4000-8000-000000000009', terminalState: 'COMPLETE' }
+        : null);
+    renderPage();
+
+    await screen.findByText('추적 상품 1');
+    fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
+
+    expect(await screen.findByText(HANDOFF_OTHER_RUN)).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledWith(CANCEL_PATH);
     expect(screen.getByRole('button', { name: '지표 새로고침' })).toBeEnabled();
   });
