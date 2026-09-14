@@ -280,11 +280,11 @@ function domainCatalogFindings(file) {
   const count = stringValues(
     variableArray(file.path, file.source, "DOMAIN_KEYS"),
   ).length;
-  return count === 14
+  return count === 9
     ? []
     : [
         file.path +
-          ": Domain registry must define exactly fourteen domains (found " +
+          ": Domain registry must define exactly nine domains (found " +
           count +
           ")",
       ];

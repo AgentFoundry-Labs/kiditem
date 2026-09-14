@@ -26,6 +26,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
   let controller: Sourcing1688SearchController;
   let results: Sourcing1688SearchResultController;
   let wing: SourcingWingCatalogIngestService;
+  let searchResultsRepository: Sourcing1688SearchResultRepositoryAdapter;
   const session = { searchKeyword: vi.fn<(input: { keyword: string; signal?: AbortSignal }) => Promise<Search1688KeywordItem[]>>(async () => [offer]), close: vi.fn(async () => undefined) };
   const keywordProvider = { openSession: vi.fn(async () => session) };
   const imageProvider = { getStatus: vi.fn(), searchByImage: vi.fn() };
@@ -36,6 +37,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
       new SourceFailureAlerts(prisma as never));
     const repository = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
+    searchResultsRepository = repository;
     wing = new SourcingWingCatalogIngestService(attempts, new SourcingRecommendationSourceRepositoryAdapter(prisma as never));
     controller = new Sourcing1688SearchController(
       new Sourcing1688KeywordSearchService(keywordProvider, attempts, repository),
@@ -76,6 +78,22 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     });
     expect(keywordProvider.openSession).toHaveBeenCalledTimes(3);
     expect((await results.latest('儿童餐盘', undefined, '00000000-0000-4000-8000-000000000099')).observations).toEqual([]);
+  });
+
+  it('keeps an absent source score unavailable instead of publishing zero', async () => {
+    await controller.searchKeywords(
+      organizationId,
+      user as never,
+      'read-null-score',
+      { keywords: ['儿童餐盘'] },
+    );
+    await prisma.sourcing1688OfferKeywordObservation.updateMany({
+      where: { organizationId, externalOfferId: '123' },
+      data: { rawOffer: { tradeScore: 4.8 } },
+    });
+
+    await expect(results.latest('儿童餐盘', undefined, organizationId))
+      .resolves.toMatchObject({ observations: [{ items: [{ score: null }] }] });
   });
 
   it('reload read projects RUNNING and expiry without collecting or exposing provider rows', async () => {
@@ -196,6 +214,42 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     expect(result.attempts[0].state).toBe('FAILED');
     expect(result.result?.units[0].errorCode).toBe('target_not_authorized');
     expect(imageProvider.searchByImage).not.toHaveBeenCalled();
+  });
+
+  it('masks an old image target when the latest keyword publication is partial or missing', async () => {
+    await publishWing('catalog/old-valid.jpg');
+    await publishWing('catalog/latest-partial.jpg');
+    const latest = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow({
+      where: { organizationId, sourceKey: 'coupang.wing_catalog', status: 'COMPLETE' },
+      orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+    });
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: latest.id },
+      data: {
+        acceptedCount: 2,
+        qualityReport: {
+          snapshots: [{ keyword: '초등 필통' }],
+          wingReceipts: [{ count: 2, acceptedCount: 2, duplicateCount: 0 }],
+        },
+      },
+    });
+
+    const read = () => searchResultsRepository.resolveImageTargets({
+      organizationId,
+      targetIds: ['product-1::'],
+    });
+    await expect(read()).resolves.toEqual({
+      targets: [],
+      missingTargetIds: ['product-1::'],
+    });
+
+    await prisma.sourcingWingCatalogProductFact.deleteMany({
+      where: { organizationId, ingestionRunId: latest.id },
+    });
+    await expect(read()).resolves.toEqual({
+      targets: [],
+      missingTargetIds: ['product-1::'],
+    });
   });
 
   it('stops once when the shared keyword provider session cannot open, preserving its safe error code', async () => {

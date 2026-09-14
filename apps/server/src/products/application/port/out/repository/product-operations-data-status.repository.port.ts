@@ -3,6 +3,7 @@ import type {
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
 import type { ProfitabilityEvidenceSnapshot } from '../../../../../finance/application/port/in/master-product-profitability-read.port';
+import type { ProductAbcEvaluation } from '@kiditem/shared/product-abc';
 
 export const PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT = Symbol(
   'PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT',
@@ -20,6 +21,7 @@ export type ProductOperationsAbcSourceManifest = Readonly<{
 export type ProductOperationsDataStatusFacts = {
   displayDataAsOf: string | null;
   traffic: ProductOperationsDataSourceStatus;
+  orders: ProductOperationsDataSourceStatus;
   actualCutoff: string | null;
   sellpia: ProductOperationsDataSourceStatus;
   advertising: ProductOperationsDataSourceStatus;
@@ -39,6 +41,7 @@ export type ProductOperationsDataStatusFacts = {
   products: Array<{
     masterProductId: string;
     abcGrade: 'A' | 'B' | 'C' | null;
+    evaluation: ProductAbcEvaluation | null;
     mappingValid: boolean;
     saleStartDate: string | null;
   }>;

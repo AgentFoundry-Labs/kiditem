@@ -4,7 +4,6 @@ import type {
   AdAggregateRow,
   AdsConfig,
   HydratedListing,
-  KeyMetricsInput,
 } from '../../../domain/model/strategy-types';
 
 // ─────────────────────────────────────────────
@@ -15,13 +14,13 @@ const listingA: HydratedListing = {
   id: 'L_A',
   externalId: 'EXT-A',
   channelName: 'Ch-A',
+  channel: 'coupang',
   masterProduct: {
     id: 'M-A',
     code: 'M-A',
     name: 'A 상품',
     abcGrade: 'A',
     adTier: '1차',
-    healthScore: 80,
   },
   primaryOption: null,
 };
@@ -30,13 +29,13 @@ const listingB: HydratedListing = {
   id: 'L_B',
   externalId: 'EXT-B',
   channelName: 'Ch-B',
+  channel: 'coupang',
   masterProduct: {
     id: 'M-B',
     code: 'M-B',
     name: 'B 상품',
     abcGrade: 'B',
     adTier: '2차',
-    healthScore: 60,
   },
   primaryOption: null,
 };
@@ -45,13 +44,13 @@ const listingC: HydratedListing = {
   id: 'L_C',
   externalId: 'EXT-C',
   channelName: 'Ch-C',
+  channel: 'coupang',
   masterProduct: {
     id: 'M-C',
     code: 'M-C',
     name: 'C 상품',
     abcGrade: 'C',
     adTier: '3차',
-    healthScore: 30,
   },
   primaryOption: null,
 };
@@ -73,99 +72,6 @@ const emptyConfig: AdsConfig = {
   },
   gradeStrategy: {},
 };
-
-// ─────────────────────────────────────────────
-// calcSnapshotKeyMetrics
-// ─────────────────────────────────────────────
-
-describe('AdBudgetAllocatorService.calcSnapshotKeyMetrics', () => {
-  let service: AdBudgetAllocatorService;
-  beforeEach(() => {
-    service = new AdBudgetAllocatorService();
-  });
-
-  it('aggregates totals + perListing + gradeMap from snapshots', () => {
-    const result = service.calcSnapshotKeyMetrics({
-      snapshots: [
-        { listingId: 'L_A', spend: 10000, revenue: 50000, clicks: 100, impressions: 1000, conversions: 5 },
-        { listingId: 'L_B', spend: 5000, revenue: 10000, clicks: 50, impressions: 500, conversions: 2 },
-      ],
-      listings: [listingA, listingB],
-    });
-    expect(result.totals.spend).toBe(15000);
-    expect(result.totals.revenue).toBe(60000);
-    expect(result.totals.clicks).toBe(150);
-    expect(result.totals.impressions).toBe(1500);
-    expect(result.totals.conversions).toBe(7);
-
-    const aRow = result.perListing.get('L_A');
-    expect(aRow).toBeDefined();
-    expect(aRow!.metrics.spend).toBe(10000);
-    expect(aRow!.metrics.roas).toBeCloseTo(500);
-    expect(aRow!.metrics.ctr).toBeCloseTo(0.1);
-    expect(aRow!.metrics.cvr).toBeCloseTo(0.05);
-
-    expect(result.gradeMap.get('L_A')).toBe('A');
-    expect(result.gradeMap.get('L_B')).toBe('B');
-  });
-
-  it('aggregates multiple snapshots for the same listing into one perListing row', () => {
-    const result = service.calcSnapshotKeyMetrics({
-      snapshots: [
-        { listingId: 'L_A', spend: 1000, revenue: 4000, clicks: 10, impressions: 100, conversions: 1 },
-        { listingId: 'L_A', spend: 2000, revenue: 6000, clicks: 20, impressions: 200, conversions: 2 },
-      ],
-      listings: [listingA],
-    });
-    const row = result.perListing.get('L_A')!;
-    expect(row.metrics.spend).toBe(3000);
-    expect(row.metrics.revenue).toBe(10000);
-    expect(row.metrics.roas).toBeCloseTo((10000 / 3000) * 100);
-  });
-
-  it('skips snapshots with null listingId', () => {
-    const input: KeyMetricsInput = {
-      snapshots: [
-        { listingId: null, spend: 1000, revenue: 0, clicks: 10, impressions: 100, conversions: 0 },
-      ],
-      listings: [listingA],
-    };
-    const result = service.calcSnapshotKeyMetrics(input);
-    expect(result.totals.spend).toBe(0);
-    expect(result.perListing.size).toBe(0);
-  });
-
-  it('returns null ratios when divisor is 0 (no clicks / impressions / spend)', () => {
-    const result = service.calcSnapshotKeyMetrics({
-      snapshots: [
-        { listingId: 'L_A', spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 },
-      ],
-      listings: [listingA],
-    });
-    const row = result.perListing.get('L_A')!;
-    expect(row.metrics.ctr).toBeNull();
-    expect(row.metrics.roas).toBeNull();
-    expect(row.metrics.cvr).toBeNull();
-  });
-
-  it('omits listings with null abcGrade from gradeMap', () => {
-    const ungraded: HydratedListing = {
-      ...listingA,
-      id: 'L_X',
-      masterProduct: { ...listingA.masterProduct, id: 'M-X', code: 'M-X', abcGrade: null },
-    };
-    const result = service.calcSnapshotKeyMetrics({
-      snapshots: [],
-      listings: [listingA, ungraded],
-    });
-    expect(result.gradeMap.has('L_A')).toBe(true);
-    expect(result.gradeMap.has('L_X')).toBe(false);
-  });
-});
-
-// ─────────────────────────────────────────────
-// calcBudgetAllocation
-// ─────────────────────────────────────────────
 
 describe('AdBudgetAllocatorService.calcBudgetAllocation', () => {
   let service: AdBudgetAllocatorService;
@@ -362,13 +268,13 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
         id,
         externalId: `EXT-${i}`,
         channelName: `Ch-${i}`,
+        channel: 'coupang',
         masterProduct: {
           id: `M-${i}`,
           code: `M-${i}`,
           name: `상품${i}`,
           abcGrade: 'B',
           adTier: '2차',
-          healthScore: 50,
         },
         primaryOption: null,
       });

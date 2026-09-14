@@ -14,6 +14,9 @@ const earlierRow = {
   recipeStatus: 'matched' as const,
   components: [{
     sellpiaInventorySkuId: 'sellpia-sku-1',
+    code: 'SP-1',
+    name: 'Component',
+    optionName: null,
     quantity: 1,
     currentStock: 5,
     isActive: true,
@@ -101,7 +104,7 @@ describe('previewRocketCapacity', () => {
       ['line-later', 1],
     ]);
     const allocatedComponents = rows.reduce(
-      (total, row) => total + row.recommendedQuantity * row.components[0]!.quantity,
+      (total, row) => total + row.recommendedQuantity! * row.components[0]!.quantity,
       0,
     );
     expect(allocatedComponents).toBe(9);
@@ -150,6 +153,27 @@ describe('previewRocketCapacity', () => {
       'mapping_required',
       'review_required',
     ]);
+  });
+
+  it('withholds a recipe-backed row when its published inventory fact is unavailable', () => {
+    const [row] = previewRocketCapacity({
+      editedQuantities: {},
+      rows: [{
+        ...earlierRow,
+        components: [{
+          ...earlierRow.components[0]!,
+          currentStock: null,
+          isActive: null,
+        }],
+      }],
+    });
+
+    expect(row).toMatchObject({
+      recommendedQuantity: null,
+      maxQuantity: null,
+      editedQuantity: null,
+      reason: 'inventory_unavailable',
+    });
   });
 
   it.each([

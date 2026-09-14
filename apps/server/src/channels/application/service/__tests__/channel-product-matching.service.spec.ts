@@ -195,14 +195,14 @@ describe('ChannelProductMatchingService', () => {
       option: {
         inventoryComponents: [{
           sellpiaInventorySkuId: firstSkuId,
-          currentStock: 0,
-          availableStock: 0,
-          isActive: false,
+          currentStock: null,
+          availableStock: null,
+          isActive: null,
         }, {
           sellpiaInventorySkuId: secondSkuId,
-          currentStock: 0,
-          availableStock: 0,
-          isActive: false,
+          currentStock: null,
+          availableStock: null,
+          isActive: null,
         }],
       },
     });

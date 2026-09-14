@@ -393,9 +393,7 @@ select 'listing_daily', count(*) from channel_listing_daily_snapshots where chan
 union all
 select 'option_daily', count(*) from channel_listing_option_daily_snapshots where channel = 'coupang'
 union all
-select 'ad_target_daily', count(*) from channel_ad_target_daily_snapshots where channel = 'coupang'
-union all
-select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where channel = 'coupang';
+select 'ad_target_daily', count(*) from channel_ad_target_daily_snapshots where channel = 'coupang';
 "
 ```
 

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # auth — Authentication + Organization Context
 
 `src/auth/` owns global HTTP authentication, organization context, role checks,

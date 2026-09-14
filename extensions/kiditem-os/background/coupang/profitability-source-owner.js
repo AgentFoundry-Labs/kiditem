@@ -445,11 +445,11 @@
         const result = await active;
         return result === null ? run(input) : result;
       }
-      return launch(environmentId, async () => {
+      return launch(environmentId, () => takeWindowTurn(environmentId, async () => {
         const plan = await rehydrate(environmentId, true) ||
           await begin(environmentId, input?.idempotencyKey);
         return execute(environmentId, plan);
-      });
+      }));
     }
 
     async function cancel(input) {
@@ -487,13 +487,27 @@
       );
       const active = activeExecutions.get(normalizedEnvironmentId);
       if (active) return active;
-      return launch(normalizedEnvironmentId, async () => {
+      return launch(normalizedEnvironmentId, () => takeWindowTurn(normalizedEnvironmentId, async () => {
         const plan = await rehydrate(normalizedEnvironmentId);
         return plan ? execute(normalizedEnvironmentId, plan) : null;
-      });
+      }));
     }
 
-    return Object.freeze({ cancel, recover, run });
+    // A run holds the environment's collection window from its first read until
+    // its outcome is reported and its window and session are released.
+    function takeWindowTurn(environmentId, operation) {
+      return typeof options.takeWindowTurn === "function"
+        ? options.takeWindowTurn(environmentId, operation)
+        : operation();
+    }
+
+    // The owner answers a completed, failed or expired import as not found or
+    // conflicting instead of returning its plan: that attempt has ended.
+    async function attemptEnded(environmentId, attemptId) {
+      return (await readAttemptControl(environmentId, attemptId)) === null;
+    }
+
+    return Object.freeze({ attemptEnded, cancel, recover, run });
   }
 
   root.KidItemProfitabilitySourceOwner = Object.freeze({ create });

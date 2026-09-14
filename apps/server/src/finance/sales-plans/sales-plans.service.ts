@@ -1,45 +1,72 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import type { SalesPlanActuals, SalesPlanView } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  buildPerListingMetrics,
-  readAdEvidenceFromLedger,
+  profitWindowBasis,
+  profitWindowTotals,
+  readProfitWindowFacts,
+  resolveFinanceWindow,
 } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstMonthWindow } from '../../common/kst';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
+const PLAN_TARGET_SELECT = {
+  id: true,
+  period: true,
+  targetRevenue: true,
+  targetOrders: true,
+  targetProfit: true,
+  notes: true,
+} satisfies Prisma.SalesPlanSelect;
 
+type PlanTargets = Prisma.SalesPlanGetPayload<{ select: typeof PLAN_TARGET_SELECT }>;
+
+const MONTH_PERIOD = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** Percent of a target reached; a zero target or an unavailable actual has no rate. */
+function achievementRate(actual: number | null | undefined, target: number): number | null {
+  if (actual === null || actual === undefined || target === 0) return null;
+  return Math.round((actual / target) * 100);
+}
+
+/**
+ * Sales plans are operator targets; their actuals are the month's collected
+ * order lines over its KST business days closed at `now` (ADR-0001), read live
+ * with the observation time and basis behind them. Actuals are never written
+ * back: a stored default of 0 cannot say whether a month sold nothing or was
+ * never collected.
+ */
 @Injectable()
 export class SalesPlansService {
   constructor(
     private readonly prisma: PrismaService,
   ) {}
 
-  private resolveWindow(period: string) {
-    const [year, month] = period.split('-').map(Number);
-    return {
-      from: kstMonthStart(year, month),
-      to: kstMonthStart(year, month + 1),
-    };
-  }
-
-  async findAll(organizationId: string) {
-    return this.prisma.salesPlan.findMany({
+  async findAll(organizationId: string, now: Date): Promise<SalesPlanView[]> {
+    const plans = await this.prisma.salesPlan.findMany({
       where: { organizationId },
       orderBy: { period: 'desc' },
+      select: PLAN_TARGET_SELECT,
     });
+    // One snapshot per month, read one at a time so a long plan list does not
+    // hold several interactive transactions open together.
+    const views: SalesPlanView[] = [];
+    for (const plan of plans) views.push(await this.toView(organizationId, plan, now));
+    return views;
   }
 
-  async create(organizationId: string, dto: CreateSalesPlanDto) {
+  async create(organizationId: string, dto: CreateSalesPlanDto, now: Date): Promise<SalesPlanView> {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { organizationId, period: dto.period },
+      select: { id: true },
     });
 
     if (existing) {
       throw new BadRequestException(`해당 기간(${dto.period})의 판매 계획이 이미 존재합니다`);
     }
 
-    return this.prisma.salesPlan.create({
+    const plan = await this.prisma.salesPlan.create({
       data: {
         organizationId,
         period: dto.period,
@@ -48,72 +75,43 @@ export class SalesPlansService {
         targetProfit: dto.targetProfit ?? 0,
         notes: dto.notes,
       },
+      select: PLAN_TARGET_SELECT,
     });
+    return this.toView(organizationId, plan, now);
   }
 
-  async update(id: string, organizationId: string, dto: UpdateSalesPlanDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    dto: UpdateSalesPlanDto,
+    now: Date,
+  ): Promise<SalesPlanView> {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { id, organizationId },
+      select: { id: true },
     });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }
 
-    return this.prisma.salesPlan.update({
-      where: { id },
-      data: dto,
-    });
-  }
-
-  async syncActuals(id: string, organizationId: string) {
-    const plan = await this.prisma.salesPlan.findFirst({
-      where: { id, organizationId },
-    });
-    if (!plan) {
-      throw new NotFoundException('판매 계획을 찾을 수 없습니다');
-    }
-
-    const { from, to } = this.resolveWindow(plan.period);
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-
-    const [orderAgg, metrics] = await Promise.all([
-      this.prisma.order.aggregate({
-        where: {
-          organizationId,
-          orderedAt: {
-            gte: from,
-            lt: to,
-          },
-          status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-        },
-        _sum: { totalPrice: true },
-        _count: { id: true },
-      }),
-      // `actualProfit` is a stored scalar with no way to say "unavailable", so
-      // it totals the listings whose profit is measured and withholds the rest
-      // (ADR-0006) rather than folding in a partial ad sum.
-      buildPerListingMetrics(this.prisma, organizationId, from, to, accountAdEvidence),
-    ]);
-    const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
-
-    return this.prisma.salesPlan.update({
+    const plan = await this.prisma.salesPlan.update({
       where: { id },
       data: {
-        actualRevenue: orderAgg._sum.totalPrice ?? 0,
-        actualOrders: orderAgg._count.id ?? 0,
-        actualProfit,
+        period: dto.period,
+        targetRevenue: dto.targetRevenue,
+        targetOrders: dto.targetOrders,
+        targetProfit: dto.targetProfit,
+        notes: dto.notes,
       },
+      select: PLAN_TARGET_SELECT,
     });
+    return this.toView(organizationId, plan, now);
   }
 
   async delete(id: string, organizationId: string) {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { id, organizationId },
+      select: { id: true },
     });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
@@ -121,5 +119,46 @@ export class SalesPlansService {
 
     await this.prisma.salesPlan.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private async toView(organizationId: string, plan: PlanTargets, now: Date): Promise<SalesPlanView> {
+    const actuals = await this.readActuals(organizationId, plan.period, now);
+    return {
+      id: plan.id,
+      period: plan.period,
+      targetRevenue: plan.targetRevenue,
+      targetOrders: plan.targetOrders,
+      targetProfit: plan.targetProfit,
+      notes: plan.notes,
+      actuals,
+      achievement: {
+        revenue: achievementRate(actuals?.revenue, plan.targetRevenue),
+        orders: achievementRate(actuals?.orderCount, plan.targetOrders),
+        profit: achievementRate(actuals?.netProfit, plan.targetProfit),
+      },
+    } satisfies SalesPlanView;
+  }
+
+  private async readActuals(
+    organizationId: string,
+    period: string,
+    now: Date,
+  ): Promise<SalesPlanActuals | null> {
+    const match = MONTH_PERIOD.exec(period);
+    if (!match) return null;
+    const window = resolveFinanceWindow(kstMonthWindow(Number(match[1]), Number(match[2])), now);
+    const facts = await this.prisma.$transaction(
+      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const totals = profitWindowTotals(facts);
+    return {
+      revenue: totals.revenue,
+      orderCount: totals.orderCount,
+      netProfit: totals.netProfit,
+      // A month with no closed day was not observed at all.
+      observedAt: facts.orderWindow.requestedDates.length === 0 ? null : facts.orderWindow.observedAt,
+      basis: profitWindowBasis(facts),
+    } satisfies SalesPlanActuals;
   }
 }

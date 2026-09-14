@@ -1,18 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import {
-  SourcingWingCatalogObservationSchema,
-  type SourcingWingCatalogObservation,
-} from '@kiditem/shared/sourcing';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays } from '../../../../common/kst';
+import {
+  readCurrent1688OfferSnapshots,
+  readLatestWingCatalogPublicationFacts,
+} from '../../../read/source-evidence.reader';
 import type {
   SourcingCoupangObservationSource,
   SourcingOfferObservationSource,
   SourcingRecommendationSourceRepositoryPort,
 } from '../../../application/port/out/repository/sourcing-recommendation-source.repository.port';
+import type { SourcingWingCatalogObservation } from '@kiditem/shared/sourcing';
 
 const MAX_QUERY_LIMIT = 400;
-const WING_SOURCE_KEY = 'coupang.wing_catalog';
 
 @Injectable()
 export class SourcingRecommendationSourceRepositoryAdapter
@@ -26,20 +27,11 @@ export class SourcingRecommendationSourceRepositoryAdapter
     lookbackDays: number;
     limit: number;
   }): Promise<{ items: SourcingOfferObservationSource[]; rejectedCount: number }> {
-    const rows = await this.prisma.sourcing1688OfferKeywordObservation.findMany({
-      where: {
-        organizationId: input.organizationId,
-        capturedAt: { gte: lookbackStart(input.cutoffAt, input.lookbackDays), lte: input.cutoffAt },
-        evidenceObservation: {
-          availableAt: { lte: input.cutoffAt },
-          ingestedAt: { lte: input.cutoffAt },
-          supersededByObservation: null,
-          schemaVersion: '1688-hot-product/v2',
-          ingestionRun: { status: 'COMPLETE', isCurrentComplete: true },
-        },
-      },
-      orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
-      take: boundedQueryLimit(input.limit),
+    const rows = await readCurrent1688OfferSnapshots(this.prisma, {
+      organizationId: input.organizationId,
+      capturedFrom: lookbackStart(input.cutoffAt, input.lookbackDays),
+      cutoffAt: input.cutoffAt,
+      limit: boundedQueryLimit(input.limit),
     });
     const byObservationIdentity = new Map<string, SourcingOfferObservationSource>();
     let rejectedCount = 0;
@@ -80,65 +72,37 @@ export class SourcingRecommendationSourceRepositoryAdapter
     lookbackDays: number;
     limit: number;
   }): Promise<{ items: SourcingCoupangObservationSource[]; rejectedCount: number }> {
-    const completeAttempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: { organizationId: input.organizationId, sourceKey: WING_SOURCE_KEY,
-        scopeKey: 'default', targetKey: 'catalog', status: 'COMPLETE',
-        completedAt: { gte: lookbackStart(input.cutoffAt, input.lookbackDays), lte: input.cutoffAt } },
-      select: { id: true, qualityReport: true },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-    });
-    const latestByKeyword = new Map<string, string>();
-    for (const attempt of completeAttempts) {
-      const coverage = isRecord(attempt.qualityReport) ? attempt.qualityReport.snapshots : null;
-      for (const snapshot of Array.isArray(coverage) ? coverage : []) {
-        if (isRecord(snapshot) && typeof snapshot.keyword === 'string' && !latestByKeyword.has(snapshot.keyword)) {
-          latestByKeyword.set(snapshot.keyword, attempt.id);
-        }
-      }
-    }
-    if (latestByKeyword.size === 0) return { items: [], rejectedCount: 0 };
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
+    const publication = await this.prisma.$transaction(
+      (tx) => readLatestWingCatalogPublicationFacts(tx, {
         organizationId: input.organizationId,
-        platform: 'coupang',
-        sourceKey: 'coupang.wing_catalog',
-        schemaVersion: 'coupang-wing-catalog/v2',
-        availableAt: { lte: input.cutoffAt },
-        ingestedAt: { gte: lookbackStart(input.cutoffAt, input.lookbackDays), lte: input.cutoffAt },
-        supersededByObservation: null,
-        ingestionRun: { status: 'COMPLETE' },
-        OR: [...latestByKeyword].map(([conceptKey, ingestionRunId]) => ({ conceptKey, ingestionRunId })),
-      },
-      select: { id: true, payload: true },
-      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
-      take: boundedQueryLimit(input.limit),
-    });
+        capturedFrom: lookbackStart(input.cutoffAt, input.lookbackDays),
+        cutoffAt: input.cutoffAt,
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     const byProduct = new Map<string, SourcingCoupangObservationSource>();
-    let rejectedCount = 0;
-    for (const row of rows) {
-      const item = parseWingCatalogPayload(row.payload);
-      if (!item) {
-        rejectedCount += 1;
-        continue;
-      }
+    for (const row of publication.rows) {
       const source: SourcingCoupangObservationSource = {
-        evidenceObservationId: row.id,
-        productId: item.productId,
-        itemId: item.itemId,
-        vendorItemId: item.vendorItemId,
-        productName: item.productName,
-        sourceKeyword: item.sourceKeyword,
-        salePriceKrw: item.salePriceKrw,
-        ratingCount: item.ratingCount,
-        ratingAverage: item.ratingAverage,
-        viewsLast28d: item.viewsLast28d,
-        salesLast28d: item.salesLast28d,
-        capturedAt: new Date(item.capturedAt),
+        evidenceObservationId: row.evidenceObservationId,
+        productId: row.productId,
+        itemId: row.itemId,
+        vendorItemId: row.vendorItemId,
+        productName: row.productName,
+        sourceKeyword: row.sourceKeyword,
+        salePriceKrw: row.salePriceKrw,
+        ratingCount: row.ratingCount,
+        ratingAverage: row.ratingAverage == null ? null : Number(row.ratingAverage),
+        viewsLast28d: row.viewsLast28d,
+        salesLast28d: row.salesLast28d,
+        capturedAt: row.capturedAt,
       };
       const key = `${source.productId}\u001f${source.vendorItemId ?? source.itemId ?? ''}`;
       if (!byProduct.has(key)) byProduct.set(key, source);
     }
-    return { items: [...byProduct.values()].slice(0, input.limit), rejectedCount };
+    return {
+      items: [...byProduct.values()].slice(0, input.limit),
+      rejectedCount: publication.rejectedCount,
+    };
   }
 
   async listWingCatalogSnapshot(input: {
@@ -151,52 +115,60 @@ export class SourcingRecommendationSourceRepositoryAdapter
     rejectedCount: number;
   }> {
     const limit = Math.max(1, Math.min(400, Math.floor(input.limit)));
-    const publication = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
-      where: { organizationId: input.organizationId, sourceKey: WING_SOURCE_KEY,
-        scopeKey: 'default', targetKey: 'catalog', status: 'COMPLETE', completedAt: { not: null },
-        qualityReport: { path: ['snapshots'], array_contains: [{ keyword: input.normalizedKeyword }] } },
-      select: { id: true, completedAt: true },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-    });
-    if (!publication) return { generatedAt: null, items: [], rejectedCount: 0 };
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
+    const read = await this.prisma.$transaction(
+      (tx) => readLatestWingCatalogPublicationFacts(tx, {
         organizationId: input.organizationId,
-        platform: 'coupang',
-        sourceKey: 'coupang.wing_catalog',
-        schemaVersion: 'coupang-wing-catalog/v2',
-        ingestionRunId: publication.id,
-        conceptKey: input.normalizedKeyword,
-        supersededByObservation: null,
-      },
-      select: { id: true, payload: true },
-      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
-      take: Math.min(800, limit * 2),
-    });
+        normalizedKeywords: [input.normalizedKeyword],
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const publication = read.publications[0];
+    if (!publication) return { generatedAt: null, items: [], rejectedCount: 0 };
+    if (!publication.available) {
+      return {
+        generatedAt: null,
+        items: [],
+        rejectedCount: publication.rejectedCount,
+      };
+    }
     const byProduct = new Map<string, SourcingWingCatalogObservation>();
-    let rejectedCount = 0;
-    for (const row of rows) {
-      const item = parseWingCatalogPayload(row.payload);
-      if (!item) {
-        rejectedCount += 1;
-        continue;
-      }
+    for (const row of read.rows) {
+      const item = toWingCatalogObservation(row);
       const identity = `${item.productId}\u001f${item.vendorItemId ?? item.itemId ?? ''}`;
       if (!byProduct.has(identity)) byProduct.set(identity, item);
     }
     return {
       generatedAt: publication.completedAt,
       items: [...byProduct.values()].slice(0, limit),
-      rejectedCount,
+      rejectedCount: 0,
     };
   }
 }
 
-function parseWingCatalogPayload(
-  value: unknown,
-): SourcingWingCatalogObservation | null {
-  const current = SourcingWingCatalogObservationSchema.safeParse(value);
-  return current.success ? current.data : null;
+function toWingCatalogObservation(
+  row: Awaited<ReturnType<typeof readLatestWingCatalogPublicationFacts>>['rows'][number],
+): SourcingWingCatalogObservation {
+  return {
+    productId: row.productId,
+    itemId: row.itemId,
+    vendorItemId: row.vendorItemId,
+    productName: row.productName,
+    itemName: row.itemName,
+    brandName: row.brandName,
+    manufacture: row.manufacture,
+    categoryHierarchy: row.categoryHierarchy,
+    imagePath: row.imagePath,
+    salePriceKrw: row.salePriceKrw,
+    ratingAverage: row.ratingAverage == null ? null : Number(row.ratingAverage),
+    ratingCount: row.ratingCount,
+    viewsLast28d: row.viewsLast28d,
+    salesLast28d: row.salesLast28d,
+    estimatedRevenue28d: row.estimatedRevenue28d == null ? null : Number(row.estimatedRevenue28d),
+    conversionRate28d: row.conversionRate28d == null ? null : Number(row.conversionRate28d),
+    deliveryInfo: row.deliveryInfo,
+    sourceKeyword: row.sourceKeyword,
+    capturedAt: row.capturedAt.toISOString(),
+  };
 }
 
 function lookbackStart(cutoffAt: Date, lookbackDays: number): Date {

@@ -62,7 +62,10 @@ export async function getCoupangCatalogBrowserStatus(
   extensionId: string,
   attemptId: string,
 ): Promise<CoupangCatalogBrowserStatus> {
-  const status = CoupangCatalogBrowserStatusSchema.parse(await sendToExtension(extensionId, {
+  // The shared contract stays strict for the extension's own drift tests. An
+  // installed extension is reloaded by hand, so this reader drops keys an older
+  // build still sends instead of discarding the progress it did report.
+  const status = CoupangCatalogBrowserStatusSchema.strip().parse(await sendToExtension(extensionId, {
     action: 'getCoupangCatalogImportStatus',
     attemptId,
   }));

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { sourcingApi } from '../lib/sourcing-api';
 
@@ -55,14 +56,13 @@ export function useScrapeUrl() {
     return () => window.clearTimeout(timeout);
   }, [showScrapeInput, trimmedScrapeUrl]);
 
-  const scrapeStatusQuery = useQuery({
+  const scrapeStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.sourcing.scrapeUrlStatus(statusUrl),
     queryFn: () => sourcingApi.scrapeUrlStatus(statusUrl),
     enabled: Boolean(statusUrl),
-    retry: false,
     staleTime: 0,
     refetchInterval: (query) => query.state.data?.source.latestAttempt?.state === 'RUNNING' ? 2000 : false,
-  });
+  }));
 
   const duplicate = useMemo(() => {
     if (statusUrl !== trimmedScrapeUrl) return null;

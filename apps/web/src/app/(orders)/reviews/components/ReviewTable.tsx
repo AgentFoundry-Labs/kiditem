@@ -100,7 +100,11 @@ export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SI
                     </span>
                   </td>
                   <td className="text-right tabular-nums">{d.recentReviews}</td>
-                  <td className="text-right tabular-nums">{d.orderCount}</td>
+                  <td className="text-right tabular-nums">
+                    {d.orderCount === null
+                      ? <span className="text-slate-500" aria-label="주문 수 미측정">미측정</span>
+                      : d.orderCount}
+                  </td>
                   <td>
                     {status === 'insufficient' && (
                       <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-800">리뷰 부족</span>

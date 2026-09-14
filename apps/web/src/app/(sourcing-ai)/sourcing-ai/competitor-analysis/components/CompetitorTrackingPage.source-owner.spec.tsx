@@ -44,13 +44,12 @@ function overview() {
   return {
     periodDays: 30,
     collection: {
-      status: 'ready' as const,
       ownProductCount: 1,
       wingProductCount: 1,
       storefrontProductCount: 1,
-      storefrontStatus: 'ready' as const,
       trackerCount: 1,
       enabledTrackerCount: 1,
+      serpSnapshotCount: 1,
       trackedKeywords: ['슬라임'],
       suggestedKeywords: [],
       watchedCompetitors: [],
@@ -258,5 +257,51 @@ describe('CompetitorTrackingPage direct source owner', () => {
     await screen.findByText('판매자 상세');
     expect(screen.getByText(/마지막 수집 실패: COMPETITOR_CATALOG_TARGET_COLLECTION_FAILED/)).toBeInTheDocument();
     expect(screen.getByText(/seller catalog failed/)).toBeInTheDocument();
+  });
+});
+
+describe('CompetitorTrackingPage collection state from published counts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchCompetitorCatalogSourceStatus).mockResolvedValue(sourceStatus());
+    vi.mocked(detectCompetitorExtensionGate).mockResolvedValue({
+      status: 'ready', extensionId: 'extension-id', version: '1.0.0',
+    });
+  });
+
+  function emptyOverview(counts: {
+    ownProductCount: number;
+    enabledTrackerCount: number;
+    serpSnapshotCount: number;
+  }) {
+    const base = overview();
+    return { ...base, collection: { ...base.collection, ...counts }, sellers: [] };
+  }
+
+  it('shows the own-catalog empty state when no own product was loaded', async () => {
+    vi.mocked(fetchCompetitorTrackingOverview).mockResolvedValue(
+      emptyOverview({ ownProductCount: 0, enabledTrackerCount: 1, serpSnapshotCount: 1 }),
+    );
+    renderPage();
+
+    expect(await screen.findByText('자사 상품을 불러오지 못했습니다')).toBeInTheDocument();
+  });
+
+  it('asks to prepare tracking keywords when no tracker is enabled', async () => {
+    vi.mocked(fetchCompetitorTrackingOverview).mockResolvedValue(
+      emptyOverview({ ownProductCount: 1, enabledTrackerCount: 0, serpSnapshotCount: 3 }),
+    );
+    renderPage();
+
+    expect(await screen.findByText('추적 키워드를 준비할게요')).toBeInTheDocument();
+  });
+
+  it('reports an uncollected period when trackers are enabled but no snapshot was read', async () => {
+    vi.mocked(fetchCompetitorTrackingOverview).mockResolvedValue(
+      emptyOverview({ ownProductCount: 1, enabledTrackerCount: 2, serpSnapshotCount: 0 }),
+    );
+    renderPage();
+
+    expect(await screen.findByText('아직 경쟁 판매자 수집값이 없습니다')).toBeInTheDocument();
   });
 });

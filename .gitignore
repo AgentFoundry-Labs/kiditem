@@ -34,6 +34,8 @@ graphify-out/
 *.db
 
 # Local dev scratch — scripts, scraped data dumps, generated artifacts (never commit)
+.artifact/
+.artifacts/
 tmp/
 output/
 outputs/

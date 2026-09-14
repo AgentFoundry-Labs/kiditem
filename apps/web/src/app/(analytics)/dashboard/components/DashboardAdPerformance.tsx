@@ -1,7 +1,7 @@
 'use client';
 
+import { DashboardBasisDisclosure, dashboardSourceLabel } from './DashboardDataBasis';
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
-import { DashboardBasisDisclosure } from './DashboardDataBasis';
 
 /**
  * Ad conversion revenue used to sit inside the revenue card, under a "쿠팡"
@@ -20,15 +20,32 @@ export interface AdPerformanceRow {
   sublabel?: string;
   /** Formatted by the caller, which owns the unit and the withheld marker. */
   display: string;
+  basis: DashboardMetricBasis | null;
 }
 
 export function DashboardAdPerformance({
   rows,
-  basis,
+  rangeLabel,
+  source,
+  knownThrough,
+  effectiveAdSource,
 }: {
   rows: AdPerformanceRow[];
-  basis: DashboardMetricBasis | null;
+  rangeLabel: string;
+  source: string | null;
+  knownThrough: string | null;
+  effectiveAdSource: string | null;
 }) {
+  const sourceLabel = (source === 'coupang_ads' && dashboardSourceLabel(source)) || '미수집';
+  // The line used to end in the wire enum — `기준 none` beside 미수집. `none` is
+  // what 미수집 already says, and a source the line already names is not a
+  // second fact; anything else is, and it reads in the operator's words.
+  const effectiveSourceLabel = effectiveAdSource && effectiveAdSource !== 'none'
+    ? dashboardSourceLabel(effectiveAdSource)
+    : null;
+  const effectiveSourceText = effectiveSourceLabel && effectiveSourceLabel !== sourceLabel
+    ? ` · 기준 ${effectiveSourceLabel}`
+    : '';
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white overflow-hidden"
@@ -37,12 +54,17 @@ export function DashboardAdPerformance({
     >
       <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <h2 id="dashboard-ad-performance-title" className="text-sm font-semibold text-slate-900">
-          광고 성과 <span className="font-normal text-slate-500">쿠팡</span>
+          광고 성과 <span className="font-normal text-slate-500">{rangeLabel}</span>
         </h2>
         <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500" data-testid="ad-performance-source">
+            {sourceLabel}
+            {knownThrough ? ` · ${knownThrough}까지` : ''}
+            {effectiveSourceText}
+          </span>
           <DashboardBasisDisclosure
             label="광고 성과 근거"
-            entries={[{ label: '쿠팡 광고', basis }]}
+            entries={rows.map((row) => ({ label: row.label, basis: row.basis }))}
             meaning={(
               <p>
                 쿠팡 광고 계정의 일별 실적을 선택한 기간만큼 합친 값입니다. 광고전환매출은

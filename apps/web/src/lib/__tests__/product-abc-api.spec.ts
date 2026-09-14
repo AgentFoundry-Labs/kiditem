@@ -51,6 +51,33 @@ describe('recalculateProductAbc', () => {
     });
   });
 
+  it('accepts the pairing detail that names the source ending earlier', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      outcome: 'SOURCE_NOT_READY',
+      publicationRevision: 4,
+      officialCutoff: '2026-07-31',
+      actualCutoff: null,
+      sources: {
+        sellpia: source(true),
+        advertising: source(true),
+      },
+      pairing: {
+        lateSource: 'advertising',
+        sellpiaEndDate: '2026-09-06',
+        advertisingEndDate: '2026-09-05',
+      },
+    });
+
+    await expect(recalculateProductAbc()).resolves.toMatchObject({
+      outcome: 'SOURCE_NOT_READY',
+      pairing: {
+        lateSource: 'advertising',
+        sellpiaEndDate: '2026-09-06',
+        advertisingEndDate: '2026-09-05',
+      },
+    });
+  });
+
   it('preserves INPUT_CHANGED 409 for the Product Hub retry message', async () => {
     const conflict = { status: 409, code: 'INPUT_CHANGED' };
     vi.mocked(apiClient.post).mockRejectedValue(conflict);

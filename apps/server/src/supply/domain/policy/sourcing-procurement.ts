@@ -228,7 +228,7 @@ export function evaluateSupplySourceEligibility(input: {
     throw new TypeError('Supply source eligibility time must be valid.');
   }
 
-  if (input.ingestionRun.status !== 'complete') {
+  if (input.ingestionRun.status !== 'COMPLETE') {
     return sourceDenied('ingestion_run_not_complete');
   }
   if (

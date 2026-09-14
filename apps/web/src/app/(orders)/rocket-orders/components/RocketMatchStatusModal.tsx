@@ -3,9 +3,10 @@
 import { useEffect } from 'react';
 import { ExternalLink, Package, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import type {
-  RocketPurchasePreviewComponent,
-  RocketPurchasePreviewReason,
+import {
+  ROCKET_PURCHASE_PREVIEW_REASON_LABELS,
+  type RocketPurchasePreviewComponent,
+  type RocketPurchasePreviewReason,
 } from '@kiditem/shared/rocket-purchase-preview';
 
 export interface RocketMatchStatusRow {
@@ -27,8 +28,7 @@ function bucketOfReason(reason: RocketPurchasePreviewReason | null): MatchBucket
     case 'mapping_required':
     case 'configuration_required':
     case 'review_required':
-    case 'collection_incomplete':
-    case 'vendor_mismatch':
+    case 'inventory_unavailable':
       return reason;
     default:
       return 'configured';
@@ -41,34 +41,28 @@ function bucketOf(row: RocketMatchStatusRow): MatchBucket {
 
 const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: number; hint: string }> = {
   mapping_required: {
-    label: '상품 연결 필요',
+    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.mapping_required,
     chip: 'bg-red-50 text-red-500',
     order: 0,
     hint: '쿠팡 상품·옵션을 KidItem 운영 상품에 연결해야 합니다.',
   },
   configuration_required: {
-    label: '재고 구성 필요',
+    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.configuration_required,
     chip: 'bg-orange-50 text-orange-700',
     order: 1,
     hint: '연결된 운영 옵션에 Sellpia 재고 구성 레시피가 필요합니다.',
   },
   review_required: {
-    label: '레시피 검토 필요',
+    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.review_required,
     chip: 'bg-amber-50 text-amber-700',
     order: 2,
     hint: '제안된 Sellpia 구성 레시피를 운영자가 검토해야 합니다.',
   },
-  collection_incomplete: {
-    label: '수집 검증 필요',
-    chip: 'bg-rose-50 text-rose-700',
-    order: 0,
-    hint: '쿠팡 PO 전체 수집이 완료되지 않아 상품 매칭을 평가하지 않았습니다.',
-  },
-  vendor_mismatch: {
-    label: '공급사 검증 필요',
-    chip: 'bg-rose-50 text-rose-700',
-    order: 0,
-    hint: '선택한 로켓 계정과 수집한 PO의 공급사 정보를 확인해야 합니다.',
+  inventory_unavailable: {
+    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.inventory_unavailable,
+    chip: 'bg-amber-50 text-amber-700',
+    order: 2,
+    hint: '최신 Sellpia 재고 수집을 완료한 뒤 다시 확인해야 합니다.',
   },
   configured: {
     label: '구성 완료',
@@ -96,7 +90,9 @@ function componentValues(
   row: RocketMatchStatusRow,
 ): string {
   if (row.components.length === 0) return '—';
-  return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
+  return row.components
+    .map((component) => component.currentStock === null ? '미수집' : formatNumber(component.currentStock))
+    .join(' / ');
 }
 
 /**
@@ -138,8 +134,6 @@ export function RocketMatchStatusModal({
       mapping_required: 0,
       configuration_required: 0,
       review_required: 0,
-      collection_incomplete: 0,
-      vendor_mismatch: 0,
       configured: 0,
     } as Record<MatchBucket, number>,
   );
@@ -179,8 +173,6 @@ export function RocketMatchStatusModal({
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs">
           {([
-            'collection_incomplete',
-            'vendor_mismatch',
             'mapping_required',
             'configuration_required',
             'review_required',

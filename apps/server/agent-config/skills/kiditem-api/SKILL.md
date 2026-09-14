@@ -2,7 +2,7 @@
 name: kiditem-api
 description: >
   KidItem NestJS 백엔드 API 사용법. curl로 내부 API를 호출하여
-  상품, 주문, 재고, 광고, 건강도 데이터를 조회하거나 액션을 실행.
+  상품, 주문, 재고, 광고 데이터를 조회하거나 액션을 실행.
 ---
 
 # KidItem API Skill
@@ -39,13 +39,6 @@ GET  /api/inventory/sellpia-sync/import-runs                   — 셀피아 재
 GET  /api/ads                                         — 광고 실적
 ```
 
-### 건강도
-```
-GET  /api/rules/summary                              — 건강도 요약
-POST /api/rules/evaluate                             — 건강도 평가 실행
-GET  /api/rules/evaluate/status/{requestId}          — 평가 상태
-```
-
 ### 손익
 ```
 GET  /api/profit-loss                                 — 월별 손익
@@ -72,12 +65,6 @@ PATCH /api/channels/coupang/account                   — Wing 계정 식별자 
 ### 알림
 ```
 GET  /api/alerts                                      — 알림 목록
-```
-
-### 활동 이력
-```
-GET  /api/activity-events?objectType=product&objectId={id}  — 객체별 이력
-GET  /api/activity-events                              — 조직 활동 이력
 ```
 
 ### 에이전트

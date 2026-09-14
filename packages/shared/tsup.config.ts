@@ -17,7 +17,6 @@ export default defineConfig({
     'src/security/index.ts',
     'src/dashboard.ts',
     'src/finance.ts',
-    'src/rules.ts',
     'src/supplier-stats.ts',
     'src/channel-dashboard.ts',
     'src/channel-account.ts',

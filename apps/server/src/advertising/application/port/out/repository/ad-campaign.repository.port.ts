@@ -1,8 +1,8 @@
-// Outgoing port for campaign / product target / trend reads off
-// `ChannelAdTargetDailySnapshot` and `ChannelListingDailySnapshot`. Returns
-// additive sums so the domain layer recomputes ratios.
+// Outgoing port for campaign / product target / trend reads over the
+// advertising target-day ledger's reader. Returns additive sums and
+// observation facts so the domain layer recomputes ratios.
 
-import type { AdMetricSums, AdPeriod } from '../../../../domain/ad-metrics';
+import type { AdPeriod } from '../../../../domain/ad-metrics';
 
 export const AD_CAMPAIGN_REPOSITORY_PORT = Symbol('AdCampaignRepositoryPort');
 
@@ -72,10 +72,9 @@ export interface ProductTargetRollup {
 }
 
 /**
- * Keyword-grain rollup over the period. `currentBid` / `status` / `origin`
- * come from the most recent day observed for that keyword, while metrics are
- * summed — a bid changed mid-period should read as its current value, not a
- * meaningless average.
+ * Keyword-grain observation from the latest complete owner snapshot within the
+ * requested seven-day window. Status, bid, and metrics all come from that one
+ * observed row; these non-additive facts are never summed across days.
  */
 export interface KeywordTargetRollup {
   targetKey: string;
@@ -93,27 +92,38 @@ export interface KeywordTargetRollup {
   currentBid: number | null;
   metaJson: unknown | null;
   lastObservedAt: Date;
+  /** End date of this non-additive trailing observation window. */
+  businessDate: Date;
+  /** Source-declared width; currently the Coupang keyword table is seven days. */
+  windowDays: 7;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  /** Stored count; a measurement only when `conversionsObserved`. */
+  conversions: number;
+  orders: number;
+  /** Whether the keyword table carried the conversion column. */
+  conversionsObserved: boolean;
+}
+
+/** One business date the campaign sweep measured, with the account totals. */
+export interface AdTrendWindowDay {
+  businessDate: string;
   spend: number;
   revenue: number;
   impressions: number;
   clicks: number;
   conversions: number;
   orders: number;
+  /** False when a summed row's provider grid had no conversion columns. */
+  conversionsObserved: boolean;
 }
 
-export interface AdTrendDailyRow {
-  businessDate: Date;
-  adSpend: number;
-  adRevenue: number;
-  adClicks: number;
-  adImpressions: number;
-  adConversions: number;
-  listingId: string | null;
-}
-
-export interface AdTrendDailyAggregate {
-  date: string;
-  sums: AdMetricSums;
+export interface AdTrendWindow {
+  /** Measured dates only, ascending; an absent date was never measured. */
+  days: readonly AdTrendWindowDay[];
+  observedAt: Date | null;
 }
 
 export interface AdCampaignRepositoryPort {
@@ -147,18 +157,9 @@ export interface AdCampaignRepositoryPort {
     },
   ): Promise<KeywordTargetRollup[]>;
 
-  /** Raw per-(listing, businessDate) rows for an inclusive trend range. */
-  findAdTrendDailyRows(
+  /** Measured account days for an inclusive business-date range. */
+  findAdWindowDays(
     organizationId: string,
     dateRange: { from: Date; to: Date },
-  ): Promise<AdTrendDailyRow[]>;
-
-  /**
-   * ABC-grade budget totals computed from a set of daily rows.
-   * Listings outside tenant scope contribute 0.
-   */
-  findGradeBudgetTotals(
-    organizationId: string,
-    rows: AdTrendDailyRow[],
-  ): Promise<Record<'A' | 'B' | 'C', number>>;
+  ): Promise<AdTrendWindow>;
 }

@@ -15,10 +15,8 @@ const OWNER_DOMAINS = new Set([
   "channels",
   "finance",
   "inventory",
-  "operations",
   "orders",
   "products",
-  "rules",
   "sourcing",
   "supply",
 ]);

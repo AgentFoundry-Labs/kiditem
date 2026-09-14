@@ -69,3 +69,37 @@ it('reads only the requested attempt local activity and rejects another attempt 
   bridge.sendToExtension.mockResolvedValue({ attemptId: permit.attemptToken, active: true, attention: null });
   await expect(getCoupangCatalogBrowserStatus('extension-id', permit.attemptId)).rejects.toThrow('일치');
 });
+
+it('keeps the browser progress of an extension that still sends the retired overallState', async () => {
+  // An installed extension is reloaded by hand, so a web deploy can meet the
+  // previous build. Its extra word must not blank the progress it did report.
+  bridge.sendToExtension.mockResolvedValue({
+    attemptId: permit.attemptId,
+    active: true,
+    attention: null,
+    phase: 'hydration',
+    currentPage: 2,
+    totalPages: 4,
+    hydratedProducts: 10,
+    rootAttemptId: permit.attemptId,
+    currentAttemptId: permit.attemptId,
+    currentStage: 'basics',
+    overallState: 'RUNNING',
+  });
+
+  const status = await getCoupangCatalogBrowserStatus('extension-id', permit.attemptId);
+
+  expect(status).toEqual({
+    attemptId: permit.attemptId,
+    active: true,
+    attention: null,
+    phase: 'hydration',
+    currentPage: 2,
+    totalPages: 4,
+    hydratedProducts: 10,
+    rootAttemptId: permit.attemptId,
+    currentAttemptId: permit.attemptId,
+    currentStage: 'basics',
+  });
+  expect(status).not.toHaveProperty('overallState');
+});

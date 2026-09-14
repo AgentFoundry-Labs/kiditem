@@ -24,6 +24,7 @@ function makePrisma(input: {
     : [{ id: ORDER_ID, status: input.orderStatus ?? 'pending' }];
   const tx = {
     $queryRaw: vi.fn()
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(state)
       .mockResolvedValueOnce(order),
     organizationMembership: {
@@ -34,8 +35,18 @@ function makePrisma(input: {
     },
     sellpiaInventorySku: {
       findMany: vi.fn().mockResolvedValue(input.active === false
-        ? [{ id: SELLPIA_SKU_ID, isActive: false }]
-        : [{ id: SELLPIA_SKU_ID, isActive: true }]),
+        ? [{ id: SELLPIA_SKU_ID, currentStock: 1, isActive: false, lastImportRunId: 'inventory-run' }]
+        : [{ id: SELLPIA_SKU_ID, currentStock: 1, isActive: true, lastImportRunId: 'inventory-run' }]),
+    },
+    sellpiaInventoryState: {
+      findUnique: vi.fn().mockResolvedValue({
+        verifiedGeneration: 7n,
+        lastVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
+        lastCompletedImportRunId: 'inventory-run',
+      }),
+    },
+    sourceImportRun: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'inventory-run' }),
     },
     purchaseOrderSubmissionAttempt: {
       findFirst: vi.fn().mockResolvedValue(input.latestAttempt ?? null),
@@ -62,6 +73,7 @@ function makePrisma(input: {
   return {
     tx,
     prisma: {
+      __tx: tx,
       $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) =>
         operation(tx)),
     },
@@ -103,6 +115,7 @@ function makeLockedOrderPrisma(input: {
   return {
     tx,
     prisma: {
+      __tx: tx,
       $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) =>
         operation(tx)),
     },
@@ -238,11 +251,11 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
     const result = await adapter.prepare(prepareInput(false));
 
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       tx.purchaseOrder.updateMany.mock.invocationCallOrder[0],
     );
-    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
       tx.purchaseOrder.updateMany.mock.invocationCallOrder[0],
     );
     expect(tx.purchaseOrder.updateMany).toHaveBeenCalledWith({

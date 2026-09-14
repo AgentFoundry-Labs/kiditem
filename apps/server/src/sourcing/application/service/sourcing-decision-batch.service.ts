@@ -81,13 +81,13 @@ export class SourcingDecisionBatchService {
 
   async create(input: CreateSourcingDecisionBatchInput) {
     const request = normalizeCreateRequest(input);
+    const sourceCutoffAt = new Date();
     const discovery = await this.discovery.discover({
       organizationId: input.organizationId,
       keyword: request.keyword,
       category: request.category,
       mode: 'replay',
     });
-    const sourceCutoffAt = new Date();
     // 클라이언트가 명시한 바인딩이 우선이고, 나머지 후보는 서버가 이어붙인다.
     // 파생은 "무엇을 후보로 볼지"만 정한다 — 채택 여부는 `evidenceIsAdmissible` 이 다시 판정한다.
     const derivedBindings = await this.deriveCandidateBindings({
@@ -800,7 +800,7 @@ function normalizeConceptKey(value: string): string {
 function gateStatus(
   status: SourcingLaunchCandidateRecord['complianceStatus'] | undefined,
 ): RecommendationGateStatus {
-  return status ?? 'unknown';
+  return status ?? 'not_evaluated';
 }
 
 function isExpired(value: Date | null | undefined, at: Date): boolean {

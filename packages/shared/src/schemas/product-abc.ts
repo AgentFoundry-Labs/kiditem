@@ -21,7 +21,10 @@ const UuidSchema = z.string().uuid();
 export const ProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
 
-/** The API derives these labels; no label is persisted on an Evaluation. */
+/**
+ * ABC display words. `productAbcDisplayStatus` derives one from a read
+ * model's facts; neither an Evaluation nor the read model carries it.
+ */
 export const ProductAbcDisplayStatusSchema = z.enum([
   'SOURCE_UNMAPPED',
   'SELLPIA_SOURCE_STALE',
@@ -332,30 +335,18 @@ export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON =
 export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH =
   '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f';
 
-export const ProductAbcFormulaStateSchema = z.object({
-  organizationId: UuidSchema,
-  activeFormulaVersionId: UuidSchema.nullable(),
-  formulaRevision: z.number().int().nonnegative(),
-  publicationRevision: z.number().int().nonnegative(),
-  officialCutoffDate: CalendarDateSchema.nullable(),
-  publishedSellpiaSourceImportRunId: UuidSchema.nullable(),
-  publishedAdvertisingSourceImportRunId: UuidSchema.nullable(),
-  publishedMappingGeneration: GenerationSchema.nullable(),
-  mappingGeneration: GenerationSchema,
-  publishedAt: zIsoDate.nullable(),
+export const ProductAbcMappingFactsSchema = z.object({
+  valid: z.boolean(),
+  currentMappingGeneration: GenerationSchema,
+  evidenceMappingGeneration: GenerationSchema.nullable(),
 }).strict();
-export type ProductAbcFormulaState = z.infer<typeof ProductAbcFormulaStateSchema>;
-
-const MappingFreshnessSchema = z.object({
-  status: ProductAbcMappingStatusSchema,
-  mappingGeneration: GenerationSchema.nullable(),
-}).strict();
+export type ProductAbcMappingFacts = z.infer<typeof ProductAbcMappingFactsSchema>;
 
 export const ProductAbcSourceFreshnessSchema = z.object({
   evaluationCutoffDate: CalendarDateSchema,
   sellpia: SourceReadinessSchema,
   advertising: SourceReadinessSchema,
-  mapping: MappingFreshnessSchema,
+  mapping: ProductAbcMappingFactsSchema,
 }).strict();
 export type ProductAbcSourceFreshness = z.infer<typeof ProductAbcSourceFreshnessSchema>;
 
@@ -426,7 +417,6 @@ export type ProductAbcEvaluation = z.infer<typeof ProductAbcEvaluationSchema>;
 export const ProductAbcReadModelSchema = z.object({
   abcGrade: ProductAbcGradeSchema.nullable(),
   evaluation: ProductAbcEvaluationSchema.nullable(),
-  displayStatus: ProductAbcDisplayStatusSchema,
   formulaRevision: z.number().int().nonnegative(),
   publicationRevision: z.number().int().nonnegative(),
   officialCutoffDate: CalendarDateSchema.nullable(),
@@ -447,7 +437,7 @@ export const ProductAbcReadModelSchema = z.object({
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['abcGrade'],
-        message: 'grade cache must match the retained Evaluation',
+        message: 'official grade must match the retained Evaluation',
       });
     }
     if (projection.officialCutoffDate !== projection.evaluation.gradeBasisCutoffDate) {
@@ -457,24 +447,6 @@ export const ProductAbcReadModelSchema = z.object({
         message: 'grade basis cutoff must match the retained Evaluation',
       });
     }
-  }
-  if (projection.displayStatus === 'READY' && projection.evaluation === null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['evaluation'],
-      message: 'READY requires an Evaluation',
-    });
-  }
-  if (projection.displayStatus === 'INSUFFICIENT_EVIDENCE' && (
-      projection.abcGrade !== null
-      || projection.evaluation !== null
-    )
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['evaluation'],
-      message: `${projection.displayStatus} cannot retain an official Evaluation`,
-    });
   }
 });
 export type ProductAbcReadModel = z.infer<typeof ProductAbcReadModelSchema>;
@@ -515,26 +487,11 @@ export type ProductAbcContributionMetricStatus = z.infer<
 >;
 
 export const ProductAbcContributionMetricBasisSchema = z.object({
-  status: ProductAbcContributionMetricStatusSchema,
+  sourceComplete: z.boolean(),
   includedProductCount: z.number().int().nonnegative(),
   excludedProductCount: z.number().int().nonnegative(),
   denominator: z.number().int().positive().nullable(),
-}).strict().superRefine((metric, context) => {
-  if (metric.status === 'READY' && metric.denominator === null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['denominator'],
-      message: 'READY contribution metrics require a positive denominator',
-    });
-  }
-  if (metric.status === 'NO_DENOMINATOR' && metric.denominator !== null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['denominator'],
-      message: 'NO_DENOMINATOR cannot expose a denominator',
-    });
-  }
-});
+}).strict();
 export type ProductAbcContributionMetricBasis = z.infer<
   typeof ProductAbcContributionMetricBasisSchema
 >;

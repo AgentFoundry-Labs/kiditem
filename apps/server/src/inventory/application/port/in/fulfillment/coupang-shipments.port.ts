@@ -43,8 +43,8 @@ export type CoupangShipmentResolvedFile = {
 
 export type CoupangShipmentDateSummaryEntry = {
   date: string;
-  count: number;
-  boxes: number;
+  count: number | null;
+  boxes: number | null;
   capturedAt: string;
   verified: boolean;
 };

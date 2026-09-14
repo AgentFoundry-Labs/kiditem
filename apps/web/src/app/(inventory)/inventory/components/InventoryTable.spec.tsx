@@ -32,7 +32,6 @@ describe('InventoryTable', () => {
       externalOptionId: '13712531060-120',
       itemName: '보라 / 120',
     }],
-    linkStatus: 'linked',
   };
 
   function renderInventoryTable(items: InventorySkuSnapshotItem[] = [item]) {

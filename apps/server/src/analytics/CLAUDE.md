@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # analytics — Reporting + Read Models
 
 `src/analytics/` owns dashboard, statistics, traffic, and supplier-stats read

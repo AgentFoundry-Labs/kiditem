@@ -35,7 +35,7 @@ export type ChannelRecipeSuggestionSku = {
   code: string;
   name: string;
   optionName: string | null;
-  currentStock: number;
+  currentStock: number | null;
 };
 
 type CodeEvidence = {
@@ -137,7 +137,7 @@ export type ChannelRecipeSuggestionResponse = {
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
     evidence: ProposalEvidence[];
     requiresQuantityConfirmation: boolean;
     recommendedQuantity: number | null;

@@ -4,6 +4,7 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { PrismaService } from '../prisma/prisma.service';
+import { readInventorySaleAgeMappings } from '../inventory/read/inventory-availability';
 
 
 type SaleAgeDb = PrismaService | Prisma.TransactionClient;
@@ -36,46 +37,12 @@ export async function readProductSaleAgeEvidence(
   // Transaction clients are single-connection clients. Keep these reads
   // sequential when called from the repeatable product snapshot; overlapping
   // them makes PrismaPg queue one query behind another on the same client.
-  const listings = await db.channelListing.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        options: {
-          some: {
-            organizationId,
-            isActive: true,
-            inventoryComponents: {
-              some: {
-                organizationId,
-                sellpiaInventorySku: { masterProductId: { in: ids } },
-              },
-            },
-          },
-        },
-      },
-      select: {
-        id: true,
-        options: {
-          where: { organizationId, isActive: true },
-          select: {
-            inventoryComponents: {
-              where: { organizationId },
-              select: {
-                quantity: true,
-                sellpiaInventorySku: {
-                  select: {
-                    isActive: true,
-                    masterProductId: true,
-                    masterProduct: { select: { isActive: true } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-  const saleAgeRaw = await readSaleAgeRaw(db, organizationId, ids);
+  const listings = await readInventorySaleAgeMappings(db, organizationId, ids);
+  const saleAgeRaw = await readSaleAgeRaw(
+    db,
+    organizationId,
+    listings.map(({ listingId }) => listingId),
+  );
   const rawByListingId = new Map(
     saleAgeRaw.map((row) => [row.listingId, {
       source: row.source,
@@ -85,26 +52,25 @@ export async function readProductSaleAgeEvidence(
 
   for (const listing of listings) {
     const hasCompleteRecipe = listing.options.length > 0
-      && listing.options.every((option) => option.inventoryComponents.length > 0
-        && option.inventoryComponents.every((component) =>
+      && listing.options.every((option) => option.components.length > 0
+        && option.components.every((component) =>
           component.quantity > 0
-          && component.sellpiaInventorySku.isActive
-          && component.sellpiaInventorySku.masterProductId !== null
-          && component.sellpiaInventorySku.masterProduct?.isActive === true));
+          && component.isActive
+          && component.masterProductId !== null
+          && component.masterProductActive));
     if (!hasCompleteRecipe) continue;
     const saleStartDate = saleStartDateFromRaw(
-      rawByListingId.get(listing.id) ?? null,
+      rawByListingId.get(listing.listingId) ?? null,
       cutoffDate,
     );
     for (const option of listing.options) {
-      for (const component of option.inventoryComponents) {
-        const sku = component.sellpiaInventorySku;
-        const masterProductId = sku.masterProductId;
+      for (const component of option.components) {
+        const masterProductId = component.masterProductId;
         if (
           component.quantity <= 0
-          || !sku.isActive
+          || !component.isActive
           || !masterProductId
-          || !sku.masterProduct?.isActive
+          || !component.masterProductActive
         ) continue;
         const current = evidence.get(masterProductId);
         if (!current) continue;
@@ -128,8 +94,9 @@ type SaleAgeRawRow = Readonly<{
 async function readSaleAgeRaw(
   db: SaleAgeDb,
   organizationId: string,
-  masterProductIds: readonly string[],
+  listingIds: readonly string[],
 ): Promise<readonly SaleAgeRawRow[]> {
+  if (listingIds.length === 0) return [];
   return db.$queryRaw<SaleAgeRawRow[]>(Prisma.sql`
     SELECT listing.id AS "listingId",
            listing.raw_json -> 'source' AS "source",
@@ -137,23 +104,7 @@ async function readSaleAgeRaw(
     FROM channel_listings AS listing
     WHERE listing.organization_id = ${organizationId}::uuid
       AND listing.is_active = TRUE
-      AND EXISTS (
-        SELECT 1
-        FROM channel_listing_options AS option
-        WHERE option.organization_id = ${organizationId}::uuid
-          AND option.listing_id = listing.id
-          AND option.is_active = TRUE
-          AND EXISTS (
-            SELECT 1
-            FROM channel_listing_option_inventory_components AS component
-            JOIN sellpia_inventory_skus AS sku
-              ON sku.id = component.sellpia_inventory_sku_id
-             AND sku.organization_id = component.organization_id
-            WHERE component.organization_id = ${organizationId}::uuid
-              AND component.channel_listing_option_id = option.id
-              AND sku.master_product_id IN (${Prisma.join(masterProductIds.map((id) => Prisma.sql`${id}::uuid`))})
-          )
-      )
+      AND listing.id IN (${Prisma.join(listingIds.map((id) => Prisma.sql`${id}::uuid`))})
   `);
 }
 

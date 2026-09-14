@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
 /**
- * Two alert types are ever written: `source_failure` and `rule_violation`. This
- * branched on four others — `minus_product`, `ad_high`, `stock_low`,
+ * One alert type is ever written and read: `source_failure`. This branched on
+ * four others — `minus_product`, `ad_high`, `stock_low`,
  * `strategy_change` — which appear nowhere in the server. Three of them name a
  * **Warning**, a standing count of products currently in a bad state, which the
  * glossary says not to call an alert.

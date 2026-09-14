@@ -2,19 +2,17 @@
 
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
+import {
+  deriveProductAdvertisingStatus,
+  deriveProductInventoryStatus,
+  PRODUCT_ADVERTISING_LABELS,
+  PRODUCT_INVENTORY_LABELS,
+  type MasterProductOperationsListItem,
+} from '@kiditem/shared/product-operations';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import { isInternalProductCode } from '@/lib/operator-product-reference';
-import { MasterProductImage } from './MasterProductImage';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
-import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
-
-const INVENTORY_LABELS = {
-  sellable: '판매 가능',
-  partial_out_of_stock: '일부 품절',
-  out_of_stock: '품절',
-  configuration_required: '재고 연결 필요',
-  review_required: '검토 필요',
-} as const;
+import { MasterProductImage } from './MasterProductImage';
 
 export function ProductRowCard({
   product,
@@ -23,9 +21,18 @@ export function ProductRowCard({
   product: MasterProductOperationsListItem;
   onOpenAbcDetail?: (product: MasterProductOperationsListItem) => void;
 }) {
-  const isWarning = product.inventoryStatus === 'configuration_required'
-    || product.inventoryStatus === 'review_required';
-  const isOutOfStock = product.inventoryStatus === 'out_of_stock';
+  const inventoryStatus = deriveProductInventoryStatus(product);
+  const isWarning = inventoryStatus === 'configuration_required'
+    || inventoryStatus === 'review_required';
+  const isOutOfStock = inventoryStatus === 'out_of_stock';
+  const inventoryLabel = PRODUCT_INVENTORY_LABELS[inventoryStatus];
+  const inventoryBadgeStyle = isWarning
+    ? 'bg-amber-100 text-amber-800'
+    : isOutOfStock
+      ? 'bg-rose-100 text-rose-700'
+      : inventoryStatus === 'uncollected'
+        ? 'bg-slate-100 text-slate-600'
+        : 'bg-emerald-50 text-emerald-700';
   const categoryLabel = categoryLabelForList(product.category);
   const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
     || !isInternalProductCode(product.displayReference.value);
@@ -71,8 +78,8 @@ export function ProductRowCard({
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isSelling ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {product.isSelling ? '판매중' : '판매중지'}
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {INVENTORY_LABELS[product.inventoryStatus]}
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${inventoryBadgeStyle}`}>
+                {inventoryLabel}
               </span>
               {product.depletion.needsReorder ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
                 발주 필요 {product.depletion.reorderSkuCount}
@@ -124,17 +131,17 @@ export function ProductRowCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2 text-[11px] font-semibold text-[var(--text-tertiary)]">
-        <span className={`rounded px-2 py-1 font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
-          {INVENTORY_LABELS[product.inventoryStatus]}
+        <span className={`rounded px-2 py-1 font-bold ${inventoryBadgeStyle}`}>
+          {inventoryLabel}
         </span>
         <span>채널 {formatNumber(product.channelCount)}개</span>
         <span>활성 옵션 {formatNumber(product.channelOptionSummary.active)}개</span>
         <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
-        <span>광고비 {product.adSpend === null ? '—' : `${formatKRW(product.adSpend)}원`}</span>
+        <span>{PRODUCT_ADVERTISING_LABELS[deriveProductAdvertisingStatus(product.adSpend)]}
+          {product.adSpend !== null && product.adSpend > 0 ? ` ${formatKRW(product.adSpend)}원` : ''}</span>
         <span>기간 실제 이익 {product.contribution?.operatingProfit == null
           ? '—'
           : `${formatKRW(product.contribution.operatingProfit)}원`}</span>
-        <span>상품 건강도 {product.healthScore === null ? '—' : `${formatNumber(product.healthScore)}점`}</span>
       </div>
     </article>
   );

@@ -4,12 +4,16 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
-import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 import {
   useProductAbcRecalculation,
   type ProductAbcRecalculationFeedback,
 } from '@/hooks/useProductAbcRecalculation';
+import {
+  basisHasValues,
+  DashboardBasisDisclosure,
+  type DashboardMetricBasis,
+} from './DashboardDataBasis';
+import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 
 /**
  * Five grades are one distribution, so they read as one row of cells rather
@@ -32,9 +36,10 @@ const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B
 
 export function DashboardGradeCards({
   gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
-  basis, refetchReads,
+  basis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
   basis?: DashboardMetricBasis | null;
+  contributionBasis?: DashboardMetricBasis | null;
   /** The dashboard reads this panel renders, refetched after a publication. */
   refetchReads: () => Promise<unknown>;
 }) {
@@ -42,6 +47,7 @@ export function DashboardGradeCards({
   // action, not a second implementation of it.
   const [feedback, setFeedback] = useState<ProductAbcRecalculationFeedback | null>(null);
   const refresh = useProductAbcRecalculation({ onFeedback: setFeedback, refetchReads });
+  const gradeMeasured = basisHasValues(basis ?? null);
 
   return (
     <section
@@ -58,8 +64,16 @@ export function DashboardGradeCards({
         <div className="flex items-center gap-1.5">
           <DashboardBasisDisclosure
             label="수익성 ABC 근거"
-            entries={[{ label: 'ABC 등급', basis }]}
-            meaning={<AbcCriteria formula={abcFormula} />}
+            entries={[
+              { label: 'ABC 등급', basis },
+              { label: '가중 영업이익', basis: contributionBasis ?? null },
+            ]}
+            meaning={(
+              <AbcCriteria
+                formula={abcFormula}
+                contributionBasis={abcContributionProfit.basis}
+              />
+            )}
           />
           <button
             type="button"
@@ -87,9 +101,10 @@ export function DashboardGradeCards({
           <GradeCell
             key={grade}
             grade={grade}
-            count={gradeCount[grade]}
-            total={classifiedProductCount}
+            count={gradeMeasured ? gradeCount[grade] : null}
+            total={gradeMeasured ? classifiedProductCount : null}
             contribution={abcContributionProfit.amountByGrade[grade]}
+            contributionMeasured={basisHasValues(contributionBasis ?? null)}
           />
         ))}
       </div>
@@ -100,7 +115,7 @@ export function DashboardGradeCards({
           act on — and 상승 is not published: nothing follows from it. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">
         <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">
-          계산 완료 {formatNumber(abcStatusCount.READY)}개
+          계산 완료 {gradeMeasured ? `${formatNumber(abcStatusCount.READY)}개` : '—'}
         </Link>
       </div>
       {feedback && (
@@ -120,24 +135,43 @@ export function DashboardGradeCards({
   );
 }
 
-function GradeCell({ grade, count, total, contribution }: { grade: ProductAbcGrade; count: number; total: number; contribution: number }) {
-  const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+function GradeCell({
+  grade,
+  count,
+  total,
+  contribution,
+  contributionMeasured,
+}: {
+  grade: ProductAbcGrade;
+  count: number | null;
+  total: number | null;
+  contribution: number;
+  contributionMeasured: boolean;
+}) {
+  const percent = count !== null && total !== null && total > 0
+    ? Math.round((count / total) * 100)
+    : 0;
+  const countLabel = count === null ? '미수집' : `${formatNumber(count)}개`;
   return (
     <Link
       href={`/product-hub?abcGrade=${grade}`}
-      aria-label={`${grade}등급 ${GRADE_LABELS[grade]} ${formatNumber(count)}개 가중 영업이익 ${formatNumber(contribution)}원`}
-      title={`${GRADE_LABELS[grade]} · 가중 영업이익 ${formatNumber(contribution)}원`}
+      aria-label={`${grade}등급 ${GRADE_LABELS[grade]} ${countLabel} 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
+      title={`${GRADE_LABELS[grade]} · 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
       className="bg-white px-4 py-3.5 text-center transition-colors hover:bg-slate-50"
     >
       <p className="text-xs font-semibold text-slate-500">{grade}</p>
-      <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">{formatNumber(count)}</p>
+      <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">
+        {count === null ? '—' : formatNumber(count)}
+      </p>
       <div className="mx-auto mt-0.5 h-1 w-full overflow-hidden rounded-full bg-slate-100">
         <div
           className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-violet-600')}
           style={{ width: `${Math.min(percent, 100)}%` }}
         />
       </div>
-      <p className="mt-0.5 truncate text-[11px] text-slate-500">{formatNumber(contribution)}원</p>
+      <p className="mt-0.5 truncate text-[11px] text-slate-500">
+        {contributionMeasured ? `${formatNumber(contribution)}원` : '—'}
+      </p>
     </Link>
   );
 }
@@ -148,9 +182,20 @@ function GradeCell({ grade, count, total, contribution }: { grade: ProductAbcGra
  * here. A threshold written into the screen is a threshold that goes stale the
  * first time Products changes one, and the reader would have no way to tell.
  */
-function AbcCriteria({ formula }: { formula: DashboardGradeCardsProps['abcFormula'] }) {
+function AbcCriteria({
+  formula,
+  contributionBasis,
+}: {
+  formula: DashboardGradeCardsProps['abcFormula'];
+  contributionBasis: DashboardInventorySummary['abcContributionProfit']['basis'];
+}) {
   if (!formula) {
-    return <p>이익·마진·판매 일관성을 합친 경제점수로 상품을 A·B·C로 나눕니다. 기준값은 상품 관리에서 등급을 새로 계산하면 표시됩니다.</p>;
+    return (
+      <>
+        <p>이익·마진·판매 일관성을 합친 경제점수로 상품을 A·B·C로 나눕니다. 기준값은 상품 관리에서 등급을 새로 계산하면 표시됩니다.</p>
+        <ContributionEvidence basis={contributionBasis} formulaVersion={null} />
+      </>
+    );
   }
   const { gradeThresholds: t, weights: w, halfLifeDays, minimumSaleAgeDays } = formula;
   return (
@@ -165,6 +210,30 @@ function AbcCriteria({ formula }: { formula: DashboardGradeCardsProps['abcFormul
         <li><b>C {GRADE_LABELS.C}</b> — 그 아래. 가중 영업이익이나 영업이익률이 0 이하이면 점수와 무관하게 C입니다.</li>
       </ul>
       <p className="mt-1">유효 매핑의 최초 판매일로부터 {minimumSaleAgeDays}일이 지나야 평가합니다.</p>
+      <ContributionEvidence basis={contributionBasis} formulaVersion={formula.version} />
     </>
+  );
+}
+
+function ContributionEvidence({
+  basis,
+  formulaVersion,
+}: {
+  basis: DashboardInventorySummary['abcContributionProfit']['basis'];
+  formulaVersion: number | null;
+}) {
+  const publication = basis.publicationRevision === null
+    ? '공표 없음'
+    : `공표 r${basis.publicationRevision}`;
+  const cutoff = basis.officialCutoffDate ?? 'cutoff 미상';
+  const formula = formulaVersion ? `산식 v${formulaVersion}` : '산식 미상';
+  const denominator = basis.denominator === null
+    ? '분모 미측정'
+    : `분모 ${formatNumber(basis.denominator)}원`;
+  return (
+    <p className="mt-1" data-testid="abc-contribution-evidence">
+      가중 영업이익: {publication} · {cutoff} · {formula} · 포함 {basis.includedProductCount}개 ·
+      보류 {basis.withheldProductCount}개 · {denominator}
+    </p>
   );
 }

@@ -36,7 +36,6 @@ function makeServices() {
       getWeeklyPlan: vi.fn(),
       getAiEnhancedPlan: vi.fn(),
       getRecommendations: vi.fn(),
-      getExposureAnalysis: vi.fn(),
       registerCampaign: vi.fn(),
     },
     benchmark: { getDiagnosis: vi.fn() },

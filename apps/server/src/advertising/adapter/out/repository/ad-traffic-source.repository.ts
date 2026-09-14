@@ -46,7 +46,6 @@ import {
   pickStringField,
   type ListingMap,
 } from '../../../domain/listing-match';
-import { toNumber } from '../../../domain/scrape-row-normalizers';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,
@@ -63,10 +62,6 @@ const LEGACY_PARSER_VERSION = 'wing-traffic-v1';
 const PARSER_VERSION = 'wing-traffic-daily-v2';
 const LEGACY_RECEIPT_KIND = 'traffic_page';
 const RECEIPT_KIND = 'traffic_daily_v2';
-const KPI_SOURCE = 'wing';
-const KPI_TYPE = 'wing_dashboard';
-const DAILY_KPI_TYPE = 'wing_traffic_daily';
-const PERIOD_KPI_TYPE = 'wing_traffic_period';
 const WING_TRAFFIC_PATH = '/tenants/business-insight/sales-analysis';
 const EXPIRES_IN_MS = 30 * 60_000;
 const MAX_RANGE_DAYS = 366;
@@ -97,17 +92,6 @@ type DailyFactPublication = {
     revenue: number;
   };
 };
-type AccountKpiPublication = {
-  id: string;
-  kpiType: string;
-  businessDate: string;
-  periodStart: string;
-  periodEnd: string;
-  observedAt: Date;
-  normalizedJson: Prisma.InputJsonValue;
-  rawJson: Prisma.InputJsonValue;
-};
-
 function isDailyPlan(plan: AdTrafficSourcePlan): plan is AdTrafficSourceDailyPlan {
   return plan.parserVersion === PARSER_VERSION;
 }
@@ -158,10 +142,6 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
-function dateText(value: Date): string {
-  return businessDateKey(value);
-}
-
 function dateAtUtc(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -169,7 +149,7 @@ function dateAtUtc(value: string): Date {
 function parseReadDate(value: string | undefined, code: string): Date | undefined {
   if (value === undefined) return undefined;
   const parsed = toBusinessDate(value);
-  if (!parsed || dateText(parsed) !== value) throw new BadRequestException(code);
+  if (!parsed || businessDateKey(parsed) !== value) throw new BadRequestException(code);
   return parsed;
 }
 
@@ -181,6 +161,16 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function declaredConfirmedDates(value: Prisma.JsonValue | null): string[] {
+  const dates = asRecord(value).confirmedDates;
+  if (!Array.isArray(dates)) return [];
+  return dates.filter((candidate): candidate is string => {
+    if (typeof candidate !== 'string') return false;
+    const parsed = toBusinessDate(candidate);
+    return parsed !== null && businessDateKey(parsed) === candidate;
+  });
 }
 
 function datesInRange(start: Date, end: Date): number {
@@ -268,25 +258,22 @@ function positiveWingOptionId(value: string): boolean {
 function buildReconciliation(
   accountDaily: Array<Record<string, unknown>>,
   periodSummary: Record<string, unknown> | null,
-  options: { forceUnverified?: boolean } = {},
+  options: { periodSummaryApplies: boolean },
 ) {
   const metrics = ['views', 'cartAdds', 'orders', 'salesQty', 'revenue'] as const;
-  const period = periodSummary ? accountSummaryFromRecord(
-    asRecord(periodSummary.accountSummary),
-  ) : null;
+  const period = periodSummary && options.periodSummaryApplies
+    ? accountSummaryFromRecord(asRecord(periodSummary.accountSummary))
+    : null;
   return Object.fromEntries(metrics.map((metricName) => {
-    const dailySum = accountDaily.reduce(
-      (sum, row) => sum + (typeof row[metricName] === 'number' ? row[metricName] as number : 0),
-      0,
-    );
+    // A day whose summary lacks this metric makes the sum unmeasured, not a
+    // smaller measured total.
+    const dailySum = accountDaily.every((row) => typeof row[metricName] === 'number')
+      ? accountDaily.reduce((sum, row) => sum + (row[metricName] as number), 0)
+      : null;
+    // A period summary that does not cover exactly these daily rows verifies
+    // nothing, so it publishes no period value to compare against.
     const periodValue = period?.[metricName] ?? null;
-    return [metricName, {
-      status: options.forceUnverified || periodValue === null
-        ? 'UNVERIFIED'
-        : dailySum === periodValue ? 'MATCHED' : 'MISMATCH',
-      dailySum,
-      periodValue,
-    }];
+    return [metricName, { dailySum, periodValue }];
   }));
 }
 
@@ -424,92 +411,6 @@ async function upsertDailyFactPublication(
         traffic_coverage_status = EXCLUDED.traffic_coverage_status,
         traffic_observed_at = EXCLUDED.traffic_observed_at,
         meta_json = COALESCE(daily.meta_json, '{}'::jsonb) || EXCLUDED.meta_json,
-        updated_at = EXCLUDED.updated_at
-    `);
-  }
-}
-
-async function upsertAccountKpiPublication(
-  tx: Tx,
-  organizationId: string,
-  channelAccountId: string,
-  rows: readonly AccountKpiPublication[],
-  publishedAt: Date,
-): Promise<void> {
-  for (let offset = 0; offset < rows.length; offset += DAILY_PUBLICATION_BATCH_SIZE) {
-    const batch = rows.slice(offset, offset + DAILY_PUBLICATION_BATCH_SIZE);
-    const payload = JSON.stringify(batch.map((row) => ({
-      id: row.id,
-      kpi_type: row.kpiType,
-      business_date: row.businessDate,
-      period_start: row.periodStart,
-      period_end: row.periodEnd,
-      observed_at: row.observedAt.toISOString(),
-      normalized_json: row.normalizedJson,
-      raw_json: row.rawJson,
-      published_at: publishedAt.toISOString(),
-    })));
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO channel_account_daily_kpi_snapshots AS kpi (
-        id,
-        organization_id,
-        channel_account_id,
-        channel,
-        source,
-        kpi_type,
-        business_date,
-        period_start,
-        period_end,
-        normalized_json,
-        raw_json,
-        sample_count,
-        first_observed_at,
-        last_observed_at,
-        created_at,
-        updated_at
-      )
-      SELECT
-        incoming.id,
-        ${organizationId}::uuid,
-        ${channelAccountId}::uuid,
-        'coupang',
-        ${KPI_SOURCE},
-        incoming.kpi_type,
-        incoming.business_date,
-        incoming.period_start,
-        incoming.period_end,
-        incoming.normalized_json,
-        incoming.raw_json,
-        1,
-        incoming.observed_at,
-        incoming.observed_at,
-        incoming.published_at,
-        incoming.published_at
-      FROM jsonb_to_recordset(${payload}::jsonb) AS incoming(
-        id uuid,
-        kpi_type text,
-        business_date date,
-        period_start date,
-        period_end date,
-        observed_at timestamptz,
-        normalized_json jsonb,
-        raw_json jsonb,
-        published_at timestamptz
-      )
-      ON CONFLICT (
-        organization_id,
-        channel_account_id,
-        source,
-        business_date,
-        kpi_type
-      )
-      DO UPDATE SET
-        period_start = EXCLUDED.period_start,
-        period_end = EXCLUDED.period_end,
-        normalized_json = EXCLUDED.normalized_json,
-        raw_json = EXCLUDED.raw_json,
-        sample_count = EXCLUDED.sample_count,
-        last_observed_at = EXCLUDED.last_observed_at,
         updated_at = EXCLUDED.updated_at
     `);
   }
@@ -1059,6 +960,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       // reached, and coverage is exactly what consumers read to decide whether a
       // metric is measured.
       const confirmedDates = confirmedDatesOf(plan, entries);
+      const providerBackedEmptyDates = providerBackedEmptyDatesOf(confirmedDates, entries);
       const coverageStart = confirmedDates[0] ?? plan.startDate;
       const coverageEnd = confirmedDates[confirmedDates.length - 1] ?? plan.endDate;
       if (!(await this.accountMatches(tx, row))) {
@@ -1129,6 +1031,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             requestedStartDate: plan.startDate,
             requestedEndDate: plan.endDate,
             confirmedDates,
+            providerBackedEmptyDates,
             targetUrl: plan.targetUrl,
             expectedPages: entries.map((entry) => entry.receipt).find(isPageReceipt)?.expectedPages ?? null,
             visitedPages: entries
@@ -1140,7 +1043,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             rowCount: snapshots.length,
             matchedCount: publication.matchedCount,
             unmatchedCount: publication.unmatchedCount,
-            dashboardSummaryPublished: publication.accountKpiPublished,
           }),
         },
       });
@@ -1190,13 +1092,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     expectedAdvertiserId: string,
   ) {
     const closedEnd = evidenceCutoffDate();
-    const defaultEnd = dateText(closedEnd);
-    const defaultStart = dateText(addDays(closedEnd, -6));
+    const defaultEnd = businessDateKey(closedEnd);
+    const defaultStart = businessDateKey(addDays(closedEnd, -6));
     const startDate = request.startDate ?? defaultStart;
     const endDate = request.endDate ?? defaultEnd;
     const start = toBusinessDate(startDate);
     const end = toBusinessDate(endDate);
-    if (!start || dateText(start) !== startDate || !end || dateText(end) !== endDate) {
+    if (!start || businessDateKey(start) !== startDate || !end || businessDateKey(end) !== endDate) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
     const periodDays = datesInRange(start, end);
@@ -1207,7 +1109,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       throw new BadRequestException('TRAFFIC_RANGE_IN_FUTURE');
     }
     const expectedDates = Array.from({ length: periodDays }, (_, index) =>
-      dateText(addDays(start, index)),
+      businessDateKey(addDays(start, index)),
     );
     return {
       sourceType: SOURCE_TYPE as 'coupang_wing_traffic',
@@ -1233,7 +1135,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const account = await this.primaryAccount(tx, organizationId, channelAccountId);
     if (!account) {
       return AdTrafficSourceStatusSchema.parse({
-        knownThrough: dateText(evidenceCutoffDate()),
+        knownThrough: businessDateKey(evidenceCutoffDate()),
         channelAccountId: null,
         ready: false,
         latestAttempt: null,
@@ -1257,16 +1159,18 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }),
       tx.sourceImportRun.findMany({
         where: { ...where, status: 'completed' },
-        select: { plan: true },
+        select: { plan: true, qualityReport: true },
       }),
     ]);
     const latestAttempt = latest ? await this.attemptView(tx, latest) : null;
     const latestComplete = complete ? await this.attemptView(tx, complete) : null;
-    const expectedEnd = dateText(evidenceCutoffDate());
+    const expectedEnd = businessDateKey(evidenceCutoffDate());
     const coveredDailyDates = new Set(
       allComplete.flatMap((candidate) => {
         const plan = AdTrafficSourcePlanSchema.safeParse(candidate.plan);
-        return plan.success && isDailyPlan(plan.data) ? plan.data.expectedDates : [];
+        return plan.success && isDailyPlan(plan.data)
+          ? declaredConfirmedDates(candidate.qualityReport)
+          : [];
       }),
     );
     const ready = deriveSourceReadiness({
@@ -1315,18 +1219,21 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }
       matchedCount += 1;
       const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
+      // The same integer contract as the daily path: an unparseable provider
+      // cell rejects the publication instead of becoming a measured 0.
+      const metrics = trafficMetrics(raw);
       const traffic = {
-        trafficVisitors: Math.round(toNumber(raw.visitors)),
-        trafficViews: Math.round(toNumber(raw.views)),
-        trafficCartAdds: Math.round(toNumber(raw.cartAdds)),
-        trafficOrders: Math.round(toNumber(raw.orders)),
-        trafficSalesQty: Math.round(toNumber(raw.salesQty)),
-        trafficRevenue: Math.round(toNumber(raw.revenue)),
+        trafficVisitors: metrics.visitors,
+        trafficViews: metrics.views,
+        trafficCartAdds: metrics.cartAdds,
+        trafficOrders: metrics.orders,
+        trafficSalesQty: metrics.salesQty,
+        trafficRevenue: metrics.revenue,
       };
       const visitors = traffic.trafficVisitors;
       const providerConversionRate = visitors > 0
         ? Math.round((traffic.trafficOrders / visitors) * 10000) / 100
-        : 0;
+        : null;
       const businessDate = snapshot.businessDate ?? dateAtUtc(plan.businessDate);
       const metaJson = {
         source: 'wing.traffic',
@@ -1388,59 +1295,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       );
     }
 
-    const dashboard = dashboardPayload(entries);
-    let accountKpiPublished = false;
-    if (dashboard) {
-      const businessDate = dateAtUtc(plan.businessDate);
-      const observedAt = dashboard.capturedAt;
-      const normalizedJson = json({
-        kpis: dashboard.kpis,
-        adSummary: dashboard.adSummary,
-        summary: dashboard.summary,
-        period: plan.periodDays,
-        startDate: plan.startDate,
-        endDate: plan.endDate,
-        rowCount: snapshots.length,
-        timestamp: observedAt.toISOString(),
-      });
-      const rawJson = json(dashboard.raw);
-      await tx.channelAccountDailyKpiSnapshot.upsert({
-        where: {
-          organizationId_channelAccountId_source_businessDate_kpiType: {
-            organizationId: row.organizationId,
-            channelAccountId: row.channelAccountId!,
-            source: KPI_SOURCE,
-            businessDate,
-            kpiType: KPI_TYPE,
-          },
-        },
-        create: {
-          organizationId: row.organizationId,
-          channelAccountId: row.channelAccountId!,
-          channel: 'coupang',
-          source: KPI_SOURCE,
-          kpiType: KPI_TYPE,
-          businessDate,
-          periodStart: dateAtUtc(plan.startDate),
-          periodEnd: dateAtUtc(plan.endDate),
-          normalizedJson,
-          rawJson,
-          sampleCount: 1,
-          firstObservedAt: observedAt,
-          lastObservedAt: observedAt,
-        },
-        update: {
-          sampleCount: { increment: 1 },
-          lastObservedAt: observedAt,
-          normalizedJson,
-          rawJson,
-          periodStart: dateAtUtc(plan.startDate),
-          periodEnd: dateAtUtc(plan.endDate),
-        },
-      });
-      accountKpiPublished = true;
-    }
-    return { matchedCount, unmatchedCount, accountKpiPublished };
+    return { matchedCount, unmatchedCount };
   }
 
   private async publishDailyFacts(
@@ -1506,7 +1361,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     );
     const finalFacts = new Map<string, DailyFactPublication>();
     for (const candidate of resetCandidates) {
-      const businessDate = dateText(candidate.businessDate);
+      const businessDate = businessDateKey(candidate.businessDate);
       const pageOne = pageOneByDate.get(businessDate);
       if (!pageOne) continue;
       const meta = asRecord(candidate.metaJson);
@@ -1571,7 +1426,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
       const metrics = trafficMetrics(raw);
       const businessDate = snapshot.businessDate;
-      const key = `${snapshot.listingId}:${dateText(businessDate)}`;
+      const key = `${snapshot.listingId}:${businessDateKey(businessDate)}`;
       const existing = aggregates.get(key);
       if (existing) {
         existing.metrics.visitors += metrics.visitors;
@@ -1605,7 +1460,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           grain: 'listing_option_sum',
           scope: 'matched_listings',
           periodDays: 1,
-          businessDate: dateText(aggregate.businessDate),
+          businessDate: businessDateKey(aggregate.businessDate),
           sourceAttemptId: row.id,
           providerVendorId: plan.providerVendorId,
           filterScope: plan.filterScope,
@@ -1614,13 +1469,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         },
         'traffic.currentSource': 'wing.traffic',
       } as const;
-      const key = `${aggregate.listingId}:${dateText(aggregate.businessDate)}`;
+      const key = `${aggregate.listingId}:${businessDateKey(aggregate.businessDate)}`;
       const existing = finalFacts.get(key);
       finalFacts.set(key, {
         id: existing?.id ?? randomUUID(),
         listingId: aggregate.listingId,
         externalId: aggregate.externalId,
-        businessDate: dateText(aggregate.businessDate),
+        businessDate: businessDateKey(aggregate.businessDate),
         observedAt: aggregate.observedAt,
         rawSnapshotId: aggregate.rawSnapshotId,
         metaJson,
@@ -1631,75 +1486,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const publishedAt = new Date();
     await upsertDailyFactPublication(tx, row.organizationId, [...finalFacts.values()], publishedAt);
 
-    const dailySummaries = entries.filter(
-      (entry): entry is ReceiptEntry & { input: AdTrafficSourceDailyReceiptInput } =>
-        isDailyReceipt(entry.input) && entry.input.pageIndex === 1,
-    );
-    const kpiRows: AccountKpiPublication[] = [];
-    for (const entry of dailySummaries) {
-      const summary = entry.input.accountSummary;
-      const raw = entry.input.accountSummaryRaw;
-      if (!summary || !raw) continue;
-      const observedAt = new Date(entry.input.capturedAt);
-      const normalizedJson = json({
-        ...summary,
-        businessDate: entry.input.businessDate,
-        observedAt: observedAt.toISOString(),
-        sourceAttemptId: row.id,
-        providerVendorId: plan.providerVendorId,
-        filterScope: plan.filterScope,
-      });
-      kpiRows.push({
-        id: randomUUID(),
-        kpiType: DAILY_KPI_TYPE,
-        businessDate: entry.input.businessDate,
-        periodStart: entry.input.businessDate,
-        periodEnd: entry.input.businessDate,
-        observedAt,
-        normalizedJson,
-        rawJson: json(raw),
-      });
-    }
-
-    const periodEntry = entries.find(
-      (entry): entry is ReceiptEntry & { input: AdTrafficSourcePeriodReceiptInput } =>
-        isPeriodReceipt(entry.input),
-    );
-    if (periodEntry) {
-      const summary = periodEntry.input.accountSummary;
-      const raw = periodEntry.input.accountSummaryRaw;
-      const observedAt = new Date(periodEntry.input.capturedAt);
-      kpiRows.push({
-        id: randomUUID(),
-        kpiType: PERIOD_KPI_TYPE,
-        businessDate: periodEntry.input.endDate,
-        periodStart: periodEntry.input.startDate,
-        periodEnd: periodEntry.input.endDate,
-        observedAt,
-        normalizedJson: json({
-          ...summary,
-          startDate: periodEntry.input.startDate,
-          endDate: periodEntry.input.endDate,
-          observedAt: observedAt.toISOString(),
-          sourceAttemptId: row.id,
-          providerVendorId: plan.providerVendorId,
-          filterScope: plan.filterScope,
-        }),
-        rawJson: json(raw),
-      });
-    }
-    await upsertAccountKpiPublication(
-      tx,
-      row.organizationId,
-      row.channelAccountId!,
-      kpiRows,
-      publishedAt,
-    );
-    return {
-      matchedCount,
-      unmatchedCount,
-      accountKpiPublished: dailySummaries.length > 0 || !!periodEntry,
-    };
+    return { matchedCount, unmatchedCount };
   }
 
   private async attemptView(tx: Tx, row: SourceRun): Promise<AdTrafficSourceAttempt> {
@@ -1871,15 +1658,14 @@ async function readLegacyPublished(
     (!from && !to)
     || (from !== undefined
       && to !== undefined
-      && dateText(from) === plan.startDate
-      && dateText(to) === plan.endDate);
+      && businessDateKey(from) === plan.startDate
+      && businessDateKey(to) === plan.endDate);
   if (!exactPeriodRequested) {
     return AdTrafficSourcePublishedSchema.parse({
       channelAccountId,
       attemptId: run.id,
       plan,
       rows: [],
-      dashboard: null,
     });
   }
 
@@ -1898,7 +1684,7 @@ async function readLegacyPublished(
     snapshots
       .filter((snapshot): snapshot is typeof snapshot & { listingId: string; businessDate: Date } =>
         !!snapshot.listingId && !!snapshot.businessDate)
-      .map((snapshot) => `${snapshot.listingId}:${dateText(snapshot.businessDate)}`),
+      .map((snapshot) => `${snapshot.listingId}:${businessDateKey(snapshot.businessDate)}`),
   );
   const listingIds = [...new Set(snapshots.flatMap((snapshot) => snapshot.listingId ? [snapshot.listingId] : []))];
   const dailyRows = listingIds.length
@@ -1918,17 +1704,21 @@ async function readLegacyPublished(
           trafficSalesQty: true,
           trafficRevenue: true,
           trafficObservedAt: true,
-          lastObservedAt: true,
         },
       })
     : [];
+  // A daily row without a traffic observation never measured traffic for
+  // this capture; its unrelated `lastObservedAt` is not evidence, so the row
+  // is not published.
   const rows = dailyRows
-    .filter((daily) => keys.has(`${daily.listingId}:${dateText(daily.businessDate)}`))
+    .filter((daily): daily is typeof daily & { trafficObservedAt: Date } =>
+      daily.trafficObservedAt !== null
+      && keys.has(`${daily.listingId}:${businessDateKey(daily.businessDate)}`))
     .map((daily) => ({
       listingId: daily.listingId,
       externalId: daily.externalId,
-      businessDate: dateText(daily.businessDate),
-      observedAt: (daily.trafficObservedAt ?? daily.lastObservedAt).toISOString(),
+      businessDate: businessDateKey(daily.businessDate),
+      observedAt: daily.trafficObservedAt.toISOString(),
       traffic: {
         visitors: daily.trafficVisitors,
         views: daily.trafficViews,
@@ -1938,25 +1728,11 @@ async function readLegacyPublished(
         revenue: daily.trafficRevenue,
       },
     }));
-  const dashboardBusinessDate = dateAtUtc(plan.businessDate);
-  const dashboard = await tx.channelAccountDailyKpiSnapshot.findUnique({
-    where: {
-      organizationId_channelAccountId_source_businessDate_kpiType: {
-        organizationId,
-        channelAccountId,
-        source: KPI_SOURCE,
-        businessDate: dashboardBusinessDate,
-        kpiType: KPI_TYPE,
-      },
-    },
-    select: { normalizedJson: true },
-  });
   return AdTrafficSourcePublishedSchema.parse({
     channelAccountId,
     attemptId: run.id,
     plan,
     rows,
-    dashboard: dashboard ? asRecord(dashboard.normalizedJson) : null,
   });
 }
 
@@ -1988,8 +1764,8 @@ async function readDailyPublished(
     throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
   }
   const targetDates = datesBetween(rangeFrom, rangeTo);
-  const rangeStartText = dateText(rangeFrom);
-  const rangeEndText = dateText(rangeTo);
+  const rangeStartText = businessDateKey(rangeFrom);
+  const rangeEndText = businessDateKey(rangeTo);
   const selected = new Map<string, { run: SourceRun; plan: AdTrafficSourceDailyPlan }>();
   for (const candidate of dailyRuns) {
     for (const businessDate of candidate.plan.expectedDates) {
@@ -2057,14 +1833,14 @@ async function readDailyPublished(
   }
   const optionDaily = snapshots
     .filter((snapshot) => {
-      const date = snapshot.businessDate ? dateText(snapshot.businessDate) : '';
+      const date = snapshot.businessDate ? businessDateKey(snapshot.businessDate) : '';
       return !!snapshot.sourceImportRunId && selected.get(date)?.run.id === snapshot.sourceImportRunId;
     })
     .map((snapshot) => {
       const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
       const traffic = trafficMetrics(raw);
       return {
-        businessDate: dateText(snapshot.businessDate!),
+        businessDate: businessDateKey(snapshot.businessDate!),
         observedAt: snapshot.observedAt.toISOString(),
         sourceAttemptId: snapshot.sourceImportRunId!,
         listingId: snapshot.listingId,
@@ -2129,7 +1905,7 @@ async function readDailyPublished(
       missingDates: targetDates.filter((businessDate) => !completeDates.has(businessDate)),
     },
     reconciliation: buildReconciliation(accountDaily, periodSummary, {
-      forceUnverified: incompleteDailyCoverage || periodEvidenceIsStale,
+      periodSummaryApplies: !incompleteDailyCoverage && !periodEvidenceIsStale,
     }),
     legacyExactPeriodEvidence,
   });
@@ -2427,6 +2203,20 @@ function confirmedDatesOf(
   const end = plan.expectedDates.indexOf(period.endDate);
   if (start < 0 || end < start) return [];
   return plan.expectedDates.slice(start, end + 1);
+}
+
+function providerBackedEmptyDatesOf(
+  confirmedDates: readonly string[],
+  entries: readonly ReceiptEntry[],
+): string[] {
+  const dailyPages = entries
+    .map((entry) => entry.input)
+    .filter((input): input is AdTrafficSourceDailyReceiptInput => isDailyReceipt(input));
+  return confirmedDates.filter((businessDate) => {
+    const pages = dailyPages.filter((page) => page.businessDate === businessDate);
+    return pages.length > 0 && pages.every((page) =>
+      page.data.length === 0 && page.proof.explicitEmpty === true);
+  });
 }
 
 function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>, entries: ReceiptEntry[]): string | null {

@@ -163,16 +163,20 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
       status: 'failed',
       errorCode: 'ATTEMPT_EXPIRED',
     });
-    await expect(
-      prisma.alert.findUniqueOrThrow({
-        where: {
-          organizationId_dedupeKey: {
-            organizationId: TEST_ORGANIZATION_ID,
-            dedupeKey: COMPETITOR_CATALOG_SOURCE_ALERT_DEDUPE_KEY,
-          },
+    const alert = await prisma.alert.findUniqueOrThrow({
+      where: {
+        organizationId_dedupeKey: {
+          organizationId: TEST_ORGANIZATION_ID,
+          dedupeKey: COMPETITOR_CATALOG_SOURCE_ALERT_DEDUPE_KEY,
         },
-      }),
-    ).resolves.toMatchObject({ status: 'OPEN' });
+      },
+    });
+    expect(alert).toMatchObject({
+      status: 'OPEN',
+      message: '경쟁 판매자 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
+    });
+    // The code travels in the attempt's `errorCode`; the line the operator reads is a sentence.
+    expect(alert.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);
   });
 
   it('keeps the historical no-target selection as an explicit complete zero baseline', async () => {

@@ -20,6 +20,7 @@ import type {
   AdTrafficSourceReconciliation,
   AdTrafficSourcePublished,
 } from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import {
   uploadTrafficStats as uploadTrafficStatsIngest,
 } from './traffic-upload';
@@ -296,7 +297,10 @@ function sumAccountDaily(
   const complete = coverage.targetDays > 0
     && coverage.completedDays === coverage.targetDays;
   const metricValue = (metric: TrafficAdditiveMetric): number | null => {
-    if (!complete || reconciliation?.[metric]?.status === 'MISMATCH') return null;
+    const reconciled = reconciliation?.[metric];
+    if (!complete || (reconciled && adTrafficReconciliationStatus(reconciled) === 'MISMATCH')) {
+      return null;
+    }
     return rawTotals[metric];
   };
   const averageDailyVisitors = complete

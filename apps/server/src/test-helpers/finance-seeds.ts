@@ -51,6 +51,10 @@ export async function setupMaster(
 /**
  * Create one physical SellpiaInventorySku and return its ID. The channel
  * listing helper attaches it directly to the sellable channel option.
+ *
+ * `costPrice` is the Sellpia purchase price, the only cost input a listing
+ * option has (KID-114). A sales commission or other per-sale cost is decided
+ * by the order's channel account, so no fixture writes one.
  */
 export async function setupProductOption(
   prisma: PrismaClient,
@@ -59,8 +63,6 @@ export async function setupProductOption(
     masterId: string;
     sku: string;
     costPrice?: number;
-    commissionRate?: number;
-    otherCost?: number;
   },
 ): Promise<{ id: string }> {
   const master = await prisma.masterProduct.findFirstOrThrow({
@@ -75,12 +77,6 @@ export async function setupProductOption(
       optionName: opts.sku,
       currentStock: 100,
       purchasePrice: opts.costPrice ?? 5000,
-      rawJson: {
-        testPricing: {
-          commissionRate: opts.commissionRate ?? 0.1,
-          otherCost: opts.otherCost ?? 0,
-        },
-      },
     },
     select: { id: true },
   });
@@ -145,24 +141,13 @@ export async function setupChannelListing(
       imageUrls: true,
     },
   });
-  const inventorySku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+  await prisma.sellpiaInventorySku.findFirstOrThrow({
     where: {
       id: opts.optionId,
       organizationId: opts.organizationId,
     },
-    select: { rawJson: true },
+    select: { id: true },
   });
-  const rawPricing = inventorySku.rawJson;
-  const pricing =
-    rawPricing &&
-    typeof rawPricing === 'object' &&
-    !Array.isArray(rawPricing) &&
-    'testPricing' in rawPricing &&
-    rawPricing.testPricing &&
-    typeof rawPricing.testPricing === 'object' &&
-    !Array.isArray(rawPricing.testPricing)
-      ? rawPricing.testPricing
-      : {};
   const listing = await prisma.channelListing.create({
     data: {
       organizationId: opts.organizationId,
@@ -192,12 +177,6 @@ export async function setupChannelListing(
       listingId: listing.id,
       externalOptionId: opts.externalOptionId,
       sellerSku: opts.externalOptionId,
-      commissionRate:
-        'commissionRate' in pricing
-          ? Number(pricing.commissionRate)
-          : 0.1,
-      otherCost:
-        'otherCost' in pricing ? Number(pricing.otherCost) : 0,
     },
     select: { id: true },
   });
@@ -230,6 +209,12 @@ export async function seedOrderWithLineItems(
     orderedAt: string;         // ISO date string
     shippingPrice?: number;
     status?: string;
+    /**
+     * Channel of the account the order was collected from. Defaults to the
+     * first line's listing account; `'rocket'` models a Rocket
+     * direct-purchase order, whose sales carry no commission or other cost.
+     */
+    orderChannel?: string;
     lineItems: Array<{
       quantity: number;
       totalPrice: number;
@@ -249,10 +234,31 @@ export async function seedOrderWithLineItems(
     select: { listing: { select: { channelAccountId: true } } },
   });
 
+  const orderChannelAccountId = opts.orderChannel
+    ? (await prisma.channelAccount.upsert({
+        where: {
+          organizationId_channel_externalAccountId: {
+            organizationId: opts.organizationId,
+            channel: opts.orderChannel,
+            externalAccountId: `test-${opts.orderChannel}`,
+          },
+        },
+        create: {
+          organizationId: opts.organizationId,
+          channel: opts.orderChannel,
+          name: `${opts.orderChannel} test account`,
+          externalAccountId: `test-${opts.orderChannel}`,
+          isPrimary: true,
+        },
+        update: {},
+        select: { id: true },
+      })).id
+    : firstListingOption.listing.channelAccountId;
+
   const order = await prisma.order.create({
     data: {
       organizationId: opts.organizationId,
-      channelAccountId: firstListingOption.listing.channelAccountId,
+      channelAccountId: orderChannelAccountId,
       externalOrderId: opts.externalOrderId,
       orderedAt: new Date(opts.orderedAt),
       status,
@@ -279,6 +285,154 @@ export async function seedOrderWithLineItems(
   }
 
   return order.id;
+}
+
+/**
+ * Publish an explicit Order owner coverage window and attach the fixture rows
+ * inside that KST business-date range to the completed run. Tests must call
+ * this deliberately: observing an order row never proves that the collector
+ * exhausted the requested mall/window.
+ */
+export async function seedCompletedOrderCoverageRun(
+  prisma: PrismaClient,
+  opts: {
+    organizationId: string;
+    startDate: string;
+    endDate: string;
+    mallKey?: string;
+  },
+): Promise<string> {
+  const mallKey = opts.mallKey ?? 'dashboard-test-mall';
+  const account = await prisma.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId: opts.organizationId,
+        channel: 'order_collection',
+        externalAccountId: mallKey,
+      },
+    },
+    create: {
+      organizationId: opts.organizationId,
+      channel: 'order_collection',
+      name: mallKey,
+      externalAccountId: mallKey,
+      isPrimary: false,
+    },
+    update: {},
+    select: { id: true },
+  });
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: opts.organizationId,
+      sourceType: 'order_collection_mall',
+      channelAccountId: account.id,
+      status: 'completed',
+      coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
+      coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
+      plan: { mallKey, testCoverage: true },
+      importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
+    },
+    select: { id: true },
+  });
+  const from = new Date(`${opts.startDate}T00:00:00+09:00`);
+  const through = new Date(`${opts.endDate}T00:00:00+09:00`);
+  const to = new Date(through.getTime() + 86_400_000);
+  const attached = await prisma.order.updateMany({
+    where: {
+      organizationId: opts.organizationId,
+      orderedAt: { gte: from, lt: to },
+    },
+    data: { sourceImportRunId: run.id },
+  });
+  await prisma.sourceImportRun.update({
+    where: { id: run.id },
+    data: { providerBackedEmptyProof: attached.count === 0 },
+  });
+  return run.id;
+}
+
+/** Publish every current fixture SKU as one verified Inventory generation. */
+export async function seedCompletedInventorySnapshot(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<string> {
+  const verifiedAt = new Date();
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId,
+      sourceType: 'sellpia_inventory',
+      status: 'completed',
+      freshnessGeneration: 1n,
+      importedAt: verifiedAt,
+      lastVerifiedAt: verifiedAt,
+    },
+    select: { id: true },
+  });
+  await prisma.sellpiaInventorySku.updateMany({
+    where: { organizationId },
+    data: { lastImportRunId: run.id },
+  });
+  await prisma.sellpiaInventoryState.upsert({
+    where: { organizationId },
+    create: {
+      organizationId,
+      sourceAccountKey: 'dashboard-test',
+      verifiedGeneration: 1n,
+      lastVerifiedAt: verifiedAt,
+      lastCompletedImportRunId: run.id,
+    },
+    update: {
+      verifiedGeneration: 1n,
+      lastVerifiedAt: verifiedAt,
+      lastCompletedImportRunId: run.id,
+    },
+  });
+  return run.id;
+}
+
+// ---------------------------------------------------------------------------
+// seedCompletedOrderCollection — explicit mall coverage for selected order fixtures
+// ---------------------------------------------------------------------------
+
+/** Declare measured order coverage independently from the order-row dates. */
+export async function seedCompletedOrderCollection(
+  prisma: PrismaClient,
+  opts: {
+    organizationId: string;
+    startDate: string;
+    endDate: string;
+    orderIds: readonly string[];
+  },
+): Promise<string> {
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.channelAccount.create({
+      data: {
+        organizationId: opts.organizationId,
+        channel: 'order_collection',
+        name: 'Measured finance order fixture',
+        externalAccountId: 'finance-fixture-mall',
+      },
+    });
+    const run = await tx.sourceImportRun.create({
+      data: {
+        organizationId: opts.organizationId,
+        channelAccountId: account.id,
+        sourceType: 'order_collection_mall',
+        status: 'completed',
+        importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
+        coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
+        coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
+      },
+    });
+    // The run owns the orders it published; each order keeps the channel
+    // account it was sold through, which decides whether a sales commission
+    // and other per-sale cost apply to its lines (KID-114).
+    await tx.order.updateMany({
+      where: { organizationId: opts.organizationId, id: { in: [...opts.orderIds] } },
+      data: { sourceImportRunId: run.id },
+    });
+    return run.id;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +505,7 @@ export async function seedReturn(
 /**
  * Seed one measured listing-day ad fact in the advertising target-day ledger
  * (`ChannelAdTargetDailySnapshot`, product grain). Every reader of listing-day
- * ad values goes through `common/ad-window-facts`, so a spec that seeds here
+ * ad values goes through `advertising/read/ad-target-facts`, so a spec that seeds here
  * observes `getTrend(...).adCost` / `salesAnalysis.totalCost` and friends.
  *
  * A measured day needs both a row and a completed sweep declaration. By
@@ -379,6 +533,12 @@ export async function seedAd(
     runId?: string | null;
     /** Distinguishes several product rows of one listing on one day (options). */
     targetKey?: string;
+    /**
+     * Whether the provider grid carried a conversion-count column. The owner
+     * stamps this on every published target row; `false` stores the column's
+     * 0 as unobserved.
+     */
+    conversionsObserved?: boolean;
   },
 ): Promise<string | null> {
   const listing = await prisma.channelListing.findFirstOrThrow({
@@ -486,7 +646,12 @@ export async function seedAd(
       targetType: 'product',
       targetKey,
       sourceImportRunId: runId,
-      metaJson: { data: { granularity: 'product' } },
+      metaJson: {
+        data: {
+          granularity: 'product',
+          conversionsObserved: opts.conversionsObserved ?? true,
+        },
+      },
       firstObservedAt: businessDate,
       ...metrics,
     },
@@ -513,6 +678,8 @@ export async function seedCompletedAdSweepRun(
     status?: 'completed' | 'running' | 'failed';
     /** The window the sweep declares it swept; every date in it is measured. */
     window?: { startDate: string; endDate: string };
+    /** The last date the sweep requested, when it held back days after its window. */
+    requestedEndDate?: string;
   },
 ): Promise<string> {
   const account = await prisma.channelAccount.findFirstOrThrow({
@@ -531,7 +698,11 @@ export async function seedCompletedAdSweepRun(
       channelAccountId: account.id,
       status: opts.status ?? 'completed',
       parserVersion: 'ad-campaign-v1',
-      plan: { captureMode: 'campaign_sweep', ...(opts.window ?? {}) },
+      plan: {
+        captureMode: 'campaign_sweep',
+        ...(opts.window ?? {}),
+        ...(opts.requestedEndDate ? { endDate: opts.requestedEndDate } : {}),
+      },
       freshnessGeneration: BigInt(opts.generation),
       ...(opts.window && (opts.status ?? 'completed') === 'completed'
         ? {
@@ -577,97 +748,4 @@ export async function seedCompletedAdSweepRun(
     });
   }
   return run.id;
-}
-
-export async function seedPublishedAdAccountDay(
-  prisma: PrismaClient,
-  opts: { organizationId: string; date: string; adSpend?: number },
-): Promise<void> {
-  const account = await prisma.channelAccount.findFirstOrThrow({
-    where: {
-      organizationId: opts.organizationId,
-      channel: 'coupang',
-      status: 'active',
-    },
-    select: { id: true },
-  });
-  const businessDate = new Date(`${opts.date}T00:00:00.000Z`);
-  const parserVersion = 'ad-account-daily-kpi-v2';
-  // One completed attempt publishes every day of its window, exactly as a real
-  // collection does — and `(organization, sourceType, account, generation)` is
-  // unique, so repeated days reuse it rather than inventing a second attempt.
-  const sourceImportRun = await prisma.sourceImportRun.findFirst({
-    where: {
-      organizationId: opts.organizationId,
-      sourceType: 'coupang_ads_daily',
-      channelAccountId: account.id,
-      status: 'completed',
-    },
-    select: { id: true },
-  }) ?? await prisma.sourceImportRun.create({
-    data: {
-      organizationId: opts.organizationId,
-      sourceType: 'coupang_ads_daily',
-      channelAccountId: account.id,
-      status: 'completed',
-      rowCount: 1,
-      freshnessGeneration: 1n,
-      parserVersion,
-      coverageStartDate: businessDate,
-      coverageEndDate: businessDate,
-      importedAt: new Date(`${opts.date}T12:00:00.000Z`),
-    },
-    select: { id: true },
-  });
-  const scrapeRun = await prisma.channelScrapeRun.create({
-    data: {
-      organizationId: opts.organizationId,
-      channelAccountId: account.id,
-      sourceImportRunId: sourceImportRun.id,
-      channel: 'coupang',
-      source: 'coupang_ads',
-      pageType: 'dashboard_daily',
-      businessDate,
-      periodStart: businessDate,
-      periodEnd: businessDate,
-      status: 'completed',
-      period: '1d',
-      parserVersion,
-    },
-    select: { id: true },
-  });
-  const adSpend = opts.adSpend ?? 0;
-  await prisma.channelScrapeSnapshot.create({
-    data: {
-      organizationId: opts.organizationId,
-      sourceImportRunId: sourceImportRun.id,
-      scrapeRunId: scrapeRun.id,
-      channel: 'coupang',
-      source: 'coupang_ads',
-      pageType: 'dashboard_daily',
-      businessDate,
-      observedAt: new Date(`${opts.date}T12:00:00.000Z`),
-      matchStatus: 'unmatched',
-      rawJson: { date: opts.date },
-      normalizedJson: {
-        adSpend,
-        adRevenue: 0,
-        impressions: 0,
-        clicks: 0,
-        conversions: 0,
-        orders: 0,
-        providerRoas: null,
-        providerCtr: null,
-        providerConversionRate: null,
-        observedMetrics: {
-          adSpend: true,
-          adRevenue: true,
-          impressions: true,
-          clicks: true,
-          conversions: true,
-          orders: true,
-        },
-      },
-    },
-  });
 }

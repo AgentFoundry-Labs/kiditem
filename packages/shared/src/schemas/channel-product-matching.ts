@@ -148,9 +148,9 @@ export const ChannelOptionInventoryComponentSchema = z.object({
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
-  currentStock: z.number().int().nonnegative(),
-  availableStock: z.number().int().nonnegative(),
-  isActive: z.boolean(),
+  currentStock: z.number().int().nonnegative().nullable(),
+  availableStock: z.number().int().nonnegative().nullable(),
+  isActive: z.boolean().nullable(),
   quantity: z.number().int().positive(),
 }).strict().superRefine((component, ctx) => {
   if (component.availableStock !== component.currentStock) {
@@ -284,7 +284,7 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
     code: z.string().min(1),
     name: z.string().min(1),
     optionName: z.string().min(1).nullable(),
-    currentStock: z.number().int(),
+    currentStock: z.number().int().nonnegative().nullable(),
     evidence: z.array(ChannelRecipeSuggestionEvidenceSchema),
     requiresQuantityConfirmation: z.boolean(),
     recommendedQuantity: z.number().int().positive().nullable(),

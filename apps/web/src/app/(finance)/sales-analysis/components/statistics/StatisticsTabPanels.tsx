@@ -28,18 +28,18 @@ export function StatisticsTabPanels({
       return data.overview ? <OverviewPanel overview={data.overview} /> : null;
     case 'products':
       return data.products ? (
-        <ProductsPanel products={data.products} page={page} onPageChange={onPageChange} />
+        <ProductsPanel products={data.products.rows} page={page} onPageChange={onPageChange} />
       ) : null;
     case 'categories':
       return data.categories ? (
         <CategoriesPanel
-          categories={data.categories}
+          categories={data.categories.rows}
           page={page}
           onPageChange={onPageChange}
         />
       ) : null;
     case 'grades':
-      return data.grades ? <GradesPanel grades={data.grades} /> : null;
+      return data.grades ? <GradesPanel grades={data.grades.rows} /> : null;
     case 'pareto':
       return data.pareto ? (
         <ParetoPanel pareto={data.pareto} page={page} onPageChange={onPageChange} />

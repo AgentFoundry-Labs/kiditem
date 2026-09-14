@@ -31,6 +31,7 @@ import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
+import { adTrendsSourceLabel } from "../lib/trends-source";
 import AdPerformanceTrendChart from "./AdPerformanceTrendChart";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
 
@@ -535,36 +536,33 @@ export default function StrategyContent({
   const actions = strategy?.actions ?? [];
   const urgentRules = rules.filter((r) => r.priority === "urgent").slice(0, 5);
   const issueSummary = strategy?.issues;
-  const accountSummary = strategy?.accountSummary ?? null;
+  const sweepSummary = trends?.summary ?? null;
+  const accountMetrics = sweepSummary?.metrics ?? null;
   const top20 = strategy?.top20 ?? [];
 
   return (
     <div className="space-y-4">
-      {accountSummary && (
+      {sweepSummary && accountMetrics && (
         <div
+          data-testid="strategy-account-totals"
           className="rounded-2xl px-5 py-3"
           style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}
         >
           <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                계정 광고 합계 (쿠팡 광고센터 일별 집계)
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>
-                Drive · {accountSummary.source}
-              </span>
-            </div>
+            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+              계정 광고 합계 (광고 동기화 캠페인 순회)
+            </span>
             <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-              {accountSummary.periodDayCount}일 · 최근 {accountSummary.latestBusinessDate ?? "-"}
+              {`측정 ${formatNumber(sweepSummary.periodDayCount)}일 · ${adTrendsSourceLabel(sweepSummary)}`}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            <SummaryStat label="광고비" value={`${formatNumber(accountSummary.metrics.spend)}원`} />
-            <SummaryStat label="광고매출" value={`${formatNumber(accountSummary.metrics.revenue)}원`} />
-            <SummaryStat label="ROAS" value={accountSummary.metrics.roas != null ? `${accountSummary.metrics.roas}%` : "-"} accent />
-            <SummaryStat label="노출/클릭" value={`${formatNumber(accountSummary.metrics.impressions)} / ${formatNumber(accountSummary.metrics.clicks)}`} />
-            <SummaryStat label="CTR / CVR" value={`${(accountSummary.metrics.ctr ?? 0).toFixed(2)}% / ${(accountSummary.metrics.cvr ?? 0).toFixed(2)}%`} />
-            <SummaryStat label="주문/전환" value={`${formatNumber(accountSummary.orders)} / ${formatNumber(accountSummary.metrics.conversions)}`} />
+            <SummaryStat label="광고비" value={`${formatNumber(accountMetrics.spend)}원`} />
+            <SummaryStat label="광고매출" value={`${formatNumber(accountMetrics.revenue)}원`} />
+            <SummaryStat label="ROAS" value={accountMetrics.roas !== null ? `${accountMetrics.roas}%` : "-"} accent />
+            <SummaryStat label="노출/클릭" value={`${formatNumber(accountMetrics.impressions)} / ${formatNumber(accountMetrics.clicks)}`} />
+            <SummaryStat label="CTR / CVR" value={`${percentText(accountMetrics.ctr)} / ${percentText(accountMetrics.cvr)}`} />
+            <SummaryStat label="주문/전환" value={`${formatNumber(sweepSummary.orders)} / ${formatNumber(accountMetrics.conversions)}`} />
           </div>
         </div>
       )}
@@ -718,6 +716,10 @@ export default function StrategyContent({
       </div>
     </div>
   );
+}
+
+function percentText(value: number | null): string {
+  return value === null ? "-" : `${value.toFixed(2)}%`;
 }
 
 function SummaryStat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {

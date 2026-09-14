@@ -6,6 +6,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Radar } from "lucide-react";
 import { toast } from "sonner";
 import { transferExtensionAuthTo } from "@/lib/extension-auth";
+import {
+  COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE,
+  collectionSourceStatusQueryOptions,
+  collectionSourceStatusRead,
+} from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { beginWingRankBatch, fetchWingRankBatch } from "../lib/rank-api";
@@ -42,7 +47,7 @@ export default function BatchRankCheck({
   const [cancelError, setCancelError] = useState<string | null>(null);
   const observed = useRef("");
   const queryKey = [...queryKeys.ads.keywordRank(), "batch", batchKey];
-  const owner = useQuery({
+  const owner = useQuery(collectionSourceStatusQueryOptions({
     queryKey,
     queryFn: () => fetchWingRankBatch(batchKey!),
     enabled: !!batchKey && !starting,
@@ -50,7 +55,7 @@ export default function BatchRankCheck({
       query.state.data?.attempts.some((attempt) => attempt.state === "RUNNING")
         ? 2000
         : false,
-  });
+  }));
   const attempts = owner.data?.attempts ?? [];
   const complete = attempts.filter(
     (attempt) => attempt.state === "COMPLETE",
@@ -231,7 +236,12 @@ export default function BatchRankCheck({
           확인 탭 열기
         </button>
       ))}
-      {(dispatchError || owner.isError) && (
+      {collectionSourceStatusRead(owner) === "rechecking" && (
+        <p className="text-sm text-slate-500">
+          {COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}
+        </p>
+      )}
+      {(dispatchError || collectionSourceStatusRead(owner) === "unavailable") && (
         <p role="alert" className="text-sm text-amber-700">
           {dispatchError || "서버의 수집 결과를 확인하지 못했습니다."}
           <button

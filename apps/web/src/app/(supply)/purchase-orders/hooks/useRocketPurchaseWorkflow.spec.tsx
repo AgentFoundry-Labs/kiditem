@@ -97,7 +97,6 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
-      hasConfiguredVendorId: true,
       from: '2026-07-01',
       to: '2026-07-31',
       savedSourceImportRunId: null,
@@ -175,7 +174,6 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockReturnValue(inventoryState.promise);
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
-      hasConfiguredVendorId: true,
       from: '2026-07-01',
       to: '2026-07-31',
       savedSourceImportRunId: null,
@@ -220,7 +218,6 @@ describe('useRocketPurchaseWorkflow', () => {
     const hook = renderHook(
       ({ selectedDeliveryDate }) => useRocketPurchaseWorkflow({
         channelAccountId: ACCOUNT_A,
-        hasConfiguredVendorId: true,
         from: '2026-07-01',
         to: '2026-07-31',
         savedSourceImportRunId: SOURCE_A,
@@ -311,13 +308,12 @@ describe('useRocketPurchaseWorkflow', () => {
       attemptId: SOURCE_A, state: 'FAILED', errorMessage: '로켓 PO 2건 중 1건만 수집되어 저장하지 않았습니다.',
     } as never));
     vi.mocked(previewRocketPurchases).mockResolvedValue({
-      ...preview(source, [previewRow('LINE-A', 'collection_incomplete', 0)]),
+      ...preview(source, [previewRow('LINE-A', 'inventory_unavailable', 0)]),
       catalog: null,
       inventoryGeneration: null,
     });
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
-      hasConfiguredVendorId: true,
       from: '2026-07-01',
       to: '2026-07-31',
       savedSourceImportRunId: null,
@@ -349,7 +345,6 @@ describe('useRocketPurchaseWorkflow', () => {
     );
     const hook = renderHook(() => useRocketPurchaseWorkflow({
       channelAccountId: ACCOUNT_A,
-      hasConfiguredVendorId: true,
       from: '2026-07-01',
       to: '2026-07-31',
       savedSourceImportRunId: null,
@@ -506,7 +501,6 @@ describe('useRocketPurchaseWorkflow', () => {
     const hook = renderHook(
       ({ selectedDeliveryDate }) => useRocketPurchaseWorkflow({
         channelAccountId: ACCOUNT_A,
-        hasConfiguredVendorId: true,
         from: '2026-07-01',
         to: '2026-07-31',
         savedSourceImportRunId: SOURCE_A,
@@ -544,7 +538,6 @@ describe('useRocketPurchaseWorkflow', () => {
     const hook = renderHook(
       ({ channelAccountId, savedSourceImportRunId }) => useRocketPurchaseWorkflow({
         channelAccountId,
-        hasConfiguredVendorId: true,
         from: '2026-07-01',
         to: '2026-07-31',
         savedSourceImportRunId,
@@ -617,7 +610,7 @@ describe('useRocketPurchaseWorkflow', () => {
       .mockResolvedValueOnce(preview(old, [previewRow('LINE-A', null, 4), previewRow('REMOVED', null, 4)]))
       .mockResolvedValue(preview(fresh, [{ ...previewRow('LINE-A', null, 2), editedQuantity: 2 }]));
     const hook = renderHook(({ savedSourceImportRunId }) => useRocketPurchaseWorkflow({
-      channelAccountId: ACCOUNT_A, hasConfiguredVendorId: true, from: '2026-07-01', to: '2026-07-31', savedSourceImportRunId,
+      channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31', savedSourceImportRunId,
     }), { initialProps: { savedSourceImportRunId: SOURCE_A }, wrapper: queryWrapper() });
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
     act(() => { hook.result.current.setReviewedQuantity('LINE-A', 3); hook.result.current.setReviewedQuantity('REMOVED', 1); });
@@ -694,7 +687,7 @@ describe('useRocketPurchaseWorkflow', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
     const hook = renderHook(() => useRocketPurchaseWorkflow({ channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31',
-      savedSourceImportRunId: null, hasConfiguredVendorId: true, onActivity }), { wrapper });
+      savedSourceImportRunId: null, onActivity }), { wrapper });
     await act(async () => hook.result.current.recalculate());
     expect(onActivity.mock.calls.some(([event]) => event.status === 'failed')).toBe(false);
     expect(hook.result.current.loading).toBe(true);
@@ -756,7 +749,6 @@ function renderWorkflow(input: {
 }) {
   return renderHook(() => useRocketPurchaseWorkflow({
     ...input,
-    hasConfiguredVendorId: true,
     from: '2026-07-01',
     to: '2026-07-31',
   } as never), { wrapper: queryWrapper() });

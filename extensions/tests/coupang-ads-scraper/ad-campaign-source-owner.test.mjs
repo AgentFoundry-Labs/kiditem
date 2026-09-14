@@ -48,7 +48,7 @@ function harness({ collect = async () => ({ success: true, receipt: { complete: 
       const body = await request(path, init);
       return { ok: !body.httpStatus, status: body.httpStatus || 200, json: async () => structuredClone(body) };
     },
-    collect: async input => { captures.push(input); await sessions.attachTab(attemptId, { tabId: 41, windowId: 7 }); return collect(input, owner); },
+    collect: async input => { captures.push(input); await sessions.attachTab(input.attemptId, { tabId: 41, windowId: 7 }); return collect(input, owner); },
     environmentForTab: async tabId => tabId === 41 ? 'local' : 'office',
     ownedTab: async () => 41,
     closeAttempt: async (env, id) => closed.push({ env, id }),
@@ -166,4 +166,163 @@ test('local checkpoint validates owned tab, actual identity, fixed expiry and ne
     return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE' };
   } });
   await h.owner.run({ environmentId: 'local', attemptId });
+});
+
+test('a failed sweep reports the collector reason and code in the owner failure', async () => {
+  const dashboardReason = '쿠팡 광고 대시보드 표를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.';
+  const campaignReason = '쿠팡 광고 캠페인 2개를 불러오지 못했습니다: A, B.';
+  for (const [collected, body] of [
+    [{ success: false, error: campaignReason }, { code: 'AD_CAMPAIGN_COLLECTION_FAILED', message: campaignReason }],
+    [{ success: false, errorCode: 'AD_DASHBOARD_NOT_LOADED', error: dashboardReason }, { code: 'AD_DASHBOARD_NOT_LOADED', message: dashboardReason }],
+  ]) {
+    const value = control();
+    const h = harness({
+      request(path, init) {
+        if (path.endsWith('/fail')) {
+          const failure = JSON.parse(init.body);
+          Object.assign(value, { state: 'FAILED', errorCode: failure.code, errorMessage: failure.message });
+        }
+        return value;
+      },
+      collect: async () => collected,
+    });
+    const outcome = await h.owner.run({ environmentId: 'local', attemptId });
+    assert.deepEqual(JSON.parse(h.requests.find(r => r.path.endsWith('/fail')).body), body);
+    assert.equal(outcome.terminalState, 'FAILED');
+    assert.equal(outcome.error, body.message);
+  }
+});
+
+test('a campaign run clears an earlier session whose attempt the owner no longer knows, but not one it cannot read', async () => {
+  const goneAttemptId = '55555555-5555-4555-8555-555555555555';
+  const stopped = async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'stopped' });
+
+  const gone = harness({
+    request: async (path) => path.includes(goneAttemptId) ? { httpStatus: 404, message: 'not found' } : control(),
+    collect: stopped,
+  });
+  await gone.sessions.start({ attemptId: goneAttemptId, environmentId: 'local', producer: 'advertising.ad_sync' });
+  const outcome = await gone.owner.run({ environmentId: 'local', attemptId });
+  assert.equal(outcome.attemptId, attemptId);
+  assert.equal(await gone.sessions.getOwned(goneAttemptId, 'local'), null, 'a 404 means the attempt has ended');
+  assert.ok(gone.closed.some((entry) => entry.id === goneAttemptId));
+
+  const forbidden = harness({
+    request: async (path) => path.includes(goneAttemptId) ? { httpStatus: 403, message: 'forbidden' } : control(),
+    collect: stopped,
+  });
+  await forbidden.sessions.start({ attemptId: goneAttemptId, environmentId: 'local', producer: 'advertising.ad_sync' });
+  await assert.rejects(forbidden.owner.run({ environmentId: 'local', attemptId }));
+  assert.ok(await forbidden.sessions.getOwned(goneAttemptId, 'local'), 'an unreadable attempt is not assumed to have ended');
+});
+
+const nextAttemptId = '44444444-4444-4444-8444-444444444444';
+
+// Serves each attempt's control read and records its failure report. `onFail`
+// may answer a report in the owner's place; `expire` ends an attempt the way
+// the owner does once its permit runs out.
+function attemptServer({ onFail } = {}) {
+  const attempts = new Map([
+    [attemptId, control()],
+    [nextAttemptId, { ...control(), attemptId: nextAttemptId }],
+  ]);
+  return {
+    expire: (id) => Object.assign(attempts.get(id), { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED', errorMessage: 'attempt expired' }),
+    async request(path, init) {
+      const [, id, action] = /\/attempts\/([^/]+)\/(control|fail|complete)$/.exec(path) || [];
+      const attempt = attempts.get(decodeURIComponent(id || ''));
+      if (!attempt) return { httpStatus: 404, message: 'not found' };
+      if (action === 'fail' && init?.method === 'POST') {
+        const answer = await onFail?.(attempt);
+        if (answer) return answer;
+        const failure = JSON.parse(init.body);
+        Object.assign(attempt, { state: 'FAILED', errorCode: failure.code, errorMessage: failure.message });
+      }
+      return attempt;
+    },
+  };
+}
+
+// The first attempt's failure report never reaches the owner.
+const firstReportLost = async (attempt) => attempt.attemptId === attemptId
+  ? { httpStatus: 503, message: 'unavailable' }
+  : undefined;
+
+test('ad campaign owner runs the next attempt after a run settles without its terminal acknowledgement', async () => {
+  const server = attemptServer({ onFail: firstReportLost });
+  const collected = [];
+  const h = harness({ request: server.request, collect: async (input) => {
+    collected.push(input.attemptId);
+    return { success: false, error: '쿠팡 광고 대시보드 표를 불러오지 못했습니다.' };
+  } });
+
+  const first = await h.owner.run({ environmentId: 'local', attemptId });
+  assert.equal(first.terminalState, 'RUNNING', 'the unacknowledged report is not trusted');
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 광고 캠페인 수집이 진행 중입니다/,
+    'an attempt the owner still runs keeps refusing the next one',
+  );
+
+  server.expire(attemptId);
+  let next;
+  assert.doesNotThrow(() => {
+    next = h.owner.run({ environmentId: 'local', attemptId: nextAttemptId });
+  }, 'a settled run must not keep refusing every later attempt');
+  assert.equal((await next).attemptId, nextAttemptId);
+  assert.deepEqual(collected, [attemptId, nextAttemptId]);
+  assert.equal(await h.sessions.getOwned(attemptId, 'local'), null, "the ended attempt's session is cleared on the way");
+});
+
+test('ad campaign owner refuses another attempt only while a cancellation is still being reported', async () => {
+  const reporting = Promise.withResolvers();
+  const releaseReport = Promise.withResolvers();
+  const server = attemptServer({
+    onFail: async (attempt) => {
+      if (attempt.attemptId !== attemptId) return undefined;
+      reporting.resolve();
+      await releaseReport.promise;
+      return { httpStatus: 503, message: 'unavailable' };
+    },
+  });
+  const h = harness({ request: server.request });
+  await h.sessions.start({ attemptId, environmentId: 'local', producer: 'advertising.ad_sync' });
+
+  const cancelling = h.owner.cancel({ environmentId: 'local', attemptId });
+  await reporting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 광고 캠페인 수집이 진행 중입니다/,
+  );
+
+  releaseReport.resolve();
+  assert.equal((await cancelling).terminalState, 'RUNNING', 'the unacknowledged cancellation is not trusted');
+  server.expire(attemptId);
+  let next;
+  assert.doesNotThrow(() => {
+    next = h.owner.run({ environmentId: 'local', attemptId: nextAttemptId });
+  }, 'a settled cancellation must not keep refusing every later attempt');
+  assert.equal((await next).attemptId, nextAttemptId);
+});
+
+test('ad campaign owner refuses another attempt while a run is still collecting', async () => {
+  const collecting = Promise.withResolvers();
+  const finishCollect = Promise.withResolvers();
+  const h = harness({ request: attemptServer().request, collect: async (input) => {
+    if (input.attemptId === attemptId) {
+      collecting.resolve();
+      await finishCollect.promise;
+    }
+    return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'stopped' };
+  } });
+
+  const first = h.owner.run({ environmentId: 'local', attemptId });
+  await collecting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: 'local', attemptId: nextAttemptId }),
+    /다른 광고 캠페인 수집이 진행 중입니다/,
+  );
+
+  finishCollect.resolve();
+  assert.equal((await first).attemptId, attemptId);
 });

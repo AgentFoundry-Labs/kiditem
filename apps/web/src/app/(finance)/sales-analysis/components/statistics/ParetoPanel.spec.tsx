@@ -20,6 +20,7 @@ describe('ParetoPanel', () => {
               cumulativePercent: 70,
             },
           ],
+          basis: null,
         }}
         page={1}
         onPageChange={vi.fn()}

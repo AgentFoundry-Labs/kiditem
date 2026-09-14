@@ -33,9 +33,11 @@ export type ProductOperationsRepositoryListing = Omit<
 export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
   | 'abc'
+  | 'abcGrade'
+  | 'abcEvaluation'
   | 'contribution'
   | 'displayImageUrls'
-  | 'inventoryStatus'
+  | 'inventory'
   | 'inventoryUnits'
   | 'channelListings'
 > & {
@@ -46,12 +48,14 @@ export type ProductOperationsRepositoryDetail = Omit<
 export type ProductOperationsRepositoryListItem = Omit<
   MasterProductOperationsListItem,
   | 'abc'
+  | 'abcGrade'
+  | 'abcEvaluation'
   | 'contribution'
   | 'depletion'
   | 'displayImageUrls'
   | 'channelOptionSummary'
   | 'inventoryUnits'
-  | 'inventoryStatus'
+  | 'inventory'
   | 'activeChannels'
 > & {
   abcCreatedAt: Date;

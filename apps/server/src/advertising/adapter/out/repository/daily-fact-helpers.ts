@@ -43,8 +43,12 @@ export function pickObservedFields<T extends object, K extends keyof T>(
 
 /**
  * Convert an `ad`/`traffic`/`target` metric block into the shape consumed
- * by upsert `create`. Missing keys → `0` on create (matches the
- * `Int @default(0)` columns).
+ * by upsert `create`. The columns are non-null `Int @default(0)`, so a key
+ * the caller did not supply is stored as `0`. That stored zero is not a
+ * measurement: producers stamp which provider columns they observed
+ * (`observedMetrics` / `conversionsObserved` for target rows, the
+ * `*ObservedAt` timestamps for listing rows), and readers publish an
+ * unobserved column as `null`.
  */
 export function spreadMetricsForCreate<K extends string>(
   block: Partial<Record<K, number | null | undefined>> | undefined,

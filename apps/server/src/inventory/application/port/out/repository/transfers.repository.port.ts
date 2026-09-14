@@ -66,5 +66,6 @@ export interface TransfersRepositoryPort {
     id: string,
     status: string,
     completed: boolean,
+    organizationId: string,
   ): Promise<StockTransferRow>;
 }

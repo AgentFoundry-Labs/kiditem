@@ -8,19 +8,12 @@ import type {
 } from '../application/port/in/master-product-profit-fact-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
 import { datesInclusive } from '../../common/kst';
+import {
+  readCurrentSellpiaProductMonthlyFacts,
+  type SellpiaProductMonthlyFact,
+} from './read/sellpia-product-monthly-facts';
 
-type SourceFactRow = Readonly<{
-  masterProductId: string | null;
-  productCode: string;
-  optionCode: string;
-  barcode: string | null;
-  yearMonth: string;
-  orderAmount: number;
-  inAmount: number;
-  coverageStartDate: Date | null;
-  coverageEndDate: Date | null;
-  capturedAt: Date;
-}>;
+type SourceFactRow = SellpiaProductMonthlyFact;
 
 @Injectable()
 export class SellpiaMasterProductProfitFactReader
@@ -37,50 +30,20 @@ export class SellpiaMasterProductProfitFactReader
     const requestedMasterProductIds = new Set(masterProductIds);
     if (masterProductIds.length === 0) return { evidence: [], orphanFacts: [] };
     const months = yearMonthsIntersecting(input.range);
-    const generation = await this.prisma.sourceImportRun.findFirst({
-      where: {
+    const { generation, facts } = await this.prisma.$transaction((tx) =>
+      readCurrentSellpiaProductMonthlyFacts(tx, {
         organizationId: input.organizationId,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
-        publicationSequence: { not: null },
-      },
-      orderBy: { publicationSequence: 'desc' },
-      select: { id: true, mappingGeneration: true, importedAt: true },
-    });
-    const facts = generation
-      ? await this.prisma.sellpiaProductMonthlySales.findMany({
-        where: {
-          organizationId: input.organizationId,
-          sourceImportRunId: generation.id,
-          yearMonth: { in: months },
-        },
-        select: {
-          masterProductId: true,
-          productCode: true,
-          optionCode: true,
-          barcode: true,
-          yearMonth: true,
-          orderAmount: true,
-          inAmount: true,
-          coverageStartDate: true,
-          coverageEndDate: true,
-          capturedAt: true,
-        },
-      })
-      : [];
+        scope: { yearMonths: months },
+      }));
 
     const mappedRows = new Map<string, SourceFactRow[]>();
     const orphanFacts: OrphanSellpiaProductProfitFact[] = [];
-    for (const sourceFact of facts as SourceFactRow[]) {
+    for (const sourceFact of facts) {
       if (!sourceFact.masterProductId) {
         orphanFacts.push(toOrphan(sourceFact, 'SOURCE_UNMAPPED'));
         continue;
       }
       if (!requestedMasterProductIds.has(sourceFact.masterProductId)) continue;
-      if (!sourceFact.coverageStartDate || !sourceFact.coverageEndDate) {
-        orphanFacts.push(toOrphan(sourceFact, 'LEGACY_COVERAGE_MISSING'));
-        continue;
-      }
       const masterProductId = sourceFact.masterProductId;
       const key = `${masterProductId}\u0000${sourceFact.yearMonth}`;
       const rows = mappedRows.get(key) ?? [];
@@ -90,6 +53,14 @@ export class SellpiaMasterProductProfitFactReader
 
     const factsByMaster = new Map(masterProductIds.map((id) => [id, [] as MasterProductMonthlyProfitFact[]]));
     for (const [key, sourceRows] of mappedRows) {
+      if (sourceRows.some((row) => !row.coverageStartDate || !row.coverageEndDate)) {
+        for (const sourceRow of sourceRows) orphanFacts.push(toOrphan(sourceRow, 'LEGACY_COVERAGE_MISSING'));
+        continue;
+      }
+      if (sourceRows.some((row) => row.costBasis !== 'ORDER_TIME_SUPPLY_COST' || row.vatIncluded !== true)) {
+        for (const sourceRow of sourceRows) orphanFacts.push(toOrphan(sourceRow, 'COST_PROVENANCE_MISSING'));
+        continue;
+      }
       if (!hasMatchingCoverage(sourceRows)) {
         for (const sourceRow of sourceRows) orphanFacts.push(toOrphan(sourceRow, 'COVERAGE_MISMATCH'));
         continue;
@@ -113,7 +84,7 @@ export class SellpiaMasterProductProfitFactReader
 
     const evidence: MasterProductProfitFactEvidence[] = masterProductIds.map((masterProductId) => ({
       masterProductId,
-      mappingStatus: (facts as SourceFactRow[]).some((fact) => fact.masterProductId === masterProductId)
+      mappingStatus: facts.some((fact) => fact.masterProductId === masterProductId)
         ? 'MAPPED'
         : 'UNMAPPED',
       mappingInventoryGeneration: generation?.mappingGeneration?.toString() ?? null,

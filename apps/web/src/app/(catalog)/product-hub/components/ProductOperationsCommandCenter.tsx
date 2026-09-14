@@ -28,6 +28,7 @@ export function ProductOperationsCommandCenter({
     out_of_stock: outOfStockCount,
     configuration_required: configurationCount,
     review_required: reviewCount,
+    uncollected: uncollectedCount,
   } = data.summary.inventoryStatusCounts;
   const warningCount = configurationCount + reviewCount;
   const lowProfitCount = data.summary.negativeProfitCount;
@@ -62,6 +63,7 @@ export function ProductOperationsCommandCenter({
       <OperationsCard title="재고관리" value={data.summary.depletionCoveredProductCount} valueTone="text-teal-700">
         <Breakdown label="재고 설정 확인" value={warningCount} tone="text-teal-700" onClick={() => onShowInventoryFocus('attention')} />
         <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" onClick={() => onShowInventoryFocus('out_of_stock')} />
+        <Breakdown label="미수집" value={uncollectedCount} />
         <Breakdown label="임박 재고" value={imminentProductCount} tone="text-amber-600" onClick={() => onShowInventoryFocus('imminent')} />
         <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" onClick={() => onShowInventoryFocus('reorder')} />
       </OperationsCard>

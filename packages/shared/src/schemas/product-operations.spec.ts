@@ -24,7 +24,6 @@ const skuId = '00000000-0000-4000-8000-000000000003';
 const abcFixture = {
   abcGrade: null,
   evaluation: null,
-  displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
   formulaRevision: 0,
   publicationRevision: 0,
   officialCutoffDate: null,
@@ -33,7 +32,7 @@ const abcFixture = {
   sources: {
     sellpia: missingAbcSource(),
     advertising: missingAbcSource(),
-    mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+    mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
   },
 };
 
@@ -59,12 +58,10 @@ const createProductDetailFixture = (availableStock = 80) => ({
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
-  healthScore: null,
-  healthUpdatedAt: null,
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
-  inventoryStatus: 'sellable',
+  inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
   inventoryUnits: 80,
   channelListings: [{
     id: '00000000-0000-4000-8000-000000000004',
@@ -120,8 +117,6 @@ const metadataFixture = {
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
-  healthScore: null,
-  healthUpdatedAt: null,
   isActive: true,
 };
 
@@ -156,13 +151,6 @@ describe('product operations contracts', () => {
     expect(MasterProductOperationsListQuerySchema.safeParse({ abcRisk: 'LOSS' }).success).toBe(false);
     expect(ProductOperationsListSummarySchema.parse({
       abcGradeCounts: { A: 2, B: 3, C: 1, unclassified: 4 },
-      abcStatusCounts: {
-        READY: 6,
-        INSUFFICIENT_EVIDENCE: 2,
-        SOURCE_UNMAPPED: 1,
-        SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
-      },
       contributionOverview: null,
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
@@ -174,16 +162,15 @@ describe('product operations contracts', () => {
       }],
       inventoryStatusCounts: {
         sellable: 6,
-        partial_out_of_stock: 1,
         out_of_stock: 1,
         configuration_required: 1,
         review_required: 1,
+        uncollected: 0,
       },
       negativeProfitCount: 1,
       imminentProductCount: 3,
       reorderProductCount: 2,
       depletionCoveredProductCount: 6,
-      sharedDepletionProductCount: 1,
     }).displayDataAsOf).toBe('2026-07-31');
 
     expect(ProductOperationsDataStatusSchema.parse({
@@ -195,6 +182,7 @@ describe('product operations contracts', () => {
       actualCutoff: '2026-07-31',
       sources: {
         traffic: dataStatusSource(true),
+        orders: dataStatusSource(true),
         advertising: dataStatusSource(false),
         sellpia: dataStatusSource(true),
         mapping: { ready: true, generation: '7' },
@@ -224,7 +212,7 @@ describe('product operations contracts', () => {
         },
         channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
         inventoryUnits: 0,
-        inventoryStatus: 'configuration_required',
+        inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
         channelCount: 0,
         channelStatus: 'unlisted',
         activeChannels: [],
@@ -238,6 +226,7 @@ describe('product operations contracts', () => {
         adSpend: null,
         adSpendRate: null,
         metricsFreshness: {
+          orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
           traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
           advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         },
@@ -284,7 +273,7 @@ describe('product operations contracts', () => {
       periodDays: 14,
       category: '  주방  ',
       activeStatus: 'active',
-      inventoryStatus: 'partial_out_of_stock',
+      inventoryStatus: 'uncollected',
       inventoryFocus: 'imminent',
       abcGrade: 'unclassified',
       abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
@@ -318,7 +307,7 @@ describe('product operations contracts', () => {
   it('freezes the product inventory status vocabulary', () => {
     expect(ProductInventoryStatusSchema.options).toEqual([
       'sellable',
-      'partial_out_of_stock',
+      'uncollected',
       'out_of_stock',
       'configuration_required',
       'review_required',
@@ -382,8 +371,6 @@ describe('product operations contracts', () => {
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
-      healthScore: null,
-      healthUpdatedAt: null,
       isActive: true,
       isSelling: true,
       updatedAt: '2026-07-16T00:00:00.000Z',
@@ -395,7 +382,7 @@ describe('product operations contracts', () => {
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
-      inventoryStatus: 'configuration_required',
+      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
       channelCount: 2,
       channelStatus: 'partial',
       activeChannels: [{
@@ -413,6 +400,7 @@ describe('product operations contracts', () => {
       adSpend: null,
       adSpendRate: null,
       metricsFreshness: {
+        orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
@@ -426,13 +414,6 @@ describe('product operations contracts', () => {
       limit: 1,
       summary: {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
-        abcStatusCounts: {
-          READY: 70,
-          INSUFFICIENT_EVIDENCE: 4,
-          SOURCE_UNMAPPED: 2,
-          SELLPIA_SOURCE_STALE: 1,
-          AD_SOURCE_STALE: 1,
-        },
         contributionOverview: null,
         abcFormula: null,
         displayDataAsOf: '2026-07-31',
@@ -444,16 +425,15 @@ describe('product operations contracts', () => {
         }],
         inventoryStatusCounts: {
           sellable: 41,
-          partial_out_of_stock: 8,
           out_of_stock: 7,
           configuration_required: 19,
           review_required: 5,
+          uncollected: 0,
         },
         negativeProfitCount: 6,
         imminentProductCount: 9,
         reorderProductCount: 12,
         depletionCoveredProductCount: 54,
-        sharedDepletionProductCount: 7,
       },
     });
     expect(response.summary.abcGradeCounts.A).toBe(23);
@@ -518,12 +498,10 @@ describe('product operations contracts', () => {
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
-      healthScore: null,
-      healthUpdatedAt: null,
       isActive: true,
       createdAt: '2026-07-16T00:00:00.000Z',
       updatedAt: '2026-07-16T00:00:00.000Z',
-      inventoryStatus: 'sellable',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
       inventoryUnits: 80,
       channelListings: [{
         id: '00000000-0000-4000-8000-000000000004',

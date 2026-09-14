@@ -58,7 +58,7 @@ export interface ExternalRegistrationMatchPreviewResult {
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
     recommendedQuantity: number | null;
   }>;
 }
@@ -69,7 +69,7 @@ export interface ExternalRegistrationPreflightResult {
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
     quantity: number;
   };
   existingListing: {

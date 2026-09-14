@@ -32,14 +32,6 @@ const OWNER_STATUS_SOURCES = Object.freeze([
     countField: 'campaignCount',
     countUnit: '캠페인',
   },
-  {
-    key: 'accountDaily',
-    path: '/api/ads/account-daily-kpis/source',
-    valueId: 'accountDailySync',
-    detailId: 'accountDailySyncDetail',
-    countField: 'receiptCount',
-    countUnit: '일',
-  },
 ]);
 
 let monthlyPollTimer = null;

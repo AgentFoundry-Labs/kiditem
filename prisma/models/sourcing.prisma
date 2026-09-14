@@ -231,6 +231,121 @@ model Sourcing1688OfferKeywordObservation {
 }
 
 /// @namespace Sourcing
+/// @describe Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다.
+model SourcingWingCatalogProductFact {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  evidenceObservationId String @map("evidence_observation_id") @db.Uuid
+  ingestionRunId        String @map("ingestion_run_id") @db.Uuid
+
+  schemaVersion           String   @map("schema_version") @db.VarChar(80)
+  sourceKeywordNormalized String   @map("source_keyword_normalized") @db.VarChar(200)
+  sourceKeyword           String   @map("source_keyword") @db.VarChar(200)
+  productId               String   @map("product_id") @db.VarChar(200)
+  itemId                  String?  @map("item_id") @db.VarChar(200)
+  vendorItemId            String?  @map("vendor_item_id") @db.VarChar(200)
+  productName             String   @map("product_name") @db.VarChar(500)
+  itemName                String?  @map("item_name") @db.VarChar(500)
+  brandName               String?  @map("brand_name") @db.VarChar(500)
+  manufacture             String?  @db.VarChar(500)
+  categoryHierarchy       String?  @map("category_hierarchy") @db.VarChar(1000)
+  imagePath               String?  @map("image_path") @db.Text
+  salePriceKrw            Int?     @map("sale_price_krw")
+  ratingAverage           Decimal? @map("rating_average") @db.Decimal(4, 3)
+  ratingCount             Int?     @map("rating_count")
+  viewsLast28d            Int?     @map("views_last_28d")
+  salesLast28d            Int?     @map("sales_last_28d")
+  estimatedRevenue28d     Decimal? @map("estimated_revenue_28d") @db.Decimal(18, 2)
+  conversionRate28d       Decimal? @map("conversion_rate_28d") @db.Decimal(9, 8)
+  deliveryInfo            String?  @map("delivery_info") @db.VarChar(1000)
+  capturedAt              DateTime @map("captured_at") @db.Timestamptz
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_wing_catalog_product_facts_id_org_key")
+  @@unique([evidenceObservationId, organizationId], map: "sourcing_wing_catalog_product_facts_evidence_org_key")
+  @@index([ingestionRunId])
+  @@index([organizationId, ingestionRunId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_wing_catalog_product_facts_run_keyword_idx")
+  @@index([organizationId, productId, capturedAt(sort: Desc)], map: "sourcing_wing_catalog_product_facts_product_idx")
+  @@map("sourcing_wing_catalog_product_facts")
+}
+
+/// @namespace Sourcing
+/// @describe 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다.
+model SourcingKeywordSuggestionFact {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
+  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  schemaVersion         String   @map("schema_version") @db.VarChar(80)
+  keywordNormalized     String   @map("keyword_normalized") @db.VarChar(200)
+  document              Json     @db.JsonB
+  capturedAt            DateTime @map("captured_at") @db.Timestamptz
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_keyword_suggestion_facts_id_org_key")
+  @@unique([evidenceObservationId, organizationId], map: "sourcing_keyword_suggestion_facts_evidence_org_key")
+  @@index([ingestionRunId])
+  @@index([organizationId, ingestionRunId, keywordNormalized], map: "sourcing_keyword_suggestion_facts_run_keyword_idx")
+  @@map("sourcing_keyword_suggestion_facts")
+}
+
+/// @namespace Sourcing
+/// @describe 네이버 키워드 분석 source owner가 발행하는 schema-validated immutable snapshot. input hash와 COMPLETE current run으로 화면 가시성을 결정한다.
+model SourcingNaverKeywordAnalysisFact {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
+  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  schemaVersion         String   @map("schema_version") @db.VarChar(80)
+  inputHash             String   @map("input_hash") @db.VarChar(64)
+  document              Json     @db.JsonB
+  capturedAt            DateTime @map("captured_at") @db.Timestamptz
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_naver_keyword_analysis_facts_id_org_key")
+  @@unique([evidenceObservationId, organizationId], map: "sourcing_naver_keyword_analysis_facts_evidence_org_key")
+  @@index([ingestionRunId])
+  @@index([organizationId, ingestionRunId, inputHash], map: "sourcing_naver_keyword_analysis_facts_run_input_idx")
+  @@map("sourcing_naver_keyword_analysis_facts")
+}
+
+/// @namespace Sourcing
+/// @describe 시장 shadow source owner가 발행하는 schema-validated immutable experiment document. Provider raw payload는 포함하지 않는다.
+model SourcingMarketShadowFact {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
+  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  schemaVersion         String   @map("schema_version") @db.VarChar(80)
+  businessDate          DateTime @map("business_date") @db.Date
+  document              Json     @db.JsonB
+  capturedAt            DateTime @map("captured_at") @db.Timestamptz
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_market_shadow_facts_id_org_key")
+  @@unique([evidenceObservationId, organizationId], map: "sourcing_market_shadow_facts_evidence_org_key")
+  @@index([ingestionRunId])
+  @@index([organizationId, businessDate(sort: Desc), capturedAt(sort: Desc)], map: "sourcing_market_shadow_facts_business_date_idx")
+  @@map("sourcing_market_shadow_facts")
+}
+
+/// @namespace Sourcing
 /// @describe 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용).
 model TrendSeedKeyword {
   id             String @id @default(uuid()) @db.Uuid
@@ -527,6 +642,10 @@ model SourcingEvidenceIngestionRun {
   naverPopularKeywordDailySnapshots   NaverPopularKeywordDailySnapshot[]    @relation("NaverPopularKeywordDailySnapshotIngestionRun")
   shortsTrendDailySnapshots           ShortsTrendDailySnapshot[]            @relation("ShortsTrendDailySnapshotIngestionRun")
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]    @relation("TiktokCreativeTrendDailySnapshotIngestionRun")
+  wingCatalogProductFacts             SourcingWingCatalogProductFact[]
+  keywordSuggestionFacts              SourcingKeywordSuggestionFact[]
+  naverKeywordAnalysisFacts           SourcingNaverKeywordAnalysisFact[]
+  marketShadowFacts                   SourcingMarketShadowFact[]
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
   @@unique([organizationId, sourceKey, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_source_idempotency_key")
@@ -584,6 +703,10 @@ model SourcingEvidenceObservation {
   offerKeywordObservation    Sourcing1688OfferKeywordObservation?
   recommendationItemEvidence SourcingRecommendationItemEvidence[]
   validationCheckEvidence    SourcingValidationCheckEvidence[]
+  wingCatalogProductFact     SourcingWingCatalogProductFact?
+  keywordSuggestionFact      SourcingKeywordSuggestionFact?
+  naverKeywordAnalysisFact   SourcingNaverKeywordAnalysisFact?
+  marketShadowFact           SourcingMarketShadowFact?
 
   @@unique([id, organizationId], map: "sourcing_evidence_observations_id_org_key")
   @@unique([organizationId, observationKey, revision], map: "sourcing_evidence_observations_org_key_revision_key")

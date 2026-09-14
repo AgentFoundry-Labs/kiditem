@@ -20,7 +20,7 @@ export class SalesAnalysisController {
     @CurrentOrganization() organizationId: string,
     @Query() query: SalesAnalysisQueryDto,
   ): Promise<SalesAnalysisData> {
-    return this.salesAnalysisService.getAnalysis(organizationId, query.period);
+    return this.salesAnalysisService.getAnalysis(organizationId, query.period, new Date());
   }
 
   @Get('data-sources')

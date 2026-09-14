@@ -115,6 +115,25 @@ describe('ChannelSkuAvailabilityService', () => {
     });
   });
 
+  it('keeps a configured component unavailable when its published stock fact is missing', async () => {
+    const { service } = dependencies([row()], []);
+
+    const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);
+
+    expect(result).toMatchObject({
+      recipeStatus: 'review_required',
+      sku: { mappingStatus: 'needs_review', sellableStock: null },
+      warnings: ['inventory_unavailable'],
+      components: [{
+        currentStock: null,
+        availableStock: null,
+        isActive: null,
+        componentCapacity: null,
+        isBottleneck: null,
+      }],
+    });
+  });
+
   it('filters after projection while retaining full summary counts', async () => {
     const secondOptionId = '00000000-0000-4000-8000-000000000007';
     const unmatched = {

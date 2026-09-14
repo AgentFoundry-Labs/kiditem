@@ -134,9 +134,6 @@ export const queryKeys = {
     keywordSource: () => [...queryKeys.ads.all, 'keyword-source'] as const,
     campaignSource: () => [...queryKeys.ads.all, 'campaign-source'] as const,
     profitabilitySource: () => [...queryKeys.ads.all, 'profitability-source'] as const,
-    accountDailyKpiSource: () => [...queryKeys.ads.all, 'account-daily-kpi-source'] as const,
-    accountDailyKpiAttempt: (attemptId: string) =>
-      [...queryKeys.ads.all, 'account-daily-kpi-attempt', attemptId] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
@@ -167,6 +164,7 @@ export const queryKeys = {
   },
   orders: {
     all: ['orders'] as const,
+    stats: () => [...queryKeys.orders.all, 'stats'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,

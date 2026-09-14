@@ -11,38 +11,41 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
+import { z } from 'zod';
+import { SalesPlanViewSchema, type SalesPlanView } from '@kiditem/shared/finance';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatDate, formatKRW, formatNumber } from '@/lib/utils';
+import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
 
-interface SalesPlan {
-  id: string;
-  period: string;
-  targetRevenue: number;
-  targetOrders: number;
-  targetProfit: number;
-  actualRevenue: number;
-  actualOrders: number;
-  actualProfit: number;
-  notes: string | null;
+const SalesPlanViewsSchema = z.array(SalesPlanViewSchema);
+
+function progressColor(rate: number | null): string {
+  if (rate === null) return 'bg-slate-200';
+  if (rate >= 100) return 'bg-green-500';
+  if (rate >= 70) return 'bg-blue-500';
+  if (rate >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
 }
 
 export default function SalesPlans() {
   const queryClient = useQueryClient();
 
-  const { data: plans = [] } = useQuery({
+  const { data: plans = [], isFetching } = useQuery({
     queryKey: queryKeys.salesPlans.all,
-    queryFn: () => apiClient.get<SalesPlan[]>('/api/sales-plans'),
+    queryFn: () => apiClient.getParsed('/api/sales-plans', SalesPlanViewsSchema),
   });
 
   const [showForm, setShowForm] = useState(false);
-  const [editItem, setEditItem] = useState<SalesPlan | null>(null);
+  const [editItem, setEditItem] = useState<SalesPlanView | null>(null);
   const [form, setForm] = useState({ period: '', targetRevenue: 0, targetOrders: 0, targetProfit: 0, notes: '' });
+
+  const invalidatePlans = () => queryClient.invalidateQueries({ queryKey: queryKeys.salesPlans.all });
 
   const createMutation = useMutation({
     mutationFn: (body: typeof form) => apiClient.post('/api/sales-plans', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sales-plans'] });
+      void invalidatePlans();
       setShowForm(false);
     },
   });
@@ -51,34 +54,15 @@ export default function SalesPlans() {
     mutationFn: ({ id, body }: { id: string; body: typeof form }) =>
       apiClient.patch(`/api/sales-plans/${id}`, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sales-plans'] });
+      void invalidatePlans();
       setShowForm(false);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/sales-plans/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sales-plans'] }),
+    onSuccess: () => invalidatePlans(),
   });
-
-  const syncMutation = useMutation({
-    mutationFn: (id: string) => apiClient.patch(`/api/sales-plans/${id}/sync`, {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sales-plans'] }),
-  });
-
-  const syncing = syncMutation.isPending ? (syncMutation.variables ?? null) : null;
-
-  const getAchievementRate = (actual: number, target: number) => {
-    if (target === 0) return 0;
-    return Math.round((actual / target) * 100);
-  };
-
-  const getProgressColor = (rate: number) => {
-    if (rate >= 100) return 'bg-green-500';
-    if (rate >= 70) return 'bg-blue-500';
-    if (rate >= 50) return 'bg-amber-500';
-    return 'bg-red-500';
-  };
 
   const openNew = () => {
     const now = new Date();
@@ -88,7 +72,7 @@ export default function SalesPlans() {
     setShowForm(true);
   };
 
-  const openEdit = (item: SalesPlan) => {
+  const openEdit = (item: SalesPlanView) => {
     setEditItem(item);
     setForm({
       period: item.period,
@@ -124,6 +108,14 @@ export default function SalesPlans() {
           </h1>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => void invalidatePlans()}
+            disabled={isFetching}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs text-purple-600 border border-purple-200 rounded-md hover:bg-purple-50 disabled:opacity-50"
+          >
+            {isFetching ? <Loader2 size={11} className="animate-spin" /> : <TrendingUp size={11} />}
+            실적 새로고침
+          </button>
           <button onClick={openNew} className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white rounded-md text-xs hover:bg-purple-700">
             <Plus size={12} /> 목표 추가
           </button>
@@ -138,9 +130,14 @@ export default function SalesPlans() {
       ) : (
         <div className="space-y-4">
           {plans.map((plan) => {
-            const revenueRate = getAchievementRate(plan.actualRevenue, plan.targetRevenue);
-            const ordersRate = getAchievementRate(plan.actualOrders, plan.targetOrders);
-            const profitRate = getAchievementRate(plan.actualProfit, plan.targetProfit);
+            const actuals = plan.actuals;
+            const actualRevenue = actuals ? actuals.revenue : null;
+            const actualOrders = actuals ? actuals.orderCount : null;
+            const actualProfit = actuals ? actuals.netProfit : null;
+            // Achievement is the server's rate; a zero target or a missing actual has none.
+            const revenueRate = plan.achievement.revenue;
+            const ordersRate = plan.achievement.orders;
+            const profitRate = plan.achievement.profit;
 
             return (
               <div key={plan.id} className="card p-5">
@@ -148,20 +145,11 @@ export default function SalesPlans() {
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-slate-900 font-mono">{plan.period}</span>
                     {plan.notes && <span className="text-xs text-slate-400">{plan.notes}</span>}
+                    <span className="text-xs text-slate-400">
+                      {actuals?.observedAt ? `실적 관측 ${formatDate(actuals.observedAt)}` : '실적 미수집'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      disabled={syncing === plan.id}
-                      onClick={() => syncMutation.mutate(plan.id)}
-                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-md hover:bg-purple-50"
-                    >
-                      {syncing === plan.id ? (
-                        <Loader2 size={11} className="animate-spin" />
-                      ) : (
-                        <TrendingUp size={11} />
-                      )}
-                      실적 동기화
-                    </button>
                     <button onClick={() => openEdit(plan)} className="p-1.5 text-slate-400 hover:text-blue-500">
                       <Save size={14} />
                     </button>
@@ -171,28 +159,30 @@ export default function SalesPlans() {
                   </div>
                 </div>
 
-                {/* 매출 */}
+                {actuals ? (
+                  <div className="mb-3">
+                    <FinanceBasisNotice basis={actuals.basis} />
+                  </div>
+                ) : null}
+
                 <div className="space-y-3">
                   <ProgressRow
                     label="매출"
                     target={formatKRW(plan.targetRevenue)}
-                    actual={formatKRW(plan.actualRevenue)}
+                    actual={formatKRW(actualRevenue)}
                     rate={revenueRate}
-                    color={getProgressColor(revenueRate)}
                   />
                   <ProgressRow
                     label="주문수"
                     target={formatNumber(plan.targetOrders) + '건'}
-                    actual={formatNumber(plan.actualOrders) + '건'}
+                    actual={actualOrders === null ? '-' : formatNumber(actualOrders) + '건'}
                     rate={ordersRate}
-                    color={getProgressColor(ordersRate)}
                   />
                   <ProgressRow
                     label="순이익"
                     target={formatKRW(plan.targetProfit)}
-                    actual={formatKRW(plan.actualProfit)}
+                    actual={formatKRW(actualProfit)}
                     rate={profitRate}
-                    color={getProgressColor(profitRate)}
                   />
                 </div>
               </div>
@@ -278,12 +268,11 @@ export default function SalesPlans() {
   );
 }
 
-function ProgressRow({ label, target, actual, rate, color }: {
+function ProgressRow({ label, target, actual, rate }: {
   label: string;
   target: string;
   actual: string;
-  rate: number;
-  color: string;
+  rate: number | null;
 }) {
   return (
     <div>
@@ -292,23 +281,26 @@ function ProgressRow({ label, target, actual, rate, color }: {
         <div className="flex items-center gap-3">
           <span className="text-slate-400">목표: {target}</span>
           <span className="text-slate-700 font-semibold">실적: {actual}</span>
-          <span className={cn('font-bold', rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-purple-600' : 'text-red-600')}>
+          <span className={cn(
+            'font-bold',
+            rate === null ? 'text-slate-400' : rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-purple-600' : 'text-red-600',
+          )}>
             <TrendingUp size={11} className="inline mr-0.5" />
-            {rate}%
+            {rate === null ? '-' : `${rate}%`}
           </span>
         </div>
       </div>
       <div
         className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"
         role="progressbar"
-        aria-valuenow={rate}
+        aria-valuenow={rate ?? undefined}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`${label} 달성률`}
       >
         <div
-          className={cn('h-full rounded-full transition-all duration-500', color)}
-          style={{ width: `${Math.min(rate, 100)}%` }}
+          className={cn('h-full rounded-full transition-all duration-500', progressColor(rate))}
+          style={{ width: `${rate === null ? 0 : Math.min(rate, 100)}%` }}
         />
       </div>
     </div>

@@ -16,11 +16,4 @@ describe('advertising agent stored ABC contract', () => {
     expect(outputRules).not.toContain('ROAS 480%+ 또는 자연매출 상위');
     expect(agentPrompt).toContain('ABC 등급을 재판정하지 않는다');
   });
-
-  it('does not recommend manual promotion from order count', () => {
-    const healthRules = readAgentConfig('rules/health-rules.md');
-
-    expect(healthRules).not.toContain('A등급 승격');
-    expect(healthRules).not.toContain('upgrade_grade');
-  });
 });

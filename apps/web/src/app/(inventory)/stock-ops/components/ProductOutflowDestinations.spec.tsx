@@ -36,12 +36,12 @@ describe('ProductOutflowDestinations', () => {
   it('shows the retained grade with live source attention and the actual data cutoff', () => {
     const item = destination('stale', '기존 등급 상품', '기본', null, 'A');
     item.abc = productAbcReadModel({
-      displayStatus: 'SELLPIA_SOURCE_STALE',
       sources: { ...item.abc.sources, sellpia: { ...item.abc.sources.sellpia, ready: false, latestAttemptState: 'FAILED' } },
     });
     render(<ProductOutflowDestinations destinations={[item]} />);
     const link = screen.getByRole('link', { name: '기존 등급 상품 · 기본' });
-    expect(link).toHaveAttribute('title', expect.stringContaining('셀피아 원천 갱신 필요'));
+    // Stock-ops titles use the one Product Hub label map.
+    expect(link).toHaveAttribute('title', expect.stringContaining('Sellpia 원천 갱신 필요'));
     expect(link).toHaveAttribute('title', expect.stringContaining('데이터 기준 2026-07-31'));
     expect(link).toHaveAttribute('href', '/product-hub/master-stale');
   });

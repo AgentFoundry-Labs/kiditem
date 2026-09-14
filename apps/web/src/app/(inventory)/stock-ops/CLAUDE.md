@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/stock-ops — Inventory Analysis
 
 `/stock-ops` is analysis-only and owns product-outflow plus channel-zero.

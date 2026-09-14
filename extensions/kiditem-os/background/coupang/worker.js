@@ -65,6 +65,8 @@ const collectionWindows = Object.fromEntries(
       storageKey: coupangEnvironment.stateKey(COLLECTION_WINDOW_STORAGE_KEY, environmentId),
       sessions: collectionSessions,
       bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
+      attemptEnded: (session) => coupangCollectionAttemptEnded(environmentId, session),
+      collectionName: (session) => COUPANG_COLLECTION_NAMES[session?.producer] || null,
     }),
   ]),
 );
@@ -321,8 +323,7 @@ async function beginSourceOwnerAttempt(environmentId, sourcePath, request = {}, 
       (scope.url && attempt.plan?.targetUrl && attempt.plan.targetUrl !== scope.url) ||
       (scope.targetUrl && attempt.plan?.targetUrl !== scope.targetUrl) ||
       (scope.captureMode && attempt.plan?.captureMode !== scope.captureMode) ||
-      (scope.period && attempt.plan?.period !== scope.period) ||
-      (scope.targetDate && attempt.plan?.coverageRangeStartDate !== scope.targetDate)
+      (scope.period && attempt.plan?.period !== scope.period)
     )) {
       throw new Error("다른 displayed 범위의 source owner 수집이 진행 중입니다.");
     }
@@ -512,12 +513,63 @@ const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create(
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collect: (input) => coupangKeywordSuggestionCollector.collect(input),
 });
+
+// The source owners that close through collectionWindowFor share one window
+// per environment. Each run takes the window's turn and keeps it until its
+// outcome is reported and its window and session are released, so the next
+// collection never meets a window that is still finishing. Taking the turn
+// first clears the sessions that ended collections left behind; only their
+// source owners can tell that an attempt ended.
+function takeCoupangWindowTurn(environmentId, operation) {
+  const collectionWindow = collectionWindowFor(environmentId);
+  return collectionWindow.runExclusive(async () => {
+    await collectionWindow.clearEndedSessions(environmentId);
+    return operation();
+  });
+}
+
+// Names the collection that holds the window when another one is refused.
+const COUPANG_COLLECTION_NAMES = Object.freeze({
+  "advertising.ad_sync": "쿠팡 광고 캠페인",
+  "advertising.ad_keyword": "쿠팡 광고 키워드",
+  "advertising.profitability_import": "쿠팡 상품별 광고 보고서",
+  [WING_TRAFFIC_PRODUCER]: "쿠팡 Wing 트래픽",
+  [WING_ITEMWINNER_PRODUCER]: "쿠팡 Wing 아이템위너",
+});
+
+// A leftover session can hold the window after its attempt ended. Only the
+// producer's own source owner can tell, through its attempt control read.
+async function coupangCollectionAttemptEnded(environmentId, session) {
+  if (session?.environmentId !== environmentId) return false;
+  const { attemptId } = session;
+  switch (session.producer) {
+    case "advertising.ad_sync":
+      return adCampaignSourceOwner.attemptEnded(environmentId, attemptId);
+    case "advertising.ad_keyword":
+      return adKeywordSourceOwner.attemptEnded(environmentId, attemptId);
+    case "advertising.profitability_import":
+      return profitabilitySourceOwner.attemptEnded(environmentId, attemptId);
+    case WING_TRAFFIC_PRODUCER:
+      return wingTrafficSourceOwnerV2.attemptEnded(environmentId, attemptId).catch((error) => {
+        if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") {
+          return wingTrafficSourceOwner.attemptEnded(environmentId, attemptId);
+        }
+        throw error;
+      });
+    case WING_ITEMWINNER_PRODUCER:
+      return wingItemwinnerSourceOwner.attemptEnded(environmentId, attemptId);
+    default:
+      return false;
+  }
+}
+
 const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
   sessions: collectionSessions,
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
   collectSlice: collectAdvertisingProfitabilitySlice,
   closeAttempt: (environmentId, attemptId) =>
     collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   chrome,
@@ -528,6 +580,7 @@ const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectKeywords({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(adKeywordSourceOwner.handleMessage);
 const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
@@ -538,19 +591,9 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     adCenterCollectorFor(environmentId).collectCampaigns({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
-const adAccountDailyKpiSourceOwner = KidItemAdAccountDailyKpiSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    adCenterCollectorFor(environmentId).collectAccountDailyKpis({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-});
-chrome.runtime.onMessage.addListener(adAccountDailyKpiSourceOwner.handleMessage);
 const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
   chrome,
   sessions: collectionSessions,
@@ -560,6 +603,7 @@ const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwner.handleMessage);
 const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
@@ -571,6 +615,7 @@ const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingTrafficSourceOwnerV2.handleMessage);
 
@@ -602,6 +647,7 @@ const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
   collect: ({ environmentId, attemptId, control }) =>
     wingReportCollectorFor(environmentId).collectItemwinner({ environmentId, attemptId, control }),
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
+  takeWindowTurn: takeCoupangWindowTurn,
 });
 chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
 const coupangSerpCollector = KidItemCoupangSerpCollector.create({
@@ -711,16 +757,21 @@ function handleWingFormPort(port) {
   });
 }
 
+// Write-only Wing/Ads sync stamps no build reads any more. Remove them once from
+// installed profiles.
+const COUPANG_RETIRED_LOCAL_COPY_KEYS = [
+  "kiditem_last_sync_traffic",
+  "kiditem_last_sync_itemwinner",
+  "kiditem_last_sync_ads",
+];
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
-  cleanupStorage();
-  // 알람은 onInstalled에서만 등록 (서비스워커 재시작 시 유지됨)
-  chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
   adsEnvironmentContext.migrateLegacyStorage().catch(() => undefined);
+  Promise.resolve(chrome.storage.local.remove(COUPANG_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "storage-cleanup") cleanupStorage();
   const scheduled = coupangEnvironment.parseAlarm(alarm.name);
   if (scheduled?.base === "kiditem-coupang-catalog-import-step") {
     KidItemCoupangCatalogImport.handleAlarm(
@@ -729,29 +780,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     );
   }
 });
-
-function cleanupStorage() {
-  chrome.storage.local.get(null, (all) => {
-    const keysToRemove = [];
-    const now = Date.now();
-    const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7일
-
-    for (const [key, val] of Object.entries(all)) {
-      // 싱크 기록 중 7일 지난 것 삭제
-      if (
-        key.startsWith("kiditem_last_sync_") &&
-        val?.time &&
-        now - val.time > MAX_AGE
-      ) {
-        keysToRemove.push(key);
-      }
-    }
-    if (keysToRemove.length > 0) {
-      chrome.storage.local.remove(keysToRemove);
-      console.log(`[KIDITEM] Storage 정리: ${keysToRemove.length}개 삭제`);
-    }
-  });
-}
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard(environmentId) {
@@ -924,32 +952,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           scope,
           scope,
         );
-        const campaign = await KidItemWorkerKeepAlive.during(
+        return KidItemWorkerKeepAlive.during(
           adCampaignSourceOwner.run({
             environmentId: request.environmentId,
             attemptId: attempt.attemptId,
           }),
         );
-        if (scope.period !== "1d" || campaign?.terminalState !== "COMPLETE") return campaign;
-        const daily = await beginSourceOwnerAttempt(
-          request.environmentId,
-          "/api/ads/account-daily-kpis",
-          { targetDate: scope.startDate },
-          { targetDate: scope.startDate },
-        );
-        const accountDailyKpi = await KidItemWorkerKeepAlive.during(
-          adAccountDailyKpiSourceOwner.run({
-            environmentId: request.environmentId,
-            attemptId: daily.attemptId,
-          }),
-        );
-        return {
-          ...campaign,
-          accountDailyKpi,
-          success: campaign.success === true && accountDailyKpi.success === true,
-          error: accountDailyKpi.success === true ? campaign.error : accountDailyKpi.error,
-          errorCode: accountDailyKpi.success === true ? campaign.errorCode : accountDailyKpi.errorCode,
-        };
       })
       .then(sendResponse)
       .catch((error) => sendResponse({ success: false, error: error?.message || "광고 캠페인 owner 수집 실패" }));
@@ -2293,10 +2301,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return adKeywordSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === "advertising.ad_account_daily_kpi") {
-    await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return adAccountDailyKpiSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
   if (session?.producer === WING_TRAFFIC_PRODUCER) {
     // The router preserves the legacy v1 owner cancellation path
     // (wingTrafficSourceOwner.cancel) while selecting the daily v2 owner.
@@ -2378,8 +2382,6 @@ for (const environmentId of adsEnvironmentContext.environmentIds) {
     .catch(error => console.error("[KIDITEM] 광고 캠페인 owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(adKeywordSourceOwner.recover(environmentId))
     .catch((error) => console.error("[KIDITEM] 광고 키워드 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(adAccountDailyKpiSourceOwner.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] 광고 계정 일별 KPI owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(wingTrafficSourceOwner.recover(environmentId))
     .catch((error) => console.error("[KIDITEM] Wing 트래픽 owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(wingTrafficSourceOwnerV2.recover(environmentId))
@@ -2514,19 +2516,6 @@ KidItemDomains.register({
           .then(() => adKeywordSourceOwner.cancel({ environmentId, attemptId })),
       ),
     },
-    collectAdvertisingAccountDailyKpis: {
-      validate: message => KidItemAdAccountDailyKpiSourceOwner.parseAction(message, "collectAdvertisingAccountDailyKpis"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adAccountDailyKpiSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    cancelAdvertisingAccountDailyKpis: {
-      validate: message => KidItemAdAccountDailyKpiSourceOwner.parseAction(message, "cancelAdvertisingAccountDailyKpis"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adCenterCollectorFor(environmentId).cancelRun({ attemptId })
-          .then(() => adAccountDailyKpiSourceOwner.cancel({ environmentId, attemptId })),
-      ),
-    },
     collectAdvertisingWingTraffic: {
       validate: message => KidItemWingTrafficSourceOwner.parseAction(message, "collectAdvertisingWingTraffic"),
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -2608,7 +2597,6 @@ KidItemDomains.register({
     browserCollectionSessions: true,
     advertisingKeywordSourceOwnerV1: true,
     advertisingCampaignSourceOwnerV1: true,
-    advertisingAccountDailyKpiSourceOwnerV1: true,
     wingTrafficSourceOwnerV1: true,
     wingTrafficSourceOwnerV2: true,
     wingItemwinnerSourceOwnerV1: true,

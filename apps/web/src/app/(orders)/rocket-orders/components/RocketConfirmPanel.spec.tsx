@@ -145,7 +145,6 @@ function renderPanel(options?: {
       activeMonth="2026-07"
       channelAccountId="11111111-1111-4111-8111-111111111111"
       channelAccountName="로켓 1호점"
-      hasConfiguredVendorId
       from="2026-07-01"
       to="2026-07-31"
       selectedSourceImportRunId={options?.selectedSourceImportRunId ?? null}
@@ -300,27 +299,6 @@ describe("<RocketConfirmPanel />", () => {
     ).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["collection_incomplete", "수집 검증 필요"],
-    ["vendor_mismatch", "공급사 검증 필요"],
-  ] as const)(
-    "blocks quantity and shortage editing for %s",
-    (reason, label) => {
-      renderPanel({ preview: previewWithReason(reason) });
-
-      expect(screen.getByText(label)).toBeInTheDocument();
-      expect(
-        screen.getByRole("spinbutton", { name: "PO-1 확정재고" }),
-      ).toBeDisabled();
-      // 사유를 고를 수 없는 행은 select 자체를 그리지 않는다(옵션 수천 개 렌더 방지).
-      expect(
-        screen.queryByRole("combobox", { name: "PO-1 납품부족사유" }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("link", { name: `${label} 해결` }),
-      ).not.toBeInTheDocument();
-    },
-  );
 
   it("fixes an insufficient-capacity row quantity at zero", () => {
     renderPanel({ preview: previewWithReason("insufficient_capacity") });

@@ -148,8 +148,13 @@ function text(value, fallback) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+// The write-only extraction mirror no build reads any more. Remove it once from
+// installed profiles.
+const SOURCING_RETIRED_LOCAL_COPY_KEYS = ["lastExtraction", "lastExtractionEnvironmentId"];
+
 chrome.runtime.onInstalled.addListener(() => {
   void sourcingEnvironmentContext.migrateLegacyStorage();
+  Promise.resolve(chrome.storage.local.remove(SOURCING_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
 
 function parseSourcing1688TrendStart(message) {

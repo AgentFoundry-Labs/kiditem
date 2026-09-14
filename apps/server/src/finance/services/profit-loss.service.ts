@@ -1,25 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { PLData } from '@kiditem/shared/finance';
+import { Prisma } from '@prisma/client';
+import type { PLData, ProfitLossResponse } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
-import { kstMonthStart } from '../../common/kst';
+import { kstMonthWindow } from '../../common/kst';
 import {
-  buildPerListingProfit,
-  readAdEvidenceFromLedger,
+  perListingProfitRows,
+  profitWindowBasis,
+  profitWindowTotals,
+  readProfitWindowFacts,
+  resolveFinanceWindow,
 } from '../../common/per-listing-profit';
 
 /**
- * Live aggregation.
- * Plan F1 T1 — per-listing core extracted to common/per-listing-profit.ts so dashboard
- * can share the math. This service adds returnCount + maps PerListingProfit → PLData.
+ * Live profit and loss for one KST month.
  *
- * This is the precise per-listing surface named in ADR-0006, so it publishes an
- * unavailable profit for a listing whose ad coverage is incomplete rather than
- * one computed from a partial ad sum. Rows still sort by revenue, which is
- * always measured.
- *
- * Whether advertising applies to this organization at all is Advertising's
- * answer, read here from the advertising target-day ledger — the campaign
- * sweep's measured windows — for the same month window.
+ * The month is evaluated over its KST business days closed at `now`: an ended
+ * month keeps every day, the month containing today keeps the days through
+ * yesterday, and a month with no closed day evaluates nothing (ADR-0001).
+ * Rows, totals and the basis behind them come from one Repeatable Read
+ * snapshot of the owner readers composed in `common/per-listing-profit`. A
+ * row or total whose inputs were not all measured publishes `null`
+ * (ADR-0006). Returns have no owner publication, so a row's return count is
+ * `null`, never zero.
  */
 @Injectable()
 export class ProfitLossService {
@@ -33,41 +35,17 @@ export class ProfitLossService {
     organizationId: string,
     year: number,
     month: number,
-  ): Promise<PLData[]> {
+    now: Date,
+  ): Promise<ProfitLossResponse> {
     const startedAt = Date.now();
-    const from = kstMonthStart(year, month);
-    const to = kstMonthStart(year, month + 1);
+    const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
+    const facts = await this.prisma.$transaction(
+      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
 
-    const [metrics, returnRows] = await Promise.all([
-      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
-      this.prisma.orderReturnLineItem.findMany({
-        where: {
-          organizationId,
-          return: { requestedAt: { gte: from, lt: to } },
-        },
-        select: {
-          orderLineItem: {
-            select: { listingOption: { select: { listingId: true } } },
-          },
-        },
-      }),
-    ]);
-
-    const returnMap = new Map<string, number>();
-    for (const rli of returnRows) {
-      const listingId = rli.orderLineItem?.listingOption?.listingId;
-      if (!listingId) continue;
-      returnMap.set(listingId, (returnMap.get(listingId) ?? 0) + 1);
-    }
-
-    const rows = metrics.map((m) => ({
+    const rows = perListingProfitRows(facts).map((m) => ({
       listingId: m.listingId,
       externalId: m.externalId,
       channelName: m.channelName,
@@ -78,7 +56,7 @@ export class ProfitLossService {
       grade: m.grade,
       thumbnailUrl: m.thumbnailUrl,
       revenue: m.revenue,
-      cogs: m.costOfGoods,                   // PLData uses `cogs`, helper uses `costOfGoods`
+      cogs: m.costOfGoods,
       commission: m.commission,
       shippingCost: m.shippingCost,
       adCost: m.adCost,
@@ -86,8 +64,10 @@ export class ProfitLossService {
       netProfit: m.netProfit,
       profitRate: m.profitRate,
       orderCount: m.orderCount,
-      returnCount: returnMap.get(m.listingId) ?? 0,
+      returnCount: null,
     } satisfies PLData)).sort((a, b) => b.revenue - a.revenue);
+
+    const totals = profitWindowTotals(facts);
 
     this.logger.log({
       msg: 'profit-loss.findAll',
@@ -96,9 +76,15 @@ export class ProfitLossService {
       month,
       listingCount: rows.length,
       unavailableProfitCount: rows.filter((row) => row.netProfit === null).length,
+      monthProfitMeasured: totals.netProfit !== null,
       latencyMs: Date.now() - startedAt,
     });
 
-    return rows;
+    return {
+      period: `${year}-${String(month).padStart(2, '0')}`,
+      rows,
+      totals,
+      basis: profitWindowBasis(facts),
+    } satisfies ProfitLossResponse;
   }
 }

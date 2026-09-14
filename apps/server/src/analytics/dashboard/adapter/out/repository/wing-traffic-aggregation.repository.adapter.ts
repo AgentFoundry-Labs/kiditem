@@ -1,26 +1,30 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readAdWindowFacts, readLatestAdDate } from '../../../../../common/ad-window-facts';
+import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/read/ad-target-facts';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
+import {
+  readListingTrafficWindowFacts,
+  type ListingTrafficDailyFact,
+  type ListingTrafficWindowFacts,
+} from '../../../../../channels/read/channel-listing-daily-facts';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readDailyOrderFacts,
+  readOrderLineWindowFacts,
+  type DailyOrderFacts,
+  type OrderLineWindowFacts,
+} from '../../../../../orders/read/order-facts.reader';
 import {
   businessDateText,
   businessDatesInWindow,
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
-import {
-  AD_TRAFFIC_READ_PORT,
-  type AdTrafficReadPort,
-} from '../../../../../advertising/application/port/in/ad-traffic-source.port';
-import type {
-  AdTrafficSourceAccountDaily,
-  AdTrafficSourceDailyPublished,
-  AdTrafficSourcePublished,
-} from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import type {
   TrafficCoverage,
   TrafficMetricReconciliation,
   TrafficReconciliation,
-  TrafficReconciliationStatus,
 } from '@kiditem/shared/dashboard';
 import type {
   TrafficAdditiveMetric,
@@ -29,6 +33,8 @@ import type {
   CoupangAdsMetrics,
   WingDailyTrendRow,
   CoupangAdsDailyRow,
+  DashboardAdRateFacts,
+  DashboardTrafficFunnelFacts,
 } from '../../../application/port/out/repository/wing-traffic-aggregation.repository.port';
 
 const TRAFFIC_METRICS: readonly TrafficAdditiveMetric[] = [
@@ -40,21 +46,18 @@ const TRAFFIC_METRICS: readonly TrafficAdditiveMetric[] = [
 ];
 
 /**
- * Read adapter for the owner-published Wing account daily source.
+ * Read adapter for owner-published listing-day traffic and advertising facts.
  *
- * The owner publishes both accountDaily and optionDaily evidence. Account
- * metrics are deliberately read from accountDaily only: option rows can be
- * unmatched, can share a listing, and cannot be summed into account visitors
- * or account orders. Legacy rows/dashboard publications are accepted by the
- * shared compatibility union but are not a daily analytics source.
+ * Wing traffic totals come from the current-generation listing facts selected
+ * by Channels' canonical reader. The source attempt supplies declared account
+ * coverage, including provider-confirmed empty dates; advertising stays on its
+ * independent target-day ledger.
  */
 @Injectable()
 export class WingTrafficAggregationRepositoryAdapter
   implements WingTrafficAggregationRepositoryPort
 {
   constructor(
-    @Inject(AD_TRAFFIC_READ_PORT)
-    private readonly trafficRead: AdTrafficReadPort,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -68,16 +71,17 @@ export class WingTrafficAggregationRepositoryAdapter
     const range = dateRangeOf(targetDates);
     if (!range) return emptyTrafficMetrics();
 
-    const published = await this.readTrafficPublished(organizationId, range);
-    const daily = published ? dailyPublication(published) : null;
-    if (!daily) return emptyTrafficMetrics(targetDates);
-
-    // A complete replacement supersedes the previous value for a date. Pick
-    // the latest observed account original instead of double counting rows.
-    const rows = selectAccountDailyRows(daily.accountDaily, range);
-    const totals = sumAccountDaily(rows);
-    const coverage = buildCoverage(targetDates, rows);
-    const reconciliation = normalizeReconciliation(daily.reconciliation, totals);
+    const traffic = await this.prisma.$transaction(
+      (tx) => readListingTrafficWindowFacts(tx, {
+        organizationId,
+        from: dayStart(range.from),
+        to: dayAfter(range.to),
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const totals = traffic.totals;
+    const coverage = buildCoverage(targetDates, traffic.coverage);
+    const reconciliation = normalizeReconciliation(totals);
     const complete = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
     // A daily average divides by the days it actually covers. Dividing a
@@ -86,38 +90,42 @@ export class WingTrafficAggregationRepositoryAdapter
     const dailyAverageVisitors = coverage.completedDays > 0
       ? totals.visitors / coverage.completedDays
       : null;
-    const latest = latestAccountDailyRow(rows);
     const revenueReconciliation = reconciliation.revenue;
-    const revenueUsable = complete && revenueReconciliation.status !== 'MISMATCH';
+    const revenueUsable = complete
+      && adTrafficReconciliationStatus(revenueReconciliation) !== 'MISMATCH';
+    // Additive totals measure only the dates the owner covered. A window with
+    // no covered date has measured nothing, so it publishes no total at all.
+    const measured = coverage.completedDays > 0;
 
     return {
-      revenue: totals.revenue,
-      orders: totals.orders,
-      salesQty: totals.salesQty,
+      revenue: measured ? totals.revenue : null,
+      orders: measured ? totals.orders : null,
+      salesQty: measured ? totals.salesQty : null,
       // `visitors` is retained for compatibility, but it is an average of
-      // account daily UV values rather than a sum or an option aggregation.
-      visitors: dailyAverageVisitors ?? 0,
-      views: totals.views,
-      cartAdds: totals.cartAdds,
+      // the listing-day visitor totals over the dates with measured traffic.
+      visitors: dailyAverageVisitors,
+      views: measured ? totals.views : null,
+      cartAdds: measured ? totals.cartAdds : null,
       // This is our orders/views ratio. Preserve full precision here; the
       // presentation layer owns percentage rounding. Provider's original
       // percentage remains separate in providerConversionRate.
-      conversionRate: totals.views > 0
+      // Dashboard conversion is orders/views; a zero or absent denominator
+      // has no measurable ratio.
+      conversionRate: measured && totals.views > 0
         ? (totals.orders / totals.views) * 100
-        : 0,
+        : null,
       dailyAverageVisitors,
-      providerConversionRate: providerConversionRate(daily, rows),
-      sourceAttemptId: latest?.sourceAttemptId ?? daily.attemptId,
+      providerConversionRate: null,
+      sourceAttemptId: null,
       coverage,
       reconciliation,
-      exactPeriodEvidence: daily.periodSummary ?? daily.legacyExactPeriodEvidence,
-      // A row with all explicit zeroes is still a complete collected day. A
-      // partial range or a revenue mismatch is not eligible to drive a full
-      // period revenue/effective-period fallback; detailed evidence remains
-      // available through coverage/reconciliation below.
-      isCollected: rows.length > 0,
+      exactPeriodEvidence: null,
+      // An included owner date is collected even when its evidence is an
+      // empty-provider proof with no listing row. A partial range or a revenue
+      // mismatch cannot drive a full-period revenue fallback.
+      isCollected: traffic.coverage.includedDates.length > 0,
       hasData: revenueUsable,
-      lastObservedAt: latest ? new Date(latest.observedAt) : null,
+      lastObservedAt: traffic.latestObservedAt,
     } satisfies WingTrafficMetrics;
   }
 
@@ -131,9 +139,12 @@ export class WingTrafficAggregationRepositoryAdapter
     // The listing ledger holds the facts; the account ledger holds only the
     // days the ad-centre scrape happened to run. Reading the numbers from the
     // account summary is what made a fully covered month read `0/31일`.
-    const { days: rows, observedAt: lastObservedAt } = await readAdWindowFacts(
-      this.prisma,
-      { organizationId, from: dayStart(range.from), to: dayAfter(range.to) },
+    const { days: rows, observedAt: lastObservedAt } = await this.prisma.$transaction(
+      (tx) => readAdWindowFacts(
+        tx,
+        { organizationId, from: dayStart(range.from), to: dayAfter(range.to) },
+      ),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
     // The cutoff is the caller's anchor, never this process's clock.
     const coverage = buildAdsCoverage(targetDates, period.knownThrough, rows);
@@ -144,6 +155,7 @@ export class WingTrafficAggregationRepositoryAdapter
     let clicks = 0;
     let conversions = 0;
     let orders = 0;
+    let conversionsObserved = true;
 
     for (const row of rows) {
       spend += row.spend;
@@ -152,22 +164,30 @@ export class WingTrafficAggregationRepositoryAdapter
       clicks += row.clicks;
       conversions += row.conversions;
       orders += row.orders;
+      if (!row.conversionsObserved) conversionsObserved = false;
     }
 
+    // A measured date always returns a day row, so no row means nothing was
+    // measured and no total is published. A conversion count is a measurement
+    // only when every summed day observed the conversion columns.
+    const measured = rows.length > 0;
+    const conversionCountsMeasured = measured && conversionsObserved;
     const hasData = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
-    const conversionRate = clicks > 0 ? (orders / clicks) * 100 : null;
+    const conversionRate = conversionCountsMeasured && clicks > 0
+      ? (orders / clicks) * 100
+      : null;
     // The provider's own ratio lives on the account summary, which is no
     // longer this read's source. Ours is orders/clicks, published above.
     const providerConversionRate = null;
 
     return {
-      spend,
-      revenue,
-      impressions,
-      clicks,
-      conversions,
-      orders,
+      spend: measured ? spend : null,
+      revenue: measured ? revenue : null,
+      impressions: measured ? impressions : null,
+      clicks: measured ? clicks : null,
+      conversions: conversionCountsMeasured ? conversions : null,
+      orders: conversionCountsMeasured ? orders : null,
       conversionRate,
       providerConversionRate,
       coverage,
@@ -177,17 +197,122 @@ export class WingTrafficAggregationRepositoryAdapter
     } satisfies CoupangAdsMetrics;
   }
 
+  async readTrafficFunnel(
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+  ): Promise<DashboardTrafficFunnelFacts> {
+    const targetDates = period.selectedDates;
+    const range = dateRangeOf(targetDates);
+    if (!range) return emptyTrafficFunnel();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const ownerDateInput = {
+          organizationId,
+          from: dayStart(range.from),
+          to: dayAfter(range.to),
+        };
+        const orderInput = {
+          organizationId,
+          from: period.queryWindow.from,
+          to: period.queryWindow.to,
+          excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+        };
+        const [traffic, orders] = await Promise.all([
+          readListingTrafficWindowFacts(tx, ownerDateInput),
+          readOrderLineWindowFacts(tx, orderInput),
+        ]);
+        const optionIds = [...new Set(
+          orders.orders.flatMap((order) =>
+            order.lines.flatMap((line) => line.listingOptionId ? [line.listingOptionId] : [])),
+        )];
+        const options = optionIds.length > 0
+          ? await tx.channelListingOption.findMany({
+              where: {
+                organizationId,
+                id: { in: optionIds },
+                isActive: true,
+                listing: {
+                  is: {
+                    organizationId,
+                    isActive: true,
+                    channelAccount: {
+                      is: { organizationId, channel: 'coupang', status: 'active' },
+                    },
+                  },
+                },
+              },
+              select: { id: true, listingId: true },
+            })
+          : [];
+        return composeTrafficFunnel(
+          targetDates,
+          traffic,
+          orders,
+          options,
+        );
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  async readAdRateFacts(
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+  ): Promise<DashboardAdRateFacts> {
+    const targetDates = period.selectedDates;
+    const range = dateRangeOf(targetDates);
+    if (!range) return emptyAdRateFacts();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const ownerDateInput = {
+          organizationId,
+          from: dayStart(range.from),
+          to: dayAfter(range.to),
+        };
+        const orderInput = {
+          organizationId,
+          from: period.queryWindow.from,
+          to: period.queryWindow.to,
+          excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+        };
+        const [ads, orderWindow, dailyOrders, traffic] = await Promise.all([
+          readAdWindowFacts(tx, ownerDateInput),
+          readOrderLineWindowFacts(tx, orderInput),
+          readDailyOrderFacts(tx, orderInput),
+          readListingTrafficWindowFacts(tx, ownerDateInput),
+        ]);
+        return composeAdRateFacts(
+          targetDates,
+          period.knownThrough,
+          ads.days,
+          orderWindow.window.includedDates,
+          dailyOrders,
+          traffic,
+        );
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
   /** Latest account daily date, never the legacy period start/businessDate. */
   async findLatestDataDate(
     organizationId: string,
   ): Promise<Date | null> {
-    const [wing, ads] = await Promise.all([
-      this.readTrafficPublished(organizationId),
-      this.findLatestCoupangAdsDate(organizationId),
-    ]);
+    const [wing, ads] = await this.prisma.$transaction(
+      async (tx) => {
+        const traffic = await readListingTrafficWindowFacts(tx, { organizationId });
+        const adDate = await readLatestAdDate(tx, organizationId);
+        return [traffic, adDate] as const;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     const dates = [
-      wing ? latestTrafficDate(wing) : null,
+      wing.coverage.includedDates.length > 0
+        ? dayStart(wing.coverage.includedDates[wing.coverage.includedDates.length - 1]!)
+        : null,
       ads,
     ].filter((d): d is Date => d instanceof Date);
     if (dates.length === 0) return null;
@@ -209,11 +334,20 @@ export class WingTrafficAggregationRepositoryAdapter
       : { from: businessDateText(since) };
     if (!range) return [];
 
-    const published = await this.readTrafficPublished(organizationId, range);
-    const daily = published ? dailyPublication(published) : null;
-    if (!daily) return [];
+    const traffic = await this.prisma.$transaction(
+      (tx) => readListingTrafficWindowFacts(tx, {
+        organizationId,
+        from: dayStart(range.from),
+        ...('to' in range ? { to: dayAfter(range.to) } : {}),
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
-    return selectAccountDailyRows(daily.accountDaily, range).map((row) => ({
+    return aggregateTrafficDays(
+      traffic.rows,
+      traffic.coverage.includedDates,
+      traffic.latestObservedAt,
+    ).map((row) => ({
       date: row.businessDate,
       revenue: row.revenue,
       orders: row.orders,
@@ -221,7 +355,7 @@ export class WingTrafficAggregationRepositoryAdapter
       visitors: row.visitors,
       views: row.views,
       cartAdds: row.cartAdds,
-      observedAt: row.observedAt,
+      observedAt: row.observedAt.toISOString(),
     } satisfies WingDailyTrendRow));
   }
 
@@ -238,171 +372,287 @@ export class WingTrafficAggregationRepositoryAdapter
       ? dateRangeOf(businessDatesInWindow(since, until))
       : { from: businessDateText(since) };
     if (!range) return [];
-    const { days, observedAt } = await readAdWindowFacts(this.prisma, {
-      organizationId,
-      from: dayStart(range.from),
-      ...('to' in range ? { to: dayAfter(range.to) } : {}),
-    });
+    const { days } = await this.prisma.$transaction(
+      (tx) => readAdWindowFacts(tx, {
+        organizationId,
+        from: dayStart(range.from),
+        ...('to' in range ? { to: dayAfter(range.to) } : {}),
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     return days.map((row) => ({
       date: row.businessDate,
       ad_cost: row.spend,
-      ad_revenue: row.revenue,
-      clicks: row.clicks,
-      impressions: row.impressions,
-      conversions: row.conversions,
-      orders: row.orders,
-      observedAt: (observedAt ?? new Date()).toISOString(),
     } satisfies CoupangAdsDailyRow));
   }
 
+}
 
-  private async readTrafficPublished(
-    organizationId: string,
-    range?: { from?: string; to?: string },
-  ): Promise<AdTrafficSourcePublished | null> {
-    try {
-      return await this.trafficRead.readPublished({
-        organizationId,
-        ...range,
-      });
-    } catch (error) {
-      if (
-        error instanceof NotFoundException &&
-        ['COUPANG_ACCOUNT_NOT_FOUND', 'AD_TRAFFIC_SOURCE_MISSING'].includes(error.message)
-      ) {
-        return null;
-      }
-      throw error;
+function composeTrafficFunnel(
+  targetDates: readonly string[],
+  traffic: ListingTrafficWindowFacts,
+  orders: OrderLineWindowFacts,
+  options: readonly Readonly<{ id: string; listingId: string }>[],
+): DashboardTrafficFunnelFacts {
+  const trafficDates = new Set(traffic.coverage.includedDates);
+  const orderDates = new Set(orders.window.includedDates);
+  const commonDates = targetDates.filter(
+    (date) => trafficDates.has(date) && orderDates.has(date),
+  );
+  const commonDateSet = new Set(commonDates);
+  const trafficRows = traffic.rows.filter((row) => trafficDates.has(row.businessDate));
+  const trafficByKey = new Map(
+    trafficRows.map((row) => [`${row.listingId}:${row.businessDate}`, row]),
+  );
+  const optionToListing = new Map(options.map((row) => [row.id, row.listingId]));
+  const ordersByKey = new Map<string, {
+    orderIds: Set<string>;
+    quantity: number;
+    revenue: number;
+  }>();
+  for (const order of orders.orders) {
+    if (!orderDates.has(order.businessDate)) continue;
+    for (const line of order.lines) {
+      if (!line.listingOptionId) continue;
+      const listingId = optionToListing.get(line.listingOptionId);
+      if (!listingId) continue;
+      const key = `${listingId}:${order.businessDate}`;
+      const value = ordersByKey.get(key) ?? {
+        orderIds: new Set<string>(),
+        quantity: 0,
+        revenue: 0,
+      };
+      value.orderIds.add(order.orderId);
+      value.quantity += line.quantity;
+      value.revenue += line.revenue;
+      ordersByKey.set(key, value);
     }
   }
 
-  /** The newest business date the ad source reported, from the fact ledger. */
-  private async findLatestCoupangAdsDate(
-    organizationId: string,
-  ): Promise<Date | null> {
-    return readLatestAdDate(this.prisma, organizationId);
+  const trafficTotals = trafficRows.reduce(
+    (total, row) => ({
+      visitors: total.visitors + row.visitors,
+      views: total.views + row.views,
+      cartAdds: total.cartAdds + row.cartAdds,
+    }),
+    { visitors: 0, views: 0, cartAdds: 0 },
+  );
+  const listingDateKeys = [...trafficByKey.keys()].filter((key) => {
+    const date = key.slice(key.lastIndexOf(':') + 1);
+    // A terminal Orders empty day proves zero orders for every traffic listing
+    // on that date even though there is no Order row to join.
+    return commonDateSet.has(date);
+  });
+  const datesWithTrafficRows = new Set(trafficRows.map((row) => row.businessDate));
+  const datesWithOrderRows = new Set(
+    [...ordersByKey.keys()].map((key) => key.slice(key.lastIndexOf(':') + 1)),
+  );
+  const explicitEmptyDates = commonDates.filter(
+    (date) => !datesWithTrafficRows.has(date) && !datesWithOrderRows.has(date),
+  );
+  const commonOrderIds = new Set<string>();
+  const commonTotals = listingDateKeys.reduce(
+    (total, key) => {
+      const trafficRow = trafficByKey.get(key);
+      const orderRow = ordersByKey.get(key);
+      for (const orderId of orderRow?.orderIds ?? []) commonOrderIds.add(orderId);
+      return {
+        views: total.views + (trafficRow?.views ?? 0),
+        cartAdds: total.cartAdds + (trafficRow?.cartAdds ?? 0),
+        quantity: total.quantity + (orderRow?.quantity ?? 0),
+        revenue: total.revenue + (orderRow?.revenue ?? 0),
+      };
+    },
+    { views: 0, cartAdds: 0, quantity: 0, revenue: 0 },
+  );
+  const commonOrderCount = commonOrderIds.size;
+  const trafficMeasured = trafficDates.size > 0;
+  const intersectionMeasured = listingDateKeys.length > 0 || explicitEmptyDates.length > 0;
+  const intersectionDates = [...new Set([
+    ...listingDateKeys.map((key) => key.slice(key.lastIndexOf(':') + 1)),
+    ...explicitEmptyDates,
+  ])].sort();
+  const dailyAverageVisitors = trafficMeasured
+    ? trafficTotals.visitors / trafficDates.size
+    : null;
+  const trafficCoverage = buildCoverage(targetDates, traffic.coverage);
+
+  return {
+    visitors: dailyAverageVisitors,
+    views: trafficMeasured ? trafficTotals.views : null,
+    cartAdds: trafficMeasured ? trafficTotals.cartAdds : null,
+    cartRate: trafficMeasured && trafficTotals.views > 0
+      ? (trafficTotals.cartAdds / trafficTotals.views) * 100
+      : null,
+    orders: intersectionMeasured ? commonOrderCount : null,
+    orderCartRate: intersectionMeasured && commonTotals.cartAdds > 0
+      ? (commonOrderCount / commonTotals.cartAdds) * 100
+      : null,
+    salesQty: intersectionMeasured ? commonTotals.quantity : null,
+    revenue: intersectionMeasured ? commonTotals.revenue : null,
+    conversionRate: intersectionMeasured && commonTotals.views > 0
+      ? (commonOrderCount / commonTotals.views) * 100
+      : null,
+    dailyAverageVisitors,
+    metricDates: {
+      visitors: [...trafficDates],
+      views: [...trafficDates],
+      cartAdds: [...trafficDates],
+      cartRate: trafficMeasured && trafficTotals.views > 0 ? [...trafficDates] : [],
+      orders: intersectionMeasured ? intersectionDates : [],
+      orderCartRate: intersectionMeasured && commonTotals.cartAdds > 0 ? intersectionDates : [],
+      salesQty: intersectionMeasured ? intersectionDates : [],
+      revenue: intersectionMeasured ? intersectionDates : [],
+      conversionRate: intersectionMeasured && commonTotals.views > 0 ? intersectionDates : [],
+    },
+    intersectionListingCount: intersectionMeasured
+      ? new Set(listingDateKeys.map((key) => key.slice(0, key.lastIndexOf(':')))).size
+      : 0,
+    intersectionListingDateCount: intersectionMeasured ? listingDateKeys.length : 0,
+    trafficCoverage,
+    trafficObservedAt: traffic.latestObservedAt,
+    orderObservedAt: orders.window.observedAt,
+  };
+}
+
+function composeAdRateFacts(
+  targetDates: readonly string[],
+  knownThrough: string,
+  adDays: readonly Readonly<{ businessDate: string; spend: number }>[],
+  orderIncludedDates: readonly string[],
+  dailyOrders: readonly DailyOrderFacts[],
+  traffic: ListingTrafficWindowFacts,
+): DashboardAdRateFacts {
+  const adCoverage = buildAdsCoverage(targetDates, knownThrough, adDays);
+  const adComplete = adCoverage.targetDays > 0
+    && adCoverage.completedDays === adCoverage.targetDays;
+  const adByDate = new Map(adDays.map((row) => [row.businessDate, row.spend]));
+  const orderDates = new Set(orderIncludedDates);
+  const orderByDate = new Map(dailyOrders.map((row) => [row.day, row.revenue]));
+  const orderIntersection = targetDates.filter(
+    (date) => adByDate.has(date) && orderDates.has(date),
+  );
+  if (orderIntersection.length > 0) {
+    return {
+      adSpend: sumDates(orderIntersection, adByDate),
+      revenue: sumDates(orderIntersection, orderByDate),
+      revenueSource: 'orders',
+      includedDates: orderIntersection,
+      adCoverageComplete: adComplete,
+    };
   }
+
+  const trafficDates = new Set(traffic.coverage.includedDates);
+  const wingIntersection = targetDates.filter(
+    (date) => adByDate.has(date) && trafficDates.has(date),
+  );
+  if (wingIntersection.length > 0) {
+    const wingRevenue = new Map<string, number>();
+    for (const row of traffic.rows) {
+      if (!trafficDates.has(row.businessDate)) continue;
+      wingRevenue.set(
+        row.businessDate,
+        (wingRevenue.get(row.businessDate) ?? 0) + row.revenue,
+      );
+    }
+    return {
+      adSpend: sumDates(wingIntersection, adByDate),
+      revenue: sumDates(wingIntersection, wingRevenue),
+      revenueSource: 'wing',
+      includedDates: wingIntersection,
+      adCoverageComplete: adComplete,
+    };
+  }
+
+  return emptyAdRateFacts(adComplete);
+}
+
+function sumDates(dates: readonly string[], values: ReadonlyMap<string, number>): number {
+  return dates.reduce((sum, date) => sum + (values.get(date) ?? 0), 0);
+}
+
+function emptyTrafficFunnel(): DashboardTrafficFunnelFacts {
+  return {
+    visitors: null,
+    views: null,
+    cartAdds: null,
+    cartRate: null,
+    orders: null,
+    orderCartRate: null,
+    salesQty: null,
+    revenue: null,
+    conversionRate: null,
+    dailyAverageVisitors: null,
+    metricDates: {
+      visitors: [],
+      views: [],
+      cartAdds: [],
+      cartRate: [],
+      orders: [],
+      orderCartRate: [],
+      salesQty: [],
+      revenue: [],
+      conversionRate: [],
+    },
+    intersectionListingCount: 0,
+    intersectionListingDateCount: 0,
+    trafficCoverage: null,
+    trafficObservedAt: null,
+    orderObservedAt: null,
+  };
+}
+
+function emptyAdRateFacts(adCoverageComplete = false): DashboardAdRateFacts {
+  return {
+    adSpend: null,
+    revenue: null,
+    revenueSource: 'unavailable',
+    includedDates: [],
+    adCoverageComplete,
+  };
 }
 
 type DateRange = { from: string; to?: string };
-type AccountDailyRow = AdTrafficSourceAccountDaily;
-type DailyTrafficPublication = AdTrafficSourceDailyPublished;
-
-function dailyPublication(
-  published: AdTrafficSourcePublished,
-): DailyTrafficPublication | null {
-  // AdTrafficSourcePublished is a compatibility union. Checking the new
-  // accountDaily field is intentional: legacy rows/dashboard must never feed
-  // account-level daily analytics.
-  return 'accountDaily' in published ? published : null;
-}
-
-function selectAccountDailyRows(
-  rows: ReadonlyArray<AccountDailyRow>,
-  range: DateRange,
-): AccountDailyRow[] {
-  const byDate = new Map<string, AccountDailyRow>();
-  for (const row of rows) {
-    if (!dateInRange(row.businessDate, range)) continue;
-    const current = byDate.get(row.businessDate);
-    if (!current || Date.parse(row.observedAt) >= Date.parse(current.observedAt)) {
-      byDate.set(row.businessDate, row);
-    }
-  }
-  return [...byDate.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate));
-}
-
-function sumAccountDaily(rows: ReadonlyArray<AccountDailyRow>) {
-  return rows.reduce(
-    (sum, row) => ({
-      visitors: sum.visitors + finiteInt(row.visitors),
-      views: sum.views + finiteInt(row.views),
-      cartAdds: sum.cartAdds + finiteInt(row.cartAdds),
-      orders: sum.orders + finiteInt(row.orders),
-      salesQty: sum.salesQty + finiteInt(row.salesQty),
-      revenue: sum.revenue + finiteInt(row.revenue),
-    }),
-    { visitors: 0, views: 0, cartAdds: 0, orders: 0, salesQty: 0, revenue: 0 },
-  );
-}
-
-function latestAccountDailyRow(rows: ReadonlyArray<AccountDailyRow>): AccountDailyRow | null {
-  return rows.reduce<AccountDailyRow | null>(
-    (latest, row) => !latest || Date.parse(row.observedAt) >= Date.parse(latest.observedAt)
-      ? row
-      : latest,
-    null,
-  );
-}
 
 function buildCoverage(
   targetDates: readonly string[],
-  rows: ReadonlyArray<AccountDailyRow>,
+  facts: Readonly<{
+    includedDates: readonly string[];
+    invalidDates: readonly string[];
+    missingDates: readonly string[];
+  }>,
 ): TrafficCoverage {
-  const completed = new Set(rows.map((row) => row.businessDate));
+  const completed = new Set(facts.includedDates);
+  const unavailable = new Set([...facts.invalidDates, ...facts.missingDates]);
   return {
     from: targetDates[0]!,
     to: targetDates[targetDates.length - 1]!,
     targetDays: targetDates.length,
     completedDays: targetDates.filter((date) => completed.has(date)).length,
-    missingDates: targetDates.filter((date) => !completed.has(date)),
+    missingDates: targetDates.filter((date) =>
+      unavailable.has(date) || !completed.has(date)),
   };
 }
 
+/** Listing-day totals carry no provider period value, so nothing verifies them. */
 function normalizeReconciliation(
-  raw: Partial<TrafficReconciliation> | undefined,
-  totals: ReturnType<typeof sumAccountDaily>,
+  totals: {
+    visitors: number;
+    views: number;
+    cartAdds: number;
+    orders: number;
+    salesQty: number;
+    revenue: number;
+  },
 ): TrafficReconciliation {
   return Object.fromEntries(
-    TRAFFIC_METRICS.map((metric) => {
-      const value = raw?.[metric];
-      if (value && isReconciliationStatus(value.status)) {
-        return [metric, {
-          status: value.status,
-          dailySum: numberOrNull(value.dailySum),
-          periodValue: numberOrNull(value.periodValue),
-        } satisfies TrafficMetricReconciliation];
-      }
-      return [metric, {
-        status: 'UNVERIFIED',
-        dailySum: totals[metric],
-        periodValue: null,
-      } satisfies TrafficMetricReconciliation];
-    }),
+    TRAFFIC_METRICS.map((metric) => [metric, {
+      dailySum: totals[metric],
+      periodValue: null,
+    } satisfies TrafficMetricReconciliation]),
   ) as TrafficReconciliation;
 }
-
-function providerConversionRate(
-  published: DailyTrafficPublication,
-  rows: ReadonlyArray<AccountDailyRow>,
-): number | null {
-  const summaryValue = published.periodSummary?.accountSummary;
-  if (typeof summaryValue?.providerConversionRate === 'number'
-    && Number.isFinite(summaryValue.providerConversionRate)) {
-    return summaryValue.providerConversionRate;
-  }
-  const legacy = published.legacyExactPeriodEvidence;
-  if (legacy) {
-    const value = legacy.providerConversionRate;
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-  }
-  // A single daily original is itself the provider's ratio for that day. For
-  // multi-day ranges we do not average provider ratios or invent a period
-  // provider value; the own orders/views ratio remains independently usable.
-  if (rows.length === 1) return rows[0]?.providerConversionRate ?? null;
-  return null;
-}
-
-function latestTrafficDate(published: AdTrafficSourcePublished): Date | null {
-  const daily = dailyPublication(published);
-  if (!daily) return null;
-  return daily.accountDaily.reduce<Date | null>((latest, row) => {
-    const date = new Date(`${row.businessDate}T00:00:00.000Z`);
-    return !latest || date > latest ? date : latest;
-  }, null);
-}
-
 
 function buildAdsCoverage(
   targetDates: readonly string[],
@@ -447,22 +697,6 @@ function dateRangeOf(
   return { from: dates[0]!, to: dates[dates.length - 1]! };
 }
 
-function dateInRange(value: string, range: DateRange): boolean {
-  return value >= range.from && (!range.to || value <= range.to);
-}
-
-function isReconciliationStatus(value: unknown): value is TrafficReconciliationStatus {
-  return value === 'MATCHED' || value === 'MISMATCH' || value === 'UNVERIFIED';
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function finiteInt(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0;
-}
-
 function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetrics {
   const coverage = targetDates && targetDates.length > 0
     ? {
@@ -474,13 +708,13 @@ function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetric
       }
     : null;
   return {
-    revenue: 0,
-    orders: 0,
-    salesQty: 0,
-    visitors: 0,
-    views: 0,
-    cartAdds: 0,
-    conversionRate: 0,
+    revenue: null,
+    orders: null,
+    salesQty: null,
+    visitors: null,
+    views: null,
+    cartAdds: null,
+    conversionRate: null,
     dailyAverageVisitors: null,
     providerConversionRate: null,
     sourceAttemptId: null,
@@ -493,14 +727,74 @@ function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetric
   };
 }
 
+type DailyTrafficTotals = {
+  businessDate: string;
+  visitors: number;
+  views: number;
+  cartAdds: number;
+  orders: number;
+  salesQty: number;
+  revenue: number;
+  observedAt: Date;
+};
+
+function aggregateTrafficDays(
+  rows: readonly ListingTrafficDailyFact[],
+  includedDates: readonly string[],
+  latestObservedAt: Date | null,
+): DailyTrafficTotals[] {
+  const byDate = new Map<string, DailyTrafficTotals>();
+  const included = new Set(includedDates);
+  for (const row of rows) {
+    if (!included.has(row.businessDate)) continue;
+    const current = byDate.get(row.businessDate);
+    if (!current) {
+      byDate.set(row.businessDate, {
+        businessDate: row.businessDate,
+        visitors: row.visitors,
+        views: row.views,
+        cartAdds: row.cartAdds,
+        orders: row.orders,
+        salesQty: row.salesQty,
+        revenue: row.revenue,
+        observedAt: row.observedAt,
+      });
+      continue;
+    }
+    current.visitors += row.visitors;
+    current.views += row.views;
+    current.cartAdds += row.cartAdds;
+    current.orders += row.orders;
+    current.salesQty += row.salesQty;
+    current.revenue += row.revenue;
+    if (row.observedAt > current.observedAt) current.observedAt = row.observedAt;
+  }
+  for (const businessDate of includedDates) {
+    if (!byDate.has(businessDate) && latestObservedAt) {
+      byDate.set(businessDate, {
+        businessDate,
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+        observedAt: latestObservedAt,
+      });
+    }
+  }
+  return [...byDate.values()].sort((left, right) =>
+    left.businessDate.localeCompare(right.businessDate));
+}
+
 function emptyCoupangAdsMetrics(): CoupangAdsMetrics {
   return {
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    orders: 0,
+    spend: null,
+    revenue: null,
+    impressions: null,
+    clicks: null,
+    conversions: null,
+    orders: null,
     conversionRate: null,
     providerConversionRate: null,
     coverage: null,

@@ -1,7 +1,17 @@
 import { SourcingKeywordAnalysisSnapshotSchema } from '@kiditem/shared/sourcing';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { businessDateKey, kstBusinessDate, kstInclusiveDaysStart, parseBusinessDate } from '../../../../common/kst';
+import { businessDateKey, kstInclusiveDaysStart, parseBusinessDate } from '../../../../common/kst';
+import {
+  declaredCoverageDateKeys,
+  readComplete1688OfferHistoryRuns,
+  readCompleteNaverKeywordHistoryRuns,
+  readCompleteNaverPopularKeywordHistoryRuns,
+  readCompleteShortsHistoryRuns,
+  readCompleteTiktokHistoryRuns,
+  readCurrentCompleteRuns,
+  readKeywordAnalysisFact,
+} from '../../../read/source-evidence.reader';
 import type { Prisma } from '@prisma/client';
 import type {
   NaverKeywordSnapshotRow,
@@ -23,15 +33,13 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   constructor(private readonly prisma: PrismaService) {}
 
   async findKeywordAnalysisSnapshot(input: { organizationId: string; inputHash: string; attemptId?: string }) {
-    const observation = await this.prisma.sourcingEvidenceObservation.findFirst({
-      where: { organizationId: input.organizationId, sourceKey: 'naver.keyword_analysis',
-        evidenceFamily: 'keyword_analysis', conceptKey: input.inputHash, schemaVersion: 'naver-keyword-analysis/v1',
-        ingestionRun: { organizationId: input.organizationId, sourceKey: 'naver.keyword_analysis',
-          scopeKey: 'default', targetKey: input.inputHash, status: 'COMPLETE',
-          ...(input.attemptId ? { id: input.attemptId } : { isCurrentComplete: true }) } },
-      select: { payload: true },
+    const fact = await readKeywordAnalysisFact(this.prisma, {
+      organizationId: input.organizationId,
+      inputHash: input.inputHash,
+      schemaVersion: 'naver-keyword-analysis/v1',
+      ...(input.attemptId ? { attemptId: input.attemptId } : {}),
     });
-    const parsed = SourcingKeywordAnalysisSnapshotSchema.safeParse(observation?.payload);
+    const parsed = SourcingKeywordAnalysisSnapshotSchema.safeParse(fact?.document);
     return parsed.success ? parsed.data : null;
   }
 
@@ -100,41 +108,31 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   }
 
   async findLatestCompleteTrendScope(input: { organizationId: string; source: 'naver' | 'shorts' }): Promise<string | null> {
-    const complete = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
-      where: { organizationId: input.organizationId, sourceKey: input.source === 'naver' ? 'naver.trend' : 'shortstrend.trend',
-        scopeKey: 'default', status: 'COMPLETE', isCurrentComplete: true },
-      orderBy: [{ sourceWindowEndAt: 'desc' }, { startedAt: 'asc' }, { id: 'asc' }],
-      select: { targetKey: true },
+    const runs = await readCurrentCompleteRuns(this.prisma, {
+      organizationId: input.organizationId,
+      sourceKey: input.source === 'naver' ? 'naver.trend' : 'shortstrend.trend',
+      scopeKey: 'default',
     });
+    const [complete] = runs.sort((left, right) =>
+      (right.sourceWindowEndAt?.getTime() ?? -Infinity)
+      - (left.sourceWindowEndAt?.getTime() ?? -Infinity)
+      || (right.completedAt?.getTime() ?? -Infinity)
+      - (left.completedAt?.getTime() ?? -Infinity)
+      || right.generation - left.generation
+      || right.id.localeCompare(left.id));
     return complete?.targetKey ?? null;
   }
 
   async findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: {
-        organizationId: query.organizationId,
-        sourceKey: 'naver.trend',
-        scopeKey: 'default',
-        status: 'COMPLETE',
-        OR: [
-          { sourceWindowStartAt: { gte: start } },
-          { naverKeywordDailySnapshots: { some: { businessDate: { gte: start } } } },
-          { naverPopularKeywordDailySnapshots: { some: { businessDate: { gte: start } } } },
-        ],
-      },
-      include: {
-        naverKeywordDailySnapshots: {
-          where: { businessDate: { gte: start } },
-          orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        },
-      },
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+    const attempts = await readCompleteNaverKeywordHistoryRuns(this.prisma, {
+      organizationId: query.organizationId,
+      start,
     });
 
     const selectedScopes = new Set<string>();
     const rows = attempts.flatMap((attempt) => {
-      const dateKeys = completeRunDateKeys(attempt, attempt.naverKeywordDailySnapshots, start);
+      const dateKeys = declaredCoverageDateKeys(attempt, start);
       const planKeywords = planStringList(attempt.attemptPlan, 'keywords');
       const selectedRows = [] as typeof attempt.naverKeywordDailySnapshots;
       for (const dateKeyValue of dateKeys) {
@@ -174,22 +172,9 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   async findPopularKeywordHistory(query: TrendHistoryQuery) {
     // Read coverage even when the complete attempt produced no board rows.
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: { organizationId: query.organizationId, sourceKey: 'naver.trend', scopeKey: 'default',
-        status: 'COMPLETE',
-        OR: [
-          { sourceWindowStartAt: { gte: start } },
-          { naverPopularKeywordDailySnapshots: { some: { businessDate: { gte: start } } } },
-        ] },
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
-      select: {
-        attemptPlan: true,
-        sourceWindowStartAt: true,
-        sourceWindowEndAt: true,
-        naverPopularKeywordDailySnapshots: {
-          where: { businessDate: { gte: start } },
-        },
-      },
+    const attempts = await readCompleteNaverPopularKeywordHistoryRuns(this.prisma, {
+      organizationId: query.organizationId,
+      start,
     });
     const covered = new Set<string>();
     const coverage: Array<{ boardKey: string; businessDate: Date }> = [];
@@ -198,8 +183,8 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       const plan = asRecord(attempt.attemptPlan);
       const boardKeys = Array.isArray(plan?.boardKeys)
         ? plan.boardKeys.filter((value): value is string => typeof value === 'string')
-        : [...new Set(attempt.naverPopularKeywordDailySnapshots.map((row) => row.boardKey))];
-      const dateKeys = completeRunDateKeys(attempt, attempt.naverPopularKeywordDailySnapshots, start);
+        : [];
+      const dateKeys = declaredCoverageDateKeys(attempt, start);
       for (const dateKeyValue of dateKeys) {
         for (const boardKey of boardKeys) {
           if (typeof boardKey !== 'string') continue;
@@ -222,38 +207,32 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: {
-        organizationId: query.organizationId,
-        sourceKey: '1688.hot_product',
-        status: 'COMPLETE',
-        OR: [
-          { sourceWindowEndAt: { gte: start } },
-          { offerKeywordObservations: { some: { businessDate: { gte: start } } } },
-        ],
-      },
-      include: {
-        offerKeywordObservations: {
-          where: { businessDate: { gte: start } },
-          orderBy: [{ businessDate: 'asc' }, { rank: 'asc' }],
-        },
-      },
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+    const attempts = await readComplete1688OfferHistoryRuns(this.prisma, {
+      organizationId: query.organizationId,
+      start,
     });
 
     const selectedScopes = new Set<string>();
     const rows = attempts.flatMap((attempt) => {
-      const dateKeys = completeRunDateKeys(attempt, attempt.offerKeywordObservations, start);
+      const dateKeys = declaredCoverageDateKeys(attempt, start);
+      const planKeywords = new Set(
+        planStringList(attempt.attemptPlan, 'keywords').map(keywordIdentity),
+      );
       const selectedRows = [] as typeof attempt.offerKeywordObservations;
       for (const dateKeyValue of dateKeys) {
-        const scopeKey = `${attempt.scopeKey}:${attempt.targetKey}:${dateKeyValue}`;
-        if (selectedScopes.has(scopeKey)) continue;
-        selectedScopes.add(scopeKey);
-        selectedRows.push(...attempt.offerKeywordObservations.filter((row) => dateKey(row.businessDate) === dateKeyValue));
+        for (const keyword of planKeywords) {
+          const scopeKey = `${attempt.scopeKey}:${attempt.targetKey}:${dateKeyValue}:${keyword}`;
+          if (selectedScopes.has(scopeKey)) continue;
+          selectedScopes.add(scopeKey);
+          selectedRows.push(...attempt.offerKeywordObservations.filter((row) =>
+            dateKey(row.businessDate) === dateKeyValue
+            && keywordIdentity(row.sourceKeywordNormalized) === keyword));
+        }
       }
       return selectedRows;
     });
-    return rows.sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime() || (a.rank ?? 0) - (b.rank ?? 0)).map((row) => ({
+    return rows.sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime()
+      || compareNullableRank(a.rank, b.rank)).map((row) => ({
       businessDate: row.businessDate,
       capturedAt: row.capturedAt,
       offerId: row.externalOfferId,
@@ -272,34 +251,20 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async findShortsHistory(query: TrendHistoryQuery): Promise<ShortsSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: {
-        organizationId: query.organizationId,
-        sourceKey: 'shortstrend.trend',
-        scopeKey: 'default',
-        status: 'COMPLETE',
-        OR: [
-          { sourceWindowStartAt: { gte: start } },
-          { shortsTrendDailySnapshots: { some: { businessDate: { gte: start } } } },
-        ],
-      },
-      include: {
-        shortsTrendDailySnapshots: {
-          where: { businessDate: { gte: start } },
-          orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        },
-      },
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+    const attempts = await readCompleteShortsHistoryRuns(this.prisma, {
+      organizationId: query.organizationId,
+      start,
     });
     const selectedDates = new Set<string>();
     const rows = attempts.flatMap((attempt) => {
-      const dateKeys = completeRunDateKeys(attempt, attempt.shortsTrendDailySnapshots, start);
+      const dateKeys = declaredCoverageDateKeys(attempt, start);
       const selected = dateKeys.filter((dateKeyValue) => !selectedDates.has(dateKeyValue));
       selected.forEach((dateKeyValue) => selectedDates.add(dateKeyValue));
       return attempt.shortsTrendDailySnapshots.filter((row) => selected.includes(dateKey(row.businessDate)));
     });
     return latestTrendRows(rows, (row) => `${dateKey(row.businessDate)}:${row.videoKey}`)
-      .sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime() || (a.rank ?? 0) - (b.rank ?? 0))
+      .sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime()
+        || compareNullableRank(a.rank, b.rank))
       .map((row) => ({
       businessDate: row.businessDate,
       capturedAt: row.capturedAt,
@@ -319,35 +284,20 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: {
-        organizationId: query.organizationId,
-        sourceKey: 'tiktok.creative',
-        scopeKey: 'default',
-        targetKey: 'all',
-        status: 'COMPLETE',
-        OR: [
-          { sourceWindowEndAt: { gte: start } },
-          { tiktokCreativeTrendDailySnapshots: { some: { businessDate: { gte: start } } } },
-        ],
-      },
-      include: {
-        tiktokCreativeTrendDailySnapshots: {
-          where: { businessDate: { gte: start } },
-          orderBy: [{ businessDate: 'asc' }, { trendType: 'asc' }, { rank: 'asc' }],
-        },
-      },
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+    const attempts = await readCompleteTiktokHistoryRuns(this.prisma, {
+      organizationId: query.organizationId,
+      start,
     });
     const selectedDates = new Set<string>();
     const rows = attempts.flatMap((attempt) => {
-      const dateKeys = completeRunDateKeys(attempt, attempt.tiktokCreativeTrendDailySnapshots, start);
+      const dateKeys = declaredCoverageDateKeys(attempt, start);
       const selected = dateKeys.filter((dateKeyValue) => !selectedDates.has(dateKeyValue));
       selected.forEach((dateKeyValue) => selectedDates.add(dateKeyValue));
       return attempt.tiktokCreativeTrendDailySnapshots.filter((row) => selected.includes(dateKey(row.businessDate)));
     });
     return rows.sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime()
-      || a.trendType.localeCompare(b.trendType) || (a.rank ?? 0) - (b.rank ?? 0)).map((row) => ({
+      || a.trendType.localeCompare(b.trendType)
+      || compareNullableRank(a.rank, b.rank)).map((row) => ({
       businessDate: row.businessDate,
       capturedAt: row.capturedAt,
       region: row.region,
@@ -372,52 +322,10 @@ function stringFromRawOffer(rawOffer: unknown, key: string): string | null {
   return typeof value === 'string' ? value : value == null ? null : String(value);
 }
 
-type CompleteRunDateMetadata = {
-  attemptPlan: Prisma.JsonValue | null;
-  sourceWindowStartAt: Date | null;
-  sourceWindowEndAt: Date | null;
-};
-
-function completeRunDateKeys(
-  run: CompleteRunDateMetadata,
-  rows: readonly { businessDate: Date }[],
-  start: Date,
-): string[] {
-  const startKey = dateKey(kstBusinessDate(start));
-  const dates = new Set<string>();
-  for (const row of rows) {
-    const value = dateKey(row.businessDate);
-    if (value >= startKey) dates.add(value);
-  }
-
-  const sourceWindowStart = run.sourceWindowStartAt && dateKey(kstBusinessDate(run.sourceWindowStartAt));
-  if (sourceWindowStart && sourceWindowStart >= startKey) dates.add(sourceWindowStart);
-
-  if (dates.size === 0) {
-    const plannedDate = planDateKey(run.attemptPlan);
-    if (plannedDate && plannedDate >= startKey) dates.add(plannedDate);
-  }
-  if (dates.size === 0 && run.sourceWindowEndAt) {
-    const capturedDate = dateKey(kstBusinessDate(run.sourceWindowEndAt));
-    if (capturedDate >= startKey) dates.add(capturedDate);
-  }
-  return [...dates].sort();
-}
-
 function asRecord(value: Prisma.JsonValue | null): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-}
-
-function planDateKey(value: Prisma.JsonValue | null): string | null {
-  const plan = asRecord(value);
-  if (!plan) return null;
-  const candidate = plan.businessDate ?? plan.queryDate;
-  if (typeof candidate !== 'string') return null;
-  if (/^\d{4}-\d{2}-\d{2}/.test(candidate)) return candidate.slice(0, 10);
-  if (/^\d{8}$/.test(candidate)) return `${candidate.slice(0, 4)}-${candidate.slice(4, 6)}-${candidate.slice(6, 8)}`;
-  return null;
 }
 
 function planStringList(value: Prisma.JsonValue | null, key: string): string[] {
@@ -426,6 +334,10 @@ function planStringList(value: Prisma.JsonValue | null, key: string): string[] {
   return Array.isArray(candidate)
     ? candidate.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function keywordIdentity(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US');
 }
 
 function dateKey(value: Date): string {
@@ -468,4 +380,10 @@ function latestTrendRows<T>(rows: T[], identity: (row: T) => string): T[] {
     seen.add(key);
     return true;
   });
+}
+
+function compareNullableRank(left: number | null, right: number | null): number {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  return left - right;
 }

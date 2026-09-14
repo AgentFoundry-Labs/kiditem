@@ -50,7 +50,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
 
   it('accepts every approved producer and attention reason', () => {
     expect(BROWSER_COLLECTION_PRODUCERS).toEqual([
-      'advertising.ad_account_daily_kpi',
       'advertising.ad_keyword',
       'advertising.ad_sync',
       'advertising.profitability_import',
@@ -60,7 +59,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'advertising.wing_rank',
       'advertising.wing_tracked_products',
       'channels.coupang_catalog',
-      'dashboard.coupang_ads',
       'dashboard.coupang_products',
       'dashboard.wing_kpi',
       'dashboard.wing_sales',
@@ -86,6 +84,19 @@ describe('BrowserCollectionSessionViewSchema', () => {
     }
     for (const reason of BROWSER_COLLECTION_ATTENTION_REASONS) {
       expect(BrowserCollectionAttentionReasonSchema.parse(reason)).toBe(reason);
+    }
+  });
+
+  it('rejects retired advertising account-day KPI producers', () => {
+    for (const producer of [
+      'advertising.ad_account_daily_kpi',
+      'dashboard.coupang_ads',
+    ]) {
+      expect(BrowserCollectionProducerSchema.safeParse(producer).success).toBe(false);
+      expect(BrowserCollectionSessionViewSchema.safeParse({
+        ...createSession(),
+        producer,
+      }).success).toBe(false);
     }
   });
 

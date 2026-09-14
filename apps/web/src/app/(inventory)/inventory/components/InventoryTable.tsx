@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { deriveInventoryLinkStatus, INVENTORY_LINK_LABELS, type InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 import { Pagination } from '@/components/ui/Pagination';
 import { operatorProductReference } from '@/lib/operator-product-reference';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 interface InventoryTableProps {
   items: InventorySkuSnapshotItem[];
@@ -142,10 +142,11 @@ export function InventoryTable({
 }
 
 function InventoryConnections({ item }: { item: InventorySkuSnapshotItem }) {
-  if (item.linkStatus === 'unlinked') {
+  const linkStatus = deriveInventoryLinkStatus(item);
+  if (linkStatus === 'unlinked') {
     return (
       <span className="rounded bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
-        미연결
+        {INVENTORY_LINK_LABELS[linkStatus]}
       </span>
     );
   }

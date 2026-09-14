@@ -1,15 +1,34 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import type {
-  SettlementReconcileDetail,
-  SettlementReconcileResponse,
-} from '@kiditem/shared/settlements';
+import type { SettlementListItem, SettlementListResponse } from '@kiditem/shared/settlements';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  buildPerListingProfit,
-  readAdEvidenceFromLedger,
-} from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
+import { readSettlements, type SettlementFact } from './read/settlement-facts';
+
+/**
+ * A settlement's actual amount exists once someone confirmed the deposit.
+ * Until then the stored column holds its schema default, which is not a
+ * deposit of zero, so neither it nor a difference from it is published.
+ */
+function toListItem(row: SettlementFact): SettlementListItem {
+  const confirmed = row.status === 'confirmed';
+  return {
+    id: row.id,
+    period: row.period,
+    expectedAmount: row.expectedAmount,
+    actualAmount: confirmed ? row.actualAmount : null,
+    commission: row.commission,
+    shippingFee: row.shippingFee,
+    adjustments: row.adjustments,
+    difference: confirmed ? row.actualAmount - row.expectedAmount : null,
+    orderCount: row.orderCount,
+    returnCount: row.returnCount,
+    status: row.status,
+    settledAt: row.settledAt,
+    notes: row.notes,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  } satisfies SettlementListItem;
+}
 
 @Injectable()
 export class SettlementsService {
@@ -17,32 +36,31 @@ export class SettlementsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  private resolveWindow(period: string) {
-    const [year, month] = period.split('-').map(Number);
+  /**
+   * The listed settlements and the card totals over them. Deposits and
+   * differences are summed over confirmed rows only; an unconfirmed deposit is
+   * not a deposit of zero.
+   */
+  async findAll(organizationId: string, period?: string): Promise<SettlementListResponse> {
+    const rows = await this.prisma.$transaction((tx) => readSettlements(tx, {
+      organizationId,
+      period,
+    }));
+    const items = rows.map(toListItem);
+    const confirmed = items.filter((item) => item.actualAmount !== null);
     return {
-      year,
-      month,
-      from: kstMonthStart(year, month),
-      to: kstMonthStart(year, month + 1),
-    };
+      items,
+      summary: {
+        totalExpected: items.reduce((sum, item) => sum + item.expectedAmount, 0),
+        totalConfirmedActual: confirmed.reduce((sum, item) => sum + item.actualAmount!, 0),
+        totalConfirmedDifference: confirmed.reduce((sum, item) => sum + item.difference!, 0),
+        pendingCount: items.filter((item) => item.status === 'pending').length,
+      },
+    } satisfies SettlementListResponse;
   }
 
-  async findAll(organizationId: string, period?: string) {
-    const periodFilter =
-      period?.length === 7
-        ? { period }
-        : period?.length === 4
-          ? { period: { startsWith: period } }
-          : undefined;
-
-    return this.prisma.settlement.findMany({
-      where: { organizationId, ...periodFilter },
-      orderBy: { period: 'desc' },
-    });
-  }
-
-  async create(organizationId: string, dto: CreateSettlementDto) {
-    return this.prisma.settlement.create({
+  async create(organizationId: string, dto: CreateSettlementDto): Promise<SettlementListItem> {
+    const row = await this.prisma.settlement.create({
       data: {
         organizationId,
         period: dto.period,
@@ -53,111 +71,21 @@ export class SettlementsService {
         returnCount: dto.returnCount,
       },
     });
+    return toListItem(row);
   }
 
-  async reconcile(organizationId: string, period: string) {
-    const { from, to } = this.resolveWindow(period);
-
-    // 1. Build live metrics and compare them to the order aggregate side.
-    //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
-    //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-
-    const [metrics, rows] = await Promise.all([
-      // Reconciliation compares revenue, which never depends on ad coverage, so
-      // every listing stays in the detail list. Only `plNetProfit` can be
-      // unavailable (ADR-0006); dropping the row would hide a revenue mismatch.
-      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
-      this.prisma.$queryRaw<
-        Array<{
-          listing_id: string;
-          total_price: bigint;
-          order_count: bigint;
-        }>
-      >`
-        SELECT clo.listing_id AS listing_id,
-               SUM(oli.total_price)::bigint AS total_price,
-               COUNT(DISTINCT o.id)::bigint  AS order_count
-          FROM order_line_items oli
-          JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
-          JOIN orders o ON oli.order_id = o.id
-         WHERE o.organization_id = ${organizationId}::uuid
-           AND o.ordered_at >= ${from}
-           AND o.ordered_at <  ${to}
-           AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-         GROUP BY clo.listing_id
-      `,
-    ]);
-    const orderMap = new Map<string, { total: number; count: number }>(
-      rows.map((r) => [r.listing_id, { total: Number(r.total_price), count: Number(r.order_count) }]),
-    );
-
-    // 2. Match live finance metrics with order aggregates by listingId.
-    let totalPlRevenue = 0;
-    let totalOrderRevenue = 0;
-    let matchedCount = 0;
-    let mismatchCount = 0;
-
-    const details = metrics.map((metric) => {
-      const od = orderMap.get(metric.listingId) ?? { total: 0, count: 0 };
-      const revenueDiff = metric.revenue - od.total;
-      const absDiff = Math.abs(revenueDiff);
-      const status: 'matched' | 'minor_diff' | 'mismatch' =
-        absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
-
-      totalPlRevenue += metric.revenue;
-      totalOrderRevenue += od.total;
-      if (status === 'matched') matchedCount++;
-      else mismatchCount++;
-
-      return {
-        listingId: metric.listingId,
-        externalId: metric.externalId,
-        channelName: metric.channelName,
-        masterCode: metric.masterCode,
-        masterName: metric.masterName,
-        plRevenue: metric.revenue,
-        plCommission: metric.commission,
-        plNetProfit: metric.netProfit,
-        plOrderCount: metric.orderCount,
-        orderTotal: od.total,
-        orderCount: od.count,
-        revenueDiff,
-        isMatched: status === 'matched',
-        status,
-      } satisfies SettlementReconcileDetail;
-    });
-
-    const productCount = details.length;
-    const matchRate = productCount > 0
-      ? Math.round((matchedCount / productCount) * 100)
-      : 0;
-
-    return {
-      success: true,
-      period,
-      summary: {
-        totalPlRevenue,
-        totalOrderRevenue,
-        totalCommission: metrics.reduce((sum, metric) => sum + metric.commission, 0),
-        totalShipping: metrics.reduce((sum, metric) => sum + metric.shippingCost, 0),
-        revenueDifference: totalPlRevenue - totalOrderRevenue,
-        productCount,
-        orderCount: rows.reduce((s, r) => s + Number(r.order_count), 0),
-        matchedCount,
-        mismatchCount,
-        matchRate,
-      },
-      details,
-    } satisfies SettlementReconcileResponse;
-  }
-
-  async update(id: string, organizationId: string, dto: UpdateSettlementDto) {
+  async update(id: string, organizationId: string, dto: UpdateSettlementDto): Promise<SettlementListItem> {
+    // A confirmed deposit is the amount entered with the confirmation. The
+    // stored column's default is not a deposit of zero, so confirming without
+    // an amount would publish one nobody entered; and `null` is no amount for
+    // the non-null column either.
+    const actualAmount: number | null | undefined = dto.actualAmount;
+    if (actualAmount === null) {
+      throw new BadRequestException('실제 입금액은 숫자로 입력해야 합니다');
+    }
+    if (dto.status === 'confirmed' && actualAmount === undefined) {
+      throw new BadRequestException('정산을 확정하려면 실제 입금액을 입력해야 합니다');
+    }
     const existing = await this.prisma.settlement.findFirst({
       where: { id, organizationId },
     });
@@ -165,7 +93,7 @@ export class SettlementsService {
       throw new BadRequestException('정산 내역을 찾을 수 없습니다');
     }
 
-    return this.prisma.settlement.update({
+    const row = await this.prisma.settlement.update({
       where: { id },
       data: {
         ...(dto.actualAmount !== undefined && { actualAmount: dto.actualAmount }),
@@ -173,5 +101,6 @@ export class SettlementsService {
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
     });
+    return toListItem(row);
   }
 }

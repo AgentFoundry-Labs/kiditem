@@ -2,7 +2,6 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
@@ -25,7 +24,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
-import { RulesModule } from './rules/rules.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { SupplyModule } from './supply/supply.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -47,11 +45,9 @@ import { UploadsModule } from './uploads/uploads.module';
     AnalyticsModule,
     SourcingModule,
     SupplyModule,
-    ActivityEventsModule,
     ChannelsModule,
     AiModule,
     FinanceModule,
-    RulesModule,
     AgentOsInteractionHttpModule,
     AgentOsRuntimeHttpModule,
     AdvertisingModule,

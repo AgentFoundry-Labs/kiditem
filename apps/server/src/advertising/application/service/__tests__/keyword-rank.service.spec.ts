@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { KeywordRankRepositoryPort } from "../../port/out/repository/keyword-rank.repository.port";
 import {
   buildMockKeywordRankRepo,
   type MockKeywordRankRepo,
 } from "../../../__tests__/test-helpers/build-mock-ports";
 import { KeywordRankService } from "../keyword-rank.service";
 import { currentBusinessDate } from "../../../domain/business-date";
+import type { KeywordRankRepositoryPort } from "../../port/out/repository/keyword-rank.repository.port";
 
 const snapshot = (
   keyword: string,
@@ -94,15 +94,15 @@ describe("KeywordRankService Wing sales rank overview", () => {
       keywordSource: "wing_performance",
       currentSalesRank: 31,
       previousSalesRank: 35,
-      rankChange: 4,
-      status: "rising",
       category: "완구 > 스포츠완구 > 라켓놀이",
     });
+    expect(result.rows[0]).not.toHaveProperty("rankChange");
+    expect(result.rows[0]).not.toHaveProperty("status");
     expect(result.rows[1]).toMatchObject({
       vendorItemId: "V-2",
       keyword: "연필",
       currentSalesRank: null,
-      status: "not_collected",
+      businessDate: null,
     });
     expect(result.summary).toMatchObject({
       productCount: 2,

@@ -14,6 +14,7 @@ import {
 } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { addDays, businessDateKey, kstBusinessDate } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
+import { MarketShadowSnapshotDocumentSchema } from '../../domain/market-shadow-snapshot-document';
 import {
   LINKFOX_ECHOTIK_SHADOW_PORT,
   MARKET_SHADOW_SIGNAL_PORT,
@@ -240,6 +241,11 @@ export class SourcingShadowSignalService {
         });
       } else if (payload) {
         const payloadHash = shadowHash(payload);
+        const observationKey = shadowHash({
+          attemptId: attempt.attemptId,
+          day: plan.businessDate,
+        });
+        const typedDocument = MarketShadowSnapshotDocumentSchema.parse(payload);
         await this.attempts.completeAttempt({
           organizationId,
           attemptId: attempt.attemptId,
@@ -251,7 +257,19 @@ export class SourcingShadowSignalService {
           output: {
             discoveredCount: 1,
             rejectedCount: 0,
-            typedRecords: [],
+            typedRecords: [{
+              kind: 'market_shadow_snapshot',
+              row: {
+                organizationId,
+                ingestionRunId: attempt.attemptId,
+                evidenceObservationKey: observationKey,
+                evidenceRevision: 1,
+                schemaVersion: GENERATOR_VERSION,
+                businessDate,
+                document: typedDocument,
+                capturedAt: now,
+              },
+            }],
             qualityReport: { completeSnapshot: true },
             observations: [
               {
@@ -267,10 +285,7 @@ export class SourcingShadowSignalService {
                 sourceEntityType: 'market_shadow_snapshot',
                 sourceEntityId: plan.businessDate,
                 schemaVersion: GENERATOR_VERSION,
-                observationKey: shadowHash({
-                  attemptId: attempt.attemptId,
-                  day: plan.businessDate,
-                }),
+                observationKey,
                 revision: 1,
                 sourceUrl: null,
                 eventAt: now,

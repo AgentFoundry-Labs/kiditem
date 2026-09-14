@@ -7,6 +7,10 @@ import type {
   SourcingLaunchCandidateRecord,
   SourcingLaunchCandidateRepositoryPort,
 } from '../../../application/port/out/repository/sourcing-launch-candidate.repository.port';
+import {
+  readCurrentLaunchCandidates,
+  readExactLaunchCandidatesByIds,
+} from '../../../read/launch-candidate.reader';
 
 type LaunchCandidateRow = Prisma.SourcingLaunchCandidateGetPayload<
   Record<string, never>
@@ -123,8 +127,9 @@ export class SourcingLaunchCandidateRepositoryAdapter
     organizationId: string;
     id: string;
   }): Promise<SourcingLaunchCandidateRecord | null> {
-    const row = await this.prisma.sourcingLaunchCandidate.findFirst({
-      where: { id: input.id, organizationId: input.organizationId },
+    const [row] = await readExactLaunchCandidatesByIds(this.prisma, {
+      organizationId: input.organizationId,
+      ids: [input.id],
     });
     return row ? toRecord(row) : null;
   }
@@ -134,12 +139,7 @@ export class SourcingLaunchCandidateRepositoryAdapter
     ids: string[];
   }): Promise<SourcingLaunchCandidateRecord[]> {
     if (input.ids.length === 0) return [];
-    const rows = await this.prisma.sourcingLaunchCandidate.findMany({
-      where: {
-        id: { in: input.ids },
-        organizationId: input.organizationId,
-      },
-    });
+    const rows = await readExactLaunchCandidatesByIds(this.prisma, input);
     const byId = new Map(rows.map((row) => [row.id, row]));
     return input.ids.flatMap((id) => {
       const row = byId.get(id);
@@ -152,15 +152,9 @@ export class SourcingLaunchCandidateRepositoryAdapter
     supplierOfferSkuSnapshotIds: string[];
   }): Promise<SourcingLaunchCandidateRecord[]> {
     if (input.supplierOfferSkuSnapshotIds.length === 0) return [];
-    const rows = await this.prisma.sourcingLaunchCandidate.findMany({
-      where: {
-        organizationId: input.organizationId,
-        supplierOfferSkuSnapshotId: {
-          in: Array.from(new Set(input.supplierOfferSkuSnapshotIds)),
-        },
-      },
-      // 같은 오퍼에 버전이 여럿이면 최신이 앞에 오게 둔다.
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    const rows = await readCurrentLaunchCandidates(this.prisma, {
+      organizationId: input.organizationId,
+      supplierOfferSkuSnapshotIds: Array.from(new Set(input.supplierOfferSkuSnapshotIds)),
     });
     return rows.map(toRecord);
   }
@@ -170,16 +164,7 @@ export class SourcingLaunchCandidateRepositoryAdapter
     productConceptVersionKey?: string;
     limit: number;
   }): Promise<SourcingLaunchCandidateRecord[]> {
-    const rows = await this.prisma.sourcingLaunchCandidate.findMany({
-      where: {
-        organizationId: input.organizationId,
-        ...(input.productConceptVersionKey
-          ? { productConceptVersionKey: input.productConceptVersionKey }
-          : {}),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: input.limit,
-    });
+    const rows = await readCurrentLaunchCandidates(this.prisma, input);
     return rows.map(toRecord);
   }
 }

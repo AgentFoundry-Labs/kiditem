@@ -92,6 +92,14 @@ NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
 ### Source Ownership And Manual Action Parity
 
+Core's shared import history exposes last-completed timestamps through
+`core/read/source-import-run.reader.ts`. Dashboard collection badges compose
+this organization-scoped reader; failed or running attempts do not advance a
+completed timestamp. This read-only metadata boundary adds no Nest module or
+mutation authority. Source owners retain publication, current-generation, and
+coverage gates in their own fact readers; a completion timestamp alone does
+not establish measurement coverage.
+
 Each source owner admits an idempotent attempt and freezes its collection
 inputs. The extension sends captured data directly to that owner. Validated
 facts, COMPLETE publication and the matching Alert change commit together;
@@ -298,7 +306,6 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
 | `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
-| `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
 | `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
@@ -310,6 +317,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
+| `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
@@ -318,7 +326,6 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
-| `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
@@ -332,9 +339,7 @@ folders are intentionally absent from this map.
 
 | Path | Structure | Required / Optional Contract |
 |---|---|---|
-| `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
 | `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
-| `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
 | `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, completed-event-history Interface at `application/port/out/history/`, outbound SQLite Adapter at `adapter/out/history/sqlite/`, and owner composition behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
@@ -352,7 +357,6 @@ folders are intentionally absent from this map.
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
-| `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
 | `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. |
 | `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  productAbcDisplayStatus,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
 } from '@kiditem/shared/product-abc';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
@@ -67,11 +68,11 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       advertising,
       prismaService,
     );
-    const abcRepository = new MasterProductAbcRepositoryAdapter(prismaService);
-    const abcRead = new ProductAbcReadService(abcRepository, profitability);
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
+    const abcRepository = new MasterProductAbcRepositoryAdapter(prismaService);
+    const abcRead = new ProductAbcReadService(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
       new CatalogDisplayMediaRepositoryAdapter(prismaService),
     );
@@ -161,7 +162,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     expect(replacedDetail).toMatchObject({
       abc: {
         publicationRevision: 0,
-        sources: { mapping: { status: 'STALE', mappingGeneration: '2' } },
+        sources: { mapping: { valid: true, currentMappingGeneration: '2', evidenceMappingGeneration: null } },
       },
       channelListings: [{ options: [{
         id: fixture.normal.optionId,
@@ -268,11 +269,10 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       },
       abc: {
         abcGrade: 'A',
-        displayStatus: 'READY',
         publicationRevision: 1,
         officialCutoffDate: EXPECTED_CUTOFF,
         actualCutoffDate: EXPECTED_CUTOFF,
-        sources: { mapping: { status: 'READY', mappingGeneration: '2' } },
+        sources: { mapping: { valid: true, currentMappingGeneration: '2', evidenceMappingGeneration: '2' } },
       },
     });
     expect(insufficientDetail).toMatchObject({
@@ -282,30 +282,24 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       abc: {
         abcGrade: null,
         evaluation: null,
-        displayStatus: 'INSUFFICIENT_EVIDENCE',
         publicationRevision: 1,
         officialCutoffDate: EXPECTED_CUTOFF,
         actualCutoffDate: EXPECTED_CUTOFF,
       },
     });
 
+    expect([normalDetail, insufficientDetail].map((detail) => productAbcDisplayStatus(detail.abc)))
+      .toEqual(['READY', 'INSUFFICIENT_EVIDENCE']);
     expect(all).toMatchObject({
       total: 2,
       summary: {
         abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 1 },
-        abcStatusCounts: {
-          READY: 1,
-          INSUFFICIENT_EVIDENCE: 1,
-          SOURCE_UNMAPPED: 0,
-          SELLPIA_SOURCE_STALE: 0,
-          AD_SOURCE_STALE: 0,
-        },
       },
     });
     expect(all.items.map(({ id, abcGrade, abc }) => ({
       id,
       abcGrade,
-      displayStatus: abc.displayStatus,
+      displayStatus: productAbcDisplayStatus(abc),
     }))).toEqual(expect.arrayContaining([
       { id: fixture.normal.productId, abcGrade: 'A', displayStatus: 'READY' },
       {
@@ -326,15 +320,16 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     });
     expect(ready).toMatchObject({
       total: 1,
-      items: [{ id: fixture.normal.productId, abc: { displayStatus: 'READY' } }],
+      items: [{ id: fixture.normal.productId }],
     });
     expect(withheld).toMatchObject({
       total: 1,
-      items: [{
-        id: fixture.insufficient.productId,
-        abc: { displayStatus: 'INSUFFICIENT_EVIDENCE' },
-      }],
+      items: [{ id: fixture.insufficient.productId }],
     });
+    // The calculation-status filter and the shared word agree row by row.
+    expect(ready.items.map(({ abc }) => productAbcDisplayStatus(abc))).toEqual(['READY']);
+    expect(withheld.items.map(({ abc }) => productAbcDisplayStatus(abc)))
+      .toEqual(['INSUFFICIENT_EVIDENCE']);
   });
 
   function listProducts(filter: Record<string, unknown> = {}) {

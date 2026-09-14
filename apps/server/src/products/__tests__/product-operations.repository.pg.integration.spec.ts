@@ -4,7 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
@@ -20,7 +20,13 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { seedAd } from '../../test-helpers/finance-seeds';
+import {
+  seedAd,
+  seedCompletedAdSweepRun,
+  seedCompletedOrderCollection,
+  seedOrderWithLineItems,
+} from '../../test-helpers/finance-seeds';
+import { addDays, businessDateKey, evidenceCutoffDate, kstDayStart } from '../../common/kst';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
@@ -28,6 +34,9 @@ import { ProductChannelOptionRecipeMutationService } from '../application/servic
 import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
+import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
+import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
+import { productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -40,6 +49,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let service: ProductOperationsService;
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
+  let dataStatus: ProductOperationsDataStatusService;
   let inventoryRunByOrganization: Map<string, string>;
 
   beforeAll(async () => {
@@ -49,19 +59,24 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
+      prismaService,
+      new MasterProductProfitabilityReadService(sellpia, advertising, prismaService),
+    );
+    dataStatus = new ProductOperationsDataStatusService(dataStatusRepository);
+    const inventory = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prismaService),
+    );
     service = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      ),
+      inventory,
       {
         findByMasterProductIds: async () => new Map(),
       },
       new CatalogDisplayMediaService(
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
-      new ProductOperationsDataStatusRepositoryAdapter(prismaService,
-        new MasterProductProfitabilityReadService(sellpia, advertising, prismaService)),
+      dataStatusRepository,
       { readContribution: async () => null } as never,
       new ProductChannelOptionRecipeMutationService(
         new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
@@ -117,7 +132,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     expect(created.channelListings).toEqual([]);
-    expect(created.inventoryStatus).toBe('configuration_required');
+    expect(created.inventory).toEqual({
+      skuCount: 0,
+      measuredSkuCount: 0,
+      inactiveSkuCount: 0,
+    });
     expect(created.displayReference).toEqual({
       type: 'product_code',
       label: '상품 코드',
@@ -132,6 +151,56 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(await prisma.masterProduct.count({
       where: { organizationId: TEST_ORGANIZATION_ID, code: 'KI-001' },
     })).toBe(1);
+  });
+
+  it('keeps an identity outside the published inventory run uncollected in Product Hub reads', async () => {
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'UNPUBLISHED-STOCK',
+        name: 'Unpublished stock',
+      },
+    });
+    await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: product.id,
+        code: 'UNPUBLISHED-STOCK-SKU',
+        name: 'Unpublished stock SKU',
+        currentStock: 0,
+        isActive: true,
+        lastImportRunId: null,
+      },
+    });
+
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+
+    expect(detail).toMatchObject({
+      inventoryUnits: null,
+      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    });
+    expect(detail).not.toHaveProperty('inventoryStatus');
+
+    const soldOut = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'MEASURED-ZERO',
+      name: 'Measured zero',
+    });
+    await inventorySku('MEASURED-ZERO-SKU', 0, true, TEST_ORGANIZATION_ID, soldOut.id);
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+      adStatus: 'all',
+      inventoryStatus: 'out_of_stock',
+    });
+    expect(page.items.map(({ id }) => id)).toEqual([soldOut.id]);
+    expect(page.summary.inventoryStatusCounts.out_of_stock).toBe(1);
+    expect(page.summary.inventoryStatusCounts.uncollected).toBe(0);
+    expect(page.items[0]).toMatchObject({
+      inventoryUnits: 0,
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+    });
   });
 
   it('displays the origin channel product number without replacing the internal CP code', async () => {
@@ -340,6 +409,18 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       { masterProductId: second.id, abcGrade: 'A' },
       { masterProductId: third.id, abcGrade: 'B' },
     ]);
+    await Promise.all([
+      prisma.masterProduct.update({ where: { id: first.id }, data: { abcGrade: 'C' } }),
+      prisma.masterProduct.update({ where: { id: second.id }, data: { abcGrade: null } }),
+      prisma.masterProduct.update({ where: { id: third.id }, data: { abcGrade: 'A' } }),
+    ]);
+    // A later publication may carry an older official evaluation forward when
+    // that product has insufficient new facts. Grade filtering follows the
+    // retained owner row, not the retired cache or an exact revision match.
+    await prisma.masterProductAbcFormulaState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { publicationRevision: 2, publishedAt: new Date('2026-09-02T00:00:00.000Z') },
+    });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -354,10 +435,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(page.summary.channelProductCounts).toEqual([]);
     expect(page.summary.inventoryStatusCounts).toEqual({
       sellable: 0,
-      partial_out_of_stock: 0,
       out_of_stock: 0,
       configuration_required: 4,
       review_required: 0,
+      uncollected: 0,
     });
     expect(page.summary.negativeProfitCount).toBe(0);
 
@@ -370,6 +451,85 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     expect(unclassifiedPage.total).toBe(1);
     expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
+
+    const aGradePage = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      abcGrade: 'A',
+      activeStatus: 'all',
+    });
+    expect(aGradePage.items.map((item) => ({ id: item.id, grade: item.abcGrade })))
+      .toEqual(expect.arrayContaining([
+        { id: first.id, grade: 'A' },
+        { id: second.id, grade: 'A' },
+      ]));
+    expect(aGradePage.items.every((item) => item.abc.abcGrade === 'A')).toBe(true);
+    expect(aGradePage.items.every((item) =>
+      item.abc.evaluation?.publicationRevision === 1
+      && item.abc.publicationRevision === 2)).toBe(true);
+  });
+
+  it('reads one coherent official ABC publication while a replacement is published', async () => {
+    const product = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'ABC-PUBLICATION-RACE',
+      name: 'Publication race',
+    });
+    await seedOfficialAbcEvaluations(prisma, [
+      { masterProductId: product.id, abcGrade: 'A' },
+    ]);
+
+    let replacementPublished = false;
+    const extendedPrisma = prisma.$extends({
+      query: {
+        masterProductAbcFormulaState: {
+          async findUnique({ args, query }) {
+            const retainedState = await query(args);
+            if (replacementPublished) return retainedState;
+            replacementPublished = true;
+            await prisma.$transaction(async (tx) => {
+              await tx.masterProductAbcFormulaState.update({
+                where: { organizationId: TEST_ORGANIZATION_ID },
+                data: {
+                  publicationRevision: 2,
+                  publishedAt: new Date('2026-09-02T00:00:00.000Z'),
+                },
+              });
+              await tx.masterProductAbcEvaluation.updateMany({
+                where: {
+                  organizationId: TEST_ORGANIZATION_ID,
+                  masterProductId: product.id,
+                },
+                data: { abcGrade: 'C', publicationRevision: 2 },
+              });
+            });
+            return retainedState;
+          },
+        },
+      },
+    });
+    const originalEvidence = new MasterProductProfitabilityReadService(
+      sellpia,
+      advertising,
+      prisma as unknown as PrismaService,
+    );
+    const adapter = new ProductOperationsDataStatusRepositoryAdapter(
+      extendedPrisma as unknown as PrismaService,
+      originalEvidence,
+    );
+
+    const result = await adapter.read(TEST_ORGANIZATION_ID, 30);
+    const official = result.products.find(({ masterProductId }) =>
+      masterProductId === product.id);
+
+    expect(replacementPublished).toBe(true);
+    expect([
+      { grade: 'A', publicationRevision: 1 },
+      { grade: 'C', publicationRevision: 2 },
+    ]).toContainEqual({
+      grade: official?.abcGrade ?? null,
+      publicationRevision: official?.evaluation?.publicationRevision ?? null,
+    });
   });
 
   it('derives ABC display statuses from current source snapshots and keeps status, grade, and organization filters distinct', async () => {
@@ -403,26 +563,22 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.items.find((item) => item.id === observing.id)?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
     expect(all.items.find((item) => item.id === ready.id)?.abc).toMatchObject({
       abcGrade: 'B',
-      displayStatus: 'READY',
     });
     expect(all.items.find((item) => item.id === unpublished.id)?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
+    const displayStatusOf = (id: string) => {
+      const abc = all.items.find((item) => item.id === id)?.abc;
+      return abc ? productAbcDisplayStatus(abc) : null;
+    };
+    expect([observing.id, ready.id, unpublished.id].map(displayStatusOf))
+      .toEqual(['INSUFFICIENT_EVIDENCE', 'READY', 'INSUFFICIENT_EVIDENCE']);
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 2 },
-      abcStatusCounts: {
-        READY: 1,
-        INSUFFICIENT_EVIDENCE: 2,
-        SOURCE_UNMAPPED: 0,
-        SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
-      },
     });
 
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
@@ -478,7 +634,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail.inventoryUnits).toBe(7);
-    expect(detail.inventoryStatus).toBe('sellable');
+    expect(detail.inventory).toEqual({ skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 });
     expect(detail.channelListings[0]!.options.map((option) => option.capacity).sort()).toEqual([3, 7]);
     const single = detail.channelListings[0]!.options.find(({ id }) => id === options[0]!.id);
     expect(single?.inventoryComponents).toMatchObject([{
@@ -629,7 +785,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     expect(detail).toMatchObject({
       inventoryUnits: 100,
-      inventoryStatus: 'sellable',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
       channelListings: [{ options: [{
         capacity: 50,
         inventoryComponents: [{
@@ -696,7 +852,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     const afterInactivation = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
     expect(afterInactivation).toMatchObject({
-      inventoryStatus: 'review_required',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 1 },
       channelListings: [{ options: [{
         capacity: null,
         inventoryComponents: [{ sellpiaInventorySkuId: active.id, isActive: false }],
@@ -776,7 +932,281 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       .toMatchObject({ masterProductId: first.id });
   });
 
-  it('keeps product metrics null without facts and aggregates linked listing facts when present', async () => {
+  it('uses completed Orders coverage for product sales in the selected closed KST window', async () => {
+    const { product, options } = await linkedProductWithOptions('ORDERS-WINDOW', 1);
+    const cutoff = evidenceCutoffDate();
+    const start = addDays(cutoff, -6);
+    const order = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'CLOSED-KST-START',
+      orderedAt: kstDayStart(start).toISOString(),
+      lineItems: [{
+        quantity: 2,
+        totalPrice: 7000,
+        optionId: 'option',
+        listingOptionId: options[0]!.id,
+      }],
+    });
+    const outside = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'CURRENT-KST-DAY',
+      orderedAt: kstDayStart(addDays(cutoff, 1)).toISOString(),
+      lineItems: [{
+        quantity: 9,
+        totalPrice: 99000,
+        optionId: 'option',
+        listingOptionId: options[0]!.id,
+      }],
+    });
+    const run = await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: businessDateKey(start),
+      endDate: businessDateKey(cutoff),
+      orderIds: [order, outside],
+    });
+    const query = {
+      page: 1,
+      limit: 50,
+      periodDays: 7 as const,
+      activeStatus: 'all' as const,
+      adStatus: 'all' as const,
+    };
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, query);
+    expect(page.items.find(({ id }) => id === product.id)).toMatchObject({
+      orderCount: 1,
+      salesQuantity: 2,
+      salesAmount: 7000,
+      metricsFreshness: {
+        orders: {
+          ready: true,
+          coverageStartDate: businessDateKey(start),
+          coverageEndDate: businessDateKey(cutoff),
+        },
+      },
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: run },
+      data: { coverageStartDate: addDays(start, 1) },
+    });
+    const partial = await service.listProducts(TEST_ORGANIZATION_ID, query);
+    expect(partial.items.find(({ id }) => id === product.id)).toMatchObject({
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      metricsFreshness: { orders: { ready: false } },
+    });
+  });
+
+  it('filters advertising by measured spend instead of editable ad-tier text', async () => {
+    const spent = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'ADS-SPENT',
+      name: 'Measured advertising',
+    });
+    const zero = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'ADS-ZERO',
+      name: 'Measured no advertising',
+      adTier: 'active',
+    });
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Measured ads',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: spent.id,
+        externalId: 'ADS-SPENT-LISTING',
+      },
+    });
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: zero.id,
+        externalId: 'ADS-ZERO-LISTING',
+      },
+    });
+    const cutoff = evidenceCutoffDate();
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: account.id,
+      generation: 1,
+      window: {
+        startDate: businessDateKey(addDays(cutoff, -6)),
+        endDate: businessDateKey(cutoff),
+      },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: businessDateKey(cutoff),
+      spend: 5_000,
+      runId,
+    });
+    const query = { activeStatus: 'all', periodDays: 7 };
+    const active = await service.listProducts(TEST_ORGANIZATION_ID, {
+      ...query,
+      adStatus: 'active',
+    });
+    const inactive = await service.listProducts(TEST_ORGANIZATION_ID, {
+      ...query,
+      adStatus: 'inactive',
+    });
+
+    expect(active.items.map(({ id, adSpend }) => ({ id, adSpend })))
+      .toEqual([{ id: spent.id, adSpend: 5_000 }]);
+    expect(inactive.items.map(({ id, adSpend }) => ({ id, adSpend })))
+      .toEqual([{ id: zero.id, adSpend: 0 }]);
+    expect(active.total).toBe(1);
+    expect(inactive.total).toBe(1);
+  });
+
+  it('ends the advertising window at the evidence cutoff while the sweep holds yesterday as unreported', async () => {
+    const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1);
+    // The newest complete sweep requested 2026-09-06 and held it back.
+    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: listing.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
+      requestedEndDate: '2026-09-06',
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: '2026-09-05',
+      spend: 5_000,
+      runId: heldSweep,
+    });
+    const query = { activeStatus: 'all', periodDays: 7 } as const;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: yesterday is 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
+        adSpend: 5_000,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
+        },
+      });
+
+      // A later sweep that saw yesterday's spend confirms it.
+      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        generation: 2,
+        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
+      });
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        date: '2026-09-06',
+        spend: 7_000,
+        runId: reportedSweep,
+      });
+      const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
+        adSpend: 7_000,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('withholds the ad spend rate while the ad window and the sales window end on different days', async () => {
+    const { product, listing, options } = await linkedProductWithOptions('ADS-RATE', 1);
+    const order = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'ADS-RATE-ORDER',
+      orderedAt: '2026-09-03T03:00:00.000Z',
+      lineItems: [{
+        quantity: 1,
+        totalPrice: 20_000,
+        optionId: 'option',
+        listingOptionId: options[0]!.id,
+      }],
+    });
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-08-31',
+      endDate: '2026-09-06',
+      orderIds: [order],
+    });
+    // The sweep held yesterday (2026-09-06), so ads close a day before sales.
+    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: listing.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
+      requestedEndDate: '2026-09-06',
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: '2026-09-03',
+      spend: 2_000,
+      runId: heldSweep,
+    });
+    const query = {
+      page: 1,
+      limit: 50,
+      periodDays: 7 as const,
+      activeStatus: 'all' as const,
+      adStatus: 'all' as const,
+    };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-07 12:00 KST: both amounts are measured, but over different dates.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
+        salesAmount: 20_000,
+        adSpend: 2_000,
+        adSpendRate: null,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
+          orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+
+      // A later sweep confirms yesterday, so both windows cover the same dates.
+      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        generation: 2,
+        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
+      });
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        date: '2026-09-03',
+        spend: 2_000,
+        runId: reportedSweep,
+      });
+      const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
+      expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
+        salesAmount: 20_000,
+        adSpend: 2_000,
+        adSpendRate: 10,
+        metricsFreshness: {
+          advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+          orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('requires full declared traffic coverage and keeps sales separate from Wing traffic', async () => {
     const withoutFacts = await service.createProduct(
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
@@ -805,12 +1235,25 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       },
     });
     const now = new Date();
-    const businessDate = now.toISOString().slice(0, 10);
+    const businessDate = productAbcEvidenceCutoff(now);
     const businessDateAtUtc = new Date(`${businessDate}T00:00:00.000Z`);
     const legacyBusinessDateAtUtc = new Date(businessDateAtUtc);
     legacyBusinessDateAtUtc.setUTCDate(legacyBusinessDateAtUtc.getUTCDate() - 1);
     const legacyBusinessDate = legacyBusinessDateAtUtc.toISOString().slice(0, 10);
     const sourceAttemptId = randomUUID();
+    await prisma.sourceImportRun.create({
+      data: {
+        id: sourceAttemptId,
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: false,
+        qualityReport: { confirmedDates: [businessDate] },
+        importedAt: now,
+      },
+    });
     await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -883,15 +1326,575 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       channelCount: 1,
       traffic: null,
       visitorCount: null,
-      viewCount: 20,
-      cartAddCount: 2,
-      orderCount: 3,
-      salesQuantity: 4,
-      salesAmount: 40_000,
-      adSpend: 5_000,
+      viewCount: null,
+      cartAddCount: null,
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      adSpend: null,
+      metricsFreshness: { traffic: { ready: false } },
       abcEvaluation: null,
     });
     expect(page.summary.negativeProfitCount).toBe(0);
+
+    const dates = Array.from(
+      { length: 7 },
+      (_, index) => businessDateKey(addDays(businessDateAtUtc, -index)),
+    );
+    await prisma.sourceImportRun.update({
+      where: { id: sourceAttemptId },
+      data: {
+        qualityReport: {
+          confirmedDates: dates,
+          providerBackedEmptyDates: dates.filter((date) => date !== businessDate),
+        },
+      },
+    });
+    const measured = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+    });
+    expect(measured.items.find(({ id }) => id === withoutFacts.id)).toMatchObject({
+      visitorCount: null,
+      viewCount: null,
+      cartAddCount: null,
+    });
+    expect(measured.items.find(({ id }) => id === withFacts.id)).toMatchObject({
+      visitorCount: null,
+      viewCount: 20,
+      cartAddCount: 2,
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      metricsFreshness: { traffic: { ready: true }, orders: { ready: false } },
+    });
+  });
+
+  it('withholds product traffic totals when the selected window has missing owner coverage', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-PARTIAL-WINDOW', name: 'Partial traffic window' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Partial traffic window Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-PARTIAL-WINDOW',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const periodStartDate = new Date(`${cutoff}T00:00:00.000Z`);
+    periodStartDate.setUTCDate(periodStartDate.getUTCDate() - 6);
+    const periodStart = periodStartDate.toISOString().slice(0, 10);
+    const observedAt = new Date(`${cutoff}T02:00:00.000Z`);
+    const attempt = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: false,
+        qualityReport: { confirmedDates: [cutoff] },
+        importedAt: observedAt,
+      },
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date(`${cutoff}T00:00:00.000Z`),
+        trafficViews: 20,
+        trafficCartAdds: 2,
+        trafficOrders: 3,
+        trafficSalesQty: 4,
+        trafficRevenue: 40_000,
+        trafficObservedAt: observedAt,
+        lastObservedAt: observedAt,
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { sourceAttemptId: attempt.id },
+        },
+      },
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+    });
+
+    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+      viewCount: null,
+      cartAddCount: null,
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      metricsFreshness: {
+        traffic: {
+          ready: false,
+          coverageStartDate: periodStart,
+          coverageEndDate: cutoff,
+          capturedAt: observedAt,
+        },
+      },
+    });
+  });
+
+  it('publishes provider-backed empty product traffic as measured zero', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-EMPTY-WINDOW', name: 'Empty traffic window' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Empty traffic window Wing',
+      },
+    });
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-EMPTY-WINDOW',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const cutoffDate = new Date(`${cutoff}T00:00:00.000Z`);
+    const confirmedDates = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(cutoffDate);
+      date.setUTCDate(date.getUTCDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    const capturedAt = new Date(`${cutoff}T02:00:00.000Z`);
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: true,
+        qualityReport: { confirmedDates },
+        importedAt: capturedAt,
+      },
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+    });
+
+    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+      visitorCount: null,
+      viewCount: 0,
+      cartAddCount: 0,
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      metricsFreshness: {
+        traffic: {
+          ready: true,
+          coverageStartDate: confirmedDates[0],
+          coverageEndDate: cutoff,
+          capturedAt,
+        },
+        orders: { ready: false },
+      },
+    });
+  });
+
+  it('keeps a missing traffic date distinct from measured zero in the public data status', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-STATUS', name: 'Traffic status' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Traffic status Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-STATUS-1',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const dates = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(`${cutoff}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    const missingDate = dates[3]!;
+    await prisma.channelListingDailySnapshot.createMany({
+      data: dates.filter((date) => date !== missingDate).map((date) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficVisitors: 0,
+        trafficViews: 0,
+        trafficCartAdds: 0,
+        trafficOrders: 0,
+        trafficSalesQty: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
+        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      })),
+    });
+
+    const result = await dataStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+
+    expect(result.sources.traffic).toMatchObject({
+      ready: false,
+      actualCutoff: cutoff,
+    });
+  });
+
+  it('does not let one observed listing complete the filtered product population', async () => {
+    const observedProduct = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-PARTIAL-1', name: 'Observed traffic product' },
+    );
+    const missingProduct = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-PARTIAL-2', name: 'Missing traffic product' },
+    );
+    const accounts = await Promise.all(['OBSERVED', 'MISSING'].map((suffix) =>
+      prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: `Partial traffic Wing ${suffix}`,
+        },
+      })));
+    const observedListing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accounts[0]!.id,
+        masterProductId: observedProduct.id,
+        externalId: 'TRAFFIC-PARTIAL-OBSERVED',
+      },
+    });
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accounts[1]!.id,
+        masterProductId: missingProduct.id,
+        externalId: 'TRAFFIC-PARTIAL-MISSING',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const dates = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(`${cutoff}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    await prisma.channelListingDailySnapshot.createMany({
+      data: dates.map((date) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: observedListing.id,
+        channel: 'coupang',
+        externalId: observedListing.externalId,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficVisitors: 0,
+        trafficViews: 0,
+        trafficCartAdds: 0,
+        trafficOrders: 0,
+        trafficSalesQty: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
+        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      })),
+    });
+
+    const result = await dataStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+
+    expect(result.sources.traffic).toEqual({
+      ready: false,
+      requiredCutoff: cutoff,
+      actualCutoff: null,
+      latestAttempt: null,
+      latestComplete: null,
+    });
+  });
+
+  it('publishes completed provider-backed empty traffic as measured zero in public data status', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-EMPTY', name: 'Empty traffic status' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Empty traffic Wing',
+      },
+    });
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-EMPTY-1',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const confirmedDates = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(`${cutoff}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    const importedAt = new Date(`${cutoff}T06:00:00.000Z`);
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: true,
+        qualityReport: { confirmedDates },
+        importedAt,
+      },
+    });
+
+    // Hold the independent profitability port's cutoff fixed; Orders and
+    // traffic still cross their real PostgreSQL reader boundaries below.
+    const profitability = new MasterProductProfitabilityReadService(
+      sellpia, advertising, prisma as PrismaService,
+    );
+    const selectedStatus = new ProductOperationsDataStatusService(
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
+        load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
+      }),
+    );
+    const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+
+    expect(result.sources.traffic).toEqual({
+      ready: true,
+      requiredCutoff: cutoff,
+      actualCutoff: cutoff,
+      latestAttempt: null,
+      latestComplete: { actualCutoff: cutoff, capturedAt: importedAt.toISOString() },
+    });
+    expect(result.sources.orders).toEqual({
+      ready: false,
+      requiredCutoff: cutoff,
+      actualCutoff: null,
+      latestAttempt: null,
+      latestComplete: null,
+    });
+    expect(result.displayDataAsOf).toBeNull();
+
+    const orderRunId = await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: confirmedDates[0]!,
+      endDate: cutoff,
+      orderIds: [],
+    });
+    const completed = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+    expect(completed.sources.orders).toMatchObject({
+      ready: true,
+      requiredCutoff: cutoff,
+      actualCutoff: cutoff,
+      latestComplete: { actualCutoff: cutoff },
+    });
+    expect(completed.displayDataAsOf).toBe(cutoff);
+
+    await prisma.sourceImportRun.update({
+      where: { id: orderRunId, organizationId: TEST_ORGANIZATION_ID },
+      data: { coverageStartDate: new Date(`${confirmedDates[1]}T00:00:00.000Z`) },
+    });
+    const partial = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+    expect(partial.sources.orders).toMatchObject({ ready: false, latestComplete: null });
+    expect(partial.displayDataAsOf).toBeNull();
+  });
+
+  it('keeps Product readiness when one confirmed date is explicitly empty', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-MIXED', name: 'Mixed traffic status' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Mixed traffic Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-MIXED-1',
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const confirmedDates = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(`${cutoff}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    const emptyDate = confirmedDates[0]!;
+    const importedAt = new Date(`${cutoff}T06:00:00.000Z`);
+    const attempt = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: false,
+        qualityReport: {
+          confirmedDates,
+          providerBackedEmptyDates: [emptyDate],
+        },
+        importedAt,
+      },
+    });
+    await prisma.channelListingDailySnapshot.createMany({
+      data: confirmedDates.slice(1).map((date) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficVisitors: 0,
+        trafficViews: 0,
+        trafficCartAdds: 0,
+        trafficOrders: 0,
+        trafficSalesQty: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { sourceAttemptId: attempt.id },
+        },
+      })),
+    });
+
+    const result = await dataStatus.getStatus(TEST_ORGANIZATION_ID, 7);
+
+    expect(result.sources.traffic).toEqual({
+      ready: true,
+      requiredCutoff: cutoff,
+      actualCutoff: cutoff,
+      latestComplete: {
+        actualCutoff: cutoff,
+        capturedAt: importedAt.toISOString(),
+      },
+      latestAttempt: null,
+    });
+  });
+
+  it('filters selling products from sale-status evidence even when traffic is unobserved', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-SALE-STATUS', name: 'Sale status' },
+    );
+    const sku = await inventorySku(
+      'SP-SALE-STATUS',
+      5,
+      true,
+      TEST_ORGANIZATION_ID,
+      product.id,
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Sale status Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'SALE-STATUS-1',
+      },
+    });
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'SALE-STATUS-OPTION-1',
+        status: '판매중',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        sellpiaInventorySkuId: sku.id,
+        quantity: 1,
+      },
+    });
+    const status = await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date('2026-09-01T00:00:00.000Z'),
+        saleStatus: '판매중',
+        trafficObservedAt: null,
+      },
+    });
+
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'active',
+    })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: product.id })],
+      total: 1,
+    });
+
+    await prisma.channelListingDailySnapshot.update({
+      where: { id: status.id },
+      data: { saleStatus: '판매중지' },
+    });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'active',
+    })).resolves.toMatchObject({ items: [], total: 0 });
   });
 
   async function linkedProductWithOptions(code: string, optionCount: number) {
@@ -1027,17 +2030,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           calculatedAt,
         })),
       });
-      for (const grade of ['A', 'B', 'C'] as const) {
-        const ids = evaluations
-          .filter((evaluation) => evaluation.abcGrade === grade)
-          .map((evaluation) => evaluation.masterProductId);
-        if (ids.length > 0) {
-          await tx.masterProduct.updateMany({
-            where: { organizationId: TEST_ORGANIZATION_ID, id: { in: ids } },
-            data: { abcGrade: grade },
-          });
-        }
-      }
     });
     return { formulaVersion, sellpiaSource, advertisingSource };
   }

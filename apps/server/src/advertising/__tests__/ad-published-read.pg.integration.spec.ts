@@ -79,6 +79,13 @@ describe('published Advertising snapshots through campaign and action readers', 
         status: options.status ?? 'completed',
         importedAt: new Date(options.completedAt ?? at(20)),
         freshnessGeneration: BigInt(options.generation ?? ++generation),
+        // A completed campaign sweep declares the window it swept.
+        ...(!options.full && (options.status ?? 'completed') === 'completed'
+          ? {
+              coverageStartDate: new Date(`${businessDates[30]}T00:00:00.000Z`),
+              coverageEndDate: new Date(`${day}T00:00:00.000Z`),
+            }
+          : {}),
         plan: {
           ...(options.full ? {} : { captureMode: 'campaign_sweep' }),
           businessDates,
@@ -195,13 +202,36 @@ describe('published Advertising snapshots through campaign and action readers', 
       channelAccountId: secondAccount.id,
     });
     await fact(second, '1', 7);
-    expect(await keywordSpends()).toEqual([7, 60]);
-    const target = (await actions.findLatestTargetRows(ORG)).find((row) => row.spend === 60)!;
+    expect(await keywordSpends()).toEqual([7, 40]);
+    const target = (await actions.findLatestTargetRows(ORG)).find((row) => row.spend === 40)!;
     expect(target).toMatchObject({
       id: selected.id,
       productName: 'Unmatched toy',
       listingId: null,
     });
+    expect(
+      (await campaigns.findKeywordTargetRollups(ORG, '14d'))[0],
+    ).toMatchObject({ businessDate: new Date(day), windowDays: 7 });
+  });
+
+  it('rejects keyword evidence whose declared observation window is not seven days', async () => {
+    const full = await source([{ adGroupId: '1', capturedAt: at(2) }], {
+      full: true,
+    });
+    const row = await fact(full, '1', 10);
+    await db.channelAdTargetDailySnapshot.update({
+      where: { id: row.id },
+      data: {
+        metaJson: {
+          source: 'advertising.keyword.target',
+          data: { windowDays: 14 },
+        },
+      },
+    });
+
+    await expect(campaigns.findKeywordTargetRollups(ORG, '7d')).rejects.toThrow(
+      'AD_KEYWORD_WINDOW_MISMATCH',
+    );
   });
 
   it('publishes auxiliary proven-empty only for its group, then a newer full empty roster clears the account', async () => {
@@ -237,7 +267,7 @@ describe('published Advertising snapshots through campaign and action readers', 
       completedAt: at(10),
     });
     await fact(full, '2', 20);
-    expect(await keywordSpends()).toEqual([60]);
+    expect(await keywordSpends()).toEqual([20]);
     const newer = await source([{ adGroupId: '1', capturedAt: at(11) }], {
       full: true,
       rosterAt: at(10),
@@ -246,7 +276,7 @@ describe('published Advertising snapshots through campaign and action readers', 
     expect(await keywordSpends()).toEqual([11]);
   });
 
-  it('does not resurrect an older in-period row when the selected observation is out of period', async () => {
+  it('returns the selected observation with its explicit window instead of substituting an older requested-period row', async () => {
     const old = await source([{ adGroupId: '1', capturedAt: at(2) }], {
       full: true,
     });
@@ -254,7 +284,13 @@ describe('published Advertising snapshots through campaign and action readers', 
     const past = new Date(new Date(day).getTime() - 20 * 86400000).toISOString().slice(0, 10);
     const newer = await source([{ adGroupId: '1', capturedAt: at(3), businessDate: past }]);
     await fact(newer, '1', 20, { businessDate: past });
-    expect(await campaigns.findKeywordTargetRollups(ORG, '7d')).toEqual([]);
+    expect(await campaigns.findKeywordTargetRollups(ORG, '7d')).toEqual([
+      expect.objectContaining({
+        businessDate: new Date(past),
+        spend: 20,
+        windowDays: 7,
+      }),
+    ]);
     expect((await actions.findLatestTargetRows(ORG)).map((row) => row.spend)).toEqual([20]);
   });
 
@@ -325,9 +361,11 @@ describe('published Advertising snapshots through campaign and action readers', 
         async $queryRaw({ args, query }) {
           const result = await query(args);
           const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
-          if (sql.includes('WITH scoped AS')) {
+          if (sql.includes('channel_ad_target_daily_snapshots')) {
             await db.sourceImportRun.update({ where: { id: newer.id }, data: {
               status: 'completed',
+              coverageStartDate: new Date(new Date(day).getTime() - 30 * 86_400_000),
+              coverageEndDate: new Date(day),
               qualityReport: { keywordCoverage: [], campaignDescriptors: [{
                 campaignId: '1', campaignIdentity: 'campaign:1', campaignName: 'New campaign name',
                 status: '중지', onOff: 'OFF', mode: 'daily',
@@ -340,7 +378,7 @@ describe('published Advertising snapshots through campaign and action readers', 
     });
     const service = new AdCampaignsService(
       new AdCampaignRepositoryAdapter(observing as never),
-      new AdListingRepositoryAdapter(db as never), {} as never, actions, {} as never,
+      new AdListingRepositoryAdapter(db as never), actions, {} as never,
     );
     expect(await service.getCampaigns('7d', ORG)).toMatchObject([{
       campaignName: 'Campaign', onOff: 'ON', metrics: { spend: 10 },

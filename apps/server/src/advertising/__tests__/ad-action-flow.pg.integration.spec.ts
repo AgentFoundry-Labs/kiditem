@@ -12,6 +12,7 @@ import {
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
+import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -24,7 +25,6 @@ describe('AdAction flow (PG integration)', () => {
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
-    commissionRate?: number | null;
     externalIdSuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -62,9 +62,15 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        abcGrade: params.abcGrade ?? null,
+        abcGrade: null,
       },
     });
+    if (params.abcGrade === 'A' || params.abcGrade === 'B' || params.abcGrade === 'C') {
+      await seedPublishedProductAbcGrades(prisma, {
+        organizationId: params.organizationId,
+        grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
+      });
+    }
     const matched = params.sellableStock != null;
     const inventorySku = matched
       ? await prisma.sellpiaInventorySku.create({
@@ -93,8 +99,6 @@ describe('AdAction flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
-        costPriceOverride: params.costPrice ?? null,
-        commissionRate: params.commissionRate ?? null,
         lastImportRunId: importRun.id,
         isActive: true,
       },
@@ -143,6 +147,8 @@ describe('AdAction flow (PG integration)', () => {
      * `recomputeRoas(revenue, spend)` returns this value (matches the old
      * provider-ratio expectation in tests). */
     roas?: number;
+    /** Whether the keyword table carried conversion columns; ingest stamps it. */
+    conversionsObserved?: boolean;
   }) {
     // Today's KST business date (same `@db.Date` shape ingestion writes).
     const today = new Date();
@@ -185,6 +191,10 @@ describe('AdAction flow (PG integration)', () => {
           params.pageType === 'keyword' ? 'ad-keyword-v1' : 'ad-campaign-v1',
         status: 'completed',
         importedAt: new Date(),
+        // A completed campaign sweep declares the day it swept.
+        ...(params.pageType === 'keyword'
+          ? {}
+          : { coverageStartDate: today, coverageEndDate: today }),
         plan:
           params.pageType === 'keyword'
             ? { captureMode: 'keyword' }
@@ -236,6 +246,27 @@ describe('AdAction flow (PG integration)', () => {
         status: params.status ?? null,
         currentBid: params.currentBid ?? null,
         dailyBudget: params.dailyBudget ?? null,
+        metaJson: params.pageType === 'keyword'
+          ? {
+              source: 'advertising.keyword.target',
+              data: {
+                origin: 'registered',
+                windowDays: 7,
+                adId: null,
+                productName: null,
+                keywordType: null,
+                bidSource: null,
+                observedMetrics: {
+                  spend: true,
+                  revenue: true,
+                  impressions: true,
+                  clicks: true,
+                  conversions: params.conversionsObserved ?? true,
+                  orders: params.conversionsObserved ?? true,
+                },
+              },
+            }
+          : undefined,
         impressions: params.impressions ?? 0,
         clicks: params.clicks ?? 0,
         conversions: params.conversions ?? 0,
@@ -380,6 +411,32 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.actionType).toBe('pause_keyword');
       expect(action.targetType).toBe('keyword');
       expect(action.priority).toBe('urgent');
+    });
+
+    it('#3b Rule 2: an unobserved keyword conversion column raises no zero-conversion pause', async () => {
+      const { listing, option, listingOption } = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        listingOptionId: listingOption.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-UNOBSERVED',
+        keyword: 'unobserved keyword',
+        spend: 6000,
+        conversions: 0,
+        conversionsObserved: false,
+      });
+
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
+
+      expect(result.generated).toBe(0);
+      await expect(
+        prisma.adAction.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      ).resolves.toBe(0);
     });
 
     it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {

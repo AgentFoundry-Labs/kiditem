@@ -9,6 +9,7 @@ import {
   type InventoryAvailabilityPort,
 } from '../../inventory/application/port/in/stock/inventory-availability.port';
 import { PrismaService } from '../../prisma/prisma.service';
+import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
@@ -37,22 +38,29 @@ export class SellpiaProductInventoryReader {
     organizationId: string,
     products: readonly SellpiaProductInventoryProjectionInput[],
   ) {
-    const candidates = await this.prisma.sellpiaInventorySku.findMany({
-      where: { organizationId },
-      select: {
-        id: true,
-        code: true,
-        barcode: true,
-        isActive: true,
-        masterProduct: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            createdAt: true,
-          },
-        },
-      },
+    const candidates = await this.prisma.$transaction(async (tx) => {
+      const identities = await readInventorySkuIdentities(tx, {
+        organizationId,
+        selector: { kind: 'all' },
+      });
+      const masterProductIds = [...new Set(identities.flatMap((identity) =>
+        identity.masterProductId ? [identity.masterProductId] : []))];
+      const masterProducts = masterProductIds.length > 0
+        ? await tx.masterProduct.findMany({
+          where: { organizationId, id: { in: masterProductIds } },
+          select: { id: true, code: true, name: true, createdAt: true },
+        })
+        : [];
+      const masterById = new Map(masterProducts.map((product) => [product.id, product]));
+      return identities.map((identity) => ({
+        id: identity.sellpiaInventorySkuId,
+        code: identity.code,
+        barcode: identity.barcode,
+        isActive: identity.isActive,
+        masterProduct: identity.masterProductId
+          ? masterById.get(identity.masterProductId) ?? null
+          : null,
+      }));
     });
     // ABC belongs to Products: this read names the inventory products it
     // resolved and displays the status Products published for them, rather

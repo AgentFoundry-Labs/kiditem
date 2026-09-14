@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
 import SalesOverview from '../components/SalesOverview';
 
@@ -47,6 +48,18 @@ function mockSalesQuery(response: unknown) {
   });
 }
 
+const aprilBasis = (days: number, sources: string[]) => buildPeriodBasis({
+  from: '2026-04-01',
+  to: '2026-04-30',
+  includedDates: Array.from({ length: days }, (_, index) => `2026-04-${String(index + 1).padStart(2, '0')}`),
+  sources,
+});
+const completeBasis = {
+  revenue: aprilBasis(30, ['orders']),
+  adCost: aprilBasis(30, ['coupang_ads']),
+  profit: aprilBasis(30, ['orders', 'coupang_ads']),
+};
+
 describe('<SalesOverview> 3-state (Plan D.3)', () => {
   beforeEach(() => {
     vi.spyOn(apiClient, 'getParsed').mockReset();
@@ -88,7 +101,8 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
     mockSalesQuery({
       period: '2026-04',
       channels: [],
-      totals: { totalRevenue: 0, totalProfit: 0, totalOrders: 0, totalCost: 0, orphanReturnCount: 0 },
+      totals: { totalRevenue: 0, totalProfit: 0, totalOrders: 0, totalCost: 0, profitRate: null, orphanReturnCount: 0 },
+      basis: completeBasis,
     });
     renderWithProvider();
     await waitFor(() => {
@@ -132,6 +146,7 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
           totalRevenue: 100000,
           totalCost: 50000,
           totalProfit: 50000,
+          profitRate: 50,
           returnCount: 1,
           returnRate: 0.1,
           avgOrderValue: 10000,
@@ -143,6 +158,7 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
           totalRevenue: 40000,
           totalCost: 25000,
           totalProfit: 15000,
+          profitRate: 37.5,
           returnCount: 0,
           returnRate: 0,
           avgOrderValue: 8000,
@@ -153,17 +169,90 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
         totalProfit: 65000,
         totalOrders: 15,
         totalCost: 75000,
+        profitRate: 46.4,
         orphanReturnCount: 3,
       },
+      basis: completeBasis,
     });
     renderWithProvider();
     await waitFor(() => {
       expect(screen.getByText(/coupang/)).toBeTruthy();
     });
     expect(screen.getByText(/naver/)).toBeTruthy();
-    // orphan badge visible (count > 0)
+    expect(screen.getByText('50.0%')).toBeTruthy();
     expect(screen.getByText(/주문 연결 없는 반품/)).toBeTruthy();
-    // orphanReturnCount=3 renders as "3" inside <strong>, then "건" sibling text
     expect(screen.getByText('3')).toBeTruthy();
+  });
+
+  it("renders an unmeasured channel profit as '-' with the advertising coverage behind it", async () => {
+    mockSalesQuery({
+      period: '2026-04',
+      channels: [{
+        channel: 'coupang',
+        channelType: 'marketplace',
+        totalOrders: 10,
+        totalRevenue: 100000,
+        totalCost: null,
+        totalProfit: null,
+        profitRate: null,
+        returnCount: 0,
+        returnRate: null,
+        avgOrderValue: 10000,
+      }],
+      totals: {
+        totalRevenue: 100000,
+        totalProfit: null,
+        totalOrders: 10,
+        totalCost: null,
+        profitRate: null,
+        orphanReturnCount: 0,
+      },
+      basis: { ...completeBasis, adCost: aprilBasis(0, ['coupang_ads']), profit: aprilBasis(0, ['orders', 'coupang_ads']) },
+    });
+    renderWithProvider();
+
+    const row = await screen.findByRole('row', { name: /coupang/ });
+    // cost, profit, profit rate and return rate have no measurement.
+    expect(within(row).getAllByText('-')).toHaveLength(4);
+    const cardValue = (label: string) => screen.getAllByText(label)
+      .find((element) => element.classList.contains('card-label'))?.nextElementSibling?.textContent;
+    expect(cardValue('총이익')).toBe('-');
+    expect(cardValue('총비용')).toBe('-');
+    expect(screen.getByText(/쿠팡 광고 수집 0\/30일/)).toBeTruthy();
+  });
+
+  it("renders a fully collected month's return count and rate as '-' with no orphan badge", async () => {
+    mockSalesQuery({
+      period: '2026-04',
+      channels: [{
+        channel: 'coupang',
+        channelType: 'marketplace',
+        totalOrders: 10,
+        totalRevenue: 100000,
+        totalCost: 50000,
+        totalProfit: 50000,
+        profitRate: 50,
+        returnCount: null,
+        returnRate: null,
+        avgOrderValue: 10000,
+      }],
+      totals: {
+        totalRevenue: 100000,
+        totalProfit: 50000,
+        totalOrders: 10,
+        totalCost: 50000,
+        profitRate: 50,
+        orphanReturnCount: null,
+      },
+      basis: completeBasis,
+    });
+    renderWithProvider();
+
+    const row = await screen.findByRole('row', { name: /coupang/ });
+    // Returns have no source: only the return count and return rate are unknown.
+    expect(within(row).getAllByText('-')).toHaveLength(2);
+    expect(within(row).queryByText('0')).toBeNull();
+    expect(within(row).queryByText('0.0%')).toBeNull();
+    expect(screen.queryByText(/주문 연결 없는 반품/)).toBeNull();
   });
 });

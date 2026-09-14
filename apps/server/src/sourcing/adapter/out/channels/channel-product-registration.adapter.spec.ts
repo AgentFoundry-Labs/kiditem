@@ -30,6 +30,7 @@ describe('ChannelProductRegistrationAdapter', () => {
     const adapter = new ChannelProductRegistrationAdapter(capability as never);
     const previewInput = {
       organizationId: 'org-1',
+      sourceCandidateId: 'candidate-1',
       listingName: 'Kids rain boots',
       itemName: null,
     };

@@ -1,3 +1,4 @@
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
 import type { DashboardContext } from '../context';
 import { businessDateKey } from '../../../../common/kst';
@@ -7,8 +8,8 @@ import { businessDateKey } from '../../../../common/kst';
  * decide which sources fed the period, so cost/settlement fields are not read.
  */
 export interface EffectivePeriodProfitMetrics {
-  revenue: number;
-  orderCount: number;
+  revenue: number | null;
+  orderCount: number | null;
 }
 
 /**
@@ -21,7 +22,9 @@ export interface EffectivePeriodProfitMetrics {
 export interface WingRevenueEvidence {
   hasData: boolean;
   coverage?: { targetDays: number; completedDays: number } | null;
-  reconciliation?: { revenue?: { status: string } | null } | null;
+  reconciliation?: {
+    revenue?: { dailySum: number | null; periodValue: number | null } | null;
+  } | null;
 }
 
 /** Coupang ads aggregate; `hasData` means the owner range is complete. */
@@ -35,10 +38,10 @@ export interface CoupangAdsEvidence {
  * does not.
  */
 export function hasOrderEvidence(metrics: {
-  revenue: number;
-  orderCount?: number;
-}): boolean {
-  return metrics.revenue !== 0 || (metrics.orderCount ?? 0) > 0;
+  revenue: number | null;
+  orderCount?: number | null;
+}): metrics is { revenue: number; orderCount: number } {
+  return metrics.revenue !== null && (metrics.orderCount ?? null) !== null;
 }
 
 /**
@@ -63,7 +66,8 @@ export function canUseWingRevenue(metrics: WingRevenueEvidence): boolean {
   if (!metrics.hasData) return false;
   const coverage = metrics.coverage;
   if (coverage && coverage.completedDays === 0) return false;
-  return metrics.reconciliation?.revenue?.status !== 'MISMATCH';
+  const revenue = metrics.reconciliation?.revenue;
+  return !revenue || adTrafficReconciliationStatus(revenue) !== 'MISMATCH';
 }
 
 export function buildEffectivePeriod(

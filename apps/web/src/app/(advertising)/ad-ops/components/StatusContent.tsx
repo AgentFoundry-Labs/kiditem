@@ -94,6 +94,21 @@ export function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaign
   );
 }
 
+type WingKpiCell = string | { value?: string; change?: string; numValue?: number };
+
+/**
+ * Reads a Wing KPI cell as a count. A cell that does not parse is unknown, not
+ * zero, so it can neither raise nor clear a warning highlight.
+ */
+export function wingKpiCount(raw: WingKpiCell): number | null {
+  if (typeof raw === "object" && raw !== null) {
+    if (typeof raw.numValue === "number" && Number.isFinite(raw.numValue)) return raw.numValue;
+    return raw.value === undefined ? null : wingKpiCount(raw.value);
+  }
+  const parsed = Number.parseInt(raw.replace(/,/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 interface StatusContentProps {
   rules: AdStrategyAction[];
   strategy: AdWeeklyPlan | null;
@@ -168,9 +183,9 @@ export default function StatusContent({
             {Object.entries(wingKpis).map(([label, raw]) => {
               const isObj = raw && typeof raw === "object";
               const display = isObj ? String((raw as { value?: string; numValue?: number }).value ?? (raw as { numValue?: number }).numValue ?? "") : String(raw);
-              const numeric = isObj ? Number((raw as { numValue?: number }).numValue ?? 0) : parseInt(String(raw)) || 0;
+              const count = wingKpiCount(raw);
               const isWarning = label.includes("노출제한") || label.includes("아이템위너 아닌") || label.includes("미보유");
-              const hasIssue = isWarning && numeric > 0;
+              const hasIssue = isWarning && count !== null && count > 0;
               return (
                 <div key={label} className="rounded-xl p-4 text-center" style={{ background: hasIssue ? "var(--danger-subtle)" : "var(--surface-sunken)", border: hasIssue ? "1px solid var(--danger)" : "1px solid var(--border-subtle)" }}>
                   <div className="text-2xl font-extrabold tabular-nums" style={{ color: hasIssue ? "var(--danger)" : "var(--text-primary)" }}>{display}</div>

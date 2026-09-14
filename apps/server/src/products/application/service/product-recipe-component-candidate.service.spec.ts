@@ -1,40 +1,21 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ProductRecipeComponentCandidateService } from './product-recipe-component-candidate.service';
-import type { SellpiaInventorySkuReadPort } from '../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+import type { InventoryAvailabilityPort } from '../../../inventory/application/port/in/stock/inventory-availability.port';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const skuId = '00000000-0000-4000-8000-000000000002';
 
 describe('ProductRecipeComponentCandidateService', () => {
-  it('returns only active physical identity fields through the tenant-scoped Inventory port', async () => {
-    const inventory = makeInventory();
-    inventory.search.mockResolvedValueOnce([
-      {
-        sellpiaInventorySkuId: skuId,
-        code: 'SP-001',
-        name: '식판',
-        optionName: '분홍',
-        barcode: '8800000000001',
-        currentStock: 8,
-        purchasePrice: 5_000,
-        salePrice: 9_000,
-        isActive: true,
-        lastImportRunId: null,
-      },
-      {
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000003',
-        code: 'SP-INACTIVE',
-        name: '비활성',
-        optionName: null,
-        barcode: null,
-        currentStock: 0,
-        purchasePrice: null,
-        salePrice: null,
-        isActive: false,
-        lastImportRunId: null,
-      },
-    ]);
+  it('returns the bounded Inventory-owned availability search', async () => {
+    const inventory = makeInventory([{
+      sellpiaInventorySkuId: skuId,
+      code: 'SP-001',
+      name: '식판',
+      optionName: '분홍',
+      barcode: '8800000000001',
+      currentStock: 8,
+    }]);
     const service = new ProductRecipeComponentCandidateService(inventory);
 
     await expect(service.search(organizationId, {
@@ -50,47 +31,53 @@ describe('ProductRecipeComponentCandidateService', () => {
         currentStock: 8,
       }],
     });
-    expect(inventory.search).toHaveBeenCalledWith(organizationId, 'SP-001', 20, {
-      includeOutOfStock: false,
+    expect(inventory.searchCandidates).toHaveBeenCalledWith({
+      organizationId,
+      query: 'SP-001',
+      limit: 20,
+      stockStatus: 'in_stock',
     });
   });
 
-  it('passes an explicit out-of-stock opt-in to Inventory search', async () => {
-    const inventory = makeInventory();
-    inventory.search.mockResolvedValueOnce([]);
+  it('keeps uncollected identities nullable for the explicit all-stock search', async () => {
+    const inventory = makeInventory([{
+      sellpiaInventorySkuId: skuId,
+      code: 'SP-001',
+      name: '식판',
+      optionName: null,
+      barcode: null,
+      currentStock: null,
+    }]);
     const service = new ProductRecipeComponentCandidateService(inventory);
 
-    await service.search(organizationId, {
+    await expect(service.search(organizationId, {
       search: 'SP-001',
       limit: 20,
       stockStatus: 'all',
-    });
-
-    expect(inventory.search).toHaveBeenCalledWith(organizationId, 'SP-001', 20, {
-      includeOutOfStock: true,
+    })).resolves.toMatchObject({
+      items: [{ sellpiaInventorySkuId: skuId, currentStock: null }],
     });
   });
 
   it('rejects unbounded or tenant-bearing candidate queries before Inventory reads', async () => {
-    const inventory = makeInventory();
+    const inventory = makeInventory([]);
     const service = new ProductRecipeComponentCandidateService(inventory);
 
     await expect(service.search(organizationId, { search: 'x', limit: 100 }))
       .rejects.toBeInstanceOf(BadRequestException);
     await expect(service.search(organizationId, { search: 'SP', organizationId }))
       .rejects.toBeInstanceOf(BadRequestException);
-    expect(inventory.search).not.toHaveBeenCalled();
+    expect(inventory.searchCandidates).not.toHaveBeenCalled();
   });
 });
 
-function makeInventory() {
+function makeInventory(
+  rows: Awaited<ReturnType<InventoryAvailabilityPort['searchCandidates']>>,
+) {
   return {
-    findByIds: vi.fn(),
-    findByCodes: vi.fn(),
-    findByBarcodes: vi.fn(),
-    findByNormalizedNames: vi.fn(),
-    search: vi.fn(),
+    findBySkuIds: vi.fn(),
+    searchCandidates: vi.fn().mockResolvedValue(rows),
   } as unknown as {
-    [K in keyof SellpiaInventorySkuReadPort]: ReturnType<typeof vi.fn>;
+    [K in keyof InventoryAvailabilityPort]: ReturnType<typeof vi.fn>;
   };
 }

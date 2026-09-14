@@ -5,7 +5,6 @@ import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AlertsModule } from '../../alerts/alerts.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
-import { WingAdSummaryRepositoryAdapter } from './adapter/out/repository/wing-ad-summary.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashboard-sales.repository.adapter';
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
@@ -13,7 +12,6 @@ import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/da
 import { CollectionFreshnessRepositoryAdapter } from './adapter/out/repository/collection-freshness.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
-import { WING_AD_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/repository/dashboard-sales.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
@@ -27,7 +25,6 @@ import { DashboardCollectionsService } from './application/service/dashboard-col
 
 const repositoryAdapters = [
   ProfitCalculationRepositoryAdapter,
-  WingAdSummaryRepositoryAdapter,
   DashboardSalesRepositoryAdapter,
   DashboardTrendRepositoryAdapter,
   WingTrafficAggregationRepositoryAdapter,
@@ -37,7 +34,6 @@ const repositoryAdapters = [
 
 const repositoryPorts = [
   { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
-  { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
   { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },

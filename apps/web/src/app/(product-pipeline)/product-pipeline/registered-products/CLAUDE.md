@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/registered-products - Confirmed Channel Listings
 
 `registered-products/` owns registered product/channel listing views, content

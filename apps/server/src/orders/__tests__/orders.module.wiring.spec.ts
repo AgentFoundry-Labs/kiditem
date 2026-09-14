@@ -29,7 +29,6 @@ import { OrdersModule } from '../orders.module';
 import { ReturnTransfersController } from '../return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from '../return-transfers/return-transfers.service';
 import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
-import { ORDERS_REVIEW_LISTING_STATS_READ_PORT } from '../application/port/in/review-listing-stats-read.port';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
 import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
@@ -106,11 +105,7 @@ describe('OrdersModule owner wiring', () => {
         provide: REVIEW_COLLECTION_SOURCE_PORT,
         useExisting: ReviewCollectionSourceRepository,
       },
-      {
-        provide: ORDERS_REVIEW_LISTING_STATS_READ_PORT,
-        useExisting: ReviewsService,
-      },
     ]);
-    expect(exports).toEqual([ORDERS_REVIEW_LISTING_STATS_READ_PORT]);
+    expect(exports).toEqual([]);
   });
 });

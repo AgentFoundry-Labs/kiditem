@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
@@ -11,6 +11,13 @@ import { NaverKeywordResearchService } from '../application/service/naver-keywor
 import { TrendCollectService } from '../application/service/trend-collect.service';
 
 const organizationId = TEST_ORGANIZATION_ID;
+// Pinned clocks keep business dates independent of when the suite runs; 03:30
+// KST is still the previous UTC date. They lie in the past because source
+// status reads database-clock attempt leases against this clock.
+const KST_DAWN = new Date('2026-09-06T18:30:00.000Z');
+const KST_NOON = new Date('2026-09-07T03:00:00.000Z');
+const NEXT_KST_DAWN = new Date('2026-09-07T18:30:00.000Z');
+const COLLECTION_CLOCKS: Array<[string, Date]> = [['03:30 KST', KST_DAWN], ['12:00 KST', KST_NOON]];
 
 describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -44,12 +51,18 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     vi.resetAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(KST_DAWN);
     fetchTrending.mockResolvedValue({ source: 'shortstrend', generatedAt: new Date().toISOString(),
       items: [{ videoKey: ' video-1 ', rank: 1.4, title: 'Kids', viewCount: 100.6, keyword: '문구' },
         { videoKey: 'video-1', title: 'duplicate' }] });
   });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-  it('publishes Shorts once, replays without IO after seed drift, retains prior COMPLETE on failure and replaces confirmed empty coverage', async () => {
+  it.each(COLLECTION_CLOCKS)('publishes Shorts once, replays without IO after seed drift, retains prior COMPLETE on failure and replaces confirmed empty coverage at %s', async (_clock, now) => {
+    vi.setSystemTime(now);
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
     const first = await controller.collect({ sources: ['shorts'] }, organizationId, { id: TEST_USER_ID } as never, 'first');
     expect(first.results[0], JSON.stringify(first.results[0])).toMatchObject({ source: 'shorts', ok: true, state: 'COMPLETE', collected: 1 });
@@ -117,6 +130,15 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect(await analysis.collectAnalysis({ organizationId, input, idempotencyKey: 'analysis-failed' }))
       .toMatchObject({ attempt: { state: 'FAILED' }, payload: null });
     expect(await analysis.getAnalysisSnapshot(organizationId, input)).toEqual(first.payload);
+    await prisma.sourcingEvidenceObservation.updateMany({
+      where: { organizationId, ingestionRunId: first.attempt.attemptId },
+      data: { payload: { legacy: 'raw evidence must not drive the screen' } },
+    });
+    expect(await analysis.getAnalysisSnapshot(organizationId, input)).toEqual(first.payload);
+    await prisma.sourcingNaverKeywordAnalysisFact.deleteMany({
+      where: { organizationId, ingestionRunId: first.attempt.attemptId },
+    });
+    expect(await analysis.getAnalysisSnapshot(organizationId, input)).toBeNull();
     expect(await prisma.sourcingWorkspaceSnapshot.count({ where: { scope: 'keyword_analysis' } })).toBe(0);
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
       SELECT to_regclass('public.operation_runs') IS NULL AS absent
@@ -141,7 +163,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect(compareSearchTrends).toHaveBeenCalledTimes(1);
   });
 
-  it('publishes Naver metrics, keeps full prior on DataLab failure and uses empty board coverage without deleting other keyword history', async () => {
+  it.each(COLLECTION_CLOCKS)('publishes Naver metrics, keeps full prior on DataLab failure and uses empty board coverage without deleting other keyword history at %s', async (_clock, now) => {
+    vi.setSystemTime(now);
     const seed = await history.upsertSeedByKeyword({ organizationId, keyword: '슬라임', sources: ['naver'] });
     searchPopularKeywords.mockResolvedValue({ boards: [{ key: 'toys_dolls', label: '완구', cid: 1,
       ranks: [{ rank: 1, keyword: ' 레고 ', linkId: null }], error: null }] });
@@ -182,22 +205,18 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     failProvider();
     const yesterdayFailure = (await controller.collect({ sources: [source] }, organizationId,
       { id: TEST_USER_ID } as never, 'yesterday-failed')).results[0];
-    const tomorrow = Date.now() + 24 * 60 * 60_000;
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(tomorrow);
-    try {
-      const noAttemptToday = (await controller.status(organizationId))[source];
-      expect(noAttemptToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
-        latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
-        errorMessage: yesterdayFailure.error });
-      failProvider();
-      const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
-        { id: TEST_USER_ID } as never, 'today-failed')).results[0];
-      const failedToday = (await controller.status(organizationId))[source];
-      expect(failedToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
-        latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: todayFailure.attemptId, state: 'FAILED' },
-        errorMessage: todayFailure.error });
-    } finally { vi.useRealTimers(); }
+    vi.setSystemTime(NEXT_KST_DAWN);
+    const noAttemptToday = (await controller.status(organizationId))[source];
+    expect(noAttemptToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
+      latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
+      errorMessage: yesterdayFailure.error });
+    failProvider();
+    const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
+      { id: TEST_USER_ID } as never, 'today-failed')).results[0];
+    const failedToday = (await controller.status(organizationId))[source];
+    expect(failedToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
+      latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: todayFailure.attemptId, state: 'FAILED' },
+      errorMessage: todayFailure.error });
   });
 
   it('replays a RUNNING request without IO and rejects a distinct active start while preserving source-owned status', async () => {

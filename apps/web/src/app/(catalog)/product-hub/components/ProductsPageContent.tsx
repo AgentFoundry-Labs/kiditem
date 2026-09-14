@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import { Package, RefreshCw, Search } from 'lucide-react';
+import {
+  PRODUCT_ADVERTISING_LABELS,
+  PRODUCT_INVENTORY_LABELS,
+  type MasterProductOperationsListItem,
+  type ProductInventoryStatus,
+  type ProductOperationsInventoryFocus,
+} from '@kiditem/shared/product-operations';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
@@ -12,11 +19,6 @@ import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
-import type {
-  MasterProductOperationsListItem,
-  ProductInventoryStatus,
-  ProductOperationsInventoryFocus,
-} from '@kiditem/shared/product-operations';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
@@ -59,7 +61,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         <div className="flex flex-wrap items-center justify-end gap-2">
           <div
             className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
-            title="상품별 기간 지표 원본이 아직 연결되지 않아 일부 지표는 미수집으로 표시됩니다."
+            title="선택한 기간의 주문·매출과 방문·조회 데이터를 각각 표시합니다. 수집 범위가 부족한 지표는 미수집으로 표시됩니다."
           >
             {PERIOD_OPTIONS.map((item) => (
               <button
@@ -126,8 +128,9 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         >
           {([
             ['전체', 'all'],
-            ['광고중', 'active'],
-            ['광고없음', 'inactive'],
+            [PRODUCT_ADVERTISING_LABELS.active, 'active'],
+            [PRODUCT_ADVERTISING_LABELS.inactive, 'inactive'],
+            [PRODUCT_ADVERTISING_LABELS.unconfigured, 'unconfigured'],
           ] as const).map(([label, value]) => (
             <button
               key={label}
@@ -161,10 +164,8 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <option value="focus:out_of_stock">품절</option>
           <option value="focus:imminent">임박 재고</option>
           <option value="focus:reorder">발주 필요</option>
-          <option value="partial_out_of_stock">일부 품절</option>
-          <option value="sellable">판매 가능</option>
-          <option value="configuration_required">재고 연결 필요</option>
-          <option value="review_required">검토 필요</option>
+          {(['uncollected', 'sellable', 'configuration_required', 'review_required'] as const)
+            .map((status) => <option key={status} value={status}>{PRODUCT_INVENTORY_LABELS[status]}</option>)}
         </select>
         <select
           aria-label="상품 등급"

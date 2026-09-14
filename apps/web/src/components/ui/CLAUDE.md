@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/components/ui - Shared UI Primitives
 
 `components/ui/` owns small reusable UI primitives such as empty states,

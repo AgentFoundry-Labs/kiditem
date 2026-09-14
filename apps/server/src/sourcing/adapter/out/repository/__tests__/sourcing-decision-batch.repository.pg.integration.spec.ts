@@ -36,22 +36,25 @@ describe('Sourcing decision batch commit (PostgreSQL)', () => {
   it('commits a decision batch backed by current COMPLETE source evidence', async () => {
     const evidence = await seedSupportingEvidence(prisma);
 
-    await expect(repository.create(createCommand(evidence))).resolves.toMatchObject({
+    const result = await repository.create(createCommand(evidence));
+    expect(result).toMatchObject({
       kind: 'created',
       duplicate: false,
       record: {
         organizationId: TEST_ORGANIZATION_ID,
-        items: [
-          {
-            evidence: [
-              {
-                observationId: evidence.observationId,
-                evidenceRole: 'support:supply',
-              },
-            ],
-          },
-        ],
+        items: [expect.objectContaining({ evidenceFamilyCount: 1, reasonCodes: ['supporting_evidence_ready'] })],
       },
+    });
+    if (result.kind !== 'created') throw new Error(`Unexpected decision result ${result.kind}`);
+    expect(result.record.items[0]).not.toHaveProperty('evidence');
+    await expect(repository.findItemById({
+      organizationId: TEST_ORGANIZATION_ID,
+      id: result.record.items[0]!.id,
+    })).resolves.toMatchObject({
+      evidence: [{
+        observationId: evidence.observationId,
+        evidenceRole: 'support:supply',
+      }],
     });
   });
 

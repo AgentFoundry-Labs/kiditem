@@ -27,7 +27,7 @@ export function SourcingReadState({
   if (!envelope) {
     return <ReadNotice icon={Clock3} text={emptyLabel} />;
   }
-  if (envelope.status === 'unavailable' || envelope.data === null) {
+  if (!envelope.ready || envelope.data === null) {
     const detail = envelope.error?.message?.trim();
     return (
       <ReadNotice
@@ -37,22 +37,7 @@ export function SourcingReadState({
       />
     );
   }
-  return (
-    <>
-      {envelope.status === 'collecting' || envelope.status === 'stale' ? (
-        <ReadNotice
-          icon={Clock3}
-          tone="warning"
-          text={
-            envelope.status === 'collecting'
-              ? '새 데이터를 수집하고 있습니다. 마지막으로 성공한 결과를 표시합니다.'
-              : '최근 수집 결과를 표시합니다. 새로고침하면 최신 상태를 다시 확인합니다.'
-          }
-        />
-      ) : null}
-      {children}
-    </>
-  );
+  return children;
 }
 
 function ReadNotice({

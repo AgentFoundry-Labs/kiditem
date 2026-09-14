@@ -20,6 +20,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { DEFAULT_TRANSACTION_OPTIONS } from '../prisma/prisma.service';
 
 /**
  * 안전장치: 테스트 DB 가 아니면 PrismaClient 생성을 거부한다.

@@ -60,14 +60,13 @@ export function productAbcReadModel(
   return {
     abcGrade: evaluation?.abcGrade ?? null,
     evaluation,
-    displayStatus: evaluation ? 'READY' : 'INSUFFICIENT_EVIDENCE',
     formulaRevision: 2, publicationRevision: 4,
     officialCutoffDate: evaluation?.gradeBasisCutoffDate ?? null,
     publishedAt: '2026-08-01T00:00:00.000Z', actualCutoffDate: '2026-07-31',
     sources: {
       sellpia: source,
       advertising: source,
-      mapping: { status: 'READY', mappingGeneration: '7' },
+      mapping: { valid: true, currentMappingGeneration: '7', evidenceMappingGeneration: '7' },
     },
     ...overrides,
   };

@@ -37,11 +37,6 @@ interface MonthlyData {
     completedDays: number;
     missingDates: string[];
   };
-  reconciliation: Record<string, {
-    status: 'MATCHED' | 'MISMATCH' | 'UNVERIFIED';
-    dailySum: number | null;
-    periodValue: number | null;
-  }> | null;
 }
 
 const YEAR_OPTIONS = [2024, 2025, 2026];

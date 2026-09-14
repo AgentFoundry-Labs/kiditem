@@ -35,7 +35,6 @@ const snapshotItem = {
     { id: firstChannelOptionId, masterProductId: productId, channelListingId, channel: 'coupang', externalOptionId: 'option-blue', itemName: '파랑' },
     { id: secondChannelOptionId, masterProductId: productId, channelListingId, channel: 'coupang', externalOptionId: 'option-red', itemName: '빨강' },
   ],
-  linkStatus: 'linked',
 };
 
 describe('InventorySku snapshot contracts', () => {
@@ -129,7 +128,7 @@ describe('InventorySku snapshot contracts', () => {
     })).toThrow();
   });
 
-  it('requires link status to agree with derived link counts', () => {
+  it('requires linked destinations to agree with counts without a redundant wire status', () => {
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
       linkedChannelOptionCount: 0,
@@ -141,8 +140,7 @@ describe('InventorySku snapshot contracts', () => {
       linkedProductCount: 0,
       linkedProducts: [],
       linkedChannelOptions: [],
-      linkStatus: 'unlinked',
-    }).linkStatus).toBe('unlinked');
+    })).not.toHaveProperty('linkStatus');
   });
 
   it('requires linked destination identities to agree with confirmed relation counts', () => {

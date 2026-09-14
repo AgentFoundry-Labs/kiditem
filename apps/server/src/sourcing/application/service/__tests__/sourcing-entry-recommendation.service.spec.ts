@@ -5,7 +5,7 @@ describe('SourcingEntryRecommendationService', () => {
   it('is a compatibility presenter over the canonical recommendation run', async () => {
     const recommendations = {
       latest: vi.fn(async () => ({
-        status: 'ready',
+        ready: true,
         warnings: [],
         error: null,
         data: {

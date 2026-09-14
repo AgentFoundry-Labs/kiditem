@@ -70,7 +70,8 @@ export function ProductOperationsDataStatusDialog({
             </section>
 
             <section className="divide-y divide-[var(--border-subtle)] rounded-xl border border-[var(--border-subtle)]">
-              <SourceRow label="판매 지표" source={data.sources.traffic} />
+              <SourceRow label="방문·조회" source={data.sources.traffic} />
+              <SourceRow label="주문·판매·매출" source={data.sources.orders} />
               <SourceRow label="광고비" source={data.sources.advertising} />
               <SourceRow label="Sellpia 이익" source={data.sources.sellpia} />
               <MappingRow ready={data.sources.mapping.ready} generation={data.sources.mapping.generation} />

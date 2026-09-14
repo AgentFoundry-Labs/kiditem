@@ -73,6 +73,49 @@ it('refreshes visible ad data when owner polling observes completion without bro
 });
 
 it.each([
+  ['a prior COMPLETE', true],
+  ['no COMPLETE yet', false],
+] as const)(
+  'keyword source with %s refreshes ad and readiness data only after a new COMPLETE, never on mount',
+  async (_label, hasPrior) => {
+    const prior = { ...attempt, state: 'COMPLETE' };
+    const status = (complete: typeof prior | null) => ({
+      ready: complete !== null,
+      latestAttempt: complete ?? attempt,
+      latestComplete: complete,
+      channelAccountId: attempt.channelAccountId,
+      actualCutoffAt: null,
+    });
+    let snapshot = status(hasPrior ? prior : null);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(snapshot)),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const dependents = [
+      [...queryKeys.ads.all, 'visible-keyword-data'],
+      ['readiness', 'checks'],
+    ];
+    for (const key of dependents) client.setQueryData(key, { rows: [] });
+    const invalidated = () => dependents.map((key) => client.getQueryState(key)?.isInvalidated);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const hook = renderHook(() => useAdKeywordCollect(), { wrapper });
+    await waitFor(() => expect(hook.result.current.source.isSuccess).toBe(true));
+    // Re-reading the COMPLETE the page already rendered is not a new collection.
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.ads.keywordSource() }));
+    expect(invalidated()).toEqual([false, false]);
+    snapshot = status({ ...prior, attemptId: '33333333-3333-4333-8333-333333333333' });
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.ads.keywordSource() }));
+    await waitFor(() => expect(invalidated()).toEqual([true, true]));
+    hook.unmount();
+    client.clear();
+  },
+);
+
+it.each([
   { outcome: 'budget pause', state: 'RUNNING', lostReply: false },
   { outcome: 'lost reply after COMPLETE', state: 'COMPLETE', lostReply: true },
 ])(

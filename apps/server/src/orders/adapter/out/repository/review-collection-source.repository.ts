@@ -16,6 +16,7 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { ReviewIngestService } from '../../../services/review-ingest.service';
 import {
   COUPANG_REVIEW_COLLECTION_MAX_MONTHS,
@@ -372,7 +373,11 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       }
       const collected = chunks.reduce((sum, chunk) => sum + chunk.itemCount, 0);
       const publication = progressPublication(progress, collected);
-      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
+      const publicationSequence = await allocatePublicationSequence(
+        tx,
+        input.organizationId,
+        COUPANG_REVIEW_COLLECTION_SOURCE_TYPE,
+      );
       const coverageStartDate = windowReceipts.reduce(
         (earliest, receipt) => receipt.coverageStartDate < earliest ? receipt.coverageStartDate : earliest,
         windowReceipts[0]!.coverageStartDate,
@@ -533,8 +538,8 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
           coverageEndDate: receipt.coverageEndDate,
         }];
       }),
-      coverageStartDate: row.coverageStartDate ? isoDate(row.coverageStartDate) : null,
-      coverageEndDate: row.coverageEndDate ? isoDate(row.coverageEndDate) : null,
+      coverageStartDate: row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null,
+      coverageEndDate: row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null,
       collected: publication?.collected ?? completedItemCount(progress),
       created: publication?.created ?? 0,
       updated: publication?.updated ?? 0,
@@ -798,35 +803,14 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${COUPANG_REVIEW_COLLECTION_SOURCE_TYPE}
-  `;
-  const sequence = rows[0]?.publicationSequence;
-  if (sequence === undefined) {
-    throw new ConflictException('Could not allocate review publication sequence');
-  }
-  return sequence;
-}
-
 function dateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
-}
-
-function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 function isoDateValue(value: unknown): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = dateOnly(value);
-  return Number.isNaN(parsed.getTime()) || isoDate(parsed) !== value ? null : value;
+  return Number.isNaN(parsed.getTime()) || businessDateKey(parsed) !== value ? null : value;
 }
 
 function isSafeInteger(value: unknown): value is number {

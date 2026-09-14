@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 import ProductInfoCards from './ProductInfoCards';
+import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 describe('ProductInfoCards', () => {
   it('hides a system-owned Sellpia product code without hiding its operating facts', () => {
@@ -36,12 +36,10 @@ function product(): MasterProductOperationsDetail {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
     createdAt: '2026-08-01T00:00:00.000Z',
     updatedAt: '2026-08-01T00:00:00.000Z',
-    inventoryStatus: 'sellable',
+    inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
     inventoryUnits: 10,
     channelListings: [],
   };

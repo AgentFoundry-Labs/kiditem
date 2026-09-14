@@ -1,8 +1,19 @@
 // /api/ads/keyword-rank/* 라우트 전용 API 래퍼 — 키워드 트래커 CRUD 와
 // 순위 추이/최신 SERP 조회. 순위 수집 자체는 확장(rank-extension.ts)이 담당.
 
-import { WingRankBatchSchema, type WingRankBatch } from '@kiditem/shared/advertising';
+import {
+  ProductKeywordRankOverviewResponseSchema,
+  WingRankBatchSchema,
+  type ProductKeywordRankOverviewResponse as SharedProductKeywordRankOverviewResponse,
+  type WingRankBatch,
+} from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
+
+export type {
+  ProductKeywordRankOverviewResponse,
+  ProductKeywordRankRow,
+  RepresentativeKeywordCandidate,
+} from '@kiditem/shared/advertising';
 
 const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
 
@@ -64,81 +75,6 @@ export interface KeywordRankHistoryResponse {
   series: RankHistorySeries[];
 }
 
-export type ProductKeywordRankStatus =
-  | 'rising'
-  | 'falling'
-  | 'steady'
-  | 'out_of_range'
-  | 'not_collected';
-
-export interface ProductKeywordRankRow {
-  keyword: string;
-  keywordSource:
-    | 'manual_override'
-    | 'wing_performance'
-    | 'coupang_category'
-    | 'product_name';
-  keywordScore: number | null;
-  recommendationReason: string;
-  automaticKeyword: string;
-  category: string | null;
-  candidates: RepresentativeKeywordCandidate[];
-  vendorItemId: string;
-  groupedVendorItemIds: string[];
-  groupedOptionCount: number;
-  skuId: string | null;
-  productName: string | null;
-  abcGrades: Array<"A" | "B" | "C">;
-  currentSalesRank: number | null;
-  previousSalesRank: number | null;
-  /** 양수 = 순위 상승, 음수 = 하락. */
-  rankChange: number | null;
-  salesLast28d: number | null;
-  viewsLast28d: number | null;
-  revenueLast28d: number | null;
-  conversionRate28d: number | null;
-  salePrice: number | null;
-  reviewCount: number | null;
-  collectedCount: number | null;
-  totalResults: number | null;
-  businessDate: string | null;
-  capturedAt: string | null;
-  status: ProductKeywordRankStatus;
-  history: Array<{
-    businessDate: string;
-    salesRank: number | null;
-    salesLast28d: number | null;
-  }>;
-}
-
-export interface RepresentativeKeywordCandidate {
-  keyword: string;
-  origin: 'coupang_category' | 'product_name';
-  score: number | null;
-  salesRank: number | null;
-  keywordSalesLast28d: number | null;
-  keywordViewsLast28d: number | null;
-  keywordConversionRate28d: number | null;
-  observed: boolean;
-}
-
-export interface ProductKeywordRankOverviewResponse {
-  periodDays: number;
-  summary: {
-    productCount: number;
-    optionCount: number;
-    duplicateOptionCount: number;
-    representativeKeywordCount: number;
-    rankedCount: number;
-    top20Count: number;
-    risingCount: number;
-    fallingCount: number;
-    outOfRangeCount: number;
-    notCollectedCount: number;
-  };
-  rows: ProductKeywordRankRow[];
-}
-
 /** 확장이 캡처한 SERP 아이템 — DOM 순서 그대로(광고 포함). */
 export interface SerpItem {
   rank: number;
@@ -197,9 +133,10 @@ export function fetchKeywordRankHistory(
 
 export function fetchProductKeywordRanks(
   days: number,
-): Promise<ProductKeywordRankOverviewResponse> {
-  return apiClient.get<ProductKeywordRankOverviewResponse>(
+): Promise<SharedProductKeywordRankOverviewResponse> {
+  return apiClient.getParsed(
     `/api/ads/keyword-rank/products?days=${days}`,
+    ProductKeywordRankOverviewResponseSchema,
   );
 }
 

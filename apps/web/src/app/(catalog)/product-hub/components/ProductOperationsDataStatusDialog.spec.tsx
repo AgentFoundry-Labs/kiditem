@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProductOperationsDataStatus } from '@kiditem/shared/product-operations';
 import { ProductOperationsDataStatusDialog } from './ProductOperationsDataStatusDialog';
@@ -9,13 +9,27 @@ describe('ProductOperationsDataStatusDialog', () => {
     renderDialog(readyStatus(), { onRefresh });
 
     expect(screen.getByRole('dialog', { name: '상품 운영 데이터 현황' })).toBeInTheDocument();
-    for (const label of ['판매 지표', '광고비', 'Sellpia 이익', '상품 매핑']) {
+    for (const label of ['방문·조회', '주문·판매·매출', '광고비', 'Sellpia 이익', '상품 매핑']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
 
     fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /중단/ })).not.toBeInTheDocument();
+  });
+
+  it('shows uncollected Orders separately from complete traffic without blocking independent ABC publication', () => {
+    const data = readyStatus();
+    data.sources.orders = source(false, false);
+    data.displayDataAsOf = null;
+    renderDialog(data);
+
+    const orderRow = screen.getByText('주문·판매·매출').parentElement!;
+    const trafficRow = screen.getByText('방문·조회').parentElement!;
+    expect(within(orderRow).getByText('미수집')).toBeInTheDocument();
+    expect(within(trafficRow).getByText('최신')).toBeInTheDocument();
+    expect(screen.getByText('화면 전체 기준일 없음')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 
   it('keeps the official publication visible while labeling stale live data and both cutoffs', () => {
@@ -76,6 +90,7 @@ function readyStatus(): ProductOperationsDataStatus {
     actualCutoff: '2026-08-31',
     sources: {
       traffic: source(true),
+      orders: source(true),
       advertising: source(true),
       sellpia: source(true),
       mapping: { ready: true, generation: '7' },

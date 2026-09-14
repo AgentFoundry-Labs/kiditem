@@ -3,6 +3,7 @@ import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions'
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -20,10 +21,7 @@ import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/pr
 import { MasterProductAbcService } from '../application/service/master-product-abc.service';
 import { ProductAbcReadService } from '../application/service/product-abc-read.service';
 import { ProductOperationsService } from '../application/service/product-operations.service';
-import {
-  productAbcDisplayStatus,
-  productAbcEvidenceCutoff,
-} from '../domain/product-abc-display-status';
+import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import {
   makeTestPrisma,
   resetDb,
@@ -52,6 +50,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
   let dashboard: DashboardInventoryService;
   let productHub: ProductOperationsService;
   let sellpiaInventory: SellpiaProductInventoryReader;
+  let inventory: InventoryAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -70,6 +69,9 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService);
+    inventory = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prismaService),
+    );
     productAbc = new ProductAbcReadService(
       new MasterProductAbcRepositoryAdapter(prismaService),
       evidence,
@@ -84,17 +86,13 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     );
     sellpiaInventory = new SellpiaProductInventoryReader(
       prismaService,
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      ),
+      inventory,
       { findDisplayMedia: async () => new Map() },
       productAbc,
     );
     productHub = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      ),
+      inventory,
       { findByMasterProductIds: async () => new Map() } as never,
       { findDisplayMedia: async () => new Map() } as never,
       new ProductOperationsDataStatusRepositoryAdapter(prismaService, evidence),
@@ -132,11 +130,19 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       targetCutoff: laggingCoverageEnd,
     });
     const product = easier.products.find((row) => row.masterProductId === masterProductId);
-    expect(productAbcDisplayStatus(
-      true,
-      product?.mappingValid ?? false,
-      easier.sources,
-    )).toBe('READY');
+    const retained = (await productAbc.readAbc({
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductIds: [masterProductId],
+    })).products[0]?.abc.evaluation ?? null;
+    expect(retained).not.toBeNull();
+    expect(productAbcDisplayStatus({
+      evaluation: retained,
+      sources: {
+        mapping: { valid: product?.mappingValid ?? false },
+        sellpia: easier.sources.sellpia,
+        advertising: easier.sources.advertising,
+      },
+    })).toBe('READY');
   });
 
   it('publishes the Products-owned evidence cutoff beside the dashboard counts', async () => {
@@ -174,12 +180,20 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       completeMonthly: [],
     }]);
     const resolution = projection.projection.byProductKey.get('OWN')?.inventoryResolution;
+    const productHubAbc = page.items.at(0)?.abc;
+    const sellpiaInventoryAbc = resolution?.status === 'matched'
+      ? resolution.inventoryProduct?.abc
+      : undefined;
+    // The wire carries the facts only; each consumer derives the word with the
+    // one shared function.
+    expect(productHubAbc).toBeDefined();
+    expect(sellpiaInventoryAbc).toBeDefined();
+    expect(productHubAbc).not.toHaveProperty('displayStatus');
+    expect(sellpiaInventoryAbc).not.toHaveProperty('displayStatus');
     return {
       dashboard: dashboardStatus.length === 1 ? dashboardStatus[0] : dashboardStatus,
-      productHub: page.items.map((item) => item.abc.displayStatus).at(0),
-      sellpiaInventory: resolution?.status === 'matched'
-        ? resolution.inventoryProduct?.abc.displayStatus
-        : null,
+      productHub: productHubAbc ? productAbcDisplayStatus(productHubAbc) : null,
+      sellpiaInventory: sellpiaInventoryAbc ? productAbcDisplayStatus(sellpiaInventoryAbc) : null,
     };
   }
 

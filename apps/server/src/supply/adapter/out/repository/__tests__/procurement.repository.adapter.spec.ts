@@ -16,10 +16,21 @@ function makePrisma() {
     supplier: {
       findFirst: vi.fn(),
     },
-    sellpiaInventorySku: {
-      findMany: vi.fn(),
-    },
   };
+}
+
+function makeInventorySkus() {
+  return { findByIds: vi.fn().mockResolvedValue([]) };
+}
+
+function makeAdapter(
+  prisma: ReturnType<typeof makePrisma>,
+  inventorySkus = makeInventorySkus(),
+) {
+  return new ProcurementRepositoryAdapter(
+    prisma as never,
+    inventorySkus as never,
+  );
 }
 
 describe('ProcurementRepositoryAdapter', () => {
@@ -31,8 +42,10 @@ describe('ProcurementRepositoryAdapter', () => {
         { totalAmountCny: '12.50', items: [{ quantity: 2 }, { quantity: 3 }] },
       ]);
     prisma.purchaseOrder.count.mockResolvedValue(1);
-    prisma.purchaseOrder.groupBy.mockResolvedValue([{ status: 'draft', _count: { id: 1 } }]);
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    prisma.purchaseOrder.groupBy.mockResolvedValue([
+      { status: 'draft', _count: { id: 1 } },
+    ]);
+    const adapter = makeAdapter(prisma);
 
     const result = await adapter.list('organization-1', {
       page: 2,
@@ -78,7 +91,15 @@ describe('ProcurementRepositoryAdapter', () => {
       total: 1,
       page: 2,
       limit: 10,
-      counts: { all: 1, draft: 1, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 },
+      counts: {
+        all: 1,
+        draft: 1,
+        pending: 0,
+        ordered: 0,
+        shipped: 0,
+        received: 0,
+        cancelled: 0,
+      },
       summary: { orderCount: 1, totalQuantity: 5, totalAmountCny: 12.5 },
     });
   });
@@ -98,52 +119,64 @@ describe('ProcurementRepositoryAdapter', () => {
       updatedAt: new Date('2026-07-16T00:01:00.000Z'),
     };
     prisma.purchaseOrder.findMany
-      .mockResolvedValueOnce([{
+      .mockResolvedValueOnce([
+        {
+          id: 'po-1',
+          status: 'pending',
+          items: [],
+          supplier: null,
+          submissionAttempts: [attempt],
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const adapter = makeAdapter(prisma);
+
+    const result = await adapter.list('organization-1', {});
+
+    expect(result.items).toEqual([
+      {
         id: 'po-1',
         status: 'pending',
         items: [],
         supplier: null,
-        submissionAttempts: [attempt],
-      }])
-      .mockResolvedValueOnce([]);
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
-
-    const result = await adapter.list('organization-1', {});
-
-    expect(result.items).toEqual([{
-      id: 'po-1',
-      status: 'pending',
-      items: [],
-      supplier: null,
-      latestSubmissionAttempt: attempt,
-    }]);
+        latestSubmissionAttempt: attempt,
+      },
+    ]);
   });
 
   it('validates supplier and physical Sellpia SKU ownership before creating purchase order', async () => {
     const prisma = makePrisma();
     prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
-    prisma.sellpiaInventorySku.findMany.mockResolvedValue([{ id: 'sellpia-sku-1' }]);
+    const inventorySkus = makeInventorySkus();
+    inventorySkus.findByIds.mockResolvedValue([
+      {
+        sellpiaInventorySkuId: 'sellpia-sku-1',
+        isActive: true,
+      },
+    ]);
     prisma.purchaseOrder.create.mockResolvedValue({ id: 'po-1' });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    const adapter = makeAdapter(prisma, inventorySkus);
 
     await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
       supplierId: 'supplier-1',
-      items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 2, unitPriceCny: 3 }],
+      items: [
+        {
+          productName: 'Widget',
+          sellpiaInventorySkuId: 'sellpia-sku-1',
+          quantity: 2,
+          unitPriceCny: 3,
+        },
+      ],
     });
 
     expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
       where: { id: 'supplier-1', organizationId: 'organization-1' },
       select: { id: true },
     });
-    expect(prisma.sellpiaInventorySku.findMany).toHaveBeenCalledWith({
-      where: {
-        id: { in: ['sellpia-sku-1'] },
-        organizationId: 'organization-1',
-        isActive: true,
-      },
-      select: { id: true },
-    });
+    expect(inventorySkus.findByIds).toHaveBeenCalledWith('organization-1', [
+      'sellpia-sku-1',
+    ]);
     expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -151,7 +184,10 @@ describe('ProcurementRepositoryAdapter', () => {
           supplierName: 'Supplier A',
           supplier: {
             connect: {
-              id_organizationId: { id: 'supplier-1', organizationId: 'organization-1' },
+              id_organizationId: {
+                id: 'supplier-1',
+                organizationId: 'organization-1',
+              },
             },
           },
           totalAmountCny: 6,
@@ -163,14 +199,30 @@ describe('ProcurementRepositoryAdapter', () => {
 
   it('returns missing Sellpia SKU ids instead of creating when ownership check fails', async () => {
     const prisma = makePrisma();
-    prisma.sellpiaInventorySku.findMany.mockResolvedValue([{ id: 'sellpia-sku-1' }]);
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    const inventorySkus = makeInventorySkus();
+    inventorySkus.findByIds.mockResolvedValue([
+      {
+        sellpiaInventorySkuId: 'sellpia-sku-1',
+        isActive: true,
+      },
+    ]);
+    const adapter = makeAdapter(prisma, inventorySkus);
 
     const result = await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
       items: [
-        { productName: 'A', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 1, unitPriceCny: 1 },
-        { productName: 'B', sellpiaInventorySkuId: 'sellpia-sku-2', quantity: 1, unitPriceCny: 1 },
+        {
+          productName: 'A',
+          sellpiaInventorySkuId: 'sellpia-sku-1',
+          quantity: 1,
+          unitPriceCny: 1,
+        },
+        {
+          productName: 'B',
+          sellpiaInventorySkuId: 'sellpia-sku-2',
+          quantity: 1,
+          unitPriceCny: 1,
+        },
       ],
     });
 
@@ -184,16 +236,28 @@ describe('ProcurementRepositoryAdapter', () => {
 
   it('updates purchase order status within organization scope and returns the refreshed order', async () => {
     const prisma = makePrisma();
-    prisma.purchaseOrder.findFirst.mockResolvedValue({ id: 'po-1', status: 'pending' });
-    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
-
-    const updated = await adapter.updateStatusScoped('organization-1', 'po-1', 'pending', {
-      status: 'ordered',
+    prisma.purchaseOrder.findFirst.mockResolvedValue({
+      id: 'po-1',
+      status: 'pending',
     });
+    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    const adapter = makeAdapter(prisma);
+
+    const updated = await adapter.updateStatusScoped(
+      'organization-1',
+      'po-1',
+      'pending',
+      {
+        status: 'ordered',
+      },
+    );
 
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
-      where: { id: 'po-1', organizationId: 'organization-1', status: 'pending' },
+      where: {
+        id: 'po-1',
+        organizationId: 'organization-1',
+        status: 'pending',
+      },
       data: { status: 'ordered' },
     });
     expect(updated).toEqual({ id: 'po-1', status: 'pending' });
@@ -215,9 +279,12 @@ describe('ProcurementRepositoryAdapter', () => {
         },
       ],
     });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    const adapter = makeAdapter(prisma);
 
-    const snapshot = await adapter.findCheckoutSnapshot('organization-1', 'po-1');
+    const snapshot = await adapter.findCheckoutSnapshot(
+      'organization-1',
+      'po-1',
+    );
 
     expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
       where: { id: 'po-1', organizationId: 'organization-1' },
@@ -262,17 +329,26 @@ describe('ProcurementRepositoryAdapter', () => {
       externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
     });
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    const adapter = makeAdapter(prisma);
 
-    const updated = await adapter.updateStatusScoped('organization-1', 'po-1', 'pending', {
-      status: 'ordered',
-      externalOrderPlatform: 'ALIBABA_1688',
-      externalOrderId: '1688-ORDER-1',
-      externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
-    });
+    const updated = await adapter.updateStatusScoped(
+      'organization-1',
+      'po-1',
+      'pending',
+      {
+        status: 'ordered',
+        externalOrderPlatform: 'ALIBABA_1688',
+        externalOrderId: '1688-ORDER-1',
+        externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
+      },
+    );
 
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
-      where: { id: 'po-1', organizationId: 'organization-1', status: 'pending' },
+      where: {
+        id: 'po-1',
+        organizationId: 'organization-1',
+        status: 'pending',
+      },
       data: {
         status: 'ordered',
         externalOrderPlatform: 'ALIBABA_1688',
@@ -292,11 +368,16 @@ describe('ProcurementRepositoryAdapter', () => {
   it('does not update status when the current database status already changed', async () => {
     const prisma = makePrisma();
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 0 });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+    const adapter = makeAdapter(prisma);
 
-    const updated = await adapter.updateStatusScoped('organization-1', 'po-1', 'draft', {
-      status: 'pending',
-    });
+    const updated = await adapter.updateStatusScoped(
+      'organization-1',
+      'po-1',
+      'draft',
+      {
+        status: 'pending',
+      },
+    );
 
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
       where: { id: 'po-1', organizationId: 'organization-1', status: 'draft' },
@@ -305,5 +386,4 @@ describe('ProcurementRepositoryAdapter', () => {
     expect(prisma.purchaseOrder.findFirst).not.toHaveBeenCalled();
     expect(updated).toBeNull();
   });
-
 });

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # channels — Marketplace Identity And SKU Matching
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang

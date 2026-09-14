@@ -3,18 +3,19 @@ import { SalesPlansService } from './sales-plans.service';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
+/** Every plan view reads actuals over the KST days closed at the request's instant. */
 @Controller('sales-plans')
 export class SalesPlansController {
   constructor(private readonly salesPlansService: SalesPlansService) {}
 
   @Get()
   async findAll(@CurrentOrganization() organizationId: string) {
-    return this.salesPlansService.findAll(organizationId);
+    return this.salesPlansService.findAll(organizationId, new Date());
   }
 
   @Post()
   create(@Body() dto: CreateSalesPlanDto, @CurrentOrganization() organizationId: string) {
-    return this.salesPlansService.create(organizationId, dto);
+    return this.salesPlansService.create(organizationId, dto, new Date());
   }
 
   @Patch(':id')
@@ -23,15 +24,7 @@ export class SalesPlansController {
     @CurrentOrganization() organizationId: string,
     @Body() dto: UpdateSalesPlanDto,
   ) {
-    return this.salesPlansService.update(id, organizationId, dto);
-  }
-
-  @Patch(':id/sync')
-  syncActuals(
-    @Param('id') id: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.salesPlansService.syncActuals(id, organizationId);
+    return this.salesPlansService.update(id, organizationId, dto, new Date());
   }
 
   @Delete(':id')

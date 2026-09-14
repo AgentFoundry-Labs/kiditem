@@ -248,7 +248,19 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
       plan: {
         mappingGeneration: '3',
         adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-        accounts: [],
+        accounts: [{
+          channelAccountId,
+          externalAccountId: 'external-account',
+          expectedAdvertiserId: 'advertiser-1',
+          slices: [{
+            sliceId: `${channelAccountId}:2026-01-01_2026-01-31`,
+            channelAccountId,
+            from: '2026-01-01',
+            to: '2026-01-31',
+            businessDates: Array.from({ length: 31 }, (_, index) =>
+              `2026-01-${String(index + 1).padStart(2, '0')}`),
+          }],
+        }],
       },
       qualityReport: {
         contract: 'profitability-report-v1',
@@ -259,8 +271,8 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         mappingGeneration: '3',
         adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
         coveredMonths: ['2026-01'],
-        plannedAccountCount: 0,
-        plannedSliceCount: 0,
+        plannedAccountCount: 1,
+        plannedSliceCount: 1,
         receiptCount: 1,
         targetFactCount: 1,
         matchedTargetCount: 1,
@@ -279,20 +291,6 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         unallocatableSpendKrw: 0,
       },
     };
-    const target = {
-      channelAccountId,
-      listingId: channelListingId,
-      listingOptionId,
-      businessDate: new Date('2026-01-02T00:00:00.000Z'),
-      externalId: 'external-listing',
-      externalOptionId: 'external-option',
-      adSpend: 10,
-      adRevenue: 20,
-      impressions: 30,
-      clicks: 40,
-      orders: 5,
-      conversions: 6,
-    };
     const fact = {
       channelAccountId,
       channelListingId,
@@ -305,11 +303,15 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
       observedTargetDayCount: 31,
       mappingGeneration: 3n,
     };
-    const targetFindMany = vi.fn().mockResolvedValue([target]);
+    const targetFindMany = vi.fn();
     const factFindMany = vi.fn().mockResolvedValue([fact]);
     const tx = {
       sourceImportRun: { findFirst: vi.fn().mockResolvedValue(run) },
-      channelAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      channelAccount: { findMany: vi.fn().mockResolvedValue([{
+        id: channelAccountId,
+        externalAccountId: 'external-account',
+        vendorId: 'advertiser-1',
+      }]) },
       channelAdTargetDailySnapshot: { findMany: targetFindMany },
       channelAdListingProductMonthlyFact: { findMany: factFindMany },
     };
@@ -318,23 +320,9 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     };
     const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
 
-    await expect(adapter.readGeneration({ organizationId, sourceImportRunId })).resolves.toMatchObject({
-      facts: [{
-        channelAccountId,
-        channelListingId,
-        channelListingOptionId: listingOptionId,
-        businessDate: '2026-01-02',
-        externalId: 'external-listing',
-        externalOptionId: 'external-option',
-        adSpend: 10,
-        adRevenue: 20,
-        impressions: 30,
-        clicks: 40,
-        orders: 5,
-        conversions: 6,
-        matched: true,
-        allocationStatus: 'ALLOCATABLE',
-      }],
+    const generation = await adapter.readGeneration({ organizationId, sourceImportRunId });
+    expect(Object.keys(generation!)).toEqual(['summary', 'allocations']);
+    expect(generation).toMatchObject({
       allocations: [{
         channelAccountId,
         channelListingId,
@@ -348,25 +336,9 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         mappingGeneration: '3',
       }],
     });
-    expect(targetFindMany).toHaveBeenCalledWith({
-      where: { organizationId, sourceImportRunId },
-      orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
-      take: 100_001,
-      select: {
-        channelAccountId: true,
-        listingId: true,
-        listingOptionId: true,
-        businessDate: true,
-        externalId: true,
-        externalOptionId: true,
-        adSpend: true,
-        adRevenue: true,
-        impressions: true,
-        clicks: true,
-        orders: true,
-        conversions: true,
-      },
-    });
+    // The generation read publishes allocations only; it never scans the
+    // target-day ledger.
+    expect(targetFindMany).not.toHaveBeenCalled();
     expect(factFindMany).toHaveBeenCalledWith({
       where: { organizationId, sourceImportRunId },
       orderBy: [{ month: 'asc' }, { channelAccountId: 'asc' }, { channelListingId: 'asc' }, { masterProductId: 'asc' }],
@@ -392,10 +364,24 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     );
   });
 
-  it('keeps exact KST-yesterday coverage ready while surfacing a newer failure', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
-    const complete = {
+  function completedProfitabilityRun(input: { coverageEndDate: string; requestedEnd?: string }) {
+    const channelAccountId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const accounts = input.requestedEnd === undefined ? [] : [{
+      channelAccountId,
+      externalAccountId: 'external-account',
+      expectedAdvertiserId: 'advertiser-1',
+      slices: [{
+        sliceId: `${channelAccountId}:2026-09-01_${input.requestedEnd}`,
+        channelAccountId,
+        from: '2026-09-01',
+        to: input.requestedEnd,
+        businessDates: Array.from(
+          { length: Number(input.requestedEnd.slice(8, 10)) },
+          (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`,
+        ),
+      }],
+    }];
+    return {
       id: '11111111-1111-4111-8111-111111111111',
       organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       sourceType: 'coupang_ad_profitability',
@@ -410,14 +396,14 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
       ],
       coverageStartDate: new Date('2025-10-01T00:00:00.000Z'),
-      coverageEndDate: new Date('2026-09-06T00:00:00.000Z'),
+      coverageEndDate: new Date(`${input.coverageEndDate}T00:00:00.000Z`),
       importedAt: new Date('2026-09-04T00:00:00.000Z'),
       updatedAt: new Date('2026-09-04T00:00:00.000Z'),
       createdAt: new Date('2026-09-04T00:00:00.000Z'),
       plan: {
         mappingGeneration: '3',
         adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-        accounts: [],
+        accounts,
       },
       qualityReport: {
         contract: 'profitability-report-v1',
@@ -431,8 +417,8 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
           '2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03',
           '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
         ],
-        plannedAccountCount: 0,
-        plannedSliceCount: 0,
+        plannedAccountCount: accounts.length,
+        plannedSliceCount: accounts.length,
         receiptCount: 0,
         targetFactCount: 0,
         matchedTargetCount: 0,
@@ -451,6 +437,12 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         unallocatableSpendKrw: 0,
       },
     };
+  }
+
+  it('keeps exact KST-yesterday coverage ready while surfacing a newer failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+    const complete = completedProfitabilityRun({ coverageEndDate: '2026-09-06' });
     const failed = {
       ...complete,
       id: '22222222-2222-4222-8222-222222222222',
@@ -494,5 +486,38 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
       ready: true,
     });
     vi.useRealTimers();
+  });
+  it('keeps a generation that held back its requested closed day ready until a later closed day', async () => {
+    vi.useFakeTimers();
+    try {
+      // 2026-09-07 12:00 KST: yesterday is 2026-09-06.
+      vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
+      const statusOf = (run: ReturnType<typeof completedProfitabilityRun>) => {
+        const tx = {
+          sourceImportRun: { findFirst: vi.fn().mockResolvedValueOnce(run).mockResolvedValueOnce(run) },
+          channelAccount: {
+            findMany: vi.fn().mockResolvedValue(run.plan.accounts.map((account) => ({
+              id: account.channelAccountId,
+              externalAccountId: account.externalAccountId,
+              vendorId: account.expectedAdvertiserId,
+            }))),
+          },
+        };
+        const prisma = {
+          $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
+        };
+        return new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never)
+          .readSourceStatus({ organizationId: run.organizationId });
+      };
+
+      // It requested 2026-09-06 and held it: nothing newer can be collected yet.
+      await expect(statusOf(completedProfitabilityRun({ requestedEnd: '2026-09-06', coverageEndDate: '2026-09-05' })))
+        .resolves.toMatchObject({ latestComplete: { coveredThrough: '2026-09-05' }, ready: true });
+      // It requested only 2026-09-05, so yesterday was never collected.
+      await expect(statusOf(completedProfitabilityRun({ requestedEnd: '2026-09-05', coverageEndDate: '2026-09-05' })))
+        .resolves.toMatchObject({ latestComplete: { coveredThrough: '2026-09-05' }, ready: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

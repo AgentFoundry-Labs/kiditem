@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { collectTrendSources } from '@/lib/source-trend-api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -15,8 +16,8 @@ export function useTrendSourceCollection(options: { input?: { sources?: readonly
   const [error, setError] = useState<string | null>(null);
   const sources = options.input?.sources ?? ['naver', 'shorts'];
   const statusKey = [...queryKeys.sourcing.trend(), 'source-status'];
-  const status = useQuery({ queryKey: statusKey, queryFn: () => apiClient.get<Record<string, Status>>('/api/sourcing/trend/status'),
-    refetchInterval: (query) => Object.values(query.state.data ?? {}).some((row) => row.latestAttempt?.state === 'RUNNING') ? 2_000 : false });
+  const status = useQuery(collectionSourceStatusQueryOptions({ queryKey: statusKey, queryFn: () => apiClient.get<Record<string, Status>>('/api/sourcing/trend/status'),
+    refetchInterval: (query) => Object.values(query.state.data ?? {}).some((row) => row.latestAttempt?.state === 'RUNNING') ? 2_000 : false }));
   const completedIds = Object.values(status.data ?? {}).filter((row) => row.latestAttempt?.state === 'COMPLETE').map((row) => row.latestAttempt!.attemptId).join(',');
   useEffect(() => {
     if (completedIds) {

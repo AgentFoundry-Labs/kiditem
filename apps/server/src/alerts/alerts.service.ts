@@ -10,23 +10,17 @@ import type { Alert } from '@prisma/client';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
 
-/** One product breaking one rule, in the words Rules already uses. */
-export type RuleViolationAlertInput = {
-  organizationId: string;
-  masterProductId: string;
-  ruleName: string;
-  title: string;
-  message: string;
-  evaluationId: string;
-  actorUserId: string;
-  metadata: Record<string, unknown>;
-};
+/**
+ * The one alert this module writes, and so the one it reads. Rows another
+ * writer left in the table stay there until the schema cutover (KID-90); no
+ * reader sees them.
+ */
+const SOURCE_FAILURE_ALERT_TYPE = 'source_failure';
 
 function mapAlert(row: Alert): AlertItem {
   return {
     id: row.id,
     attemptId: row.attemptId,
-    kind: row.kind as AlertItem['kind'],
     status: row.status as AlertItem['status'],
     type: row.type,
     severity: row.severity,
@@ -36,7 +30,9 @@ function mapAlert(row: Alert): AlertItem {
     targetId: row.targetId,
     sourceType: row.sourceType,
     href: row.href,
-    isRead: row.isRead,
+    // Read is the fact that `readAt` was stamped. The stored `isRead` column is
+    // a copy of it awaiting removal and is never read.
+    isRead: row.readAt !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } satisfies AlertItem;
@@ -59,14 +55,16 @@ export class SourceFailureAlerts {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * The alert rows for one organization, filtered by what the caller is asking
-   * for rather than by which adapter it happens to hold.
+   * The source-failure alerts for one organization, filtered by what the caller
+   * is asking for rather than by which adapter it happens to hold.
    *
    * The dashboard used to read this table itself, with `isRead: false` and no
    * status filter — so a resolved-but-unread alert took one of its ten slots and
    * rendered with a green check — ordered by a different column, capped at a
    * limit the interface never mentioned. Two reads of one table, disagreeing on
    * filter, order, and limit, and producing two different badge numbers.
+   *
+   * `isRead` asks whether `readAt` is stamped, the same rule the item carries.
    */
   async list(
     organizationId: string,
@@ -75,7 +73,10 @@ export class SourceFailureAlerts {
     const rows = await this.prisma.alert.findMany({
       where: {
         organizationId,
-        ...(options.isRead === undefined ? {} : { isRead: options.isRead }),
+        type: SOURCE_FAILURE_ALERT_TYPE,
+        ...(options.isRead === undefined
+          ? {}
+          : { readAt: options.isRead ? { not: null } : null }),
         ...(options.status ? { status: options.status } : {}),
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -91,6 +92,9 @@ export class SourceFailureAlerts {
         organizationId,
         status: 'OPEN',
       },
+      // `readAt` is what readers use. `isRead` is still written so a runtime
+      // that predates the derivation — a rollback, an overlapping slot — reads
+      // the same answer; it leaves with the column in KID-90.
       data: { isRead: true, readAt: new Date() },
     });
     if (result.count === 0) throw new NotFoundException('Alert not found');
@@ -161,59 +165,6 @@ export class SourceFailureAlerts {
     }
   }
 
-  /**
-   * Open a rule violation for one product, keyed by what is being violated
-   * rather than by the evaluation that noticed it.
-   *
-   * Rules used to write these rows itself, hand-filling fifteen Alert columns
-   * and minting a dedupe key that carried the request id. Nothing ever closed
-   * one, so a second evaluation of a product that still violated the same rule
-   * left the operator a second copy. Keying on product and rule makes a repeat
-   * finding an update of the row that is already there.
-   */
-  async openRuleViolations(
-    tx: Prisma.TransactionClient,
-    violations: readonly RuleViolationAlertInput[],
-  ): Promise<void> {
-    for (const violation of violations) {
-      const dedupeKey = `rules.violation:${violation.masterProductId}:${violation.ruleName}`;
-      const data = {
-        organizationId: violation.organizationId,
-        dedupeKey,
-        targetType: 'product',
-        targetId: violation.masterProductId,
-        kind: 'signal',
-        status: 'OPEN',
-        type: 'rule_violation',
-        severity: 'critical',
-        title: violation.title,
-        message: violation.message,
-        sourceType: 'rules_evaluation',
-        sourceId: violation.evaluationId,
-        actorUserId: violation.actorUserId,
-        href: '/product-hub',
-        metadata: violation.metadata as Prisma.InputJsonValue,
-        isRead: false,
-        readAt: null,
-      } satisfies Prisma.AlertUncheckedCreateInput;
-      await tx.alert.upsert({
-        where: {
-          organizationId_dedupeKey: { organizationId: violation.organizationId, dedupeKey },
-        },
-        create: data,
-        // A violation the operator has already seen stays seen; only its content
-        // and the evaluation that last confirmed it move.
-        update: {
-          status: 'OPEN',
-          title: violation.title,
-          message: violation.message,
-          sourceId: violation.evaluationId,
-          metadata: violation.metadata as Prisma.InputJsonValue,
-        },
-      });
-    }
-  }
-
   async resolveSourceFailure(
     tx: Prisma.TransactionClient,
     input: Pick<SourceFailureAlertInput, 'organizationId' | 'dedupeKey' | 'attemptId'>,
@@ -247,12 +198,14 @@ function sourceFailureData(input: SourceFailureAlertInput) {
     attemptId: input.attemptId,
     kind: 'signal',
     status: 'OPEN',
-    type: 'source_failure',
+    type: SOURCE_FAILURE_ALERT_TYPE,
     // Every production site passed 'error'. It was a parameter that never varied.
     severity: 'error',
     title: input.title,
     message: redact(input.message).slice(0, MESSAGE_LIMIT),
     href: input.href,
+    // A newer failure is unread again. Both columns move together until KID-90
+    // drops `isRead`; see `dismiss`.
     isRead: false,
     readAt: null,
   } satisfies Prisma.AlertUncheckedCreateInput;

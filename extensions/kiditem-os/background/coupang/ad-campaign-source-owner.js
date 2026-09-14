@@ -246,8 +246,7 @@
       if (Date.now() >= Date.parse(control.expiresAt)) throw new Error("광고 캠페인 수집 허가가 만료되었습니다.");
       for (const previous of await options.sessions.list(environmentId)) {
         if (previous.producer !== PRODUCER || previous.attemptId === attemptId) continue;
-        const owner = await read(environmentId, previous.attemptId);
-        if (owner.state === "RUNNING") throw new Error("다른 광고 캠페인 수집이 진행 중입니다.");
+        if (!(await attemptEnded(environmentId, previous.attemptId))) throw new Error("다른 광고 캠페인 수집이 진행 중입니다.");
         await options.closeAttempt(environmentId, previous.attemptId);
         await options.sessions.remove(previous.attemptId);
       }
@@ -287,8 +286,15 @@
         if (running.promise) return running.promise;
       }
       const work = running || { attemptId };
-      work.promise = Promise.resolve().then(() => execute(environmentId, attemptId))
-        .finally(() => { work.promise = null; if (active.get(environmentId) === work && !work.terminal) active.delete(environmentId); });
+      work.promise = Promise.resolve().then(() => takeWindowTurn(environmentId, () => execute(environmentId, attemptId)))
+        .finally(() => {
+          work.promise = null;
+          // A settled run releases the environment even when its terminal report
+          // was not acknowledged. Only a terminal report still in flight keeps
+          // it; a server attempt that is still running is refused by the next
+          // run's previous-session check.
+          if (active.get(environmentId) === work && !work.terminalPromise) active.delete(environmentId);
+        });
       active.set(environmentId, work);
       return work.promise;
     }
@@ -301,7 +307,7 @@
       try {
         return await terminal(environmentId, work, "fail", { code: "USER_CANCELLED", message: "사용자가 광고 캠페인 수집을 중단했습니다." });
       } finally {
-        if (!work.promise && !work.terminal && active.get(environmentId) === work) active.delete(environmentId);
+        if (!work.promise && !work.terminalPromise && active.get(environmentId) === work) active.delete(environmentId);
       }
     }
 
@@ -314,7 +320,29 @@
         if (owner.state !== "RUNNING") await finish(environmentId, owner);
       }
     }
-    return Object.freeze({ run, recover, handleMessage, cancel });
+    // A run holds the environment's collection window from its first read until
+    // its outcome is reported and its window and session are released.
+    function takeWindowTurn(environmentId, operation) {
+      return typeof options.takeWindowTurn === "function"
+        ? options.takeWindowTurn(environmentId, operation)
+        : operation();
+    }
+
+    // Completed, failed and expired attempts have ended, and so has one the owner
+    // no longer knows (404); a session left behind by any of them is a leftover
+    // for the next collection to clear. Any other read failure stays unknown.
+    async function attemptEnded(environmentId, attemptId) {
+      let control;
+      try {
+        control = await read(environmentId, attemptId);
+      } catch (error) {
+        if (error?.status === 404) return true;
+        throw error;
+      }
+      return control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt);
+    }
+
+    return Object.freeze({ run, recover, handleMessage, cancel, attemptEnded });
   }
 
   function validAdvertisingDashboardUrl(value) {

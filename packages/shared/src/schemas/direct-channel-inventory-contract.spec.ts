@@ -16,7 +16,6 @@ const OBSERVED_AT = '2026-08-03T00:00:00.000Z';
 const UNCLASSIFIED_ABC = {
   abcGrade: null,
   evaluation: null,
-  displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
   formulaRevision: 0,
   publicationRevision: 0,
   officialCutoffDate: null,
@@ -25,7 +24,7 @@ const UNCLASSIFIED_ABC = {
   sources: {
     sellpia: missingAbcSource(),
     advertising: missingAbcSource(),
-    mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+    mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
   },
 };
 
@@ -95,12 +94,10 @@ describe('direct channel inventory contracts', () => {
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
-      healthScore: null,
-      healthUpdatedAt: null,
       isActive: true,
       createdAt: OBSERVED_AT,
       updatedAt: OBSERVED_AT,
-      inventoryStatus: 'sellable',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
       inventoryUnits: 80,
       channelListings: [{
         id: LISTING_ID,

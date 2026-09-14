@@ -4,21 +4,21 @@ import {
   buildMockAdCampaignRepo,
   buildMockAdActionRepo,
   buildMockAdListingRepo,
-  buildMockAdAccountKpiRepo,
   type MockAdCampaignRepo,
   type MockAdListingRepo,
-  type MockAdAccountKpiRepo,
 } from '../../../__tests__/test-helpers/build-mock-ports';
-import type { AdCampaignRepositoryPort } from '../../port/out/repository/ad-campaign.repository.port';
+import type {
+  AdCampaignRepositoryPort,
+  KeywordTargetRollup,
+} from '../../port/out/repository/ad-campaign.repository.port';
 import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
-import type { AdAccountKpiRepositoryPort } from '../../port/out/repository/ad-account-kpi.repository.port';
+import type { AdActionRepositoryPort } from '../../port/out/repository/ad-action.repository.port';
 
 describe('AdCampaignsService', () => {
   const channelAccountId = '11111111-1111-4111-8111-111111111111';
   let service: AdCampaignsService;
   let campaignRepo: MockAdCampaignRepo;
   let listingRepo: MockAdListingRepo;
-  let accountKpiRepo: MockAdAccountKpiRepo;
   let adConfig: any;
   let rollups: Awaited<ReturnType<AdCampaignRepositoryPort['findCampaignSnapshot']>>['rollups'];
   let currentSweeps: Awaited<ReturnType<AdCampaignRepositoryPort['findCampaignSnapshot']>>['currentSweeps'];
@@ -26,21 +26,17 @@ describe('AdCampaignsService', () => {
   beforeEach(() => {
     campaignRepo = buildMockAdCampaignRepo();
     listingRepo = buildMockAdListingRepo();
-    accountKpiRepo = buildMockAdAccountKpiRepo();
-    // Sensible defaults — empty rollups + empty account KPI rows.
+    // Sensible defaults — empty rollups and no measured ad day.
     rollups = [];
     currentSweeps = [];
     campaignRepo.findCampaignSnapshot.mockImplementation(async () => ({ rollups, currentSweeps }));
     campaignRepo.findProductTargetRollups.mockResolvedValue([]);
-    campaignRepo.findAdTrendDailyRows.mockResolvedValue([]);
-    campaignRepo.findGradeBudgetTotals.mockResolvedValue({ A: 0, B: 0, C: 0 });
+    campaignRepo.findAdWindowDays.mockResolvedValue({ days: [], observedAt: null });
     listingRepo.findScopedAdListings.mockResolvedValue(new Map());
-    accountKpiRepo.findCoupangAdsDaily.mockResolvedValue([]);
     adConfig = { getConfig: vi.fn() };
     service = new AdCampaignsService(
       campaignRepo as unknown as AdCampaignRepositoryPort,
       listingRepo as unknown as AdListingRepositoryPort,
-      accountKpiRepo as unknown as AdAccountKpiRepositoryPort,
       buildMockAdActionRepo(),
       adConfig,
     );
@@ -77,7 +73,6 @@ describe('AdCampaignsService', () => {
               name: '상품1',
               abcGrade: 'A',
               adTier: null,
-              healthScore: null,
             },
           },
         ],
@@ -95,109 +90,6 @@ describe('AdCampaignsService', () => {
     expect(result[0].metrics.spend).toBe(10000);
     expect(result[0].metrics.ctr).toBe(5); // 50/1000*100
     expect(result[0].metrics.roas).toBe(300); // 30000/10000*100
-  });
-
-  it('getTrends aggregates listing-daily by businessDate + ABC grade (H3)', async () => {
-    campaignRepo.findAdTrendDailyRows.mockResolvedValue([
-      {
-        businessDate: new Date('2026-04-10T00:00:00Z'),
-        adSpend: 1000,
-        adRevenue: 2000,
-        adClicks: 10,
-        adImpressions: 500,
-        adConversions: 1,
-        listingId: 'L1',
-      },
-      {
-        businessDate: new Date('2026-04-11T00:00:00Z'),
-        adSpend: 1500,
-        adRevenue: 3000,
-        adClicks: 15,
-        adImpressions: 600,
-        adConversions: 2,
-        listingId: 'L1',
-      },
-      {
-        businessDate: new Date('2026-04-12T00:00:00Z'),
-        adSpend: 2000,
-        adRevenue: 5000,
-        adClicks: 20,
-        adImpressions: 700,
-        adConversions: 3,
-        listingId: 'L1',
-      },
-      {
-        businessDate: new Date('2026-04-13T00:00:00Z'),
-        adSpend: 2500,
-        adRevenue: 7500,
-        adClicks: 25,
-        adImpressions: 800,
-        adConversions: 4,
-        listingId: 'L1',
-      },
-    ]);
-    campaignRepo.findGradeBudgetTotals.mockResolvedValue({ A: 7000, B: 0, C: 0 });
-
-    const result = await service.getTrends('14d', undefined, 'organization-1');
-
-    expect(result.daily).toHaveLength(4);
-    expect(result.daily[0].date).toBe('2026-04-10');
-    expect(result.daily[0].metrics.spend).toBe(1000);
-    expect(result.firstHalf.spend).toBe(2500);
-    expect(result.secondHalf.spend).toBe(4500);
-    expect(result.secondHalf.revenue).toBeGreaterThan(result.firstHalf.revenue);
-  });
-
-  it('getTrends computes ABC gradeBudget allocation via listing.master.abcGrade', async () => {
-    campaignRepo.findAdTrendDailyRows.mockResolvedValue([
-      {
-        businessDate: new Date('2026-04-10T00:00:00Z'),
-        adSpend: 10000,
-        adRevenue: 20000,
-        adClicks: 10,
-        adImpressions: 100,
-        adConversions: 1,
-        listingId: 'L1',
-      },
-      {
-        businessDate: new Date('2026-04-10T00:00:00Z'),
-        adSpend: 5000,
-        adRevenue: 8000,
-        adClicks: 5,
-        adImpressions: 50,
-        adConversions: 1,
-        listingId: 'L2',
-      },
-      {
-        businessDate: new Date('2026-04-10T00:00:00Z'),
-        adSpend: 2000,
-        adRevenue: 3000,
-        adClicks: 2,
-        adImpressions: 20,
-        adConversions: 0,
-        listingId: 'L3',
-      },
-      {
-        businessDate: new Date('2026-04-10T00:00:00Z'),
-        adSpend: 3000,
-        adRevenue: 4000,
-        adClicks: 3,
-        adImpressions: 30,
-        adConversions: 0,
-        listingId: 'L4',
-      },
-    ]);
-    campaignRepo.findGradeBudgetTotals.mockResolvedValue({
-      A: 10000,
-      B: 5000,
-      C: 2000,
-    });
-
-    const result = await service.getTrends('14d', undefined, 'organization-1');
-
-    expect(result.gradeBudget.A).toBe(10000);
-    expect(result.gradeBudget.B).toBe(5000);
-    expect(result.gradeBudget.C).toBe(2000);
   });
 
   it('getCampaigns surfaces listing-less rollups (Drive replay shape — campaign source has no productId)', async () => {
@@ -436,67 +328,18 @@ describe('AdCampaignsService', () => {
     expect(result[0].metrics.roas).toBeCloseTo(450.35);
   });
 
-  it('getTrends folds in coupang_ads_daily account KPI when present', async () => {
-    accountKpiRepo.findCoupangAdsDaily.mockResolvedValue([
-      {
-        businessDate: '2026-04-29',
-        sums: {
-          spend: 279486,
-          revenue: 1629780,
-          clicks: 1520,
-          impressions: 527984,
-          conversions: 29,
-        },
-        orders: 29,
-      },
-      {
-        businessDate: '2026-04-30',
-        sums: {
-          spend: 40183,
-          revenue: 200250,
-          clicks: 206,
-          impressions: 65731,
-          conversions: 18,
-        },
-        orders: 18,
-      },
-    ]);
-
-    const result = await service.getTrends('14d', undefined, 'organization-1');
-
-    expect(result.accountSummary).not.toBeNull();
-    expect(result.accountSummary?.metrics.spend).toBe(319669); // 279486 + 40183
-    expect(result.accountSummary?.metrics.revenue).toBe(1830030);
-    // CVR uses orders as the conversion count (provider's `conversions`
-    // field carries revenue, not a count — see ad-account-kpi.query.ts).
-    expect(result.accountSummary?.metrics.conversions).toBe(47); // 29 + 18
-    expect(result.accountSummary?.orders).toBe(47);
-    expect(result.accountSummary?.periodDayCount).toBe(2);
-    expect(result.accountSummary?.latestBusinessDate).toBe('2026-04-30');
-    // Per-listing `daily` stays per-listing — never substituted by account series.
-    expect(result.daily).toHaveLength(0);
-    // Account series surfaces independently for the UI to render alongside.
-    expect(result.accountDaily).toHaveLength(2);
-    expect(result.accountDaily[0].metrics.spend).toBe(279486);
-  });
-
-  it('getTrends applies the same explicit date range to listing and account facts', async () => {
+  it('getTrends reads the inclusive explicit range from the ad window', async () => {
     const dateRange = {
       from: new Date('2026-07-01T00:00:00.000Z'),
       to: new Date('2026-07-24T00:00:00.000Z'),
     };
 
-    await service.getTrends('14d', undefined, 'organization-1', dateRange);
+    const trends = await service.getTrends('14d', undefined, 'organization-1', dateRange);
 
-    expect(campaignRepo.findAdTrendDailyRows).toHaveBeenCalledWith(
-      'organization-1',
-      dateRange,
-    );
-    expect(accountKpiRepo.findCoupangAdsDaily).toHaveBeenCalledWith(
-      'organization-1',
-      '14d',
-      dateRange,
-    );
+    expect(campaignRepo.findAdWindowDays).toHaveBeenCalledWith('organization-1', dateRange);
+    expect(trends.from).toBe('2026-07-01');
+    expect(trends.to).toBe('2026-07-24');
+    expect(trends.daily).toHaveLength(24);
   });
 
   it('getTrends applies an exact seven-day complete window through yesterday', async () => {
@@ -505,34 +348,95 @@ describe('AdCampaignsService', () => {
     try {
       const result = await service.getTrends('7d', undefined, 'organization-1');
 
-      const completeRange = {
+      expect(campaignRepo.findAdWindowDays).toHaveBeenCalledWith('organization-1', {
         from: new Date('2026-07-17T00:00:00.000Z'),
         to: new Date('2026-07-23T00:00:00.000Z'),
-      };
-      expect(campaignRepo.findAdTrendDailyRows).toHaveBeenCalledWith(
-        'organization-1',
-        completeRange,
-      );
-      expect(accountKpiRepo.findCoupangAdsDaily).toHaveBeenCalledWith(
-        'organization-1',
-        '7d',
-        completeRange,
-      );
+      });
       expect(result.knownThrough).toBe('2026-07-23');
+      expect(result.daily.map((day) => day.date)).toEqual([
+        '2026-07-17', '2026-07-18', '2026-07-19', '2026-07-20',
+        '2026-07-21', '2026-07-22', '2026-07-23',
+      ]);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  // organizationId propagation + period call-shape tests removed — covered by
-  // check:idor / check:tenant-scope scanners and ad-strategy-flow integration.
-  it('empty state — no daily rows returns explicit empty (legacy ignored)', async () => {
+  it('empty state — nothing measured publishes holes and an unavailable summary, never zeros', async () => {
     const campaigns = await service.getCampaigns('7d', 'organization-1');
     const trends = await service.getTrends('14d', undefined, 'organization-1');
 
     expect(campaigns).toEqual([]);
-    expect(trends.daily).toEqual([]);
-    expect(trends.firstHalf.spend).toBe(0);
-    expect(trends.secondHalf.spend).toBe(0);
+    expect(trends.daily.every((day) => day.metrics === null && day.orders === null)).toBe(true);
+    expect(trends.summary).toMatchObject({ periodDayCount: 0, metrics: null });
+    expect(trends.summary).not.toHaveProperty('source');
+  });
+});
+
+describe('AdCampaignsService.getKeywords conversion availability', () => {
+  function keywordRollup(
+    keyword: string,
+    overrides: Partial<KeywordTargetRollup> = {},
+  ): KeywordTargetRollup {
+    return {
+      targetKey: `account:11111111-1111-4111-8111-111111111111:keyword:campaign:1::${keyword}`,
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      campaignIdentity: 'campaign:1',
+      campaignId: '1',
+      campaignName: '쿠팡윙 집중광고',
+      adGroup: 'group-1',
+      keyword,
+      listingId: null,
+      listingOptionId: null,
+      externalOptionId: '95514044205',
+      status: null,
+      onOff: null,
+      currentBid: null,
+      metaJson: { 'advertising.keyword.target': { origin: 'smart_targeting' } },
+      lastObservedAt: new Date('2026-09-12T03:00:00.000Z'),
+      businessDate: new Date('2026-09-12T00:00:00.000Z'),
+      windowDays: 7,
+      spend: 1_000,
+      revenue: 0,
+      impressions: 100,
+      clicks: 20,
+      conversions: 0,
+      orders: 0,
+      conversionsObserved: true,
+      ...overrides,
+    };
+  }
+
+  it('rolls an unobserved keyword conversion column up as unavailable, never as zero', async () => {
+    const campaignRepo = buildMockAdCampaignRepo();
+    const listingRepo = buildMockAdListingRepo();
+    listingRepo.findScopedAdListings.mockResolvedValue(new Map());
+    campaignRepo.findKeywordTargetRollups.mockResolvedValue([
+      keywordRollup('비눗방울', { conversions: 1, orders: 1 }),
+      // The keyword table carried no conversion column: stored 0, unobserved.
+      keywordRollup('문어발', { conversionsObserved: false }),
+    ]);
+    const service = new AdCampaignsService(
+      campaignRepo as unknown as AdCampaignRepositoryPort,
+      listingRepo as unknown as AdListingRepositoryPort,
+      // The mock resolves no open keyword relevance proposal.
+      buildMockAdActionRepo() as unknown as AdActionRepositoryPort,
+      { getConfig: vi.fn() } as never,
+    );
+
+    const result = await service.getKeywords('7d', 'organization-1');
+
+    expect(result.keywords.map(({ keyword, conversionsAvailable, metrics }) => ({
+      keyword, conversionsAvailable, cvr: metrics.cvr,
+    }))).toEqual([
+      { keyword: '비눗방울', conversionsAvailable: true, cvr: 5 },
+      { keyword: '문어발', conversionsAvailable: false, cvr: null },
+    ]);
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]).toMatchObject({
+      keywordCount: 2,
+      conversionsAvailable: false,
+      metrics: { clicks: 40, cvr: null },
+    });
   });
 });

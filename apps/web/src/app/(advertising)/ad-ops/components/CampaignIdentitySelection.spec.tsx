@@ -168,4 +168,85 @@ describe('campaign account + identity selection', () => {
     expect(url).not.toContain('campaign=');
     expect(url).not.toContain(encodeURIComponent('동일 캠페인명'));
   });
+
+  it('sorts campaigns with an unmeasured ROAS after every measured ROAS', () => {
+    const named = (identity: string, name: string, roas: number | null) => ({
+      ...campaign('11111111-1111-4111-8111-111111111111', identity),
+      campaignName: name,
+      metrics: { ...metrics, roas },
+    }) satisfies AdCampaignSnapshot;
+
+    render(wrapper(
+      <CampaignTable
+        campaigns={[
+          named('campaign:unknown', 'ROAS 미측정', null),
+          named('campaign:zero', 'ROAS 0', 0),
+          named('campaign:high', 'ROAS 높음', 300),
+        ]}
+        sortBy="roas"
+        onSortChange={vi.fn()}
+        selectedCampaign={null}
+        onSelectCampaign={vi.fn()}
+      />,
+    ));
+
+    const names = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0]!.querySelector('span')?.textContent);
+    expect(names).toEqual(['ROAS 높음', 'ROAS 0', 'ROAS 미측정']);
+  });
+
+  it('renders unmeasured drill-down ratios as - without a ROAS color', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (url) =>
+      String(url).startsWith('/api/ads/products?')
+        ? [{
+            listing: null,
+            channelAccountId: '11111111-1111-4111-8111-111111111111',
+            campaignIdentity: 'campaign:idle',
+            externalId: 'P1',
+            externalOptionId: 'O1',
+            campaignId: 'idle',
+            campaignName: '무노출',
+            keyword: null,
+            status: '운영중',
+            onOff: 'ON',
+            productName: '무노출 상품',
+            imageUrl: null,
+            productUrl: null,
+            saleType: null,
+            period: '7d',
+            metrics: {
+              spend: 0,
+              revenue: 0,
+              impressions: 0,
+              clicks: 0,
+              conversions: 0,
+              ctr: null,
+              roas: null,
+              cvr: null,
+            },
+          }]
+        : { roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } } },
+    );
+
+    render(wrapper(
+      <ProductDrilldown
+        campaign={{
+          channelAccountId: '11111111-1111-4111-8111-111111111111',
+          campaignIdentity: 'campaign:idle',
+          campaignName: '무노출',
+        }}
+        period="7d"
+      />,
+    ));
+
+    const row = await screen.findByRole('row', { name: /무노출 상품/ });
+    const cells = within(row).getAllByRole('cell');
+    expect(cells[5]).toHaveTextContent('0원');
+    expect(cells[9]).toHaveTextContent(/^-$/);
+    expect(cells[11]).toHaveTextContent(/^-$/);
+    expect(cells[12]).toHaveTextContent(/^-$/);
+    expect(cells[12]!.className).not.toMatch(/text-(emerald|green|orange|red)-\d+/);
+  });
 });

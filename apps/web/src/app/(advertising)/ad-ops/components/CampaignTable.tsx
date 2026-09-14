@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { compareNullableLast } from '@/lib/nullable-sort';
 import { roasColor } from '../lib/status-colors';
 import type { AdCampaignSnapshot } from '@kiditem/shared/advertising';
 
@@ -40,9 +41,10 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
     const aHasMetrics = a.metricsAvailable !== false;
     const bHasMetrics = b.metricsAvailable !== false;
     if (aHasMetrics !== bHasMetrics) return aHasMetrics ? -1 : 1;
+    // An unmeasured ROAS has no rank; it follows every measured campaign.
     return sortBy === 'revenue'
       ? b.metrics.revenue - a.metrics.revenue
-      : (b.metrics.roas ?? 0) - (a.metrics.roas ?? 0);
+      : compareNullableLast(a.metrics.roas, b.metrics.roas, 'desc');
   });
 
   return (

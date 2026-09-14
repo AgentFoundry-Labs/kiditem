@@ -115,14 +115,16 @@ describe('ProductOutflow', () => {
     if (product.status !== 'matched' || !product.inventoryProduct) throw new Error('Expected matched product');
     const abc = product.inventoryProduct.abc;
     product.inventoryProduct.abc = {
-      ...abc, displayStatus: 'SELLPIA_SOURCE_STALE',
+      ...abc,
       sources: { ...abc.sources, sellpia: { ...abc.sources.sellpia, ready: false, latestAttemptState: 'FAILED' } },
     };
     productSalesApi.fetch.mockResolvedValueOnce(data);
     renderProductOutflow();
     const row = await screen.findByRole('row', { name: /계산 완료 상품/ });
     expect(within(row).getByLabelText('A등급')).toBeInTheDocument();
-    expect(within(row).getByText('원천 확인')).toHaveAttribute('title', expect.stringContaining('데이터 기준 2026-07-31'));
+    // The badge uses the one Product Hub word, not a stock-ops fold of both stale sources.
+    expect(within(row).getByText('Sellpia 원천 갱신 필요')).toHaveAttribute('title', expect.stringContaining('데이터 기준 2026-07-31'));
+    expect(within(row).queryByText('원천 확인')).not.toBeInTheDocument();
   });
 
 });
@@ -130,7 +132,7 @@ describe('ProductOutflow', () => {
 function summary(hasData: boolean): SellpiaProductSalesSummary {
   const rows = hasData ? [
     row('ready', '계산 완료 상품', productAbcReadModel()),
-    row('unmapped', '매핑 필요 상품', productAbcReadModel({ evaluation: null, displayStatus: 'SOURCE_UNMAPPED' })),
+    row('unmapped', '매핑 필요 상품', unmappedAbc()),
   ] : [];
   return {
     range: { from: '2026-07', to: '2026-07' },
@@ -166,6 +168,11 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
     unclassifiedProductCount: hasData ? 1 : 0,
     leadTimeMonths: 1,
   };
+}
+
+function unmappedAbc(): ReturnType<typeof productAbcReadModel> {
+  const abc = productAbcReadModel({ evaluation: null });
+  return { ...abc, sources: { ...abc.sources, mapping: { ...abc.sources.mapping, valid: false } } };
 }
 
 function row(

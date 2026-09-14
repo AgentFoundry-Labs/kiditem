@@ -15,6 +15,7 @@ import {
 import { RocketPoSourceController } from '../adapter/in/http/rocket-po-source.controller';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
+import { readRocketPoSource } from '../read/rocket-po-catalog.reader';
 import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
@@ -67,7 +68,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
-    const repository = new RocketPoCatalogRepositoryAdapter(prisma as never, alerts);
+    const repository = new RocketPoCatalogRepositoryAdapter(
+      prisma as never,
+      alerts,
+    );
     catalog = new RocketPoCatalogService(repository);
     const module = await Test.createTestingModule({
       controllers: [RocketPoSourceController],
@@ -83,7 +87,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         next: () => void,
       ) => {
         if (req.headers['x-test-org'])
-          req.authUser = { id: USER, organizationId: req.headers['x-test-org'] };
+          req.authUser = {
+            id: USER,
+            organizationId: req.headers['x-test-org'],
+          };
         next();
       },
     );
@@ -120,7 +127,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .get(`${base}/source?channelAccountId=${ACCOUNT}`)
       .set('x-test-org', ORG)
       .expect(200);
-  const finish = (attempt: { attemptId: string; attemptToken: string }, rows = [row('P1')]) =>
+  const finish = (
+    attempt: { attemptId: string; attemptToken: string },
+    rows: SubmittedRow[] = [row('P1')],
+  ) =>
     request(httpUrl)
       .put(`${base}/attempts/${attempt.attemptId}`)
       .set('x-test-org', ORG)
@@ -136,9 +146,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         ),
       ),
       new SellpiaInventoryFreshnessService(
-        new SellpiaInventoryFreshnessRepositoryAdapter(
-          prisma as never,
-        ),
+        new SellpiaInventoryFreshnessRepositoryAdapter(prisma as never),
       ),
     );
   it('freezes an authorized plan, replays the same begin, and rejects a distinct concurrent start', async () => {
@@ -150,7 +158,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       plan: {
         ...plan,
         sourceType: 'coupang_rocket_po_catalog',
-        vendorExpectations: { rocketVendorId: 'V1', sharedCoupangVendorId: null },
+        vendorExpectations: {
+          rocketVendorId: 'V1',
+          sharedCoupangVendorId: null,
+        },
       },
     });
     expect((await start(key).expect(201)).body).toEqual(first.body);
@@ -170,18 +181,24 @@ describe('Rocket owner public HTTP + disposable PG', () => {
   it('publishes exact B, retains A, preserves B on failure, and lets empty COMPLETE become current', async () => {
     const a = (await start()).body;
     await finish(a).expect(200);
+    await expect(
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: a.attemptId } }),
+    ).resolves.toMatchObject({ status: 'completed' });
     const b = (await start()).body;
     await finish(b, [row('P2')]).expect(200);
     const scope = { organizationId: ORG, channelAccountId: ACCOUNT };
+    const replayed = await catalog.loadSavedCollection({
+      ...scope,
+      sourceImportRunId: a.attemptId,
+    });
+    expect(replayed?.rows.map((r) => r.productNo)).toEqual(['P1']);
+    expect(replayed?.collection).toEqual(
+      submission(a.attemptId, [row('P1')]).collection,
+    );
     expect(
-      (await catalog.loadSavedCollection({ ...scope, sourceImportRunId: a.attemptId }))?.rows.map(
-        (r) => r.productNo,
-      ),
-    ).toEqual(['P1']);
-    expect(
-      (await catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })).map(
-        (r) => r.firstProductName,
-      ),
+      (
+        await catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })
+      ).map((r) => r.firstProductName),
     ).toEqual(['P2 item']);
     const failed = (await start()).body;
     await request(httpUrl)
@@ -201,10 +218,81 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       ready: true,
       latestComplete: { attemptId: empty.attemptId, state: 'COMPLETE' },
     });
-    expect(await catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })).toEqual([]);
     expect(
-      (await catalog.loadSavedCollection({ ...scope, sourceImportRunId: empty.attemptId }))?.rows,
+      await catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to }),
     ).toEqual([]);
+    expect(
+      (
+        await catalog.loadSavedCollection({
+          ...scope,
+          sourceImportRunId: empty.attemptId,
+        })
+      )?.rows,
+    ).toEqual([]);
+  });
+  it('keeps a PO amount unknown when a listed line has no confirmed total', async () => {
+    const attempt = (
+      await start(randomUUID(), { ...plan, requireConfirmation: false })
+    ).body;
+    const completed = await finish(attempt, [
+      { ...row('P1'), poNumber: '2001' },
+      { ...row('P2'), poNumber: '2001', confirmation: undefined },
+      { ...row('P3'), poNumber: '2002' },
+    ]).expect(200);
+    expect(completed.body.state).toBe('COMPLETE');
+
+    const summaries = await catalog.listSavedPos({
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      from: plan.from,
+      to: plan.to,
+    });
+
+    // An unconfirmed line has no provider total, so its PO amount is unknown,
+    // not the sum of the confirmed lines.
+    expect(
+      summaries.map(({ poNumber, skuCount, orderQuantity, orderAmount }) => ({
+        poNumber,
+        skuCount,
+        orderQuantity,
+        orderAmount,
+      })),
+    ).toEqual([
+      { poNumber: '2001', skuCount: 2, orderQuantity: 8, orderAmount: null },
+      { poNumber: '2002', skuCount: 1, orderQuantity: 4, orderAmount: 3960 },
+    ]);
+  });
+  it('dates the COMPLETE cutoff by its KST business day across the 00:30 KST boundary', async () => {
+    const attempt = (await start()).body;
+    await finish(attempt).expect(200);
+    // 2026-09-14 00:30 KST is still 2026-09-13 in UTC.
+    const importedAt = new Date('2026-09-13T15:30:00.000Z');
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { importedAt },
+    });
+    const readAt = (now: string) =>
+      prisma.$transaction((tx) =>
+        readRocketPoSource(tx, {
+          organizationId: ORG,
+          channelAccountId: ACCOUNT,
+          now: new Date(now),
+        }),
+      );
+
+    // At 2026-09-15 00:40 KST the required cutoff is 2026-09-14, the
+    // import's KST business day.
+    await expect(readAt('2026-09-14T15:40:00.000Z')).resolves.toMatchObject({
+      ready: true,
+      latestComplete: {
+        attemptId: attempt.attemptId,
+        actualCutoffAt: importedAt.toISOString(),
+      },
+    });
+    // One KST day later the same import no longer covers the required cutoff.
+    await expect(readAt('2026-09-15T15:40:00.000Z')).resolves.toMatchObject({
+      ready: false,
+    });
   });
   it('serializes concurrent begins into one account attempt without losing same-key replay', async () => {
     const key = randomUUID();
@@ -227,7 +315,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
   });
   it('rejects frozen vendor drift even when the later provider observation is empty', async () => {
     const a = (await start()).body;
-    await prisma.channelAccount.update({ where: { id: ACCOUNT }, data: { vendorId: 'CHANGED' } });
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT },
+      data: { vendorId: 'CHANGED' },
+    });
     expect((await finish(a, []).expect(200)).body).toMatchObject({
       state: 'FAILED',
       errorCode: 'ROCKET_PO_VENDOR_MISMATCH',
@@ -238,7 +329,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     const a = (await start()).body;
     await finish(a).expect(200);
     const b = (await start()).body;
-    await prisma.channelAccount.update({ where: { id: ACCOUNT }, data: { status: 'inactive' } });
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT },
+      data: { status: 'inactive' },
+    });
     expect((await finish(b).expect(200)).body).toMatchObject({
       state: 'FAILED',
       errorCode: 'ROCKET_PO_ACCOUNT_UNAVAILABLE',
@@ -249,7 +343,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       latestComplete: { attemptId: a.attemptId },
     });
     await start().expect(404);
-    await start(randomUUID(), { ...plan, channelAccountId: randomUUID() }).expect(404);
+    await start(randomUUID(), {
+      ...plan,
+      channelAccountId: randomUUID(),
+    }).expect(404);
     await request(httpUrl)
       .post(`${base}/attempts`)
       .set('x-test-org', randomUUID())
@@ -263,7 +360,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await start().expect(404);
   });
   it('rejects conflicting known Wing vendor without claiming a blank Rocket vendor', async () => {
-    await prisma.channelAccount.update({ where: { id: ACCOUNT }, data: { vendorId: null } });
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT },
+      data: { vendorId: null },
+    });
     await prisma.channelAccount.create({
       data: {
         organizationId: ORG,
@@ -280,7 +380,11 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       errorCode: 'ROCKET_PO_VENDOR_MISMATCH',
     });
     expect(
-      (await prisma.channelAccount.findUniqueOrThrow({ where: { id: ACCOUNT } })).vendorId,
+      (
+        await prisma.channelAccount.findUniqueOrThrow({
+          where: { id: ACCOUNT },
+        })
+      ).vendorId,
     ).toBeNull();
     expect(await prisma.channelListingOption.count()).toBe(0);
   });
@@ -293,8 +397,15 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       confirmation: { ...row('P1').confirmation, poStatus },
     }));
     await finish(a, rows).expect(200);
-    const scope = { organizationId: ORG, channelAccountId: ACCOUNT, from: plan.from, to: plan.to };
-    expect(await catalog.listSavedPos({ ...scope, status: '거래처확인요청' })).toHaveLength(2);
+    const scope = {
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      from: plan.from,
+      to: plan.to,
+    };
+    expect(
+      await catalog.listSavedPos({ ...scope, status: '거래처확인요청' }),
+    ).toHaveLength(2);
     expect(
       await catalog.loadSavedCollection({
         ...scope,
@@ -304,7 +415,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     ).toBeNull();
     await prisma.sourceImportRun.update({
       where: { id: a.attemptId },
-      data: { status: 'completed', parserVersion: null, plan: {} },
+      data: { status: 'complete', parserVersion: null, plan: {} },
     });
     expect((await readSource()).body).toMatchObject({
       ready: false,
@@ -313,13 +424,16 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     });
     expect(await catalog.listSavedPos(scope)).toEqual([]);
     expect(
-      await catalog.loadSavedCollection({ ...scope, sourceImportRunId: a.attemptId }),
+      await catalog.loadSavedCollection({
+        ...scope,
+        sourceImportRunId: a.attemptId,
+      }),
     ).toBeNull();
     const b = (await start()).body;
     await finish(b, [row('NEW')]).expect(200);
-    expect((await catalog.listSavedPos(scope)).map((po) => po.firstProductName)).toEqual([
-      'NEW item',
-    ]);
+    expect(
+      (await catalog.listSavedPos(scope)).map((po) => po.firstProductName),
+    ).toEqual(['NEW item']);
     expect(await prisma.rocketPoCatalogSnapshot.count()).toBe(2);
     expect(await prisma.rocketPoCatalogLine.count()).toBe(4);
   });
@@ -345,9 +459,14 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       { productNo: 'P1', orderQuantity: 4, reason: 'mapping_required' },
     ]);
     expect(result.catalog).toMatchObject({ sourceImportRunId: a.attemptId });
-    expect((await readSource()).body.latestComplete.attemptId).toBe(b.attemptId);
+    expect((await readSource()).body.latestComplete.attemptId).toBe(
+      b.attemptId,
+    );
     await expect(
-      preview.preview({ ...input, request: { ...input.request, rows: [] } as never }),
+      preview.preview({
+        ...input,
+        request: { ...input.request, rows: [] } as never,
+      }),
     ).rejects.toThrow();
     await expect(
       preview.preview({
@@ -418,7 +537,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       previewService(),
       new RocketPurchaseConfirmationTransactionAdapter(
         prisma as never,
-        new RocketWorkbookProgressService(new RocketWorkbookProgressRepositoryAdapter()),
+        new RocketWorkbookProgressService(
+          new RocketWorkbookProgressRepositoryAdapter(),
+        ),
       ),
       catalog,
     );
@@ -448,9 +569,16 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       duplicate: true,
     });
     expect(
-      (await service.downloadWorkbook({ organizationId: ORG, exportId: first.exportId })).bytes,
+      (
+        await service.downloadWorkbook({
+          organizationId: ORG,
+          exportId: first.exportId,
+        })
+      ).bytes,
     ).toEqual(input.artifactBytes);
-    expect((await readSource()).body.latestComplete.attemptId).toBe(a.attemptId);
+    expect((await readSource()).body.latestComplete.attemptId).toBe(
+      a.attemptId,
+    );
   });
   it('replays canonical terminal content but a new identical capture gets its own generation', async () => {
     const a = (await start()).body;
@@ -463,7 +591,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .set('x-source-attempt-token', a.attemptToken)
       .send({
         proof: payload.proof,
-        rows: payload.rows.map(({ productNo, ...rest }) => ({ productNo, ...rest })),
+        rows: payload.rows.map(({ productNo, ...rest }) => ({
+          productNo,
+          ...rest,
+        })),
         collection: payload.collection,
       })
       .expect(200);
@@ -472,7 +603,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     const b = (await start()).body;
     expect(b.generation).toBe('2');
     await finish(b, rows).expect(200);
-    expect((await readSource()).body.latestComplete.attemptId).toBe(b.attemptId);
+    expect((await readSource()).body.latestComplete.attemptId).toBe(
+      b.attemptId,
+    );
   });
   it('fences organization, token, observed plan, missing proof and terminal state', async () => {
     const a = (await start()).body;
@@ -534,14 +667,24 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       errorCode: 'ATTEMPT_EXPIRED',
     });
     expect(
-      (await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: a.attemptId } })).status,
+      (
+        await prisma.sourceImportRun.findUniqueOrThrow({
+          where: { id: a.attemptId },
+        })
+      ).status,
     ).toBe('running');
     await finish(a).expect(409);
     expect((await start()).body.generation).toBe('2');
     expect(
-      (await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: a.attemptId } })).status,
+      (
+        await prisma.sourceImportRun.findUniqueOrThrow({
+          where: { id: a.attemptId },
+        })
+      ).status,
     ).toBe('failed');
-    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(1);
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(
+      1,
+    );
   });
   it.each([
     { truncated: true },
@@ -568,7 +711,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       });
       expect((await submit().expect(200)).body.state).toBe('FAILED');
       expect((await readSource()).body.latestComplete).toBeNull();
-      expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(1);
+      expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(
+        1,
+      );
     },
   );
   it('rolls back COMPLETE facts and FAILED status when the owner Alert write fails', async () => {
@@ -589,7 +734,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       await fail().expect(500);
       expect((await readSource()).body.latestAttempt.state).toBe('RUNNING');
     } finally {
-      await prisma.$executeRawUnsafe('DROP TRIGGER reject_rocket_alert ON alerts');
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER reject_rocket_alert ON alerts',
+      );
     }
     await fail().expect(201);
     const b = (await start()).body;
@@ -605,7 +752,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       expect(await prisma.rocketPoCatalogSnapshot.count()).toBe(0);
       expect(await prisma.channelListingOption.count()).toBe(0);
     } finally {
-      await prisma.$executeRawUnsafe('DROP TRIGGER reject_rocket_alert ON alerts');
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER reject_rocket_alert ON alerts',
+      );
       await prisma.$executeRawUnsafe('DROP FUNCTION reject_rocket_alert()');
     }
     await finish(b).expect(200);
@@ -634,7 +783,10 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     },
   );
   it('claims configured blank vendors only from nonempty evidence and preserves confirmed recipes on recollection', async () => {
-    await prisma.channelAccount.update({ where: { id: ACCOUNT }, data: { vendorId: null } });
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT },
+      data: { vendorId: null },
+    });
     const wing = await prisma.channelAccount.create({
       data: {
         organizationId: ORG,
@@ -648,12 +800,20 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     const empty = (await start()).body;
     await finish(empty, []).expect(200);
     expect(
-      (await prisma.channelAccount.findUniqueOrThrow({ where: { id: ACCOUNT } })).vendorId,
+      (
+        await prisma.channelAccount.findUniqueOrThrow({
+          where: { id: ACCOUNT },
+        })
+      ).vendorId,
     ).toBeNull();
     const a = (await start()).body;
     await finish(a).expect(200);
     expect(
-      (await prisma.channelAccount.findUniqueOrThrow({ where: { id: wing.id } })).vendorId,
+      (
+        await prisma.channelAccount.findUniqueOrThrow({
+          where: { id: wing.id },
+        })
+      ).vendorId,
     ).toBe('V1');
     const option = await prisma.channelListingOption.findFirstOrThrow({
       where: { organizationId: ORG, externalOptionId: 'P1' },
@@ -662,7 +822,12 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       data: { organizationId: ORG, code: 'KEEP', name: 'Keep' },
     });
     const sku = await prisma.sellpiaInventorySku.create({
-      data: { organizationId: ORG, code: 'KEEP', name: 'Keep', currentStock: 7 },
+      data: {
+        organizationId: ORG,
+        code: 'KEEP',
+        name: 'Keep',
+        currentStock: 7,
+      },
     });
     await prisma.channelListing.update({
       where: { id: option.listingId },
@@ -682,8 +847,11 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await finish(c).expect(200);
     expect(await prisma.masterProduct.count()).toBe(1);
     expect(
-      (await prisma.channelListing.findUniqueOrThrow({ where: { id: option.listingId } }))
-        .masterProductId,
+      (
+        await prisma.channelListing.findUniqueOrThrow({
+          where: { id: option.listingId },
+        })
+      ).masterProductId,
     ).toBe(master.id);
     expect(
       await prisma.channelListingOptionInventoryComponent.findMany({
@@ -692,12 +860,20 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       }),
     ).toEqual([{ sellpiaInventorySkuId: sku.id, quantity: 2 }]);
     expect(
-      (await prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: sku.id } })).currentStock,
+      (
+        await prisma.sellpiaInventorySku.findUniqueOrThrow({
+          where: { id: sku.id },
+        })
+      ).currentStock,
     ).toBe(7);
   });
   it('keeps explicit generic evidence distinct from confirmation requirements without limiting provider pages', async () => {
     const generic = (
-      await start(randomUUID(), { ...plan, requireConfirmation: false, status: 'PA' })
+      await start(randomUUID(), {
+        ...plan,
+        requireConfirmation: false,
+        status: 'PA',
+      })
     ).body;
     const rows = Array.from({ length: 63 }, (_, index) => ({
       ...row(`P${index}`),
@@ -715,10 +891,13 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .send(payload)
       .expect(200);
     const strict = (await start()).body;
-    expect((await finish(strict, [{ ...row('P1'), barcode: '' }]).expect(200)).body.state).toBe(
-      'FAILED',
+    expect(
+      (await finish(strict, [{ ...row('P1'), barcode: '' }]).expect(200)).body
+        .state,
+    ).toBe('FAILED');
+    expect((await readSource()).body.latestComplete.attemptId).toBe(
+      generic.attemptId,
     );
-    expect((await readSource()).body.latestComplete.attemptId).toBe(generic.attemptId);
   });
   it('accepts and measures the existing 4,000-line one-shot range using bulk identity writes', async () => {
     const a = (await start()).body;
@@ -726,7 +905,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       ...row(`PRODUCT-${index}`),
       poNumber: String(100000 + index),
     }));
-    const payloadBytes = Buffer.byteLength(JSON.stringify(submission(a.attemptId, rows)));
+    const payloadBytes = Buffer.byteLength(
+      JSON.stringify(submission(a.attemptId, rows)),
+    );
     dbOperations.length = 0;
     const started = performance.now();
     await finish(a, rows).expect(200);
@@ -784,7 +965,10 @@ function row(productNo: string) {
     },
   };
 }
-function submission(attemptId: string, rows: ReturnType<typeof row>[]) {
+type SubmittedRow = Omit<ReturnType<typeof row>, 'confirmation'> & {
+  confirmation?: ReturnType<typeof row>['confirmation'];
+};
+function submission(attemptId: string, rows: SubmittedRow[]) {
   return {
     collection: {
       collectionRunId: attemptId,

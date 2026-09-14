@@ -1,4 +1,5 @@
 import { recomputeRoas } from './util/ratio-recompute';
+import { channelAccountSalesCosts } from '../../channels/domain/channel-account-sales-costs';
 import type { AdActionTargetType } from './model/strategy-types';
 import type { LatestTargetRow } from '../application/port/out/repository/ad-action.repository.port';
 
@@ -56,7 +57,7 @@ export function createActionCandidate(
     sellPrice: row.listingOptionId
       ? channelSkuEvidenceMap.get(row.listingOptionId)?.salePrice ?? null
       : null,
-    commissionRate: row.optionCommissionRate,
+    channel: row.listingChannel,
   });
   const targetLabel =
     row.keyword ||
@@ -93,6 +94,7 @@ export function createActionCandidate(
 
   // Rule 2 & 3: keyword pause / bid change
   if (row.targetType === 'keyword') {
+    // `null` conversions were not observed; only an observed zero is zero.
     const zeroConversionSpend = row.conversions === 0 && row.spend >= 5000;
     const poorRoas = roas > 0 && roas < 100;
 
@@ -182,19 +184,26 @@ export function createActionCandidate(
   return null;
 }
 
+/**
+ * Option margin as a percentage of the sale price, or `null` when it is not
+ * measurable (KID-114). Purchase cost is the confirmed recipe priced at the
+ * Sellpia purchase price; an unknown cost is never counted as 0. Whether a
+ * sales commission and an other per-sale cost apply is the listing channel
+ * account's rule: Rocket direct purchase applies neither, and an account that
+ * carries them has no measured value yet, so its margin is unknown. A rule
+ * that escalates on a negative margin therefore stays neutral.
+ */
 export function calcProfitRate(option: {
   costPrice: number | null;
   sellPrice: number | null;
-  commissionRate: number | null;
+  channel: string | null;
 }): number | null {
-  const cost = option.costPrice ?? 0;
-  const sell = option.sellPrice ?? 0;
-  if (sell <= 0) return null;
-  const commission =
-    option.commissionRate != null ? Number(option.commissionRate) : 0;
-  const commissionFee = sell * commission;
-  const profit = sell - cost - commissionFee;
-  return Math.round((profit / sell) * 10000) / 100;
+  const sell = option.sellPrice;
+  if (sell === null || sell <= 0) return null;
+  if (option.costPrice === null || option.channel === null) return null;
+  const costs = channelAccountSalesCosts({ channel: option.channel });
+  if (costs.salesCommissionApplies || costs.otherCostApplies) return null;
+  return Math.round(((sell - option.costPrice) / sell) * 10000) / 100;
 }
 
 function basePayload(

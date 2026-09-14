@@ -1,8 +1,5 @@
 import { apiClient } from "@/lib/api-client";
 
-export type CompetitorCollectionStatus =
-  "catalog_empty" | "not_configured" | "not_collected" | "ready";
-
 export interface MatchedOwnProduct {
   vendorItemId: string;
   skuId: string;
@@ -84,14 +81,14 @@ export interface CompetitorSeller {
 
 export interface CompetitorTrackingOverview {
   periodDays: number;
+  /** Counts only; `competitorCollectionStatus` derives the collection word. */
   collection: {
-    status: CompetitorCollectionStatus;
     ownProductCount: number;
     wingProductCount: number;
     storefrontProductCount: number;
-    storefrontStatus: "ready" | "unavailable";
     trackerCount: number;
     enabledTrackerCount: number;
+    serpSnapshotCount: number;
     trackedKeywords: string[];
     suggestedKeywords: string[];
     watchedCompetitors: Array<{

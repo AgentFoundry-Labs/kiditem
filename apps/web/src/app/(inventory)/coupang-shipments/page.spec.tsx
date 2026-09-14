@@ -37,8 +37,8 @@ const items = [
   },
   {
     date: "2026-06-20",
-    count: 2,
-    boxes: 2,
+    count: null,
+    boxes: null,
     capturedAt: "2026-06-20T00:00:00Z",
     verified: false,
   },
@@ -106,6 +106,8 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
       "bg-purple-50",
     );
     expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
+    expect(screen.getAllByText("미측정").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0건")).not.toBeInTheDocument();
     expect(calls.every((call) => !call.method || call.method === "GET")).toBe(
       true,
     );
@@ -164,5 +166,27 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     ).toBeInTheDocument();
     expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
     expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+  it("keeps the last known shipment status beside a light hint when a later owner read fails", async () => {
+    mount();
+    expect(await screen.findByText(/최근 조회 결과 1일/)).toBeInTheDocument();
+
+    // A non-retryable read failure keeps this deterministic without fake timers.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url, "http://localhost").pathname;
+        return path.endsWith("/date-summary/source")
+          ? Response.json({ message: "denied" }, { status: 403 })
+          : Response.json(path.endsWith("/date-summary") ? { items } : { days: [] });
+      }),
+    );
+    await clients[0].invalidateQueries();
+
+    expect(await screen.findByText("상태를 다시 확인하는 중")).toBeInTheDocument();
+    expect(screen.getByText(/최근 조회 결과 1일/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("쉽먼트 조회 상태를 불러오지 못했습니다."),
+    ).not.toBeInTheDocument();
   });
 });

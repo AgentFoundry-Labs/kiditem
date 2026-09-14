@@ -4,7 +4,11 @@ This repo is multi-context. Each workspace below is a context with its own
 `CLAUDE.md` (binding rules) and, once `/domain-modeling` has reason to create
 one, its own `CONTEXT.md` (domain glossary).
 
-Consumer rules for these files: [docs/agents/domain.md](docs/agents/domain.md).
+Use the glossary for each affected context and its relevant ADRs. Glossaries
+hold domain terminology; `CLAUDE.md` holds rules; ADRs hold settled decisions
+and rationale. Surface conflicts with an ADR rather than silently overriding
+it. In-flight design lives in the linked Linear spec issue. Missing glossaries
+or scoped ADR directories do not block exploration.
 
 | Context | Rules | Glossary | Scoped ADRs |
 | --- | --- | --- | --- |
@@ -25,5 +29,5 @@ sourcing, …). Treat the nearest one as the context for work inside it.
 System-wide decisions live in `docs/adr/`.
 
 `CONTEXT.md` files are created **lazily**, one term at a time, when a domain
-concept actually needs pinning down. Do not scaffold them empty. So far only
-`apps/server/CONTEXT.md` exists.
+concept actually needs pinning down. Do not scaffold them empty. So far
+`apps/server/CONTEXT.md` and `extensions/CONTEXT.md` exist.

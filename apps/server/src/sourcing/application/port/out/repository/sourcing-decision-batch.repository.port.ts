@@ -40,13 +40,13 @@ export interface SourcingDecisionBatchItemRecord {
   riskCodes: string[];
   modelOutput: Record<string, unknown>;
   createdAt: Date;
-  evidence: SourcingDecisionEvidenceRecord[];
 }
 
 export interface SourcingDecisionBatchItemWithBatchRecord
   extends SourcingDecisionBatchItemRecord {
   decisionBatchStatus: string;
   decisionBatchExpiresAt: Date;
+  evidence: SourcingDecisionEvidenceRecord[];
 }
 
 export interface SourcingDecisionBatchRecord {

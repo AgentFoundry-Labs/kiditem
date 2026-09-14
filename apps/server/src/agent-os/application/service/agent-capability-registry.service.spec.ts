@@ -14,7 +14,7 @@ const definition = (
   outputSchema: z.object({}),
   effects: ["read"],
   approvalRisk: "none",
-  idempotency: "none",
+  idempotency: "recommended",
   ownerInputPort: "products.inspect",
   ...overrides,
 } as CapabilityDefinition);

@@ -265,7 +265,9 @@ export function RocketInlineRecipeEditor({
                       </p>
                       <p className="mt-0.5 truncate text-[11px] text-slate-500">
                         {candidate.optionName ?? "옵션 없음"} · 현재고{" "}
-                        {candidate.currentStock.toLocaleString("ko-KR")}
+                        {candidate.currentStock === null
+                          ? "미수집"
+                          : candidate.currentStock.toLocaleString("ko-KR")}
                       </p>
                     </div>
                     <button
@@ -306,7 +308,9 @@ export function RocketInlineRecipeEditor({
                     </p>
                     <p className="mt-0.5 truncate text-[11px] text-slate-500">
                       {component.optionName ?? "옵션 없음"} · 현재고{" "}
-                      {component.currentStock.toLocaleString("ko-KR")}
+                      {component.currentStock === null
+                        ? "미수집"
+                        : component.currentStock.toLocaleString("ko-KR")}
                     </p>
                   </div>
                   <label className="text-[11px] font-semibold text-slate-600">

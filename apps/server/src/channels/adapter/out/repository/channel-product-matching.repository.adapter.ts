@@ -5,12 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-} from '@kiditem/shared/coupang-catalog-snapshot';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  completedCatalogRunWhere,
+  publishedCatalogOptionWhere,
+} from '../../../read/completed-catalog-run';
+import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
+import {
+  readActiveInventoryMatchingCandidates,
+  readInventorySkuIdentities,
+} from '../../../../inventory/read/inventory-availability';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
 import {
   rankChannelRecipeNameCandidates,
@@ -29,17 +34,10 @@ import type {
 } from '../../../application/port/out/repository/channel-product-matching.repository.port';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
-const COMPLETED_CATALOG_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  'coupang_rocket_catalog_seed',
-  'coupang_rocket_po_catalog',
-  'coupang_rocket_matching_csv',
-] as const;
-const CATALOG_OWNER_PARSER_VERSION = 'coupang-catalog-owner-v1';
-const PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES = [
-  'coupang_catalog_basics',
-  'coupang_catalog_details',
-] as const;
+const READ_TRANSACTION_OPTIONS = {
+  ...TRANSACTION_OPTIONS,
+  isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+} as const;
 
 function listingSelect(organizationId: string) {
   return {
@@ -54,15 +52,6 @@ function listingSelect(organizationId: string) {
     isActive: true,
     channelAccount: {
       select: { id: true, channel: true, name: true },
-    },
-    channelListingDailySnapshots: {
-      where: { organizationId },
-      orderBy: [
-        { businessDate: 'desc' as const },
-        { lastObservedAt: 'desc' as const },
-      ],
-      take: 1,
-      select: { saleStatus: true },
     },
     masterProduct: {
       select: { id: true, code: true, name: true, imageUrls: true },
@@ -86,16 +75,6 @@ function listingSelect(organizationId: string) {
             id: true,
             sellpiaInventorySkuId: true,
             quantity: true,
-            sellpiaInventorySku: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                optionName: true,
-                barcode: true,
-                purchasePrice: true,
-              },
-            },
           },
           },
         },
@@ -103,9 +82,28 @@ function listingSelect(organizationId: string) {
   };
 }
 
-type ListingRow = Prisma.ChannelListingGetPayload<{
+type RawListingRow = Prisma.ChannelListingGetPayload<{
   select: ReturnType<typeof listingSelect>;
 }>;
+type RawOptionRow = RawListingRow['options'][number];
+type RawComponentRow = RawOptionRow['inventoryComponents'][number];
+type InventorySkuReadModel = Awaited<
+  ReturnType<typeof readInventorySkuIdentities>
+>[number];
+type InventorySkuIdentity = Omit<
+  InventorySkuReadModel,
+  'sellpiaInventorySkuId'
+> & { id: string };
+type ListingRow = Omit<RawListingRow, 'options'> & {
+  options: Array<Omit<RawOptionRow, 'inventoryComponents'> & {
+    inventoryComponents: Array<RawComponentRow & {
+      sellpiaInventorySku: InventorySkuIdentity;
+    }>;
+  }>;
+};
+type ListingWithSaleStatus = ListingRow & {
+  latestSnapshotSaleStatus: string | null;
+};
 type OptionRow = ListingRow['options'][number];
 type ActiveSellpiaSku = {
   id: string;
@@ -114,7 +112,7 @@ type ActiveSellpiaSku = {
   optionName: string | null;
   barcode: string | null;
   masterProductId: string | null;
-  currentStock: number;
+  currentStock: number | null;
 };
 
 @Injectable()
@@ -130,7 +128,21 @@ implements ChannelProductMatchingRepositoryPort {
     organizationId: string,
     query: { channelAccountId?: string; search?: string },
   ) {
-    const listings = await this.loadListings(organizationId, query, 'matching');
+    const listings = await this.prisma.$transaction(async (tx) => {
+      const listingRows = await this.loadListings(tx, organizationId, query, 'matching');
+      const statusFacts = await readLatestListingSaleStatusFacts(tx, {
+        organizationId,
+        listingIds: listingRows.map((listing) => listing.id),
+      });
+      const latestStatus = new Map(statusFacts.map((fact) => [
+        fact.listingId,
+        fact.saleStatus,
+      ]));
+      return listingRows.map((listing): ListingWithSaleStatus => ({
+        ...listing,
+        latestSnapshotSaleStatus: latestStatus.get(listing.id) ?? null,
+      }));
+    }, READ_TRANSACTION_OPTIONS);
     const products = listings.map(toProductQueueRow);
     const options = listings.flatMap((listing) =>
       listing.options.map((option) => toOptionQueueRow(listing, option)));
@@ -201,9 +213,7 @@ implements ChannelProductMatchingRepositoryPort {
               select: {
                 inventoryComponents: {
                   where: { organizationId },
-                  select: {
-                    sellpiaInventorySku: { select: { barcode: true } },
-                  },
+                  select: { sellpiaInventorySkuId: true },
                 },
               },
             },
@@ -212,6 +222,21 @@ implements ChannelProductMatchingRepositoryPort {
       },
       orderBy: [{ code: 'asc' }, { id: 'asc' }],
     });
+    const inventorySkuIds = [
+      ...new Set(candidates.flatMap((candidate) =>
+        candidate.channelListings.flatMap((channelListing) =>
+          channelListing.options.flatMap((option) =>
+            option.inventoryComponents.map((component) =>
+              component.sellpiaInventorySkuId))))),
+    ];
+    const identities = await readInventorySkuIdentities(this.prisma, {
+      organizationId,
+      selector: { kind: 'ids', values: inventorySkuIds },
+    });
+    const barcodeBySkuId = new Map(identities.map((identity) => [
+      identity.sellpiaInventorySkuId,
+      identity.barcode,
+    ]));
     const raw = asRecord(listing.rawJson);
     return {
       listingId: listing.id,
@@ -229,8 +254,8 @@ implements ChannelProductMatchingRepositoryPort {
         brand: candidate.brand,
         barcodes: distinctStrings(candidate.channelListings.flatMap((listing) =>
           listing.options.flatMap((option) => option.inventoryComponents.map(
-            (component) => component.sellpiaInventorySku.barcode,
-          )))),
+            (component) => barcodeBySkuId.get(component.sellpiaInventorySkuId),
+          ))).filter((value): value is string | null => value !== undefined)),
       })),
     };
   }
@@ -296,7 +321,6 @@ implements ChannelProductMatchingRepositoryPort {
                     sellpiaInventorySkuId: true,
                     quantity: true,
                     createdAt: true,
-                    sellpiaInventorySku: { select: { code: true } },
                   },
                 },
               },
@@ -309,9 +333,6 @@ implements ChannelProductMatchingRepositoryPort {
             normalizedAlias: true,
             sellpiaInventorySkuId: true,
             itemCount: true,
-            sellpiaInventorySku: {
-              select: { masterProductId: true, isActive: true },
-            },
           },
         }),
       ]);
@@ -321,18 +342,32 @@ implements ChannelProductMatchingRepositoryPort {
         rows.push(alias);
         aliasesByName.set(alias.normalizedAlias, rows);
       }
-      const activeSkus: ActiveSellpiaSku[] = await tx.sellpiaInventorySku.findMany({
-        where: { organizationId: input.organizationId, isActive: true },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          optionName: true,
-          barcode: true,
-          masterProductId: true,
-          currentStock: true,
-        },
+      const activeSkus: ActiveSellpiaSku[] =
+        await readActiveInventoryMatchingCandidates(tx, input.organizationId);
+      const referencedSkuIds = [...new Set([
+        ...listings.flatMap((listing) => listing.options.flatMap((option) =>
+          option.inventoryComponents.map((component) =>
+            component.sellpiaInventorySkuId))),
+        ...aliases.map((alias) => alias.sellpiaInventorySkuId),
+      ])];
+      const referencedIdentities = await readInventorySkuIdentities(tx, {
+        organizationId: input.organizationId,
+        selector: { kind: 'ids', values: referencedSkuIds },
       });
+      const identityById = new Map([
+        ...activeSkus.map((sku) => ({
+          sellpiaInventorySkuId: sku.id,
+          code: sku.code,
+          name: sku.name,
+          optionName: sku.optionName,
+          barcode: sku.barcode,
+          purchasePrice: null,
+          salePrice: null,
+          isActive: true,
+          masterProductId: sku.masterProductId,
+        })),
+        ...referencedIdentities,
+      ].map((identity) => [identity.sellpiaInventorySkuId, identity]));
       const activeSkusByBarcode = new Map<string, ActiveSellpiaSku[]>();
       for (const sku of activeSkus) {
         const barcode = normalizePhysicalBarcode(sku.barcode);
@@ -419,7 +454,7 @@ implements ChannelProductMatchingRepositoryPort {
             options,
             existingComponents: option.inventoryComponents.map((component) => ({
               sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-              code: component.sellpiaInventorySku?.code ?? '',
+              code: identityById.get(component.sellpiaInventorySkuId)?.code ?? '',
               quantity: component.quantity,
               source: 'manual' as const,
               confirmedBy: null,
@@ -481,7 +516,10 @@ implements ChannelProductMatchingRepositoryPort {
       listingIds?: string[];
     },
   ): Promise<ChannelAvailabilityRepositoryRow[]> {
-    const listings = await this.loadListings(organizationId, query, 'availability');
+    const listings = await this.prisma.$transaction(
+      (tx) => this.loadListings(tx, organizationId, query, 'availability'),
+      READ_TRANSACTION_OPTIONS,
+    );
     return listings.flatMap((listing) => listing.options
       .filter((option) => !query.optionIds || query.optionIds.includes(option.id))
       .map((option) => ({
@@ -517,7 +555,8 @@ implements ChannelProductMatchingRepositoryPort {
       })));
   }
 
-  private loadListings(
+  private async loadListings(
+    prisma: Prisma.TransactionClient,
     organizationId: string,
     query: {
       channelAccountId?: string;
@@ -528,7 +567,7 @@ implements ChannelProductMatchingRepositoryPort {
     scope: 'matching' | 'availability',
   ): Promise<ListingRow[]> {
     const search = query.search?.trim();
-    return this.prisma.channelListing.findMany({
+    const listings: RawListingRow[] = await prisma.channelListing.findMany({
       where: {
         ...(scope === 'matching'
           ? matchingListingWhere(organizationId)
@@ -557,30 +596,45 @@ implements ChannelProductMatchingRepositoryPort {
       select: listingSelect(organizationId),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
+    const inventorySkuIds = [...new Set(listings.flatMap((listing) =>
+      listing.options.flatMap((option) => option.inventoryComponents.map(
+        (component) => component.sellpiaInventorySkuId,
+      ))))];
+    const identities = await readInventorySkuIdentities(prisma, {
+      organizationId,
+      selector: { kind: 'ids', values: inventorySkuIds },
+    });
+    const identityById = new Map(identities.map((identity) => [
+      identity.sellpiaInventorySkuId,
+      toInventorySkuIdentity(identity),
+    ]));
+    return listings.map((listing) => ({
+      ...listing,
+      options: listing.options.map((option) => ({
+        ...option,
+        inventoryComponents: option.inventoryComponents.map((component) => {
+          const embedded = (component as RawComponentRow & {
+            sellpiaInventorySku?: InventorySkuIdentity;
+          }).sellpiaInventorySku;
+          const identity = identityById.get(component.sellpiaInventorySkuId)
+            ?? embedded;
+          if (!identity) {
+            throw new NotFoundException(
+              'A channel recipe references an inventory SKU outside this organization',
+            );
+          }
+          return { ...component, sellpiaInventorySku: identity };
+        }),
+      })),
+    }));
   }
 }
 
-function completedCatalogRunWhere(
-  organizationId: string,
-  channelAccountId?: string,
-): Prisma.SourceImportRunWhereInput {
-  return {
-    organizationId,
-    ...(channelAccountId ? { channelAccountId } : {}),
-    OR: [
-      { sourceType: 'coupang_rocket_po_catalog', status: 'complete', parserVersion: 'rocket-po-v1' },
-      {
-        sourceType: { in: COMPLETED_CATALOG_SOURCE_TYPES.filter(source => source !== 'coupang_rocket_po_catalog') },
-        status: 'completed',
-      },
-      {
-        sourceType: { in: [COUPANG_CATALOG_BASIC_SOURCE_TYPE, COUPANG_CATALOG_DETAILS_SOURCE_TYPE] },
-        parserVersion: CATALOG_OWNER_PARSER_VERSION,
-        status: 'completed',
-        importedAt: { not: null },
-      },
-    ],
-  };
+function toInventorySkuIdentity(
+  identity: InventorySkuReadModel,
+): InventorySkuIdentity {
+  const { sellpiaInventorySkuId: id, ...fields } = identity;
+  return { id, ...fields };
 }
 
 function matchingListingWhere(
@@ -601,20 +655,14 @@ function availabilityListingWhere(
       { lastImportRun: { is: completedCatalogRunWhere(organizationId, channelAccountId) } },
       {
         options: {
-          some: {
-            organizationId,
-            isActive: true,
-            OR: PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES.map((source) => ({
-              rawJson: { path: ['source'], equals: source },
-            })),
-          },
+          some: publishedCatalogOptionWhere(organizationId),
         },
       },
     ],
   };
 }
 
-function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow {
+function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchingQueueRow {
   return {
     channelAccount: listing.channelAccount,
     listing: {
@@ -675,10 +723,10 @@ function optionRecipeIdentity(option: OptionRow) {
   };
 }
 
-function saleStatusFromListing(listing: ListingRow): string | null {
+function saleStatusFromListing(listing: ListingWithSaleStatus): string | null {
   const raw = asRecord(listing.rawJson);
   return resolveChannelListingSaleStatus({
-    latestSnapshotStatus: listing.channelListingDailySnapshots?.[0]?.saleStatus,
+    latestSnapshotStatus: listing.latestSnapshotSaleStatus,
     rawStatus: firstString(raw, [
       'saleStatus',
       'salesStatus',

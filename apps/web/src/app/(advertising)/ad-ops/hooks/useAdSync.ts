@@ -8,6 +8,7 @@ import {
 } from '@kiditem/shared/advertising';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
@@ -45,21 +46,28 @@ export function useAdSync({ onComplete }: { onComplete?: () => void } = {}) {
   const [cancelling, setCancelling] = useState(false);
   const request = useRef<{ key: string; attemptId?: string } | null>(null);
   const client = useQueryClient();
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.ads.campaignSource(),
     queryFn: readSource,
-    retry: false,
     refetchInterval: (query) =>
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
-  });
-  const completeId = source.data?.latestComplete?.attemptId;
+  }));
+  const sourceLoaded = source.data !== undefined;
+  const completeId = source.data?.latestComplete?.attemptId ?? null;
+  // The first owner read is the COMPLETE this mount already renders. Only a
+  // COMPLETE observed after it (a sweep finished during this session)
+  // refreshes the screens that read the campaign ledger.
+  const baselineCompleteId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!completeId) return;
+    if (!sourceLoaded) return;
+    const previous = baselineCompleteId.current;
+    baselineCompleteId.current = completeId;
+    if (previous === undefined || completeId === null || completeId === previous) return;
     void client.invalidateQueries({ queryKey: queryKeys.ads.all });
     void client.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     void client.invalidateQueries({ queryKey: ['readiness'] });
-  }, [completeId, client]);
+  }, [sourceLoaded, completeId, client]);
 
   const run = async () => {
     if (loading) return;

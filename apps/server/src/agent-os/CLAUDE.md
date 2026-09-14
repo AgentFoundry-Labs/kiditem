@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # agent-os — Provider-Native Conversation And Capability Platform
 
 `src/agent-os/` owns the single-node provider conversation adapter and exact

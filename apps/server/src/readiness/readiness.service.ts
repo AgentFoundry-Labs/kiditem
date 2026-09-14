@@ -13,26 +13,21 @@ import {
   parseBusinessDate,
 } from '@kiditem/shared/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
-import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
+import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
+import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
+import { dayAfter, readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
+import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {
   ReadinessCheck,
   ReadinessResponse,
   RebuildReadinessResponse,
 } from '@kiditem/shared/readiness';
 
-// A staged details publication enriches the rows written by the completed
-// basics publication. Keep all three receipts in the coverage read so a
-// running/failed details child cannot make a previously valid basics snapshot
-// disappear from readiness. Whole-catalog readiness is stricter below: it is
-// satisfied only by the legacy full receipt or a terminal details receipt.
-const READINESS_CATALOG_COVERAGE_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-] as const;
-
+// The product count reads Channels' published catalog identity, which keeps a
+// completed basics snapshot visible while its details child is partial.
+// Whole-catalog readiness is stricter: only the legacy full receipt or a
+// terminal details receipt satisfies it.
 const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
   'coupang_wing_catalog',
   COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
@@ -43,7 +38,7 @@ const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
  *
  * Schema mapping (main 의 ChannelScrape* 계층):
  *  - 일별 매출 → SellpiaSalesDailySnapshot (셀피아 판매현황 수집 결과)
- *  - 쿠팡 광고 일별 → Advertising source owner's published daily KPI rows
+ *  - 쿠팡 광고 일별 → 캠페인 sweep이 선언한 창 (광고 target-일 원장 리더)
  *  - Wing 판매순위 → CoupangWingSalesRankDailySnapshot
  *  - 상품 마스터 → MasterProduct
  *
@@ -74,7 +69,7 @@ export class ReadinessService {
     });
     const value = toRecord(setting?.value);
     if (value.state !== 'snapshot_required') {
-      return { state: 'ready', target: null, requiredImports: [] };
+      return { state: 'ready', target: null };
     }
     const target = value.target === 'local' || value.target === 'office'
       ? value.target
@@ -82,11 +77,20 @@ export class ReadinessService {
     return {
       state: 'snapshot_required',
       target,
-      requiredImports: ['sellpia', 'wing'],
     };
   }
 
   async getStatus(organizationId: string): Promise<ReadinessResponse> {
+    return this.prisma.$transaction(
+      (tx) => this.getStatusIn(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async getStatusIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<ReadinessResponse> {
     const now = new Date();
     // Source readiness ends at the latest fully closed KST business day.
     const todayKst = kstBusinessDate(now);
@@ -103,26 +107,16 @@ export class ReadinessService {
       ? lookbackStart
       : monthStartKst;
     const coverageRangeStartKstStr = businessDateKey(coverageRangeStart);
-    const adsLookbackStart = addDays(
-      yesterdayKst,
-      -(ReadinessService.AD_LOOKBACK_DAYS - 1),
-    );
-    const adsRangeStartKstStr = businessDateKey(adsLookbackStart);
-    const adsExpectedDates = datesInclusive(adsLookbackStart, yesterdayKst)
-      .map(businessDateKey);
-
     // Sellpia 월 누적: 최근 lookback과 이번 달 1일 중 더 이른 날부터 확인.
     const sellpiaRangeStartKstStr = coverageRangeStartKstStr;
-    const sellpiaRangeStartDate = coverageRangeStart;
     const sellpiaRangeEndKstStr = yesterdayKstStr;
-    const sellpiaRangeEndDate = yesterdayKst;
     const sellpiaExpectedDates = datesInclusive(coverageRangeStart, yesterdayKst)
       .map(businessDateKey);
 
     // Extension ingest/read paths bind to one active Coupang account and
     // prefer the primary account for account-less reads. Readiness must use
     // the same account, otherwise disabled-account facts can mark data ready.
-    const activeCoupangAccount = await this.prisma.channelAccount.findFirst({
+    const activeCoupangAccount = await tx.channelAccount.findFirst({
       where: {
         organizationId,
         channel: 'coupang',
@@ -136,23 +130,30 @@ export class ReadinessService {
       select: { id: true },
     });
 
-    const [
-      adsDailyKpiPublished,
-      activeWingVendorRows,
-      coupangProductCount,
-      latestCoupangCatalogRun,
-      sellpiaDailyRows,
-    ] = await Promise.all([
-      // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
-      activeCoupangAccount
-        ? readAdWindowFacts(this.prisma, {
+    // coupang_ads ends at the ad evidence cutoff: yesterday, unless every
+    // active account's newest complete sweep held yesterday as unreported.
+    const adsCutoffKst = activeCoupangAccount
+      ? await readAdEvidenceCutoff(tx, { organizationId, closedDay: yesterdayKst })
+      : yesterdayKst;
+    const adsCutoffKstStr = businessDateKey(adsCutoffKst);
+    const adsLookbackStart = addDays(
+      adsCutoffKst,
+      -(ReadinessService.AD_LOOKBACK_DAYS - 1),
+    );
+    const adsRangeStartKstStr = businessDateKey(adsLookbackStart);
+    const adsExpectedDates = datesInclusive(adsLookbackStart, adsCutoffKst)
+      .map(businessDateKey);
+
+    // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
+    const adsDailyKpiPublished = activeCoupangAccount
+      ? await readAdWindowFacts(tx, {
             organizationId,
             from: adsLookbackStart,
-            to: dayAfter(yesterdayKst),
+            to: dayAfter(adsCutoffKst),
           })
-        : Promise.resolve(null),
-      activeCoupangAccount
-        ? this.prisma.channelListingOption.findMany({
+      : null;
+    const activeWingVendorRows = activeCoupangAccount
+      ? await tx.channelListingOption.findMany({
             where: {
               organizationId,
               isActive: true,
@@ -165,24 +166,15 @@ export class ReadinessService {
             select: { externalOptionId: true, rawJson: true },
             distinct: ['externalOptionId'],
           })
-        : Promise.resolve([]),
-      activeCoupangAccount
-        ? this.prisma.channelListing.count({
-            where: {
-              organizationId,
-              channelAccountId: activeCoupangAccount.id,
-              isActive: true,
-              lastImportRun: {
-                is: {
-                  organizationId,
-                  sourceType: { in: [...READINESS_CATALOG_COVERAGE_SOURCE_TYPES] },
-                },
-              },
-            },
+      : [];
+    const coupangProductCount = activeCoupangAccount
+      ? await countPublishedCatalogListings(tx, {
+            organizationId,
+            channelAccountId: activeCoupangAccount.id,
           })
-        : Promise.resolve(0),
-      activeCoupangAccount
-        ? this.prisma.sourceImportRun.findFirst({
+      : 0;
+    const latestCoupangCatalogRun = activeCoupangAccount
+      ? await tx.sourceImportRun.findFirst({
             where: {
               organizationId,
               channelAccountId: activeCoupangAccount.id,
@@ -193,20 +185,12 @@ export class ReadinessService {
             orderBy: { importedAt: 'desc' },
             select: { importedAt: true, coverageEndDate: true },
           })
-        : Promise.resolve(null),
-      // 일별 매출(wing_sales) readiness 원천 — 셀피아 판매현황 몰별 일별 스냅샷.
-      // businessDate 별로 데이터가 있는 날을 집계(판매처 무관 distinct).
-      this.prisma.sellpiaSalesDailySnapshot.findMany({
-        where: {
-          organizationId,
-          sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-          businessDate: { gte: sellpiaRangeStartDate, lte: sellpiaRangeEndDate },
-        },
-        select: { businessDate: true, capturedAt: true },
-        distinct: ['businessDate'],
-        orderBy: { businessDate: 'desc' },
-      }),
-    ]);
+      : null;
+    const sellpiaDailyRows = await readSellpiaSalesDailyFacts(tx, {
+      organizationId,
+      from: sellpiaRangeStartKstStr,
+      to: sellpiaRangeEndKstStr,
+    });
 
     const activeWingVendorIds = new Set(
       activeWingVendorRows
@@ -214,81 +198,39 @@ export class ReadinessService {
         .filter((value): value is string => Boolean(value)),
     );
     const activeWingVendorIdList = [...activeWingVendorIds];
-    const completeWingRankSource = {
-      organizationId,
-      sourceType: 'coupang_wing_rank',
-      parserVersion: 'wing-rank-v1',
-      status: 'completed',
-    } satisfies Prisma.SourceImportRunWhereInput;
     // Rank rows do not carry channelAccountId. Fence their date/coverage to
     // vendor items belonging to the selected active account.
-    const wingSalesRank = activeWingVendorIdList.length
-      ? await this.prisma.coupangWingSalesRankDailySnapshot.findFirst({
-          where: {
-            organizationId,
-            vendorItemId: { in: activeWingVendorIdList },
-            sourceImportRun: completeWingRankSource,
-          },
-          orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }],
-          select: { capturedAt: true, businessDate: true },
-        })
-      : null;
-
-    const [latestWingVendorRows, wingSalesRankCount] = wingSalesRank
-      ? await Promise.all([
-          this.prisma.coupangWingSalesRankDailySnapshot.findMany({
-            where: {
-              organizationId,
-              businessDate: wingSalesRank.businessDate,
-              vendorItemId: { in: activeWingVendorIdList },
-              sourceImportRun: completeWingRankSource,
-            },
-            select: { vendorItemId: true },
-            distinct: ['vendorItemId'],
-          }),
-          this.prisma.coupangWingSalesRankDailySnapshot.count({
-            where: {
-              organizationId,
-              businessDate: wingSalesRank.businessDate,
-              vendorItemId: { in: activeWingVendorIdList },
-              sourceImportRun: completeWingRankSource,
-            },
-          }),
-        ])
-      : [[], 0];
+    const wingRankCoverage = await readWingRankCoverage(tx, {
+      organizationId,
+      vendorItemIds: activeWingVendorIdList,
+    });
 
     // 일별 매출(wing_sales) readiness 상태 원천 — 셀피아 판매현황(몰별 일별 매출).
-    const sellpiaPresent = new Set(
-      sellpiaDailyRows.map((r) => businessDateKey(r.businessDate)),
-    );
+    const sellpiaPresent = new Set(sellpiaDailyRows.coverage.includedDates);
     const sellpiaMissing = sellpiaExpectedDates.filter(
       (d) => !sellpiaPresent.has(d),
     );
     const sellpiaLatestOk = sellpiaPresent.has(sellpiaRangeEndKstStr);
-    const sellpiaLastDate = sellpiaDailyRows.reduce<Date | null>(
-      (max, r) => (!max || r.capturedAt > max ? r.capturedAt : max),
-      null,
-    );
+    const sellpiaLastDate = sellpiaDailyRows.latestCapturedAt;
     const sellpiaSortedDates = [...sellpiaPresent].sort();
     const sellpiaActualCutoff = sellpiaSortedDates[sellpiaSortedDates.length - 1] ?? null;
 
-    // coupang_ads 일별 수집
+    // coupang_ads — 캠페인 sweep 선언 창의 영업일
     const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
-    const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
+    const adsLatestOk = adsPresent.has(adsCutoffKstStr);
     const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
     const adsSortedDates = [...adsPresent].sort();
     const adsActualCutoff = adsSortedDates[adsSortedDates.length - 1] ?? null;
 
-    const wingSalesRankBusinessDate = wingSalesRank
-      ? businessDateKey(wingSalesRank.businessDate)
+    const wingSalesRankBusinessDate = wingRankCoverage.businessDate
+      ? businessDateKey(wingRankCoverage.businessDate)
       : null;
     const wingSalesRankFresh = wingSalesRankBusinessDate
       ? wingSalesRankBusinessDate >= yesterdayKstStr
       : false;
     const collectedActiveWingVendorCount = new Set(
-      latestWingVendorRows
-        .map((row) => row.vendorItemId)
+      wingRankCoverage.vendorItemIds
         .filter((vendorItemId) => activeWingVendorIds.has(vendorItemId)),
     ).size;
     const wingSalesRankComplete =
@@ -315,11 +257,6 @@ export class ReadinessService {
               : `누락 ${sellpiaMissing.length}/${sellpiaExpectedDates.length}일 (${sellpiaRangeStartKstStr}~${sellpiaRangeEndKstStr})`,
         lastSyncedAt: sellpiaLastDate ? sellpiaLastDate.toISOString() : null,
         count: sellpiaPresent.size,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 이 항목은 웹 훅이 누락 날짜 범위를 셀피아 확장 명령으로 직접 전달한다.
-        // legacy Wing URL을 노출하면 실제 저장 원천과 재실행 원천이 어긋난다.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: sellpiaExpectedDates,
         missingDates: sellpiaMissing,
@@ -329,27 +266,21 @@ export class ReadinessService {
         label: '쿠팡 광고 데이터 수집',
         basis: buildSnapshotBasis({
           asOf: adsActualCutoff,
-          requiredAsOf: yesterdayKstStr,
+          requiredAsOf: adsCutoffKstStr,
           observedAt: adsLastDate,
-          sources: ['advertising_daily_kpi'],
+          sources: ['coupang_ads'],
           measured: adsPresent.size > 0,
           withheldCount: adsMissing.length,
         }),
         detail:
           adsMissing.length === 0
-            ? `최근 ${adsExpectedDates.length}일치 (${adsRangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
-            : !adsYesterdayOk
-              ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${adsMissing.length}/${adsExpectedDates.length}일`
-              : `누락 ${adsMissing.length}/${adsExpectedDates.length}일 (${adsRangeStartKstStr}~${yesterdayKstStr})`,
+            ? `최근 ${adsExpectedDates.length}일치 (${adsRangeStartKstStr}~${adsCutoffKstStr}) 모두 수집됨`
+            : !adsLatestOk
+              ? `최신(${adsCutoffKstStr}) 미수집 — 누락 ${adsMissing.length}/${adsExpectedDates.length}일`
+              : `누락 ${adsMissing.length}/${adsExpectedDates.length}일 (${adsRangeStartKstStr}~${adsCutoffKstStr})`,
         lastSyncedAt: adsLastDate,
         count: adsPresent.size,
-        collector: 'extension',
-        collectEndpoint: null,
-        // The source owner computes its missing-day plan at begin time. Keep
-        // provider URLs out of this check so generic session controls cannot
-        // start an unowned ads collection.
-        scrapeUrls: null,
-        referenceDate: yesterdayKstStr,
+        referenceDate: adsCutoffKstStr,
         expectedDates: adsExpectedDates,
         missingDates: adsMissing,
       },
@@ -374,11 +305,6 @@ export class ReadinessService {
             : '완료된 쿠팡 전체 상품 수집 없음 — 최초 수집 필요',
         lastSyncedAt: latestCoupangCatalogRun?.importedAt?.toISOString() ?? null,
         count: coupangProductCount,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 웹 훅이 공식 전체 카탈로그 import run을 만들고 전용 확장을 시작한다.
-        // generic scrapeTargets URL을 노출하면 일반 Wing 페이지 수집으로 잘못 라우팅된다.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: null,
         missingDates: null,
@@ -389,24 +315,20 @@ export class ReadinessService {
         basis: buildSnapshotBasis({
           asOf: wingSalesRankBusinessDate,
           requiredAsOf: yesterdayKstStr,
-          observedAt: wingSalesRank?.capturedAt ?? null,
+          observedAt: wingRankCoverage.capturedAt,
           sources: ['coupang_wing_rank'],
-          measured: wingSalesRank !== null,
+          measured: wingRankCoverage.businessDate !== null,
           withheldCount: Math.max(0, activeWingVendorIds.size - collectedActiveWingVendorCount),
         }),
-        detail: wingSalesRank
+        detail: wingRankCoverage.businessDate
           ? wingSalesRankFresh && wingSalesRankComplete
-            ? `Wing 판매순위 ${wingSalesRankCount}행 · ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 최종 수집 ${formatKst(wingSalesRank.capturedAt)}`
+            ? `Wing 판매순위 ${wingRankCoverage.rowCount}행 · ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 최종 수집 ${formatKst(wingRankCoverage.capturedAt!)}`
             : !wingSalesRankFresh
               ? `Wing 판매순위 최신 날짜(${yesterdayKstStr}) 미반영 — 다시 수집 필요`
               : `Wing 판매순위 불완전 ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 다시 수집 필요`
           : 'Wing 판매순위 수집 이력 없음',
-        lastSyncedAt: wingSalesRank?.capturedAt.toISOString() ?? null,
-        count: wingSalesRankCount,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 웹 훅이 기존 advertising.wing_rank background 수집을 직접 시작한다.
-        scrapeUrls: null,
+        lastSyncedAt: wingRankCoverage.capturedAt?.toISOString() ?? null,
+        count: wingRankCoverage.rowCount,
         referenceDate: yesterdayKstStr,
         expectedDates: null,
         missingDates: null,

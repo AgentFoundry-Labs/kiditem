@@ -2,10 +2,11 @@
 
 import type { FormEvent } from 'react';
 import { Search } from 'lucide-react';
-import type {
-  InventorySkuStockStatus,
-  SellpiaInventorySkuActiveStatus,
-  SellpiaInventorySkuLinkStatus,
+import {
+  INVENTORY_LINK_LABELS,
+  type InventorySkuStockStatus,
+  type SellpiaInventorySkuActiveStatus,
+  type SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 import { cn } from '@/lib/utils';
 
@@ -37,8 +38,8 @@ const ACTIVE_FILTERS = [
 
 const LINK_FILTERS = [
   { label: '전체 연결', value: 'all' },
-  { label: '연결됨', value: 'linked' },
-  { label: '미연결', value: 'unlinked' },
+  { label: INVENTORY_LINK_LABELS.linked, value: 'linked' },
+  { label: INVENTORY_LINK_LABELS.unlinked, value: 'unlinked' },
 ] satisfies Array<{ label: string; value: InventoryLinkStatusFilter }>;
 
 export function InventoryFilters({

@@ -6,12 +6,16 @@
 //   - I3: revenue = SUM(OrderLineItem.totalPrice) (lineItem-level canonical)
 //   - I7: organizationId filter (multi-tenant isolation)
 //   - I8: half-open range `orderedAt >= from && orderedAt < to` (never `lte`)
-//   - C-08: v2 nested-only resolver — `resolvePricing({ option })`
-//   - R-1 (Plan D.1 T4): shipping accumulates from `Order.shippingPrice`
-//     once per order (outer loop), not per line item.
+//   - KID-114: one cost rule with per-listing profit — purchase cost is the
+//     option recipe × Sellpia purchase price (`resolveUnitCost`); commission
+//     and other per-sale cost apply by the order's channel account
+//     (`resolveOrderLineSalesCosts`), and a component nobody measured is never
+//     summed as 0. Option cost columns are not read.
+//   - R-1 (Plan D.1 T4): shipping is `Order.shippingPrice`, once per order
+//     (outer loop), with no per-option fallback.
 //
 // Ad metrics come from the advertising target-day ledger through the one
-// listing-day ad reader (`common/ad-window-facts`). A business date the
+// listing-day ad reader (`advertising/read/ad-target-facts`). A business date the
 // campaign sweep reported is a measured day; a date it never reported is
 // absent evidence.
 //
@@ -22,9 +26,15 @@
 // distinct from both and keeps `adEvidenceError`.
 
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
-  businessDateText,
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readOrderLineWindowFacts,
+  type OrderWindowFacts,
+} from '../../../../../orders/read/order-facts.reader';
+import { readInventorySkuIdentities } from '../../../../../inventory/read/inventory-availability';
+import {
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
 import {
@@ -32,7 +42,12 @@ import {
   dayAfter,
   readAdWindowFacts,
   type AdWindowDay,
-} from '../../../../../common/ad-window-facts';
+} from '../../../../../advertising/read/ad-target-facts';
+import {
+  resolveOrderLineSalesCosts,
+  resolveUnitCost,
+  type OrderLineSalesCosts,
+} from '../../../../../common/option-pricing-resolver';
 import type {
   DailyProfitMetrics,
   ProfitCostIncompleteReason,
@@ -41,6 +56,16 @@ import type {
   ProfitSourceCoverage,
   RangeProfitMetrics,
 } from '../../../application/port/out/repository/profit-calculation.repository.port';
+
+type CalculationInputs = {
+  orders: CostOrder[];
+  orderWindow: OrderWindowFacts;
+  published: {
+    rows: readonly AdWindowDay[];
+    hasAdAccount: boolean;
+    error?: ProfitEvidenceError;
+  };
+};
 
 @Injectable()
 export class ProfitCalculationRepositoryAdapter
@@ -61,78 +86,45 @@ export class ProfitCalculationRepositoryAdapter
     // The caller resolved which KST business dates this window covers; the
     // adapter reads that set instead of re-deriving date keys of its own.
     const requestedDates = period.selectedDates;
-    const orders = await this.prisma.order.findMany({
-      where: {
-        organizationId,
-        orderedAt: { gte: from, lt: to },
-        status: { notIn: ['cancelled', 'returned', 'refunded'] },
-      },
-      select: {
-        orderedAt: true,
-        shippingPrice: true,
-        lineItems: {
-          select: {
-            quantity: true,
-            totalPrice: true,
-            listingOption: {
-              select: {
-                costPriceOverride: true,
-                commissionRate: true,
-                shippingCost: true,
-                otherCost: true,
-                inventoryComponents: {
-                  select: {
-                    quantity: true,
-                    sellpiaInventorySku: {
-                      select: { purchasePrice: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    const { orders, orderWindow, published } = await this.readCalculationInputs(
+      organizationId,
+      period,
+    );
 
     let revenue = 0;
-    let costOfGoods = 0;
-    let commission = 0;
+    let costOfGoods: number | null = 0;
+    let commission: number | null = 0;
     let shippingCost = 0;
-    let otherCost = 0;
-    const orderCount = orders.length;
+    let otherCost: number | null = 0;
+    const orderCount = orderWindow.orderCount;
     const costIncompleteReasons = new Set<ProfitCostIncompleteReason>();
-    const orderedDates = new Set<string>();
 
     for (const o of orders) {
-      // Channel ingestion stores a missing provider shipping value as 0.
-      // A positive order-level value is actual order evidence and must not be
-      // combined with the configured per-option fallback.
-      const hasOrderShippingEvidence = o.shippingPrice > 0;
-      // An admitted order is date evidence even when it carries no line item
-      // or a collected zero; the row itself proves the date was observed.
-      orderedDates.add(businessDateText(o.orderedAt));
-      if (hasOrderShippingEvidence) shippingCost += o.shippingPrice;
+      // The order's shipping price is its shipping cost; an admitted order is
+      // date evidence even when it carries no line item or a collected zero.
+      shippingCost += o.shippingPrice;
       for (const li of o.lineItems) {
         revenue += li.totalPrice || 0;
-        const costs = resolveLineItemCosts(li, hasOrderShippingEvidence);
+        const costs = resolveLineItemCosts(li, o.salesCosts);
         for (const reason of costs.reasons) costIncompleteReasons.add(reason);
-        costOfGoods += costs.costOfGoods;
-        commission += costs.commission;
-        otherCost += costs.otherCost;
-        shippingCost += costs.shippingCost;
+        costOfGoods = addOrNull(costOfGoods, costs.costOfGoods);
+        commission = addOrNull(commission, costs.commission);
+        otherCost = addOrNull(otherCost, costs.otherCost);
       }
     }
 
-    const published = await this.readAds(organizationId, requestedDates);
     const adRows = published.rows;
     const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
     const adTotals = sumAdRows(adRows);
-    const costComplete = costIncompleteReasons.size === 0;
+    // A day whose provider grid carried no conversion columns stored a 0 that
+    // counted nothing, so no window count exists over it.
+    const conversionsObserved = adRows.every((row) => row.conversionsObserved);
+    const orderEvidenceComplete = orderWindow.revenue !== null;
+    const costComplete = orderEvidenceComplete && costIncompleteReasons.size === 0;
     const sourceCoverage: ProfitSourceCoverage = {
       requestedDates,
-      orderDates: coveredDates(requestedDates, orderedDates),
+      orderDates: orderWindow.includedDates,
       // A failed ad read leaves `adRows` empty, and so does having no account.
       // `hasAdAccount` is what keeps those apart from an account that published
       // nothing; no date is ever synthesized to close the equality below.
@@ -140,27 +132,31 @@ export class ProfitCalculationRepositoryAdapter
       hasAdAccount,
     };
     const adEvidenceComplete = isAdEvidenceComplete(sourceCoverage);
-    const netProfit = costComplete && adEvidenceComplete
+    const netProfit = costComplete
+      && adEvidenceComplete
+      && costOfGoods !== null
+      && commission !== null
+      && otherCost !== null
       ? revenue - costOfGoods - commission - shippingCost - adTotals.adCost - otherCost
       : null;
-    const profitRate = netProfit !== null && revenue > 0
+    const profitRate = netProfit !== null && orderWindow.revenue !== null && orderWindow.revenue > 0
       ? Math.round((netProfit / revenue) * 1000) / 10
       : null;
 
     return {
-      revenue: Math.round(revenue),
-      costOfGoods: Math.round(costOfGoods),
-      commission: Math.round(commission),
-      shippingCost: Math.round(shippingCost),
-      adCost: Math.round(adTotals.adCost),
-      otherCost: Math.round(otherCost),
+      revenue: orderWindow.revenue,
+      costOfGoods: orderEvidenceComplete ? roundOrNull(costOfGoods) : null,
+      commission: orderEvidenceComplete ? roundOrNull(commission) : null,
+      shippingCost: orderEvidenceComplete ? Math.round(shippingCost) : null,
+      adCost: adEvidenceComplete ? Math.round(adTotals.adCost) : null,
+      otherCost: orderEvidenceComplete ? roundOrNull(otherCost) : null,
       netProfit: netProfit === null ? null : Math.round(netProfit),
       profitRate,
       orderCount,
-      adImpressions: adTotals.adImpressions,
-      adClicks: adTotals.adClicks,
-      adConversions: adTotals.adConversions,
-      adRevenue: Math.round(adTotals.adRevenue),
+      adImpressions: adEvidenceComplete ? adTotals.adImpressions : null,
+      adClicks: adEvidenceComplete ? adTotals.adClicks : null,
+      adConversions: adEvidenceComplete && conversionsObserved ? adTotals.adConversions : null,
+      adRevenue: adEvidenceComplete ? Math.round(adTotals.adRevenue) : null,
       costComplete,
       costIncompleteReasons: [...costIncompleteReasons],
       adEvidenceComplete,
@@ -182,40 +178,10 @@ export class ProfitCalculationRepositoryAdapter
     const { from, to } = period.queryWindow;
     if (from.getTime() >= to.getTime()) return [];
     const requestedDates = period.selectedDates;
-    const orders = await this.prisma.order.findMany({
-        where: {
-          organizationId,
-          orderedAt: { gte: from, lt: to },
-          status: { notIn: ['cancelled', 'returned', 'refunded'] },
-        },
-        select: {
-          orderedAt: true,
-          shippingPrice: true,
-          lineItems: {
-            select: {
-              quantity: true,
-              totalPrice: true,
-              listingOption: {
-                select: {
-                  costPriceOverride: true,
-                  commissionRate: true,
-                  shippingCost: true,
-                  otherCost: true,
-                  inventoryComponents: {
-                    select: {
-                      quantity: true,
-                      sellpiaInventorySku: {
-                        select: { purchasePrice: true },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-    const published = await this.readAds(organizationId, requestedDates);
+    const { orders, orderWindow, published } = await this.readCalculationInputs(
+      organizationId,
+      period,
+    );
     const adRows = published.rows;
     const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
@@ -223,25 +189,28 @@ export class ProfitCalculationRepositoryAdapter
     const requested = new Set(requestedDates);
     const byDate = new Map<string, MutableDailyProfitMetrics>();
     for (const order of orders) {
-      const date = businessDateText(order.orderedAt);
+      const date = order.businessDate;
       if (!requested.has(date)) continue;
       const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
       metrics.hasOrderEvidence = true;
       metrics.orderCount += 1;
-      if (order.shippingPrice > 0) {
-        metrics.shippingCost += order.shippingPrice;
-      }
+      metrics.shippingCost += order.shippingPrice;
       for (const lineItem of order.lineItems) {
         const quantity = lineItem.quantity;
         metrics.qty += quantity;
         metrics.revenue += lineItem.totalPrice || 0;
-        const costs = resolveLineItemCosts(lineItem, order.shippingPrice > 0);
+        const costs = resolveLineItemCosts(lineItem, order.salesCosts);
         for (const reason of costs.reasons) metrics.costIncompleteReasons.add(reason);
-        metrics.costOfGoods += costs.costOfGoods;
-        metrics.commission += costs.commission;
-        metrics.otherCost += costs.otherCost;
-        metrics.shippingCost += costs.shippingCost;
+        metrics.costOfGoods = addOrNull(metrics.costOfGoods, costs.costOfGoods);
+        metrics.commission = addOrNull(metrics.commission, costs.commission);
+        metrics.otherCost = addOrNull(metrics.otherCost, costs.otherCost);
       }
+      byDate.set(date, metrics);
+    }
+
+    for (const date of orderWindow.includedDates) {
+      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
+      metrics.hasOrderEvidence = true;
       byDate.set(date, metrics);
     }
 
@@ -282,16 +251,19 @@ export class ProfitCalculationRepositoryAdapter
       metrics.adImpressions = (metrics.adImpressions ?? 0) + adRow.impressions;
       metrics.adClicks = (metrics.adClicks ?? 0) + adRow.clicks;
       metrics.adConversions = (metrics.adConversions ?? 0) + adRow.conversions;
+      if (!adRow.conversionsObserved) metrics.adConversionsObserved = false;
       byDate.set(date, metrics);
     }
 
     return [...byDate.values()]
       .sort((left, right) => left.date.localeCompare(right.date))
-      .map((metrics) => {
-        const cost = metrics.costOfGoods
-          + metrics.commission
-          + metrics.shippingCost
-          + metrics.otherCost;
+      .map(({ adConversionsObserved, ...metrics }) => {
+        // A component nobody measured is never summed as 0.
+        const cost = metrics.costOfGoods === null
+          || metrics.commission === null
+          || metrics.otherCost === null
+          ? null
+          : metrics.costOfGoods + metrics.commission + metrics.shippingCost + metrics.otherCost;
         const costComplete = metrics.costIncompleteReasons.size === 0;
         // No advertising account satisfies the ad input without an ad row; an
         // account still needs same-date evidence, so an unpublished day withholds.
@@ -299,8 +271,9 @@ export class ProfitCalculationRepositoryAdapter
         const complete = metrics.hasOrderEvidence
           && adSatisfied
           && costComplete
+          && cost !== null
           && !metrics.adEvidenceError;
-        const netProfit = complete
+        const netProfit = complete && cost !== null
           ? metrics.revenue - cost - (metrics.adCost ?? 0)
           : null;
         const profitRate = netProfit !== null && metrics.revenue > 0
@@ -308,18 +281,20 @@ export class ProfitCalculationRepositoryAdapter
           : null;
         return {
           ...metrics,
-          cost: Math.round(cost),
+          cost: roundOrNull(cost),
           revenue: Math.round(metrics.revenue),
           qty: Math.round(metrics.qty),
-          costOfGoods: Math.round(metrics.costOfGoods),
-          commission: Math.round(metrics.commission),
+          costOfGoods: roundOrNull(metrics.costOfGoods),
+          commission: roundOrNull(metrics.commission),
           shippingCost: Math.round(metrics.shippingCost),
-          otherCost: Math.round(metrics.otherCost),
+          otherCost: roundOrNull(metrics.otherCost),
           adCost: metrics.adCost === null ? null : Math.round(metrics.adCost),
           adRevenue: metrics.adRevenue === null ? null : Math.round(metrics.adRevenue),
           adImpressions: metrics.adImpressions === null ? null : Math.round(metrics.adImpressions),
           adClicks: metrics.adClicks === null ? null : Math.round(metrics.adClicks),
-          adConversions: metrics.adConversions === null ? null : Math.round(metrics.adConversions),
+          adConversions: metrics.adConversions === null || !adConversionsObserved
+            ? null
+            : Math.round(metrics.adConversions),
           netProfit: netProfit === null ? null : Math.round(netProfit),
           profitRate,
           costComplete,
@@ -336,6 +311,7 @@ export class ProfitCalculationRepositoryAdapter
    * zero; one with an account needs a measured row for every requested day.
    */
   private async readAds(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     requestedDates: readonly string[],
   ): Promise<{
@@ -351,19 +327,113 @@ export class ProfitCalculationRepositoryAdapter
     const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
     const to = dayAfter(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`));
     try {
-      const [applies, facts] = await Promise.all([
-        advertisingApplies(this.prisma, organizationId),
-        readAdWindowFacts(this.prisma, { organizationId, from, to }),
-      ]);
+      const applies = await advertisingApplies(tx, organizationId);
+      const facts = await readAdWindowFacts(tx, { organizationId, from, to });
       return { rows: facts.days, hasAdAccount: applies };
     } catch (error) {
+      throw new AdEvidenceReadFailure(error);
+    }
+  }
+
+  private async readCalculationInputs(
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+  ): Promise<CalculationInputs> {
+    try {
+      return await this.prisma.$transaction(
+        (tx) => this.readCalculationInputsIn(tx, organizationId, period, true),
+        { isolationLevel: 'RepeatableRead' },
+      );
+    } catch (error) {
+      if (!(error instanceof AdEvidenceReadFailure)) throw error;
       this.logger.warn({
         msg: 'dashboard-profit.ad-evidence-unavailable',
         organizationId,
-        error: error instanceof Error ? error.message : 'unknown error',
+        error: error.cause instanceof Error ? error.cause.message : 'unknown error',
       });
-      return { rows: [], hasAdAccount: true, error: 'AD_EVIDENCE_READ_FAILED' };
+      return this.prisma.$transaction(
+        (tx) => this.readCalculationInputsIn(tx, organizationId, period, false),
+        { isolationLevel: 'RepeatableRead' },
+      );
     }
+  }
+
+  private async readCalculationInputsIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+    includeAdvertising: boolean,
+  ): Promise<CalculationInputs> {
+      const facts = await readOrderLineWindowFacts(tx, {
+        organizationId,
+        from: period.queryWindow.from,
+        to: period.queryWindow.to,
+        excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+      });
+      const optionIds = [...new Set(facts.orders.flatMap((order) =>
+        order.lines.flatMap((line) => line.listingOptionId ? [line.listingOptionId] : [])))];
+      const options = await tx.channelListingOption.findMany({
+        where: { organizationId, id: { in: optionIds } },
+        select: {
+          id: true,
+          inventoryComponents: {
+            where: { organizationId },
+            select: { quantity: true, sellpiaInventorySkuId: true },
+          },
+        },
+      });
+      // The order's channel account decides whether a commission and other
+      // per-sale cost apply to its lines (KID-114).
+      const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
+      const accounts = await tx.channelAccount.findMany({
+        where: { organizationId, id: { in: accountIds } },
+        select: { id: true, channel: true },
+      });
+      const accountById = new Map(accounts.map((account) => [account.id, account]));
+      const inventorySkuIds = [...new Set(options.flatMap((option) =>
+        option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
+      const identities = await readInventorySkuIdentities(tx, {
+        organizationId,
+        selector: { kind: 'ids', values: inventorySkuIds },
+      });
+      const purchasePriceBySkuId = new Map(identities.map((sku) => [
+        sku.sellpiaInventorySkuId,
+        sku.purchasePrice,
+      ]));
+      const recipeByOptionId = new Map(options.map((option) => [
+        option.id,
+        option.inventoryComponents.map((component) => ({
+          quantity: component.quantity,
+          purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+        })),
+      ]));
+      const orders = facts.orders.map((order): CostOrder => ({
+        orderedAt: order.orderedAt,
+        businessDate: order.businessDate,
+        shippingPrice: order.shippingPrice,
+        salesCosts: resolveOrderLineSalesCosts(accountById.get(order.channelAccountId) ?? null),
+        lineItems: order.lines.map((line) => ({
+          quantity: line.quantity,
+          totalPrice: line.revenue,
+          recipe: line.listingOptionId
+            ? recipeByOptionId.get(line.listingOptionId) ?? null
+            : null,
+        })),
+      }));
+      const published = includeAdvertising
+        ? await this.readAds(tx, organizationId, period.selectedDates)
+        : {
+            rows: [] as readonly AdWindowDay[],
+            hasAdAccount: true,
+            error: 'AD_EVIDENCE_READ_FAILED' as const,
+          };
+      return { orders, orderWindow: facts.window, published };
+  }
+}
+
+class AdEvidenceReadFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super('Advertising evidence read failed');
   }
 }
 
@@ -383,15 +453,17 @@ interface MutableDailyProfitMetrics {
   date: string;
   revenue: number;
   qty: number;
-  costOfGoods: number;
-  commission: number;
+  costOfGoods: number | null;
+  commission: number | null;
   shippingCost: number;
-  otherCost: number;
+  otherCost: number | null;
   adCost: number | null;
   adRevenue: number | null;
   adImpressions: number | null;
   adClicks: number | null;
   adConversions: number | null;
+  /** False once any ad row of the day came from a grid without conversion columns. */
+  adConversionsObserved: boolean;
   orderCount: number;
   hasOrderEvidence: boolean;
   hasAdEvidence: boolean;
@@ -418,6 +490,7 @@ function createDailyProfitMetrics(
     adImpressions: null,
     adClicks: null,
     adConversions: null,
+    adConversionsObserved: true,
     orderCount: 0,
     hasOrderEvidence: false,
     hasAdEvidence: false,
@@ -426,88 +499,60 @@ function createDailyProfitMetrics(
 }
 
 interface LineItemCostResolution {
-  costOfGoods: number;
-  commission: number;
-  shippingCost: number;
-  otherCost: number;
+  costOfGoods: number | null;
+  commission: number | null;
+  otherCost: number | null;
   reasons: ProfitCostIncompleteReason[];
 }
 
 interface CostLineItem {
   quantity: number;
   totalPrice: number;
-  listingOption: {
-    costPriceOverride: number | null;
-    commissionRate: unknown;
-    shippingCost: number | null;
-    otherCost: number | null;
-    inventoryComponents: Array<{
-      quantity: number;
-      sellpiaInventorySku: { purchasePrice: number | null };
-    }>;
-  } | null;
+  /** The line's listing option recipe at Sellpia purchase prices, or `null` without an option. */
+  recipe: ReadonlyArray<{ quantity: number; purchasePrice: number | null }> | null;
 }
 
-/** Resolve costs without upgrading absent nullable fields into measured zeroes. */
+interface CostOrder {
+  orderedAt: Date;
+  businessDate: string;
+  shippingPrice: number;
+  /** Whether a commission and other per-sale cost apply, by the order's channel account. */
+  salesCosts: OrderLineSalesCosts;
+  lineItems: CostLineItem[];
+}
+
+/** Resolve one line's costs without upgrading an unavailable component into a measured zero. */
 function resolveLineItemCosts(
   lineItem: CostLineItem,
-  hasOrderShippingEvidence: boolean,
+  salesCosts: OrderLineSalesCosts,
 ): LineItemCostResolution {
-  const reasons = new Set<ProfitCostIncompleteReason>();
-  const option = lineItem.listingOption;
-  if (!option) {
-    return {
-      costOfGoods: 0,
-      commission: 0,
-      shippingCost: 0,
-      otherCost: 0,
-      reasons: ['MISSING_LISTING_OPTION'],
-    };
-  }
-
-  let costOfGoods = 0;
-  if (option.costPriceOverride !== null) {
-    costOfGoods = option.costPriceOverride * lineItem.quantity;
-  } else if (option.inventoryComponents.length === 0) {
-    reasons.add('MISSING_COST_PRICE');
+  const reasons: ProfitCostIncompleteReason[] = [];
+  let costOfGoods: number | null = null;
+  if (lineItem.recipe === null) {
+    reasons.push('MISSING_LISTING_OPTION');
+  } else if (lineItem.recipe.length === 0) {
+    reasons.push('MISSING_COST_PRICE');
   } else {
-    let completeComponents = true;
-    for (const component of option.inventoryComponents) {
-      if (component.sellpiaInventorySku.purchasePrice === null) {
-        completeComponents = false;
-        continue;
-      }
-      costOfGoods += component.sellpiaInventorySku.purchasePrice
-        * component.quantity
-        * lineItem.quantity;
-    }
-    if (!completeComponents) reasons.add('MISSING_PURCHASE_PRICE');
+    const unitCost = resolveUnitCost({ inventoryComponents: lineItem.recipe });
+    if (unitCost === null) reasons.push('MISSING_PURCHASE_PRICE');
+    else costOfGoods = unitCost * lineItem.quantity;
   }
+  if (salesCosts.commission === null) reasons.push('MISSING_COMMISSION');
+  if (salesCosts.otherCost === null) reasons.push('MISSING_OTHER_COST');
+  return {
+    costOfGoods,
+    commission: salesCosts.commission,
+    otherCost: salesCosts.otherCost,
+    reasons,
+  };
+}
 
-  const commissionRate = option.commissionRate === null
-    || option.commissionRate === undefined
-    ? null
-    : Number(option.commissionRate);
-  if (commissionRate === null || !Number.isFinite(commissionRate)) {
-    reasons.add('MISSING_COMMISSION_RATE');
-  }
+function addOrNull(total: number | null, value: number | null): number | null {
+  return total === null || value === null ? null : total + value;
+}
 
-  let commission = 0;
-  if (commissionRate !== null && Number.isFinite(commissionRate)) {
-    commission = lineItem.totalPrice * commissionRate;
-  }
-
-  let shippingCost = 0;
-  if (!hasOrderShippingEvidence) {
-    if (option.shippingCost === null) reasons.add('MISSING_SHIPPING_COST');
-    else shippingCost = option.shippingCost * lineItem.quantity;
-  }
-
-  let otherCost = 0;
-  if (option.otherCost === null) reasons.add('MISSING_OTHER_COST');
-  else otherCost = option.otherCost * lineItem.quantity;
-
-  return { costOfGoods, commission, shippingCost, otherCost, reasons: [...reasons] };
+function roundOrNull(value: number | null): number | null {
+  return value === null ? null : Math.round(value);
 }
 
 function sumAdRows(rows: readonly AdWindowDay[]) {
@@ -544,19 +589,19 @@ function coveredDates(
 
 function emptyRangeProfitMetrics(): RangeProfitMetrics {
   return {
-    revenue: 0,
-    costOfGoods: 0,
-    commission: 0,
-    shippingCost: 0,
-    adCost: 0,
-    otherCost: 0,
+    revenue: null,
+    costOfGoods: null,
+    commission: null,
+    shippingCost: null,
+    adCost: null,
+    otherCost: null,
     netProfit: null,
     profitRate: null,
-    orderCount: 0,
-    adRevenue: 0,
-    adImpressions: 0,
-    adClicks: 0,
-    adConversions: 0,
+    orderCount: null,
+    adRevenue: null,
+    adImpressions: null,
+    adClicks: null,
+    adConversions: null,
     costComplete: false,
     costIncompleteReasons: [],
     adEvidenceComplete: false,

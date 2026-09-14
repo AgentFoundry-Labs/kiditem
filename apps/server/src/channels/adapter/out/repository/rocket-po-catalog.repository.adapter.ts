@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma, type SourceImportRun } from '@prisma/client';
-import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import {
   RocketPoSourceBeginSchema,
   RocketPoSourcePlanSchema,
@@ -16,7 +16,6 @@ import {
 } from '@kiditem/shared/rocket-purchase-preview';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { kstBusinessDate } from '../../../../common/kst';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import {
   advanceProductMappingGeneration,
@@ -24,12 +23,15 @@ import {
 } from '../../../../common/product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
+import { createRocketPoCatalogSnapshot } from './rocket-po-catalog-snapshot.repository';
 import {
-  createRocketPoCatalogSnapshot,
-  listSavedRocketPos,
-  loadSavedRocketCollection,
+  readCurrentRocketPos,
+  readRocketPoCompleteCollection,
+  readRocketPoSnapshot,
+  readRocketPoSource,
+  ROCKET_PO_CATALOG_PARSER_VERSION,
   ROCKET_PO_CATALOG_SOURCE_TYPE,
-} from './rocket-po-catalog-snapshot.repository';
+} from '../../../read/rocket-po-catalog.reader';
 
 const SOURCE_TYPE = ROCKET_PO_CATALOG_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
@@ -72,14 +74,22 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
           'ATTEMPT_EXPIRED',
           '로켓 PO 수집 시간이 만료되었습니다. 다시 수집해주세요.',
         );
-      if (prior) return control(await findAttempt(tx, input.organizationId, prior.id));
+      if (prior)
+        return control(await findAttempt(tx, input.organizationId, prior.id));
       if (active && !expired(active))
-        throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: active.id });
-      const account = await readAccount(tx, input.organizationId, request.channelAccountId);
+        throw new ConflictException({
+          code: 'ATTEMPT_IN_PROGRESS',
+          attemptId: active.id,
+        });
+      const account = await readAccount(
+        tx,
+        input.organizationId,
+        request.channelAccountId,
+      );
       const plan: RocketPoSourcePlan = {
         ...request,
         sourceType: SOURCE_TYPE,
-        parserVersion: 'rocket-po-v1',
+        parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
         vendorExpectations: {
           rocketVendorId: account.vendorId,
           sharedCoupangVendorId: account.shared?.vendorId ?? null,
@@ -104,7 +114,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
             idempotencyKey: input.idempotencyKey,
             requestFingerprint: fingerprint,
             plan,
-            parserVersion: 'rocket-po-v1',
+            parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
             freshnessGeneration: (last._max.freshnessGeneration ?? 0n) + 1n,
             expiresAt: new Date(Date.now() + 600_000),
           },
@@ -113,51 +123,23 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
     }, TRANSACTION_OPTIONS);
   }
 
-  async readAttempt(input: Parameters<RocketPoCatalogRepositoryPort['readAttempt']>[0]) {
-    return control(await findAttempt(this.prisma, input.organizationId, input.attemptId));
+  async readAttempt(
+    input: Parameters<RocketPoCatalogRepositoryPort['readAttempt']>[0],
+  ) {
+    return control(
+      await findAttempt(this.prisma, input.organizationId, input.attemptId),
+    );
   }
 
-  readSource(input: Parameters<RocketPoCatalogRepositoryPort['readSource']>[0]) {
+  readSource(
+    input: Parameters<RocketPoCatalogRepositoryPort['readSource']>[0],
+  ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const account = await tx.channelAccount.findFirst({
-          where: {
-            id: input.channelAccountId,
-            organizationId: input.organizationId,
-            channel: 'rocket',
-          },
-          select: { id: true },
-        });
-        if (!account) throw new NotFoundException('Rocket channel account not found');
-        const where = {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          sourceType: SOURCE_TYPE,
-          parserVersion: 'rocket-po-v1',
-        };
-        const latest = await tx.sourceImportRun.findFirst({
-          where,
-          orderBy: { freshnessGeneration: 'desc' },
-        });
-        const complete = await tx.sourceImportRun.findFirst({
-          where: { ...where, status: 'complete' },
-          orderBy: { freshnessGeneration: 'desc' },
-        });
-        const latestAttempt = latest ? publicControl(latest) : null;
-        const latestComplete = complete ? publicControl(complete) : null;
-        const actualCutoff = latestComplete?.actualCutoffAt?.slice(0, 10) ?? null;
-        const requiredCutoff = new Date(kstBusinessDate(new Date()).getTime() - 86_400_000)
-          .toISOString()
-          .slice(0, 10);
-        return {
-          ready: deriveSourceReadiness({
-            latestAttempt,
-            latestComplete: latestComplete ? { actualCutoff } : null,
-            requiredCutoff,
-          }).ready,
-          latestAttempt,
-          latestComplete,
-        };
+        const source = await readRocketPoSource(tx, input);
+        if (!source)
+          throw new NotFoundException('Rocket channel account not found');
+        return source;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -186,15 +168,23 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
     return failed;
   }
 
-  async complete(input: Parameters<RocketPoCatalogRepositoryPort['complete']>[0]) {
+  async complete(
+    input: Parameters<RocketPoCatalogRepositoryPort['complete']>[0],
+  ) {
     return this.prisma.$transaction(async (tx) => {
-      const original = await findAttempt(tx, input.organizationId, input.attemptId);
+      const original = await findAttempt(
+        tx,
+        input.organizationId,
+        input.attemptId,
+      );
       await lockSource(tx, input.organizationId, original.channelAccountId!);
       const run = await findAttempt(tx, input.organizationId, input.attemptId);
       fence(run, input.token);
       const plan = RocketPoSourcePlanSchema.parse(run.plan);
       const { collection, proof } = input.submission;
-      const rows = [...input.submission.rows].sort((a, b) => a.poLineId.localeCompare(b.poLineId));
+      const rows = [...input.submission.rows].sort((a, b) =>
+        a.poLineId.localeCompare(b.poLineId),
+      );
       if (
         collection.collectionRunId !== run.id ||
         proof.from !== plan.from ||
@@ -206,9 +196,12 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       }
       const { collectionRunId: _id, ...evidence } = collection;
       const canonical = JSON.stringify({ collection: evidence, rows, proof });
-      const contentChecksum = createHash('sha256').update(canonical).digest('hex');
+      const contentChecksum = createHash('sha256')
+        .update(canonical)
+        .digest('hex');
       if (
-        (run.status === 'complete' || run.status === 'failed') &&
+        (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ||
+          run.status === 'failed') &&
         run.contentChecksum === contentChecksum
       )
         return control(run);
@@ -218,12 +211,18 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
         collection.failedPoNumbers.length > 0 ||
         collection.listPagesRead < 1 ||
         collection.listPagesRead !== collection.totalListPages ||
-        collection.detailPoCount !== new Set(rows.map((row) => row.poNumber)).size ||
+        collection.detailPoCount !==
+          new Set(rows.map((row) => row.poNumber)).size ||
         new Set(rows.map((row) => row.poLineId)).size !== rows.length ||
         (rows.length > 0 &&
-          (!collection.vendorId || rows.some((row) => row.vendorId !== collection.vendorId))) ||
-        (plan.requireConfirmation && rows.some((row) => !row.confirmation || !row.barcode));
-      const receipt = { contentChecksum, contentByteCount: Buffer.byteLength(canonical) };
+          (!collection.vendorId ||
+            rows.some((row) => row.vendorId !== collection.vendorId))) ||
+        (plan.requireConfirmation &&
+          rows.some((row) => !row.confirmation || !row.barcode));
+      const receipt = {
+        contentChecksum,
+        contentByteCount: Buffer.byteLength(canonical),
+      };
       if (invalid) {
         await tx.sourceImportRun.update({
           where: { id: run.id, organizationId: input.organizationId },
@@ -240,7 +239,11 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       }
       let account: Awaited<ReturnType<typeof readAccount>>;
       try {
-        account = await readAccount(tx, input.organizationId, plan.channelAccountId);
+        account = await readAccount(
+          tx,
+          input.organizationId,
+          plan.channelAccountId,
+        );
       } catch (error) {
         if (!(error instanceof NotFoundException)) throw error;
         await tx.sourceImportRun.update({
@@ -267,7 +270,8 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
         (frozen.rocketVendorId && frozen.rocketVendorId !== account.vendorId) ||
         (frozen.sharedCoupangVendorId &&
           frozen.sharedCoupangVendorId !== account.shared?.vendorId) ||
-        (rows.length > 0 && expected.some((vendor) => vendor !== collection.vendorId))
+        (rows.length > 0 &&
+          expected.some((vendor) => vendor !== collection.vendorId))
       ) {
         await tx.sourceImportRun.update({
           where: { id: run.id, organizationId: input.organizationId },
@@ -295,7 +299,9 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
             data: { vendorId: collection.vendorId },
           });
           if (claimed.count !== 1)
-            throw new ConflictException('Rocket vendor identity changed before publication');
+            throw new ConflictException(
+              'Rocket vendor identity changed before publication',
+            );
         }
         if (account.shared && !account.shared.vendorId) {
           const claimed = await tx.channelAccount.updateMany({
@@ -309,7 +315,9 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
             data: { vendorId: collection.vendorId },
           });
           if (claimed.count !== 1)
-            throw new ConflictException('Rocket vendor identity changed before publication');
+            throw new ConflictException(
+              'Rocket vendor identity changed before publication',
+            );
           await advanceProductMappingGeneration(tx, input.organizationId);
         }
       }
@@ -332,14 +340,20 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       const complete = await tx.sourceImportRun.update({
         where: { id: run.id, organizationId: input.organizationId },
         data: {
-          status: 'complete',
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: rows.length,
           importedAt: new Date(),
           ...receipt,
           providerBackedEmptyProof: rows.length === 0,
           coverageStartDate: new Date(plan.from + 'T00:00:00.000Z'),
           coverageEndDate: new Date(plan.to + 'T00:00:00.000Z'),
-          qualityReport: { proof, includedCount: rows.length, excludedCount: 0, warningCount: 0 },
+          qualityReport: {
+            proof,
+            collection,
+            includedCount: rows.length,
+            excludedCount: 0,
+            warningCount: 0,
+          },
           publicationSequence: await allocatePublicationSequence(
             tx,
             input.organizationId,
@@ -357,10 +371,19 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
   }
 
   fail(input: Parameters<RocketPoCatalogRepositoryPort['fail']>[0]) {
-    if (!input.code || input.code.length > 100 || !input.message || input.message.length > 300)
+    if (
+      !input.code ||
+      input.code.length > 100 ||
+      !input.message ||
+      input.message.length > 300
+    )
       throw new BadRequestException('ROCKET_PO_FAILURE_INVALID');
     return this.prisma.$transaction(async (tx) => {
-      const original = await findAttempt(tx, input.organizationId, input.attemptId);
+      const original = await findAttempt(
+        tx,
+        input.organizationId,
+        input.attemptId,
+      );
       await lockSource(tx, input.organizationId, original.channelAccountId!);
       const run = await findAttempt(tx, input.organizationId, input.attemptId);
       fence(run, input.token);
@@ -375,36 +398,33 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
     }, TRANSACTION_OPTIONS);
   }
 
-  readComplete(input: Parameters<RocketPoCatalogRepositoryPort['readComplete']>[0]) {
+  readComplete(
+    input: Parameters<RocketPoCatalogRepositoryPort['readComplete']>[0],
+  ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const run = await findAttempt(tx, input.organizationId, input.sourceImportRunId);
-        if (run.channelAccountId !== input.channelAccountId || run.status !== 'complete')
-          throw new NotFoundException('ROCKET_PO_COMPLETE_NOT_FOUND');
-        const saved = await loadSavedRocketCollection(tx, input);
+        const saved = await readRocketPoCompleteCollection(tx, input);
         if (!saved) throw new NotFoundException('ROCKET_PO_COMPLETE_NOT_FOUND');
-        return {
-          ...saved,
-          catalog: {
-            sourceImportRunId: run.id,
-            channelAccountId: input.channelAccountId,
-            generation: String(run.freshnessGeneration),
-            actualCutoffAt: run.importedAt!.toISOString(),
-            rowCount: run.rowCount,
-          },
-          identities: await resolveIdentities(tx, { ...input, rows: saved.rows }),
-        };
+        return saved;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
 
-  listSavedPos(input: Parameters<RocketPoCatalogRepositoryPort['listSavedPos']>[0]) {
-    return listSavedRocketPos(this.prisma, input);
+  listSavedPos(
+    input: Parameters<RocketPoCatalogRepositoryPort['listSavedPos']>[0],
+  ) {
+    return this.prisma.$transaction((tx) => readCurrentRocketPos(tx, input), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   }
 
-  loadSavedCollection(input: Parameters<RocketPoCatalogRepositoryPort['loadSavedCollection']>[0]) {
-    return loadSavedRocketCollection(this.prisma, input);
+  loadSavedCollection(
+    input: Parameters<RocketPoCatalogRepositoryPort['loadSavedCollection']>[0],
+  ) {
+    return this.prisma.$transaction((tx) => readRocketPoSnapshot(tx, input), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   }
 }
 
@@ -438,37 +458,6 @@ function productsFromRows(rows: RocketPoCatalogRow[]) {
   }));
 }
 
-async function resolveIdentities(
-  tx: Prisma.TransactionClient,
-  input: { organizationId: string; channelAccountId: string; rows: RocketPoCatalogRow[] },
-) {
-  const productNos = [...new Set(input.rows.map(({ productNo }) => productNo))];
-  const listings = await tx.channelListing.findMany({
-    where: {
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      externalId: { in: productNos },
-    },
-    select: { id: true },
-  });
-  const options = await tx.channelListingOption.findMany({
-    where: {
-      organizationId: input.organizationId,
-      listingId: { in: listings.map(({ id }) => id) },
-      externalOptionId: { in: productNos },
-    },
-    select: { id: true, externalOptionId: true },
-  });
-  const optionByExternalId = new Map(options.map((option) => [option.externalOptionId, option.id]));
-  return input.rows.map((row) => {
-    const channelSkuId = optionByExternalId.get(row.productNo);
-    if (!channelSkuId) {
-      throw new ConflictException(`Rocket identity ${row.productNo} was not persisted`);
-    }
-    return { poLineId: row.poLineId, channelSkuId };
-  });
-}
-
 function hash(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -484,7 +473,7 @@ function control(run: SourceImportRun): RocketPoSourceControl {
     state:
       effectiveExpired || run.status === 'failed'
         ? 'FAILED'
-        : run.status === 'complete'
+        : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
           ? 'COMPLETE'
           : 'RUNNING',
     generation: String(run.freshnessGeneration),
@@ -497,13 +486,18 @@ function control(run: SourceImportRun): RocketPoSourceControl {
       : run.errorMessage,
   } satisfies RocketPoSourceControl;
 }
-function publicControl(run: SourceImportRun) {
-  const { attemptToken: _token, ...result } = control(run);
-  return result;
-}
-async function findAttempt(tx: Prisma.TransactionClient, organizationId: string, id: string) {
+async function findAttempt(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  id: string,
+) {
   const run = await tx.sourceImportRun.findFirst({
-    where: { id, organizationId, sourceType: SOURCE_TYPE, parserVersion: 'rocket-po-v1' },
+    where: {
+      id,
+      organizationId,
+      sourceType: SOURCE_TYPE,
+      parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
+    },
   });
   if (!run) throw new NotFoundException('ROCKET_PO_ATTEMPT_NOT_FOUND');
   return run;
@@ -524,12 +518,23 @@ async function readAccount(
   channelAccountId: string,
 ) {
   const account = await tx.channelAccount.findFirst({
-    where: { id: channelAccountId, organizationId, channel: 'rocket', status: 'active' },
+    where: {
+      id: channelAccountId,
+      organizationId,
+      channel: 'rocket',
+      status: 'active',
+    },
     select: { vendorId: true },
   });
-  if (!account) throw new NotFoundException('Active Rocket channel account not found');
+  if (!account)
+    throw new NotFoundException('Active Rocket channel account not found');
   const shared = await tx.channelAccount.findFirst({
-    where: { organizationId, channel: 'coupang', status: 'active', isPrimary: true },
+    where: {
+      organizationId,
+      channel: 'coupang',
+      status: 'active',
+      isPrimary: true,
+    },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     select: { id: true, vendorId: true },
   });
@@ -537,15 +542,21 @@ async function readAccount(
     storedVendorId: account.vendorId,
     vendorId: account.vendorId?.trim() || null,
     shared: shared
-      ? { ...shared, storedVendorId: shared.vendorId, vendorId: shared.vendorId?.trim() || null }
+      ? {
+          ...shared,
+          storedVendorId: shared.vendorId,
+          vendorId: shared.vendorId?.trim() || null,
+        }
       : null,
   };
 }
 
 function fence(run: SourceImportRun, token: string) {
-  if (!token || token !== run.attemptToken) throw new ConflictException('ATTEMPT_FENCE_LOST');
+  if (!token || token !== run.attemptToken)
+    throw new ConflictException('ATTEMPT_FENCE_LOST');
 }
 function writable(run: SourceImportRun) {
-  if (run.status !== 'running') throw new ConflictException('ATTEMPT_TERMINAL_CONFLICT');
+  if (run.status !== 'running')
+    throw new ConflictException('ATTEMPT_TERMINAL_CONFLICT');
   if (expired(run)) throw new ConflictException('ATTEMPT_EXPIRED');
 }

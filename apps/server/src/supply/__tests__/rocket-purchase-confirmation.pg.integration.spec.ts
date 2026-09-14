@@ -12,6 +12,8 @@ import { RocketWorkbookProgressService } from '../../inventory/application/servi
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
+import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
+import type { RocketWorkbookExportTransactionPort } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -44,6 +46,22 @@ describe('Rocket workbook export transaction (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    const inventoryVerifiedAt = new Date();
+    const inventoryRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: 'rocket-confirmation-inventory.json',
+        fileHash: 'b'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: inventoryVerifiedAt,
+        lastVerifiedAt: inventoryVerifiedAt,
+        verificationCount: 1,
+        freshnessGeneration: 12n,
+      },
+    });
     await prisma.channelAccount.create({
       data: {
         id: CHANNEL_ACCOUNT_ID,
@@ -61,7 +79,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         sourceType: 'coupang_rocket_po_catalog',
         fileName: 'rocket-po-catalog.json',
         fileHash: 'a'.repeat(64),
-        status: 'complete',
+        status: 'completed',
         parserVersion: 'rocket-po-v1',
         rowCount: 1,
         importedAt: new Date(),
@@ -82,6 +100,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         code: 'SP-ROCKET-1',
         name: 'Rocket component',
         currentStock: 5,
+        lastImportRunId: inventoryRun.id,
       },
     });
     await prisma.channelListing.create({
@@ -112,9 +131,10 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        lastVerifiedAt: new Date(),
+        lastVerifiedAt: inventoryVerifiedAt,
         requestedGeneration: 12n,
         verifiedGeneration: 12n,
+        lastCompletedImportRunId: inventoryRun.id,
       },
     });
   });
@@ -127,7 +147,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     expect(first).toMatchObject({
       duplicate: false,
-      status: 'awaiting_coupang_confirmation',
       artifact: {
         fileName: 'coupang-rocket.xlsx',
         byteLength: input.artifactBytes.byteLength,
@@ -136,18 +155,27 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(replay).toMatchObject({
       exportId: first.exportId,
       duplicate: true,
-      status: 'awaiting_coupang_confirmation',
     });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
-    expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
-      _sum: { quantity: true },
-    })).toEqual({ _sum: { quantity: 2 } });
-    expect(await adapter.downloadWorkbook({
-      organizationId: TEST_ORGANIZATION_ID,
-      exportId: first.exportId,
-    })).toEqual({
+    // A positive workbook leaves its workflow open until Coupang confirms it.
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: first.exportId },
+      select: { completedAt: true },
+    })).resolves.toEqual({ completedAt: null });
+    expect(
+      await prisma.rocketPurchaseConfirmationAllocation.aggregate({
+        _sum: { quantity: true },
+      }),
+    ).toEqual({ _sum: { quantity: 2 } });
+    expect(
+      await adapter.downloadWorkbook({
+        organizationId: TEST_ORGANIZATION_ID,
+        exportId: first.exportId,
+      }),
+    ).toEqual({
       fileName: 'coupang-rocket.xlsx',
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       bytes: input.artifactBytes,
     });
   });
@@ -156,8 +184,9 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     const key = '21000000-0000-4000-8000-000000000010';
     await adapter.exportWorkbook(confirmationInput(key, 2));
 
-    await expect(adapter.exportWorkbook(confirmationInput(key, 3)))
-      .rejects.toThrow(/idempotency/i);
+    await expect(
+      adapter.exportWorkbook(confirmationInput(key, 3)),
+    ).rejects.toThrow(/idempotency/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
@@ -165,22 +194,33 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     const key = '21000000-0000-4000-8000-000000000016';
     await adapter.exportWorkbook(confirmationInput(key, 2));
 
-    await expect(adapter.exportWorkbook(confirmationInput(key, 2, '고양1센터')))
-      .rejects.toThrow(/idempotency/i);
+    await expect(
+      adapter.exportWorkbook(confirmationInput(key, 2, '고양1센터')),
+    ).rejects.toThrow(/idempotency/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
   it('serializes competing workbook workflows across the organization', async () => {
     const results = await Promise.allSettled([
-      adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000011', 4)),
-      adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000012', 4)),
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000011', 4),
+      ),
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000012', 4),
+      ),
     ]);
 
-    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
-    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
-    expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
-      _sum: { quantity: true },
-    })).toEqual({ _sum: { quantity: 4 } });
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(
+      1,
+    );
+    expect(
+      await prisma.rocketPurchaseConfirmationAllocation.aggregate({
+        _sum: { quantity: true },
+      }),
+    ).toEqual({ _sum: { quantity: 4 } });
   });
 
   it('rejects a stale inventory generation without creating a confirmation', async () => {
@@ -189,9 +229,25 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       data: { verifiedGeneration: 13n },
     });
 
-    await expect(adapter.exportWorkbook(
-      confirmationInput('21000000-0000-4000-8000-000000000013', 2),
-    )).rejects.toThrow(/generation/i);
+    await expect(
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000013', 2),
+      ),
+    ).rejects.toThrow(/generation/i);
+    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
+  });
+
+  it('holds workbook export when the referenced SKU is outside the published inventory run', async () => {
+    await prisma.sellpiaInventorySku.update({
+      where: { id: SELLPIA_SKU_ID },
+      data: { lastImportRunId: null },
+    });
+
+    await expect(
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000021', 2),
+      ),
+    ).rejects.toThrow(/inventory generation changed/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
@@ -204,17 +260,16 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       data: { quantity: 2 },
     });
 
-    await expect(adapter.exportWorkbook(
-      confirmationInput('21000000-0000-4000-8000-000000000014', 2),
-    )).rejects.toThrow(/recipe/i);
+    await expect(
+      adapter.exportWorkbook(
+        confirmationInput('21000000-0000-4000-8000-000000000014', 2),
+      ),
+    ).rejects.toThrow(/recipe/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
   it('rejects zero quantity when the confirmed recipe changed after preview', async () => {
-    const input = confirmationInput(
-      '21000000-0000-4000-8000-000000000017',
-      0,
-    );
+    const input = confirmationInput('21000000-0000-4000-8000-000000000017', 0);
     await prisma.channelListingOptionInventoryComponent.deleteMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -232,51 +287,65 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     );
     await prisma.rocketPurchaseConfirmation.update({
       where: { id: created.exportId },
-      data: { status: 'completed', completedAt: new Date() },
+      data: { completedAt: new Date() },
     });
 
-    await expect(adapter.exportWorkbook(
+    const next = await adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000018', 2),
-    )).resolves.toMatchObject({ status: 'awaiting_coupang_confirmation' });
+    );
+    expect(next).toMatchObject({ duplicate: false });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: next.exportId },
+      select: { completedAt: true },
+    })).resolves.toEqual({ completedAt: null });
   });
 
   // 수집은 매번 전량 스냅샷이라 제출한 라인이 이후 수집본에도 계속 나온다.
   // "이번에 새로 들어온 것만" 을 가려내는 유일한 서버 근거다.
   it('reports which PO lines this account already sent in a workbook', async () => {
-    expect(await adapter.listExportedPoLineIds({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      poLineIds: [PO_LINE_ID, 'never-exported'],
-    })).toEqual([]);
+    expect(
+      await adapter.listExportedPoLineIds({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        poLineIds: [PO_LINE_ID, 'never-exported'],
+      }),
+    ).toEqual([]);
 
     const created = await adapter.exportWorkbook(
       confirmationInput('21000000-0000-4000-8000-000000000031', 2),
     );
 
-    expect(await adapter.listExportedPoLineIds({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      poLineIds: [PO_LINE_ID, 'never-exported'],
-    })).toEqual([PO_LINE_ID]);
+    expect(
+      await adapter.listExportedPoLineIds({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        poLineIds: [PO_LINE_ID, 'never-exported'],
+      }),
+    ).toEqual([PO_LINE_ID]);
     // 조직·계정 경계를 넘어 새지 않는다.
-    expect(await adapter.listExportedPoLineIds({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: '20000000-0000-4000-8000-0000000000ff',
-      poLineIds: [PO_LINE_ID],
-    })).toEqual([]);
-    expect(await adapter.listExportedPoLineIds({
-      organizationId: OTHER_ORGANIZATION_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      poLineIds: [PO_LINE_ID],
-    })).toEqual([]);
+    expect(
+      await adapter.listExportedPoLineIds({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: '20000000-0000-4000-8000-0000000000ff',
+        poLineIds: [PO_LINE_ID],
+      }),
+    ).toEqual([]);
+    expect(
+      await adapter.listExportedPoLineIds({
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        poLineIds: [PO_LINE_ID],
+      }),
+    ).toEqual([]);
 
-    // 실제 사용 안 함 전이는 status=completed + releasedAt 을 기록한다. 그 워크북은
+    // 실제 사용 안 함 전이는 releasedAt 근거를 기록한다. 그 워크북은
     // 제출로 보지 않으므로 같은 라인을 다시 내보낼 수 있어야 한다.
-    const confirmation = await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
-      where: { id: created.exportId },
-      select: { confirmedAt: true },
-    });
+    const confirmation =
+      await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+        where: { id: created.exportId },
+        select: { confirmedAt: true },
+      });
     await prisma.rocketPurchaseConfirmationTransmission.createMany({
       data: ['SHIPMENT', 'MILKRUN'].map((transport) => ({
         organizationId: TEST_ORGANIZATION_ID,
@@ -293,11 +362,13 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       exportId: created.exportId,
       reason: '쿠팡에 제출하지 않음',
     });
-    expect(await adapter.listExportedPoLineIds({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      poLineIds: [PO_LINE_ID],
-    })).toEqual([]);
+    expect(
+      await adapter.listExportedPoLineIds({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        poLineIds: [PO_LINE_ID],
+      }),
+    ).toEqual([]);
   });
 
   it('completes only after finalized transmission and a newer verified generation', async () => {
@@ -333,12 +404,16 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       },
     });
 
-    await expect(adapter.getActiveWorkflow({
-      organizationId: TEST_ORGANIZATION_ID,
-    })).resolves.toBeNull();
-    expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
-      where: { id: created.exportId },
-    })).toMatchObject({ status: 'completed', completedAt: expect.any(Date) });
+    await expect(
+      adapter.getActiveWorkflow({
+        organizationId: TEST_ORGANIZATION_ID,
+      }),
+    ).resolves.toBeNull();
+    expect(
+      await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+        where: { id: created.exportId },
+      }),
+    ).toMatchObject({ completedAt: expect.any(Date) });
   });
 });
 
@@ -346,8 +421,8 @@ function confirmationInput(
   idempotencyKey: string,
   quantity: number,
   center = '덕평1센터',
-) {
-  const request = {
+): Parameters<RocketWorkbookExportTransactionPort['exportWorkbook']>[0] {
+  const request: RocketWorkbookDecisionRequest = {
     idempotencyKey,
     channelAccountId: CHANNEL_ACCOUNT_ID,
     collection: {
@@ -359,36 +434,40 @@ function confirmationInput(
       detailPoCount: 1,
       failedPoNumbers: [],
     },
-    rows: [{
-      poLineId: PO_LINE_ID,
-      poNumber: '1001',
-      vendorId: 'VENDOR-1',
-      productNo: 'P-1',
-      barcode: '8801234567890',
-      productName: 'Rocket item',
-      orderQty: 4,
-      plannedDeliveryDate: '2026-07-20',
-      confirmation: {
-        center,
-        inboundType: '택배',
-        poStatus: '거래처확인요청',
-        returnManager: '',
-        returnContact: '',
-        returnAddress: '',
-        purchasePrice: 1_000,
-        supplyPrice: 900,
-        vat: 90,
-        totalPurchase: 3_960,
-        poRegisteredAt: '2026-07-17 09:00:00',
-        xdock: 'N',
+    rows: [
+      {
+        poLineId: PO_LINE_ID,
+        poNumber: '1001',
+        vendorId: 'VENDOR-1',
+        productNo: 'P-1',
+        barcode: '8801234567890',
+        productName: 'Rocket item',
+        orderQty: 4,
+        plannedDeliveryDate: '2026-07-20',
+        confirmation: {
+          center,
+          inboundType: '택배',
+          poStatus: '거래처확인요청',
+          returnManager: '',
+          returnContact: '',
+          returnAddress: '',
+          purchasePrice: 1_000,
+          supplyPrice: 900,
+          vat: 90,
+          totalPurchase: 3_960,
+          poRegisteredAt: '2026-07-17 09:00:00',
+          xdock: 'N',
+        },
       },
-    }],
+    ],
     editedQuantities: { [PO_LINE_ID]: quantity },
-    shortageReasons: quantity < 4
-      ? { [PO_LINE_ID]: '협력사 재고부족 - 수요예측 오류' as const }
-      : {},
+    shortageReasons:
+      quantity < 4
+        ? { [PO_LINE_ID]: '협력사 재고부족 - 수요예측 오류' as const }
+        : {},
     artifactFileName: 'coupang-rocket.xlsx',
-    artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
+    artifactContentType:
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
   };
   return {
     organizationId: TEST_ORGANIZATION_ID,
@@ -399,35 +478,41 @@ function confirmationInput(
       status: 'ready',
       collectionRunId: COLLECTION_RUN_ID,
       catalog: {
-        run: { id: SOURCE_IMPORT_RUN_ID },
-        duplicate: false,
-        changes: {},
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        generation: '1',
+        actualCutoffAt: '2026-07-17T00:00:00.000Z',
+        rowCount: 1,
       },
       inventoryGeneration: '12',
-      rows: [{
-        poLineId: PO_LINE_ID,
-        poNumber: '1001',
-        productNo: 'P-1',
-        productName: 'Rocket item',
-        plannedDeliveryDate: '2026-07-20',
-        orderQuantity: 4,
-        recommendedQuantity: quantity,
-        maxQuantity: 4,
-        editedQuantity: quantity,
-        reason: null,
-        channelListingOptionId: OPTION_ID,
-        masterProductId: MASTER_PRODUCT_ID,
-        components: [{
-          sellpiaInventorySkuId: SELLPIA_SKU_ID,
-          code: 'SP-ROCKET-1',
-          name: 'Rocket component',
-          optionName: null,
-          quantity: 1,
-          currentStock: 5,
-          isActive: true,
-        }],
-      }],
+      rows: [
+        {
+          poLineId: PO_LINE_ID,
+          poNumber: '1001',
+          productNo: 'P-1',
+          productName: 'Rocket item',
+          plannedDeliveryDate: '2026-07-20',
+          orderQuantity: 4,
+          recommendedQuantity: quantity,
+          maxQuantity: 4,
+          editedQuantity: quantity,
+          reason: null,
+          channelListingOptionId: OPTION_ID,
+          masterProductId: MASTER_PRODUCT_ID,
+          components: [
+            {
+              sellpiaInventorySkuId: SELLPIA_SKU_ID,
+              code: 'SP-ROCKET-1',
+              name: 'Rocket component',
+              optionName: null,
+              quantity: 1,
+              currentStock: 5,
+              isActive: true,
+            },
+          ],
+        },
+      ],
     },
     artifactBytes: Buffer.from('exact-coupang-workbook'),
-  } as const;
+  };
 }

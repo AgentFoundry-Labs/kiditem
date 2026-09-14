@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/sourcing-ai - Sourcing Discovery Workspace
 
 `app/(sourcing-ai)/` owns AI-assisted sourcing discovery: keyword work,

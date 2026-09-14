@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/catalog — Product Operations And Channel Matching
 
 `app/(catalog)/` owns canonical product operations and per-channel-option

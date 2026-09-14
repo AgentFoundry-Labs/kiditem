@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/sourcing-ai/keywords - Keyword Collection and Analysis
 
 `keywords/` owns sourcing keyword analysis UI, trend keyword agent helpers, and

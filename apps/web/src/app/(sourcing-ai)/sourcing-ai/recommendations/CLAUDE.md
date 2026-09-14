@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/sourcing-ai/recommendations - Today Recommendations
 
 `recommendations/` owns recommendation views and helpers for Naver keyword

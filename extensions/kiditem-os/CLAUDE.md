@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # kiditem-os — Unified Manifest V3 Extension
 
 `extensions/kiditem-os/` is the single browser-automation extension. The

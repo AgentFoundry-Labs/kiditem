@@ -3,7 +3,8 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { readLatestListingSaleStatusFacts } from '../../../../channels/read/channel-listing-daily-facts';
+import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
 
 const SELLING_CHANNELS = ['coupang', 'rocket'];
 
@@ -17,13 +18,13 @@ const SELLING_CHANNELS = ['coupang', 'rocket'];
  * such as "승인완료" is not by itself a sale status.
  */
 export async function listSellingMasterProductIds(
-  prisma: PrismaService | Prisma.TransactionClient,
+  transaction: Prisma.TransactionClient,
   organizationId: string,
   candidateIds?: readonly string[],
 ): Promise<string[]> {
   if (candidateIds && candidateIds.length === 0) return [];
   const candidateIdSet = candidateIds ? new Set(candidateIds) : null;
-  const listings = await prisma.channelListing.findMany({
+  const listings = await transaction.channelListing.findMany({
     where: {
       organizationId,
       channelAccount: {
@@ -35,15 +36,10 @@ export async function listSellingMasterProductIds(
       },
     },
     select: {
+      id: true,
       isActive: true,
       status: true,
       rawJson: true,
-      channelListingDailySnapshots: {
-        where: { organizationId },
-        orderBy: [{ businessDate: 'desc' }, { lastObservedAt: 'desc' }],
-        take: 1,
-        select: { saleStatus: true },
-      },
       options: {
         where: { organizationId },
         select: {
@@ -53,8 +49,7 @@ export async function listSellingMasterProductIds(
             select: {
               sellpiaInventorySku: {
                 select: {
-                  isActive: true,
-                  currentStock: true,
+                  id: true,
                   masterProductId: true,
                   masterProduct: { select: { isActive: true } },
                 },
@@ -65,10 +60,32 @@ export async function listSellingMasterProductIds(
       },
     },
   });
+  const statusFacts = await readLatestListingSaleStatusFacts(transaction, {
+    organizationId,
+    listingIds: listings.map((listing) => listing.id),
+  });
+  const saleStatusByListing = new Map(statusFacts.map((fact) => [
+    fact.listingId,
+    fact.saleStatus,
+  ]));
+  const sellpiaInventorySkuIds = [...new Set(listings.flatMap((listing) =>
+    listing.options.flatMap((option) => option.inventoryComponents.map(
+      (component) => component.sellpiaInventorySku.id,
+    ))))];
+  const availability = sellpiaInventorySkuIds.length === 0
+    ? []
+    : (await readInventoryAvailability(transaction, {
+      organizationId,
+      sellpiaInventorySkuIds,
+    })).items;
+  const availabilityBySkuId = new Map(availability.map((item) => [
+    item.sellpiaInventorySkuId,
+    item,
+  ]));
   const masterProductIds = new Set<string>();
   for (const listing of listings) {
     const saleStatus = resolveChannelListingSaleStatus({
-      latestSnapshotStatus: listing.channelListingDailySnapshots[0]?.saleStatus,
+      latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
       rawStatus: rawSaleStatus(listing.rawJson),
       optionStatuses: listing.options.map((option) => option.status),
       listingStatus: listing.status,
@@ -79,9 +96,10 @@ export async function listSellingMasterProductIds(
     for (const option of listing.options) {
       for (const component of option.inventoryComponents) {
         const sku = component.sellpiaInventorySku;
+        const stock = availabilityBySkuId.get(sku.id);
         if (
-          sku.isActive
-          && sku.currentStock > 0
+          stock?.isActive
+          && stock.availableStock > 0
           && sku.masterProduct?.isActive
           && sku.masterProductId
           && (!candidateIdSet || candidateIdSet.has(sku.masterProductId))

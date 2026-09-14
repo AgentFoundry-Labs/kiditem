@@ -43,31 +43,36 @@ export class ProductAbcReadService implements ProductAbcReadPort {
     masterProductIds: readonly string[];
   }): Promise<ProductAbcSnapshot> {
     const targetCutoff = productAbcEvidenceCutoff(new Date());
-    const [formulaState, evaluations, snapshot] = await Promise.all([
-      this.repository.getFormulaState(input.organizationId),
-      this.repository.listEvaluations(input.organizationId, input.masterProductIds),
+    const [published, snapshot] = await Promise.all([
+      this.repository.readPublication(input.organizationId, input.masterProductIds),
       this.evidence.load({ organizationId: input.organizationId, targetCutoff }),
     ]);
 
     const evidence = evidenceView(snapshot);
+    const publication = published.publication;
     const formulaStateView: ProductAbcFormulaStateView = {
-      formulaRevision: formulaState.formulaRevision,
-      publicationRevision: formulaState.publicationRevision,
-      officialCutoffDate: formulaState.officialCutoffDate,
-      publishedAt: formulaState.publishedAt,
-      mappingGeneration: formulaState.mappingGeneration,
+      formulaRevision: publication?.formulaRevision ?? published.currentFormulaRevision,
+      publicationRevision: publication?.publicationRevision ?? 0,
+      officialCutoffDate: publication?.officialCutoffDate ?? null,
+      publishedAt: publication?.publishedAt ?? null,
+      mappingGeneration: published.currentMappingGeneration,
     };
     const evidenceByProduct = new Map(
       snapshot.products.map((product) => [product.masterProductId, product] as const),
     );
-    const products = evaluations.map((record) => ({
+    const products = published.products.map((record) => ({
       masterProductId: record.masterProductId,
+      contributionEligible: record.contributionEligible,
       abc: buildProductAbcReadModel({
         evaluation: record.evaluation,
         mappingValid: evidenceByProduct.get(record.masterProductId)?.mappingValid ?? false,
         saleStartDate: evidenceByProduct.get(record.masterProductId)?.saleStartDate ?? null,
         evidence,
-        formulaState: formulaStateView,
+        formulaState: {
+          ...formulaStateView,
+          formulaRevision: record.evaluation?.formulaRevision
+            ?? formulaStateView.formulaRevision,
+        },
       }),
     } satisfies ProductAbcView));
 
@@ -75,6 +80,7 @@ export class ProductAbcReadService implements ProductAbcReadPort {
       targetCutoff,
       actualCutoff: snapshot.actualCutoff,
       capturedAt: latestCapturedAt(snapshot),
+      publication,
       products,
     };
   }
@@ -82,7 +88,6 @@ export class ProductAbcReadService implements ProductAbcReadPort {
 
 function evidenceView(snapshot: ProfitabilityEvidenceSnapshot): ProductAbcEvidenceView {
   return {
-    requiredCutoff: snapshot.targetCutoff,
     actualCutoff: snapshot.actualCutoff,
     mappingGeneration: snapshot.mappingGeneration,
     sellpia: sourceEvidence(snapshot, 'sellpia'),
@@ -95,19 +100,10 @@ function sourceEvidence(
   source: 'sellpia' | 'advertising',
 ): ProductAbcSourceEvidence {
   const readiness = snapshot.sources[source];
-  const manifest = snapshot.sourceVector[source];
   return {
-    ready: readiness.ready,
+    requiredCutoff: readiness.requiredCutoff,
     actualCutoff: readiness.actualCutoff,
     latestAttemptState: readiness.latestAttempt?.state ?? null,
-    errorCode: typeof readiness.latestAttempt?.errorCode === 'string'
-      ? readiness.latestAttempt.errorCode
-      : null,
-    sourceImportRunId: manifest.sourceImportRunId,
-    generation: manifest.publicationSequence,
-    coverageStartDate: manifest.coverageStartDate,
-    coverageEndDate: manifest.coverageEndDate,
-    capturedAt: manifest.capturedAt,
   };
 }
 

@@ -14,6 +14,7 @@ import {
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { businessDateKey } from '../../common/kst';
+import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
 import {
   ALERT_DEDUPE_KEY,
   ATTEMPT_TTL_MS,
@@ -59,6 +60,10 @@ import type {
   SellpiaProfitabilityFailureBodyDto,
   SellpiaProfitabilitySubmitBodyDto,
 } from './dto/sellpia-product-sales.dto';
+import {
+  readCurrentSellpiaProfitabilityGeneration,
+  readExactSellpiaProductMonthlyFacts,
+} from './read/sellpia-product-monthly-facts';
 
 export { buildSellpiaProfitabilityPlan } from './sellpia-profitability-source.internal';
 
@@ -171,16 +176,17 @@ export class SellpiaProfitabilitySourceService
       assertCoveredMonths(plan, normalized.coveredMonths);
       await assertMappingGeneration(tx, attempt);
 
-      const candidates = await tx.sellpiaInventorySku.findMany({
-        where: { organizationId },
-        select: {
-          id: true,
-          code: true,
-          barcode: true,
-          isActive: true,
-          masterProductId: true,
-        },
-      }) as InventoryCandidate[];
+      const identities = await readInventorySkuIdentities(tx, {
+        organizationId,
+        selector: { kind: 'all' },
+      });
+      const candidates: InventoryCandidate[] = identities.map((identity) => ({
+        id: identity.sellpiaInventorySkuId,
+        code: identity.code,
+        barcode: identity.barcode,
+        isActive: identity.isActive,
+        masterProductId: identity.masterProductId,
+      }));
       const facts = freezeFacts(attemptId, plan, normalized.products, candidates);
       if (facts.length === 0 && !normalized.providerBackedEmptyProof) {
         throw new UnprocessableEntityException('EMPTY_COVERAGE_NOT_PROVEN');
@@ -450,44 +456,13 @@ export class SellpiaProfitabilitySourceService
     yearMonths?: readonly string[];
   }): Promise<SellpiaProfitabilityGenerationFacts> {
     return this.prisma.$transaction(async (tx) => {
-      const run = await tx.sourceImportRun.findFirst({
-        where: {
-          id: input.sourceImportRunId,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          status: 'completed',
-          publicationSequence: { not: null },
-        },
-      }) as SourceAttemptRecord | null;
+      const { generation: run, facts: rows } = await readExactSellpiaProductMonthlyFacts(tx, {
+        organizationId: input.organizationId,
+        sourceImportRunId: input.sourceImportRunId,
+        scope: { limit: MAX_GENERATION_FACT_ROWS + 1 },
+      });
       if (!run) throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
       const generation = generationMetadata(run);
-      const rows = await tx.sellpiaProductMonthlySales.findMany({
-        where: {
-          organizationId: input.organizationId,
-          sourceImportRunId: input.sourceImportRunId,
-        },
-        orderBy: [
-          { productCode: 'asc' },
-          { optionCode: 'asc' },
-          { yearMonth: 'asc' },
-        ],
-        take: MAX_GENERATION_FACT_ROWS + 1,
-        select: {
-          sourceImportRunId: true,
-          sellpiaInventorySkuId: true,
-          masterProductId: true,
-          productCode: true,
-          optionCode: true,
-          yearMonth: true,
-          orderAmount: true,
-          inAmount: true,
-          costBasis: true,
-          vatIncluded: true,
-          coverageStartDate: true,
-          coverageEndDate: true,
-          capturedAt: true,
-        },
-      });
       if (rows.length > MAX_GENERATION_FACT_ROWS) {
         throw new UnprocessableEntityException('SOURCE_FACTS_OVERFLOW');
       }
@@ -551,16 +526,10 @@ export class SellpiaProfitabilitySourceService
   async readCanonicalGeneration(
     organizationId: string,
   ): Promise<SellpiaProfitabilityCompleteGeneration | null> {
-    const run = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId,
-        sourceType: SOURCE_TYPE,
-        status: 'completed',
-        publicationSequence: { not: null },
-      },
-      orderBy: { publicationSequence: 'desc' },
-    }) as SourceAttemptRecord | null;
-    return run ? toCompleteGeneration(run) : null;
+    return this.prisma.$transaction(async (tx) => {
+      const run = await readCurrentSellpiaProfitabilityGeneration(tx, organizationId);
+      return run ? toCompleteGeneration(run) : null;
+    });
   }
 
   async readSourceStatus(
@@ -571,15 +540,10 @@ export class SellpiaProfitabilitySourceService
         where: { organizationId, sourceType: SOURCE_TYPE },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }) as SourceAttemptRecord | null;
-      const latestCompleteRun = await tx.sourceImportRun.findFirst({
-        where: {
-          organizationId,
-          sourceType: SOURCE_TYPE,
-          status: 'completed',
-          publicationSequence: { not: null },
-        },
-        orderBy: { publicationSequence: 'desc' },
-      }) as SourceAttemptRecord | null;
+      const latestCompleteRun = await readCurrentSellpiaProfitabilityGeneration(
+        tx,
+        organizationId,
+      );
       const latestComplete = latestCompleteRun
         ? toCompleteGeneration(latestCompleteRun)
         : null;

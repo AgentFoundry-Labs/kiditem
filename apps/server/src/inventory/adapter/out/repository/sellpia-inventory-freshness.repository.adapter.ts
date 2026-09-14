@@ -16,6 +16,8 @@ import type {
 import type {
   SellpiaInventoryFreshnessState,
 } from '../../../domain/policy/sellpia-inventory-freshness.policy';
+import { readInventoryAvailability } from '../../../read/inventory-availability';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -100,19 +102,12 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     return this.getState();
   }
 
-  findInventorySkus(
+  findInventoryAvailability(
     sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{
-    id: string;
-    isActive: boolean;
-    currentStock: number;
-  }>> {
-    return this.tx.sellpiaInventorySku.findMany({
-      where: {
-        organizationId: this.organizationId,
-        id: { in: sellpiaInventorySkuIds },
-      },
-      select: { id: true, isActive: true, currentStock: true },
+  ): Promise<InventoryAvailabilityBatch> {
+    return readInventoryAvailability(this.tx, {
+      organizationId: this.organizationId,
+      sellpiaInventorySkuIds,
     });
   }
 }

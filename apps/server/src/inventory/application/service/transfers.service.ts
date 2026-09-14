@@ -81,6 +81,7 @@ export class TransfersService implements TransfersPort {
       id,
       dto.status,
       dto.status === 'completed',
+      organizationId,
     );
   }
 }

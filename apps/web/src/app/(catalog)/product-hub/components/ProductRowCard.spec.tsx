@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
-import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 
 describe('ProductRowCard', () => {
   it('renders the calculated channel fallback when raw MasterProduct media is empty', () => {
@@ -118,6 +118,17 @@ describe('ProductRowCard', () => {
     expect(screen.getByText('판매중지')).toBeInTheDocument();
     expect(screen.queryByText('판매중')).not.toBeInTheDocument();
   });
+
+  it('renders a missing inventory snapshot as uncollected instead of sold out', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      inventoryUnits: null,
+      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    }} />);
+
+    expect(screen.getAllByText('미수집')).not.toHaveLength(0);
+    expect(screen.queryByText('품절')).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsListItem {
@@ -138,7 +149,6 @@ function product(): MasterProductOperationsListItem {
     abc: {
       abcGrade: 'A',
       evaluation,
-      displayStatus: 'READY',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',
@@ -147,7 +157,7 @@ function product(): MasterProductOperationsListItem {
       sources: {
         sellpia: abcSource(),
         advertising: abcSource(),
-        mapping: { status: 'READY', mappingGeneration: '7' },
+        mapping: { valid: true, currentMappingGeneration: '7', evidenceMappingGeneration: '7' },
       },
     },
     contribution: {
@@ -168,8 +178,6 @@ function product(): MasterProductOperationsListItem {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
     isSelling: true,
     updatedAt: '2026-07-24T00:00:00.000Z',
@@ -181,7 +189,7 @@ function product(): MasterProductOperationsListItem {
     },
     channelOptionSummary: { total: 1, active: 1, configured: 0, warning: 1 },
     inventoryUnits: 0,
-    inventoryStatus: 'configuration_required',
+    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [{
@@ -199,6 +207,7 @@ function product(): MasterProductOperationsListItem {
     adSpend: 3_500,
     adSpendRate: 10,
     metricsFreshness: {
+      orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
         ready: true,
         coverageStartDate: '2026-07-01',

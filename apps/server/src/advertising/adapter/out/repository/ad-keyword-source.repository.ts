@@ -31,9 +31,10 @@ import {
   normalizeAdKeywordTarget,
   mergeKeywordTargets,
 } from '../../../application/service/ad-keyword-normalizer';
-import { readCompleteAdKeywordFacts } from './ad-keyword-complete-read';
+import { readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
 import type { UpsertAdTargetDailyInput } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ListingMap } from '../../../domain/listing-match';
+import { AdMetricUnparseableError } from '../../../domain/scrape-row-normalizers';
 
 const SOURCE = 'coupang_ad_keyword';
 const PARSER = 'ad-keyword-v1';
@@ -364,7 +365,23 @@ export class AdKeywordSourceRepository {
                 terminalChecksum,
               ),
             );
-          await this.stageTargets(tx, row, unit, result);
+          try {
+            await this.stageTargets(tx, row, unit, result);
+          } catch (error) {
+            // Normalization throws before any staging write, so the attempt
+            // can still be failed in this transaction.
+            if (!(error instanceof AdMetricUnparseableError)) throw error;
+            return await this.attemptIn(
+              tx,
+              await this.failIn(
+                tx,
+                row,
+                error.code,
+                `Ad keyword result has an unreadable ${error.field} cell.`,
+                terminalChecksum,
+              ),
+            );
+          }
           itemCount = result.rows.length;
         }
       }

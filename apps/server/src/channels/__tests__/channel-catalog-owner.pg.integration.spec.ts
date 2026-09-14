@@ -27,7 +27,7 @@ import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/chann
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { lockChannelListingRow } from '../adapter/out/repository/channel-listing-row-lock';
+import { countPublishedCatalogListings } from '../read/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { PrismaClient } from '@prisma/client';
@@ -509,12 +509,12 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       select: { id: true },
     });
     await prisma.$transaction(async (tx) => {
-      await expect(lockChannelListingRow(tx, {
+      // Both basics listings stay published catalog identity while the details
+      // child that moved the enriched listing onto its run is running or failed.
+      await expect(countPublishedCatalogListings(tx, {
         organizationId: ORG,
-        channelListingId: listing.id,
-        activeOnly: true,
-        catalogMatchingEligibleOnly: true,
-      })).resolves.toMatchObject({ id: listing.id });
+        channelAccountId: ACCOUNT,
+      })).resolves.toBe(2);
     });
 
     await seedActiveSellpiaInventorySku(prisma, {

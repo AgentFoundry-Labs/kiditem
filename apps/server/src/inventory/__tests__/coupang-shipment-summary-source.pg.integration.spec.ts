@@ -87,7 +87,9 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     expect((await get("/source")).body).toMatchObject({
       ready: false,
       latestComplete: null,
-      items: [{ date: "2026-08-01", count: 8, verified: false }],
+      items: [
+        { date: "2026-08-01", count: null, boxes: null, verified: false },
+      ],
     });
     const a = await begin("a");
     expect(a).toMatchObject({ state: "RUNNING", plan: { maxPages: 40 } });
@@ -102,7 +104,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       items: [
         { date: "2026-09-02", count: 2, verified: true },
         { date: "2026-09-01", count: 5, verified: true },
-        { date: "2026-08-01", count: 8, verified: false },
+        { date: "2026-08-01", count: null, boxes: null, verified: false },
       ],
     });
     expect(

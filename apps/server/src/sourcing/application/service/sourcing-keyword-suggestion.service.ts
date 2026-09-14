@@ -164,6 +164,11 @@ function buildOutput(input: {
 }): AuthorizedCollectionOutput {
   const capturedAt = new Date(input.batch.capturedAt);
   const payloadHash = hashCollectionRequest(input.batch);
+  const observationKey = hashCollectionRequest({
+    ingestionRunId: input.permit.runId,
+    normalizedKeyword: input.normalizedKeyword,
+    capturedAt: input.batch.capturedAt,
+  });
   return {
     observations: [{
       organizationId: input.organizationId,
@@ -177,11 +182,7 @@ function buildOutput(input: {
       sourceEntityType: 'keyword_suggestion_snapshot',
       sourceEntityId: input.normalizedKeyword,
       schemaVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,
-      observationKey: hashCollectionRequest({
-        ingestionRunId: input.permit.runId,
-        normalizedKeyword: input.normalizedKeyword,
-        capturedAt: input.batch.capturedAt,
-      }),
+      observationKey,
       revision: 1,
       supportsCandidate: false,
       sourceUrl: null,
@@ -193,7 +194,19 @@ function buildOutput(input: {
       rawPayload: input.batch,
       ingestedAt: capturedAt,
     }],
-    typedRecords: [],
+    typedRecords: [{
+      kind: 'keyword_suggestion_snapshot',
+      row: {
+        organizationId: input.organizationId,
+        ingestionRunId: input.permit.runId,
+        evidenceObservationKey: observationKey,
+        evidenceRevision: 1,
+        schemaVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,
+        keywordNormalized: input.normalizedKeyword,
+        document: SourcingKeywordSuggestionObservationBatchSchema.parse(input.batch),
+        capturedAt,
+      },
+    }],
     discoveredCount: input.batch.items.length,
     rejectedCount: 0,
     qualityReport: {

@@ -18,7 +18,12 @@ import {
   Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  competitorCollectionStatus,
+  type CompetitorCollectionStatus,
+} from "@kiditem/shared/advertising";
 import { friendlyError } from "@/lib/api-error";
+import { collectionSourceStatusQueryOptions } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 import {
@@ -63,13 +68,13 @@ export function CompetitorTrackingPage() {
     // 기간 전환 시 전체화면 스켈레톤으로 되돌아가지 않도록 직전 데이터를 유지한다.
     placeholderData: keepPreviousData,
   });
-  const sourceStatusQuery = useQuery({
+  const sourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: COMPETITOR_SOURCE_STATUS_QUERY_KEY,
     queryFn: fetchCompetitorCatalogSourceStatus,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === "RUNNING" ? 5_000 : false
     ),
-  });
+  }));
   const collectionMutation = useMutation({
     mutationFn: async ({
       input,
@@ -295,11 +300,11 @@ export function CompetitorTrackingPage() {
         />
       </section>
 
-      {data.collection.status === "catalog_empty" ? (
+      {competitorCollectionStatus(data.collection) === "catalog_empty" ? (
         <CatalogEmptyState />
       ) : data.sellers.length === 0 ? (
         <DataEmptyState
-          status={data.collection.status}
+          status={competitorCollectionStatus(data.collection)}
           keywords={data.collection.suggestedKeywords}
           onCollect={() => startCollection({ target: "all" })}
           pending={collecting}
@@ -435,7 +440,7 @@ function DataEmptyState({
   onCollect,
   pending,
 }: {
-  status: string;
+  status: CompetitorCollectionStatus;
   keywords: string[];
   onCollect: () => void;
   pending: boolean;

@@ -80,14 +80,6 @@ export async function downloadProfitLossReport(
   );
 }
 
-export async function downloadSettlementReconcileReport(period: string): Promise<string> {
-  const params = new URLSearchParams({ period });
-  return downloadServerWorkbook(
-    `/api/settlements/reconcile/export?${params}`,
-    `정산대사_${period}.xlsx`,
-  );
-}
-
 async function downloadServerWorkbook(
   path: string,
   fallbackFileName: string,

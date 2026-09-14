@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 export const BROWSER_COLLECTION_PRODUCERS = [
-  'advertising.ad_account_daily_kpi',
   'advertising.ad_keyword',
   'advertising.ad_sync',
   'advertising.profitability_import',
@@ -11,7 +10,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'advertising.wing_rank',
   'advertising.wing_tracked_products',
   'channels.coupang_catalog',
-  'dashboard.coupang_ads',
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
   'dashboard.wing_sales',

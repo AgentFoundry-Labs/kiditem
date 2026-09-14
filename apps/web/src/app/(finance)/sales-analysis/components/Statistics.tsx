@@ -8,9 +8,11 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
 import {
   fetchStatisticsTab,
   isTabEmpty,
+  statisticsTabBasis,
   type StatisticsTab,
 } from '../lib/statistics-data';
 import { StatisticsTabPanels } from './statistics/StatisticsTabPanels';
@@ -78,6 +80,8 @@ export default function Statistics() {
           선택한 기간의 통계를 갱신 중입니다.
         </div>
       ) : null}
+
+      {data && !error ? <FinanceBasisNotice basis={statisticsTabBasis(tab, data)} /> : null}
 
       <div aria-busy={isRefreshing}>
         {isLoading && !data ? (

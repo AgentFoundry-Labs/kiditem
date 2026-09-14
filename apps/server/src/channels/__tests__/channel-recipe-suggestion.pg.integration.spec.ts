@@ -2,6 +2,8 @@ import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import { SellpiaInventorySkuReadService } from '../../inventory/application/service/sellpia-inventory-sku-read.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -30,6 +32,8 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService),
       new SellpiaRecipeEvidenceAdapter(new SellpiaInventorySkuReadService(
         new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+      ), new InventoryAvailabilityService(
+        new InventoryAvailabilityRepositoryAdapter(prismaService),
       )),
     );
   });

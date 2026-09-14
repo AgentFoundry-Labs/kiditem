@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/productgenerate - Product Generation Workflow
 
 `productgenerate/` owns the product generation workflow UI, upload helpers, and

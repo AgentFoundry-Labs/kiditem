@@ -10,7 +10,6 @@
 // one caller (the 30-day daily ad chart) is deliberately open-ended.
 
 import type { AdCoverage, TrafficCoverage, TrafficReconciliation } from '@kiditem/shared/dashboard';
-
 import type { ResolvedDashboardPeriod } from '../../../../domain/period/dashboard-period';
 
 export const WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT = Symbol(
@@ -21,14 +20,15 @@ export const WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT = Symbol(
 export type TrafficAdditiveMetric = keyof TrafficReconciliation;
 
 export interface WingTrafficMetrics {
-  revenue: number;
-  orders: number;
-  salesQty: number;
-  visitors: number;
-  views: number;
-  cartAdds: number;
-  conversionRate: number;
-  /** Average of account-level daily unique visitors; never an account UV sum. */
+  /** Additive totals over covered dates; `null` when no requested date was covered. */
+  revenue: number | null;
+  orders: number | null;
+  salesQty: number | null;
+  visitors: number | null;
+  views: number | null;
+  cartAdds: number | null;
+  conversionRate: number | null;
+  /** Average of listing-day visitor totals over dates with measured traffic. */
   dailyAverageVisitors?: number | null;
   /** Provider-reported conversion percentage, kept separate from our ratio. */
   providerConversionRate?: number | null;
@@ -45,12 +45,14 @@ export interface WingTrafficMetrics {
 }
 
 export interface CoupangAdsMetrics {
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
+  /** Additive totals over measured dates; `null` when no requested date was measured. */
+  spend: number | null;
+  revenue: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  /** `null` unless every measured day observed the conversion columns. */
+  conversions: number | null;
+  orders: number | null;
   /** Our report-defined CVR: observed orders / clicks. */
   conversionRate: number | null;
   /** Provider ratio, preserved separately and never used for our CVR. */
@@ -61,6 +63,51 @@ export interface CoupangAdsMetrics {
   /** The owner range is complete through its effective cutoff. */
   hasData: boolean;
   lastObservedAt: Date | null;
+}
+
+export type TrafficFunnelMetric =
+  | 'visitors'
+  | 'views'
+  | 'cartAdds'
+  | 'cartRate'
+  | 'orders'
+  | 'orderCartRate'
+  | 'salesQty'
+  | 'revenue'
+  | 'conversionRate';
+
+/**
+ * Dashboard funnel values composed from the listing-traffic and Orders owners
+ * inside one repeatable-read transaction. Each metric names the exact dates
+ * used for its value; the conversion dates are the intersection used for both
+ * numerator and denominator.
+ */
+export interface DashboardTrafficFunnelFacts {
+  visitors: number | null;
+  views: number | null;
+  cartAdds: number | null;
+  cartRate: number | null;
+  orders: number | null;
+  orderCartRate: number | null;
+  salesQty: number | null;
+  revenue: number | null;
+  conversionRate: number | null;
+  dailyAverageVisitors: number | null;
+  metricDates: Record<TrafficFunnelMetric, string[]>;
+  intersectionListingCount: number;
+  intersectionListingDateCount: number;
+  trafficCoverage: TrafficCoverage | null;
+  trafficObservedAt: Date | null;
+  orderObservedAt: Date | null;
+}
+
+/** Inputs actually divided for advertising cost / revenue. */
+export interface DashboardAdRateFacts {
+  adSpend: number | null;
+  revenue: number | null;
+  revenueSource: 'orders' | 'wing' | 'unavailable';
+  includedDates: string[];
+  adCoverageComplete: boolean;
 }
 
 export interface WingDailyTrendRow {
@@ -77,12 +124,6 @@ export interface WingDailyTrendRow {
 export interface CoupangAdsDailyRow {
   date: string;
   ad_cost: number;
-  ad_revenue: number;
-  clicks: number;
-  impressions: number;
-  conversions: number;
-  orders: number;
-  observedAt: string | null;
 }
 
 export interface WingTrafficAggregationRepositoryPort {
@@ -95,6 +136,16 @@ export interface WingTrafficAggregationRepositoryPort {
     organizationId: string,
     period: ResolvedDashboardPeriod,
   ): Promise<CoupangAdsMetrics>;
+
+  readTrafficFunnel(
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+  ): Promise<DashboardTrafficFunnelFacts>;
+
+  readAdRateFacts(
+    organizationId: string,
+    period: ResolvedDashboardPeriod,
+  ): Promise<DashboardAdRateFacts>;
 
   findLatestDataDate(organizationId: string): Promise<Date | null>;
 

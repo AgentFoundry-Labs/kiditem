@@ -1,17 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OrdersService } from '../orders.service';
 import { NotFoundException, NotImplementedException } from '@nestjs/common';
 import { OrderListResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
+import { OrdersService } from '../orders.service';
 
 function makePrisma() {
-  return {
+  const prisma = {
     order: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn(),
-      count: vi.fn().mockResolvedValue(0),
-      aggregate: vi.fn().mockResolvedValue({ _count: 0, _sum: { totalPrice: 0 } }),
+      groupBy: vi.fn().mockResolvedValue([]),
     },
+    sourceImportRun: {
+      findMany: vi.fn().mockResolvedValue([{
+        sourceType: 'order_collection_mall',
+        channelAccountId: '00000000-0000-4000-8000-000000000099',
+        importedAt: new Date('2026-05-01T01:00:00.000Z'),
+        updatedAt: new Date('2026-05-01T01:00:00.000Z'),
+        createdAt: new Date('2026-05-01T01:00:00.000Z'),
+        coverageStartDate: new Date('2000-01-01T00:00:00.000Z'),
+        coverageEndDate: new Date('3000-01-01T00:00:00.000Z'),
+        channelAccount: {
+          channel: 'order_collection',
+          externalAccountId: 'haebub-mall',
+        },
+        orders: [],
+      }]),
+    },
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(),
   };
+  prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+  return prisma;
 }
 
 const ORGANIZATION_ID = 'organization-1';
@@ -257,7 +276,7 @@ describe('OrdersService — order query and actions', () => {
 
       expect(prisma.order.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'order-1', organizationId: ORGANIZATION_ID },
+          where: expect.objectContaining({ id: 'order-1', organizationId: ORGANIZATION_ID }),
           include: expect.objectContaining({
             lineItems: expect.objectContaining({
               where: expect.objectContaining({ organizationId: ORGANIZATION_ID }),
@@ -275,7 +294,7 @@ describe('OrdersService — order query and actions', () => {
       await expect(service.findOne('order-1', ORGANIZATION_ID)).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.order.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'order-1', organizationId: ORGANIZATION_ID },
+          where: expect.objectContaining({ id: 'order-1', organizationId: ORGANIZATION_ID }),
         }),
       );
     });
@@ -300,18 +319,27 @@ describe('OrdersService — order query and actions', () => {
   });
 
   describe('getStats', () => {
-    it('getStats → 모든 count/aggregate 호출에 organizationId 필터 적용', async () => {
-      prisma.order.count
-        .mockResolvedValueOnce(100)  // total
-        .mockResolvedValueOnce(50)   // ACCEPT
-        .mockResolvedValueOnce(20)   // INSTRUCT
-        .mockResolvedValueOnce(10)   // DEPARTURE
-        .mockResolvedValueOnce(15)   // DELIVERING
-        .mockResolvedValueOnce(5);   // FINAL_DELIVERY
-
-      prisma.order.aggregate
-        .mockResolvedValueOnce({ _count: 3, _sum: { totalPrice: 90000 } })  // today
-        .mockResolvedValueOnce({ _count: 10, _sum: { totalPrice: 300000 } }); // week
+    it('getStats maps canonical status and line-amount window facts', async () => {
+      prisma.order.groupBy.mockResolvedValue([
+        { status: 'ACCEPT', _count: 50 },
+        { status: 'INSTRUCT', _count: 20 },
+        { status: 'DEPARTURE', _count: 10 },
+        { status: 'DELIVERING', _count: 15 },
+        { status: 'FINAL_DELIVERY', _count: 5 },
+      ]);
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{
+          revenue: 90_000n,
+          orderCount: 3n,
+          quantity: 4n,
+          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+        }])
+        .mockResolvedValueOnce([{
+          revenue: 300_000n,
+          orderCount: 10n,
+          quantity: 12n,
+          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+        }]);
 
       const result = await service.getStats(ORGANIZATION_ID);
 
@@ -320,27 +348,39 @@ describe('OrdersService — order query and actions', () => {
       expect(result.stats.instruct).toBe(20);
       expect(result.today.orders).toBe(3);
       expect(result.today.revenue).toBe(90000);
+      expect(result.today.missingDates).toEqual([]);
       expect(result.week.orders).toBe(10);
-
-      // 모든 count 호출에 organizationId 포함 검증 (status 유무와 무관)
-      const countCalls = prisma.order.count.mock.calls;
-      expect(countCalls).toHaveLength(6);
-      for (const [args] of countCalls) {
-        expect(args).toEqual(expect.objectContaining({
+      expect(prisma.order.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
           where: expect.objectContaining({ organizationId: ORGANIZATION_ID }),
-        }));
-      }
-
-      // 모든 aggregate 호출에 organizationId 포함 검증
-      const aggCalls = prisma.order.aggregate.mock.calls;
-      expect(aggCalls).toHaveLength(2);
-      for (const [args] of aggCalls) {
-        expect(args.where).toEqual(expect.objectContaining({ organizationId: ORGANIZATION_ID }));
-      }
+        }),
+      );
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
 
       // OrderStatsResponse shape
       const parsed = OrderStatsResponseSchema.safeParse(result);
       expect(parsed.success).toBe(true);
+    });
+
+    it('keeps Today and week totals null when the owner has not covered the whole window', async () => {
+      prisma.sourceImportRun.findMany.mockResolvedValue([]);
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          revenue: 90_000n,
+          orderCount: 3n,
+          quantity: 4n,
+          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.getStats(ORGANIZATION_ID);
+
+      expect(result.today.orders).toBeNull();
+      expect(result.today.revenue).toBeNull();
+      expect(result.today.includedDates).toEqual([]);
+      expect(result.today.missingDates).toHaveLength(1);
+      expect(result.week.orders).toBeNull();
+      expect(OrderStatsResponseSchema.safeParse(result).success).toBe(true);
     });
   });
 });

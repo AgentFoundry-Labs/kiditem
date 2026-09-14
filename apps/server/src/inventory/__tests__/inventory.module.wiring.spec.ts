@@ -100,6 +100,16 @@ describe('InventoryModule authoritative capability wiring', () => {
     expect(providers).toEqual([
       SellpiaInventoryFreshnessRepositoryAdapter,
       SellpiaInventoryFreshnessService,
+      InventoryAvailabilityRepositoryAdapter,
+      InventoryAvailabilityService,
+      {
+        provide: INVENTORY_AVAILABILITY_REPOSITORY_PORT,
+        useExisting: InventoryAvailabilityRepositoryAdapter,
+      },
+      {
+        provide: INVENTORY_AVAILABILITY_PORT,
+        useExisting: InventoryAvailabilityService,
+      },
       {
         provide: SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
         useExisting: SellpiaInventoryFreshnessRepositoryAdapter,
@@ -184,7 +194,10 @@ describe('InventoryModule authoritative capability wiring', () => {
   });
 
   it('binds and exports physical availability ownership', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    const providers: unknown[] = Reflect.getMetadata(
+      PROVIDERS_KEY,
+      InventoryFreshnessRuntimeModule,
+    ) ?? [];
     expect(providers).toContainEqual({
       provide: INVENTORY_AVAILABILITY_REPOSITORY_PORT,
       useExisting: InventoryAvailabilityRepositoryAdapter,
@@ -251,6 +264,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       .toEqual([
         SELLPIA_INVENTORY_FRESHNESS_PORT,
         SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+        INVENTORY_AVAILABILITY_PORT,
       ]);
     expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [])
       .toContain(InventoryFreshnessRuntimeModule);

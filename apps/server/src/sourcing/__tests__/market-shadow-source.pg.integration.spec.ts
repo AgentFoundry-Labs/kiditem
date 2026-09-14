@@ -81,6 +81,19 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     const second = await collect(randomUUID(), new Date('2026-09-07T16:30:00Z'));
     expect(second.state).toBe('COMPLETE');
     expect(second.attemptId).not.toBe(first.attemptId);
+    // The observation key is a hash; make its order oppose business-date order.
+    await prisma.sourcingEvidenceObservation.updateMany({
+      where: { organizationId: ORG, ingestionRunId: first.attemptId },
+      data: { observationKey: '0'.repeat(64) },
+    });
+    await prisma.sourcingEvidenceObservation.updateMany({
+      where: { organizationId: ORG, ingestionRunId: second.attemptId },
+      data: { observationKey: 'f'.repeat(64) },
+    });
+    expect(await service.getStatus(ORG, new Date('2026-09-07T16:30:00Z'))).toMatchObject({
+      latestComplete: second.snapshot,
+      actualCutoffAt: new Date('2026-09-07T16:30:00Z'),
+    });
     expect(
       (await service.listRecent(ORG, 30, new Date('2026-09-07T16:30:00Z'))).map((row) =>
         row.businessDate.toISOString(),
@@ -252,7 +265,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
             return result;
           },
         },
-        sourcingEvidenceObservation: {
+        sourcingMarketShadowFact: {
           async findFirst({ args, query }) {
             await publishedPromise;
             return query(args);
@@ -377,10 +390,34 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       sourceKey: 'market_shadow_signals',
       payload: result.snapshot!.payload,
     });
+    expect(await prisma.sourcingMarketShadowFact.findMany({
+      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+    })).toMatchObject([{ document: result.snapshot!.payload }]);
     expect(
       await prisma.sourcingWorkspaceSnapshot.count({
         where: { organizationId: ORG, scope: 'market_shadow_signals' },
       }),
     ).toBe(1);
+  });
+
+  it('does not expose historical COMPLETE market evidence without typed publication', async () => {
+    const result = await collect();
+    expect(await prisma.sourcingEvidenceObservation.count({
+      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+    })).toBe(1);
+    await prisma.sourcingMarketShadowFact.deleteMany({
+      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+    });
+
+    expect(await service.readAttempt(ORG, result.attemptId)).toMatchObject({
+      state: 'COMPLETE',
+      snapshot: null,
+    });
+    expect(await service.getStatus(ORG, NOW)).toMatchObject({
+      ready: false,
+      latestComplete: null,
+      latestAttempt: { state: 'COMPLETE' },
+    });
+    expect(await service.listRecent(ORG, 30, NOW)).toEqual([]);
   });
 });

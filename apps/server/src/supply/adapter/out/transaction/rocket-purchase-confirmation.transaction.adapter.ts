@@ -11,26 +11,51 @@ import { Prisma, type RocketPurchaseConfirmationLine } from '@prisma/client';
 import {
   RocketWorkbookDecisionRequestSchema,
   type RocketWorkbookExportResponse,
-  type RocketWorkbookWorkflowStatus,
   type RocketPurchasePreviewRow,
 } from '@kiditem/shared/rocket-purchase-preview';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   ROCKET_WORKBOOK_PROGRESS_PORT,
   type RocketWorkbookProgressPort,
+  type RocketWorkbookWorkflowStatus,
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
-const TERMINAL_STATUSES = ['completed', 'released'] as const;
+const exportSelect = {
+  id: true,
+  organizationId: true,
+  channelAccountId: true,
+  sourceImportRunId: true,
+  idempotencyKey: true,
+  requestHash: true,
+  freshnessGeneration: true,
+  confirmedAt: true,
+  artifactFileName: true,
+  artifactContentType: true,
+  artifactSha256: true,
+  artifactBytes: true,
+  artifactStoredAt: true,
+  completedAt: true,
+  failureCode: true,
+  failureMessage: true,
+  releasedBy: true,
+  releasedAt: true,
+  releaseReason: true,
+  lines: { include: { allocations: true } },
+  transmissions: true,
+} as const satisfies Prisma.RocketPurchaseConfirmationSelect;
 
 type ExportRecord = Prisma.RocketPurchaseConfirmationGetPayload<{
-  include: {
-    lines: { include: { allocations: true } };
-    transmissions: true;
-  };
+  select: typeof exportSelect;
 }>;
+type RefreshedWorkflow = {
+  record: ExportRecord;
+  status: RocketWorkbookWorkflowStatus;
+};
 
 type WorkbookDecision = {
   source: RocketPurchasePreviewRow;
@@ -45,8 +70,7 @@ type WorkbookDecision = {
 };
 
 @Injectable()
-export class RocketPurchaseConfirmationTransactionAdapter
-implements RocketWorkbookExportTransactionPort {
+export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkbookExportTransactionPort {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(ROCKET_WORKBOOK_PROGRESS_PORT)
@@ -62,28 +86,38 @@ implements RocketWorkbookExportTransactionPort {
       await lockWorkflow(tx, input.organizationId);
       await assertActiveActor(tx, input.organizationId, input.userId);
 
-      const existing = await findExport(tx, input.organizationId, request.idempotencyKey);
+      const existing = await findExport(
+        tx,
+        input.organizationId,
+        request.idempotencyKey,
+      );
       if (existing) {
         if (existing.requestHash !== requestHash) {
           throw new ConflictException(
             'Rocket workbook idempotency key was already used for a different decision.',
           );
         }
-        return exportResponse(existing, true);
+        const refreshed = await this.refreshWorkflow(
+          tx,
+          input.organizationId,
+          existing,
+        );
+        return exportResponse(refreshed.record, true);
       }
 
       const active = await tx.rocketPurchaseConfirmation.findFirst({
         where: {
           organizationId: input.organizationId,
-          status: { notIn: [...TERMINAL_STATUSES] },
+          completedAt: null,
+          releasedAt: null,
         },
-        include: exportInclude,
+        select: exportSelect,
         orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
       });
       const refreshedActive = active
         ? await this.refreshWorkflow(tx, input.organizationId, active)
         : null;
-      if (refreshedActive && !isTerminal(refreshedActive.status)) {
+      if (refreshedActive && refreshedActive.status !== 'completed') {
         throw new ConflictException(
           'A previous Rocket workbook workflow must complete before creating another workbook.',
         );
@@ -113,6 +147,7 @@ implements RocketWorkbookExportTransactionPort {
         tx,
         input.organizationId,
         input.preview.inventoryGeneration,
+        decisions,
       );
 
       const artifactSha256 = createHash('sha256')
@@ -123,10 +158,10 @@ implements RocketWorkbookExportTransactionPort {
         data: {
           idempotencyKey: request.idempotencyKey,
           requestHash,
-          freshnessGeneration: input.preview.inventoryGeneration === null
-            ? null
-            : BigInt(input.preview.inventoryGeneration),
-          status: hasPositiveQuantity ? 'awaiting_coupang_confirmation' : 'completed',
+          freshnessGeneration:
+            input.preview.inventoryGeneration === null
+              ? null
+              : BigInt(input.preview.inventoryGeneration),
           artifactFileName: request.artifactFileName,
           artifactContentType: request.artifactContentType,
           artifactSha256,
@@ -162,16 +197,18 @@ implements RocketWorkbookExportTransactionPort {
               confirmedQuantity: decision.workbookQuantity,
               shortageReason: decision.shortageReason,
               organization: { connect: { id: input.organizationId } },
-              ...(decision.source.channelListingOptionId ? {
-                channelListingOption: {
-                  connect: {
-                    id_organizationId: {
-                      id: decision.source.channelListingOptionId,
-                      organizationId: input.organizationId,
+              ...(decision.source.channelListingOptionId
+                ? {
+                    channelListingOption: {
+                      connect: {
+                        id_organizationId: {
+                          id: decision.source.channelListingOptionId,
+                          organizationId: input.organizationId,
+                        },
+                      },
                     },
-                  },
-                },
-              } : {}),
+                  }
+                : {}),
               allocations: {
                 create: decision.allocations.map((allocation) => ({
                   unitsPerSale: allocation.unitsPerSale,
@@ -190,33 +227,44 @@ implements RocketWorkbookExportTransactionPort {
             })),
           },
         },
-        include: exportInclude,
+        select: exportSelect,
       });
       return exportResponse(created, false);
     }, TRANSACTION_OPTIONS);
   }
 
   async getActiveWorkflow(
-    input: Parameters<RocketWorkbookExportTransactionPort['getActiveWorkflow']>[0],
+    input: Parameters<
+      RocketWorkbookExportTransactionPort['getActiveWorkflow']
+    >[0],
   ): Promise<RocketWorkbookExportResponse | null> {
     return this.prisma.$transaction(async (tx) => {
       await lockWorkflow(tx, input.organizationId);
       const record = await tx.rocketPurchaseConfirmation.findFirst({
         where: {
           organizationId: input.organizationId,
-          status: { notIn: [...TERMINAL_STATUSES] },
+          completedAt: null,
+          releasedAt: null,
         },
-        include: exportInclude,
+        select: exportSelect,
         orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
       });
       if (!record) return null;
-      const refreshed = await this.refreshWorkflow(tx, input.organizationId, record);
-      return isTerminal(refreshed.status) ? null : exportResponse(refreshed, false);
+      const refreshed = await this.refreshWorkflow(
+        tx,
+        input.organizationId,
+        record,
+      );
+      return refreshed.status === 'completed'
+        ? null
+        : exportResponse(refreshed.record, false);
     }, TRANSACTION_OPTIONS);
   }
 
   async downloadWorkbook(
-    input: Parameters<RocketWorkbookExportTransactionPort['downloadWorkbook']>[0],
+    input: Parameters<
+      RocketWorkbookExportTransactionPort['downloadWorkbook']
+    >[0],
   ): Promise<{ fileName: string; contentType: string; bytes: Buffer }> {
     const record = await this.prisma.rocketPurchaseConfirmation.findFirst({
       where: { id: input.exportId, organizationId: input.organizationId },
@@ -227,9 +275,9 @@ implements RocketWorkbookExportTransactionPort {
       },
     });
     if (
-      !record?.artifactFileName
-      || !record.artifactContentType
-      || !record.artifactBytes
+      !record?.artifactFileName ||
+      !record.artifactContentType ||
+      !record.artifactBytes
     ) {
       throw new NotFoundException('Rocket workbook artifact not found.');
     }
@@ -241,20 +289,28 @@ implements RocketWorkbookExportTransactionPort {
   }
 
   async abandonWorkbook(
-    input: Parameters<RocketWorkbookExportTransactionPort['abandonWorkbook']>[0],
+    input: Parameters<
+      RocketWorkbookExportTransactionPort['abandonWorkbook']
+    >[0],
   ): Promise<RocketWorkbookExportResponse> {
     return this.prisma.$transaction(async (tx) => {
       await lockWorkflow(tx, input.organizationId);
       await assertActiveActor(tx, input.organizationId, input.userId);
       const existing = await tx.rocketPurchaseConfirmation.findFirst({
         where: { id: input.exportId, organizationId: input.organizationId },
-        include: exportInclude,
+        select: exportSelect,
       });
-      if (!existing) throw new NotFoundException('Rocket workbook export not found.');
-      if (TERMINAL_STATUSES.includes(existing.status as (typeof TERMINAL_STATUSES)[number])) {
-        return exportResponse(existing, true);
+      if (!existing)
+        throw new NotFoundException('Rocket workbook export not found.');
+      const refreshed = await this.refreshWorkflow(
+        tx,
+        input.organizationId,
+        existing,
+      );
+      if (refreshed.status === 'completed') {
+        return exportResponse(refreshed.record, true);
       }
-      if (!canAbandon(existing)) {
+      if (!canAbandon(refreshed.record, refreshed.status)) {
         throw new ConflictException(
           'Fresh SHIPMENT and MILKRUN collection probes must prove that no matching Coupang order exists.',
         );
@@ -262,13 +318,12 @@ implements RocketWorkbookExportTransactionPort {
       const completed = await tx.rocketPurchaseConfirmation.update({
         where: { id: existing.id },
         data: {
-          status: 'completed',
           completedAt: new Date(),
           releasedBy: input.userId,
           releasedAt: new Date(),
           releaseReason: input.reason,
         },
-        include: exportInclude,
+        select: exportSelect,
       });
       return exportResponse(completed, false);
     }, TRANSACTION_OPTIONS);
@@ -277,7 +332,9 @@ implements RocketWorkbookExportTransactionPort {
   // 이미 확정 엑셀로 나간 PO 라인만 되돌려준다. 취소(released)된 워크북은 제출로 보지
   // 않으므로 제외한다 — 그 라인은 다시 내보낼 수 있어야 한다.
   async listExportedPoLineIds(
-    input: Parameters<RocketWorkbookExportTransactionPort['listExportedPoLineIds']>[0],
+    input: Parameters<
+      RocketWorkbookExportTransactionPort['listExportedPoLineIds']
+    >[0],
   ): Promise<string[]> {
     if (input.poLineIds.length === 0) return [];
     const lines = await this.prisma.rocketPurchaseConfirmationLine.findMany({
@@ -300,8 +357,10 @@ implements RocketWorkbookExportTransactionPort {
     tx: Prisma.TransactionClient,
     organizationId: string,
     record: ExportRecord,
-  ): Promise<ExportRecord> {
-    if (isTerminal(record.status)) return record;
+  ): Promise<RefreshedWorkflow> {
+    if (record.completedAt || record.releasedAt) {
+      return { record, status: 'completed' };
+    }
     const positiveLines = record.lines.filter(
       ({ confirmedQuantity }) => confirmedQuantity > 0,
     );
@@ -312,32 +371,37 @@ implements RocketWorkbookExportTransactionPort {
       allPositiveLinesCollected: positiveLines.every(
         ({ collectedAt }) => collectedAt !== null,
       ),
-      intentKeys: record.transmissions.flatMap(
-        ({ intentKey }) => intentKey ? [intentKey] : [],
+      intentKeys: record.transmissions.flatMap(({ intentKey }) =>
+        intentKey ? [intentKey] : [],
       ),
     });
-    if (projected.status === publicStatus(record.status)) return record;
-    return tx.rocketPurchaseConfirmation.update({
+    const failureCode =
+      projected.status === 'failed'
+        ? 'SELLPIA_TRANSMISSION_RETRY_REQUIRED'
+        : null;
+    const failureMessage =
+      projected.status === 'failed'
+        ? 'The linked Sellpia transmission must be retried or reconciled.'
+        : null;
+    if (
+      projected.status !== 'completed' &&
+      record.failureCode === failureCode &&
+      record.failureMessage === failureMessage
+    ) {
+      return { record, status: projected.status };
+    }
+    const updated = await tx.rocketPurchaseConfirmation.update({
       where: { id: record.id },
       data: {
-        status: projected.status,
         completedAt: projected.status === 'completed' ? new Date() : null,
-        failureCode: projected.status === 'failed'
-          ? 'SELLPIA_TRANSMISSION_RETRY_REQUIRED'
-          : null,
-        failureMessage: projected.status === 'failed'
-          ? 'The linked Sellpia transmission must be retried or reconciled.'
-          : null,
+        failureCode,
+        failureMessage,
       },
-      include: exportInclude,
+      select: exportSelect,
     });
+    return { record: updated, status: projected.status };
   }
 }
-
-const exportInclude = {
-  lines: { include: { allocations: true } },
-  transmissions: true,
-} as const;
 
 async function lockWorkflow(
   tx: Prisma.TransactionClient,
@@ -366,7 +430,9 @@ async function assertActiveActor(
     select: { id: true },
   });
   if (!membership) {
-    throw new UnauthorizedException('Active organization membership is required.');
+    throw new UnauthorizedException(
+      'Active organization membership is required.',
+    );
   }
 }
 
@@ -384,13 +450,15 @@ async function assertSourceArtifact(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       sourceType: 'coupang_rocket_po_catalog',
-      status: 'complete',
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
       parserVersion: 'rocket-po-v1',
     },
     select: { id: true },
   });
   if (!run) {
-    throw new BadRequestException('Completed Rocket PO source artifact not found.');
+    throw new BadRequestException(
+      'Completed Rocket PO source artifact not found.',
+    );
   }
 }
 
@@ -398,13 +466,27 @@ async function assertInventoryGeneration(
   tx: Prisma.TransactionClient,
   organizationId: string,
   generation: string | null,
+  decisions: WorkbookDecision[],
 ): Promise<void> {
   if (generation === null) return;
-  const state = await tx.sellpiaInventoryState.findUnique({
-    where: { organizationId },
-    select: { verifiedGeneration: true },
+  const sellpiaInventorySkuIds = [
+    ...new Set(
+      decisions.flatMap(({ source }) =>
+        source.components.map(
+          ({ sellpiaInventorySkuId }) => sellpiaInventorySkuId,
+        ),
+      ),
+    ),
+  ];
+  const current = await readInventoryAvailability(tx, {
+    organizationId,
+    sellpiaInventorySkuIds,
   });
-  if (!state || state.verifiedGeneration !== BigInt(generation)) {
+  if (
+    !current.snapshot.collected ||
+    current.snapshot.generation !== generation ||
+    current.items.length !== sellpiaInventorySkuIds.length
+  ) {
     throw new ConflictException(
       'Sellpia inventory generation changed before Rocket workbook export.',
     );
@@ -415,9 +497,13 @@ function buildDecisions(
   request: ReturnType<typeof RocketWorkbookDecisionRequestSchema.parse>,
   previewRows: RocketPurchasePreviewRow[],
 ): WorkbookDecision[] {
-  const previewByLineId = new Map(previewRows.map((row) => [row.poLineId, row]));
+  const previewByLineId = new Map(
+    previewRows.map((row) => [row.poLineId, row]),
+  );
   if (previewByLineId.size !== request.rows.length) {
-    throw new ConflictException('Rocket preview rows changed before workbook export.');
+    throw new ConflictException(
+      'Rocket preview rows changed before workbook export.',
+    );
   }
   return request.rows.map((requestRow) => {
     const source = previewByLineId.get(requestRow.poLineId);
@@ -428,9 +514,9 @@ function buildDecisions(
       );
     }
     if (
-      !source.channelListingOptionId
-      || source.components.length === 0
-      || source.components.some((component) => !component.isActive)
+      !source.channelListingOptionId ||
+      source.components.length === 0 ||
+      source.components.some((component) => component.isActive !== true)
     ) {
       throw new ConflictException(
         'Every Rocket workbook line requires a current confirmed recipe.',
@@ -441,11 +527,13 @@ function buildDecisions(
       barcode: requestRow.barcode.trim() || null,
       workbookQuantity,
       shortageReason: request.shortageReasons[requestRow.poLineId] ?? null,
-      allocations: source.components.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-        unitsPerSale: component.quantity,
-        quantity: workbookQuantity * component.quantity,
-      })).filter(({ quantity }) => quantity > 0),
+      allocations: source.components
+        .map((component) => ({
+          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          unitsPerSale: component.quantity,
+          quantity: workbookQuantity * component.quantity,
+        }))
+        .filter(({ quantity }) => quantity > 0),
     };
   });
 }
@@ -456,15 +544,24 @@ async function assertCurrentRecipes(
   channelAccountId: string,
   decisions: WorkbookDecision[],
 ): Promise<void> {
-  const optionIds = [...new Set(decisions.flatMap(({ source }) =>
-    source.channelListingOptionId ? [source.channelListingOptionId] : []))];
+  const optionIds = [
+    ...new Set(
+      decisions.flatMap(({ source }) =>
+        source.channelListingOptionId ? [source.channelListingOptionId] : [],
+      ),
+    ),
+  ];
   if (optionIds.length === 0) return;
   const options = await tx.channelListingOption.findMany({
     where: {
       id: { in: optionIds },
       organizationId,
       isActive: true,
-      listing: { channelAccountId, isActive: true, masterProductId: { not: null } },
+      listing: {
+        channelAccountId,
+        isActive: true,
+        masterProductId: { not: null },
+      },
     },
     select: {
       id: true,
@@ -483,10 +580,11 @@ async function assertCurrentRecipes(
         quantity,
       }))
       .sort((left, right) =>
-        left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId));
+        left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId),
+      );
     if (
-      !option
-      || JSON.stringify(option.inventoryComponents) !== JSON.stringify(expected)
+      !option ||
+      JSON.stringify(option.inventoryComponents) !== JSON.stringify(expected)
     ) {
       throw new ConflictException(
         'Channel option inventory recipe changed after Rocket preview.',
@@ -501,8 +599,10 @@ function findExport(
   idempotencyKey: string,
 ): Promise<ExportRecord | null> {
   return tx.rocketPurchaseConfirmation.findUnique({
-    where: { organizationId_idempotencyKey: { organizationId, idempotencyKey } },
-    include: exportInclude,
+    where: {
+      organizationId_idempotencyKey: { organizationId, idempotencyKey },
+    },
+    select: exportSelect,
   });
 }
 
@@ -511,25 +611,25 @@ function exportResponse(
   duplicate: boolean,
 ): RocketWorkbookExportResponse {
   if (
-    !record.artifactFileName
-    || !record.artifactContentType
-    || !record.artifactSha256
-    || !record.artifactBytes
+    !record.artifactFileName ||
+    !record.artifactContentType ||
+    !record.artifactSha256 ||
+    !record.artifactBytes
   ) {
     throw new ConflictException('Rocket workbook artifact is incomplete.');
   }
   const lines = [...record.lines].sort((left, right) =>
-    left.poLineId.localeCompare(right.poLineId));
+    left.poLineId.localeCompare(right.poLineId),
+  );
   return {
     exportId: record.id,
-    status: publicStatus(record.status),
     duplicate,
-    canAbandon: canAbandon(record),
     inventoryGeneration: record.freshnessGeneration?.toString() ?? null,
     generatedAt: record.confirmedAt.toISOString(),
     artifact: {
       fileName: record.artifactFileName,
-      contentType: record.artifactContentType as RocketWorkbookExportResponse['artifact']['contentType'],
+      contentType:
+        record.artifactContentType as RocketWorkbookExportResponse['artifact']['contentType'],
       sha256: record.artifactSha256,
       byteLength: record.artifactBytes.byteLength,
     },
@@ -537,52 +637,45 @@ function exportResponse(
       lineCount: lines.length,
       orderQuantity: sumLines(lines, 'orderQuantity'),
       workbookQuantity: sumLines(lines, 'confirmedQuantity'),
-      componentQuantity: lines.reduce((sum, line) => sum
-        + line.allocations.reduce(
-          (lineSum, allocation) => lineSum + allocation.quantity,
-          0,
-        ), 0),
+      componentQuantity: lines.reduce(
+        (sum, line) =>
+          sum +
+          line.allocations.reduce(
+            (lineSum, allocation) => lineSum + allocation.quantity,
+            0,
+          ),
+        0,
+      ),
     },
     rows: lines.map((line) => ({
       poLineId: line.poLineId,
       workbookQuantity: line.confirmedQuantity,
-      shortageReason: line.shortageReason as RocketWorkbookExportResponse['rows'][number]['shortageReason'],
+      shortageReason:
+        line.shortageReason as RocketWorkbookExportResponse['rows'][number]['shortageReason'],
     })),
   };
 }
 
-function publicStatus(status: string): RocketWorkbookWorkflowStatus {
-  if (status === 'active') return 'awaiting_coupang_confirmation';
-  if (status === 'released') return 'completed';
+function canAbandon(
+  record: ExportRecord,
+  status: RocketWorkbookWorkflowStatus,
+): boolean {
+  if (status !== 'awaiting_coupang_confirmation') return false;
   if (
-    status === 'awaiting_coupang_confirmation'
-    || status === 'orders_collected'
-    || status === 'sellpia_transmitting'
-    || status === 'awaiting_inventory_sync'
-    || status === 'completed'
-    || status === 'failed'
-  ) {
-    return status;
-  }
-  return 'failed';
-}
-
-function isTerminal(status: string): boolean {
-  return TERMINAL_STATUSES.includes(status as (typeof TERMINAL_STATUSES)[number]);
-}
-
-function canAbandon(record: ExportRecord): boolean {
-  if (publicStatus(record.status) !== 'awaiting_coupang_confirmation') return false;
-  if (record.lines.some(
-    (line) => line.confirmedQuantity > 0 && line.collectedAt !== null,
-  )) return false;
-  const probes = new Map(record.transmissions.map((probe) => [probe.transport, probe]));
+    record.lines.some(
+      (line) => line.confirmedQuantity > 0 && line.collectedAt !== null,
+    )
+  )
+    return false;
+  const probes = new Map(
+    record.transmissions.map((probe) => [probe.transport, probe]),
+  );
   return ['SHIPMENT', 'MILKRUN'].every((transport) => {
     const probe = probes.get(transport);
     return Boolean(
-      probe
-      && probe.matchedLineCount === 0
-      && probe.observedAt >= record.confirmedAt,
+      probe &&
+      probe.matchedLineCount === 0 &&
+      probe.observedAt >= record.confirmedAt,
     );
   });
 }
@@ -597,41 +690,52 @@ function sumLines(
 function workbookRequestHash(
   input: Parameters<RocketWorkbookExportTransactionPort['exportWorkbook']>[0],
 ): string {
-  const previewByLineId = new Map(input.preview.rows.map((row) => [row.poLineId, row]));
-  const canonical = input.request.rows.map((row) => {
-    const preview = previewByLineId.get(row.poLineId);
-    return {
-      poLineId: row.poLineId,
-      sourceEvidence: {
-        poNumber: row.poNumber,
-        vendorId: row.vendorId,
-        productNo: row.productNo,
-        barcode: row.barcode,
-        productName: row.productName,
-        plannedDeliveryDate: row.plannedDeliveryDate,
-        poStatusCode: row.poStatusCode ?? null,
-        businessDateBasis: row.businessDateBasis ?? null,
-        confirmation: row.confirmation ?? null,
-      },
-      orderQuantity: row.orderQty,
-      workbookQuantity: input.request.editedQuantities[row.poLineId],
-      shortageReason: input.request.shortageReasons[row.poLineId] ?? null,
-      channelListingOptionId: preview?.channelListingOptionId ?? null,
-      components: [...(preview?.components ?? [])]
-        .map(({ sellpiaInventorySkuId, quantity }) => ({
-          sellpiaInventorySkuId,
-          quantity,
-        }))
-        .sort((left, right) =>
-          left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId)),
-    };
-  }).sort((left, right) => left.poLineId.localeCompare(right.poLineId));
-  return createHash('sha256').update(JSON.stringify({
-    channelAccountId: input.request.channelAccountId,
-    sourceImportRunId: input.sourceImportRunId,
-    inventoryGeneration: input.preview.inventoryGeneration,
-    artifactFileName: input.request.artifactFileName,
-    artifactContentType: input.request.artifactContentType,
-    rows: canonical,
-  })).digest('hex');
+  const previewByLineId = new Map(
+    input.preview.rows.map((row) => [row.poLineId, row]),
+  );
+  const canonical = input.request.rows
+    .map((row) => {
+      const preview = previewByLineId.get(row.poLineId);
+      return {
+        poLineId: row.poLineId,
+        sourceEvidence: {
+          poNumber: row.poNumber,
+          vendorId: row.vendorId,
+          productNo: row.productNo,
+          barcode: row.barcode,
+          productName: row.productName,
+          plannedDeliveryDate: row.plannedDeliveryDate,
+          poStatusCode: row.poStatusCode ?? null,
+          businessDateBasis: row.businessDateBasis ?? null,
+          confirmation: row.confirmation ?? null,
+        },
+        orderQuantity: row.orderQty,
+        workbookQuantity: input.request.editedQuantities[row.poLineId],
+        shortageReason: input.request.shortageReasons[row.poLineId] ?? null,
+        channelListingOptionId: preview?.channelListingOptionId ?? null,
+        components: [...(preview?.components ?? [])]
+          .map(({ sellpiaInventorySkuId, quantity }) => ({
+            sellpiaInventorySkuId,
+            quantity,
+          }))
+          .sort((left, right) =>
+            left.sellpiaInventorySkuId.localeCompare(
+              right.sellpiaInventorySkuId,
+            ),
+          ),
+      };
+    })
+    .sort((left, right) => left.poLineId.localeCompare(right.poLineId));
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        channelAccountId: input.request.channelAccountId,
+        sourceImportRunId: input.sourceImportRunId,
+        inventoryGeneration: input.preview.inventoryGeneration,
+        artifactFileName: input.request.artifactFileName,
+        artifactContentType: input.request.artifactContentType,
+        rows: canonical,
+      }),
+    )
+    .digest('hex');
 }

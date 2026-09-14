@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/thumbnail-ai — Thumbnail Analysis Dashboard
 
 `app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns the six-tab

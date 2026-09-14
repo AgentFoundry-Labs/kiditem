@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/store - Shared Client UI State
 
 `src/store/` owns small global client-only UI state. It is currently a Zustand

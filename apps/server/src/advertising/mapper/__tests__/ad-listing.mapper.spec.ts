@@ -13,13 +13,13 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
       id: 'L1',
       externalId: 'EXT-1',
       channelName: '쿠팡상품',
+      channel: 'coupang',
       masterProduct: {
         id: 'M1',
         code: 'M-00001',
         name: 'Test',
         abcGrade: 'A',
         adTier: '1차',
-        healthScore: 80,
       },
       primaryOption: null,
     };
@@ -38,13 +38,13 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
       id: 'L2',
       externalId: 'EXT-2',
       channelName: null,
+      channel: 'coupang',
       masterProduct: {
         id: 'M2',
         code: 'M-00002',
         name: 'Aliased',
         abcGrade: null,
         adTier: null,
-        healthScore: null,
       },
       primaryOption: null,
     };
@@ -53,7 +53,7 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
 });
 
 describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSummary', () => {
-  it('preserves abcGrade / adTier / healthScore on master', () => {
+  it('preserves abcGrade / adTier on master', () => {
     const scoped: ScopedAdListingReadModel = {
       id: 'L3',
       externalId: 'EXT-3',
@@ -64,7 +64,6 @@ describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSum
         name: 'Scoped',
         abcGrade: 'B',
         adTier: '2차',
-        healthScore: 65,
       },
     };
     const result = scopedListingToSummary(scoped);
@@ -77,6 +76,5 @@ describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSum
     });
     expect(result.masterProduct.abcGrade).toBe('B');
     expect(result.masterProduct.adTier).toBe('2차');
-    expect(result.masterProduct.healthScore).toBe(65);
   });
 });

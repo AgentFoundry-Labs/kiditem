@@ -8,7 +8,6 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
   it('tenant-scopes exact ID reads without discarding inactive identities', async () => {
     const inactive = {
       ...stagedSku('sku-1', 'SP-1', 'Inactive'),
-      currentStock: 0,
       isActive: false,
     };
     const findMany = vi.fn().mockResolvedValue([inactive]);
@@ -23,13 +22,11 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
       },
       select: expect.objectContaining({
         id: true,
-        currentStock: true,
         isActive: true,
       }),
     });
     expect(rows).toEqual([expect.objectContaining({
       sellpiaInventorySkuId: 'sku-1',
-      currentStock: 0,
       isActive: false,
     })]);
   });
@@ -54,7 +51,6 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
         code: true,
         name: true,
         barcode: true,
-        currentStock: true,
         purchasePrice: true,
         isActive: true,
       }),
@@ -134,7 +130,7 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
       .toEqual(['sku-1', 'sku-2']);
   });
 
-  it('keeps manual search tenant-scoped, active-only, and in-stock by default', async () => {
+  it('keeps identity search tenant-scoped and active without applying availability policy', async () => {
     const findMany = vi.fn().mockResolvedValue([
       stagedSku('sku-1', 'SP-1', 'Active result'),
     ]);
@@ -146,25 +142,10 @@ describe('SellpiaInventorySkuReadRepositoryAdapter', () => {
       where: expect.objectContaining({
         organizationId,
         isActive: true,
-        currentStock: { gt: 0 },
       }),
       take: 20,
     }));
-  });
-
-  it('includes out-of-stock rows only when manual search explicitly opts in', async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
-    const repository = new SellpiaInventorySkuReadRepositoryAdapter(prismaWith(findMany));
-
-    await repository.search(organizationId, 'result', 20, {
-      includeOutOfStock: true,
-    });
-
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.not.objectContaining({
-        currentStock: expect.anything(),
-      }),
-    }));
+    expect(findMany.mock.calls[0]?.[0].where).not.toHaveProperty('currentStock');
   });
 });
 
@@ -180,11 +161,10 @@ function stagedSku(
     name,
     optionName: null,
     barcode,
-    currentStock: 3,
     purchasePrice: 1_500,
     salePrice: 2_500,
     isActive: true,
-    lastImportRunId: null,
+    masterProductId: null,
   };
 }
 

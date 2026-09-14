@@ -12,10 +12,17 @@ import {
   ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
-  ProductAbcFormulaStateSchema,
   ProductAbcGradeHistorySchema,
   ProductAbcReadModelSchema,
 } from './product-abc.js';
+import {
+  PRODUCT_ABC_CONTRIBUTION_STATUS_LABELS,
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  PRODUCT_ABC_MAPPING_STATUS_LABELS,
+  productAbcContributionMetricStatus,
+  productAbcDisplayStatus,
+  productAbcMappingStatus,
+} from '../product-abc.js';
 
 const UUID = '00000000-0000-4000-8000-000000000001';
 const UUID_2 = '00000000-0000-4000-8000-000000000002';
@@ -67,7 +74,11 @@ function sourceFreshness() {
       latestAttempt: { state: 'FAILED', errorCode: 'marketplace_login' },
       latestComplete: { actualCutoff: '2026-08-31' },
     },
-    mapping: { status: 'READY', mappingGeneration: '4' },
+    mapping: {
+      valid: true,
+      currentMappingGeneration: '4',
+      evidenceMappingGeneration: '4',
+    },
   };
 }
 
@@ -153,7 +164,6 @@ describe('absolute product profitability ABC contracts', () => {
     const stale = ProductAbcReadModelSchema.parse({
       abcGrade: 'A',
       evaluation: parsed,
-      displayStatus: 'AD_SOURCE_STALE',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',
@@ -168,17 +178,11 @@ describe('absolute product profitability ABC contracts', () => {
       ...stale,
       recalculationPending: false,
     }).success).toBe(false);
-    expect(() => ProductAbcReadModelSchema.parse({
-      abcGrade: null,
-      evaluation: null,
-      displayStatus: 'READY',
-      formulaRevision: 2,
-      publicationRevision: 4,
-      officialCutoffDate: '2026-07-31',
-      publishedAt: ISO,
-      actualCutoffDate: '2026-07-31',
-      sources: sourceFreshness(),
-    })).toThrow();
+    // The display word is a function of these facts; the read model never carries it.
+    expect(ProductAbcReadModelSchema.safeParse({
+      ...stale,
+      displayStatus: 'AD_SOURCE_STALE',
+    }).success).toBe(false);
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       weightedOperatingProfit: -1,
       operatingMargin: null,
@@ -193,22 +197,60 @@ describe('absolute product profitability ABC contracts', () => {
       sourceFreshness: {},
     }))).toThrow();
     expect(() => ProductAbcReadModelSchema.parse({
-      ...stale,
-      displayStatus: 'SOURCE_UNMAPPED',
+      abcGrade: null,
+      evaluation: null,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
+      actualCutoffDate: '2026-07-31',
+      sources: sourceFreshness(),
     })).not.toThrow();
-    for (const displayStatus of ['INSUFFICIENT_EVIDENCE'] as const) {
-      expect(() => ProductAbcReadModelSchema.parse({
-        abcGrade: null,
-        evaluation: null,
-        displayStatus,
-        formulaRevision: 2,
-        publicationRevision: 4,
-        officialCutoffDate: '2026-07-31',
-        publishedAt: ISO,
-        actualCutoffDate: '2026-07-31',
-        sources: sourceFreshness(),
-      })).not.toThrow();
-    }
+  });
+
+  it('derives one display word from mapping, source readiness and evaluation facts', () => {
+    const retained = ProductAbcEvaluationSchema.parse(evaluation());
+    const facts = (overrides: {
+      mapped?: boolean;
+      sellpia?: boolean;
+      advertising?: boolean;
+      evaluated?: boolean;
+    } = {}) => ({
+      evaluation: overrides.evaluated === false ? null : retained,
+      sources: {
+        mapping: { valid: overrides.mapped ?? true },
+        sellpia: { ready: overrides.sellpia ?? true },
+        advertising: { ready: overrides.advertising ?? true },
+      },
+    });
+
+    expect(productAbcDisplayStatus(facts())).toBe('READY');
+    expect(productAbcDisplayStatus(facts({ evaluated: false }))).toBe('INSUFFICIENT_EVIDENCE');
+    // A stale source keeps the retained grade; the word says which source moved on.
+    expect(productAbcDisplayStatus(facts({ advertising: false }))).toBe('AD_SOURCE_STALE');
+    expect(productAbcDisplayStatus(facts({ sellpia: false, advertising: false })))
+      .toBe('SELLPIA_SOURCE_STALE');
+    expect(productAbcDisplayStatus(facts({ mapped: false, sellpia: false, evaluated: false })))
+      .toBe('SOURCE_UNMAPPED');
+
+    const published = ProductAbcReadModelSchema.parse({
+      abcGrade: 'A',
+      evaluation: retained,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
+      actualCutoffDate: '2026-08-31',
+      sources: sourceFreshness(),
+    });
+    expect(productAbcDisplayStatus(published)).toBe('AD_SOURCE_STALE');
+    expect(PRODUCT_ABC_DISPLAY_STATUS_LABELS).toEqual({
+      READY: '계산 완료',
+      INSUFFICIENT_EVIDENCE: '관찰 중',
+      SOURCE_UNMAPPED: '상품 매핑 필요',
+      SELLPIA_SOURCE_STALE: 'Sellpia 원천 갱신 필요',
+      AD_SOURCE_STALE: '광고비 원천 갱신 필요',
+    });
   });
 
   it('rejects rolled calendar dates and out-of-range timestamps before KST normalization', () => {
@@ -221,23 +263,43 @@ describe('absolute product profitability ABC contracts', () => {
     expect(productAbcSaleAgeDays('2026-03-01T00:00:00Z', '2026-03-31')).toBe(30);
   });
 
-  it('keeps current and published formula/mapping revisions in one state contract', () => {
-    const state = ProductAbcFormulaStateSchema.parse({
-      organizationId: UUID,
-      activeFormulaVersionId: UUID_2,
+  it('derives mapping words and labels from mapping facts without carrying a wire status', () => {
+    expect(productAbcMappingStatus({
+      valid: true,
+      currentMappingGeneration: '4',
+      evidenceMappingGeneration: '4',
+    })).toBe('READY');
+    expect(productAbcMappingStatus({
+      valid: true,
+      currentMappingGeneration: '5',
+      evidenceMappingGeneration: '4',
+    })).toBe('STALE');
+    expect(productAbcMappingStatus({
+      valid: false,
+      currentMappingGeneration: '5',
+      evidenceMappingGeneration: '5',
+    })).toBe('UNMAPPED');
+    expect(PRODUCT_ABC_MAPPING_STATUS_LABELS).toEqual({
+      READY: '매핑 최신',
+      UNMAPPED: '상품 매핑 필요',
+      STALE: '매핑 갱신 필요',
+    });
+    expect(PRODUCT_ABC_DISPLAY_STATUS_LABELS.READY).toBe('계산 완료');
+    expect(ProductAbcReadModelSchema.safeParse({
+      abcGrade: 'A',
+      evaluation: evaluation(),
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',
-      publishedSellpiaSourceImportRunId: UUID,
-      publishedAdvertisingSourceImportRunId: UUID_2,
-      publishedMappingGeneration: '3',
-      mappingGeneration: '4',
       publishedAt: ISO,
-    });
-    expect(state.mappingGeneration).toBe('4');
-    expect(ProductAbcFormulaStateSchema.safeParse({
-      ...state,
-      recalculationRequestedRevision: 5,
+      actualCutoffDate: '2026-07-31',
+      sources: {
+        ...sourceFreshness(),
+        mapping: {
+          ...sourceFreshness().mapping,
+          status: 'READY',
+        },
+      },
     }).success).toBe(false);
   });
 
@@ -276,19 +338,19 @@ describe('absolute product profitability ABC contracts', () => {
       },
       metrics: {
         sales: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 1_000,
         },
         positiveOperatingProfit: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 100,
         },
         loss: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 20,
@@ -342,7 +404,6 @@ describe('absolute product profitability ABC contracts', () => {
         sales: {
           ...analytics.metrics.sales,
           denominator: null,
-          status: 'NO_DENOMINATOR',
         },
       },
       products: [{
@@ -353,6 +414,27 @@ describe('absolute product profitability ABC contracts', () => {
         cumulativeSalesContribution: null,
       }],
     });
-    expect(zeroDenominator.metrics.sales.status).toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus(zeroDenominator.metrics.sales))
+      .toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus({
+      sourceComplete: false,
+      includedProductCount: 1,
+      excludedProductCount: 0,
+      denominator: 100,
+    })).toBe('SOURCE_INCOMPLETE');
+    expect(productAbcContributionMetricStatus({
+      sourceComplete: true,
+      includedProductCount: 1,
+      excludedProductCount: 1,
+      denominator: 100,
+    })).toBe('SOURCE_INCOMPLETE');
+    expect(PRODUCT_ABC_CONTRIBUTION_STATUS_LABELS.NO_DENOMINATOR).toBe('비중 미산출');
+    expect(ProductAbcContributionAnalyticsSchema.safeParse({
+      ...analytics,
+      metrics: {
+        ...analytics.metrics,
+        sales: { ...analytics.metrics.sales, status: 'READY' },
+      },
+    }).success).toBe(false);
   });
 });

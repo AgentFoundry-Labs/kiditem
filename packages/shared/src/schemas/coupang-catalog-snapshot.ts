@@ -689,7 +689,7 @@ export type StartCoupangCatalogCollectionRequest = z.infer<
 export const CoupangCatalogCollectionErrorRequestSchema = z.object({
   code: z.string().trim().min(1).max(100),
   message: z.string().trim().min(1).max(1_000),
-  phase: z.enum(['discovery', 'hydration', 'ready_to_finalize', 'publishing']),
+  phase: z.enum(['discovery', 'hydration', 'ready_to_finalize']),
   recoverable: z.boolean().optional(),
   notBefore: zIsoDate.optional(),
 });
@@ -744,7 +744,6 @@ export const CoupangCatalogCollectionPhaseSchema = z.enum([
   'discovery',
   'hydration',
   'ready_to_finalize',
-  'publishing',
   'finished',
 ]);
 export type CoupangCatalogCollectionPhase = z.infer<
@@ -841,6 +840,5 @@ export const CoupangCatalogBrowserStatusSchema = z.object({
   rootAttemptId: z.string().uuid().optional(),
   currentAttemptId: z.string().uuid().optional(),
   currentStage: CoupangCatalogStageSchema.optional(),
-  overallState: CoupangCatalogCollectionStatusSchema.optional(),
 }).strict();
 export type CoupangCatalogBrowserStatus = z.infer<typeof CoupangCatalogBrowserStatusSchema>;

@@ -4,7 +4,7 @@ import { SourcingWorkspaceController } from '../sourcing-workspace.controller';
 describe('SourcingWorkspaceController', () => {
   it('uses the authenticated organization for persisted recommendation reads and Wing ingest', async () => {
     const recommendations = {
-      latest: vi.fn(async () => ({ status: 'ready' })),
+      latest: vi.fn(async () => ({ ready: true })),
     };
     const wing = {
       ingest: vi.fn(async () => ({ kind: 'committed' })),

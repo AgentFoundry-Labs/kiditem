@@ -58,6 +58,48 @@ const orderItem = {
 };
 
 const emptyResponse = { items: [], total: 0 };
+const measuredStatsResponse = {
+  stats: {
+    total: 1,
+    accept: 1,
+    instruct: 0,
+    departure: 0,
+    delivering: 0,
+    finalDelivery: 0,
+  },
+  today: {
+    scope: 'KNOWN_SOURCES',
+    orders: 3,
+    revenue: 90_000,
+    requestedDates: ['2026-04-25'],
+    includedDates: ['2026-04-25'],
+    missingDates: [],
+    sourceCoverage: [{
+      sourceType: 'order_collection_mall',
+      channelAccountId: '00000000-0000-4000-8000-000000000010',
+      mallKey: 'haebub-mall',
+      factDates: ['2026-04-25'],
+      includedDates: ['2026-04-25'],
+      missingDates: [],
+    }],
+  },
+  week: {
+    scope: 'KNOWN_SOURCES',
+    orders: null,
+    revenue: null,
+    requestedDates: ['2026-04-20', '2026-04-21'],
+    includedDates: ['2026-04-20'],
+    missingDates: ['2026-04-21'],
+    sourceCoverage: [{
+      sourceType: 'order_collection_mall',
+      channelAccountId: '00000000-0000-4000-8000-000000000010',
+      mallKey: 'haebub-mall',
+      factDates: ['2026-04-20'],
+      includedDates: ['2026-04-20'],
+      missingDates: ['2026-04-21'],
+    }],
+  },
+};
 
 function makeAcceptResponse() {
   return { items: [orderItem], total: 1 };
@@ -127,6 +169,21 @@ describe('<OrderProcessingWorkspace> (W3)', () => {
     expect(invoiceBtn).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent('현재 지원하지 않습니다');
     expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders measured Today facts and labels incomplete weekly coverage as unmeasured', async () => {
+    vi.spyOn(apiClient, 'getParsed').mockImplementation((path: string) => {
+      if (path === '/api/orders/stats') return Promise.resolve(measuredStatsResponse);
+      return Promise.resolve(emptyResponse);
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: '주문 현황' })).toBeTruthy();
+    expect(await screen.findByText('3건')).toBeTruthy();
+    expect(screen.getByText('확인된 수집 범위 1/1일 · 수집 경로 haebub-mall')).toBeTruthy();
+    expect(screen.getByText('확인된 수집 범위 1/2일 · 수집 경로 haebub-mall')).toBeTruthy();
+    expect(screen.getByText('미측정')).toBeTruthy();
   });
 
   it('does not run the retired scheduled Coupang sync', async () => {

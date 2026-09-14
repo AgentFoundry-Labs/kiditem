@@ -179,14 +179,27 @@ function analysisOutput(organizationId: string, attempt: SourcingBrowserSourceAt
   payload: NaverKeywordAnalysisSnapshotPayload): AuthorizedCollectionOutput {
   const capturedAt = new Date(payload.generatedAt);
   const payloadHash = hashCollectionRequest(payload);
+  const observationKey = hashCollectionRequest({ attemptId: attempt.attemptId, payloadHash });
   return { observations: [{ organizationId, ingestionRunId: attempt.attemptId, sourceKey: SOURCE,
     platform: 'naver', evidenceFamily: 'keyword_analysis', signalRole: 'demand',
     granularity: 'aggregate_official', conceptKey: attempt.targetKey, supportsCandidate: false,
     sourceEntityType: 'keyword_analysis_snapshot', sourceEntityId: attempt.targetKey, schemaVersion: VERSION,
-    observationKey: hashCollectionRequest({ attemptId: attempt.attemptId, payloadHash }), revision: 1,
+    observationKey, revision: 1,
     sourceUrl: null, eventAt: capturedAt, observedAt: capturedAt, availableAt: capturedAt, revisionAt: null,
     payloadHash, rawPayload: payload, ingestedAt: capturedAt,
-  }], typedRecords: [], discoveredCount: 1, rejectedCount: 0, qualityReport: { completeSnapshot: true } };
+  }], typedRecords: [{
+    kind: 'naver_keyword_analysis_snapshot',
+    row: {
+      organizationId,
+      ingestionRunId: attempt.attemptId,
+      evidenceObservationKey: observationKey,
+      evidenceRevision: 1,
+      schemaVersion: VERSION,
+      inputHash: attempt.targetKey,
+      document: SourcingKeywordAnalysisSnapshotSchema.parse(payload),
+      capturedAt,
+    },
+  }], discoveredCount: 1, rejectedCount: 0, qualityReport: { completeSnapshot: true } };
 }
 
 function collectAnalysisSeeds(

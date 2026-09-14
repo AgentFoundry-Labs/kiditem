@@ -38,9 +38,18 @@ export interface LatestTargetRow {
   revenue: number;
   impressions: number;
   clicks: number;
-  conversions: number;
+  /**
+   * `null` when the provider table behind the row did not carry the conversion
+   * column; a stored 0 there is not zero conversions, so no rule reads it.
+   */
+  conversions: number | null;
   abcGrade: string | null;
-  optionCommissionRate: number | null;
+  /**
+   * The listing's channel account channel, which decides whether a sales
+   * commission and other per-sale cost apply (`channelAccountSalesCosts`).
+   * `null` when the target is not attributable to an active listing.
+   */
+  listingChannel: string | null;
   productName: string | null;
 }
 

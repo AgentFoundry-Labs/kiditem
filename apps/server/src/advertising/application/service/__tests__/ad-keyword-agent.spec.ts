@@ -27,7 +27,7 @@ function keywordRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
     clicks: 1,
     conversions: 0,
     abcGrade: null,
-    optionCommissionRate: null,
+    listingChannel: 'coupang',
     productName: '캐릭터 문어발 비눗방울 1p',
     ...overrides,
   };

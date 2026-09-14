@@ -2,14 +2,49 @@ import { describe, expect, it } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
 import {
   buildMockDashboardSalesRepo,
+  buildTodayKpiRow,
   buildMockProfitCalculationRepo,
-  buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
   buildProfitSourceCoverage,
 } from '../../__tests__/test-helpers/build-mock-ports';
 import { DashboardSalesService } from './dashboard-sales.service';
+import type { DashboardTrafficFunnelFacts } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+function funnelFacts(
+  overrides: Partial<DashboardTrafficFunnelFacts> = {},
+): DashboardTrafficFunnelFacts {
+  return {
+    visitors: null,
+    views: null,
+    cartAdds: null,
+    cartRate: null,
+    orders: null,
+    orderCartRate: null,
+    salesQty: null,
+    revenue: null,
+    conversionRate: null,
+    dailyAverageVisitors: null,
+    metricDates: {
+      visitors: [],
+      views: [],
+      cartAdds: [],
+      cartRate: [],
+      orders: [],
+      orderCartRate: [],
+      salesQty: [],
+      revenue: [],
+      conversionRate: [],
+    },
+    intersectionListingCount: 0,
+    intersectionListingDateCount: 0,
+    trafficCoverage: null,
+    trafficObservedAt: null,
+    orderObservedAt: null,
+    ...overrides,
+  };
+}
 
 describe('DashboardSalesService collected Coupang ad spend', () => {
   it('does not replace the order-backed Today card with yesterday Wing data', async () => {
@@ -33,12 +68,10 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       costComplete: true,
       costIncompleteReasons: [],
       adEvidenceComplete: true,
-      sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
+      sourceCoverage: buildProfitSourceCoverage(period),
     }));
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
@@ -80,13 +113,29 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     });
     wing.findLatestDataDate.mockResolvedValue(null);
 
-    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const service = new DashboardSalesService(profit, sales, wing);
     const result = await service.getSummary(
       buildDashboardContext('day', undefined, undefined, new Date('2026-09-08T00:30:00.000Z')),
       ORGANIZATION_ID,
     );
 
     expect(result.today).toEqual({ revenue: 0, orders: 0 });
+
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow({
+      revenue: null,
+      orders: null,
+      includedDates: [],
+      missingDates: ['2026-09-08'],
+      observedAt: null,
+    }));
+    const unavailable = await service.getSummary(
+      buildDashboardContext('day', undefined, undefined, new Date('2026-09-08T00:30:00.000Z')),
+      ORGANIZATION_ID,
+    );
+    expect(unavailable.today).toEqual({ revenue: null, orders: null });
+    expect(unavailable.metricBasis?.['today.orders']).toMatchObject({
+      includedDates: [],
+    });
   });
 
   // Profit and the ad panel read the same ad ledger, so the ad panel's spend
@@ -114,11 +163,9 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       sourceCoverage: buildProfitSourceCoverage(period),
     }));
 
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
 
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
 
     const wing = buildMockWingTrafficAggregationRepo();
@@ -152,7 +199,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
 
     const service = new DashboardSalesService(
       profit,
-      wingAds,
       sales,
       wing,
     );
@@ -179,15 +225,15 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
   it('surfaces account-daily averages, orders/views CVR, provider provenance, and coverage', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
-      revenue: 0,
-      costOfGoods: 0,
-      commission: 0,
-      shippingCost: 0,
+      revenue: null,
+      costOfGoods: null,
+      commission: null,
+      shippingCost: null,
       adCost: 0,
-      otherCost: 0,
-      netProfit: 0,
-      profitRate: 0,
-      orderCount: 0,
+      otherCost: null,
+      netProfit: null,
+      profitRate: null,
+      orderCount: null,
       adRevenue: 0,
       adImpressions: 0,
       adClicks: 0,
@@ -199,10 +245,8 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adEvidenceComplete: true,
       sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
     }));
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
@@ -227,11 +271,11 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
         missingDates: [],
       },
       reconciliation: {
-        views: { status: 'UNVERIFIED', dailySum: 678, periodValue: null },
-        cartAdds: { status: 'UNVERIFIED', dailySum: 76, periodValue: null },
-        orders: { status: 'UNVERIFIED', dailySum: 31, periodValue: null },
-        salesQty: { status: 'UNVERIFIED', dailySum: 92, periodValue: null },
-        revenue: { status: 'UNVERIFIED', dailySum: 206_770, periodValue: null },
+        views: { dailySum: 678, periodValue: null },
+        cartAdds: { dailySum: 76, periodValue: null },
+        orders: { dailySum: 31, periodValue: null },
+        salesQty: { dailySum: 92, periodValue: null },
+        revenue: { dailySum: 206_770, periodValue: null },
       },
       exactPeriodEvidence: null,
     });
@@ -250,8 +294,41 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       lastObservedAt: null,
     });
     wing.findLatestDataDate.mockResolvedValue(new Date('2026-09-03T00:00:00.000Z'));
+    wing.readTrafficFunnel.mockResolvedValue(funnelFacts({
+      visitors: 165,
+      dailyAverageVisitors: 165,
+      views: 678,
+      cartAdds: 76,
+      cartRate: (76 / 678) * 100,
+      orders: 1,
+      orderCartRate: 10,
+      salesQty: 2,
+      revenue: 100_000,
+      conversionRate: (1 / 678) * 100,
+      metricDates: {
+        visitors: ['2026-09-01', '2026-09-02', '2026-09-03'],
+        views: ['2026-09-01', '2026-09-02', '2026-09-03'],
+        cartAdds: ['2026-09-01', '2026-09-02', '2026-09-03'],
+        cartRate: ['2026-09-01', '2026-09-02', '2026-09-03'],
+        orders: ['2026-09-01'],
+        orderCartRate: ['2026-09-01'],
+        salesQty: ['2026-09-01'],
+        revenue: ['2026-09-01'],
+        conversionRate: ['2026-09-01'],
+      },
+      intersectionListingCount: 1,
+      intersectionListingDateCount: 1,
+      trafficCoverage: {
+        from: '2026-09-01',
+        to: '2026-09-03',
+        targetDays: 3,
+        completedDays: 3,
+        missingDates: [],
+      },
+      trafficObservedAt: new Date('2026-09-04T01:00:00.000Z'),
+    }));
 
-    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const service = new DashboardSalesService(profit, sales, wing);
     const result = await service.getSummary(
       buildDashboardContext('month', undefined, undefined, new Date('2026-09-08T03:00:00.000Z')),
       ORGANIZATION_ID,
@@ -261,31 +338,29 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       visitors: 165,
       dailyAverageVisitors: 165,
       views: 678,
-      orders: 31,
-      salesQty: 92,
-      revenue: 206_770,
+      orders: 1,
+      salesQty: 2,
+      revenue: 100_000,
       cartAdds: 76,
-      conversionRate: (31 / 678) * 100,
-      providerConversionRate: 4.58,
+      conversionRate: (1 / 678) * 100,
+      providerConversionRate: null,
       coverage: expect.objectContaining({ completedDays: 3, targetDays: 3 }),
-      reconciliation: expect.objectContaining({
-        revenue: { status: 'UNVERIFIED', dailySum: 206_770, periodValue: null },
-      }),
+      reconciliation: null,
     }));
   });
 
   it('publishes the days a partial window measured but never its period revenue', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
-      revenue: 0,
-      costOfGoods: 0,
-      commission: 0,
-      shippingCost: 0,
+      revenue: null,
+      costOfGoods: null,
+      commission: null,
+      shippingCost: null,
       adCost: 0,
-      otherCost: 0,
-      netProfit: 0,
-      profitRate: 0,
-      orderCount: 0,
+      otherCost: null,
+      netProfit: null,
+      profitRate: null,
+      orderCount: null,
       adRevenue: 0,
       adImpressions: 0,
       adClicks: 0,
@@ -297,10 +372,8 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adEvidenceComplete: true,
       sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
     }));
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
@@ -310,6 +383,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       visitors: 25,
       views: 50,
       cartAdds: 5,
+      cartRate: 10,
       conversionRate: 10,
       dailyAverageVisitors: null,
       providerConversionRate: null,
@@ -341,8 +415,33 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       lastObservedAt: null,
     });
     wing.findLatestDataDate.mockResolvedValue(null);
+    wing.readTrafficFunnel.mockResolvedValue(funnelFacts({
+      visitors: 25,
+      views: 50,
+      cartAdds: 5,
+      dailyAverageVisitors: 25,
+      metricDates: {
+        visitors: ['2026-09-01', '2026-09-03'],
+        views: ['2026-09-01', '2026-09-03'],
+        cartAdds: ['2026-09-01', '2026-09-03'],
+        cartRate: ['2026-09-01', '2026-09-03'],
+        orders: [],
+        orderCartRate: [],
+        salesQty: [],
+        revenue: [],
+        conversionRate: [],
+      },
+      trafficCoverage: {
+        from: '2026-09-01',
+        to: '2026-09-03',
+        targetDays: 3,
+        completedDays: 2,
+        missingDates: ['2026-09-02'],
+      },
+      trafficObservedAt: new Date('2026-09-03T01:00:00.000Z'),
+    }));
 
-    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const service = new DashboardSalesService(profit, sales, wing);
     const result = await service.getSummary(
       buildDashboardContext('month', undefined, undefined, new Date('2026-09-08T03:00:00.000Z')),
       ORGANIZATION_ID,
@@ -359,11 +458,11 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     expect(result.trafficKpi).toEqual(expect.objectContaining({
       visitors: 25,
       views: 50,
-      orders: 5,
-      salesQty: 5,
-      revenue: 500,
+      orders: null,
+      salesQty: null,
+      revenue: null,
       cartAdds: 5,
-      conversionRate: 10,
+      conversionRate: null,
       trafficAvailable: true,
       coverage: expect.objectContaining({
         targetDays: 3,
@@ -376,15 +475,15 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
   it('publishes nothing when the window confirmed no day at all', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
-      revenue: 0,
-      costOfGoods: 0,
-      commission: 0,
-      shippingCost: 0,
+      revenue: null,
+      costOfGoods: null,
+      commission: null,
+      shippingCost: null,
       adCost: 0,
-      otherCost: 0,
-      netProfit: 0,
-      profitRate: 0,
-      orderCount: 0,
+      otherCost: null,
+      netProfit: null,
+      profitRate: null,
+      orderCount: null,
       adRevenue: 0,
       adImpressions: 0,
       adClicks: 0,
@@ -394,10 +493,8 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adEvidenceComplete: true,
       sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
     }));
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     // Rows exist, but not one date in the window completed. There is no
@@ -440,8 +537,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       lastObservedAt: null,
     });
     wing.findLatestDataDate.mockResolvedValue(null);
-
-    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const service = new DashboardSalesService(profit, sales, wing);
     const result = await service.getSummary(
       buildDashboardContext('month', undefined, undefined, new Date('2026-09-08T03:00:00.000Z')),
       ORGANIZATION_ID,
@@ -488,11 +584,9 @@ describe('DashboardSalesService unavailable profit evidence', () => {
       sourceCoverage: buildProfitSourceCoverage(period),
     }));
 
-    const wingAds = buildMockWingAdSummaryRepo();
-    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
 
     const sales = buildMockDashboardSalesRepo();
-    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
     sales.fetchTopProducts.mockResolvedValue([]);
 
     const wing = buildMockWingTrafficAggregationRepo();
@@ -523,8 +617,40 @@ describe('DashboardSalesService unavailable profit evidence', () => {
       lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
     });
     wing.findLatestDataDate.mockResolvedValue(null);
+    wing.readTrafficFunnel.mockResolvedValue(funnelFacts({
+      visitors: 120,
+      views: 400,
+      cartAdds: 0,
+      cartRate: 0,
+      orders: 2,
+      orderCartRate: null,
+      salesQty: 2,
+      revenue: 100_000,
+      conversionRate: 0.5,
+      dailyAverageVisitors: 120,
+      metricDates: {
+        visitors: ['2026-07-01'],
+        views: ['2026-07-01'],
+        cartAdds: ['2026-07-01'],
+        cartRate: ['2026-07-01'],
+        orders: ['2026-07-01'],
+        orderCartRate: [],
+        salesQty: ['2026-07-01'],
+        revenue: ['2026-07-01'],
+        conversionRate: ['2026-07-01'],
+      },
+      intersectionListingCount: 1,
+      intersectionListingDateCount: 1,
+      trafficCoverage: {
+        from: '2026-07-01',
+        to: '2026-07-01',
+        targetDays: 1,
+        completedDays: 1,
+        missingDates: [],
+      },
+    }));
 
-    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const service = new DashboardSalesService(profit, sales, wing);
     const result = await service.getSummary(
       buildDashboardContext('month', undefined, undefined, new Date('2026-07-18T03:00:00.000Z')),
       ORGANIZATION_ID,
@@ -539,10 +665,10 @@ describe('DashboardSalesService unavailable profit evidence', () => {
     expect(result.rangeKpi?.profit).toBeNull();
     expect(result.rangeKpi?.profitRate).toBeNull();
     // A ratio whose numerator is unavailable is itself unavailable.
-    expect(result.trafficKpi.netProfit).toBeNull();
-    expect(result.trafficKpi.profitRate).toBeNull();
+    expect(result.trafficKpi!.netProfit).toBeNull();
+    expect(result.trafficKpi!.profitRate).toBeNull();
     // The order-backed revenue evidence that does exist stays visible.
-    expect(result.trafficKpi.revenue).toBe(100_000);
-    expect(result.trafficKpi.orders).toBe(2);
+    expect(result.trafficKpi!.revenue).toBe(100_000);
+    expect(result.trafficKpi!.orders).toBe(2);
   });
 });

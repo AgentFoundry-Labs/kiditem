@@ -22,18 +22,6 @@ test("managed daily collection owns targetDate pages instead of an unowned auto-
   assert.match(source, /readSettledReportPage\(30000\)/);
 });
 
-test("account daily receipts carry observed provider identity", () => {
-  const start = source.indexOf("async function syncTargetDateDaily");
-  const end = source.indexOf("  // 상품별 광고 키워드 수집", start);
-  const dailySource = source.slice(start, end);
-
-  assert.match(
-    dailySource,
-    /const providerAdvertiserId = observedKeywordAdvertiser\(accountDailyKpiControl\)/,
-  );
-  assert.match(dailySource, /providerAdvertiserId,\s*rawJson/);
-});
-
 function loadContract(options = {}) {
   const location = options.location || {
     href: "https://advertising.coupang.com/marketing/dashboard/sales",
@@ -601,10 +589,15 @@ test("manual sync shares only the same active run and rejects a new attempt befo
   assert.ok(rejectionIndex > admissionIndex && rejectionIndex < prepareIndex);
 });
 
-test("targetDate pages stay idle until owned daily manualSync arrives", async () => {
+test("targetDate pages stay idle and the retired account-day KPI sync mode cannot capture", async () => {
+  const sent = [];
   const runtime = loadContract({
     exposeRuntime: true,
     console: { log() {}, warn() {}, error() {} },
+    sendMessage: (message, callback) => {
+      sent.push(message);
+      callback?.({ success: true });
+    },
     location: {
       href: "https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-09-05",
       pathname: "/marketing/dashboard/sales",
@@ -615,13 +608,10 @@ test("targetDate pages stay idle until owned daily manualSync arrives", async ()
   assert.equal(runtime.messageListeners.length, 1);
   assert.equal(runtime.timeoutCalls.some(({ delay }) => delay === 6000), false);
   assert.doesNotMatch(source, /action:\s*["']reportBatchScrapeDone["']/);
+  assert.doesNotMatch(source, /account_daily_kpi|accountDailyKpi|AccountDailyKpi|coupang_ads_daily/);
+  assert.equal(runtime.contract.shouldRunAccountDailyKpi, undefined);
+  assert.equal(runtime.contract.validateAccountDailyTargetDate, undefined);
 
-  const control = {
-    attemptId: "11111111-1111-4111-8111-111111111111",
-    state: "RUNNING",
-    expiresAt: "2030-01-01T00:00:00.000Z",
-    plan: { businessDates: ["2026-09-05"] },
-  };
   const response = await new Promise((resolve) => {
     runtime.messageListeners[0](
       {
@@ -630,95 +620,24 @@ test("targetDate pages stay idle until owned daily manualSync arrives", async ()
         collectionAttempt: 1,
         syncMode: "account_daily_kpi",
         targetDate: "2026-09-05",
-        accountDailyKpiControl: control,
+        accountDailyKpiControl: {
+          attemptId: "11111111-1111-4111-8111-111111111111",
+          state: "RUNNING",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+          plan: { businessDates: ["2026-09-05"] },
+        },
       },
       { tab: { id: 41 }, url: runtime.context.location.href, frameId: 0 },
       resolve,
     );
   });
 
-  // The owner-controlled path reached the date-picker work; the removed
-  // ownerless auto-run would return SOURCE_ATTEMPT_UNAVAILABLE instead.
-  assert.equal(response.targetDate, "2026-09-05");
-  assert.notEqual(response.errorCode, "SOURCE_ATTEMPT_UNAVAILABLE");
-});
-
-test("hashless account daily sync rejects a missing owner targetDate before default 7d capture", async () => {
-  const runtime = loadContract({
-    exposeRuntime: true,
-    console: { log() {}, warn() {}, error() {} },
-  });
-  const control = {
-    attemptId: "22222222-2222-4222-8222-222222222222",
-    state: "RUNNING",
-    expiresAt: "2030-01-01T00:00:00.000Z",
-    plan: { businessDates: ["2026-09-05"] },
-  };
-  const response = await new Promise((resolve) => {
-    runtime.messageListeners[0](
-      {
-        action: "manualSync",
-        collectionRunId: "run-hashless-missing-date",
-        collectionAttempt: 1,
-        syncMode: "account_daily_kpi",
-        accountDailyKpiControl: control,
-      },
-      { tab: { id: 42 }, url: runtime.context.location.href, frameId: 0 },
-      resolve,
-    );
-  });
-
+  // Without a campaign manual-report permit the page never reaches the date
+  // picker and never sends a source step for the retired owner.
   assert.equal(response.success, false);
-  assert.equal(response.errorCode, "SOURCE_TARGET_DATE_REQUIRED");
-});
-
-test("hashless account daily sync uses the explicit owner date and rejects dates outside its plan", async () => {
-  const control = {
-    plan: { businessDates: ["2026-09-05", "2026-09-04"] },
-  };
-  const contract = loadContract();
-  assert.equal(
-    contract.validateAccountDailyTargetDate("2026-09-04", control),
-    "2026-09-04",
-  );
-  assert.throws(
-    () => contract.validateAccountDailyTargetDate("2026-09-03", control),
-    (error) => error?.code === "SOURCE_TARGET_DATE_OUT_OF_PLAN",
-  );
-  assert.throws(
-    () => contract.validateAccountDailyTargetDate("2026-02-30", control),
-    (error) => error?.code === "SOURCE_TARGET_DATE_INVALID",
-  );
-
-  const runtime = loadContract({
-    exposeRuntime: true,
-    console: { log() {}, warn() {}, error() {} },
-  });
-  const response = await new Promise((resolve) => {
-    runtime.messageListeners[0](
-      {
-        action: "manualSync",
-        collectionRunId: "run-hashless-explicit-date",
-        collectionAttempt: 1,
-        syncMode: "account_daily_kpi",
-        targetDate: "2026-09-04",
-        accountDailyKpiControl: {
-          attemptId: "33333333-3333-4333-8333-333333333333",
-          state: "RUNNING",
-          expiresAt: "2030-01-01T00:00:00.000Z",
-          plan: { businessDates: ["2026-09-04"] },
-        },
-      },
-      { tab: { id: 43 }, url: runtime.context.location.href, frameId: 0 },
-      resolve,
-    );
-  });
-
-  // The fixture has no date-picker DOM, so collection stops at the picker;
-  // reaching that branch proves the explicit hashless date was propagated and
-  // did not fall through to ensureLast7Days().
-  assert.equal(response.targetDate, "2026-09-04");
-  assert.notEqual(response.errorCode, "SOURCE_TARGET_DATE_REQUIRED");
+  assert.equal(response.errorCode, "SOURCE_ATTEMPT_UNAVAILABLE");
+  assert.equal(response.targetDate, undefined);
+  assert.deepEqual(sent, []);
 });
 
 test("approved action mode remains the only content auto-start", () => {
@@ -2736,7 +2655,7 @@ test("successful resume clears the prior campaign error and recalculates failed"
   assert.match(source, /let failed = errors\.length;/);
 });
 
-test("partial campaign collection failure stops for operator retry without terminalizing", () => {
+test("a day-level campaign failure is left for the end-of-sweep retry instead of ending the sweep", () => {
   const contract = loadContract();
   const campaign = {
     identity: "campaign:100",
@@ -2765,10 +2684,8 @@ test("partial campaign collection failure stops for operator retry without termi
   const failureBranch = source.slice(failureBranchStart, dashboardReturnStart);
   assert.ok(failureBranchStart > 0 && dashboardReturnStart > failureBranchStart);
   assert.match(failureBranch, /retryable: true/);
-  assert.match(failureBranch, /recordCampaignFailure\([\s\S]*false,/);
-  assert.match(failureBranch, /success: false/);
-  assert.match(failureBranch, /광고센터 상태를 확인한 뒤 광고 동기화를 다시 실행/);
-  assert.doesNotMatch(failureBranch, /resumeRequired: true/);
+  assert.match(failureBranch, /recordCampaignFailure\(/);
+  assert.doesNotMatch(failureBranch, /return \{/, "the sweep moves on to the next campaign");
 });
 
 test("content waits through the extension worker instead of a throttled page timer", async () => {
@@ -2810,6 +2727,67 @@ test("successful sweep clears a prior dashboard identity error but keeps unresol
       name: "일반 캠페인",
       error: "date_picker_failed",
     }],
+  );
+});
+
+test("the campaign failure reason names a few campaigns and the latest Coupang alert within the owner's limit", () => {
+  const contract = loadContract();
+  const errors = ["A 캠페인", "B 캠페인", "C 캠페인", "D 캠페인", "E 캠페인"].map((name, index) => ({
+    identity: `campaign:${index + 1}`,
+    name,
+    error: "campaign_detail_identity_or_surface_timeout",
+    ...(index === 3 ? { dialogKind: "alert", dialogMessage: "일시적인 오류가 발생했습니다." } : {}),
+  }));
+
+  assert.equal(
+    contract.campaignSweepFailureReason(errors),
+    "쿠팡 광고 캠페인 5개를 불러오지 못했습니다: A 캠페인, B 캠페인, C 캠페인 외 2개. 쿠팡 알림: '일시적인 오류가 발생했습니다.'",
+  );
+  assert.equal(
+    contract.campaignSweepFailureReason([{ identity: "campaign:1", name: "A", error: "x" }]),
+    "쿠팡 광고 캠페인 1개를 불러오지 못했습니다: A.",
+  );
+  const bounded = contract.campaignSweepFailureReason(errors.map((entry) => ({
+    ...entry,
+    name: "긴".repeat(200),
+    dialogKind: "confirm",
+    dialogMessage: "알림".repeat(200),
+  })));
+  assert.ok(bounded.length <= 300, `the owner failure message allows 300 characters, got ${bounded.length}`);
+});
+
+test("dashboard sweep failures read as Korean reasons and quote the Coupang dialog", () => {
+  const contract = loadContract();
+
+  assert.equal(
+    contract.dashboardSweepErrorReason("dashboard_next_page_not_loaded", { kind: "alert", message: "세션이 만료되었습니다." }),
+    "쿠팡 광고 대시보드의 다음 페이지를 불러오지 못했습니다. 쿠팡 알림: '세션이 만료되었습니다.'",
+  );
+  assert.equal(
+    contract.dashboardSweepErrorReason("dashboard_return_after_identity_probe_failed", { kind: "confirm", message: "이동할까요?" }),
+    "쿠팡 광고 캠페인 화면에서 대시보드로 돌아오지 못했습니다. 쿠팡 확인 창: '이동할까요?'",
+  );
+  for (const code of [
+    "campaign_identity_missing",
+    "dashboard_pagination_unverified",
+    "dashboard_page_navigation_failed",
+    "dashboard_page_number_not_increased",
+    "dashboard_pagination_limit_exceeded",
+    "an_unknown_failure",
+    "constructor",
+  ]) {
+    const reason = contract.dashboardSweepErrorReason(code);
+    assert.equal(typeof reason, "string", code);
+    assert.doesNotMatch(reason, /[a-z]+_[a-z]+/, `${code} must not reach the screen as an English code`);
+  }
+
+  const sweepErrorReturn = source.slice(
+    source.indexOf("if (sweepError) {"),
+    source.indexOf("if (totalDiscovered === 0 && rawOnlyCampaigns === 0)"),
+  );
+  assert.match(
+    sweepErrorReturn,
+    /const sweepErrorReason = dashboardSweepErrorReason\(sweepError, sweepDialog\);[\s\S]*error: sweepErrorReason,/,
   );
 });
 
@@ -3134,9 +3112,9 @@ test("campaign requests carry the browser collection run while other producers s
     type: "ad_campaign",
     source: "advertising",
   };
-  const dailyPayload = {
-    type: "coupang_ads_daily",
-    source: "coupang_ads",
+  const otherPayload = {
+    type: "raw_scrape",
+    source: "advertising",
   };
 
   assert.deepEqual(
@@ -3148,8 +3126,8 @@ test("campaign requests carry the browser collection run while other producers s
     },
   );
   assert.equal(
-    contract.withCollectionRunId(dailyPayload, "run-123"),
-    dailyPayload,
+    contract.withCollectionRunId(otherPayload, "run-123"),
+    otherPayload,
   );
   assert.equal(
     contract.withCollectionRunId(campaignPayload, ""),

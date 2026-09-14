@@ -18,7 +18,7 @@ describe('common capability definition contract', () => {
         outputSchema: z.object({ count: z.number() }).strict(),
         effects: ['read'],
         approvalRisk: 'none',
-        idempotency: 'none',
+        idempotency: 'recommended',
       },
     ] as const as readonly CapabilityDefinition[];
 
@@ -35,7 +35,7 @@ describe('common capability definition contract', () => {
       outputSchema: z.object({ count: z.number() }).strict(),
       effects: ['read'],
       approvalRisk: 'none',
-      idempotency: 'none',
+      idempotency: 'recommended',
     } as unknown as CapabilityDefinition;
 
     expect(() => assertCapabilityDefinitions([definition])).toThrow('result summary');

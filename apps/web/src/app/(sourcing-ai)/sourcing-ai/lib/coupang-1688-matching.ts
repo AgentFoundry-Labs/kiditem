@@ -29,7 +29,7 @@ export interface ImageSearchOffer {
   imageUrl: string | null;
   priceCny: number | null;
   landedCostKrw: number | null;
-  matchScore: number;
+  matchScore: number | null;
   estimatedProfitKrw: number | null;
   estimatedMarginRate: number | null;
   salesText?: string | null;
@@ -97,7 +97,7 @@ export function buildImageSearchOffer(
     imageUrl: item.imageUrl,
     priceCny: item.priceCny,
     landedCostKrw,
-    matchScore: Math.round(item.score),
+    matchScore: item.score == null ? null : Math.round(item.score),
     estimatedProfitKrw,
     estimatedMarginRate,
     salesText: item.salesText,
@@ -136,11 +136,12 @@ type Wholesale1688OfferItem = Pick<
 export function selectBestImageSearchOffer(offers: ImageSearchOffer[]): ImageSearchOffer | null {
   return offers
     .slice()
-    .sort((a, b) => scoreImageSearchOffer(b) - scoreImageSearchOffer(a))
+    .sort((a, b) => (scoreImageSearchOffer(b) ?? -1) - (scoreImageSearchOffer(a) ?? -1))
     [0] ?? null;
 }
 
-export function scoreImageSearchOffer(offer: ImageSearchOffer): number {
+export function scoreImageSearchOffer(offer: ImageSearchOffer): number | null {
+  if (offer.matchScore == null) return null;
   let score = offer.matchScore * 0.34;
   score += scoreMargin(offer) * 0.22;
   score += scoreShipping(offer) * 0.18;

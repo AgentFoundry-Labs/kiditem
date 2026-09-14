@@ -8,7 +8,7 @@ const WD = ['일', '월', '화', '수', '목', '금', '토'];
 export interface MonthDayData {
   count: number;
   qty: number;
-  amount: number;
+  amount: number | null;
 }
 
 function pad(n: number) {
@@ -23,7 +23,11 @@ export function RocketMonthCalendar({
   onShiftMonth,
 }: {
   monthAnchor: string;
-  data: Record<string, MonthDayData>;
+  /**
+   * Counts per day, or null when no complete collection's rows were read —
+   * then no day is announced as having zero orders.
+   */
+  data: Record<string, MonthDayData> | null;
   selected: string | null;
   onSelect: (d: string | null) => void;
   onShiftMonth: (delta: number) => void;
@@ -78,7 +82,7 @@ export function RocketMonthCalendar({
         ))}
         {cells.map((date, i) => {
           if (!date) return <div key={`b${i}`} />;
-          const dd = data[date];
+          const dd = data?.[date];
           const has = !!dd && dd.count > 0;
           const active = selected === date;
           const future = date > today;
@@ -90,7 +94,7 @@ export function RocketMonthCalendar({
               type="button"
               onClick={() => has && onSelect(active ? null : date)}
               disabled={!has}
-              aria-label={`${date} 발주 ${dd?.count ?? 0}건`}
+              aria-label={data ? `${date} 발주 ${dd?.count ?? 0}건` : date}
               className={cn(
                 'flex min-h-[104px] flex-col items-start rounded-lg border p-2.5 text-left transition',
                 future
@@ -131,7 +135,11 @@ export function RocketMonthCalendar({
                 <span className="mt-auto w-full">
                   <span className="block text-base font-bold tabular-nums text-slate-800">{dd.count}건</span>
                   <span className="block truncate text-xs tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
-                  <span className="block truncate text-xs tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                  {dd.amount === null ? (
+                    <span className="block truncate text-xs text-slate-400">금액 미확정</span>
+                  ) : (
+                    <span className="block truncate text-xs tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                  )}
                 </span>
               )}
             </button>

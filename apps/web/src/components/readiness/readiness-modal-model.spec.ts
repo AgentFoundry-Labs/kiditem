@@ -20,9 +20,6 @@ function check(overrides: Partial<ReadinessCheck>): ReadinessCheck {
     detail: 'Missing yesterday data',
     lastSyncedAt: null,
     count: null,
-    collector: 'extension',
-    collectEndpoint: null,
-    scrapeUrls: ['https://example.com'],
     referenceDate: '2026-06-28',
     expectedDates: ['2026-06-27', '2026-06-28'],
     missingDates: ['2026-06-28'],
@@ -39,10 +36,7 @@ describe('readiness modal model', () => {
     expect(getLocalDateKey(new Date(2026, 5, 29, 1, 2, 3))).toBe('2026-06-29');
   });
 
-  it('auto-opens only for extension collection issues in collection mode', () => {
-    const serverIssue = response([
-      check({ collector: 'server', collectEndpoint: '/api/collect', scrapeUrls: null }),
-    ]);
+  it('auto-opens for collection issues in collection mode', () => {
     const extensionIssue = response([check({
       basis: buildSnapshotBasis({
         asOf: '2026-06-27',
@@ -52,7 +46,6 @@ describe('readiness modal model', () => {
       missingDates: [],
     })]);
 
-    expect(shouldAutoOpen(serverIssue, 'collectionIssue')).toBe(false);
     expect(shouldAutoOpen(extensionIssue, 'collectionIssue')).toBe(true);
     expect(shouldAutoOpen(response([]), 'anyIssue')).toBe(false);
   });
@@ -69,7 +62,6 @@ describe('readiness modal model', () => {
       detail: 'Ready',
       lastSyncedAt: '2026-06-28T00:00:00.000Z',
       missingDates: [],
-      scrapeUrls: null,
     });
     const data = response([ready, check({ key: 'wing_sales' }), check({
       key: 'wing_kpi',

@@ -44,3 +44,17 @@ export const AD_METRIC_SUMS_SQL = Prisma.sql`
   SUM(spend)::int AS spend, SUM(revenue)::int AS revenue, SUM(impressions)::int AS impressions,
   SUM(clicks)::int AS clicks, SUM(conversions)::int AS conversions, SUM(orders)::int AS orders
 `;
+
+/**
+ * Whether the provider grid behind a row carried a conversion-count column.
+ * The ledger stores 0 in a column the grid lacked, so a row without this stamp
+ * is not evidence of zero conversions or orders.
+ */
+export const CONVERSIONS_OBSERVED_SQL = Prisma.sql`
+  COALESCE(
+    meta_json -> 'advertising.campaign.target' ->> 'conversionsObserved',
+    meta_json -> 'advertising.raw.target' ->> 'conversionsObserved',
+    meta_json -> 'data' ->> 'conversionsObserved',
+    'false'
+  ) = 'true'
+`;

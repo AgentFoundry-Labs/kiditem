@@ -11,10 +11,13 @@ import { zIsoDate } from './common.js';
  * by UI — reserved for future "last edit" indicator (profit-loss/page.tsx:144 pattern).
  */
 export const ChannelDashboardSummarySchema = z.object({
-  todayOrders: z.object({
-    count: z.number().int().nonnegative(),
-    revenue: z.number().int().nonnegative(),
-  }),
+  todayOrders: z.union([
+    z.object({
+      count: z.number().int().nonnegative(),
+      revenue: z.number().int().nonnegative(),
+    }),
+    z.object({ count: z.null(), revenue: z.null() }),
+  ]),
   pendingAccept: z.number().int().nonnegative(),
   pendingReturns: z.number().int().nonnegative(),
   lastModifiedAt: zIsoDate.nullable(),
