@@ -174,7 +174,7 @@ export function sellpiaInventoryCollection({
           return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
         },
         handOff: ({ extensionId, attemptId }) =>
-          handOffToExtensionRun(extensionId, { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId }),
+          handOffToExtensionRun(extensionId, attemptId, { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId }),
         cancel: ({ attemptId }) => cancelSellpiaInventoryAttempt(attemptId),
       }),
     cancelOnServer: cancelSellpiaInventoryAttempt,

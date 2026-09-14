@@ -75,7 +75,7 @@ export const sellpiaProductProfitabilityCollection: CollectionSourceAdapter<Sell
         return { outcome: 'opened', attemptId: attempt.attemptId, running: attempt.state === 'RUNNING' };
       },
       handOff: ({ extensionId, attemptId }) =>
-        handOffToExtensionRun(extensionId, {
+        handOffToExtensionRun(extensionId, attemptId, {
           action: SELLPIA_PRODUCT_PROFITABILITY_EXTENSION_ACTION,
           attemptId,
         }),

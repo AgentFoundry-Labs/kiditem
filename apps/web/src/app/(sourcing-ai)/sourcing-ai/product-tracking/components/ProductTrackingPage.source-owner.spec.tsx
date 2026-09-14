@@ -1,13 +1,20 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { ProductTrackingPage } from './ProductTrackingPage';
 
 const BASE = '/api/ads/wing-tracked-products';
 const ATTEMPT_ID = '10000000-0000-4000-8000-000000000001';
+const CANCEL_PATH = `${BASE}/attempts/${ATTEMPT_ID}/cancel`;
+const TRACKED_ACTION = 'collectAdvertisingTrackedWingProducts';
+const HANDOFF_REFUSED = '확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
+const HANDOFF_UNANSWERED = '확장 프로그램이 수집을 넘겨받지 않았습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), delete: vi.fn(), post: vi.fn() },
@@ -18,12 +25,15 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-vi.mock('@/lib/browser-collection-session', () => ({
-  // This browser holds no session for the attempt, so a stop reaches the owner route.
+vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/browser-collection-session')>()),
+  // This browser holds no session for a running attempt, so a stop reaches the owner route.
   sendBrowserCollectionControl: vi.fn(async () => {
     throw new Error('no extension session');
   }),
@@ -56,9 +66,9 @@ function trackedProduct(index: number) {
 function sourceStatus() {
   return {
     ready: true,
-    latestAttempt: null,
+    latestAttempt: null as null | Record<string, unknown>,
     latestComplete: {
-      sourceImportRunId: ATTEMPT_ID,
+      sourceImportRunId: '10000000-0000-4000-8000-000000000000',
       businessDate: '2026-09-03',
       capturedAt: '2026-09-03T03:00:00.000Z',
       expectedProductCount: 1,
@@ -68,12 +78,25 @@ function sourceStatus() {
   };
 }
 
+function latestAttempt(state: 'RUNNING' | 'FAILED', patch: Record<string, unknown> = {}) {
+  return {
+    attemptId: ATTEMPT_ID,
+    state,
+    startedAt: '2026-09-03T04:00:00.000Z',
+    capturedAt: null,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    errorCode: null,
+    errorMessage: null,
+    ...patch,
+  };
+}
+
 function attemptPlan(state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING') {
   return {
     attemptId: ATTEMPT_ID,
     attemptToken: '20000000-0000-4000-8000-000000000001',
     state,
-    expiresAt: '2026-09-03T04:00:00.000Z',
+    expiresAt: '2099-01-01T00:00:00.000Z',
     businessDate: '2026-09-03',
     sourceKeywordFallback: 'any_requested_keyword_for_unassigned_product' as const,
     keywords: [],
@@ -92,32 +115,64 @@ function renderPage() {
   );
 }
 
+function trackedMessages() {
+  return vi
+    .mocked(sendToExtension)
+    .mock.calls.filter(([, message]) => (message as { action: string }).action === TRACKED_ACTION);
+}
+
 describe('ProductTrackingPage tracked-Wing source owner', () => {
+  const events: string[] = [];
+  let status: ReturnType<typeof sourceStatus>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    events.length = 0;
+    status = sourceStatus();
     const products = Array.from({ length: 12 }, (_, index) => trackedProduct(index));
     vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
       if (path === BASE) return products;
       if (path === `${BASE}/history?days=30`) return { items: [] };
-      if (path === `${BASE}/attempts/current`) return sourceStatus();
+      if (path === `${BASE}/attempts/current`) return status;
       throw new Error(`unexpected request: ${path}`);
     });
-    vi.mocked(apiClient.post).mockResolvedValue(attemptPlan());
-    vi.mocked(detectExtensionId).mockResolvedValue('kiditem-extension');
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: true,
-      attemptId: ATTEMPT_ID,
-      terminalState: 'COMPLETE',
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === `${BASE}/attempts`) {
+        events.push('begin');
+        status = { ...status, latestAttempt: latestAttempt('RUNNING') };
+        return attemptPlan();
+      }
+      if (path === CANCEL_PATH) {
+        status = { ...status, latestAttempt: latestAttempt('FAILED', { errorCode: 'USER_CANCELLED' }) };
+        return status;
+      }
+      throw new Error(`unexpected POST ${path}`);
     });
+    vi.mocked(detectExtensionId).mockImplementation(async () => {
+      events.push('detect');
+      return 'kiditem-extension';
+    });
+    vi.mocked(transferExtensionAuthTo).mockImplementation(async () => {
+      events.push('auth');
+    });
+    // The tracked Wing run answers only when its collection ends; its session
+    // shows it took the attempt.
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      extensionSessionReply(message, 'advertising.wing_tracked_products') ?? new Promise(() => undefined));
   });
 
-  it('begins a server-owned attempt, then invokes the exact direct extension action', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('finds the extension and hands it auth before opening the attempt, then hands the attempt to the tracked Wing run', async () => {
     renderPage();
 
     await screen.findByText('추적 상품 1');
     fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
+    expect(events).toEqual(['detect', 'auth', 'begin']);
     const expectedKeywords = ['A Pencil', ...Array.from({ length: 11 }, (_, index) => `키워드 ${index + 2}`)];
     expect(apiClient.post).toHaveBeenCalledWith(
       `${BASE}/attempts`,
@@ -126,152 +181,80 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
     );
     const [, , options] = vi.mocked(apiClient.post).mock.calls[0]!;
     const idempotencyKey = (options?.headers as Record<string, string>)['Idempotency-Key'];
-    await waitFor(() => expect(sendToExtension).toHaveBeenCalledWith(
+    expect(trackedMessages()).toEqual([[
       'kiditem-extension',
-      {
-        action: 'collectAdvertisingTrackedWingProducts',
-        idempotencyKey,
-        keywords: expectedKeywords,
-      },
-      null,
-    ));
-    expect(screen.getByText('최신 스냅샷 준비됨')).toBeInTheDocument();
+      { action: TRACKED_ACTION, idempotencyKey, keywords: expectedKeywords },
+      190_000,
+    ]]);
+    expect(apiClient.post).not.toHaveBeenCalledWith(CANCEL_PATH);
   });
 
-  it('converges a replayed COMPLETE plan without contacting the extension', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce(attemptPlan('COMPLETE'));
-
+  it('opens no attempt and names the reason while no extension is connected', async () => {
+    vi.mocked(detectExtensionId).mockResolvedValue(null);
     renderPage();
+
     await screen.findByText('추적 상품 1');
     fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('추적 상품 지표를 새로고침했습니다'));
-    expect(detectExtensionId).not.toHaveBeenCalled();
-    expect(sendToExtension).not.toHaveBeenCalled();
+    expect(await screen.findByText('KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '지표 새로고침' })).toBeEnabled();
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(trackedMessages()).toEqual([]);
   });
 
-  it('surfaces a replayed FAILED plan and starts a new user retry key', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce(attemptPlan('FAILED'));
-
+  it('stops the opened attempt through the owner and gives the reason when the extension refuses it', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      (message as { action: string }).action === TRACKED_ACTION
+        ? {
+          success: false,
+          attemptId: ATTEMPT_ID,
+          terminalState: 'RUNNING',
+          errorCode: 'TRACKED_WING_ATTEMPT_ENVIRONMENT_MISMATCH',
+          error: 'Tracked Wing attempt belongs to another environment.',
+        }
+        : null);
     renderPage();
+
     await screen.findByText('추적 상품 1');
-    const refresh = screen.getByRole('button', { name: '지표 새로고침' });
+    fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
-    fireEvent.click(refresh);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
-      '이전 추적 상품 수집이 실패했습니다. 새로고침을 다시 시도해주세요.',
-    ));
-    expect(detectExtensionId).not.toHaveBeenCalled();
-    expect(sendToExtension).not.toHaveBeenCalled();
-
-    await waitFor(() => expect(refresh).not.toBeDisabled());
-    fireEvent.click(refresh);
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
-    const firstKey = (
-      vi.mocked(apiClient.post).mock.calls[0]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    const retryKey = (
-      vi.mocked(apiClient.post).mock.calls[1]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    expect(retryKey).not.toBe(firstKey);
-    await waitFor(() => expect(sendToExtension).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(HANDOFF_REFUSED)).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(CANCEL_PATH);
+    expect(screen.getByRole('button', { name: '지표 새로고침' })).toBeEnabled();
   });
 
-  it('reuses the same request key after a begin response is lost', async () => {
-    const plan = attemptPlan();
-    vi.mocked(apiClient.post)
-      .mockRejectedValueOnce(new Error('begin response lost'))
-      .mockResolvedValueOnce(plan);
-
+  it('stops the opened attempt through the owner when the extension shows no session within 20 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
+      (message as { action: string }).action === TRACKED_ACTION ? new Promise(() => undefined) : null);
     renderPage();
+
     await screen.findByText('추적 상품 1');
-    const refresh = screen.getByRole('button', { name: '지표 새로고침' });
+    fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
+    await waitFor(() => expect(trackedMessages()).toHaveLength(1));
 
-    fireEvent.click(refresh);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('begin response lost'));
-    await waitFor(() => expect(refresh).not.toBeDisabled());
-    fireEvent.click(refresh);
+    await act(() => vi.advanceTimersByTimeAsync(21_000));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
-    const firstKey = (
-      vi.mocked(apiClient.post).mock.calls[0]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    const retryKey = (
-      vi.mocked(apiClient.post).mock.calls[1]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    expect(retryKey).toBe(firstKey);
-    await waitFor(() => expect(sendToExtension).toHaveBeenCalledWith(
-      'kiditem-extension',
-      expect.objectContaining({ idempotencyKey: firstKey }),
-      null,
-    ));
+    expect(await screen.findByText(HANDOFF_UNANSWERED)).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith(CANCEL_PATH);
   });
 
-  it('starts a new request key only after the owner confirms a terminal failure', async () => {
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce({
-        success: false,
+  it("shows the owner's running collection instead of opening another", async () => {
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path !== `${BASE}/attempts`) throw new Error(`unexpected POST ${path}`);
+      status = { ...status, latestAttempt: latestAttempt('RUNNING') };
+      throw new ApiError(409, 'Conflict', 'Conflict', {
+        code: 'ATTEMPT_IN_PROGRESS',
         attemptId: ATTEMPT_ID,
-        terminalState: 'FAILED',
-        retryRequired: true,
-        error: 'tracked Wing failed',
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        attemptId: ATTEMPT_ID,
-        terminalState: 'COMPLETE',
       });
-
+    });
     renderPage();
+
     await screen.findByText('추적 상품 1');
-    const refresh = screen.getByRole('button', { name: '지표 새로고침' });
+    fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
-    fireEvent.click(refresh);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('tracked Wing failed'));
-    await waitFor(() => expect(refresh).not.toBeDisabled());
-    fireEvent.click(refresh);
-
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
-    const firstKey = (
-      vi.mocked(apiClient.post).mock.calls[0]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    const retryKey = (
-      vi.mocked(apiClient.post).mock.calls[1]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    expect(retryKey).not.toBe(firstKey);
-  });
-
-  it('keeps the request key while an extension terminal outcome remains unconfirmed', async () => {
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce({
-        success: false,
-        attemptId: ATTEMPT_ID,
-        terminalState: 'RUNNING',
-        error: 'terminal response lost',
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        attemptId: ATTEMPT_ID,
-        terminalState: 'COMPLETE',
-      });
-
-    renderPage();
-    await screen.findByText('추적 상품 1');
-    const refresh = screen.getByRole('button', { name: '지표 새로고침' });
-
-    fireEvent.click(refresh);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('terminal response lost'));
-    await waitFor(() => expect(refresh).not.toBeDisabled());
-    fireEvent.click(refresh);
-
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
-    const firstKey = (
-      vi.mocked(apiClient.post).mock.calls[0]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    const retryKey = (
-      vi.mocked(apiClient.post).mock.calls[1]?.[2]?.headers as Record<string, string>
-    )['Idempotency-Key'];
-    expect(retryKey).toBe(firstKey);
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
+    expect(trackedMessages()).toEqual([]);
   });
 
   it('refuses a UI scope above the server limit instead of silently truncating keywords', async () => {

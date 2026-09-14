@@ -139,8 +139,8 @@ Other browser sources open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
 Every start uses a fresh idempotency key; there are no correlated retry keys.
 Stop ends the extension session first, then the owner's organization-scoped
-operator cancel. Tracked Wing products, competitor catalogs, 1688 trend,
-TikTok CC and browser live commerce still start from their own screen actions;
+operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live
+commerce still start from their own screen actions;
 the shared control shows their running collection and stop. Trend collection
 runs on the server through the same control and has no stop. One start collects
 one source: Product Management starts Sellpia inventory and Sellpia product

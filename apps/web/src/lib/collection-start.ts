@@ -181,13 +181,15 @@ const wait = (ms: number) =>
 
 /**
  * Hands an attempt to an extension run that answers only when its collection
- * ends. The extension took the attempt once it shows the attempt's session; an
- * answer before that is a refusal unless the attempt already ended, and no
- * sign within the deadline is a refusal too.
+ * ends. The extension took the attempt once it shows the attempt's session, even
+ * when it already answered without finishing (a login it waits on, say). Any
+ * other answer is a refusal unless the attempt already ended, and no sign
+ * within the deadline is a refusal too.
  */
 export async function handOffToExtensionRun(
   extensionId: string,
-  message: Readonly<{ action: string; attemptId: string }>,
+  attemptId: string,
+  message: Readonly<{ action: string } & Record<string, unknown>>,
 ): Promise<void> {
   const state: { answer: RunAnswer | null } = { answer: null };
   const answered = sendToExtension<unknown>(extensionId, message, EXTENSION_RUN_REPLY_TIMEOUT_MS).then(
@@ -204,13 +206,11 @@ export async function handOffToExtensionRun(
   const deadline = Date.now() + HANDOFF_DEADLINE_MS;
   for (;;) {
     const { answer } = state;
-    if (answer) {
-      if (answer.taken) return;
-      throw new Error(answer.reason);
-    }
-    if (await readBrowserCollectionSession(extensionId, message.attemptId, HANDOFF_SESSION_READ_TIMEOUT_MS)) {
+    if (answer?.taken) return;
+    if (await readBrowserCollectionSession(extensionId, attemptId, HANDOFF_SESSION_READ_TIMEOUT_MS)) {
       return;
     }
+    if (answer) throw new Error(answer.reason);
     if (Date.now() >= deadline) throw new Error(HANDOFF_UNANSWERED);
     await Promise.race([answered, wait(HANDOFF_POLL_MS)]);
   }

@@ -78,7 +78,7 @@ function startSellpiaSalesCollection(
       return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
     },
     handOff: ({ extensionId, attemptId }) =>
-      handOffToExtensionRun(extensionId, { action: EXTENSION_ACTION, attemptId }),
+      handOffToExtensionRun(extensionId, attemptId, { action: EXTENSION_ACTION, attemptId }),
     cancel: ({ attemptId }) => cancelSellpiaSalesAttempt(attemptId),
   });
 }

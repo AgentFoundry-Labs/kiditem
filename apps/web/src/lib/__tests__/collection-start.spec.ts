@@ -175,7 +175,7 @@ describe('handOffToExtensionRun', () => {
     let reads = 0;
     sessionReply = async () => (++reads < 3 ? null : session);
     let settled = false;
-    const handoff = handOffToExtensionRun(EXTENSION_ID, message).then(() => {
+    const handoff = handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message).then(() => {
       settled = true;
     });
 
@@ -205,10 +205,10 @@ describe('handOffToExtensionRun', () => {
       errorCode: 'COLLECTION_CANCELLED',
       error: 'Sellpia sales collection was cancelled.',
     });
-    await expect(handOffToExtensionRun(EXTENSION_ID, message)).rejects.toThrow(HANDOFF_REFUSED);
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).rejects.toThrow(HANDOFF_REFUSED);
 
     runReply = async () => ({ success: false, error: '셀피아 로그인이 필요합니다.' });
-    await expect(handOffToExtensionRun(EXTENSION_ID, message)).rejects.toThrow(
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).rejects.toThrow(
       '셀피아 로그인이 필요합니다.',
     );
   });
@@ -218,7 +218,7 @@ describe('handOffToExtensionRun', () => {
       throw new Error('Could not establish connection. Receiving end does not exist.');
     };
 
-    await expect(handOffToExtensionRun(EXTENSION_ID, message)).rejects.toThrow(HANDOFF_REFUSED);
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).rejects.toThrow(HANDOFF_REFUSED);
   });
 
   it('treats an answer for an attempt that already ended as handed off', async () => {
@@ -229,15 +229,53 @@ describe('handOffToExtensionRun', () => {
       errorCode: 'SELLPIA_LOGIN_REQUIRED',
       error: 'Sellpia login is required.',
     });
-    await expect(handOffToExtensionRun(EXTENSION_ID, message)).resolves.toBeUndefined();
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).resolves.toBeUndefined();
 
     runReply = async () => ({ success: true, attemptId: ATTEMPT_ID, terminalState: 'COMPLETE' });
-    await expect(handOffToExtensionRun(EXTENSION_ID, message)).resolves.toBeUndefined();
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).resolves.toBeUndefined();
+  });
+
+  it('hands over a message that names its attempt only through the session the extension opens', async () => {
+    const trackedMessage = {
+      action: 'collectAdvertisingTrackedWingProducts',
+      idempotencyKey: 'tracked-key',
+      keywords: ['A Pencil'],
+    };
+    sessionReply = async () => session;
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, sent) => {
+      const { action } = sent as { action: string };
+      if (action === trackedMessage.action) return new Promise(() => undefined);
+      if (action === 'getCollectionSession') return sessionReply();
+      throw new Error(`unexpected extension action ${action}`);
+    });
+
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, trackedMessage)).resolves.toBeUndefined();
+
+    expect(sendToExtension).toHaveBeenCalledWith(EXTENSION_ID, trackedMessage, 190_000);
+    expect(sendToExtension).toHaveBeenCalledWith(
+      EXTENSION_ID,
+      { action: 'getCollectionSession', attemptId: ATTEMPT_ID },
+      2_000,
+    );
+  });
+
+  it('counts an answer that did not take the attempt as taken while the extension holds its session', async () => {
+    // A run that needs the operator's login answers at once, after it started the attempt's session.
+    runReply = async () => ({
+      success: false,
+      attemptId: ATTEMPT_ID,
+      terminalState: 'RUNNING',
+      attentionRequired: true,
+      error: 'Coupang Wing login is required.',
+    });
+    sessionReply = async () => session;
+
+    await expect(handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message)).resolves.toBeUndefined();
   });
 
   it('rejects when the extension neither answers nor shows the session within 20 seconds', async () => {
     vi.useFakeTimers();
-    const handoff = handOffToExtensionRun(EXTENSION_ID, message);
+    const handoff = handOffToExtensionRun(EXTENSION_ID, ATTEMPT_ID, message);
     const outcome = handoff.then(() => 'resolved', (error: Error) => error.message);
 
     await vi.advanceTimersByTimeAsync(19_000);

@@ -84,7 +84,7 @@ function startRocketPoCollection(
       return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
     },
     handOff: ({ extensionId, attemptId }) =>
-      handOffToExtensionRun(extensionId, { action: 'collectRocketPoRows', attemptId }),
+      handOffToExtensionRun(extensionId, attemptId, { action: 'collectRocketPoRows', attemptId }),
     cancel: ({ attemptId }) => cancelRocketPoAttempt(attemptId),
   });
 }
