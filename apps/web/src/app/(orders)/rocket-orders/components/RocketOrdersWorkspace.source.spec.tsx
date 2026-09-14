@@ -90,6 +90,7 @@ it('shows a collection a stop cancelled as stopped, not a failure, beside the re
 
   const status = screen.getByRole('status', { name: '로켓 수집 상태' });
   await waitFor(() => expect(status).toHaveTextContent('수집 중단됨'));
+  expect(status).toHaveTextContent('수집을 중단했습니다. 저장된 완료본은 유지됩니다.');
   expect(status).toHaveTextContent('COMPLETE 수집본');
   expect(status).not.toHaveTextContent('수집 실패');
   expect(status).not.toHaveTextContent('Rocket PO collection was cancelled.');

@@ -272,7 +272,9 @@ describe('readiness 상품 받기 control', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
-    expect(await screen.findByText('수집을 중단했습니다. 저장된 상품은 유지됩니다.')).toBeInTheDocument();
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(screen.getByText('수집 중단됨')).toBeInTheDocument();
+    expect(screen.queryByText(/운영자가 수집을 중단했습니다/)).not.toBeInTheDocument();
     const extensionStop = vi
       .mocked(sendToExtension)
       .mock.calls.findIndex(([, message]) => (message as { action: string }).action === 'cancelCollectionSession');

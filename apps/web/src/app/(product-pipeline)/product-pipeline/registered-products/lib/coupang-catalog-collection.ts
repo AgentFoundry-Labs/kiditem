@@ -7,7 +7,10 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import {
+  collectionSourceStatusQueryOptions,
+  stoppedAttempt,
+} from '@/lib/collection-source-status-query';
 import { requestCollectionStart } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
@@ -52,8 +55,8 @@ export function catalogImportResumable(
 
 /** An operator, or the extension on the operator's behalf, stopped the import. */
 export function catalogImportStopped(status: CoupangCatalogSourceStatus | undefined): boolean {
-  return catalogImportState(status) === 'FAILED' &&
-    Boolean(currentCatalogAttempt(status)?.error?.code.endsWith('_CANCELLED'));
+  const state = catalogImportState(status);
+  return stoppedAttempt(state ? { state, errorCode: currentCatalogAttempt(status)?.error?.code } : null);
 }
 
 /**

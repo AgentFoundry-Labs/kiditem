@@ -1,4 +1,4 @@
-import { stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import type { WingCatalogSource } from '../hooks/use-wing-catalog-source';
 
 /**
@@ -18,6 +18,9 @@ export function WingCatalogSourceStatus({ source }: { source: WingCatalogSource 
             ? 'Wing 카탈로그 수집 중단됨'
             : 'Wing 카탈로그 수집 실패'}
       </span>
+      {cancelled && (
+        <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>
+      )}
       {attempt.state === 'FAILED' && !cancelled && attempt.errorMessage && (
         <span className="text-destructive">{attempt.errorMessage}</span>
       )}

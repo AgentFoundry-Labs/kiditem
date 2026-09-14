@@ -12,6 +12,7 @@ import {
 import { buildCoupangCatalogProgress } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/coupang-catalog-progress';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import type { CollectionControlView } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import type {
   CoupangCatalogCollectionRun,
   CoupangCatalogSourceStatus,
@@ -213,11 +214,13 @@ function CatalogImportProgress({ status }: { status: CoupangCatalogSourceStatus 
       {state === 'RUNNING' && progress.resumeLabel && (
         <p className="mt-1 text-[11px] text-[var(--warning)]">{progress.resumeLabel}</p>
       )}
-      {state === 'FAILED' && (
+      {state === 'FAILED' && (catalogImportStopped(status) ? (
+        <p className="mt-1 text-[11px] text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</p>
+      ) : (
         <p className="mt-1 text-[11px] text-[var(--danger)]">
-          {catalogImportStopped(status) ? '수집을 중단했습니다.' : failureMessage(current)} 저장된 상품은 유지됩니다.
+          {failureMessage(current)} 저장된 상품은 유지됩니다.
         </p>
-      )}
+      ))}
       {state === 'COMPLETE' && current.publication && (
         <p className="mt-1 text-[11px] text-[var(--success)]">
           {current.publication.duplicate

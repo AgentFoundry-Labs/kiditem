@@ -26,6 +26,7 @@ describe('WingCatalogSourceStatus', () => {
     );
 
     expect(screen.getByRole('status')).toHaveTextContent('Wing 카탈로그 수집 중단됨');
+    expect(screen.getByRole('status')).toHaveTextContent('수집을 중단했습니다. 저장된 완료본은 유지됩니다.');
     expect(
       screen.queryByText('Wing catalog collection was cancelled by the user.'),
     ).not.toBeInTheDocument();
