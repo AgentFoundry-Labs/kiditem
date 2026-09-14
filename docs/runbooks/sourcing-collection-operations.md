@@ -46,46 +46,16 @@ If the provider session or authenticated web/API stack is not available, run
 the deterministic checks in Verification and report the missing prerequisite;
 do not fabricate a Chrome action or provider outcome.
 
-## Resource Limits And Environment Validation
+## Environment Validation
 
-The API Operations worker uses independent resource classes. The default
-capacities are intentionally conservative:
-
-| Resource class | Default capacity | Operational reason |
-| --- | ---: | --- |
-| default | 2 | ordinary provider HTTP and short orchestration |
-| naver_api | 2 | bounded Naver API parallelism |
-| playwright_1688 | 1 | Office CDP 1688 keyword page ownership and AlphaShop image matching remain serialized |
-| snapshot_compute | 2 | bounded aggregation memory and database pressure |
-| extension_coupang | 4 dispatch slots | extension dispatch is short; each environment has one active browser claim |
-
-OPERATION_RESOURCE_CLASS_LIMITS is optional. If supplied, it is a complete JSON
-object with exactly those keys and positive integer values, for example:
-
-```json
-{
-  "default": 2,
-  "naver_api": 2,
-  "playwright_1688": 1,
-  "snapshot_compute": 2,
-  "extension_coupang": 4
-}
-```
-
-The API rejects malformed JSON, a missing/unknown class, or a zero/negative
-limit with operation_resource_class_limits_invalid. It does not silently merge
-a partial object with defaults or place an unknown class in default. Correct
-the protected API environment and boot an isolated API to validate the value;
-never print the full environment file or copy it to an Agent/MCP child.
-
-Also confirm the intended runtime settings before starting collection:
+Confirm the intended runtime settings before starting collection:
 
 | Setting | Check |
 | --- | --- |
-| OPERATION_RUNTIME_WORKER_ENABLED | Set to 1 only when server-backed operations should execute. A disabled worker leaves them queued rather than bypassing Operations. |
-| OPERATION_SCHEDULER_ENABLED | Set to 1 only for reviewed schedules; it does not make a disabled schedule active. |
-| OPERATION_RUN_LEASE_MS | Positive. Browser heartbeats occur at least once per one-third of this lease. |
 | SOURCING_PLAYWRIGHT_CDP_ENDPOINT | Required for the version-2 1688 keyword domain Operation. It accepts `http`, `https`, `ws`, or `wss`; the initial Office value is `http://kiditem-office:9444`. Image matching remains AlphaShop HTTP and opens no browser tab. |
+
+Read the value from the protected API environment without printing the full
+file or copying it to an Agent/MCP child.
 
 ## Lifecycle And Process Ownership
 
@@ -310,8 +280,8 @@ rtk npm run build --workspace=apps/web
 
 Do not use an accepted-data-loss flag, default local database, or production
 Office database for this verification. See deployment-architecture.md for the
-single-API Compose contract and environment-variables.md for strict
-OPERATION_RESOURCE_CLASS_LIMITS validation.
+single-API Compose contract and environment-variables.md for the sourcing
+runtime variables.
 
 ## Blockers
 
@@ -321,7 +291,7 @@ Stop and report rather than working around any of these conditions:
   lifecycle not ACCEPTING;
 - startup cleanup timeout, operation_server_lifecycle_cleanup_failed, or
   residual active/waiting run that would require manual requeue;
-- malformed resource class limits or an unvalidated protected API environment;
+- an unvalidated protected API environment;
 - missing authenticated KidItem/API session, the required extension capability
   for an extension-owned operation, Office CDP reachability for a v2 1688
   keyword run, or required provider login/CAPTCHA completion for a live test;
