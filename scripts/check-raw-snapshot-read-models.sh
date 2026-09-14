@@ -6,6 +6,11 @@ set -euo pipefail
 # normalized COMPLETE snapshots. Their HTTP/PostgreSQL tests cover visibility;
 # this guard covers the module boundary, not publication correctness.
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "ERROR: ripgrep (rg) is required. Install: brew install ripgrep" >&2
+  exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
