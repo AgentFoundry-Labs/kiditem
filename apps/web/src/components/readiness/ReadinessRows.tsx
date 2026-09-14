@@ -528,7 +528,10 @@ function SellpiaSalesCardControl({ check }: { check: ReadinessCheck }) {
   );
 }
 
-/** The readiness card's Wing rank control: the same batch as the rank tracking screen. */
+/**
+ * The readiness card's Wing rank control: the same batch as the rank tracking
+ * screen, which alone shows its per-keyword progress, failures and attention tabs.
+ */
 function WingRankCardControl() {
   const control = useCollectionSourceControl(wingRankBatchCollection);
   return (
@@ -538,6 +541,7 @@ function WingRankCardControl() {
       startTitle="자사 상품 전체의 Wing 판매순위를 수집합니다."
       onStart={() => control.start()}
       onStop={control.stop}
+      runningLink={{ href: '/rank-tracking', label: '진행 보기' }}
       className="self-center"
     />
   );

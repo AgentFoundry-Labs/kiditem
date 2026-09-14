@@ -649,6 +649,19 @@ describe('readiness Wing rank card', () => {
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(EXTENSION_ID, expect.stringMatching(UUID));
     expect(onCollect).not.toHaveBeenCalled();
   });
+
+  it('links the running batch to rank tracking, where its progress and attention are shown', async () => {
+    vi.mocked(apiClient.getNullable).mockImplementation(async (path: string) => {
+      if (path === `${RANK_BATCH_PATH}/current`) return { batchKey: NEXT_ATTEMPT_ID, ...rankBatch };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    renderRow(<ActionCheckCard check={rankCheck} onCollect={vi.fn()} pending={false} />);
+
+    const link = await screen.findByRole('link', { name: '진행 보기' });
+    expect(link).toHaveAttribute('href', '/rank-tracking');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
 });
 
 describe('readiness ad sync row live attempt', () => {

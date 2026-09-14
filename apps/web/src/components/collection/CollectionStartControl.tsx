@@ -33,6 +33,7 @@ export function CollectionStartControl({
   onStop,
   startBlockedReason = null,
   startTitle,
+  runningLink,
   className,
 }: {
   control: CollectionControlView;
@@ -43,6 +44,8 @@ export function CollectionStartControl({
   startBlockedReason?: string | null;
   /** What the start collects, for the start button's tooltip. */
   startTitle?: string;
+  /** The screen that shows the running collection's progress and attention, opened in a new tab. */
+  runningLink?: Readonly<{ href: string; label: string }>;
   className?: string;
 }) {
   const { state, running, notice, statusRead, canStop } = control;
@@ -67,6 +70,16 @@ export function CollectionStartControl({
               <XCircle className="h-3.5 w-3.5" />
               {state === 'stopping' ? '중단 요청 중…' : '수집 중단'}
             </button>
+          )}
+          {runningLink && (
+            <a
+              href={runningLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold text-[var(--primary)] underline-offset-2 hover:underline"
+            >
+              {runningLink.label}
+            </a>
           )}
         </div>
       ) : (
