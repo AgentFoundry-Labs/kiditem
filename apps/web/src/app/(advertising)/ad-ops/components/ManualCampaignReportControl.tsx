@@ -3,6 +3,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
 import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from "@/lib/collection-source-status-query";
 import { cn } from "@/lib/utils";
 import {
   adCampaignManualReportCollection,
@@ -27,7 +28,9 @@ const ARROW_STEPS: Readonly<Partial<Record<string, number>>> = {
  * The manual campaign report control beside the report panel. It captures the
  * ad center's own report for exactly one day or seven days ending at the ad
  * data cutoff, chosen here rather than by the page period; its running state
- * is the account's live campaign attempt, a sweep or a manual report.
+ * is the account's live campaign attempt, a sweep or a manual report. A
+ * stopped newest manual report shows as stopped whenever no attempt is
+ * starting, running or stopping.
  */
 export default function ManualCampaignReportControl({
   period,
@@ -41,6 +44,9 @@ export default function ManualCampaignReportControl({
   const control = useCollectionSourceControl(adCampaignManualReportCollection);
   const range = exactManualReportRange(period, knownThrough);
   const choices = useRef<Array<HTMLButtonElement | null>>([]);
+  const stopped =
+    (control.state === "idle" || control.state === "refused") &&
+    stoppedAttempt(control.status?.latestManualReport);
 
   // The checked choice is the group's only tab stop; an arrow key checks and
   // focuses the neighbouring choice.
@@ -100,6 +106,15 @@ export default function ManualCampaignReportControl({
             ? `${range.startDate} ~ ${range.endDate} 범위 그대로 받습니다.`
             : "광고 데이터 기준일까지의 범위로 받습니다."}
         </p>
+        <div aria-live="polite">
+          {stopped && (
+            <p className="mt-0.5 text-xs" style={{ color: "var(--warning)" }}>
+              <span className="font-semibold">수집 중단됨</span>
+              {" · "}
+              <span>{COLLECTION_STOPPED_MESSAGE}</span>
+            </p>
+          )}
+        </div>
       </div>
       <CollectionStartControl
         control={control}

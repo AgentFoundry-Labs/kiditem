@@ -8,9 +8,10 @@ import { queryKeys } from "@/lib/query-keys";
 import CampaignContent from "./CampaignContent";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
+const mockApiPost = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { get: mockApiGet, post: vi.fn() },
+  apiClient: { get: mockApiGet, post: mockApiPost },
 }));
 vi.mock("@/lib/extension-bridge", () => ({
   detectExtensionId: vi.fn(async () => "kiditem-extension"),
@@ -45,9 +46,10 @@ const unavailableTrends = {
 const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
 const MANUAL_ATTEMPT_ID = "66666666-6666-4666-8666-666666666666";
 const NEXT_MANUAL_ATTEMPT_ID = "77777777-7777-4777-8777-777777777777";
+const SWEEP_ATTEMPT_ID = "88888888-8888-4888-8888-888888888888";
 
 function campaignAttempt(
-  state: "RUNNING" | "COMPLETE",
+  state: "RUNNING" | "COMPLETE" | "FAILED",
   plan: Record<string, unknown>,
   attemptId = MANUAL_ATTEMPT_ID,
 ) {
@@ -819,5 +821,81 @@ describe("CampaignContent manual campaign report control", () => {
     await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
 
     await waitFor(() => expect(reportReads()).toBe(2));
+  });
+
+  function stoppedManualReport() {
+    return {
+      ...campaignAttempt("FAILED", manualReportPlan("2026-07-17", "2026-07-23")),
+      errorCode: "USER_CANCELLED",
+      errorMessage: "운영자가 수집을 중단했습니다.",
+    };
+  }
+
+  it("shows a manual report the operator stopped as stopped on its control", async () => {
+    const running = campaignAttempt("RUNNING", manualReportPlan("2026-07-17", "2026-07-23"));
+    campaignSource = { ...idleCampaignSource, activeAttempt: running, latestManualReport: running };
+    const cancelPath = `/api/ads/ad-campaigns/attempts/${MANUAL_ATTEMPT_ID}/cancel`;
+    mockApiPost.mockImplementation(async (path: string) => {
+      if (path !== cancelPath) throw new Error(`unexpected POST ${path}`);
+      const stopped = stoppedManualReport();
+      campaignSource = { ...idleCampaignSource, latestManualReport: stopped };
+      return stopped;
+    });
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+    expect(screen.getByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "원본 보고서 받기" })).toBeEnabled();
+    expect(mockApiPost).toHaveBeenCalledWith(cancelPath);
+  });
+
+  it("keeps a stopped manual report off its control while a newer campaign attempt runs", async () => {
+    campaignSource = { ...idleCampaignSource, latestManualReport: stoppedManualReport() };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignContent initialCampaign={null} period="7d" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+
+    campaignSource = {
+      ...campaignSource,
+      activeAttempt: campaignAttempt("RUNNING", sweepPlan, SWEEP_ATTEMPT_ID),
+    };
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+
+    expect(
+      await screen.findByText("수집 중 · 캠페인 순회 · 2026-08-06 ~ 2026-09-05"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("수집 중단됨")).not.toBeInTheDocument();
+    expect(screen.queryByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).not.toBeInTheDocument();
+  });
+
+  it("drops the stopped state once a newer manual report completes", async () => {
+    campaignSource = { ...idleCampaignSource, latestManualReport: stoppedManualReport() };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignContent initialCampaign={null} period="7d" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+
+    campaignSource = {
+      ...idleCampaignSource,
+      latestManualReport: campaignAttempt(
+        "COMPLETE",
+        manualReportPlan("2026-07-17", "2026-07-23"),
+        NEXT_MANUAL_ATTEMPT_ID,
+      ),
+    };
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+
+    await waitFor(() => expect(screen.queryByText("수집 중단됨")).not.toBeInTheDocument());
+    expect(screen.queryByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "원본 보고서 받기" })).toBeEnabled();
   });
 });
