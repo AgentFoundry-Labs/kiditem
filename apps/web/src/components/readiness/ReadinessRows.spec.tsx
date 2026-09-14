@@ -3,24 +3,24 @@ import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOURCE_READINESS_LABELS } from '@kiditem/shared/source-readiness';
+import { SellpiaSyncAction } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import {
   detectBrowserCollectionExtensionIds,
   detectExtensionId,
+  detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { AdKeywordRow, AdSyncRow, StockSyncRow } from './ReadinessRows';
 
-const hooks = vi.hoisted(() => ({ stock: vi.fn() }));
-
-vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
-  useSellpiaInventorySourceOwner: hooks.stock,
-}));
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'org-1' } }) }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: vi.fn(),
   detectBrowserCollectionExtensionIds: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 vi.mock('sonner', () => ({
@@ -128,21 +128,91 @@ function startMessages() {
     .filter((message) => message.action === 'startCollection');
 }
 
-function stockOwner(
+const SELLPIA_FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
+const SELLPIA_BEGIN_PATH = '/api/inventory/sellpia-source/attempts';
+const SELLPIA_TOKEN = '44444444-4444-4444-8444-444444444444';
+let sellpiaAttempts: Record<string, unknown>;
+
+function sellpiaFreshness(
   status: 'fresh' | 'refresh_required' | 'syncing' | 'failed',
   lastVerifiedAt: string | null,
   errorMessage: string | null = null,
 ) {
   return {
-    state: { status, lastVerifiedAt, errorMessage, sourceBindingConfirmed: true },
-    start: vi.fn(),
-    isStarting: false,
+    status,
+    sourceBinding: { origin: 'https://kiditem.sellpia.com', accountKey: 'kiditem', confirmed: true },
+    lastVerifiedAt,
+    expiresAt: null,
+    requestedGeneration: '7',
+    verifiedGeneration: '7',
+    refreshRequestedAt: null,
+    refreshReason: null,
+    requestedSyncScope: 'inventory',
+    syncNotBefore: null,
+    activeSync: status === 'syncing'
+      ? {
+          runId: SELLPIA_TOKEN,
+          generation: '8',
+          scope: 'inventory',
+          startedAt: '2026-09-05T16:30:00.000Z',
+          leaseExpiresAt: '2099-01-01T00:00:00.000Z',
+          canControl: true,
+        }
+      : null,
+    lastAttempt: status === 'failed'
+      ? {
+          attemptedAt: '2026-09-05T16:30:00.000Z',
+          status: 'failed',
+          trigger: 'manual_request',
+          scope: 'inventory',
+          errorCode: null,
+          errorMessage,
+        }
+      : null,
+  };
+}
+
+function sellpiaAttempt(state: State) {
+  return {
+    attemptId: ATTEMPT_ID,
+    attemptToken: SELLPIA_TOKEN,
+    generation: '8',
+    state,
+    plan: {
+      sourceType: 'sellpia_inventory',
+      parserVersion: 'sellpia-inventory-v1',
+      scope: 'inventory',
+      trigger: 'manual_request',
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      sourceAccountKey: 'kiditem',
+      generation: '8',
+    },
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    actualCutoffAt: null,
+    fileName: null,
+    fileHash: null,
+    contentChecksum: null,
+    rowCount: 0,
+    errorCode: null,
+    errorMessage: null,
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   statuses = {};
+  sellpiaAttempts = {};
+  vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
+    status: 'ready',
+    extensionId: EXTENSION_ID,
+    version: '1',
+  });
+  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
+    const attempt = sellpiaAttempts[path.split('/').at(-1) ?? ''];
+    if (!attempt) throw new ApiError(404, 'SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND', 'not found');
+    return attempt;
+  });
   extensionReplies = {
     ping: () => ({
       success: true,
@@ -292,33 +362,62 @@ describe('readiness ad source rows', () => {
 });
 
 describe('readiness Sellpia row', () => {
-  it('derives the Sellpia chip from freshness and the KST date of the last verification', () => {
-    hooks.stock.mockReturnValue(stockOwner('fresh', '2026-09-05T16:30:00.000Z'));
-    const view = render(<StockSyncRow />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
+  it('derives the Sellpia chip from freshness and the KST date of the last verification', async () => {
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('fresh', '2026-09-05T16:30:00.000Z');
+    const view = renderRow(<StockSyncRow />);
+    expect(await screen.findByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
 
-    hooks.stock.mockReturnValue(stockOwner('refresh_required', '2026-09-05T16:30:00.000Z'));
-    view.rerender(<StockSyncRow />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z');
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    expect(await screen.findByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
 
-    hooks.stock.mockReturnValue(stockOwner('refresh_required', null));
-    view.rerender(<StockSyncRow />);
-    expect(screen.getByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', null);
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    expect(await screen.findByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
   });
 
-  it('shows Sellpia syncing through the busy button and a failure through the owner message', () => {
-    hooks.stock.mockReturnValue(stockOwner('syncing', '2026-09-05T16:30:00.000Z'));
-    const view = render(<StockSyncRow />);
-    expect(screen.getByRole('button', { name: /동기화 중/ })).toBeDisabled();
+  it('shows a live Sellpia collection as running and a failure through the owner message', async () => {
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('syncing', '2026-09-05T16:30:00.000Z');
+    const view = renderRow(<StockSyncRow />);
+    expect(await screen.findByText('수집 중')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
     expect(screen.queryByText('갱신 중')).not.toBeInTheDocument();
 
-    hooks.stock.mockReturnValue(
-      stockOwner('failed', '2026-09-05T16:30:00.000Z', '셀피아 로그인이 필요합니다.'),
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness(
+      'failed',
+      '2026-09-05T16:30:00.000Z',
+      '셀피아 로그인이 필요합니다.',
     );
-    view.rerender(<StockSyncRow />);
-    expect(screen.getByText('셀피아 로그인이 필요합니다.')).toBeInTheDocument();
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    expect(await screen.findByText('셀피아 로그인이 필요합니다.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '재고 동기화' })).toBeEnabled();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
     expect(screen.queryByText('실패')).not.toBeInTheDocument();
+  });
+
+  it('starts Sellpia inventory once and shows it running on the stock screen control as well', async () => {
+    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z');
+    extensionReplies.collectSellpiaInventory = () => new Promise(() => undefined);
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
+      if (path !== SELLPIA_BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
+      sellpiaAttempts[ATTEMPT_ID] = sellpiaAttempt('RUNNING');
+      statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('syncing', '2026-09-05T16:30:00.000Z');
+      return sellpiaAttempts[ATTEMPT_ID];
+    });
+    renderRow(
+      <>
+        <StockSyncRow />
+        <SellpiaSyncAction />
+      </>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '재고 동기화' }));
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '수집 중단' })).toHaveLength(2));
+    expect(
+      vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === SELLPIA_BEGIN_PATH),
+    ).toHaveLength(1);
   });
 });

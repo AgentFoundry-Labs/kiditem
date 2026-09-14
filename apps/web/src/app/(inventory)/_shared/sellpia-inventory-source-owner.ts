@@ -1,18 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
   SellpiaInventoryGenerationSchema,
   SellpiaSyncScopeSchema,
   type SellpiaInventoryFreshnessStatus,
+  type SellpiaInventoryFreshnessView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import {
+  useCollectionSourceControl,
+  type CollectionRunning,
+  type CollectionSourceAdapter,
+} from '@/hooks/use-collection-source-control';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { attemptInProgress } from '@/lib/collection-start';
 import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
@@ -494,5 +501,199 @@ export function useSellpiaInventorySourceOwner({ enabled = true }: { enabled?: b
     error: attemptQuery.error ?? freshness.error,
     confirmSourceBinding,
     start,
+  };
+}
+
+const RememberedAttemptSchema = z
+  .object({ attemptId: z.string().uuid().nullable() })
+  .passthrough();
+
+/** The attempt this browser began or joined for the organization and environment. */
+export function readRememberedSellpiaInventoryAttemptId(
+  organizationId: string,
+  environmentKey = getSellpiaInventoryEnvironmentKey(),
+): string | null {
+  const raw = safeStorageGet(
+    'local',
+    sellpiaInventorySourceAttemptStorageKey(organizationId, environmentKey),
+  );
+  if (!raw) return null;
+  try {
+    const parsed = RememberedAttemptSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data.attemptId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberSellpiaInventoryAttemptId(
+  organizationId: string,
+  attemptId: string | null,
+  environmentKey = getSellpiaInventoryEnvironmentKey(),
+): void {
+  safeStorageSet(
+    'local',
+    sellpiaInventorySourceAttemptStorageKey(organizationId, environmentKey),
+    JSON.stringify({ attemptId }),
+  );
+}
+
+/**
+ * Sends the begun attempt's id to the extension. The extension answers only
+ * when the collection ends and the owner status already reports that, so the
+ * page does not wait for the answer.
+ */
+export function dispatchSellpiaInventoryCollection(extensionId: string, attemptId: string): void {
+  void sendToExtension(
+    extensionId,
+    { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId },
+    190_000,
+  ).catch(() => undefined);
+}
+
+export type SellpiaInventorySourceStatus = Readonly<{
+  freshness: SellpiaInventoryFreshnessView;
+  /**
+   * The attempt this browser began or joined. The freshness view reports a
+   * live lease without naming its attempt, so only this attempt can be stopped.
+   */
+  attempt: SellpiaInventorySourceAttempt | null;
+}>;
+
+async function readRememberedSellpiaInventoryAttempt(
+  organizationId: string,
+  environmentKey: string,
+): Promise<SellpiaInventorySourceAttempt | null> {
+  const attemptId = readRememberedSellpiaInventoryAttemptId(organizationId, environmentKey);
+  if (!attemptId) return null;
+  try {
+    return await readSellpiaInventorySourceAttempt(attemptId);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    // A pruned or foreign attempt is no longer this browser's collection.
+    rememberSellpiaInventoryAttemptId(organizationId, null, environmentKey);
+    return null;
+  }
+}
+
+function sellpiaInventoryRunning(status: SellpiaInventorySourceStatus): CollectionRunning | null {
+  if (status.attempt?.state === 'RUNNING') {
+    return { attemptId: status.attempt.attemptId, scopeLabel: null };
+  }
+  return status.freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
+}
+
+const SOURCE_RUNNING_POLL_MS = 2_000;
+const SOURCE_IDLE_POLL_MS = 60_000;
+
+/**
+ * Sellpia inventory collection for the shared control. The page begins the
+ * owner attempt and hands its id to the extension; the extension collects,
+ * uploads and finalizes it.
+ */
+export function sellpiaInventoryCollection({
+  organizationId,
+  environmentKey,
+}: Readonly<{
+  organizationId: string | null;
+  environmentKey: string;
+}>): CollectionSourceAdapter<SellpiaInventorySourceStatus> {
+  return {
+    sourceKey: 'inventory.sellpia',
+    label: '셀피아 재고 수집',
+    statusQuery: collectionSourceStatusQueryOptions<
+      SellpiaInventorySourceStatus,
+      Error,
+      SellpiaInventorySourceStatus,
+      QueryKey
+    >({
+      queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? '', environmentKey),
+      queryFn: async () => {
+        const [freshness, attempt] = await Promise.all([
+          sellpiaInventoryFreshnessApi.getState(),
+          readRememberedSellpiaInventoryAttempt(organizationId ?? '', environmentKey),
+        ]);
+        return { freshness, attempt };
+      },
+      enabled: Boolean(organizationId),
+      refetchInterval: (query) =>
+        query.state.data && sellpiaInventoryRunning(query.state.data)
+          ? SOURCE_RUNNING_POLL_MS
+          : SOURCE_IDLE_POLL_MS,
+      refetchIntervalInBackground: false,
+      meta: { suppressGlobalErrorToast: true },
+    }),
+    readRunning: sellpiaInventoryRunning,
+    start: async (_input, { status }) => {
+      if (!organizationId) {
+        throw new Error('셀피아 재고 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
+      }
+      const extensionId = await prepareSellpiaInventoryExtension();
+      const trigger = status?.freshness.status === 'failed' ? 'retry' : 'manual_request';
+      let started: SellpiaInventorySourceAttempt;
+      try {
+        started = await beginSellpiaInventorySourceAttempt(createSecureRandomUuid(), trigger);
+      } catch (error) {
+        const inProgress = attemptInProgress(error);
+        if (!inProgress) throw error;
+        if (inProgress.attemptId) {
+          rememberSellpiaInventoryAttemptId(organizationId, inProgress.attemptId, environmentKey);
+        }
+        return { outcome: 'running', attemptId: inProgress.attemptId };
+      }
+      rememberSellpiaInventoryAttemptId(organizationId, started.attemptId, environmentKey);
+      if (started.state === 'RUNNING') {
+        dispatchSellpiaInventoryCollection(extensionId, started.attemptId);
+      }
+      return { outcome: 'started', attemptId: started.attemptId };
+    },
+    cancelOnServer: (attemptId) =>
+      apiClient.post(
+        `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
+      ),
+    readCompleteId: (status) => status.freshness.verifiedGeneration,
+    // A newer verified generation republished the snapshot every stock screen reads.
+    onNewComplete: (queryClient) => {
+      void invalidateSellpiaInventory(queryClient);
+    },
+  };
+}
+
+/**
+ * The Sellpia inventory collection control with the freshness state its
+ * screens show. Every mounted copy shares start, stop and running state.
+ */
+export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: boolean } = {}) {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const organizationId = enabled ? user?.organizationId ?? null : null;
+  const environmentKey = getSellpiaInventoryEnvironmentKey();
+  const adapter = useMemo(
+    () => sellpiaInventoryCollection({ organizationId, environmentKey }),
+    [environmentKey, organizationId],
+  );
+  const control = useCollectionSourceControl(adapter);
+  const statusQueryKey = adapter.statusQuery.queryKey;
+  const binding = useMutation({
+    mutationFn: sellpiaInventoryFreshnessApi.confirmSourceBinding,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true }),
+  });
+  const freshness = control.status?.freshness;
+  const state: SellpiaInventorySourceOwnerState | null = freshness
+    ? {
+      status: freshness.status,
+      lastVerifiedAt: freshness.lastVerifiedAt,
+      errorMessage: freshness.status === 'failed'
+        ? freshness.lastAttempt?.errorMessage ?? null
+        : null,
+      sourceBindingConfirmed: freshness.sourceBinding.confirmed,
+    }
+    : null;
+
+  return {
+    control,
+    state,
+    confirmSourceBinding: binding.mutateAsync,
+    isConfirming: binding.isPending,
   };
 }

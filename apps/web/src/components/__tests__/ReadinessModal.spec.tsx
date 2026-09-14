@@ -18,10 +18,19 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
-  useSellpiaInventorySourceOwner: () => ({
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: 'idle',
+      statusRead: 'current',
+      running: null,
+      canStop: false,
+      notice: null,
+      start: vi.fn(),
+      stop: vi.fn(),
+    },
     state: null,
-    start: vi.fn(),
-    isStarting: false,
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
   }),
 }));
 

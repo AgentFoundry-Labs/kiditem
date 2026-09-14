@@ -6,7 +6,7 @@ import ProductOutflow from './ProductOutflow';
 import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
 
 const productSalesApi = vi.hoisted(() => ({ fetch: vi.fn() }));
-const sourceOwner = vi.hoisted(() => ({ start: vi.fn(), state: null as Record<string, unknown> | null, isStarting: false }));
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn(), state: null as Record<string, unknown> | null }));
 const freshness = vi.hoisted(() => ({
   state: {
     status: 'refresh_required',
@@ -19,7 +19,20 @@ vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
 }));
 vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
-  useSellpiaInventorySourceOwner: () => sourceOwner,
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: 'idle',
+      statusRead: 'current',
+      running: null,
+      canStop: false,
+      notice: null,
+      start: sourceOwner.start,
+      stop: vi.fn(),
+    },
+    state: sourceOwner.state,
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
+  }),
 }));
 
 function renderProductOutflow() {

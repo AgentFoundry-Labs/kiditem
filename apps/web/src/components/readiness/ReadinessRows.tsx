@@ -25,7 +25,8 @@ import {
 } from '@kiditem/shared/source-readiness';
 import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
 import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
-import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
+import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/SellpiaSyncAction';
+import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
@@ -754,28 +755,12 @@ export function AdKeywordRow() {
 
 /**
  * 셀피아 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
- * 진행바 분모(N/5)를 바꾸지 않는다. 공유 freshness 상태를 읽고 source-owner attempt 만
- * 시작한다 — TTL 계산이나 브라우저 수집 타이머를 자체 보유하지 않는다.
+ * 진행바 분모(N/5)를 바꾸지 않는다. 시작, 진행 중, 중단은 재고 화면과 같은 공용 수집
+ * 컨트롤이 보여 주고, 행은 freshness 로 준비 상태만 표시한다.
  */
 export function StockSyncRow() {
-  const { state, start, isStarting } = useSellpiaInventorySourceOwner({ enabled: true });
-  const [requesting, setRequesting] = useState(false);
-  // Syncing shows through the busy button and a failure through the owner's
-  // message; the chip only carries the shared readiness words.
-  const busy = requesting || isStarting || state?.status === 'syncing';
+  const { control, state } = useSellpiaInventoryCollection();
   const readiness = state ? sellpiaReadiness(state) : null;
-
-  const run = async () => {
-    setRequesting(true);
-    try {
-      await start();
-      toast.success('셀피아 재고 동기화를 시작했습니다.');
-    } catch {
-      toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
-    } finally {
-      setRequesting(false);
-    }
-  };
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -800,27 +785,13 @@ export function StockSyncRow() {
           )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={busy}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {busy ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              동기화 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              재고 동기화
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="재고 동기화"
+          startTitle={SELLPIA_INVENTORY_START_TITLE}
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
     </div>
   );
