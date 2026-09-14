@@ -3,7 +3,7 @@ Before working in this directory, always read this document first rather than re
 # web/dashboard - Operational Read Models
 
 `dashboard/` owns the landing dashboard for aggregated operational read models:
-sales, ads, inventory, trends, health, action tasks, and chart panels.
+sales, ads, inventory, trends, health, and chart panels.
 
 ## Owned Surfaces
 

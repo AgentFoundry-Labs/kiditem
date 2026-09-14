@@ -3,15 +3,14 @@ Before working in this directory, always read this document first rather than re
 # web/advertising - Ad Operations
 
 `app/(advertising)/` owns the ad operations UI for Coupang ads, campaign
-performance, scrape targets, rules, planning, and benchmark/recommendation
-surfaces. It consumes backend advertising APIs and does not own catalog,
-finance, or dashboard aggregation logic.
+performance, rules, planning, and benchmark/recommendation surfaces. It
+consumes backend advertising APIs and does not own catalog, finance, or
+dashboard aggregation logic.
 
 ## Owned Surfaces
 
 - Ad operations dashboard and tab composition
 - Campaign, product, trend, rule, plan, recommendation, and benchmark views
-- Coupang ad scrape target configuration
 - XLSX export helpers for ad operations tables
 
 ## Data Flow
@@ -30,8 +29,7 @@ React Query + apiClient
   that affect dashboard totals should also invalidate `queryKeys.dashboard.all`.
 - Keep status/color helpers in `ad-ops/lib/` unless another route group imports
   them.
-- Scrape target management is configuration only; scraping execution and raw
-  ingest remain backend/extension concerns.
+- Scraping execution and raw ingest remain backend/extension concerns.
 
 ## Boundary Rules
 
