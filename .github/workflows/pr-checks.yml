@@ -64,3 +64,36 @@ jobs:
           npm exec --workspace=packages/shared tsup -- src/agent-runtime/index.ts src/identifiers/index.ts --format esm,cjs --no-config --out-dir dist --clean
           npm run build --workspace=apps/agent-gateway
           npm exec --workspace=apps/agent-gateway vitest -- run
+
+  script_contract_checks:
+    name: Script contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies without repository lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        env:
+          # prisma.config.ts resolves DATABASE_URL at load; generate never connects.
+          DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+        run: npx prisma generate
+
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Run script contract tests
+        run: npm run test:scripts

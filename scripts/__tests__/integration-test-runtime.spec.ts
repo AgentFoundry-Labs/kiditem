@@ -57,6 +57,7 @@ describe('integration test runtime contract', () => {
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
       'gateway_fast_checks',
+      'script_contract_checks',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
@@ -126,6 +127,32 @@ describe('integration test runtime contract', () => {
       'run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     );
     expect(developJobSource).toContain('run: npm run test:integration');
+  });
+
+  it('runs the script contract suite on PRs after generating its runtime inputs', () => {
+    const packageJson = JSON.parse(readRepoFile('package.json')) as {
+      scripts?: Record<string, string>;
+    };
+    const scriptJob = readWorkflowJobSource(
+      readRepoFile('.github/workflows/pr-checks.yml'),
+      'script_contract_checks',
+    );
+    const orderedSteps = [
+      'run: npm ci --ignore-scripts',
+      'run: npx prisma generate',
+      'run: npm run build --workspace=packages/shared',
+      'run: npm run test:scripts',
+    ];
+    const stepOffsets = orderedSteps.map((step) => scriptJob.indexOf(step));
+
+    expect(packageJson.scripts?.['test:scripts']).toBe(
+      'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
+    );
+    expect(scriptJob).toContain('runs-on: ubuntu-latest');
+    expect(scriptJob).toContain('contents: read');
+    expect(scriptJob).toContain('node-version: 22');
+    expect(stepOffsets, orderedSteps.join(' -> ')).not.toContain(-1);
+    expect(stepOffsets).toEqual([...stepOffsets].sort((left, right) => left - right));
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {
