@@ -359,7 +359,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       exportId: created.exportId,
-      reason: '쿠팡에 제출하지 않음',
     });
     expect(
       await adapter.listExportedPoLineIds({
@@ -524,7 +523,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       exportId: created.exportId,
-      reason: '쿠팡에 제출하지 않음',
     })).rejects.toThrow(/Fresh SHIPMENT and MILKRUN collection probes/);
     await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: created.exportId },

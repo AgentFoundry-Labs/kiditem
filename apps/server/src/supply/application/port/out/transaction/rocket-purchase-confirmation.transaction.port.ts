@@ -24,7 +24,6 @@ export interface RocketWorkbookExportTransactionPort {
     organizationId: string;
     userId: string;
     exportId: string;
-    reason: string;
   }): Promise<RocketWorkbookExportResponse>;
   listExportedPoLineIds(input: {
     organizationId: string;

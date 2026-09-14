@@ -483,9 +483,10 @@ export type RocketWorkbookExportResponse = z.infer<
   typeof RocketWorkbookExportResponseSchema
 >;
 
+// Abandonment is gated on fresh empty collection probes. It takes no reason:
+// nothing stores one since the confirmation's release columns were dropped.
 export const RocketWorkbookAbandonRequestSchema = z.object({
   exportId: z.string().uuid(),
-  reason: requiredText(500),
 }).strict();
 export type RocketWorkbookAbandonRequest = z.infer<
   typeof RocketWorkbookAbandonRequestSchema
