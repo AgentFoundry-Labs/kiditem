@@ -41,6 +41,8 @@ jobs:
         run: |
           npm run build --workspace=packages/shared
           npm run build --workspace=packages/templates
+          # apps/server imports @kiditem/copilotkit-sqlite-runner from dist.
+          npm run build --workspace=packages/copilotkit-sqlite-runner
           npm run build --workspace=apps/server
           npm run build --workspace=apps/web
 
