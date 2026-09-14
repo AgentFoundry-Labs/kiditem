@@ -26,6 +26,11 @@ import {
 
 const repoRoot = join(__dirname, "..", "..");
 
+const SCHEMA_DROP_CLEANUP = {
+  id: "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
+  path: "scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows.ts",
+};
+
 describe("data migration registry", () => {
   it("registers the release migration chain in order", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
@@ -33,17 +38,11 @@ describe("data migration registry", () => {
       "v0.1.6:001_record_rocket_read_model_release",
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
-      "v0.1.19:001_sellpia_inventory_freshness",
       "v0.1.24:001_dedupe_detail_page_artifacts",
-      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
-      "v0.1.25:002_repair_coupang_ads_daily_conversions",
       "v0.1.25:003_repair_ad_campaign_target_conversions",
       "v0.1.25:004_rekey_ad_campaign_product_targets",
-      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
-      "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
-      "v0.1.30:006_delete_legacy_channel_derived_master_products",
       "v0.1.31:001_reset_absolute_product_abc",
       "v0.1.31:003_prepare_operation_automation_cutover",
       "v0.1.31:004_remove_retired_capability_operation_refs",
@@ -54,6 +53,7 @@ describe("data migration registry", () => {
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
       "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:012_constrain_source_import_run_status",
+      "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
@@ -71,15 +71,9 @@ describe("data migration registry", () => {
     ]);
   });
 
-  it("registers the current ad campaign and absolute ABC migrations without retired ABC backfills", () => {
+  it("registers the current absolute ABC and schema-drop migrations without retired backfills", () => {
     const migrationIds = dataMigrations.map((migration) => migration.id);
 
-    expect(migrationIds).toContain(
-      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
-    );
-    expect(migrationIds).toContain(
-      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
-    );
     expect(migrationIds).toContain("v0.1.31:001_reset_absolute_product_abc");
     expect(migrationIds).toContain(
       "v0.1.31:002_initialize_absolute_product_abc_formula",
@@ -87,22 +81,31 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.31:003_prepare_operation_automation_cutover",
     );
+    expect(migrationIds).toContain(SCHEMA_DROP_CLEANUP.id);
     expect(migrationIds).not.toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
     );
-    expect(migrationIds).not.toContain(
+    // The KID-90 schema drop removes the Prisma fields these read or write.
+    for (const retiredId of [
+      "v0.1.19:001_sellpia_inventory_freshness",
+      "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+      "v0.1.25:002_repair_coupang_ads_daily_conversions",
+      "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+    ]) {
+      expect(migrationIds).not.toContain(retiredId);
+    }
+    // Release 0.1.30 has not reached main, so its migrations that cannot run
+    // against the dropped schema leave the registry without inactive lineage,
+    // as 001 and 002 did before them.
+    for (const unregisteredId of [
       "v0.1.30:001_reset_legacy_product_abc_grades",
-    );
-    expect(migrationIds).not.toContain(
       "v0.1.30:002_backfill_profitability_source_freshness",
-    );
-    expect(migrationIds).toContain(
       "v0.1.30:004_canonical_master_inventory_identity",
-    );
-    expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
-    expect(migrationIds).toContain(
       "v0.1.30:006_delete_legacy_channel_derived_master_products",
-    );
+    ]) {
+      expect(migrationIds).not.toContain(unregisteredId);
+    }
+    expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
   });
 
   it("reports immutable lineage for the inactive legacy ABC migration without executing it", () => {
@@ -143,6 +146,71 @@ describe("data migration registry", () => {
     });
   });
 
+  it("reports immutable lineage for the promoted migrations the KID-90 schema drop retires", () => {
+    const expected = [
+      {
+        id: "v0.1.19:001_sellpia_inventory_freshness",
+        releaseVersion: "0.1.19",
+        name: "Backfill Sellpia inventory freshness and verification provenance",
+        sourcePath:
+          "scripts/data-migrations/v0.1.19/001_sellpia_inventory_freshness.ts",
+        sourceSha256:
+          "4a49fb74d9d9f169eea35b22bad57cb6e406c1f5adfcda0517a0dc4a2f246a8b",
+        baselineCommit: "adc84d84bb43da707901f2957a0fb9aefaa69fa1",
+        replacementMigrations: [SCHEMA_DROP_CLEANUP],
+      },
+      {
+        id: "v0.1.25:001_repair_ad_campaign_daily_business_dates",
+        releaseVersion: "0.1.25",
+        name: "Repair Coupang ad campaign daily business dates from raw evidence",
+        sourcePath:
+          "scripts/data-migrations/v0.1.25/001_repair_ad_campaign_daily_business_dates.ts",
+        sourceSha256:
+          "35b91d290d247da27d90e5963d32ceca37df3f6a27ab14cdee9ce46a755aa046",
+        baselineCommit: "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+        replacementMigrations: [SCHEMA_DROP_CLEANUP],
+      },
+      {
+        id: "v0.1.25:002_repair_coupang_ads_daily_conversions",
+        releaseVersion: "0.1.25",
+        name: "Repair Coupang ads daily conversions from exact sales evidence",
+        sourcePath:
+          "scripts/data-migrations/v0.1.25/002_repair_coupang_ads_daily_conversions.ts",
+        sourceSha256:
+          "175bd565f5ac59137ae1ceae99b2fec5f49c6851a7d83c766d7dba51786d5217",
+        baselineCommit: "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+        replacementMigrations: [SCHEMA_DROP_CLEANUP],
+      },
+      {
+        id: "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
+        releaseVersion: "0.1.25",
+        name: "Remove ambiguous per-campaign account and listing projections",
+        sourcePath:
+          "scripts/data-migrations/v0.1.25/005_remove_ambiguous_ad_campaign_account_kpis.ts",
+        sourceSha256:
+          "eedcc2914a3d6602f1b13c2dd001b7dcd1504eee59abe8e00dd5e202147689b2",
+        baselineCommit: "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+        replacementMigrations: [SCHEMA_DROP_CLEANUP],
+      },
+    ];
+
+    for (const entry of expected) {
+      const retired = retiredDataMigrations.find(({ id }) => id === entry.id);
+      expect(retired).toEqual(entry);
+      expect(
+        createHash("sha256")
+          .update(readFileSync(join(repoRoot, entry.sourcePath)))
+          .digest("hex"),
+      ).toBe(entry.sourceSha256);
+      expect(DATA_MIGRATION_IDS).not.toContain(entry.id);
+      expect(dataMigrationRegistryStatus().retiredMigrations).toContainEqual({
+        ...entry,
+        execution: "inactive",
+      });
+    }
+    expect(DATA_MIGRATION_IDS).toContain(SCHEMA_DROP_CLEANUP.id);
+  });
+
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
     const releaseVersions = dataMigrations.map(
       (migration) => migration.releaseVersion,
@@ -162,7 +230,11 @@ describe("data migration registry", () => {
       return 0;
     };
 
-    expect(releaseVersions).toContain("0.1.19");
+    expect(releaseVersions).toContain("0.1.18");
+    // 0.1.19's only migration is retired, so its lineage stays inactive.
+    expect(releaseVersions).not.toContain("0.1.19");
+    expect(retiredDataMigrations.map(({ releaseVersion }) => releaseVersion))
+      .toContain("0.1.19");
     expect(releaseVersions).not.toContain("0.1.21");
     expect(releaseVersions).not.toContain("0.1.22");
 
@@ -203,6 +275,7 @@ describe("data migration registry", () => {
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
       "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:012_constrain_source_import_run_status",
+      "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -223,9 +296,7 @@ describe("data migration registry", () => {
       "0.1.30",
     ).map(({ id }) => id);
     expect(postSchema).toEqual([
-      "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
-      "v0.1.30:006_delete_legacy_channel_derived_master_products",
     ]);
 
     const absolutePreSchema = selectDataMigrationsForRelease(
@@ -243,6 +314,7 @@ describe("data migration registry", () => {
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
       "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:012_constrain_source_import_run_status",
+      "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(

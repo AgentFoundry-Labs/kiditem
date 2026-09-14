@@ -6,7 +6,7 @@ const initializeModulePath = "../data-migrations/v0.1.31/002_initialize_absolute
 const CURRENT_FORMULA_CHECKSUM =
   "230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f";
 
-function resetMigrationTx() {
+function resetMigrationTx(options: { gradeColumnPresent: boolean } = { gradeColumnPresent: true }) {
   const formulas = [{ id: "formula-1" }, { id: "formula-2" }];
   const states = [{ organizationId: "org-1" }, { organizationId: "org-2" }];
   const evaluations = [{ id: "evaluation-1" }, { id: "evaluation-2" }];
@@ -34,17 +34,17 @@ function resetMigrationTx() {
       masterProductAbcEvaluation: { deleteMany: clear(evaluations) },
       masterProductAbcFormulaState: { deleteMany: clear(states) },
       masterProductAbcFormulaVersion: { deleteMany: clear(formulas) },
-      masterProduct: {
-        updateMany: vi.fn(async () => {
-          let count = 0;
-          for (const product of products) {
-            if (product.abcGrade === null) continue;
-            product.abcGrade = null;
-            count += 1;
-          }
-          return { count };
-        }),
-      },
+      // The cached grade is cleared through raw SQL guarded on the column.
+      $queryRaw: vi.fn(async () => [{ present: options.gradeColumnPresent }]),
+      $executeRaw: vi.fn(async () => {
+        let count = 0;
+        for (const product of products) {
+          if (product.abcGrade === null) continue;
+          product.abcGrade = null;
+          count += 1;
+        }
+        return count;
+      }),
     },
   };
 }
@@ -124,6 +124,24 @@ describe("absolute product ABC baseline migrations", () => {
       history: 0,
       cachedGrades: 0,
     });
+  });
+
+  it("clears no grade cache on a schema that no longer has the column", async () => {
+    const { resetAbsoluteProductAbc } = await import(resetModulePath);
+    const { tx, state } = resetMigrationTx({ gradeColumnPresent: false });
+
+    await expect(resetAbsoluteProductAbc.run(tx as never)).resolves.toEqual({
+      affectedRows: 9,
+      details: {
+        clearedCachedGradeCount: 0,
+        deletedEvaluationCount: 2,
+        deletedFormulaStateCount: 2,
+        deletedFormulaVersionCount: 2,
+        deletedGradeHistoryCount: 3,
+      },
+    });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(state.histories).toHaveLength(0);
   });
 
   it("installs one immutable current formula state per organization without a publication", async () => {
