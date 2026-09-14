@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { requestCollectionStart } from '@/lib/collection-start';
 import {
@@ -181,6 +182,24 @@ describe('CollectionStartControl', () => {
     expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
     expect(sentMessages('startCollection')).toEqual([]);
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('releases the start with a Korean reason when the auth handoff passes its deadline', async () => {
+    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
+      if (path === '/api/auth/extension-handoff') {
+        throw new ApiError(0, 'request_timeout', '요청 시간이 초과되었습니다. 다시 시도해주세요.');
+      }
+      throw new Error(`unexpected POST ${path}`);
+    });
+    renderControls(<SpecControl />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
+
+    expect(
+      await screen.findByText('확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
+    expect(sentMessages('startCollection')).toEqual([]);
   });
 
   it("shows the extension's own reason when it cannot take the start request", async () => {

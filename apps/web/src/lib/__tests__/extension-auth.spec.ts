@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../api-error';
 import {
   detectExtensionId,
   detectSourcingExtensionId,
@@ -42,7 +43,9 @@ describe('syncExtensionAuth', () => {
     const result = await syncExtensionAuth();
 
     expect(apiPostMock).toHaveBeenCalledTimes(1);
-    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff');
+    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff', undefined, {
+      timeoutMs: 15_000,
+    });
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
       token,
@@ -111,10 +114,42 @@ describe('syncExtensionAuth', () => {
 
     await expect(transferExtensionAuthTo('coupang-ext')).resolves.toBeUndefined();
 
-    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff');
+    expect(apiPostMock).toHaveBeenCalledWith('/api/auth/extension-handoff', undefined, {
+      timeoutMs: 15_000,
+    });
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
       token: 'a'.repeat(43),
     });
+  });
+
+  it('fails with a Korean reason and sends nothing when the handoff token request passes its deadline', async () => {
+    apiPostMock.mockRejectedValue(
+      new ApiError(0, 'request_timeout', '요청 시간이 초과되었습니다. 다시 시도해주세요.'),
+    );
+
+    await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow(
+      '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.',
+    );
+    expect(sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('fails with a Korean reason when the extension does not take the token', async () => {
+    vi.mocked(sendToExtension).mockResolvedValueOnce({ success: false, error: 'Invalid auth token' });
+    await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow(
+      '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.',
+    );
+
+    vi.mocked(sendToExtension).mockRejectedValueOnce(
+      new Error('Could not establish connection. Receiving end does not exist.'),
+    );
+    await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow(
+      '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.',
+    );
+
+    vi.mocked(sendToExtension).mockRejectedValueOnce(new Error('익스텐션 응답 시간이 초과되었습니다.'));
+    await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow(
+      '익스텐션 응답 시간이 초과되었습니다.',
+    );
   });
 });
