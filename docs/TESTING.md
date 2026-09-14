@@ -301,9 +301,6 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 
 ### 현재 예시 커버
 
-- `automation/adapter/out/panel-event/__tests__/panel-pr3.pg.integration.spec.ts` — Alert promote race (`alert.updateMany` + `actionTask.create` P2002)
-- `automation/application/service/__tests__/action-board-claim.pg.integration.spec.ts` — ActionTask claim/unclaim race
-- `automation/application/service/__tests__/action-board-mutations.pg.integration.spec.ts` — ActionTask mutation tenant scope
 - `inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts` — organization-scoped generation/lease fencing and server-time freshness transitions
 - `inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts` — atomic full-snapshot publication, same-hash confirmation, quality hard block, and previous-snapshot preservation
 - `channels/__tests__/channel-sku-mapping.pg.integration.spec.ts` — tenant-safe confirmed recipes and inactive-component diagnostics

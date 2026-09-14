@@ -43,9 +43,9 @@ npm run preflight:operation-automation-cutover -- --database-url "$env:DATABASE_
 All inventory queries run against one repeatable-read, read-only snapshot. The
 output is one sanitized JSON object containing `generatedAt`, the two SHA
 identities, the nine named counts, active operation keys, enabled schedule
-keys, and installed workflow names. A retired table or column the database no
-longer has (`rules_evaluation_applications`, `action_tasks`, `alerts.kind`)
-counts as zero and is listed in `absentOptionalTables` or
+keys, and installed workflow names. The KID-90 schema drop removed
+`rules_evaluation_applications`, `action_tasks`, and `alerts.kind`; a database
+without one counts it as zero and lists it in `absentOptionalTables` or
 `absentOptionalColumns`. Lists are bounded; row payloads, operation
 inputs/results, credentials, and the database URL are not emitted.
 
@@ -76,8 +76,11 @@ the writer-stopped target after its dump. Rehearse on the local QA database
 2. Run the v0.1.31 pre-schema migrations. The preparation migration repeats
    the active-run and enabled-schedule guard inside its transaction, clears
    retired Alerts and Rules application receipts, removes only the retired
-   generic rows, and verifies that the `ActionTask` row count did not move
-   while it ran. Tables and columns a database no longer has are skipped:
+   generic rows, and, while `action_tasks` still exists, verifies that its
+   row count did not move. The schema-drop cleanup (`v0.1.31:013`) removes
+   account-day KPI rows, the raw scrape rows only they used, and the retired
+   `ads.tier.dailyBudget` setting. Tables and columns a database no longer
+   has are skipped:
 
    ```powershell
    npm run data:migrate -- up --target office --phase pre-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
@@ -99,9 +102,11 @@ the writer-stopped target after its dump. Rehearse on the local QA database
 
 4. Apply the reviewed Prisma schema drop on the same stopped target, then
    regenerate the client. This removes the generic Operation/Workflow/
-   Automation Marketplace models and their Organization/User relations, and
-   drops the retired `ActionTask` table with its rows under the data-loss
-   policy; Channels marketplace registration models remain:
+   Automation Marketplace models and their Organization/User relations. The
+   KID-90 drop in the same schema removes `action_tasks`,
+   `rules_evaluation_applications`, and the other retired tables and columns
+   with their rows under the data-loss policy; Channels marketplace
+   registration models remain:
 
    ```powershell
    npm run db:push -- --accept-data-loss

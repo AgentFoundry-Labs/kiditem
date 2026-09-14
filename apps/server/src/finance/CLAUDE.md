@@ -71,8 +71,7 @@ in Supply, but the backend capability owner is finance.
 ## Boundary Rules
 
 - Keep `/api/profit-loss` as live aggregation; do not add persisted P&L writes.
-- Never read option `costPriceOverride`, `commissionRate`, `otherCost` or
-  `shippingCost` in finance, the dashboard or `common`; shipping is the order's
+- Channel listing options carry no cost overrides; shipping is the order's
   `shippingPrice`. Component purchase cost comes from the mapped physical
   `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
   reads.

@@ -1,8 +1,8 @@
 Before working in this directory, always read this document first rather than relying on memory.
 
-# orders — Orders, Returns, And Reviews
+# orders — Orders And Reviews
 
-`src/orders/` owns the channel-agnostic Order aggregate, returns, reviews,
+`src/orders/` owns the channel-agnostic Order aggregate, reviews,
 record-only return transfers, Coupang directship collection conversion, and
 durable Sellpia transmission intents. Channels owns marketplace identity;
 Inventory owns physical stock; Supply owns Rocket catalog/workbook evidence.
