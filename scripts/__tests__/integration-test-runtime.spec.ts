@@ -114,6 +114,14 @@ describe('integration test runtime contract', () => {
     expect(developJobSource).toContain(
       'npm run build --workspace=packages/templates',
     );
+    // apps/server imports @kiditem/copilotkit-sqlite-runner from its dist, so the
+    // runner must be built before the server (Develop Validation run 34854695994).
+    expect(developJobSource).toContain(
+      'npm run build --workspace=packages/copilotkit-sqlite-runner',
+    );
+    expect(developJobSource.indexOf('npm run build --workspace=packages/copilotkit-sqlite-runner')).toBeLessThan(
+      developJobSource.indexOf('npm run build --workspace=apps/server'),
+    );
     expect(developJobSource).toContain(
       'npm run build --workspace=apps/server',
     );

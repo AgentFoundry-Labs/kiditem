@@ -454,6 +454,7 @@ unit/extension suite를 수행한 뒤 Testcontainers의 동적 Postgres lifecycl
 ```bash
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/shared
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/templates
+NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/copilotkit-sqlite-runner
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/server
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run
