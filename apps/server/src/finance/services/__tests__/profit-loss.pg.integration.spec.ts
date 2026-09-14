@@ -736,6 +736,34 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       }
     });
 
+    /**
+     * The sweep reached the 13th while the window's last closed day is the
+     * 14th. Advertising applies, so the window has no profit; its basis must
+     * not present the dates both sources did measure as a partly measured
+     * profit beside a value that does not exist.
+     */
+    it('publishes no profit date beside an unavailable profit when the sweep stops short of the last closed day', async () => {
+      const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'AD-SHORT');
+      await createOrder(prisma, TEST_ORGANIZATION_ID, {
+        orderedAt: new Date('2026-04-10T00:00:00.000Z'),
+        externalOrderId: 'AD-SHORT-CLOSED',
+        lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
+      });
+      await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-13' },
+      });
+      await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-14');
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, MID_APRIL);
+
+      expect(result.totals).toMatchObject({ revenue: 10_000, adCost: null, netProfit: null });
+      expect(periodBasisStatus(result.basis.adCost)).toBe('partial');
+      expect(result.basis.profit.includedDates).toEqual([]);
+      expect(periodBasisStatus(result.basis.profit)).toBe('empty');
+    });
+
     it('publishes no totals on the 1st, when no day of the month has closed', async () => {
       const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'FIRST-DAY');
       await createOrder(prisma, TEST_ORGANIZATION_ID, {

@@ -91,8 +91,9 @@ export type FinanceCostInputsBasis = z.infer<typeof FinanceCostInputsBasisSchema
  * Within that window: which dates the Orders collection covered (`revenue`),
  * which the advertising sweep covered (`adCost`), and the dates on which every
  * profit input was measured (`profit`, whose `invalidDates` are the dates
- * refused because a cost input was never recorded), and per cost component the
- * lines it does not apply to and the lines nobody measured (`costInputs`).
+ * refused because a cost input was never recorded, and which includes no date
+ * while the window publishes no profit), and per cost component the lines it
+ * does not apply to and the lines nobody measured (`costInputs`).
  * Status words are derived with `periodBasisStatus` from
  * `@kiditem/shared/dashboard` and `financeCostInputState`; none travels here.
  */

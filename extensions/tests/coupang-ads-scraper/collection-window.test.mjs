@@ -149,10 +149,98 @@ test('a live owner session stays protected unless the caller grants a narrow reu
   vm.runInContext(fs.readFileSync(sourcePath, 'utf8'), context, { filename: sourcePath });
   const helper = context.KidItemCollectionWindow.create({ chrome: fake.chrome, storageKey: 'owned-window', sessions, delay: async () => {} });
   await helper.getOrCreate('old', 'https://example.test/old');
-  await assert.rejects(helper.getOrCreate('new', 'https://example.test/new'), /다른 데이터 수집 작업/);
+  await assert.rejects(helper.getOrCreate('new', 'https://example.test/new'), /다른 데이터 수집이 이 창을 사용하고 있습니다/);
   const reused = await helper.getOrCreate('new', 'https://example.test/new', { reuse: () => true });
   assert.equal(reused.runId, 'new');
   assert.equal(fake.calls.windowsCreate.length, 1);
+});
+
+function loadWithSessions(fake, sessions, options = {}) {
+  const context = vm.createContext({ URL, clearTimeout, console, queueMicrotask, setTimeout, structuredClone });
+  vm.runInContext(fs.readFileSync(sourcePath, 'utf8'), context, { filename: sourcePath });
+  return context.KidItemCollectionWindow.create({
+    chrome: fake.chrome, storageKey: 'owned-window', sessions, delay: async () => {}, ...options,
+  });
+}
+
+function fakeSessions(initial) {
+  const records = new Map(Object.entries(initial));
+  const calls = { removed: [], detached: [], attached: [] };
+  return {
+    calls,
+    async get(runId) { return records.has(runId) ? structuredClone(records.get(runId)) : null; },
+    async remove(runId) { calls.removed.push(runId); const view = records.get(runId) ?? null; records.delete(runId); return view; },
+    async detachTab(runId, value) { calls.detached.push([runId, value]); return null; },
+    async attachTab(runId, value) { calls.attached.push([runId, value]); return records.has(runId) ? { attemptId: runId } : null; },
+  };
+}
+
+const adSession = (attemptId, attention = null) => ({ attemptId, environmentId: 'local', producer: 'advertising.ad_sync', attention });
+const loginAttention = { reason: 'marketplace_login', message: '쿠팡 광고센터 로그인이 필요합니다.', canOpenTab: true };
+const wingSession = (attemptId) => ({ attemptId, environmentId: 'local', producer: 'dashboard.wing_sales', attention: null });
+const collectionName = (session) => ({
+  'advertising.ad_sync': '쿠팡 광고 캠페인',
+  'dashboard.wing_sales': '쿠팡 Wing 트래픽',
+})[session.producer] || null;
+
+test('a window and session left by an ended attempt are cleared before the next collection takes the window', async () => {
+  const fake = fakeChrome();
+  const sessions = fakeSessions({ old: adSession('old', loginAttention), new: wingSession('new') });
+  const asked = [];
+  const resource = loadWithSessions(fake, sessions, {
+    attemptEnded: async (session) => { asked.push(session.attemptId); return session.attemptId === 'old'; },
+    collectionName,
+  });
+  const leftover = await resource.getOrCreate('old', 'https://example.test/old');
+
+  const owned = await resource.getOrCreate('new', 'https://example.test/new');
+
+  assert.deepEqual(asked, ['old']);
+  assert.deepEqual(fake.calls.windowsRemove, [leftover.windowId], 'the leftover window is closed, not adopted');
+  assert.deepEqual(sessions.calls.removed, ['old']);
+  assert.equal(fake.calls.windowsCreate.length, 2);
+  assert.notEqual(owned.windowId, leftover.windowId);
+  assert.deepEqual(fake.storage['owned-window'], { runId: 'new', windowId: owned.windowId, tabId: owned.tabId });
+});
+
+test('a collection whose attempt is still running keeps the window and is named in the refusal', async () => {
+  for (const [label, attemptEnded] of [
+    ['running attempt', async () => false],
+    ['unreadable owner', async () => { throw new Error('owner offline'); }],
+  ]) {
+    const fake = fakeChrome();
+    const sessions = fakeSessions({ old: adSession('old'), new: wingSession('new') });
+    const resource = loadWithSessions(fake, sessions, { attemptEnded, collectionName });
+    await resource.getOrCreate('old', 'https://example.test/old');
+
+    await assert.rejects(resource.getOrCreate('new', 'https://example.test/new'), (error) => {
+      assert.equal(error.code, 'collection_window_owner_conflict', label);
+      assert.equal(error.message, '쿠팡 광고 캠페인 수집이 이 창을 사용하고 있습니다. 끝난 뒤 다시 시도해 주세요.', label);
+      return true;
+    });
+    assert.deepEqual(fake.calls.windowsRemove, [], label);
+    assert.deepEqual(sessions.calls.removed, [], label);
+    assert.equal(fake.calls.windowsCreate.length, 1, label);
+    assert.equal(fake.storage['owned-window'].runId, 'old', label);
+  }
+});
+
+test('recovering a lost window clears an ended leftover instead of refusing the running collection', async () => {
+  const fake = fakeChrome();
+  const sessions = fakeSessions({ old: adSession('old', loginAttention), new: wingSession('new') });
+  const resource = loadWithSessions(fake, sessions, {
+    attemptEnded: async (session) => session.attemptId === 'old',
+    collectionName,
+  });
+  const leftover = await resource.getOrCreate('old', 'https://example.test/old');
+
+  const recovered = await resource.navigate('new', 'https://example.test/new');
+
+  assert.deepEqual(fake.calls.windowsRemove, [leftover.windowId]);
+  assert.deepEqual(sessions.calls.removed, ['old']);
+  assert.equal(recovered.runId, 'new');
+  assert.notEqual(recovered.windowId, leftover.windowId);
+  assert.deepEqual(sessions.calls.attached.map(([runId]) => runId), ['new']);
 });
 
 test('missing owned tab is recovered once and reattached to the same owner session', async () => {

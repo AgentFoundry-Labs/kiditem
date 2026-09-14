@@ -16,6 +16,7 @@ import {
   type AdvertisingProfitabilityGenerationSummary,
   type AdvertisingProfitabilityReadPort,
 } from '../../../advertising/application/port/in/profitability-ad-import.port';
+import { adReportEvidenceCutoff } from '../../../advertising/domain/ad-report-confirmation';
 import {
   SELLPIA_PROFITABILITY_SOURCE_READ_PORT,
   type SellpiaProfitabilityFact,
@@ -139,14 +140,12 @@ export class MasterProductProfitabilityReadService
     );
     const latestSellpia = sellpiaGenerations[0] ?? null;
     const latestAdvertising = advertisingGenerations[0] ?? null;
-    const currentSellpia = selected?.sellpia
-      ?? sellpiaGenerations.find((generation) =>
-        generation.metadata.mappingGeneration === mappingGeneration)
-      ?? null;
-    const currentAdvertising = selected?.advertising
-      ?? advertisingGenerations.find((generation) =>
-        generation.metadata.mappingGeneration === mappingGeneration)
-      ?? null;
+    // Readiness is each source's own: its newest generation on the current
+    // mapping, whether or not that is the generation paired for publication.
+    const currentSellpia = sellpiaGenerations.find((generation) =>
+      generation.metadata.mappingGeneration === mappingGeneration) ?? null;
+    const currentAdvertising = advertisingGenerations.find((generation) =>
+      generation.metadata.mappingGeneration === mappingGeneration) ?? null;
     const sources = {
       sellpia: sourceReadiness(
         sellpiaCatalog.latestAttempt?.state ?? null,
@@ -161,7 +160,16 @@ export class MasterProductProfitabilityReadService
           ?? advertisingSnapshot.latestAttempt?.attemptId
           ?? null,
         currentAdvertising,
-        targetCutoff,
+        // Advertising is due only through the days Coupang has reported.
+        adReportEvidenceCutoff({
+          closedDay: targetCutoff,
+          collections: [currentAdvertising
+            ? {
+              requestedEnd: currentAdvertising.metadata.requestedThrough,
+              confirmedEnd: currentAdvertising.metadata.coveredThrough,
+            }
+            : null],
+        }),
         advertisingSnapshot.latestAttempt?.errorCode ?? null,
       ),
     } satisfies ProfitabilityEvidenceSnapshot['sources'];
@@ -374,7 +382,8 @@ function normalizeAdvertisingGeneration(
 ): AdvertisingGeneration {
   const from = parseDate(generation.coverageStartDate, 'SOURCE_COVERAGE_MALFORMED');
   const to = parseDate(generation.coveredThrough, 'SOURCE_COVERAGE_MALFORMED');
-  if (from > to
+  const requested = parseDate(generation.requestedThrough, 'SOURCE_COVERAGE_MALFORMED');
+  if (from > to || to > requested
     || generation.adSourcePolicyHash !== PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH
     || generation.mappingGeneration !== generation.frozenRecipePolicy.mappingGeneration
     || generation.frozenRecipePolicy.adSourcePolicyHash
@@ -411,7 +420,9 @@ function selectCompatiblePair(
         sellpiaGeneration.view.coverageEndDate,
         advertisingGeneration.view.coverageEndDate,
       );
-      if (!actualCutoff) continue;
+      if (!actualCutoff || !coversCutoffMonth(actualCutoff, sellpiaGeneration, advertisingGeneration)) {
+        continue;
+      }
       pairs.push({
         sellpia: sellpiaGeneration,
         advertising: advertisingGeneration,
@@ -431,7 +442,7 @@ function sourceReadiness(
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null,
   latestAttemptId: string | null,
   selected: SellpiaGeneration | AdvertisingGeneration | null,
-  targetCutoff: string,
+  requiredCutoff: string,
   errorCode: string | null = null,
 ): SourceReadiness {
   const latestAttempt = latestAttemptState
@@ -452,7 +463,7 @@ function sourceReadiness(
   return deriveSourceReadiness({
     latestAttempt,
     latestComplete: complete,
-    requiredCutoff: targetCutoff,
+    requiredCutoff,
   });
 }
 
@@ -700,6 +711,22 @@ function parseDate(value: string, code: string): string {
     throw new UnprocessableEntityException(code);
   }
   return value;
+}
+
+/**
+ * Whether both generations end on the pair's cutoff, or the cutoff closes its
+ * month. Sellpia and advertising facts are month totals, so a source that runs
+ * past a cutoff inside its month cannot be cut back to it, and that month would
+ * be incomplete for every product the source has facts for.
+ */
+function coversCutoffMonth(
+  actualCutoff: string,
+  sellpia: SellpiaGeneration,
+  advertising: AdvertisingGeneration,
+): boolean {
+  return actualCutoff === kstMonthEnd(actualCutoff.slice(0, 7))
+    || (sellpia.view.coverageEndDate === actualCutoff
+      && advertising.view.coverageEndDate === actualCutoff);
 }
 
 function minDate(...values: readonly (string | null)[]): string | null {

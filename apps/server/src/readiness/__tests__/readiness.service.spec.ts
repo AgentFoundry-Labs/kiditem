@@ -24,9 +24,31 @@ function adPublishedRow(
   };
 }
 
-/** The ad ledger read, as the service reaches it through `$queryRaw`. */
-function adLedger(rows: ReturnType<typeof adPublishedRow>[] = []) {
-  return vi.fn(async () => rows);
+type RawQuery = { strings?: readonly string[]; values?: unknown[] };
+
+/** Whether a `$queryRaw` call is the ad target-day ledger read. */
+function isAdLedgerRead(sql: unknown): boolean {
+  return ((sql as RawQuery | undefined)?.strings ?? []).join('')
+    .includes('channel_ad_target_daily_snapshots');
+}
+
+/** An active account's newest complete sweep, as the evidence cutoff read returns it. */
+type SweepEnds = { requested_end: Date | null; confirmed_end: Date | null };
+
+/**
+ * The service's two `$queryRaw` reads: the ad ledger returns `rows`, and the
+ * sweep evidence cutoff returns `sweepEnds` (no complete sweep by default).
+ */
+function adLedger(
+  rows: ReturnType<typeof adPublishedRow>[] = [],
+  sweepEnds: SweepEnds[] = [],
+) {
+  return vi.fn(async (sql: unknown) => (isAdLedgerRead(sql) ? rows : sweepEnds));
+}
+
+/** The ad ledger `$queryRaw` call. */
+function ledgerQuery(queryRaw: ReturnType<typeof vi.fn>): RawQuery | undefined {
+  return queryRaw.mock.calls.find(([sql]) => isAdLedgerRead(sql))?.[0] as RawQuery | undefined;
 }
 
 /**
@@ -35,9 +57,7 @@ function adLedger(rows: ReturnType<typeof adPublishedRow>[] = []) {
  * repeat them; the bounds themselves are what the service chose.
  */
 function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
-  const sql = queryRaw.mock.calls[0]?.[0] as
-    | { strings?: readonly string[]; values?: unknown[] }
-    | undefined;
+  const sql = ledgerQuery(queryRaw);
   // The ad ledger read, whatever CTE the reader opens with.
   expect((sql?.strings ?? []).join('')).toContain('channel_ad_target_daily_snapshots');
   const dates = (sql?.values ?? []).filter(
@@ -46,10 +66,9 @@ function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
   return [...new Set(dates)];
 }
 
-/** The organization a `$queryRaw` call was scoped to. */
+/** The organization the ledger `$queryRaw` call was scoped to. */
 function queriedOrganization(queryRaw: ReturnType<typeof vi.fn>): string | undefined {
-  const sql = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] } | undefined;
-  return sql?.values?.[0] as string | undefined;
+  return ledgerQuery(queryRaw)?.values?.[0] as string | undefined;
 }
 
 function withSellpiaReaderTransaction<T extends {
@@ -178,7 +197,7 @@ describe('ReadinessService', () => {
       where: { sellerId: string };
     };
     // Half-open `[from, to)` over KST business dates, fenced to the organization.
-    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(queryRaw.mock.calls.filter(([sql]) => isAdLedgerRead(sql))).toHaveLength(1);
     expect(queriedOrganization(queryRaw)).toBe(ORGANIZATION_ID);
     expect(queriedDates(queryRaw)).toEqual(['2026-04-02', '2026-05-02']);
     expect(sellpiaQuery.where).toMatchObject({
@@ -494,6 +513,78 @@ describe('ReadinessService', () => {
       lastSyncedAt: previousCompleteObservedAt,
     });
     expect(readinessState(ads)).toBe('ok');
+  });
+
+  it('ends the ad check at the evidence cutoff when every account held yesterday as unreported', async () => {
+    vi.useFakeTimers();
+    // 2026-07-18 12:00 KST: yesterday is 2026-07-17.
+    vi.setSystemTime(new Date('2026-07-18T03:00:00.000Z'));
+    // 30 measured days through 2026-07-16.
+    const measuredDates = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date('2026-06-17T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + index);
+      return date.toISOString().slice(0, 10);
+    });
+    const statusWith = async (sweepEnds: SweepEnds) => {
+      const prisma = {
+        channelAccount: {
+          findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
+        },
+        coupangWingSalesRankDailySnapshot: {
+          findFirst: vi.fn(async () => null),
+          findMany: vi.fn(async () => []),
+          count: vi.fn(async () => 0),
+        },
+        channelListingOption: { findMany: vi.fn(async () => []) },
+        channelListing: { count: vi.fn(async () => 0) },
+        sourceImportRun: { findFirst: vi.fn(async () => null) },
+        sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+      };
+      const queryRaw = adLedger(
+        measuredDates.map((businessDate) => adPublishedRow(businessDate, '2026-07-17T23:30:00.000Z')),
+        [sweepEnds],
+      );
+      (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+      const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
+        ORGANIZATION_ID,
+      );
+      return {
+        queried: queriedDates(queryRaw),
+        ads: status.checks.find((check) => check.key === 'coupang_ads'),
+        sales: status.checks.find((check) => check.key === 'wing_sales'),
+      };
+    };
+
+    // The newest complete sweep requested 2026-07-17 and held it: nothing newer to collect yet.
+    const held = await statusWith({
+      requested_end: new Date('2026-07-17T00:00:00.000Z'),
+      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
+    });
+    expect(held.queried).toEqual(['2026-06-17', '2026-07-17']);
+    expect(held.ads).toMatchObject({
+      referenceDate: '2026-07-16',
+      expectedDates: measuredDates,
+      missingDates: [],
+      basis: { asOf: '2026-07-16', requiredAsOf: '2026-07-16' },
+      detail: '최근 30일치 (2026-06-17~2026-07-16) 모두 수집됨',
+    });
+    expect(readinessState(held.ads)).toBe('ok');
+    // Sellpia keeps the closed day.
+    expect(held.sales?.referenceDate).toBe('2026-07-17');
+
+    // A sweep that requested only 2026-07-16 has not looked at yesterday.
+    const stale = await statusWith({
+      requested_end: new Date('2026-07-16T00:00:00.000Z'),
+      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
+    });
+    expect(stale.queried).toEqual(['2026-06-18', '2026-07-18']);
+    expect(stale.ads).toMatchObject({
+      referenceDate: '2026-07-17',
+      missingDates: ['2026-07-17'],
+      basis: { requiredAsOf: '2026-07-17' },
+      detail: '최신(2026-07-17) 미수집 — 누락 1/30일',
+    });
+    expect(readinessState(stale.ads)).toBe('stale');
   });
 
   it('does not promote a nullable staged inventory identity into a Wing vendor target', async () => {

@@ -98,10 +98,10 @@ export interface DashboardPerListingMetrics {
 
 /**
  * The measured listings, the size of the population they were drawn from that
- * could not be measured, and whether the Orders collection covered the window
- * that population sold in. The counts and their evidence come from one read,
- * so they travel as one result — the same reason `AbcStatusCounts` carries its
- * own `evaluatedAsOf`.
+ * could not be measured, whether the Orders collection covered the window that
+ * population sold in, and whether advertising was one of its inputs. The
+ * counts and their evidence come from one read, so they travel as one result —
+ * the same reason `AbcStatusCounts` carries its own `evaluatedAsOf`.
  */
 export interface DashboardPerListingMetricsResult {
   rows: DashboardPerListingMetrics[];
@@ -113,6 +113,12 @@ export interface DashboardPerListingMetricsResult {
    * collected so far, so no count over them is a measurement.
    */
   orderWindowComplete: boolean;
+  /**
+   * Whether the organization has a Coupang advertising account, from the same
+   * advertising read. Only then is the campaign sweep's ledger an input to the
+   * counts; without one advertising is Not applied to every listing.
+   */
+  hasAdAccount: boolean;
 }
 
 export interface DashboardInventoryAvailabilityFacts {

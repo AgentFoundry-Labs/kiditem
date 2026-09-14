@@ -15,6 +15,7 @@ import {
   Sparkles,
   TrendingUp,
 } from 'lucide-react';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
@@ -155,13 +156,13 @@ function TiktokCcTrendView() {
     queryFn: () => fetchTiktokCcTrends(TIKTOK_CC_DAYS),
     staleTime: 5 * 60 * 1000,
   });
-  const sourceStatusQuery = useQuery({
+  const sourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: sourceStatusQueryKey,
     queryFn: fetchSourcingTiktokCcSourceStatus,
     refetchInterval: (statusQuery) => (
       statusQuery.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
     ),
-  });
+  }));
   useEffect(() => {
     const state = sourceStatusQuery.data?.latestAttempt?.state;
     if (state === 'COMPLETE' || state === 'FAILED') {

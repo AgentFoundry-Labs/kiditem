@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { DashboardGradeCards } from './DashboardGradeCards';
+
+const recalculateProductAbc = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/product-abc-api', () => ({ recalculateProductAbc }));
 
 const summary = {
   gradeCount: { A: 2, B: 1, C: 1 },
@@ -111,4 +115,36 @@ describe('DashboardGradeCards', () => {
       '공표 r7 · 2026-08-31 · 산식 v2 · 포함 1개 · 보류 1개',
     );
   });
+
+  it('words a held advertising end as the last collection result with a step for a late report and for paused ads', async () => {
+    recalculateProductAbc.mockResolvedValue({
+      outcome: 'SOURCE_NOT_READY',
+      publicationRevision: 7,
+      officialCutoff: '2026-08-31',
+      actualCutoff: null,
+      sources: {
+        sellpia: readySource('2026-09-06'),
+        advertising: readySource('2026-09-05'),
+      },
+      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+    });
+
+    render(<DashboardGradeCards {...summary} refetchReads={async () => {}} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
+
+    expect(await screen.findByText(
+      '마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. 공식 등급 기준일 2026-08-31',
+    )).toBeInTheDocument();
+  });
 });
+
+/** A source whose newest generation reaches the cutoff its owner requires of it. */
+function readySource(cutoff: string) {
+  return {
+    ready: true,
+    requiredCutoff: cutoff,
+    actualCutoff: cutoff,
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff: cutoff },
+  };
+}

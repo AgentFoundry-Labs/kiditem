@@ -42,7 +42,6 @@ export function stubProductAbcRead(
               mappingValid: grade !== null,
               saleStartDate: grade === null ? null : '2026-01-01',
               evidence: {
-                requiredCutoff: CUTOFF,
                 actualCutoff: CUTOFF,
                 mappingGeneration: '0',
                 sellpia: readySource(),
@@ -80,7 +79,6 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
             mappingValid: false,
             saleStartDate: null,
             evidence: {
-              requiredCutoff: CUTOFF,
               actualCutoff: null,
               mappingGeneration: null,
               sellpia: missingSource(),
@@ -101,11 +99,11 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
 }
 
 function readySource(): ProductAbcSourceEvidence {
-  return { actualCutoff: CUTOFF, latestAttemptState: 'COMPLETE' };
+  return { requiredCutoff: CUTOFF, actualCutoff: CUTOFF, latestAttemptState: 'COMPLETE' };
 }
 
 function missingSource(): ProductAbcSourceEvidence {
-  return { actualCutoff: null, latestAttemptState: null };
+  return { requiredCutoff: CUTOFF, actualCutoff: null, latestAttemptState: null };
 }
 
 function publishedEvaluation(abcGrade: ProductAbcGrade): ProductAbcEvaluation {

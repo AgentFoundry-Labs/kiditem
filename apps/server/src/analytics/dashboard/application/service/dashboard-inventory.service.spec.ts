@@ -46,6 +46,7 @@ function repository(
       rows: [],
       withheldListings: 0,
       orderWindowComplete: true,
+      hasAdAccount: true,
     }),
     readInventoryAvailabilityFacts: vi.fn().mockResolvedValue({
       outOfStockSkus: 0,

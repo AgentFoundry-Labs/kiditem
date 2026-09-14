@@ -419,7 +419,6 @@ function enrichAbc<T extends { id: string }>(
     mappingValid: current?.mappingValid !== false,
     saleStartDate: current?.saleStartDate ?? null,
     evidence: {
-      requiredCutoff: status.sellpia.requiredCutoff,
       actualCutoff: status.actualCutoff,
       // Evidence carries a mapping generation only while it agrees with the
       // organization's current one; `mappingReady` is that agreement.
@@ -451,6 +450,7 @@ function abcSourceEvidence(
   status: ProductOperationsDataStatusFacts['sellpia'],
 ): ProductAbcSourceEvidence {
   return {
+    requiredCutoff: status.requiredCutoff,
     actualCutoff: status.actualCutoff,
     latestAttemptState: status.latestAttempt?.state ?? null,
   };

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -104,13 +105,13 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
-  const interestSourceStatusQuery = useQuery({
+  const interestSourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.sourcing.trend1688SourceStatus(),
     queryFn: fetchSourcing1688TrendSourceStatus,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
     ),
-  });
+  }));
   const interestCollectionMutation = useMutation({
     mutationFn: async () => {
       const requestFingerprint = 'sourcing.1688.hot_product:all';

@@ -1,0 +1,27 @@
+# Browser extension
+
+The KidItem Chrome extension. It captures and transports marketplace data for
+server-issued collection attempts; the server's source owners own every
+canonical fact.
+
+## Language
+
+### Collections
+
+**Collection session**:
+The extension's record that one server-issued attempt is being collected in one
+browser environment. A session whose attempt has already ended is a leftover,
+and the next collection clears it.
+_Avoid_: run, job, owner session
+
+**Attention**:
+A collection session paused for the operator while its attempt is still
+running, such as when a marketplace login is required. Once the server has ended
+the attempt there is nothing left to attend to.
+_Avoid_: awaiting confirmation, 확인 대기, stuck session
+
+**Collection window**:
+The single browser window that all Coupang collections in one environment take
+turns using. A collection may take it only after the previous collection has
+reported its outcome and released it.
+_Avoid_: collection tab, shared tab

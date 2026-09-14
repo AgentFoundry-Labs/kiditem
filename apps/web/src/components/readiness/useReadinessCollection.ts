@@ -15,6 +15,7 @@ import {
   runWingSalesRankCheck,
 } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
@@ -209,7 +210,7 @@ export function useReadinessCollection({
     catalogImport.serverStatus?.overallState,
     catalogImport.serverStatus?.state,
   ]);
-  const wingOwner = useQuery({
+  const wingOwner = useQuery(collectionSourceStatusQueryOptions({
     queryKey: [...queryKeys.ads.keywordRank(), 'batch', wingBatchKey],
     queryFn: () => fetchWingRankBatch(wingBatchKey!),
     enabled: !!wingBatchKey && !wingStarting,
@@ -217,7 +218,7 @@ export function useReadinessCollection({
       !query.state.data || query.state.data.attempts.some((attempt) => attempt.state === 'RUNNING')
         ? 2000
         : false,
-  });
+  }));
   // The coupang_ads check collects through the campaign sweep owner. Its
   // persisted latest attempt, not browser storage, says a sweep is running.
   const adSync = useAdSync();

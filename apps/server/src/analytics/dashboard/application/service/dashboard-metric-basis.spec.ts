@@ -166,7 +166,15 @@ function salesService(options: {
   return {
     sales: new DashboardSalesService(profit, sales, wing),
     ad: new DashboardAdService(profit, wing),
+    profit,
   };
+}
+
+/** The `[from, to)` windows the profit port was asked for, as sorted ISO pairs. */
+function profitWindowsRead(profit: ReturnType<typeof buildMockProfitCalculationRepo>): string[] {
+  return profit.calculateForRange.mock.calls
+    .map(([, period]) => `${period.queryWindow.from.toISOString()}/${period.queryWindow.to.toISOString()}`)
+    .sort();
 }
 
 /** Selected-range aggregates only; other windows report no evidence. */
@@ -185,6 +193,99 @@ function selectedOnly(
 }
 
 describe('dashboard sales metricBasis', () => {
+  /**
+   * KID-144 — a month's profit reads the anchor's month clipped to its closed
+   * KST days, the only dates orders and the ad sweep can both have covered
+   * (ADR-0001). For a month selection the profit card, its rate, change and
+   * inputs follow it; revenue and the ranking keep the calendar month.
+   */
+  it('reads the profit, rate and inputs of a month selection over its closed days while revenue keeps the calendar month', async () => {
+    // 12:00 KST on 20 September: 1–19 September are closed.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales, profit } = salesService({
+      profitFor: (period) => {
+        const lastDate = period.selectedDates.at(-1);
+        // Orders and the sweep cover every closed day: a measured profit.
+        if (lastDate === '2026-09-19') return profitMetrics(period, { revenue: 100_000, netProfit: 40_000 });
+        // The calendar month also asks for the open 20th onward, which no
+        // sweep can have covered, so it has revenue but no profit.
+        if (lastDate === '2026-09-30') {
+          return profitMetrics(period, { revenue: 120_000, netProfit: null, adDates: [] });
+        }
+        if (lastDate === '2026-08-31') return profitMetrics(period, { revenue: 80_000, netProfit: 20_000 });
+        return profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null });
+      },
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.monthly).toMatchObject({ revenue: 120_000, profit: 40_000, prevProfit: 20_000 });
+    expect(result.rangeKpi).toMatchObject({
+      revenue: 120_000,
+      profit: 40_000,
+      profitRate: 40,
+      prevProfit: 20_000,
+    });
+    expect(result.rangeKpi?.profitChange).not.toBeNull();
+    expect(result.monthly.profitChange).toBe(result.rangeKpi?.profitChange);
+    // Ad cost over the same closed days' revenue.
+    expect(result.monthly.adRate).toBe(10);
+    expect(result.profitDetail).toMatchObject({ revenue: 100_000, netProfit: 40_000 });
+    expect(result.profitInputs).toMatchObject({ revenue: 100_000, adCost: 10_000 });
+    for (const key of ['monthly.profit', 'rangeKpi.profit', 'rangeKpi.profitRate', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        from: '2026-09-01',
+        to: '2026-09-19',
+        targetDays: 19,
+      });
+      expect(periodStatusOf(result.metricBasis?.[key]), key).toBe('complete');
+    }
+    for (const key of ['monthly.revenue', 'rangeKpi.revenue', 'topProducts.netProfit'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+    }
+    // Each distinct window is read once: August, September's closed days and
+    // calendar September. The month selection's own calendar and profit
+    // windows are the month's, so they share those reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+    ]);
+  });
+
+  it("shares a week selection's calendar read for its profit, whose window is the same", async () => {
+    // 12:00 KST on 20 September: the week is 13–19 September.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales, profit } = salesService({
+      profitFor: (period) => period.selectedDates[0] === '2026-09-13' && period.selectedDates.length === 7
+        ? profitMetrics(period, { revenue: 50_000, netProfit: 10_000 })
+        : profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null }),
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('week', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rangeKpi).toMatchObject({ revenue: 50_000, profit: 10_000, profitRate: 20 });
+    expect(result.profitInputs).toMatchObject({ revenue: 50_000 });
+    for (const key of ['rangeKpi.revenue', 'rangeKpi.profit', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-13', to: '2026-09-19' });
+    }
+    // August, September's closed days, calendar September, the week before
+    // and the week: five windows, five reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+      '2026-09-05T15:00:00.000Z/2026-09-12T15:00:00.000Z',
+      '2026-09-12T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+    ]);
+  });
+
   it('publishes a partial revenue basis that keeps an internal hole visible', async () => {
     const { sales } = salesService({
       profitFor: selectedOnly({ orderDates: ['2026-09-01', '2026-09-03', '2026-09-05'] }),
@@ -566,6 +667,7 @@ describe('dashboard inventory metricBasis', () => {
       rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
       withheldListings: 0,
       orderWindowComplete: true,
+      hasAdAccount: true,
       ...perListing,
     });
     repository.readInventoryAvailabilityFacts.mockResolvedValue({
@@ -629,13 +731,16 @@ describe('dashboard inventory metricBasis', () => {
 
     // A warning basis that is `unavailable` is what makes the card render the
     // unavailable marker, so every one of these must be a real owner as-of.
+    // The per-listing counts evaluate the anchor's month through its last
+    // closed day, 7 September, so that day is their as-of, and they name the
+    // advertising ledger they read beside orders and listings.
     expect(result.metricBasis?.['warnings.minusProducts']).toEqual({
       kind: 'snapshot',
       measured: true,
-      asOf: '2026-09-08',
-      requiredAsOf: '2026-09-08',
+      asOf: '2026-09-07',
+      requiredAsOf: '2026-09-07',
       observedAt: expect.any(String),
-      sources: ['orders', 'channel_listings'],
+      sources: ['orders', 'channel_listings', 'coupang_ads'],
       withheldCount: 0,
     });
     expect(snapshotStatusOf(result.metricBasis?.['warnings.minusProducts'])).toBe('current');
@@ -715,6 +820,51 @@ describe('dashboard inventory metricBasis', () => {
     expect(covered.warnings.minusProducts).toBe(0);
     for (const key of PER_LISTING_WARNING_KEYS) {
       expect(snapshotStatusOf(covered.metricBasis?.[key]), key).toBe('current');
+    }
+  });
+
+  /**
+   * KID-137 — a basis names every ledger its value was read from. The per-listing
+   * warnings read the advertising ledger only for an organization that
+   * advertises; without a Coupang account advertising is Not applied to every
+   * listing and the counts rest on orders and listings alone.
+   */
+  it('names the advertising ledger among the per-listing warning sources only where advertising applies', async () => {
+    const advertised = await inventoryService({}, {}, { hasAdAccount: true })
+      .getSummary(customContext(), ORGANIZATION_ID);
+    const notApplied = await inventoryService({}, {}, { hasAdAccount: false })
+      .getSummary(customContext(), ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(advertised.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings', 'coupang_ads'],
+      });
+      expect(notApplied.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings'],
+      });
+    }
+  });
+
+  /**
+   * On the 1st the evaluated window has no day, so the count is as-of nothing.
+   * The as-of it needed is still the anchor's last closed day, which keeps the
+   * basis honest about what a measurement would have had to reach.
+   */
+  it('publishes the per-listing warnings with no as-of on the 1st while naming the last closed day', async () => {
+    const firstOfMonth = buildDashboardContext(
+      undefined, undefined, undefined, new Date('2026-09-01T00:30:00.000Z'),
+    );
+    const result = await inventoryService({}, {}, { rows: [], orderWindowComplete: false })
+      .getSummary(firstOfMonth, ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        kind: 'snapshot',
+        measured: false,
+        asOf: null,
+        requiredAsOf: '2026-08-31',
+      });
+      expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('unavailable');
     }
   });
 

@@ -2,6 +2,7 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient, type Query, type QueryKey } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   fetchWholesale1688Results,
@@ -16,14 +17,14 @@ import {
 
 export function useWholesale1688Results(input: Wholesale1688ResultQuery) {
   const normalized = normalizeWholesale1688ResultQuery(input);
-  return useQuery({
+  return useQuery(collectionSourceStatusQueryOptions({
     queryKey: wholesale1688ResultsQueryKey(normalized),
     queryFn: () => fetchWholesale1688Results(normalized),
     enabled: normalized.keywords.length > 0 || normalized.targetIds.length > 0,
     refetchInterval: (query) => query.state.data?.sourceStatuses.some(
       (source) => source.latestAttemptState === 'RUNNING',
     ) ? 2_000 : false,
-  });
+  }));
 }
 
 export function useWholesale1688Command(snapshotQueryKey: QueryKey) {
@@ -36,7 +37,7 @@ export function useWholesale1688Command(snapshotQueryKey: QueryKey) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: snapshotQueryKey }),
   });
   const attemptQueries = useQueries({
-    queries: (mutation.data?.attempts ?? []).map((attempt) => ({
+    queries: (mutation.data?.attempts ?? []).map((attempt) => collectionSourceStatusQueryOptions({
       queryKey: queryKeys.sourcing.wholesale1688Attempt(mutation.data!.kind, attempt.attemptId),
       initialData: attempt,
       enabled: attempt.state === 'RUNNING',

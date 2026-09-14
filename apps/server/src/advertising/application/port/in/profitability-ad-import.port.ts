@@ -111,6 +111,11 @@ export type AdvertisingProfitabilityGenerationSummary = Readonly<{
   publicationSequence: string;
   coverageStartDate: string;
   coveredThrough: string;
+  /**
+   * The last day the generation's plan requested: `coveredThrough`, or the
+   * closed day after it when the import held that day as unreported.
+   */
+  requestedThrough: string;
   capturedAt: string;
   mappingGeneration: string;
   adSourcePolicyHash: string;

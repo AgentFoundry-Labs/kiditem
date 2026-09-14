@@ -9,19 +9,22 @@ import {
 } from '@kiditem/shared/source-readiness';
 
 /**
- * One source's owner readiness facts at the owned evidence cutoff. Structural
- * on purpose: the domain states what it needs, not where Finance keeps it.
- * Readiness itself is derived from `actualCutoff` against the required cutoff.
+ * One source's owner readiness facts. Structural on purpose: the domain states
+ * what it needs, not where Finance keeps it. Readiness itself is derived from
+ * `actualCutoff` against the source's own required cutoff.
  */
 export type ProductAbcSourceEvidence = Readonly<{
+  /**
+   * The cutoff the owner requires of this source: the evidence cutoff for
+   * Sellpia, and for advertising the last day Coupang has reported by then.
+   */
+  requiredCutoff: string;
   /** Cutoff the owner's latest complete generation reached; `null` when none. */
   actualCutoff: string | null;
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
 }>;
 
 export type ProductAbcEvidenceView = Readonly<{
-  /** The owner's cutoff this projection must meet. */
-  requiredCutoff: string;
   /** Cutoff the evidence actually reached; `null` when it has none. */
   actualCutoff: string | null;
   /** Mapping generation the selected sources agree on; `null` when none does. */
@@ -72,8 +75,8 @@ export function buildProductAbcReadModel(
     publishedAt: formulaState.publishedAt,
     actualCutoffDate: evidence.actualCutoff,
     sources: {
-      sellpia: sourceReadiness(evidence.sellpia, evidence.requiredCutoff),
-      advertising: sourceReadiness(evidence.advertising, evidence.requiredCutoff),
+      sellpia: sourceReadiness(evidence.sellpia),
+      advertising: sourceReadiness(evidence.advertising),
       mapping: {
         valid: input.mappingValid,
         currentMappingGeneration: formulaState.mappingGeneration,
@@ -89,10 +92,7 @@ export function buildProductAbcReadModel(
  * selected it, so the published `ready` is the owner's and a complete source
  * never reads as missing because the other source has nothing to pair with.
  */
-function sourceReadiness(
-  source: ProductAbcSourceEvidence,
-  requiredCutoff: string,
-) {
+function sourceReadiness(source: ProductAbcSourceEvidence) {
   const latestAttempt: SourceReadinessAttempt | null = source.latestAttemptState
     ? { state: source.latestAttemptState }
     : null;
@@ -100,7 +100,11 @@ function sourceReadiness(
     ? { actualCutoff: source.actualCutoff }
     : null;
   return {
-    ...deriveSourceReadiness({ latestAttempt, latestComplete, requiredCutoff }),
+    ...deriveSourceReadiness({
+      latestAttempt,
+      latestComplete,
+      requiredCutoff: source.requiredCutoff,
+    }),
     latestAttempt,
     latestComplete,
   };

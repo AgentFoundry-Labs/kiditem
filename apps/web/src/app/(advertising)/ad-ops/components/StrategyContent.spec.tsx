@@ -53,6 +53,7 @@ const strategy: AdWeeklyPlan = {
   issues: { zeroConversion: [], lowRoas: [], highSpend: [] },
   top20: [],
   profitWithheldListings: 0,
+  orderWindowComplete: true,
 };
 
 function hubProduct(

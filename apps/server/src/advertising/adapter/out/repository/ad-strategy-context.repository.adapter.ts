@@ -6,7 +6,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { addDays, businessDateKey, kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
+import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
 import { readListingAdWindowFacts } from '../../../read/ad-target-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import {
@@ -17,7 +17,6 @@ import { readPublishedProductAbcGrades } from '../../../../products/read/product
 import {
   buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,
-  type PerListingMetrics,
 } from '../../../../common/per-listing-profit';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
@@ -43,8 +42,7 @@ export class AdStrategyContextRepositoryAdapter
 
   async loadStrategyContext(
     organizationId: string,
-    year: number,
-    month: number,
+    profitWindow: KstQueryWindow,
     period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext> {
@@ -52,8 +50,7 @@ export class AdStrategyContextRepositoryAdapter
       (tx) => this.loadStrategyContextIn(
         tx,
         organizationId,
-        year,
-        month,
+        profitWindow,
         period,
         config,
       ),
@@ -64,8 +61,7 @@ export class AdStrategyContextRepositoryAdapter
   private async loadStrategyContextIn(
     tx: Prisma.TransactionClient,
     organizationId: string,
-    year: number,
-    month: number,
+    profitWindow: KstQueryWindow,
     period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext> {
@@ -90,33 +86,28 @@ export class AdStrategyContextRepositoryAdapter
       to: windowEnd,
       listingIds,
     });
-    const monthWindow = {
-      from: kstMonthStart(year, month),
-      to: kstMonthStart(year, month + 1),
-    };
     const listings = await this.hydrateListingsIn(tx, organizationId, listingIds);
-    let liveMetrics: PerListingMetrics[] = [];
-    let profitWithheldListings = 0;
-    if (listingIds.length > 0) {
-      const accountAdEvidence = await readAdEvidenceFromLedger(
-        tx,
-        organizationId,
-        monthWindow.from,
-        monthWindow.to,
-      );
-      // The coverage variant says how many context listings were withheld, so
-      // the plan does not reason over a silent subset.
-      const coverage = await buildPerListingMetricsCoverage(
-        tx,
-        organizationId,
-        monthWindow.from,
-        monthWindow.to,
-        accountAdEvidence,
-        listingIdSet,
-      );
-      liveMetrics = coverage.metrics;
-      profitWithheldListings = coverage.withheldListings;
-    }
+    // Profit rates are evaluated over the current KST month clipped to its
+    // closed days (ADR-0001), the only dates an Orders collection and the
+    // campaign sweep can have covered. Whether the orders covered that window
+    // is a fact about the collection rather than about these listings, so it
+    // is read even when no listing advertised. The coverage variant also says
+    // how many context listings were withheld, so the plan does not reason
+    // over a silent subset.
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      tx,
+      organizationId,
+      profitWindow.from,
+      profitWindow.to,
+    );
+    const coverage = await buildPerListingMetricsCoverage(
+      tx,
+      organizationId,
+      profitWindow.from,
+      profitWindow.to,
+      accountAdEvidence,
+      listingIdSet,
+    );
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,
       organizationId,
@@ -125,9 +116,13 @@ export class AdStrategyContextRepositoryAdapter
 
     // Only listings whose profit is measured enter the strategy context. A
     // listing with incomplete ad coverage is absent rather than carrying a
-    // profit rate derived from a partial ad sum (ADR-0003).
+    // profit rate derived from a partial ad sum (ADR-0003). Short of the
+    // Orders collection no listing carries one: its rows are only the orders
+    // collected so far.
     const profitRateByListing = new Map<string, number>(
-      liveMetrics.map((metric) => [metric.listingId, metric.profitRate]),
+      coverage.orderWindowComplete
+        ? coverage.metrics.map((metric) => [metric.listingId, metric.profitRate] as const)
+        : [],
     );
 
     const trafficByListing = new Map<
@@ -148,7 +143,8 @@ export class AdStrategyContextRepositoryAdapter
       adIssuesAdGroups: toAdAggregateRows(adAgg),
       listings,
       profitRateByListing,
-      profitWithheldListings,
+      profitWithheldListings: coverage.withheldListings,
+      orderWindowComplete: coverage.orderWindowComplete,
       channelStateByListing,
       gradeMap: buildGradeMap(listings),
       trafficByListing,

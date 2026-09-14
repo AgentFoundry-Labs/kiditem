@@ -93,8 +93,8 @@ implements ProductOperationsDataStatusRepositoryPort {
       traffic: trafficStatus,
       orders: ordersStatus,
       actualCutoff,
-      sellpia: profitabilitySourceStatus(evidence, 'sellpia', cutoffDate),
-      advertising: profitabilitySourceStatus(evidence, 'advertising', cutoffDate),
+      sellpia: profitabilitySourceStatus(evidence, 'sellpia'),
+      advertising: profitabilitySourceStatus(evidence, 'advertising'),
       sourceVector: {
         sellpia: sourceManifest(evidence.sourceVector.sellpia),
         advertising: sourceManifest(evidence.sourceVector.advertising),
@@ -145,16 +145,16 @@ function sourceStatus(
   };
 }
 
+/** The evidence owner's readiness for one source, against the cutoff it requires of that source. */
 function profitabilitySourceStatus(
   evidence: Awaited<ReturnType<ProfitabilityEvidence['load']>>,
   source: 'sellpia' | 'advertising',
-  requiredCutoff: string,
 ): ProductOperationsDataSourceStatus {
   const status = evidence.sources[source];
   return deriveSourceReadiness({
     latestAttempt: status.latestAttempt,
     latestComplete: status.latestComplete,
-    requiredCutoff,
+    requiredCutoff: status.requiredCutoff,
   });
 }
 

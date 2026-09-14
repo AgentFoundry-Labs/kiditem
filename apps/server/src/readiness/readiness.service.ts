@@ -16,7 +16,7 @@ import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-impor
 import { PrismaService } from '../prisma/prisma.service';
 import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
-import { dayAfter, readAdWindowFacts } from '../advertising/read/ad-target-facts';
+import { dayAfter, readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {
@@ -108,14 +108,6 @@ export class ReadinessService {
       ? lookbackStart
       : monthStartKst;
     const coverageRangeStartKstStr = businessDateKey(coverageRangeStart);
-    const adsLookbackStart = addDays(
-      yesterdayKst,
-      -(ReadinessService.AD_LOOKBACK_DAYS - 1),
-    );
-    const adsRangeStartKstStr = businessDateKey(adsLookbackStart);
-    const adsExpectedDates = datesInclusive(adsLookbackStart, yesterdayKst)
-      .map(businessDateKey);
-
     // Sellpia 월 누적: 최근 lookback과 이번 달 1일 중 더 이른 날부터 확인.
     const sellpiaRangeStartKstStr = coverageRangeStartKstStr;
     const sellpiaRangeEndKstStr = yesterdayKstStr;
@@ -139,12 +131,26 @@ export class ReadinessService {
       select: { id: true },
     });
 
+    // coupang_ads ends at the ad evidence cutoff: yesterday, unless every
+    // active account's newest complete sweep held yesterday as unreported.
+    const adsCutoffKst = activeCoupangAccount
+      ? await readAdEvidenceCutoff(tx, { organizationId, closedDay: yesterdayKst })
+      : yesterdayKst;
+    const adsCutoffKstStr = businessDateKey(adsCutoffKst);
+    const adsLookbackStart = addDays(
+      adsCutoffKst,
+      -(ReadinessService.AD_LOOKBACK_DAYS - 1),
+    );
+    const adsRangeStartKstStr = businessDateKey(adsLookbackStart);
+    const adsExpectedDates = datesInclusive(adsLookbackStart, adsCutoffKst)
+      .map(businessDateKey);
+
     // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
     const adsDailyKpiPublished = activeCoupangAccount
       ? await readAdWindowFacts(tx, {
             organizationId,
             from: adsLookbackStart,
-            to: dayAfter(yesterdayKst),
+            to: dayAfter(adsCutoffKst),
           })
       : null;
     const activeWingVendorRows = activeCoupangAccount
@@ -213,7 +219,7 @@ export class ReadinessService {
     // coupang_ads — 캠페인 sweep 선언 창의 영업일
     const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
-    const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
+    const adsLatestOk = adsPresent.has(adsCutoffKstStr);
     const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
     const adsSortedDates = [...adsPresent].sort();
     const adsActualCutoff = adsSortedDates[adsSortedDates.length - 1] ?? null;
@@ -261,7 +267,7 @@ export class ReadinessService {
         label: '쿠팡 광고 데이터 수집',
         basis: buildSnapshotBasis({
           asOf: adsActualCutoff,
-          requiredAsOf: yesterdayKstStr,
+          requiredAsOf: adsCutoffKstStr,
           observedAt: adsLastDate,
           sources: ['coupang_ads'],
           measured: adsPresent.size > 0,
@@ -269,13 +275,13 @@ export class ReadinessService {
         }),
         detail:
           adsMissing.length === 0
-            ? `최근 ${adsExpectedDates.length}일치 (${adsRangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
-            : !adsYesterdayOk
-              ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${adsMissing.length}/${adsExpectedDates.length}일`
-              : `누락 ${adsMissing.length}/${adsExpectedDates.length}일 (${adsRangeStartKstStr}~${yesterdayKstStr})`,
+            ? `최근 ${adsExpectedDates.length}일치 (${adsRangeStartKstStr}~${adsCutoffKstStr}) 모두 수집됨`
+            : !adsLatestOk
+              ? `최신(${adsCutoffKstStr}) 미수집 — 누락 ${adsMissing.length}/${adsExpectedDates.length}일`
+              : `누락 ${adsMissing.length}/${adsExpectedDates.length}일 (${adsRangeStartKstStr}~${adsCutoffKstStr})`,
         lastSyncedAt: adsLastDate,
         count: adsPresent.size,
-        referenceDate: yesterdayKstStr,
+        referenceDate: adsCutoffKstStr,
         expectedDates: adsExpectedDates,
         missingDates: adsMissing,
       },

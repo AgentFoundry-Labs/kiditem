@@ -27,20 +27,25 @@ import {
  *   owner-published account ad rows, so a preset window is clipped forward to
  *   the anchor's last completed KST day and a `day` preset is rewritten to
  *   yesterday.
+ * - `closed_day_month` — a profit reads orders and the ad sweep together, and
+ *   both can only have covered closed days, so a month window — the anchor's
+ *   month, or a month selection — is clipped the same way. A day, week or
+ *   custom selection keeps its calendar window, as under `order_timestamps`.
  *
- * Both rules take the month from the *anchor's* calendar month, so no month
+ * Every rule takes the month from the *anchor's* calendar month, so no month
  * value is ever built from a period other than the one it is labelled with.
- * Under `closed_day_clipped` that month is empty on the 1st; the affected
- * cards showing nothing is the intended outcome, not a window to widen — see
+ * Under the clipping rules that month is empty on the 1st; the affected cards
+ * showing nothing is the intended outcome, not a window to widen — see
  * `docs/adr/0001-dashboard-month-window-is-anchor-clipped.md`.
  *
- * One rule cuts across both: an explicit custom range stays exact, including
+ * One rule cuts across all of them: an explicit custom range stays exact, including
  * future dates, so missing coverage stays visible to the caller instead of
  * being silently trimmed away.
  */
 export type DashboardSourceClass =
   | 'order_timestamps'
-  | 'closed_day_clipped';
+  | 'closed_day_clipped'
+  | 'closed_day_month';
 
 /** Half-open timestamp window, `[from, to)`. */
 export interface DashboardQueryWindow {
@@ -103,7 +108,9 @@ export function resolveDashboardPeriod(
 ): DashboardPeriodSet {
   const windows = sourceClass === 'closed_day_clipped'
     ? closedDayClippedWindows(selection, anchor)
-    : orderTimestampWindows(selection);
+    : sourceClass === 'closed_day_month'
+      ? closedDayMonthWindows(selection, anchor)
+      : orderTimestampWindows(selection);
 
   return {
     sourceClass,
@@ -208,6 +215,25 @@ function closedDayClippedWindows(
     // The previous calendar month is already closed; clipping it would be a
     // no-op, and leaving it exact keeps the owner coverage report honest.
     previousMonth: { from: selection.prevMonthDate, to: selection.monthStart },
+  };
+}
+
+/**
+ * `order_timestamps` windows whose months are clipped to the anchor's closed
+ * KST days: the anchor's month always, the selection only when it is a month.
+ * The previous windows stay exact, as under `order_timestamps`.
+ */
+function closedDayMonthWindows(
+  selection: DashboardPeriodSelection,
+  anchor: Date,
+): PeriodWindows {
+  const windows = orderTimestampWindows(selection);
+  return {
+    ...windows,
+    selected: closedDayPreset(selection.effectiveRange) === 'month'
+      ? clipToClosedKstDays(anchor, windows.selected)
+      : windows.selected,
+    month: clipToClosedKstDays(anchor, windows.month),
   };
 }
 

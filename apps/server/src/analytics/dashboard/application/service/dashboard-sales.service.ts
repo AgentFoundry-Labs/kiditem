@@ -97,18 +97,28 @@ export class DashboardSalesService {
     try {
       const startedAt = Date.now();
       const { todayStart, todayEnd } = ctx;
-      // Two closure rules, one resolver: order aggregates read the selected
-      // calendar verbatim, Wing/Coupang read only closed KST days. Both take
-      // the month from the anchor, so the advertising shown under a month
-      // heading is always that month's.
+      // Three closure rules, one resolver: order aggregates read the selected
+      // calendar verbatim, Wing/Coupang read only closed KST days, and a
+      // profit reads a month over its closed days, the only dates orders and
+      // the ad sweep can both have covered (ADR-0001). All take the month from
+      // the anchor, so the advertising shown under a month heading is always
+      // that month's.
       const orderPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'order_timestamps');
       const closedDayPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_clipped');
+      const profitPeriods = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_month');
+      // The rules often resolve the same window: a month selection's calendar
+      // and profit windows are the month's own, and a day, week or custom
+      // selection's profit window is its calendar window. Each distinct window
+      // is read once.
+      const readProfit = this.profitReader(organizationId);
 
       const [
         curMonth,
         prevMonth,
         rangeCur,
         rangePrev,
+        curMonthProfit,
+        rangeCurProfit,
         todayRows,
         topProductRows,
         wingTrafficMonth,
@@ -120,10 +130,12 @@ export class DashboardSalesService {
         latestWingDataDate,
         trafficFunnel,
       ] = await Promise.all([
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.month),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousMonth),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.selected),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousSelected),
+        readProfit(orderPeriods.month),
+        readProfit(orderPeriods.previousMonth),
+        readProfit(orderPeriods.selected),
+        readProfit(orderPeriods.previousSelected),
+        readProfit(profitPeriods.month),
+        readProfit(profitPeriods.selected),
         this.salesRepository.fetchTodayKpis(organizationId, todayStart, todayEnd),
         // Top products sits inside the period section, under the period
         // filter. Reading the anchor month there meant a July selection
@@ -176,23 +188,37 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousSelected),
       ]);
       // Profit and the ad panel read the same ad ledger, so there is nothing
-      // to reconcile between them.
-      const curMonthProfit = curMonth;
+      // to reconcile between them. The order and profit rules resolve the same
+      // previous windows, so one read serves both.
       const prevMonthProfit = prevMonth;
-      const rangeCurProfit = rangeCur;
       const rangePrevProfit = rangePrev;
 
       // Every published number carries the dates it was actually calculated
       // from. Each metric uses the maximal valid dates of its own required
       // sources, and a multi-source metric uses their exact intersection.
+      // Revenue keeps the calendar window; profit, the rates built on it and
+      // its inputs keep the profit rule's window, so revenue, cost and
+      // advertising enter a profit on identical dates.
       const monthEvidence = salesEvidence({
         orderPeriod: orderPeriods.month,
+        wingPeriod: closedDayPeriods.month,
+        profit: curMonth,
+        wing: wingTrafficMonth,
+      });
+      const monthProfitEvidence = salesEvidence({
+        orderPeriod: profitPeriods.month,
         wingPeriod: closedDayPeriods.month,
         profit: curMonthProfit,
         wing: wingTrafficMonth,
       });
       const rangeEvidence = salesEvidence({
         orderPeriod: orderPeriods.selected,
+        wingPeriod: closedDayPeriods.selected,
+        profit: rangeCur,
+        wing: wingTrafficRange,
+      });
+      const rangeProfitEvidence = salesEvidence({
+        orderPeriod: profitPeriods.selected,
         wingPeriod: closedDayPeriods.selected,
         profit: rangeCurProfit,
         wing: wingTrafficRange,
@@ -230,13 +256,14 @@ export class DashboardSalesService {
       // Revenue is ranked from orders alone, so orders decide its basis.
       const topProductsBasis = periodEvidence({
         selectedDates: orderPeriods.selected.selectedDates,
-        includedDates: rangeCurProfit.sourceCoverage.orderDates,
+        includedDates: rangeCur.sourceCoverage.orderDates,
         sources: [ORDERS_SOURCE],
       });
 
       return {
         today,
         monthly: this.buildMonthly(
+          curMonth,
           curMonthProfit,
           prevMonthProfit,
           wingTrafficMonth,
@@ -246,6 +273,7 @@ export class DashboardSalesService {
         profitDetail: this.buildProfitDetail(curMonthProfit),
         rangeKpi: this.buildRangeKpi(
           ctx.effectiveRange,
+          rangeCur,
           rangeCurProfit,
           rangePrevProfit,
           wingTrafficRange,
@@ -261,15 +289,15 @@ export class DashboardSalesService {
           wingTrafficMonth,
           coupangAdsMonth,
         ),
-        profitInputs: buildOrderProfitInputs(rangeCurProfit, rangeEvidence.profit),
+        profitInputs: buildOrderProfitInputs(rangeCurProfit, rangeProfitEvidence.profit),
         metricBasis: metricBasisMap({
           'today.revenue': todayBasis,
           'today.orders': todayBasis,
           'monthly.revenue': monthEvidence.revenue,
-          'monthly.profit': monthEvidence.profit,
+          'monthly.profit': monthProfitEvidence.profit,
           'rangeKpi.revenue': rangeEvidence.revenue,
-          'rangeKpi.profit': rangeEvidence.profit,
-          'rangeKpi.profitRate': rangeEvidence.profitRate,
+          'rangeKpi.profit': rangeProfitEvidence.profit,
+          'rangeKpi.profitRate': rangeProfitEvidence.profitRate,
           'trafficKpi.visitors': trafficOnlyBasis('visitors'),
           'trafficKpi.views': trafficOnlyBasis('views'),
           'trafficKpi.cartAdds': trafficOnlyBasis('cartAdds'),
@@ -285,16 +313,39 @@ export class DashboardSalesService {
           // evidence, and withheld when either is short. Describing it with the
           // orders-only revenue basis claimed a coverage the column never had —
           // July read `sources: [orders] · partial` while every value was
-          // withheld for want of ad evidence. The selected range's profit
-          // evidence is the same one `profitInputs` publishes.
+          // withheld for want of ad evidence. The ranking reads the selected
+          // calendar window, so its profit evidence is that window's.
           'topProducts.netProfit': rangeEvidence.profit,
-          profitInputs: rangeEvidence.profit,
+          profitInputs: rangeProfitEvidence.profit,
         }),
       } satisfies DashboardSalesSummary;
     } catch (error) {
       this.logger.error('Failed to get sales summary', error);
       throw new InternalServerErrorException('Failed to get sales summary');
     }
+  }
+
+  /**
+   * A profit read that answers each distinct `[from, to)` window once per
+   * summary. The port's result depends only on the organization and the
+   * resolved window, so a period another closure rule resolved to the same
+   * window shares that read, and its Repeatable Read transaction, instead of
+   * opening another.
+   */
+  private profitReader(
+    organizationId: string,
+  ): (period: ResolvedDashboardPeriod) => Promise<RangeProfitMetrics> {
+    const reads = new Map<string, Promise<RangeProfitMetrics>>();
+    return (period) => {
+      const { from, to } = period.queryWindow;
+      const key = `${from.getTime()}/${to.getTime()}`;
+      let read = reads.get(key);
+      if (!read) {
+        read = this.profitCalculation.calculateForRange(organizationId, period);
+        reads.set(key, read);
+      }
+      return read;
+    };
   }
 
   // ── monthly mapping ─────────────────────────────────────────────────────
@@ -309,25 +360,31 @@ export class DashboardSalesService {
   // hide the profit card when the value isn't trustworthy.
   private buildMonthly(
     cur: RangeProfitMetrics,
+    curProfit: RangeProfitMetrics,
     prev: RangeProfitMetrics,
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
   ): DashboardSalesSummary['monthly'] {
     const current = resolveSalesPeriod(cur, wingCur);
+    // The month's profit and ad rate are read over its closed days, and so is
+    // the revenue they are measured against.
+    const currentProfit = resolveSalesPeriod(curProfit, wingCur);
     const previous = resolveSalesPeriod(prev, wingPrev);
 
     // 광고비율은 광고가 붙는 윙 매출 기준으로 계산(로켓 합산 total 로 희석 방지).
     // An ad cost summed over an incompletely measured window is not a
     // measurement, so neither is the ratio built on it.
-    const adRate = cur.adEvidenceComplete ? measuredPercent1(cur.adCost, current.revenue) : null;
+    const adRate = curProfit.adEvidenceComplete
+      ? measuredPercent1(curProfit.adCost, currentProfit.revenue)
+      : null;
     const prevAdRate = prev.adEvidenceComplete ? measuredPercent1(prev.adCost, previous.revenue) : null;
     const revenueChange = percentChange(current.revenue, previous.revenue);
-    const profitChange = percentChange(current.profit, previous.profit, true);
+    const profitChange = percentChange(currentProfit.profit, previous.profit, true);
 
     return {
       revenue: current.revenue,
       wingRevenue: current.wingRevenue,
-      profit: current.profit,
+      profit: currentProfit.profit,
       adRate,
       prevRevenue: previous.revenue,
       prevProfit: previous.profit,
@@ -370,23 +427,27 @@ export class DashboardSalesService {
   private buildRangeKpi(
     range: string,
     cur: RangeProfitMetrics,
+    curProfit: RangeProfitMetrics,
     prev: RangeProfitMetrics,
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
   ): NonNullable<DashboardSalesSummary['rangeKpi']> {
     const current = resolveSalesPeriod(cur, wingCur);
+    // A month selection's profit is read over its closed days; its rate
+    // divides by that same window's revenue.
+    const currentProfit = resolveSalesPeriod(curProfit, wingCur);
     const previous = resolveSalesPeriod(prev, wingPrev);
 
     // Wing-only revenue has no settlement costs, so do not synthesize a zero
     // profit/profitRate that looks like a measured result.
-    const profitRate = measuredPercent1(current.profit, current.revenue);
+    const profitRate = measuredPercent1(currentProfit.profit, currentProfit.revenue);
     const prevProfitRate = measuredPercent1(previous.profit, previous.revenue);
     const revenueChange = percentChange(current.revenue, previous.revenue);
-    const profitChange = percentChange(current.profit, previous.profit, true);
+    const profitChange = percentChange(currentProfit.profit, previous.profit, true);
     return {
       range,
       revenue: current.revenue,
-      profit: current.profit,
+      profit: currentProfit.profit,
       prevRevenue: previous.revenue,
       prevProfit: previous.profit,
       revenueChange,

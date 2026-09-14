@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
@@ -73,15 +74,14 @@ export function useAdvertisingProfitabilityRefresh() {
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';
   } | null>(null);
   const handledCompleteAttempt = useRef<string | null>(null);
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.ads.profitabilitySource(),
     queryFn: readSource,
-    retry: false,
     refetchOnWindowFocus: true,
     refetchInterval: (query) =>
       starting || query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
 
   const invalidateConsumers = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });

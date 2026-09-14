@@ -8,6 +8,7 @@ import {
 } from '@kiditem/shared/advertising';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
@@ -45,14 +46,13 @@ export function useAdSync({ onComplete }: { onComplete?: () => void } = {}) {
   const [cancelling, setCancelling] = useState(false);
   const request = useRef<{ key: string; attemptId?: string } | null>(null);
   const client = useQueryClient();
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.ads.campaignSource(),
     queryFn: readSource,
-    retry: false,
     refetchInterval: (query) =>
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
   const sourceLoaded = source.data !== undefined;
   const completeId = source.data?.latestComplete?.attemptId ?? null;
   // The first owner read is the COMPLETE this mount already renders. Only a

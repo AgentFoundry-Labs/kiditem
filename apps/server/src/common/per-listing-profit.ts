@@ -707,19 +707,26 @@ function costInputsBasis(facts: ProfitWindowFacts): FinanceCostInputsBasis {
  * window, over the evaluated window the dates orders and advertising covered,
  * and per cost component the lines it does not apply to and the lines nobody
  * measured. Profit is measured on the dates both covered; a window with a line
- * lacking a cost refuses every date for profit.
+ * lacking a cost refuses every date for profit, and a window that publishes no
+ * profit includes no date for it.
  */
 export function profitWindowBasis(facts: ProfitWindowFacts): FinanceWindowBasis {
   const range = kstWindowDateRange(facts.window.effective);
   const adDates = facts.ad.hasAdAccount ? facts.ad.measuredDates : facts.orderWindow.requestedDates;
   const adDateSet = new Set(adDates);
+  // The profit basis describes the window profit published beside it. When
+  // orders or advertising stop short of a closed day there is no profit, and
+  // the dates both did measure are not a partly measured one.
+  const profitPublished = profitWindowTotals(facts).netProfit !== null;
   return {
     requestedWindow: kstWindowDateRange(facts.window.requested),
     revenue: orderWindowBasis(facts.orderWindow, facts.window),
     adCost: buildPeriodBasis({ ...range, includedDates: adDates, sources: [COUPANG_ADS_SOURCE] }),
     profit: buildPeriodBasis({
       ...range,
-      includedDates: facts.orderWindow.includedDates.filter((date) => adDateSet.has(date)),
+      includedDates: profitPublished
+        ? facts.orderWindow.includedDates.filter((date) => adDateSet.has(date))
+        : [],
       invalidDates: lineCostsComplete(facts) ? [] : facts.orderWindow.requestedDates,
       sources: facts.ad.hasAdAccount ? [ORDERS_SOURCE, COUPANG_ADS_SOURCE] : [ORDERS_SOURCE],
     }),

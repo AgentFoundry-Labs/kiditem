@@ -375,11 +375,19 @@ export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
 export const AdWeeklyPlanSchema = AdStrategyPlanSchema.extend({
   week: z.object({ start: z.string(), end: z.string() }),
   /**
-   * Listings of the plan whose monthly profit was withheld because a cost
-   * input was not measured (KID-85 P3-14). They carry no profit rate, so the
-   * actions reason over the rest; this count says how large that gap is.
+   * Listings of the plan whose profit over the current month's closed KST days
+   * was withheld because a cost input was not measured (KID-85 P3-14). They
+   * carry no profit rate, so the actions reason over the rest; this count says
+   * how large that gap is.
    */
   profitWithheldListings: z.number().int().nonnegative(),
+  /**
+   * Whether a completed Orders collection covered every closed KST day of the
+   * current month, the window profit rates are evaluated over (ADR-0001). When
+   * it did not, no action carries a profit rate and `profitWithheldListings`
+   * counts only the orders collected so far; on the 1st no day has closed.
+   */
+  orderWindowComplete: z.boolean(),
 });
 export type AdWeeklyPlan = z.infer<typeof AdWeeklyPlanSchema>;
 

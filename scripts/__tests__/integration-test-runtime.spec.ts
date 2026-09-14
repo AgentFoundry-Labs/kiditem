@@ -57,6 +57,7 @@ describe('integration test runtime contract', () => {
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
       'gateway_fast_checks',
+      'script_contract_checks',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
     expect(prJobSource).toContain('run: git diff --check "${BASE_SHA}...HEAD"');
@@ -126,6 +127,38 @@ describe('integration test runtime contract', () => {
       'run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     );
     expect(developJobSource).toContain('run: npm run test:integration');
+  });
+
+  it('runs the script contract suite on PRs after preparing its runtime inputs', () => {
+    const testScripts = (JSON.parse(readRepoFile('package.json')) as {
+      scripts?: Record<string, string>;
+    }).scripts?.['test:scripts'];
+    const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
+    const scriptJob = readWorkflowJobSource(workflowSource, 'script_contract_checks');
+    const jobLines = scriptJob.split('\n').map((line) => line.trim());
+    const generateStep = jobLines.indexOf('- name: Generate Prisma client');
+    const databaseUrlLine = jobLines.findIndex((line) => line.startsWith('DATABASE_URL:'));
+
+    expect(testScripts?.split(' && ')).toEqual([
+      expect.stringMatching(/^vitest run --config scripts\/vitest\.config\.ts(\s|$)/),
+      expect.stringMatching(/^node --test scripts\/__tests__\/\*\.test\.mjs(\s|$)/),
+    ]);
+    expect(testScripts).not.toMatch(/\|\||;/);
+    expect(jobLines).toContain('runs-on: ubuntu-latest');
+    expect(jobLines).toContain('contents: read');
+    expect(jobLines).toContain('node-version: 22');
+    expect(jobLines.filter((line) => line.startsWith('run:'))).toEqual([
+      'run: npm ci --ignore-scripts',
+      'run: npx prisma generate',
+      'run: npm exec --workspace=packages/shared tsup -- --no-dts',
+      'run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep',
+      'run: npm run test:scripts',
+    ]);
+    expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
+    expect(workflowSource.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
+    expect(generateStep).toBeGreaterThan(-1);
+    expect(databaseUrlLine).toBeGreaterThan(generateStep);
+    expect(databaseUrlLine).toBeLessThan(jobLines.indexOf('run: npx prisma generate'));
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import {
   formatWingTrafficRange,
   useWingTrafficCollection,
@@ -52,11 +53,12 @@ export function WingDailyTrafficCollection({
   const attempt = collection.latestAttempt;
   const running = attempt?.state === 'RUNNING';
   const customRangeIncomplete = period === 'custom' && (!selectedFrom || !selectedTo);
-  const statusUnknown = collection.source.isPending || collection.source.isError;
+  const statusRead = collectionSourceStatusRead(collection.source);
+  const statusUnknown = statusRead === 'loading' || statusRead === 'unavailable';
   const rangeMismatch = running && !collection.activeRangeMatches;
   const cancelled = attempt?.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
   const status = statusUnknown
-    ? collection.source.isPending ? '상태 확인 중' : '상태 확인 필요'
+    ? statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
     : statusLabel(attempt?.state, collection.source.data, cancelled);
   const actionLabel = statusUnknown
     ? status
@@ -201,8 +203,17 @@ export function WingDailyTrafficCollection({
           {collection.actionError}
         </p>
       )}
-      {collection.source.isError && !collection.actionError && (
+      {collection.extensionNotice && (
+        <p className="mt-2 text-[13px] text-amber-700" data-testid="wing-traffic-extension-notice">
+          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+          {collection.extensionNotice}
+        </p>
+      )}
+      {statusRead === 'unavailable' && !collection.actionError && (
         <p className="mt-2 text-[13px] text-red-600">Wing 수집 상태를 불러오지 못했습니다.</p>
+      )}
+      {statusRead === 'rechecking' && (
+        <p className="mt-2 text-[13px] text-slate-500">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
       )}
     </section>
   );

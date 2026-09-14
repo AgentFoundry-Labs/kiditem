@@ -21,6 +21,7 @@ import type {
   MasterProductAbcRecalculationInput,
   MasterProductAbcRecalculationPort,
   ProductAbcRecalculationResult,
+  ProductAbcSourcePairing,
 } from '../port/in/master-product-abc-recalculation.port';
 
 /**
@@ -56,12 +57,14 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       targetCutoff,
     });
     if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)) {
+      const pairing = unpairedSourceEnds(snapshot);
       return {
         outcome: 'SOURCE_NOT_READY',
         publicationRevision: state.publicationRevision,
         officialCutoff: state.officialCutoffDate,
         actualCutoff: snapshot.actualCutoff,
         sources: snapshot.sources,
+        ...(pairing ? { pairing } : {}),
       };
     }
 
@@ -201,6 +204,29 @@ function hasCompatibleCompleteEvidence(
       || source.coverageEndDate < actualCutoff) return false;
   }
   return true;
+}
+
+/**
+ * The ends that kept the sources from pairing. Without a pair a source can
+ * still read ready (advertising that held its closed day does), so freshness
+ * alone names nothing; the source that ends earlier is the one to collect
+ * again. When both sources are stale against their own cutoffs, `sources`
+ * already names them and nothing is added.
+ */
+function unpairedSourceEnds(
+  snapshot: ProfitabilityEvidenceSnapshot,
+): ProductAbcSourcePairing | null {
+  const { sellpia, advertising } = snapshot.sources;
+  if (snapshot.actualCutoff !== null || (!sellpia.ready && !advertising.ready)) return null;
+  const sellpiaEndDate = sellpia.actualCutoff;
+  const advertisingEndDate = advertising.actualCutoff;
+  if (sellpiaEndDate === null || advertisingEndDate === null
+    || sellpiaEndDate === advertisingEndDate) return null;
+  return {
+    lateSource: advertisingEndDate < sellpiaEndDate ? 'advertising' : 'sellpia',
+    sellpiaEndDate,
+    advertisingEndDate,
+  };
 }
 
 function assertOrganizationId(organizationId: string): void {

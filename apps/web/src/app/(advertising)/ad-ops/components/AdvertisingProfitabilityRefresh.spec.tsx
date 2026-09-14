@@ -134,7 +134,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     expect(screen.getByText('최근 수집 실패')).toBeInTheDocument();
   });
 
-  it('marks a retained cutoff as status-unknown when the authoritative read fails', async () => {
+  it('keeps acting on a retained status when a later authoritative read fails', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(queryKeys.ads.profitabilitySource(), sourceView({
       ready: true,
@@ -145,8 +145,19 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
     renderControl(client);
 
-    expect(await screen.findByRole('button', { name: '상태 확인 필요' })).toBeDisabled();
+    expect(await screen.findByText('상태를 다시 확인하는 중')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '상품별 광고비 보고서 수집' })).toBeEnabled();
+    expect(screen.getByText('최신 수집 완료')).toBeInTheDocument();
     expect(screen.getByText('2026-09-06')).toBeInTheDocument();
+    expect(screen.queryByText('수집 상태를 불러오지 못했습니다.')).not.toBeInTheDocument();
+  });
+
+  it('blocks collection while no status has ever been read', async () => {
+    mockGetParsed.mockRejectedValue(new Error('read unavailable'));
+
+    renderControl();
+
+    expect(await screen.findByRole('button', { name: '상태 확인 필요' })).toBeDisabled();
     expect(screen.getByText('수집 상태를 불러오지 못했습니다.')).toBeInTheDocument();
   });
 

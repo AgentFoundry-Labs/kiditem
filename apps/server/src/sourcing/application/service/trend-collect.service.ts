@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate, kstDayStart } from '../../../common/kst';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -215,7 +215,7 @@ export class TrendCollectService implements TrendCollectionPort {
     try {
       const frozen = attempt.plan as typeof plan;
       const observedAt = new Date(frozen.capturedAt);
-      const day = new Date(frozen.businessDate);
+      const day = kstBusinessDate(observedAt);
       const permit = toPermit(attempt, organizationId);
       const output = source === 'naver'
         ? await this.collectNaver(organizationId, frozen.keywords, day, observedAt, permit, signal)
@@ -224,7 +224,7 @@ export class TrendCollectService implements TrendCollectionPort {
       const complete = await this.attempts.completeAttempt({ organizationId, attemptId: attempt.attemptId,
         attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
         contentChecksum: hashCollectionRequest(output), output,
-        sourceWindowStartAt: day, sourceWindowEndAt: observedAt });
+        sourceWindowStartAt: kstDayStart(observedAt), sourceWindowEndAt: observedAt });
       return trendResult(source, complete);
     } catch (error) {
       const failed = await this.attempts.failAttempt({ organizationId, attemptId: attempt.attemptId,

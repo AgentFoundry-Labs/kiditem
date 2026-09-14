@@ -42,6 +42,19 @@ cutoff carries an old one; both are not ready, and both are fixed by
 collecting.
 _Avoid_: fresh, stale, missing
 
+**Evidence cutoff**:
+The latest business date a reader may require a source to have reached. For
+most sources it is the closed day. A Coupang advertising report day counts only
+once Coupang has reported spend for it: a collection that sees no spend on its
+closed day right after a day with spend, or has no day before to compare with,
+confirms only through the day before, and a later collection that sees the
+spend confirms the day. A zero day after a zero day counts, because the account
+was not advertising. Readers of advertising evidence require the closed day
+unless every active advertising account's newest complete collection asked for
+the closed day and held it back; then they require the earliest confirmed end.
+Distinct from a closed day, which only needs the calendar day to have ended.
+_Avoid_: yesterday, latest date
+
 ### Reporting
 
 **Calculation basis**:
@@ -113,6 +126,15 @@ The single module that owns one external source's collection attempts,
 canonical facts, coverage manifests, current complete snapshot, and terminal
 status. Nothing else writes those rows.
 _Avoid_: collector, importer, sync service
+
+**Collection start**:
+An ask, from any path, that a source owner open a collection attempt: a screen
+control, the extension popup or a page timer. A start collects exactly one
+source, and its end never starts another collection. It never opens a second
+attempt for a source and scope that already has one running; it shows the
+running one instead. When it needs a browser resource another collection is
+using, it is refused before any attempt opens, naming that collection.
+_Avoid_: sync, refresh, trigger
 
 **Transport receipt**:
 The immutable record of one consumed directship transport result, including its

@@ -80,14 +80,15 @@ export function DashboardProfitDetailModal({
   // baseline month's cached values never stand in for a missing range value,
   // and the basis label always describes the values actually rendered.
   const isMonthSelection = selectedRange === 'month';
-  // `profitDetail` is built from the calendar month, not from the selected
-  // range, so it may only describe a month selection. Week, day, and custom
-  // selections fall through instead of relabelling this month's structure.
+  // `profitDetail` is built from the anchor's month through its last closed
+  // KST day, not from the selected range, so it may only describe a month
+  // selection. Week, day, and custom selections fall through instead of
+  // relabelling this month's structure.
   const monthProfitDetail = isMonthSelection ? salesBaseline.profitDetail ?? null : null;
   const selectedProfitBasis = readMetricBasis(salesBaseline, 'rangeKpi.profit');
   const selectedNetProfit = monthProfitDetail?.netProfit ?? salesBaseline.rangeKpi?.profit ?? null;
   // The caller said its source published no structure. Every remaining branch
-  // reads a different source — the calendar month's order structure, or the ad
+  // reads a different source — the month's order structure, or the ad
   // account — so any of them would put one source's numbers under another
   // source's card. The rows stay named and withheld instead.
   const sourcePublishedNothing = inputs === null;

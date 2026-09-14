@@ -82,6 +82,21 @@ describe('readiness owner rows use the shared source readiness labels', () => {
     expect(screen.getByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
   });
 
+  it.each(ownerRows)('$name blocks collection only while no owner status has been read', ({ name, Row, hook }) => {
+    const collectLabel = name === 'AdSyncRow' ? '광고 동기화' : '키워드 수집';
+    const lastKnown = ownerSource(true, '2026-09-05');
+    hook.mockReturnValue({ ...lastKnown, source: { isPending: false, isError: true, data: undefined } });
+    const view = render(<Row onComplete={vi.fn()} />);
+    expect(screen.getByRole('button', { name: collectLabel })).toBeDisabled();
+    expect(view.container).toHaveTextContent('수집 상태를 확인하지 못했습니다');
+
+    hook.mockReturnValue({ ...lastKnown, source: { ...lastKnown.source, isError: true } });
+    view.rerender(<Row onComplete={vi.fn()} />);
+    expect(screen.getByRole('button', { name: collectLabel })).toBeEnabled();
+    expect(view.container).toHaveTextContent('상태를 다시 확인하는 중');
+    expect(view.container).not.toHaveTextContent('수집 상태를 확인하지 못했습니다');
+  });
+
   it('derives the Sellpia chip from freshness and the KST date of the last verification', () => {
     hooks.stock.mockReturnValue(stockOwner('fresh', '2026-09-05T16:30:00.000Z'));
     const view = render(<StockSyncRow />);

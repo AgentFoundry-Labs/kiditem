@@ -8,6 +8,7 @@ import {
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
@@ -87,7 +88,7 @@ export function useCoupangCatalogImport(
     rememberCoupangCatalogAttemptForStage(storedStage(next), next);
   };
 
-  const serverStatusQuery = useQuery({
+  const serverStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.coupangCatalogImports.run(activeAttemptForInput?.channelAccountId ?? '', activeAttemptForInput?.attemptId ?? ''),
     queryFn: () => channelListingsApi.getCoupangCatalogCollection(
       activeAttemptForInput!.channelAccountId,
@@ -95,12 +96,11 @@ export function useCoupangCatalogImport(
       storedStage(activeAttemptForInput!),
     ),
     enabled: enabled && !!activeAttemptForInput?.attemptId,
-    retry: false,
     refetchInterval: (query) =>
       !query.state.data || query.state.data.overallState === 'RUNNING' || query.state.data.state === 'RUNNING'
         ? 2_000
         : false,
-  });
+  }));
   const serverStatus = serverStatusQuery.data ?? null;
 
   useEffect(() => {
@@ -153,7 +153,7 @@ export function useCoupangCatalogImport(
     observedAttemptId !== activeAttemptForInput.attemptId && observedStage === 'details'
     ? observedAttemptId
     : null;
-  const childStatusQuery = useQuery({
+  const childStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.coupangCatalogImports.run(
       activeAttemptForInput?.channelAccountId ?? '', childAttemptId ?? '',
     ),
@@ -161,12 +161,11 @@ export function useCoupangCatalogImport(
       activeAttemptForInput!.channelAccountId, childAttemptId!, 'details',
     ),
     enabled: enabled && !!childAttemptId && observedStage === 'details',
-    retry: false,
     refetchInterval: (query) =>
       !query.state.data || query.state.data.overallState === 'RUNNING' || query.state.data.state === 'RUNNING'
         ? 2_000
         : false,
-  });
+  }));
 
   const childRootId = childStatusQuery.data?.rootAttemptId ??
     childStatusQuery.data?.plan.rootAttemptId ??

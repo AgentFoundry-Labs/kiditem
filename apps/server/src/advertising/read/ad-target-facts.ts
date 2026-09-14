@@ -1,5 +1,5 @@
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { addDays, businessDateKey } from '../../common/kst';
+import { addDays, businessDateKey, parseBusinessDate } from '../../common/kst';
 import { compareAttemptsNewestFirst, isNewerAttempt } from '../../common/current-row';
 import {
   Prisma,
@@ -14,6 +14,7 @@ import {
   IS_PRODUCT_GRAIN_SQL,
 } from '../adapter/out/repository/ad-target-grain.sql';
 import { mergeKeywordTargets } from '../application/service/ad-keyword-normalizer';
+import { adReportEvidenceCutoff } from '../domain/ad-report-confirmation';
 import type { UpsertAdTargetDailyInput } from '../application/port/out/repository/channel-target-daily.repository.port';
 
 /**
@@ -113,14 +114,16 @@ const ACTIVE_AD_ACCOUNTS_CTE = (organizationId: string) => Prisma.sql`
 
 /**
  * Completed campaign sweeps for applicable accounts, whose terminal coverage
- * columns are the declaration. Inlined at every `$queryRaw` site so the
- * organization binding is visible where the query is issued, which is what
- * the tenancy scanner checks.
+ * columns are the declaration, with the last date each sweep requested.
+ * Inlined at every `$queryRaw` site so the organization binding is visible
+ * where the query is issued, which is what the tenancy scanner checks.
  */
 const SWEEPS_CTE = (organizationId: string) => Prisma.sql`
     SELECT id, channel_account_id, freshness_generation,
       coverage_start_date AS window_start,
-      coverage_end_date AS window_end
+      coverage_end_date AS window_end,
+      CASE WHEN plan ->> 'endDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        THEN (plan ->> 'endDate')::date END AS requested_end
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
       AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
@@ -492,6 +495,41 @@ export async function readLatestAdDate(
 /** The exclusive end of a `[from, to)` window whose last business date is `date`. */
 export function dayAfter(date: Date): Date {
   return addDays(date, 1);
+}
+
+/**
+ * The latest business date a reader may require the campaign sweep to have
+ * measured on `closedDay`: the closed day, unless every active account's newest
+ * complete sweep requested it and held it as not yet reported
+ * (`adReportEvidenceCutoff`).
+ */
+export async function readAdEvidenceCutoff(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; closedDay: Date },
+): Promise<Date> {
+  const rows = await tx.$queryRaw<{ requested_end: Date | null; confirmed_end: Date | null }[]>(Prisma.sql`
+    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    sweeps AS (${SWEEPS_CTE(input.organizationId)}) -- organization_id bound above
+    SELECT latest.requested_end, latest.window_end AS confirmed_end
+    FROM active_accounts a
+    LEFT JOIN LATERAL (
+      SELECT s.requested_end, s.window_end
+      FROM sweeps s
+      WHERE s.channel_account_id = a.id
+      ORDER BY s.freshness_generation DESC NULLS LAST, s.id DESC
+      LIMIT 1
+    ) latest ON TRUE
+  `);
+  const cutoff = adReportEvidenceCutoff({
+    closedDay: businessDateKey(input.closedDay),
+    collections: rows.map((row) => (row.requested_end && row.confirmed_end
+      ? {
+        requestedEnd: businessDateKey(row.requested_end),
+        confirmedEnd: businessDateKey(row.confirmed_end),
+      }
+      : null)),
+  });
+  return parseBusinessDate(cutoff)!;
 }
 
 /** One campaign's measured totals over a window. */

@@ -902,16 +902,29 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.warnings.highAdProducts).toBe(1);
     // Real seeded counts must arrive with a basis that lets the card display
     // them. `unavailable` is the one status that blanks a warning card.
-    for (const key of [...PER_LISTING_KEYS, ...AD_FREE_KEYS]) {
+    // The per-listing counts are as-of their window's last day, the anchor's
+    // last closed day, and name every ledger they read: the listings sell on
+    // a Coupang account, so the ad sweep stands behind them beside orders.
+    for (const key of PER_LISTING_KEYS) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        kind: 'snapshot',
+        measured: true,
+        asOf: lastClosedDate(ctx),
+        requiredAsOf: lastClosedDate(ctx),
+        sources: ['orders', 'channel_listings', 'coupang_ads'],
+      });
+    }
+    // Stock and mapping are current-state reads, needed as-of the read's day.
+    // The stock count is as-of its snapshot's own verification; mapping is
+    // as-of the read.
+    for (const key of AD_FREE_KEYS) {
       expect(result.metricBasis?.[key], key).toMatchObject({
         kind: 'snapshot', measured: true, requiredAsOf: businessDateText(ctx.anchor),
       });
     }
-    // The stock count is as-of its snapshot's own verification; the others
-    // are as-of the read.
-    for (const key of [...PER_LISTING_KEYS, 'warnings.mappingAttentionSkus'] as const) {
-      expect(result.metricBasis?.[key], key).toMatchObject({ asOf: businessDateText(ctx.anchor) });
-    }
+    expect(result.metricBasis?.['warnings.mappingAttentionSkus']).toMatchObject({
+      asOf: businessDateText(ctx.anchor),
+    });
   });
 
   /**
@@ -1040,9 +1053,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       for (const key of PER_LISTING_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
-          asOf: businessDateText(WARNING_ANCHOR),
+          asOf: lastClosedDate(warningContext()),
           measured: true,
           withheldCount: 0,
+          sources: ['orders', 'channel_listings', 'coupang_ads'],
         });
       }
     });
@@ -1081,11 +1095,14 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
       expect(result.warnings.minusProducts).toBe(1);
       expect(result.warnings.highAdProducts).toBe(0);
+      // Advertising applies to no listing, so no ad ledger stands behind the
+      // counts: the basis names orders and listings alone.
       for (const key of PER_LISTING_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
           measured: true,
           withheldCount: 0,
+          sources: ['orders', 'channel_listings'],
         });
       }
     });
@@ -1149,10 +1166,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       const result = await readSummary(warningContext(), TEST_ORGANIZATION_ID, adDay(19));
 
       expect(result.warnings.minusProducts).toBe(1);
+      // The count reaches the 19th, the as-of it needed: current, not stale
+      // for want of the still-open 20th.
       for (const key of PER_LISTING_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
-          asOf: businessDateText(WARNING_ANCHOR),
+          asOf: adDay(19),
+          requiredAsOf: adDay(19),
           measured: true,
           withheldCount: 0,
         });
@@ -1177,7 +1197,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         undefined, undefined, undefined, new Date('2026-09-01T03:00:00.000Z'),
       );
 
-      expectPerListingUnavailable(await readSummary(firstOfMonth, TEST_ORGANIZATION_ID));
+      const result = await readSummary(firstOfMonth, TEST_ORGANIZATION_ID);
+      expectPerListingUnavailable(result);
+      // The empty window reaches no as-of; the one it needed is still the last
+      // closed day, 31 August, not the open 1st.
+      for (const key of PER_LISTING_KEYS) {
+        expect(result.metricBasis?.[key], key).toMatchObject({ requiredAsOf: '2026-08-31' });
+      }
     });
   });
 });

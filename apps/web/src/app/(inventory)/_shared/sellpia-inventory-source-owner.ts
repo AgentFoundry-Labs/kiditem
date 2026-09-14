@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
@@ -271,21 +272,19 @@ export function useSellpiaInventorySourceOwner({ enabled = true }: { enabled?: b
     environmentKey,
   );
 
-  const attemptQuery = useQuery({
+  const attemptQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: attemptQueryKey,
     queryFn: () => readSellpiaInventorySourceAttempt(scopedAttempt!.attemptId!),
     enabled: enabled && !!organizationId && !!scopedAttempt?.attemptId,
-    retry: false,
     refetchInterval: (query) =>
       query.state.data?.state === 'RUNNING' ? 2_000 : false,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
-  const freshness = useQuery({
+  }));
+  const freshness = useQuery(collectionSourceStatusQueryOptions({
     queryKey: freshnessQueryKey,
     queryFn: sellpiaInventoryFreshnessApi.getState,
     enabled: enabled && !!organizationId,
-    retry: false,
     refetchInterval: (query) => {
       if (!enabled || !organizationId) return false;
       if (attemptQuery.data?.state === 'RUNNING' || query.state.data?.status === 'syncing') {
@@ -295,7 +294,7 @@ export function useSellpiaInventorySourceOwner({ enabled = true }: { enabled?: b
     },
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
 
   const setScopedAttempt = useCallback((attempt: ActiveSellpiaInventoryAttempt) => {
     if (!organizationId) return;

@@ -433,7 +433,7 @@ duplicate persistent server.
 ## CI 통합
 
 `develop`/`main`/`release/office` 대상 PR은 대기 시간을 줄이기 위해
-`.github/workflows/pr-checks.yml`에서 정적 계약과 Gateway 단위 검증만 수행한다.
+`.github/workflows/pr-checks.yml`에서 정적 계약, 스크립트 계약 테스트, Gateway 단위 검증만 수행한다.
 provider runtime staging과 self-contained .NET publish는 정확한 원격 SHA를 선택한
 `npm run deploy:office:local`이 Windows Office 호스트에서 수행한다.
 PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로컬에서 완료한 뒤
@@ -443,6 +443,7 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 | --- | --- | --- |
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
 | `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
+| `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build, web/extension tests, real PostgreSQL integration suite 실행 |
 
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
