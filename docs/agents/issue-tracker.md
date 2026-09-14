@@ -16,6 +16,9 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
   deferred work, and verification evidence on the issue as they happen. Link
   PRs rather than duplicating review threads. Read back updates to confirm
   shared state.
+- Comments are an append-only record: decisions, facts, review results, merge
+  commits. Never rewrite a past comment. The one live surface is the
+  `## 현재 상태` section at the top of the description (see Orchestration).
 - Mark work Done only with completion evidence; for merged implementation,
   record the PR and merge commit.
 - Apply the root `CLAUDE.md` ADR eligibility check before recording a settled
@@ -73,15 +76,22 @@ leader that no open issue delegates to.
    blockers stay listed. The frontier is complete when every Ready issue is
    either on it or excluded by one of these rules.
 2. **Claim.** Move the issue to In Progress, set its delegate to your leader
-   while the human stays assignee, and comment the branch, worktree, and
-   agent. Release it by moving it back to Ready with the delegate cleared and a
-   comment.
-3. **Checkpoint.** Keep one current-state comment on the spec or map issue
-   (leader; done; running, with agent and worktree; next) and update it at
-   each checkpoint.
+   while the human stays assignee, and record the branch, worktree, and agent
+   in the live state. Release it by moving it back to Ready with the delegate
+   cleared and a comment.
+3. **Live state.** Keep a `## 현재 상태` section at the top of the description
+   of the spec, map, or lead issue of the PR (leader; PR; done; running, with
+   agent and worktree; next). Update it, and only it, at each of these eight
+   triggers: claim, agent start, agent finish, review result, PR open, CI
+   result, merge, user decision. Everything else is an append-only comment.
 4. **Found work** goes to Triage with a relation to the issue that found it.
-5. **PR.** When the PR opens, apply its `PR` label and move its issues to In
-   Review; after merge, mark them Done with the PR and merge commit.
+5. **PR.** Put the issue key in the branch name. In the PR body write
+   `Fixes KID-nnn` for every issue the merge completes and `Refs KID-nnn` for
+   issues that still need verification after merge (QA, a workflow run). The
+   Linear GitHub integration moves `Fixes` issues to In Review on open and Done
+   on merge; do not move those by hand. When the PR opens, apply its `PR` label
+   and update the live state; after merge, record the merge commit there and
+   mark `Refs` issues Done only with their evidence.
 
 ## Tool Conventions
 
