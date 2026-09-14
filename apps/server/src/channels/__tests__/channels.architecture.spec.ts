@@ -133,6 +133,8 @@ describe('channels architecture contract', () => {
     );
     expect(transactionReaderHits.sort()).toEqual([
       path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
+      // The mall listing matrix shows each master product's stock.
+      path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
       path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
     ]);
   });

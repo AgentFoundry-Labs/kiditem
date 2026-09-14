@@ -1,5 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  readInventoryAvailability,
+  readInventorySkuIdentities,
+} from '../../../../inventory/read/inventory-availability';
+import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CoupangNoticeSourceRow,
@@ -615,8 +620,6 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           code: true,
           name: true,
           updatedAt: true,
-          // 재고는 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
-          inventorySkus: { select: { currentStock: true }, take: 1 },
           channelListings: {
             where: {
               isActive: true,
@@ -660,13 +663,17 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       this.prisma.masterProduct.count({ where }),
     ]);
 
+    const stockByMaster = await this.readMatrixStock(
+      organizationId,
+      records.map((record) => record.id),
+    );
     const rows = records.map<MallMatrixProductRow>((record) => ({
       masterProductId: record.id,
       code: record.code,
       name: record.name,
       imageUrl: firstListingImageUrl(record.channelListings),
       // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
-      stock: record.inventorySkus[0]?.currentStock ?? null,
+      stock: stockByMaster.get(record.id) ?? null,
       updatedAt: record.updatedAt,
       listings: record.channelListings.map((listing) => ({
         channelAccountId: listing.channelAccountId,
@@ -680,16 +687,39 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     return { rows, total };
   }
 
-  async countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]> {
-    const grouped = await this.prisma.order.groupBy({
-      by: ['channelAccountId'],
-      where: { organizationId },
-      _count: { channelAccountId: true },
+  /**
+   * 한 페이지 마스터의 재고. 재고 원장은 Inventory 리더로만 읽는다 — 끝나지 않은
+   * 수집의 줄은 재고로 보이지 않는다. 연결된 SKU 가 없거나 발행된 스냅샷에 없으면
+   * null 이다. 재고는 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
+   */
+  private async readMatrixStock(
+    organizationId: string,
+    masterProductIds: readonly string[],
+  ): Promise<Map<string, number>> {
+    if (masterProductIds.length === 0) return new Map();
+    const wanted = new Set(masterProductIds);
+    return this.prisma.$transaction(async (tx) => {
+      const skus = (await readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }))
+        .filter((sku) => sku.masterProductId !== null && wanted.has(sku.masterProductId));
+      if (skus.length === 0) return new Map<string, number>();
+      const availability = await readInventoryAvailability(tx, {
+        organizationId,
+        sellpiaInventorySkuIds: skus.map((sku) => sku.sellpiaInventorySkuId),
+      });
+      const stockBySku = new Map(
+        availability.items.map((item) => [item.sellpiaInventorySkuId, item.currentStock]),
+      );
+      const stock = new Map<string, number>();
+      for (const sku of skus) {
+        const current = stockBySku.get(sku.sellpiaInventorySkuId);
+        if (sku.masterProductId && current !== undefined) stock.set(sku.masterProductId, current);
+      }
+      return stock;
     });
-    return grouped.map((row) => ({
-      channelAccountId: row.channelAccountId,
-      orderCount: row._count.channelAccountId,
-    }));
+  }
+
+  countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]> {
+    return readOrderCountsByChannelAccount(this.prisma, organizationId);
   }
 
   countActiveMasterProducts(organizationId: string): Promise<number> {
