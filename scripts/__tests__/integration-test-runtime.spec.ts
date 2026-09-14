@@ -133,15 +133,17 @@ describe('integration test runtime contract', () => {
     const testScripts = (JSON.parse(readRepoFile('package.json')) as {
       scripts?: Record<string, string>;
     }).scripts?.['test:scripts'];
-    const scriptJob = readWorkflowJobSource(
-      readRepoFile('.github/workflows/pr-checks.yml'),
-      'script_contract_checks',
-    );
+    const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
+    const scriptJob = readWorkflowJobSource(workflowSource, 'script_contract_checks');
     const jobLines = scriptJob.split('\n').map((line) => line.trim());
-    const databaseUrlLines = jobLines.flatMap((line, index) => (line.startsWith('DATABASE_URL:') ? [index] : []));
+    const generateStep = jobLines.indexOf('- name: Generate Prisma client');
+    const databaseUrlLine = jobLines.findIndex((line) => line.startsWith('DATABASE_URL:'));
 
-    expect(testScripts).toContain('vitest run --config scripts/vitest.config.ts');
-    expect(testScripts).toContain('node --test scripts/__tests__/*.test.mjs');
+    expect(testScripts?.split(' && ')).toEqual([
+      expect.stringMatching(/^vitest run --config scripts\/vitest\.config\.ts(\s|$)/),
+      expect.stringMatching(/^node --test scripts\/__tests__\/\*\.test\.mjs(\s|$)/),
+    ]);
+    expect(testScripts).not.toMatch(/\|\||;/);
     expect(jobLines).toContain('runs-on: ubuntu-latest');
     expect(jobLines).toContain('contents: read');
     expect(jobLines).toContain('node-version: 22');
@@ -153,9 +155,10 @@ describe('integration test runtime contract', () => {
       'run: npm run test:scripts',
     ]);
     expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
-    expect(databaseUrlLines).toHaveLength(1);
-    expect(databaseUrlLines[0]).toBeGreaterThan(jobLines.indexOf('- name: Generate Prisma client'));
-    expect(databaseUrlLines[0]).toBeLessThan(jobLines.indexOf('run: npx prisma generate'));
+    expect(workflowSource.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
+    expect(generateStep).toBeGreaterThan(-1);
+    expect(databaseUrlLine).toBeGreaterThan(generateStep);
+    expect(databaseUrlLine).toBeLessThan(jobLines.indexOf('run: npx prisma generate'));
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {
