@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber, sumOrUnavailable } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
+import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
@@ -123,6 +124,7 @@ export function RocketOrdersWorkspace({
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const rocketSource = useRocketPoSource(selectedRocketAccountId, viewStateReady);
   const selectedSourceImportRunId = rocketSource.data?.latestComplete?.attemptId ?? null;
+  const rocketSourceRead = collectionSourceStatusRead(rocketSource);
   const { events, record: recordActivity } = useRocketOrderActivity();
 
   const handleRocketAccountChange = useCallback((account: {
@@ -469,7 +471,7 @@ export function RocketOrdersWorkspace({
       />
 
       <div role="status" aria-label="로켓 수집 상태" className="text-sm text-slate-500">
-        {rocketSource.isError ? '로켓 수집 상태를 불러오지 못했습니다.' : (
+        {rocketSourceRead === 'unavailable' ? '로켓 수집 상태를 불러오지 못했습니다.' : (
           <>
             {rocketSource.data?.ready ? 'COMPLETE 수집본' :
               rocketSource.data?.latestComplete ? '이전 COMPLETE 수집본 · 최신 수집 필요' : '완료된 로켓 수집본 없음'}
@@ -477,6 +479,7 @@ export function RocketOrdersWorkspace({
               <span> · 실제 수집 기준 <time dateTime={rocketSource.data.latestComplete.actualCutoffAt}>{rocketSource.data.latestComplete.actualCutoffAt}</time></span>
             )}
             {rocketSource.data?.latestAttempt?.state === 'RUNNING' && <span> · 수집 진행 중</span>}
+            {rocketSourceRead === 'rechecking' && <span> · {COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</span>}
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
               <span className="text-amber-700"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
             )}

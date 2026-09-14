@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   beginWingTrackedProductAttempt,
@@ -71,13 +72,13 @@ export function ProductTrackingPage() {
     queryKey: queryKeys.sourcing.wingTrackedHistories(30),
     queryFn: () => fetchWingTrackedHistories(30),
   });
-  const { data: sourceStatus } = useQuery({
+  const { data: sourceStatus } = useQuery(collectionSourceStatusQueryOptions({
     queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY,
     queryFn: fetchWingTrackedProductSourceStatus,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
     ),
-  });
+  }));
   const historyByTrackedProductId = useMemo(
     () => new Map(
       (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),

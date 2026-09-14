@@ -1,6 +1,7 @@
 'use client';
 
 import { Megaphone, RefreshCw } from 'lucide-react';
+import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import { formatDateTime } from '@/lib/utils';
 import { useAdvertisingProfitabilityRefresh } from '../hooks/useAdvertisingProfitabilityRefresh';
 
@@ -21,9 +22,10 @@ export default function AdvertisingProfitabilityRefresh() {
   const attempt = source.data?.latestAttempt;
   const latestComplete = source.data?.latestComplete;
   const running = attempt?.state === 'RUNNING';
-  const statusUnknown = source.isPending || source.isError;
+  const statusRead = collectionSourceStatusRead(source);
+  const statusUnknown = statusRead === 'loading' || statusRead === 'unavailable';
   const label = statusUnknown
-    ? source.isPending ? '상태 확인 중' : '상태 확인 필요'
+    ? statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
     : statusText(attempt?.state, source.data);
 
   return (
@@ -74,8 +76,11 @@ export default function AdvertisingProfitabilityRefresh() {
             {actionError && attempt?.state !== 'FAILED' && (
               <p style={{ color: 'var(--warning)' }}>{actionError}</p>
             )}
-            {source.isError && !actionError && (
+            {statusRead === 'unavailable' && !actionError && (
               <p style={{ color: 'var(--danger)' }}>수집 상태를 불러오지 못했습니다.</p>
+            )}
+            {statusRead === 'rechecking' && (
+              <p style={{ color: 'var(--text-tertiary)' }}>{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
             )}
           </div>
         </div>
@@ -89,9 +94,9 @@ export default function AdvertisingProfitabilityRefresh() {
           <RefreshCw size={13} className={starting || running ? 'animate-spin' : undefined} />
           {running
             ? '수집 중'
-            : source.isPending
+            : statusRead === 'loading'
               ? '상태 확인 중'
-              : source.isError
+              : statusRead === 'unavailable'
                 ? '상태 확인 필요'
                 : starting
                   ? '수집 시작 중'

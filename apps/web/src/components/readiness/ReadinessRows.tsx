@@ -20,6 +20,7 @@ import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywo
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import {
   buildCoupangCatalogProgress,
@@ -634,6 +635,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
   const { source, status, loading, cancelling, run, cancel } = useAdSync({ onComplete });
   const readiness = source.data ? ownerSourceReadiness(source.data) : null;
   const isRunning = status?.state === 'RUNNING';
+  const statusRead = collectionSourceStatusRead(source);
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -655,8 +657,11 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
               ? `사용 중인 데이터: ${source.data.latestComplete.plan.startDate} ~ ${source.data.latestComplete.plan.endDate}`
               : '완료된 데이터가 없습니다. 전체 순회 완료 후 결과를 표시합니다.'}
           </p>
-          {source.isError && (
+          {statusRead === 'unavailable' && (
             <p className="mt-1 text-xs text-[var(--danger)]">수집 상태를 확인하지 못했습니다.</p>
+          )}
+          {statusRead === 'rechecking' && (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
           )}
           {status && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -671,7 +676,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
 
         <button
           onClick={() => void run()}
-          disabled={loading || cancelling || source.isPending || source.isError}
+          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
             'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
@@ -713,6 +718,7 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
   const { source, status, loading, cancelling, run, cancel } = useAdKeywordCollect({ onComplete });
   const readiness = source.data ? ownerSourceReadiness(source.data) : null;
   const canContinue = status?.state === 'RUNNING';
+  const statusRead = collectionSourceStatusRead(source);
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -732,10 +738,13 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             완료본 유지 · 필요하면 명시적으로 다시 실행
           </p>
-          {source.isError && (
+          {statusRead === 'unavailable' && (
             <p className="mt-1 text-xs text-[var(--danger)]">
               수집 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.
             </p>
+          )}
+          {statusRead === 'rechecking' && (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
           )}
           {status && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -756,7 +765,7 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
 
         <button
           onClick={() => void run()}
-          disabled={loading || cancelling || source.isPending || source.isError}
+          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
             'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',

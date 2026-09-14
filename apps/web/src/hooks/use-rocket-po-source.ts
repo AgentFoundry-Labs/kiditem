@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { collectAndPersistRocketPurchaseOrders, type CollectAndPersistRocketPurchaseOrdersInput } from '@/lib/rocket-purchase-collection-action';
 import { loadRocketPoSource } from '@/lib/rocket-sales-collection';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
@@ -13,14 +14,13 @@ type CollectionInput = Omit<CollectAndPersistRocketPurchaseOrdersInput, 'channel
 export function useRocketPoSource(channelAccountId: string, enabled = true) {
   const client = useQueryClient();
   const requests = useRef(new Map<string, { key: string; attemptId?: string }>());
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.orders.rocketPoSource(channelAccountId),
     queryFn: () => loadRocketPoSource(channelAccountId),
     enabled: enabled && Boolean(channelAccountId),
-    retry: false,
     refetchInterval: (query) => query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
   const latestCompleteId = source.data?.latestComplete?.attemptId;
   useEffect(() => {
     if (latestCompleteId) void client.invalidateQueries({ queryKey: queryKeys.orders.rocketSavedPoLists() });

@@ -137,8 +137,10 @@ function setup(
           },
         },
   );
+  // Wing batch reads follow the shared source-status rule, which retries the
+  // 503 case below; a zero default delay keeps those retries immediate.
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false, retryDelay: 0 }, mutations: { retry: false } },
   });
   const refetchReadiness = vi.fn().mockResolvedValue(undefined);
   const view = renderHook(() => useReadinessCollection({ refetchReadiness }), {

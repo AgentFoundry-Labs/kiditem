@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   cancelWingTrafficSource,
@@ -136,15 +137,14 @@ export function useWingTrafficCollection({
   // A newer request or a cancel supersedes announcements from an older dispatch.
   const requestGeneration = useRef(0);
   const observedCompleteId = useRef<string | null | undefined>(undefined);
-  const source = useQuery<AdTrafficSourceStatus>({
+  const source = useQuery(collectionSourceStatusQueryOptions<AdTrafficSourceStatus>({
     queryKey: [...wingTrafficSourceQueryKey, channelAccountId ?? 'primary'],
     queryFn: () => readWingTrafficSource(channelAccountId),
-    retry: false,
     refetchInterval: (query) =>
       actionPending || query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
   const knownThrough = source.data?.knownThrough;
   const range = knownThrough ? resolveWingTrafficCollectionRange({
     period,
@@ -152,7 +152,7 @@ export function useWingTrafficCollection({
     selectedTo,
     knownThrough,
   }) : null;
-  const rangeReady = source.isSuccess
+  const rangeReady = source.data !== undefined
     && range !== null
     && (period !== 'custom' || (!!selectedFrom && !!selectedTo));
 

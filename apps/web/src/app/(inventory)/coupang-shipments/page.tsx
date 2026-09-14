@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
+import { collectionSourceStatusQueryOptions } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
 import { formatNumber } from "@/lib/utils";
@@ -93,13 +94,13 @@ export default function CoupangShipmentsPage() {
   const [serverHistoryLoading, setServerHistoryLoading] = useState(false);
   const [extensionBusy, setExtensionBusy] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.inventory.coupangShipmentSummary(),
     queryFn: loadCoupangShipmentSummarySource,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === "RUNNING" ? 1_000 : false
     ),
-  });
+  }));
   const dateSummary = source.data?.items ?? [];
   const [notifications, setNotifications] = useState<ShipmentNotification[]>(
     [],

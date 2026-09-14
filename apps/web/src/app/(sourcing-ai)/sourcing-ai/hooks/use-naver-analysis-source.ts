@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { keywordAnalysisSnapshotQueryKey, type KeywordAnalysisInput, type KeywordAnalysisSnapshot } from '../lib/keyword-analysis-snapshot-api';
 
 interface AnalysisAttempt { attemptId: string; state: 'RUNNING' | 'COMPLETE' | 'FAILED'; errorMessage: string | null }
@@ -14,10 +15,10 @@ export function useNaverAnalysisSource({ input }: { input: KeywordAnalysisInput 
   const requestKeys = useRef(new Map<string, { key: string; attemptId: string | null }>());
   const [error, setError] = useState<string | null>(null);
   const statusKey = [...keywordAnalysisSnapshotQueryKey(input), 'status'];
-  const status = useQuery({ queryKey: statusKey,
+  const status = useQuery(collectionSourceStatusQueryOptions({ queryKey: statusKey,
     queryFn: () => apiClient.get<AnalysisStatus>('/api/sourcing/keyword-analysis/status?input=' + encodeURIComponent(JSON.stringify(input))),
     refetchInterval: (query) => query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
-  });
+  }));
   const completeId = status.data?.latestAttempt?.state === 'COMPLETE' ? status.data.latestAttempt.attemptId : null;
   useEffect(() => {
     if (completeId) {

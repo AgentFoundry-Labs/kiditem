@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Radar } from "lucide-react";
 import { toast } from "sonner";
 import { transferExtensionAuthTo } from "@/lib/extension-auth";
+import { collectionSourceStatusQueryOptions } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { beginWingRankBatch, fetchWingRankBatch } from "../lib/rank-api";
@@ -42,7 +43,7 @@ export default function BatchRankCheck({
   const [cancelError, setCancelError] = useState<string | null>(null);
   const observed = useRef("");
   const queryKey = [...queryKeys.ads.keywordRank(), "batch", batchKey];
-  const owner = useQuery({
+  const owner = useQuery(collectionSourceStatusQueryOptions({
     queryKey,
     queryFn: () => fetchWingRankBatch(batchKey!),
     enabled: !!batchKey && !starting,
@@ -50,7 +51,7 @@ export default function BatchRankCheck({
       query.state.data?.attempts.some((attempt) => attempt.state === "RUNNING")
         ? 2000
         : false,
-  });
+  }));
   const attempts = owner.data?.attempts ?? [];
   const complete = attempts.filter(
     (attempt) => attempt.state === "COMPLETE",

@@ -317,4 +317,32 @@ describe('WingDailyTrafficCollection', () => {
     expect(screen.queryByText(/페이지 확인됨/)).not.toBeInTheDocument();
     view.unmount();
   });
+
+  it('blocks collection while no status has ever been read', async () => {
+    vi.mocked(readWingTrafficSource).mockRejectedValue(new Error('status read failed'));
+    const view = renderControl();
+
+    await waitFor(() => expect(screen.getByText('Wing 수집 상태를 불러오지 못했습니다.')).toBeInTheDocument());
+    expect(screen.getByTestId('wing-traffic-collect')).toBeDisabled();
+    expect(screen.getByTestId('wing-traffic-collect')).toHaveTextContent('상태 확인 필요');
+    view.unmount();
+  });
+
+  it('keeps acting on the last known status when a later status read fails', async () => {
+    const view = renderControl();
+    const refresh = screen.getByRole('button', { name: 'Wing 트래픽 상태 새로고침' });
+    await waitFor(() => {
+      expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled();
+      expect(refresh).toBeEnabled();
+    });
+
+    vi.mocked(readWingTrafficSource).mockRejectedValue(new Error('status read failed'));
+    fireEvent.click(refresh);
+
+    await waitFor(() => expect(screen.getByText('상태를 다시 확인하는 중')).toBeInTheDocument());
+    expect(screen.getByTestId('wing-traffic-collect')).toBeEnabled();
+    expect(screen.getByTestId('wing-traffic-collect')).toHaveTextContent('일별 수집 시작');
+    expect(screen.queryByText('Wing 수집 상태를 불러오지 못했습니다.')).not.toBeInTheDocument();
+    view.unmount();
+  });
 });
