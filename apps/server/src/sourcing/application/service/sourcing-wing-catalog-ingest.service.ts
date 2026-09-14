@@ -123,6 +123,12 @@ export class SourcingWingCatalogIngestService {
     });
   }
 
+  /** Operator stop without the attempt token; only a Wing catalog attempt of this organization. */
+  async cancel(input: { organizationId: string; attemptId: string }) {
+    await this.read(input);
+    return this.attempts.cancelAttempt(input);
+  }
+
   async fail(input: { organizationId: string; attemptId: string; attemptToken: string; code: string; message: string }) {
     await this.read(input);
     return this.attempts.failAttempt({ ...input, code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',

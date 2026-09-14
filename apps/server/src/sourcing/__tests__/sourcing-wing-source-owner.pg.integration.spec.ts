@@ -126,6 +126,44 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({ items: [] });
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const attempt = await begin('operator-stop');
+    await expect(controller.cancelWingCatalog(attempt.attemptId, '00000000-0000-4000-8000-000000000099'))
+      .rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+    const stopped = await controller.cancelWingCatalog(attempt.attemptId, organizationId);
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await prisma.alert.count({ where: { organizationId } })).toBe(0);
+    await expect(upload(attempt, [item])).rejects.toThrow('SOURCE_ATTEMPT_TERMINAL');
+    await expect(controller.cancelWingCatalog(attempt.attemptId, organizationId)).resolves.toEqual(stopped);
+    const next = await begin('after-operator-stop');
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = await begin('operator-expired');
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: expired.attemptId },
+      data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
+    });
+    await expect(controller.cancelWingCatalog(expired.attemptId, organizationId))
+      .resolves.toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.count({ where: { organizationId, type: 'source_failure', status: 'OPEN' } })).toBe(1);
+
+    const completed = await begin('operator-complete');
+    const terminal = await publish(completed, [item]);
+    expect(terminal).toMatchObject({ state: 'COMPLETE' });
+    await expect(controller.cancelWingCatalog(completed.attemptId, organizationId)).resolves.toEqual(terminal);
+  });
+
   it('selects latest complete coverage per keyword, including confirmed empty replacement', async () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
     const read = () => sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 });
