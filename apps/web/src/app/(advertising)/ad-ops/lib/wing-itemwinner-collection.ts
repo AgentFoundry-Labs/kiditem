@@ -1,6 +1,9 @@
 'use client';
 
-import { z } from 'zod';
+import {
+  WingItemwinnerSourceStatusSchema,
+  type WingItemwinnerSourceStatus,
+} from '@kiditem/shared/advertising';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
@@ -8,32 +11,10 @@ import { startWindowCollection } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import type { QueryKey } from '@tanstack/react-query';
 
+export type { WingItemwinnerSourceStatus } from '@kiditem/shared/advertising';
+
 const SOURCE_PATH = '/api/ads/wing-itemwinner';
 const RUNNING_POLL_MS = 2_000;
-
-// The itemwinner owner publishes no shared status schema; parse the fields
-// this control reads.
-const WingItemwinnerAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
-  channelAccountId: z.string().uuid(),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  plan: z.object({ businessDate: z.string().date() }),
-  expiresAt: z.string(),
-  observedAt: z.string().nullable(),
-  itemCount: z.number().int().nonnegative(),
-  errorCode: z.string().nullable(),
-  errorMessage: z.string().nullable(),
-});
-
-const WingItemwinnerSourceStatusSchema = z.object({
-  channelAccountId: z.string().uuid().nullable(),
-  ready: z.boolean(),
-  latestAttempt: WingItemwinnerAttemptSchema.nullable(),
-  latestComplete: WingItemwinnerAttemptSchema.nullable(),
-  actualCutoffAt: z.string().nullable(),
-});
-
-export type WingItemwinnerSourceStatus = z.infer<typeof WingItemwinnerSourceStatusSchema>;
 
 async function readWingItemwinnerSource(): Promise<WingItemwinnerSourceStatus> {
   return WingItemwinnerSourceStatusSchema.parse(await apiClient.get(`${SOURCE_PATH}/source`));
