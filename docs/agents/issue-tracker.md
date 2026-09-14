@@ -63,7 +63,7 @@ Linear is the durable memory of an orchestrating session: another session must
 be able to resume the work from Linear alone.
 
 Each orchestrating session acts as one **Dev Leader** and drives one PR. A Dev
-Leader is a Linear agent app user (`Dev Leader`, `Dev Leader 2`, …; list them
+Leader is a Linear agent app user (`Dev Leader 1`, `Dev Leader 2`, …; list them
 with `list_users`) that a workspace admin installs. Before claiming, take a
 leader that no open issue delegates to.
 
