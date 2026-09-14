@@ -362,4 +362,23 @@ describe("Wing rank owner UI", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it("keeps the last known batch progress beside a light hint when a later owner read fails", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["COMPLETE", "RUNNING"]));
+    expect(await screen.findByText("처리 1 / 전체 2")).toBeInTheDocument();
+
+    // A non-retryable read failure keeps this deterministic without fake timers.
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ message: "denied" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    }));
+    await h.client.invalidateQueries();
+
+    expect(await screen.findByText("상태를 다시 확인하는 중")).toBeInTheDocument();
+    expect(screen.getByText("처리 1 / 전체 2")).toBeInTheDocument();
+    expect(
+      screen.queryByText("서버의 수집 결과를 확인하지 못했습니다."),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -34,10 +34,27 @@ function shouldSuppressGlobalErrorToast(query: Parameters<QueryCacheOnError>[1])
   return meta?.suppressGlobalErrorToast === true;
 }
 
+/**
+ * 폴링하는 상태 조회는 서버가 멈춘 동안 매 주기마다 다시 실패한다.
+ * `meta.globalErrorToastOncePerFailureStreak` 를 둔 query 는 연속 실패마다
+ * 토스트를 한 번만 띄우고, 조회가 한 번 성공한 뒤의 새 실패에서 다시 띄운다.
+ */
+const toastedFailureStreaks = new WeakMap<object, number>();
+
+function continuesToastedFailureStreak(query: Parameters<QueryCacheOnError>[1]): boolean {
+  const meta = query.meta as Record<string, unknown> | undefined;
+  if (meta?.globalErrorToastOncePerFailureStreak !== true) return false;
+  const successfulReads = query.state.dataUpdateCount;
+  if (toastedFailureStreaks.get(query) === successfulReads) return true;
+  toastedFailureStreaks.set(query, successfulReads);
+  return false;
+}
+
 const handleQueryError: QueryCacheOnError = (error, query) => {
   if (shouldSuppressGlobalErrorToast(query)) return;
   if (isTransientFetchError(error)) return;
   if (isHandledAuthRequiredError(error)) return;
+  if (continuesToastedFailureStreak(query)) return;
   const message = isApiError(error) ? error.detail : '요청 처리 중 오류가 발생했습니다.';
   toast.error(message);
 };
