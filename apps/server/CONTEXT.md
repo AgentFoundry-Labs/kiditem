@@ -114,6 +114,15 @@ canonical facts, coverage manifests, current complete snapshot, and terminal
 status. Nothing else writes those rows.
 _Avoid_: collector, importer, sync service
 
+**Collection start**:
+An ask, from any path, that a source owner open a collection attempt: a screen
+control, the extension popup or a page timer. A start collects exactly one
+source, and its end never starts another collection. It never opens a second
+attempt for a source and scope that already has one running; it shows the
+running one instead. When it needs a browser resource another collection is
+using, it is refused before any attempt opens, naming that collection.
+_Avoid_: sync, refresh, trigger
+
 **Transport receipt**:
 The immutable record of one consumed directship transport result, including its
 original order effects and any Sellpia transmission intent. Multiple collection
