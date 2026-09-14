@@ -202,7 +202,9 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
   };
 }
 
-function parseAttemptStatus(value: string | null): 'completed' | 'failed' | null {
-  if (value === null || value === 'completed' || value === 'failed') return value;
+function parseAttemptStatus(value: string | null): 'completed' | 'failed' | 'cancelled' | null {
+  if (value === null || value === 'completed' || value === 'failed' || value === 'cancelled') {
+    return value;
+  }
   throw new ConflictException('Sellpia inventory state has an invalid attempt status');
 }

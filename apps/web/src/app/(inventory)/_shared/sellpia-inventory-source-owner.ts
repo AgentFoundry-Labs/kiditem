@@ -119,6 +119,8 @@ export type SellpiaInventorySourceOwnerState = {
   lastVerifiedAt: string | null;
   errorMessage: string | null;
   sourceBindingConfirmed: boolean;
+  /** The last attempt was stopped; the previous snapshot stays in use. */
+  stopped: boolean;
 };
 
 /**
@@ -234,6 +236,7 @@ export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: bo
         ? freshness.lastAttempt?.errorMessage ?? null
         : null,
       sourceBindingConfirmed: freshness.sourceBinding.confirmed,
+      stopped: freshness.status !== 'syncing' && freshness.lastAttempt?.status === 'cancelled',
     }
     : null;
 

@@ -11,6 +11,9 @@ import type {
 /** Light hint while a failed refetch leaves the last known status in charge. */
 export const COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE = '상태를 다시 확인하는 중';
 
+/** A stopped collection is not a failure: its source keeps the last complete collection. */
+export const COLLECTION_STOPPED_MESSAGE = '수집을 중단했습니다. 저장된 완료본은 유지됩니다.';
+
 const ERROR_REFETCH_MS = 30_000;
 const MAX_TRANSIENT_RETRIES = 3;
 

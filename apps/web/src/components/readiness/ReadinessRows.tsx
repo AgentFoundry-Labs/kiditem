@@ -30,6 +30,7 @@ import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/Sellpia
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
@@ -822,6 +823,9 @@ export function StockSyncRow() {
           </p>
           {state?.status === 'failed' && state.errorMessage && (
             <p className="mt-1 text-xs text-[var(--danger)]">{state.errorMessage}</p>
+          )}
+          {state?.stopped && (
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</p>
           )}
         </div>
 

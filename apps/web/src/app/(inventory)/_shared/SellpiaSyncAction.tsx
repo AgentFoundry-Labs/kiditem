@@ -13,6 +13,8 @@ const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }>
   syncing: { label: '갱신 중', className: 'bg-blue-100 text-blue-700' },
   failed: { label: '실패', className: 'bg-red-100 text-red-700' },
 };
+// A stopped collection is not a failure; the previous snapshot stays in use.
+const STOPPED_META = { label: '수집 중단됨', className: 'bg-slate-100 text-slate-700' };
 
 export const SELLPIA_INVENTORY_START_TITLE =
   '셀피아 현재고만 동기화합니다. 수익성 데이터는 상품 운영 센터에서 별도로 갱신할 수 있습니다.';
@@ -23,7 +25,7 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
   showStatus?: boolean;
 }) {
   const { control, state, isConfirming, confirmSourceBinding } = useSellpiaInventoryCollection();
-  const statusMeta = state ? STOCK_FRESHNESS_META[state.status] : null;
+  const statusMeta = state ? (state.stopped ? STOPPED_META : STOCK_FRESHNESS_META[state.status]) : null;
   const stockAge = state?.lastVerifiedAt ? timeAgo(state.lastVerifiedAt) : null;
 
   const runConfirmSourceBinding = async () => {

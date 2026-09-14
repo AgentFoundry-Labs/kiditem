@@ -33,7 +33,7 @@ export type SellpiaInventoryFreshnessState = {
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   lastAttemptAt: Date | null;
-  lastAttemptStatus: 'completed' | 'failed' | null;
+  lastAttemptStatus: 'completed' | 'failed' | 'cancelled' | null;
   lastAttemptSyncScope: SellpiaSyncScope | null;
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;

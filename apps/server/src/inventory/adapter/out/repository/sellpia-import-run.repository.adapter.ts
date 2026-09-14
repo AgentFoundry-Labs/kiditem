@@ -445,10 +445,21 @@ async function failOwnerIn(
     },
   });
   const generation = run.freshnessGeneration;
-  const stateErrorCode = (SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES as readonly string[])
-    .includes(errorCode)
-    ? errorCode
-    : 'sellpia_background_timeout';
+  // A `*_CANCELLED` code is a stop, by an operator or with the extension
+  // session, and never a failure (the rule SourceFailureAlerts follows). The
+  // stop releases the lease without failing the generation, so freshness shows
+  // a stopped attempt while the previous snapshot stays current.
+  const outcome = errorCode.endsWith('_CANCELLED')
+    ? { lastAttemptStatus: 'cancelled', lastErrorCode: null, lastErrorMessage: null }
+    : {
+        failedGeneration: generation,
+        lastAttemptStatus: 'failed',
+        lastErrorCode: (SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES as readonly string[])
+          .includes(errorCode)
+          ? errorCode
+          : 'sellpia_background_timeout',
+        lastErrorMessage: cleanMessage,
+      };
   await tx.sellpiaInventoryState.updateMany({
     where: {
       organizationId: run.organizationId,
@@ -465,12 +476,9 @@ async function failOwnerIn(
       activeSyncLeaseExpiresAt: null,
       activeSyncScope: null,
       activeGeneration: null,
-      failedGeneration: generation,
+      ...outcome,
       lastAttemptAt: new Date(),
-      lastAttemptStatus: 'failed',
       lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
-      lastErrorCode: stateErrorCode,
-      lastErrorMessage: cleanMessage,
       freshnessFence: randomUUID(),
     },
   });

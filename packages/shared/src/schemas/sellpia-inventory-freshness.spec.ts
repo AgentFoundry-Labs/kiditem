@@ -223,6 +223,12 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       status: 'syncing',
       activeSync: { ...parsed.activeSync, attemptId: null },
     }).activeSync?.attemptId).toBeNull();
+    // A stopped attempt is recorded as cancelled, not as a failure.
+    expect(SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      status: 'refresh_required',
+      lastAttempt: { ...parsed.lastAttempt, status: 'cancelled', errorCode: null, errorMessage: null },
+    }).lastAttempt?.status).toBe('cancelled');
   });
 
   it('rejects unknown keys throughout the view', () => {

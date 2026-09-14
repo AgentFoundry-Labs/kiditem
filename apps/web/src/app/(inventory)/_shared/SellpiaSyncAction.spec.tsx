@@ -105,6 +105,18 @@ function freshness(
   };
 }
 
+/** How the owner records a stopped attempt: cancelled, with no failure code or message. */
+function stoppedLastAttempt() {
+  return {
+    attemptedAt: '2026-09-14T01:00:00.000Z',
+    status: 'cancelled',
+    trigger: 'manual_request',
+    scope: 'inventory',
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
 let freshnessView: ReturnType<typeof freshness>;
 
 function renderActions(ui: ReactNode) {
@@ -210,16 +222,7 @@ describe('SellpiaSyncAction', () => {
     freshnessView = freshness('syncing');
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`) throw new Error(`unexpected POST ${path}`);
-      freshnessView = freshness('failed', {
-        lastAttempt: {
-          attemptedAt: '2026-09-14T01:00:00.000Z',
-          status: 'failed',
-          trigger: 'manual_request',
-          scope: 'inventory',
-          errorCode: null,
-          errorMessage: STOPPED,
-        },
-      });
+      freshnessView = freshness('refresh_required', { lastAttempt: stoppedLastAttempt() });
       return attempt('FAILED', { errorCode: 'USER_CANCELLED', errorMessage: STOPPED });
     });
     renderActions(<SellpiaSyncAction />);
@@ -228,6 +231,23 @@ describe('SellpiaSyncAction', () => {
 
     expect(await screen.findByRole('button', { name: '셀피아 재고 동기화' })).toBeEnabled();
     expect(apiClient.post).toHaveBeenCalledWith(`${BEGIN_PATH}/${ATTEMPT_ID}/cancel`);
+  });
+
+  it('shows a stopped collection as stopped, not failed, and begins the next one as a manual request', async () => {
+    freshnessView = freshness('refresh_required', { lastAttempt: stoppedLastAttempt() });
+    renderActions(<SellpiaSyncAction showStatus />);
+
+    expect(await screen.findByText('수집 중단됨')).toBeInTheDocument();
+    expect(screen.queryByText('실패')).not.toBeInTheDocument();
+    const start = screen.getByRole('button', { name: '셀피아 재고 동기화' });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
+      BEGIN_PATH,
+      { scope: 'inventory', trigger: 'manual_request' },
+      expect.anything(),
+    ));
   });
 
   it('opens no attempt when the Sellpia extension is not connected', async () => {

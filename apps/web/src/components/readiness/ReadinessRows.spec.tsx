@@ -415,6 +415,25 @@ describe('readiness Sellpia row', () => {
     expect(screen.queryByText('실패')).not.toBeInTheDocument();
   });
 
+  it('shows a stopped Sellpia collection as stopped, not a failure, while the previous snapshot stays in use', async () => {
+    statuses[SELLPIA_FRESHNESS_PATH] = {
+      ...sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z'),
+      lastAttempt: {
+        attemptedAt: '2026-09-06T01:00:00.000Z',
+        status: 'cancelled',
+        trigger: 'manual_request',
+        scope: 'inventory',
+        errorCode: null,
+        errorMessage: null,
+      },
+    };
+    renderRow(<StockSyncRow />);
+
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '재고 동기화' })).toBeEnabled();
+    expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
+  });
+
   it('starts Sellpia inventory once and shows it running on the stock screen control as well', async () => {
     statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z');
     extensionReplies.collectSellpiaInventory = () => new Promise(() => undefined);

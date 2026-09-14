@@ -299,6 +299,41 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
   });
 
+  it('ends a stop from the operator route or the extension session as a cancellation, not a failure, keeping the previous snapshot current', async () => {
+    const basis = await begin('stopped-basis');
+    await complete(basis, snapshot(5)).expect(201);
+    const verified = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+
+    for (const stop of [
+      async () => cancel((await begin('stopped-by-operator')).attemptId).expect(200),
+      async () => fail(await begin('stopped-by-extension'), 'COLLECTION_CANCELLED').expect(201),
+    ]) {
+      await stop();
+      expect(await freshness.getState({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+      })).toMatchObject({
+        status: 'refresh_required',
+        verifiedGeneration: verified.verifiedGeneration,
+        lastVerifiedAt: verified.lastVerifiedAt,
+        activeSync: null,
+        lastAttempt: { status: 'cancelled', errorCode: null, errorMessage: null },
+      });
+    }
+
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    const current = await snapshots.listSnapshot(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      stockStatus: 'all',
+    });
+    expect(current.latestImport).toMatchObject({ id: basis.attemptId });
+    expect(current.items[0]).toMatchObject({ code: 'SP-001', currentStock: 5 });
+  });
+
   it('names the running attempt in the organization freshness read by its id, never its token, so any browser can stop it', async () => {
     const attempt = await begin('freshness-names-attempt');
     const running = await freshness.getState({
