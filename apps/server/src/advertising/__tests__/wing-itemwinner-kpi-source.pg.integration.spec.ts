@@ -261,6 +261,47 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
     });
   });
 
+  it("keys the failure Alert per account, so one account's collection neither replaces nor clears another's", async () => {
+    const second = await prisma.channelAccount.create({
+      data: {
+        organizationId: ORG,
+        channel: 'coupang',
+        name: 'Second Wing',
+        vendorId: 'VENDOR-B',
+      },
+    });
+    const alerts = () =>
+      prisma.alert.findMany({
+        where: { organizationId: ORG, sourceType: 'coupang_wing_itemwinner' },
+        select: { dedupeKey: true, status: true, attemptId: true },
+        orderBy: { dedupeKey: 'asc' },
+      });
+    const failWithoutVendor = async (attempt: WingItemwinnerSourceControl) => {
+      await complete(attempt, captureFor(attempt, { providerVendorId: undefined })).expect(409);
+    };
+
+    const secondFailed = (await begin(randomUUID(), { channelAccountId: second.id }))
+      .body as WingItemwinnerSourceControl;
+    await failWithoutVendor(secondFailed);
+    const primaryFailed = (await begin()).body as WingItemwinnerSourceControl;
+    await failWithoutVendor(primaryFailed);
+    expect(await alerts()).toEqual(
+      [
+        { dedupeKey: `source:coupang_wing_itemwinner:${accountId}`, status: 'OPEN', attemptId: primaryFailed.attemptId },
+        { dedupeKey: `source:coupang_wing_itemwinner:${second.id}`, status: 'OPEN', attemptId: secondFailed.attemptId },
+      ].sort((left, right) => left.dedupeKey.localeCompare(right.dedupeKey)),
+    );
+
+    const primaryDone = (await begin()).body as WingItemwinnerSourceControl;
+    await complete(primaryDone, captureFor(primaryDone)).expect(201);
+    expect(await alerts()).toEqual(
+      [
+        { dedupeKey: `source:coupang_wing_itemwinner:${accountId}`, status: 'RESOLVED', attemptId: primaryDone.attemptId },
+        { dedupeKey: `source:coupang_wing_itemwinner:${second.id}`, status: 'OPEN', attemptId: secondFailed.attemptId },
+      ].sort((left, right) => left.dedupeKey.localeCompare(right.dedupeKey)),
+    );
+  });
+
   it('publishes raw current-page KPI plus winner listing/option facts atomically', async () => {
     const attempt = (await begin()).body as WingItemwinnerSourceControl;
     const body = captureFor(attempt);

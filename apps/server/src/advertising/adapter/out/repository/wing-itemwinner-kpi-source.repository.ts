@@ -43,7 +43,11 @@ import type {
 const SNAPSHOT_SOURCE = 'wing';
 const PAGE_TYPE = 'itemwinner';
 const EXPIRES_IN_MS = 30 * 60_000;
-const SOURCE_ALERT_DEDUPE_KEY = `source:${WING_ITEMWINNER_SOURCE}`;
+// One failure Alert per account, as Wing traffic, campaigns and keywords keep:
+// an account's completion resolves only its own failure.
+function sourceAlertDedupeKey(channelAccountId: string | null): string {
+  return `source:${WING_ITEMWINNER_SOURCE}:${channelAccountId}`;
+}
 const SOURCE_ALERT_TITLE = '쿠팡 Wing 아이템위너 수집 실패';
 
 type Tx = Prisma.TransactionClient;
@@ -463,7 +467,7 @@ export class WingItemwinnerKpiSourceRepository
         });
         await this.alerts.resolveSourceFailure(tx, {
           organizationId: input.organizationId,
-          dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
+          dedupeKey: sourceAlertDedupeKey(row.channelAccountId),
           attemptId: row.id,
         });
         return { row: completed };
@@ -725,7 +729,7 @@ export class WingItemwinnerKpiSourceRepository
       organizationId: row.organizationId,
       sourceType: WING_ITEMWINNER_SOURCE,
       attemptId: row.id,
-      dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
+      dedupeKey: sourceAlertDedupeKey(row.channelAccountId),
       title: SOURCE_ALERT_TITLE,
       message: message,
       href: '/ad-ops',
