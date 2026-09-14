@@ -2488,10 +2488,14 @@
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
     // The worker answers every HTTP status with success:true. The server refuses
-    // a report for a cancelled or superseded execution with 409, and that must
-    // stop the action before it touches Coupang.
+    // a report with 409 when the attempt is not this executor's to report:
+    // another executor started it, or it was cancelled or closed. That must stop
+    // the action before it touches Coupang, and this executor reports nothing
+    // more for it.
     if (!result.ok) {
-      throw new Error(`실행 보고 거절 (${type}): ${result.status}`);
+      const error = new Error(`실행 보고 거절 (${type}): ${result.status}`);
+      error.executionReportRefused = true;
+      throw error;
     }
   }
 
@@ -2773,8 +2777,12 @@
           });
         }
       } catch (error) {
-        // A refused report lands here too: count the action once and move on.
         skipped++;
+        if (error?.executionReportRefused) {
+          // A failure report would move an attempt that is not this executor's.
+          console.warn("[KidItem] 실행 보고가 거절되어 액션을 멈춥니다:", error.message);
+          continue;
+        }
         await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
@@ -5710,22 +5718,31 @@
     return currentSync;
   }
 
+  // One approved-action execution per tab. A second Run, from the popup or the
+  // worker, joins the execution already in flight instead of starting the same
+  // actions again; another tab is refused by the server at its running report.
   let currentActionExecution = null;
-  function runApprovedActionsOnce() {
+  function runActionExecutionOnce(execute) {
     if (!currentActionExecution) {
-      currentActionExecution = fetchApprovedQueuedActions(20)
-        .then((actions) => {
-          if (actions.length === 0) {
-            showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
-            return { success: true, executed: 0, skipped: 0 };
-          }
-          return executeApprovedActions(actions);
-        })
+      currentActionExecution = Promise.resolve()
+        .then(execute)
         .finally(() => {
           currentActionExecution = null;
         });
     }
     return currentActionExecution;
+  }
+
+  function runApprovedActionsOnce() {
+    return runActionExecutionOnce(() =>
+      fetchApprovedQueuedActions(20).then((actions) => {
+        if (actions.length === 0) {
+          showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
+          return { success: true, executed: 0, skipped: 0 };
+        }
+        return executeApprovedActions(actions);
+      }),
+    );
   }
 
   // Pure parser contract used by fixture tests. Content scripts run in an isolated
@@ -5931,7 +5948,7 @@
 
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
-      executeApprovedActions(payload.actions || [])
+      runActionExecutionOnce(() => executeApprovedActions(payload.actions || []))
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;

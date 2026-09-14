@@ -167,7 +167,9 @@ export interface AdActionRepositoryPort {
 
   /**
    * Approve and, in the same $transaction, queue a new ExecutionTask for each
-   * action whose latest task is not open (queued or running).
+   * action whose latest task is not open (queued or running). A running task
+   * with no report for 30 minutes is abandoned: it is closed as failed and a
+   * new task is queued.
    */
   approveAdActions(ids: string[], organizationId: string): Promise<void>;
 

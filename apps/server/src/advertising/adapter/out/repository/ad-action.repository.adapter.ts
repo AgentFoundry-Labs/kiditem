@@ -26,6 +26,8 @@ import { readPublishedProductAbcGrades } from '../../../../products/read/product
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
+  ABANDONED_RUNNING_EXECUTION_MESSAGE,
+  isAbandonedRunningExecutionTask,
   isOpenExecutionTaskStatus,
   resolveExecutionReport,
 } from '../../../domain/execution-task-lifecycle';
@@ -473,14 +475,33 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
       // Approval queues a new attempt unless the latest one is still open. A
       // failed or done attempt stays as evidence and the new queued task
-      // becomes the latest, so a failed action reads queued again.
+      // becomes the latest, so a failed action reads queued again. A running
+      // attempt with no report for 30 minutes was abandoned by its executor:
+      // approval closes it as failed first, so retrying an action whose
+      // Coupang outcome is unknown is always the operator's decision.
       const latestTasks = await readLatestExecutionTasks(tx, {
         organizationId,
         actionIds: scopedIds,
       });
-      const toCreate = scopedIds
-        .filter((id) => !isOpenExecutionTaskStatus(latestTasks.get(id)?.status))
-        .map((id) => ({ actionId: id, status: 'queued' }));
+      const now = new Date();
+      const toCreate: Array<{ actionId: string; status: string }> = [];
+      for (const id of scopedIds) {
+        const latest = latestTasks.get(id) ?? null;
+        if (latest && isAbandonedRunningExecutionTask(latest, now)) {
+          // Compare-and-set: an outcome report that lands first keeps its attempt.
+          const closed = await tx.executionTask.updateMany({
+            where: { id: latest.id, actionId: id, status: 'running' },
+            data: {
+              status: 'failed',
+              finishedAt: now,
+              errorMessage: ABANDONED_RUNNING_EXECUTION_MESSAGE,
+            },
+          });
+          if (closed.count === 1) toCreate.push({ actionId: id, status: 'queued' });
+        } else if (!isOpenExecutionTaskStatus(latest?.status)) {
+          toCreate.push({ actionId: id, status: 'queued' });
+        }
+      }
 
       if (toCreate.length > 0) {
         await tx.executionTask.createMany({ data: toCreate });

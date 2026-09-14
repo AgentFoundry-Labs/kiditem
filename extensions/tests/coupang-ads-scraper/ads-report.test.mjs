@@ -3402,11 +3402,111 @@ test("a rejected running report stops the approved action before any Coupang wri
 
   assert.equal(clicks.rejected, 0, "a refused running report must keep the action off Coupang");
   assert.ok(clicks.accepted > 0, "the next approved action still opens its Coupang editor");
+  // A refused report ends this executor's reporting for the action: a failure
+  // report would move an attempt that is not its own.
   assert.deepEqual(reports, [
     "action-rejected:markRunning",
-    "action-rejected:markFailed",
     "action-accepted:markRunning",
     "action-accepted:markFailed",
   ]);
   assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 2 });
+});
+
+function openAdActionTestTab({ label, clicks, sendMessage }) {
+  const editButton = { innerText: "수정", click: () => { clicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [editButton], click: () => { clicks.count += 1; } };
+  return loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? [row] : []),
+    },
+    sendMessage,
+  });
+}
+
+function dispatchExecuteApprovedAdActions({ messageListeners }, actions) {
+  return new Promise((resolve, reject) => {
+    const message = { action: "executeApprovedAdActions", payload: { actions } };
+    if (!messageListeners.some((listener) => listener(message, {}, resolve) === true)) {
+      reject(new Error("executeApprovedAdActions has no listener"));
+    }
+  });
+}
+
+test("a second executor refused at its running report leaves Coupang untouched and cannot fail the first executor's attempt", async () => {
+  // One server behind two ad-center tabs. It fences the attempt the way the
+  // lifecycle policy does: the first running report starts it, and another
+  // running report for the same attempt is refused.
+  const serverLog = [];
+  const started = new Set();
+  const server = (tab) => async (message, callback) => {
+    if (message?.action === "waitForAdCollectorDelay") {
+      callback?.();
+      return undefined;
+    }
+    assert.equal(message?.action, "kiditemApiRequest");
+    const report = JSON.parse(message.init.body);
+    const refused = report.action === "markRunning" && started.has(report.id);
+    if (report.action === "markRunning" && !refused) started.add(report.id);
+    serverLog.push(`${tab}:${report.action}:${refused ? 409 : 201}`);
+    return refused
+      ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+      : { success: true, ok: true, status: 201, body: {} };
+  };
+  const label = "두 탭 캠페인";
+  const firstClicks = { count: 0 };
+  const secondClicks = { count: 0 };
+  const firstTab = openAdActionTestTab({ label, clicks: firstClicks, sendMessage: server("first") });
+  const secondTab = openAdActionTestTab({ label, clicks: secondClicks, sendMessage: server("second") });
+  const actions = [{ id: "action-shared", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+
+  const [first, second] = await Promise.all([
+    dispatchExecuteApprovedAdActions(firstTab, actions),
+    dispatchExecuteApprovedAdActions(secondTab, actions),
+  ]);
+
+  assert.equal(secondClicks.count, 0, "the refused executor must not open the Coupang editor");
+  assert.ok(firstClicks.count > 0, "the executor that started the attempt still works it");
+  // The fixture page has no budget dialog, so the first executor fails the
+  // attempt it owns. The refused executor sends nothing after its refusal.
+  assert.deepEqual(serverLog, [
+    "first:markRunning:201",
+    "second:markRunning:409",
+    "first:markFailed:201",
+  ]);
+  assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...second }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("a repeated Run in the same tab joins the approved-action execution already in flight", async () => {
+  const reports = [];
+  const clicks = { count: 0 };
+  const label = "다시 누른 실행";
+  const tab = openAdActionTestTab({
+    label,
+    clicks,
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      reports.push(JSON.parse(message.init.body).action);
+      return { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+  const actions = [{ id: "action-once", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+
+  const [first, second] = await Promise.all([
+    dispatchExecuteApprovedAdActions(tab, actions),
+    dispatchExecuteApprovedAdActions(tab, actions),
+  ]);
+
+  assert.equal(clicks.count, 1, "one approved action opens the Coupang editor once");
+  assert.deepEqual(reports, ["markRunning", "markFailed"]);
+  assert.deepEqual({ ...first }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...second }, { ...first });
 });

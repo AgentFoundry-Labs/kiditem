@@ -24,13 +24,21 @@ export type ExecutionReportStatus = Extract<
 
 /**
  * - `apply`: move the latest task to the reported status.
- * - `replay`: the latest task already has it; a repeated report changes nothing.
- * - `conflict`: the report is stale — the action has no attempt, its attempt
- *   was cancelled, or a different outcome is already recorded.
+ * - `replay`: the latest task already has that outcome; a repeated done or
+ *   failed report changes nothing.
+ * - `conflict`: the report is not the executor's to make — the action has no
+ *   attempt, its attempt was cancelled, a different outcome is already
+ *   recorded, or the attempt is already running. The extension never repeats a
+ *   running report the server applied (it retries only a request refused with
+ *   401), so a second running report comes from another executor and must not
+ *   reach Coupang.
  */
 export type ExecutionReportDecision = 'apply' | 'replay' | 'conflict';
 
-/** An attempt waiting for or undergoing execution. Approval adds no attempt while one is open. */
+/**
+ * An attempt waiting for or undergoing execution. Approval adds no attempt
+ * while one is open, unless it is an abandoned running attempt.
+ */
 export function isOpenExecutionTaskStatus(
   status: string | null | undefined,
 ): boolean {
@@ -41,8 +49,31 @@ export function resolveExecutionReport(
   latestTaskStatus: string | null,
   reported: ExecutionReportStatus,
 ): ExecutionReportDecision {
-  if (latestTaskStatus === reported) return 'replay';
   if (latestTaskStatus === 'queued') return 'apply';
-  if (latestTaskStatus === 'running' && reported !== 'running') return 'apply';
+  if (latestTaskStatus === 'running') {
+    return reported === 'running' ? 'conflict' : 'apply';
+  }
+  if (latestTaskStatus === reported) return 'replay';
   return 'conflict';
+}
+
+/**
+ * A running attempt with no outcome report for this long is abandoned: its
+ * executor stopped (a closed tab or a crashed extension) and nothing will report
+ * for it. Coupang may or may not have changed, so nothing restarts it on its
+ * own; approving the action again closes the abandoned attempt as failed and
+ * queues a new one. A running attempt without a start time is abandoned too.
+ */
+export const ABANDONED_RUNNING_EXECUTION_MS = 30 * 60 * 1000;
+
+export const ABANDONED_RUNNING_EXECUTION_MESSAGE =
+  '실행 보고가 30분 넘게 없어 중단된 시도로 닫았습니다.';
+
+export function isAbandonedRunningExecutionTask(
+  task: { status: string; startedAt: Date | null },
+  now: Date,
+): boolean {
+  if (task.status !== 'running') return false;
+  if (task.startedAt === null) return true;
+  return now.getTime() - task.startedAt.getTime() >= ABANDONED_RUNNING_EXECUTION_MS;
 }

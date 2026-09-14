@@ -30,8 +30,10 @@ const ACTION_DEDUP_HOURS = 24;
  * service supplies it from the controller's `@CurrentOrganization()`.
  *
  * Execution state lives on the action's latest ExecutionTask. The browser
- * extension's markRunning / markDone / markFailed reports move that task, and
- * approving a failed action queues a new one.
+ * extension's markRunning / markDone / markFailed reports move that task; a
+ * second markRunning for a running task is another executor and is refused.
+ * Approving a failed action queues a new attempt, and so does approving one
+ * whose running attempt was abandoned, which closes that attempt as failed.
  */
 @Injectable()
 export class AdActionService {

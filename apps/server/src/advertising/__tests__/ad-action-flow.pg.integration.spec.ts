@@ -685,6 +685,63 @@ describe('AdAction flow (PG integration)', () => {
       expect(await reviewItem(action.id)).toMatchObject({ executeStatus: 'done' });
     });
 
+    it("#10b refuses a second executor's running report and still records the first executor's outcome", async () => {
+      const action = await approvedAction('CAMP-SECOND-EXECUTOR');
+
+      await adActionService.markRunning(action.id, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
+      // Another tab starts the same queued action. Its running report is
+      // refused, so it never reaches Coupang.
+      await expect(
+        adActionService.markRunning(action.id, { rowText: 'second executor' }, TEST_ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'running',
+        beforeJson: { rowText: 'first executor' },
+      });
+
+      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['done']);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'done',
+        beforeJson: { rowText: 'first executor' },
+        afterJson: { status: 'submitted' },
+      });
+    });
+
+    it('#10c approving again closes a running attempt with no report for 30 minutes as failed and queues a new one', async () => {
+      const action = await approvedAction('CAMP-ABANDONED');
+      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+
+      // An attempt that can still report stays open.
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['running']);
+      expect(await extensionQueueIds()).toEqual([]);
+
+      // Its executor stopped (a closed tab): 30 minutes pass with no outcome report.
+      const [abandoned] = await tasksOf(action.id);
+      await prisma.executionTask.update({
+        where: { id: abandoned.id },
+        data: { startedAt: new Date(Date.now() - 30 * 60 * 1000 - 1_000) },
+      });
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+
+      const [closed, retry] = await tasksOf(action.id);
+      expect(closed).toMatchObject({
+        id: abandoned.id,
+        status: 'failed',
+        errorMessage: '실행 보고가 30분 넘게 없어 중단된 시도로 닫았습니다.',
+      });
+      expect(closed.finishedAt).toBeInstanceOf(Date);
+      expect(retry).toMatchObject({ status: 'queued' });
+      expect(await extensionQueueIds()).toEqual([action.id]);
+
+      // The new attempt runs like any other.
+      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, undefined, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'done']);
+    });
+
     it('#11 reject cancels the queued attempt and refuses a late extension report', async () => {
       const action = await approvedAction('CAMP-REJECT');
 
