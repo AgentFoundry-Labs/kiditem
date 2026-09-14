@@ -319,6 +319,88 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     }
   });
 
+  it('drops a held 1st of the month from every account while another account reported spend on it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // 2026-09-02 12:00 KST: the import requests 2025-10-01 through 2026-09-01.
+      vi.setSystemTime(new Date('2026-09-02T03:00:00.000Z'));
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: FIRST_KEY,
+      });
+      // Account A reports spend on 2026-09-01. Account B spent on 2026-08-31 and shows none on the 1st yet.
+      for (const receipt of plannedUploads(attempt, (slice, account) =>
+        slice.from === '2026-09-01' && account.externalAccountId === 'account-b'
+          ? null
+          : slice.businessDates.at(-1)!)) {
+        await owner.uploadSlice(receipt);
+      }
+      const run = { organizationId: TEST_ORGANIZATION_ID, sourceImportRunId: attempt.attemptId };
+      const august = { ...run, month: new Date('2026-08-01T00:00:00.000Z') };
+      const augustUploaded = await prisma.channelAdListingProductMonthlyFact.findMany({
+        where: august,
+        orderBy: { channelAccountId: 'asc' },
+      });
+
+      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+        latestComplete: {
+          sourceImportRunId: attempt.attemptId,
+          coveredThrough: '2026-08-31',
+          // Eleven months of 7 KRW for each account: A's spend on the held 1st is not published.
+          qualitySummary: { providerSpendKrw: 154, allocatedSpendKrw: 154 },
+        },
+        ready: true,
+      });
+      const generation = await owner.readGeneration(run);
+      expect(generation?.summary).toMatchObject({
+        coveredThrough: '2026-08-31',
+        requestedThrough: '2026-09-01',
+      });
+
+      // A's spend on the 1st stays as evidence, and the 1st leaves every account's published facts with its month.
+      await expect(prisma.channelAdTargetDailySnapshot.aggregate({
+        _sum: { adSpend: true },
+        where: { ...run, targetType: 'product', businessDate: new Date('2026-09-01T00:00:00.000Z') },
+      })).resolves.toMatchObject({ _sum: { adSpend: 7 } });
+      await expect(prisma.channelAdListingProductMonthlyFact.count({
+        where: { ...run, month: new Date('2026-09-01T00:00:00.000Z') },
+      })).resolves.toBe(0);
+      expect(generation?.allocations.some((fact) => fact.month === '2026-09')).toBe(false);
+
+      // The month before keeps each account's whole-month fact exactly as uploaded.
+      const augustPublished = await prisma.channelAdListingProductMonthlyFact.findMany({
+        where: august,
+        orderBy: { channelAccountId: 'asc' },
+      });
+      expect(augustPublished).toEqual(augustUploaded);
+      const accountName = new Map(attempt.accounts.map((account) =>
+        [account.channelAccountId, account.externalAccountId]));
+      expect(augustPublished.map((fact) => ({
+        account: accountName.get(fact.channelAccountId) ?? 'unplanned',
+        coveredStartDate: fact.coveredStartDate.toISOString().slice(0, 10),
+        coveredEndDate: fact.coveredEndDate.toISOString().slice(0, 10),
+        observedTargetDayCount: fact.observedTargetDayCount,
+        allocatedSpend: fact.allocatedSpend,
+      })).sort((left, right) => left.account.localeCompare(right.account))).toEqual([
+        { account: 'account-a', coveredStartDate: '2026-08-01', coveredEndDate: '2026-08-31', observedTargetDayCount: 31, allocatedSpend: 7n },
+        { account: 'account-b', coveredStartDate: '2026-08-01', coveredEndDate: '2026-08-31', observedTargetDayCount: 31, allocatedSpend: 7n },
+      ]);
+
+      // Conservation over what is published: the targets through 2026-08-31 against the facts left.
+      const [publishedTargets, publishedFacts] = await Promise.all([
+        prisma.channelAdTargetDailySnapshot.aggregate({
+          _sum: { adSpend: true },
+          where: { ...run, targetType: 'product', businessDate: { lte: new Date('2026-08-31T00:00:00.000Z') } },
+        }),
+        prisma.channelAdListingProductMonthlyFact.aggregate({ _sum: { allocatedSpend: true }, where: run }),
+      ]);
+      expect(publishedFacts._sum.allocatedSpend).toBe(BigInt(publishedTargets._sum.adSpend ?? 0));
+      expect(publishedFacts._sum.allocatedSpend).toBe(154n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('confirms the closed day when the account without spend on it was idle the day before too', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
