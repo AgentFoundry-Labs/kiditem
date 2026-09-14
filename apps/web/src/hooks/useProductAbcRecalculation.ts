@@ -27,7 +27,7 @@ type SourceNotReady = Extract<ProductAbcRecalculationResponse, { outcome: 'SOURC
 function notReadySourceLabels(result: SourceNotReady): string {
   return Object.entries(result.sources)
     .filter(([, source]) => !source.ready)
-    .map(([source]) => (source === 'sellpia' ? 'Sellpia' : '광고비'))
+    .map(([source]) => (source === 'sellpia' ? '셀피아' : '광고비'))
     .join(', ');
 }
 
