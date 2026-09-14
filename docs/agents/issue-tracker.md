@@ -8,40 +8,72 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
 ## Issue Relationships And Evidence
 
 - Use the assignee for the accountable human and native priority for urgency.
-- Link sub-issues to their parent spec and record dependencies with issue
-  relations. Issue boundaries do not determine branch or PR boundaries.
-- Record scope, unresolved decisions, blockers, and deferred work on the issue;
-  link PRs and verification evidence rather than duplicating review threads.
+- Link sub-issues to their parent spec or `wayfinder:map` issue, and record
+  dependencies with blocks/blocked-by relations. Issue boundaries do not
+  determine branch or PR boundaries.
+- Record scope, decisions in the user's words, open questions, blockers,
+  deferred work, and verification evidence on the issue as they happen. Link
+  PRs rather than duplicating review threads. Read back updates to confirm
+  shared state.
 - Mark work Done only with completion evidence; for merged implementation,
-  record the PR and merge commit. Read back updates to confirm shared state.
+  record the PR and merge commit.
 - Apply the root `CLAUDE.md` ADR eligibility check before recording a settled
   decision in `docs/adr/`; link qualifying ADRs from the spec. Other decisions
   stay on the issue or in the relevant implementation documentation.
 
 ## Status And Labels
 
-| Meaning | Status |
-| --- | --- |
-| Awaiting evaluation (`needs-triage`) | Triage |
-| Accepted work (`ready-for-agent`, `ready-for-human`) | Ready |
-| Implementation underway | In Progress |
-| Waiting for review | In Review |
-| Waiting for a human decision or information (`needs-info`) | Human Input |
-| Started work waiting for a dependency | Blocked |
-| Not proceeding (`wontfix`) | Canceled |
-| Same work as another issue | Duplicate |
-| Completed with evidence | Done |
+Statuses carry an issue's lifecycle; labels carry only what a status cannot.
+The skills' triage roles map onto both:
 
-Set the status when creating an issue: Triage for work found during a task or
-reported from outside, Ready for tickets published by `/to-tickets`. Triage each
-issue to Ready, Human Input, Canceled, or Duplicate, so Backlog stays empty. An
-accepted issue that waits on another issue stays in Ready with a blocked-by
-relation. `Human Input` and `Blocked` are started statuses; use them for work
-actually awaiting a human or a dependency.
-Use existing kind, area, and risk labels where useful. Status and priority use
-native fields rather than duplicate labels. `Agent:*` labels identify explicitly
-dispatched autonomous profiles; a direct Codex or Claude session does not need
-one. Human accountability remains the assignee.
+| Role | Linear |
+| --- | --- |
+| `needs-triage` | Triage |
+| `needs-info` | Human Input |
+| `ready-for-agent` | Ready without `HITL` |
+| `ready-for-human` | Ready with `HITL` |
+| `wontfix` | Canceled |
+| `bug` | `Bug` |
+| `enhancement` | `Feature` or `Improvement` |
+
+In Progress means claimed; In Review means a PR or verification is pending;
+Blocked means started work waiting on a dependency; Duplicate and Done close
+the issue. Backlog and Todo stay empty.
+
+- Create work found during a task or reported from outside in Triage, and
+  issues published by `/to-spec` or `/to-tickets` in Ready.
+- Triage each issue to Ready, Human Input, Canceled, or Duplicate, with exactly
+  one of `Bug`, `Feature`, or `Improvement`.
+- An accepted issue that waits on another stays in Ready with a blocked-by
+  relation.
+- The remaining labels are `HITL`; the areas `Backend`, `Frontend`,
+  `Extension`, `Schema/Data`, `Release/Infra`, and `Security`; `High Risk`; the
+  wayfinder skill's `wayfinder:map`, `wayfinder:research`,
+  `wayfinder:prototype`, `wayfinder:grilling`, and `wayfinder:task` under
+  those exact names; and the `PR` group. Each label's description is its rule;
+  read them with `list_issue_labels`.
+- When a PR opens, create its `PR` child label `#<number> <short title>` with
+  the PR URL as the description, and apply it to every issue that PR
+  completes: one PR label per issue.
+
+## Orchestration
+
+Linear is the durable memory of an orchestrating session: another session must
+be able to resume the work from Linear alone.
+
+1. **Frontier.** From Ready issues, keep those without `HITL`,
+   `wayfinder:grilling`, or `wayfinder:prototype`, without open sub-issues, and
+   whose blocked-by issues are all Done. Read each blocker's status: resolved
+   blockers stay listed. The frontier is complete when every Ready issue is
+   either on it or excluded by one of these rules.
+2. **Claim.** Move the issue to In Progress and comment the branch, worktree,
+   and agent. Release it by moving it back to Ready with a comment.
+3. **Checkpoint.** Keep one current-state comment on the spec or map issue
+   (done; running, with agent and worktree; next) and update it at each
+   checkpoint.
+4. **Found work** goes to Triage with a relation to the issue that found it.
+5. **PR.** When the PR opens, apply its `PR` label and move its issues to In
+   Review; after merge, mark them Done with the PR and merge commit.
 
 ## Tool Conventions
 
