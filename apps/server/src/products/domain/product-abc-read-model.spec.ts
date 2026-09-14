@@ -30,7 +30,7 @@ describe('buildProductAbcReadModel', () => {
     // still ready and advertising is the source to refresh.
     const abc = buildProductAbcReadModel(input({
       sellpia: sourceEvidence(),
-      advertising: { actualCutoff: null, latestAttemptState: null },
+      advertising: { requiredCutoff: '2026-08-31', actualCutoff: null, latestAttemptState: null },
     }));
 
     expect(abc.sources.sellpia).toEqual({
@@ -71,7 +71,6 @@ function input(sources: Partial<{
     mappingValid: true,
     saleStartDate: null,
     evidence: {
-      requiredCutoff: '2026-08-31',
       actualCutoff: '2026-08-31',
       mappingGeneration: '7',
       sellpia: sources.sellpia ?? sourceEvidence(),
@@ -89,6 +88,7 @@ function input(sources: Partial<{
 
 function sourceEvidence(): ProductAbcSourceEvidence {
   return {
+    requiredCutoff: '2026-08-31',
     actualCutoff: '2026-08-31',
     latestAttemptState: 'COMPLETE',
   };

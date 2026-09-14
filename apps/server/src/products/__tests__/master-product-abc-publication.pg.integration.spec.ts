@@ -16,8 +16,10 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 import { MasterProductAbcService } from '../application/service/master-product-abc.service';
 import { ProductAbcReadService } from '../application/service/product-abc-read.service';
+import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
 
 /**
  * KID-46 — which cutoff ABC may publish is a database question: it depends on
@@ -150,6 +152,22 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       vi.setSystemTime(new Date(at));
       return abcService(prisma).recalculate({ organizationId: TEST_ORGANIZATION_ID });
     };
+    // Products' ABC view and Product Operations' data status report the same readiness and display word.
+    const expectReadiness = async (
+      productId: string,
+      ready: { sellpia: boolean; advertising: boolean },
+      displayStatus: ReturnType<typeof productAbcDisplayStatus>,
+    ) => {
+      const view = await readAbc(prisma, [productId]);
+      expect(view.products[0]?.abc.sources).toMatchObject({
+        sellpia: { ready: ready.sellpia },
+        advertising: { ready: ready.advertising },
+      });
+      expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe(displayStatus);
+      await expect(productOperationsDataStatus(prisma).getStatus(TEST_ORGANIZATION_ID, 30)).resolves.toMatchObject({
+        sources: { sellpia: { ready: ready.sellpia }, advertising: { ready: ready.advertising } },
+      });
+    };
     const expectNothingPublished = async () => {
       await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID },
@@ -179,6 +197,33 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       })).resolves.toMatchObject({
         gradeBasisCutoffDate: new Date('2026-09-05T00:00:00.000Z'),
       });
+      // Sellpia reached the closed day; the advertising collection ran before it closed.
+      await expectReadiness(productId, { sellpia: true, advertising: false }, 'AD_SOURCE_STALE');
+    });
+
+    it('publishes at a held advertising end and reads both sources ready', async () => {
+      const { productId, skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Sellpia through 2026-09-05 and then 2026-09-06. Advertising at noon on 2026-09-07 sees spend on
+      // 2026-09-05 and none yet on 2026-09-06, so it holds the 6th and confirms 2026-09-05.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      const heldAdvertising = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-06',
+      });
+      expect(heldAdvertising).toBe('2026-09-05');
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-09-05',
+        classifiedProductCount: 1,
+      });
+      // Sellpia reached the closed day and advertising every day Coupang has reported.
+      await expectReadiness(productId, { sellpia: true, advertising: true }, 'READY');
     });
 
     it('refuses without writing when Sellpia runs past the advertising end and no generation ends on it', async () => {
@@ -258,6 +303,8 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       })).resolves.toMatchObject({
         gradeBasisCutoffDate: new Date('2026-09-05T00:00:00.000Z'),
       });
+      // Advertising reached the closed day; Sellpia ran before it closed.
+      await expectReadiness(productId, { sellpia: false, advertising: true }, 'SELLPIA_SOURCE_STALE');
     });
 
     it('refuses without writing when advertising runs past the Sellpia end and no generation ends on it', async () => {
@@ -293,6 +340,12 @@ function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
     new MasterProductAbcRepositoryAdapter(prisma as never),
     profitabilityEvidence(prisma),
   ).readAbc({ organizationId: TEST_ORGANIZATION_ID, masterProductIds });
+}
+
+function productOperationsDataStatus(prisma: PrismaClient): ProductOperationsDataStatusService {
+  return new ProductOperationsDataStatusService(
+    new ProductOperationsDataStatusRepositoryAdapter(prisma as never, profitabilityEvidence(prisma)),
+  );
 }
 
 function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitabilityReadService {
@@ -534,11 +587,13 @@ async function collectSources(
 /**
  * One real `source` collection as of the fixed instant `at`, returning the
  * business date its coverage ends on. The caller owns the fake clock.
+ * `unreportedDay` is a day Coupang has not reported yet: the advertised
+ * option's spend on it shows on the day before, inside the same slice.
  */
 async function collectAt(
   prisma: PrismaClient,
   source: 'sellpia' | 'advertising',
-  options: { skuCode: string; at: string; advertisedOptionId?: string },
+  options: { skuCode: string; at: string; advertisedOptionId?: string; unreportedDay?: string },
 ): Promise<string> {
   const alerts = new SourceFailureAlerts(prisma as never);
   vi.setSystemTime(new Date(options.at));
@@ -553,9 +608,12 @@ async function collectAt(
     let sequence = 0;
     for (const account of attempt.accounts) {
       for (const slice of account.slices) {
-        const rows = options.advertisedOptionId
+        const spendDate = slice.businessDates.at(-1) === options.unreportedDay
+          ? slice.businessDates.at(-2)
+          : slice.businessDates.at(-1);
+        const rows = options.advertisedOptionId && spendDate
           ? [{
-            businessDate: slice.businessDates.at(-1)!,
+            businessDate: spendDate,
             externalOptionId: options.advertisedOptionId,
             adSpend: 7,
             impressions: 10,

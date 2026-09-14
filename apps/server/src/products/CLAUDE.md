@@ -98,11 +98,17 @@ owns physical stock quantities.
   day or the earlier one ends on a month's last day: month totals cannot be cut
   back to an earlier day inside a month. Whichever source is newer, publication
   pairs the newest retained generations that end together; with none, the
-  refresh returns `SOURCE_NOT_READY`, the source with the earlier end reads not
-  ready, and nothing is written. An advertising collection that held its
-  closed day as unreported therefore delays a refresh on a newer Sellpia
-  generation by one day unless an older Sellpia generation ends on the held
-  end.
+  refresh returns `SOURCE_NOT_READY` and nothing is written. An advertising
+  collection that held its closed day as unreported therefore delays a refresh
+  on a newer Sellpia generation by one day unless an older Sellpia generation
+  ends on the held end.
+- Source readiness is each source's own, not the selected pair's: `sources[x]`
+  judges the source's newest complete generation on the current mapping
+  generation. Sellpia is due through the latest closed KST day and advertising
+  through Advertising's derived evidence cutoff (`adReportEvidenceCutoff` over
+  the generation's `requestedThrough` and `coveredThrough`), so a held closed
+  day never reads stale. Without a pair, the source that ends earlier reads not
+  ready unless its end is a held closed day.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Publication verifies the evaluated generation's identity as given; it does

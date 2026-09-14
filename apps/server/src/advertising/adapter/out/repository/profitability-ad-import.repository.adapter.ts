@@ -1142,6 +1142,7 @@ function generationSummaryFromRun(
     publicationSequence: run.publicationSequence.toString(),
     coverageStartDate: businessDateKey(run.coverageStartDate),
     coveredThrough: businessDateKey(run.coverageEndDate),
+    requestedThrough: requestedCoverageEnd(run),
     capturedAt: run.importedAt.toISOString(),
     mappingGeneration: run.mappingGeneration.toString(),
     adSourcePolicyHash: run.adSourcePolicyHash,

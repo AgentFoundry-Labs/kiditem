@@ -88,7 +88,6 @@ export class ProductAbcReadService implements ProductAbcReadPort {
 
 function evidenceView(snapshot: ProfitabilityEvidenceSnapshot): ProductAbcEvidenceView {
   return {
-    requiredCutoff: snapshot.targetCutoff,
     actualCutoff: snapshot.actualCutoff,
     mappingGeneration: snapshot.mappingGeneration,
     sellpia: sourceEvidence(snapshot, 'sellpia'),
@@ -102,6 +101,7 @@ function sourceEvidence(
 ): ProductAbcSourceEvidence {
   const readiness = snapshot.sources[source];
   return {
+    requiredCutoff: readiness.requiredCutoff,
     actualCutoff: readiness.actualCutoff,
     latestAttemptState: readiness.latestAttempt?.state ?? null,
   };

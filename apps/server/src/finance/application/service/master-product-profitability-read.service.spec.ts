@@ -88,6 +88,7 @@ describe('MasterProductProfitabilityReadService', () => {
       mappingGeneration: '0',
       coverageStartDate: '2026-08-01',
       coveredThrough: '2026-08-31',
+      requestedThrough: '2026-08-31',
       capturedAt: '2026-09-01T00:00:00.000Z',
       adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
       frozenRecipePolicy: {
@@ -244,12 +245,18 @@ describe('MasterProductProfitabilityReadService', () => {
         provenance: { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
       },
     });
-    const advertisingGeneration = (sourceImportRunId: string, publicationSequence: string, coveredThrough: string) => ({
+    const advertisingGeneration = (
+      sourceImportRunId: string,
+      publicationSequence: string,
+      coveredThrough: string,
+      requestedThrough = coveredThrough,
+    ) => ({
       sourceImportRunId,
       publicationSequence,
       mappingGeneration: '0',
       coverageStartDate: '2026-01-01',
       coveredThrough,
+      requestedThrough,
       capturedAt: `${coveredThrough}T03:00:00.000Z`,
       adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
       frozenRecipePolicy: {
@@ -308,11 +315,34 @@ describe('MasterProductProfitabilityReadService', () => {
     const advertisingThrough6 = advertisingGeneration('00000000-0000-4000-8000-000000000034', '22', '2026-09-06');
 
     // Sellpia runs past the advertising end: the Sellpia generation ending on it pairs.
+    // Readiness still judges each source by its newest generation, not the paired one.
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingThrough5])).resolves.toMatchObject({
       actualCutoff: '2026-09-05',
       sourceVector: {
         sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
         advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
+      },
+      sources: {
+        sellpia: { ready: true, actualCutoff: '2026-09-06' },
+        advertising: { ready: false, requiredCutoff: '2026-09-06', actualCutoff: '2026-09-05' },
+      },
+    });
+    // An advertising generation that requested 2026-09-06 and held it as unreported is due only through 2026-09-05.
+    const advertisingHeldThrough5 = advertisingGeneration(
+      '00000000-0000-4000-8000-000000000037',
+      '24',
+      '2026-09-05',
+      '2026-09-06',
+    );
+    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingHeldThrough5])).resolves.toMatchObject({
+      actualCutoff: '2026-09-05',
+      sourceVector: {
+        sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
+        advertising: { sourceImportRunId: advertisingHeldThrough5.sourceImportRunId },
+      },
+      sources: {
+        sellpia: { ready: true, requiredCutoff: '2026-09-06', actualCutoff: '2026-09-06' },
+        advertising: { ready: true, requiredCutoff: '2026-09-05', actualCutoff: '2026-09-05' },
       },
     });
     // Advertising runs past the Sellpia end: the advertising generation ending on it pairs.
@@ -321,6 +351,10 @@ describe('MasterProductProfitabilityReadService', () => {
       sourceVector: {
         sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
         advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
+      },
+      sources: {
+        sellpia: { ready: false, actualCutoff: '2026-09-05' },
+        advertising: { ready: true, actualCutoff: '2026-09-06' },
       },
     });
     // With no generation ending on the other's end there is no pair; the earlier source is not ready.
