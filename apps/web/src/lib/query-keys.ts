@@ -458,6 +458,13 @@ export const queryKeys = {
     session: (attemptId: string) =>
       [...queryKeys.browserCollection.all, 'session', attemptId] as const,
   },
+  // The shared collection control's start and stop mutations. Every mounted
+  // control of a source reads the same pending state and outcome through them.
+  collectionControl: {
+    all: ['collection-control'] as const,
+    mutation: (sourceKey: string, action: 'start' | 'stop') =>
+      [...queryKeys.collectionControl.all, sourceKey, action] as const,
+  },
   settlements: {
     all: ['settlements'] as const,
     list: (period?: string) => [...queryKeys.settlements.all, 'list', period || 'all'] as const,

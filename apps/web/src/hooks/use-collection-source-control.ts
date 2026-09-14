@@ -18,6 +18,7 @@ import {
   collectionSourceStatusRead,
   type CollectionSourceStatusRead,
 } from '@/lib/collection-source-status-query';
+import { queryKeys } from '@/lib/query-keys';
 
 /**
  * `attemptId` is null when the owner has not named the attempt yet, such as a
@@ -99,10 +100,6 @@ const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
 
-export function collectionControlMutationKey(sourceKey: string, action: 'start' | 'stop') {
-  return ['collection-control', sourceKey, action] as const;
-}
-
 type StartVariables<TStatus, TInput> = Readonly<{
   input: TInput;
   /** The status this start was decided against; a later status retires its notice. */
@@ -183,7 +180,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
   const queryClient = useQueryClient();
   const query = useQuery(adapter.statusQuery);
   const statusQueryKey = adapter.statusQuery.queryKey;
-  const startKey = collectionControlMutationKey(adapter.sourceKey, 'start');
+  const startKey = queryKeys.collectionControl.mutation(adapter.sourceKey, 'start');
 
   const startMutation = useMutation({
     mutationKey: startKey,
@@ -204,7 +201,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     }),
   );
 
-  const stopKey = collectionControlMutationKey(adapter.sourceKey, 'stop');
+  const stopKey = queryKeys.collectionControl.mutation(adapter.sourceKey, 'stop');
   const stopMutation = useMutation({
     mutationKey: stopKey,
     mutationFn: async ({ attemptId, statusAtStop }: StopVariables<TStatus>) => {
