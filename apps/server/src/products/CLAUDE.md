@@ -107,8 +107,9 @@ owns physical stock quantities.
   generation. Sellpia is due through the latest closed KST day and advertising
   through Advertising's derived evidence cutoff (`adReportEvidenceCutoff` over
   the generation's `requestedThrough` and `coveredThrough`), so a held closed
-  day never reads stale. Without a pair, the source that ends earlier reads not
-  ready unless its end is a held closed day.
+  day never reads stale. Without a pair, `SOURCE_NOT_READY` carries `pairing`
+  (the source that ends earlier and both ends) unless both sources are stale,
+  when `sources` already names them.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Publication verifies the evaluated generation's identity as given; it does

@@ -112,6 +112,46 @@ describe('ProductOperationsDataStatusAction', () => {
     expect(mocks.refetchProducts).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      reason: 'advertising held its closed day',
+      sellpia: source(true),
+      advertising: { ...source(true), requiredCutoff: '2026-09-05' },
+      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      message: '쿠팡이 어제 광고비를 아직 보고하지 않아 등급을 갱신하지 않았습니다. 기존 공식 등급을 유지합니다. 보고 뒤 광고 손익을 다시 수집해 주세요. 공식 등급 기준일 2026-07-31',
+    },
+    {
+      reason: 'advertising ends before Sellpia',
+      sellpia: source(true),
+      advertising: { ...source(false), requiredCutoff: '2026-09-06' },
+      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      message: '광고 손익 기준일(2026-09-05)이 셀피아(2026-09-06)보다 이릅니다. 광고 손익을 다시 수집해 주세요. 공식 등급 기준일 2026-07-31',
+    },
+    {
+      reason: 'Sellpia ends before advertising',
+      sellpia: source(false),
+      advertising: { ...source(true), requiredCutoff: '2026-09-06' },
+      pairing: { lateSource: 'sellpia', sellpiaEndDate: '2026-09-05', advertisingEndDate: '2026-09-06' },
+      message: '셀피아 상품 손익 기준일(2026-09-05)이 광고 손익(2026-09-06)보다 이릅니다. 셀피아 상품 손익을 다시 수집해 주세요. 공식 등급 기준일 2026-07-31',
+    },
+  ])('names the late source when no pair exists because $reason', async ({ sellpia, advertising, pairing, message }) => {
+    mocks.recalculateProductAbc.mockResolvedValue({
+      outcome: 'SOURCE_NOT_READY',
+      publicationRevision: 4,
+      officialCutoff: '2026-07-31',
+      actualCutoff: null,
+      sources: { sellpia, advertising },
+      pairing,
+    });
+
+    renderAction();
+    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/원천이 준비되지 않아|데이터 기준일 없음/)).not.toBeInTheDocument();
+    expect(mocks.refetchProducts).not.toHaveBeenCalled();
+  });
+
   it('refetches once and shows retry guidance for INPUT_CHANGED without auto-retry', async () => {
     mocks.recalculateProductAbc.mockRejectedValue(
       new ApiError(409, 'INPUT_CHANGED', 'Inputs changed'),

@@ -31,6 +31,26 @@ function notReadySourceLabels(result: SourceNotReady): string {
     .join(', ');
 }
 
+/**
+ * Without a source pair the late source is the one to collect again. Advertising
+ * that ends on its own required cutoff held yesterday because Coupang has not
+ * reported it, so it waits for that report rather than for the operator.
+ */
+function sourceNotReadyMessage(result: SourceNotReady): string {
+  const officialCutoff = `공식 등급 기준일 ${result.officialCutoff ?? '없음'}`;
+  const { pairing } = result;
+  if (pairing?.lateSource === 'advertising') {
+    return pairing.advertisingEndDate === result.sources.advertising.requiredCutoff
+      ? `쿠팡이 어제 광고비를 아직 보고하지 않아 등급을 갱신하지 않았습니다. 기존 공식 등급을 유지합니다. 보고 뒤 광고 손익을 다시 수집해 주세요. ${officialCutoff}`
+      : `광고 손익 기준일(${pairing.advertisingEndDate})이 셀피아(${pairing.sellpiaEndDate})보다 이릅니다. 광고 손익을 다시 수집해 주세요. ${officialCutoff}`;
+  }
+  if (pairing?.lateSource === 'sellpia') {
+    return `셀피아 상품 손익 기준일(${pairing.sellpiaEndDate})이 광고 손익(${pairing.advertisingEndDate})보다 이릅니다. 셀피아 상품 손익을 다시 수집해 주세요. ${officialCutoff}`;
+  }
+  const notReady = notReadySourceLabels(result);
+  return `원천이 준비되지 않아 기존 공식 등급을 유지합니다. ${officialCutoff} · 표시 데이터 기준일 ${result.actualCutoff ?? '없음'}${notReady ? ` · 준비 필요: ${notReady}` : ''}`;
+}
+
 export function useProductAbcRecalculation({
   onFeedback,
   refetchReads,
@@ -48,11 +68,7 @@ export function useProductAbcRecalculation({
     retry: false,
     onSuccess: async (result) => {
       if (result.outcome === 'SOURCE_NOT_READY') {
-        const notReady = notReadySourceLabels(result);
-        onFeedback({
-          tone: 'warning',
-          message: `원천이 준비되지 않아 기존 공식 등급을 유지합니다. 공식 등급 기준일 ${result.officialCutoff ?? '없음'} · 표시 데이터 기준일 ${result.actualCutoff ?? '없음'}${notReady ? ` · 준비 필요: ${notReady}` : ''}`,
-        });
+        onFeedback({ tone: 'warning', message: sourceNotReadyMessage(result) });
         return;
       }
 

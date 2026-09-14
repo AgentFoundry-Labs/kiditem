@@ -257,7 +257,31 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
         outcome: 'SOURCE_NOT_READY',
         officialCutoff: null,
-        sources: { sellpia: { ready: true }, advertising: { ready: false } },
+        sources: { sellpia: { ready: true }, advertising: { ready: false, requiredCutoff: '2026-09-06' } },
+        pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      });
+      await expectNothingPublished();
+    });
+
+    it('refuses and names advertising late when no Sellpia generation ends on its held end', async () => {
+      const { skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Noon KST on 2026-09-07: Sellpia reaches 2026-09-06, and advertising holds the 6th and confirms 2026-09-05.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-06',
+      });
+
+      // Both sources read ready, so only the pairing detail says why nothing was published.
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+        officialCutoff: null,
+        sources: { sellpia: { ready: true }, advertising: { ready: true, requiredCutoff: '2026-09-05' } },
+        pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
       });
       await expectNothingPublished();
     });
@@ -343,6 +367,7 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
         outcome: 'SOURCE_NOT_READY',
         officialCutoff: null,
         sources: { sellpia: { ready: false }, advertising: { ready: true } },
+        pairing: { lateSource: 'sellpia', sellpiaEndDate: '2026-09-05', advertisingEndDate: '2026-09-06' },
       });
       await expectNothingPublished();
     });
