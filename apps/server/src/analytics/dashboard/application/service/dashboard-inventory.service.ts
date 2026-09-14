@@ -17,13 +17,18 @@ import {
   snapshotEvidence,
   ALERTS_SOURCE,
   CHANNEL_LISTINGS_SOURCE,
+  COUPANG_ADS_SOURCE,
   ORDERS_SOURCE,
   PRODUCTS_SOURCE,
   PRODUCT_ABC_SOURCE,
   SELLPIA_INVENTORY_SOURCE,
   type DashboardSourceName,
 } from '../../domain/evidence';
-import { businessDateText, resolveDashboardPeriod } from '../../domain/period/dashboard-period';
+import {
+  businessDateText,
+  resolveDashboardPeriod,
+  type ResolvedDashboardPeriod,
+} from '../../domain/period/dashboard-period';
 import type {
   DashboardInventorySummary,
   DashboardMetricBasisMap,
@@ -192,7 +197,13 @@ export class DashboardInventoryService {
         alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(abcFacts.gradeChanges),
-        metricBasis: this.buildMetricBasis(ctx, abcFacts, perListingMetrics, inventoryFacts),
+        metricBasis: this.buildMetricBasis(
+          ctx,
+          perListingPeriod,
+          abcFacts,
+          perListingMetrics,
+          inventoryFacts,
+        ),
       } satisfies DashboardInventorySummary;
     } catch (error) {
       this.logger.error('Failed to get inventory summary', error);
@@ -221,6 +232,7 @@ export class DashboardInventoryService {
    */
   private buildMetricBasis(
     ctx: DashboardContext,
+    perListingPeriod: ResolvedDashboardPeriod,
     abcFacts: DashboardAbcFacts,
     perListingMetrics: DashboardPerListingMetricsResult,
     inventoryFacts: DashboardInventoryAvailabilityFacts,
@@ -274,8 +286,10 @@ export class DashboardInventoryService {
 
     // The three per-listing profit warnings count listings over the anchor's
     // month clipped to closed KST days, from collected order lines, their
-    // recipe and channel-account costs, and the campaign sweep's target-day
-    // ledger. Each count is a measurement only when both of these hold:
+    // recipe and channel-account costs, and — for an organization that
+    // advertises — the campaign sweep's target-day ledger. The basis names
+    // exactly the ledgers read, as finance's profit basis does. Each count is
+    // a measurement only when both of these hold:
     //
     // - The Orders collection covered every date of that window. Short of it
     //   the rows are only the orders collected so far: reading no row is not
@@ -289,13 +303,19 @@ export class DashboardInventoryService {
     //   number over a smaller population, displayed with partial status. A
     //   window whose every listing was withheld has an empty computable
     //   subset: its zero is not a counted zero either.
+    //
+    // A count stands as of its window's last day, the anchor's last closed
+    // day, which is also the day it has to reach. On the 1st the window has no
+    // day and so no as-of, while the last closed day stays the requirement.
     const measuredListingCount = perListingMetrics.rows.length;
     const withheldListingCount = perListingMetrics.withheldListings;
     const perListing = snapshotEvidence({
-      asOf: readAsOf,
-      requiredAsOf: readAsOf,
+      asOf: perListingPeriod.selectedDates.at(-1) ?? null,
+      requiredAsOf: perListingPeriod.knownThrough,
       observedAt: ctx.now,
-      sources: [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
+      sources: perListingMetrics.hasAdAccount
+        ? [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE, COUPANG_ADS_SOURCE]
+        : [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
       measured: perListingMetrics.orderWindowComplete
         && (measuredListingCount > 0 || withheldListingCount === 0),
       withheldCount: withheldListingCount,

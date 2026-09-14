@@ -186,12 +186,12 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   ): Promise<DashboardPerListingMetricsResult> {
     // Which listings the ad source actually covered is the helper's rule
     // (ADR-0006); this adapter only carries its answer across the port: the
-    // measured rows, how many listings it withheld, and whether the Orders
-    // collection covered the window. Whether advertising applies to the
-    // organization at all, and which dates the sweep measured, is read from
-    // the advertising ledger for the same resolved window.
+    // measured rows, how many listings it withheld, whether the Orders
+    // collection covered the window, and whether advertising applies to the
+    // organization at all. That last fact, and which dates the sweep measured,
+    // come from the one advertising ledger read for the same resolved window.
     const { from, to } = period.queryWindow;
-    const { metrics, withheldListings, orderWindowComplete } = await this.prisma.$transaction(
+    return this.prisma.$transaction(
       async (tx) => {
         const accountAdEvidence = await readAdEvidenceFromLedger(
           tx,
@@ -199,17 +199,22 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           from,
           to,
         );
-        return buildPerListingMetricsCoverage(
+        const { metrics, withheldListings, orderWindowComplete } = await buildPerListingMetricsCoverage(
           tx,
           organizationId,
           from,
           to,
           accountAdEvidence,
         );
+        return {
+          rows: metrics,
+          withheldListings,
+          orderWindowComplete,
+          hasAdAccount: accountAdEvidence.hasAdAccount,
+        } satisfies DashboardPerListingMetricsResult;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return { rows: metrics, withheldListings, orderWindowComplete };
   }
 
   async readInventoryAvailabilityFacts(organizationId: string) {

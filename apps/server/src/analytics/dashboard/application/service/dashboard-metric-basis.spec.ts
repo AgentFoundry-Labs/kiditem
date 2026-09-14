@@ -566,6 +566,7 @@ describe('dashboard inventory metricBasis', () => {
       rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
       withheldListings: 0,
       orderWindowComplete: true,
+      hasAdAccount: true,
       ...perListing,
     });
     repository.readInventoryAvailabilityFacts.mockResolvedValue({
@@ -629,13 +630,16 @@ describe('dashboard inventory metricBasis', () => {
 
     // A warning basis that is `unavailable` is what makes the card render the
     // unavailable marker, so every one of these must be a real owner as-of.
+    // The per-listing counts evaluate the anchor's month through its last
+    // closed day, 7 September, so that day is their as-of, and they name the
+    // advertising ledger they read beside orders and listings.
     expect(result.metricBasis?.['warnings.minusProducts']).toEqual({
       kind: 'snapshot',
       measured: true,
-      asOf: '2026-09-08',
-      requiredAsOf: '2026-09-08',
+      asOf: '2026-09-07',
+      requiredAsOf: '2026-09-07',
       observedAt: expect.any(String),
-      sources: ['orders', 'channel_listings'],
+      sources: ['orders', 'channel_listings', 'coupang_ads'],
       withheldCount: 0,
     });
     expect(snapshotStatusOf(result.metricBasis?.['warnings.minusProducts'])).toBe('current');
@@ -715,6 +719,51 @@ describe('dashboard inventory metricBasis', () => {
     expect(covered.warnings.minusProducts).toBe(0);
     for (const key of PER_LISTING_WARNING_KEYS) {
       expect(snapshotStatusOf(covered.metricBasis?.[key]), key).toBe('current');
+    }
+  });
+
+  /**
+   * KID-137 — a basis names every ledger its value was read from. The per-listing
+   * warnings read the advertising ledger only for an organization that
+   * advertises; without a Coupang account advertising is Not applied to every
+   * listing and the counts rest on orders and listings alone.
+   */
+  it('names the advertising ledger among the per-listing warning sources only where advertising applies', async () => {
+    const advertised = await inventoryService({}, {}, { hasAdAccount: true })
+      .getSummary(customContext(), ORGANIZATION_ID);
+    const notApplied = await inventoryService({}, {}, { hasAdAccount: false })
+      .getSummary(customContext(), ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(advertised.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings', 'coupang_ads'],
+      });
+      expect(notApplied.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings'],
+      });
+    }
+  });
+
+  /**
+   * On the 1st the evaluated window has no day, so the count is as-of nothing.
+   * The as-of it needed is still the anchor's last closed day, which keeps the
+   * basis honest about what a measurement would have had to reach.
+   */
+  it('publishes the per-listing warnings with no as-of on the 1st while naming the last closed day', async () => {
+    const firstOfMonth = buildDashboardContext(
+      undefined, undefined, undefined, new Date('2026-09-01T00:30:00.000Z'),
+    );
+    const result = await inventoryService({}, {}, { rows: [], orderWindowComplete: false })
+      .getSummary(firstOfMonth, ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        kind: 'snapshot',
+        measured: false,
+        asOf: null,
+        requiredAsOf: '2026-08-31',
+      });
+      expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('unavailable');
     }
   });
 
