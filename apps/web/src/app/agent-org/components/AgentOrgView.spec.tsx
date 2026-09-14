@@ -45,7 +45,6 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
         {
           id: '11111111-1111-4111-8111-111111111111',
           attemptId: null,
-          kind: 'signal',
           status: 'RESOLVED',
           type: 'source_failure',
           severity: 'error',

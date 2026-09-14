@@ -100,7 +100,6 @@ const channel = (mallKey: string, mallName: string, overrides: Record<string, un
 const alertItem = (id: string, overrides: Partial<AlertItem> = {}): AlertItem => ({
   id,
   attemptId: null,
-  kind: 'signal',
   status: 'OPEN',
   type: 'source_failure',
   severity: 'error',

@@ -16,7 +16,6 @@ function alert(id: string, overrides: Partial<AlertItem> = {}): AlertItem {
   return {
     id,
     attemptId: null,
-    kind: 'signal',
     status: 'OPEN',
     type: 'source_failure',
     severity: 'error',
