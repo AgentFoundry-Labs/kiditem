@@ -15,10 +15,11 @@ export type ObservedDaySpend = (businessDate: string) => number | undefined;
  * only once it saw spend on it, or saw no spend on the day before either (the
  * account was not advertising). A zero closed day after a day with spend, a
  * closed day it never observed, or a zero it cannot compare with the day before
- * is held: the confirmed window ends the day before, and a later collection
- * that sees the spend confirms the day. A collection that ends before its
- * closed day is already final, and one that observes only a range total cannot
- * see a single day, so neither is held.
+ * is held: the confirmed window ends the day before. A re-collection that sees
+ * the spend confirms the day, and so does any collection admitted on a later
+ * closed day. A collection that ends before its closed day is already final,
+ * and one that observes only a range total cannot see a single day, so neither
+ * is held.
  */
 export function confirmedAdReportEnd(input: Readonly<{
   /** The last business date the collection requested (YYYY-MM-DD). */

@@ -92,9 +92,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - Campaign sweeps and the profitability import request through the closed day
   but confirm it only once they saw spend that day or no spend the day before
   (`domain/ad-report-confirmation`); a held day stays out of the confirmed
-  window until a later collection sees its spend. Each account confirms on its
-  own spend: the profitability import publishes through the earliest account
-  end and re-allocates every month that loses the held day, so no account's
+  window until a same-day re-collection sees its spend or a collection on a
+  later day confirms it. Each account confirms on its own spend: the
+  profitability import publishes through the earliest account end and
+  re-allocates every month that loses the held day, so no account's
   spend on it is published. Readers that require the latest ads day use
   `readAdEvidenceCutoff`, or `adReportEvidenceCutoff` over a profitability
   generation's `requestedThrough` and `coveredThrough`, never the closed day.
