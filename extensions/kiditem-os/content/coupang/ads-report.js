@@ -2717,11 +2717,18 @@
     };
   }
 
-  async function executeSingleAction(action) {
+  // The claim (markRunning) is an executor's first report for an action, for
+  // every action type. The executor reads the page, touches Coupang or reports
+  // an outcome only after the server accepts the claim, so a refused claim ends
+  // the action before any of that and every outcome is for an attempt it claimed.
+  function claimEvidence(action) {
+    return action.actionType === "create_campaign"
+      ? { url: window.location.href, payload: action.payload || {} }
+      : { url: window.location.href };
+  }
+
+  async function executeClaimedAction(action) {
     if (action.actionType === "create_campaign") {
-      await reportAction(action, "markRunning", {
-        beforeJson: { url: window.location.href, payload: action.payload || {} },
-      });
       return executeCreateCampaign(action);
     }
 
@@ -2729,10 +2736,6 @@
     if (!row) {
       return { success: false, errorMessage: `대상 행을 찾지 못했습니다: ${action.targetLabel}` };
     }
-
-    await reportAction(action, "markRunning", {
-      beforeJson: { rowText: normalizeText(row.innerText), url: window.location.href },
-    });
 
     if (action.actionType === "pause_keyword") {
       return executePauseKeyword(action, row);
@@ -2765,7 +2768,19 @@
     for (const action of runnable) {
       try {
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
-        const result = await executeSingleAction(action);
+        await reportAction(action, "markRunning", { beforeJson: claimEvidence(action) });
+      } catch (error) {
+        // No accepted claim: another executor may own the attempt, so this one
+        // reports nothing for the action and never touches Coupang for it.
+        skipped++;
+        console.warn(
+          "[KidItem] 실행 선점이 받아들여지지 않아 액션을 건너뜁니다:",
+          error instanceof Error ? error.message : error,
+        );
+        continue;
+      }
+      try {
+        const result = await executeClaimedAction(action);
         if (result.success) {
           await reportAction(action, "markDone", { afterJson: result.afterJson || {} });
           executed++;
