@@ -104,8 +104,9 @@ takes priority over it
   of stopping. They carry forward users and organizations, channel accounts,
   confirmed recipes, orders, and transport receipts.
 - A cutover starts from one `pg_dump` of the Office database. Only a
-  successful cutover prunes older dumps to the latest three, so failed
-  retries keep the dump taken before their first deletion. It needs no
+  successful cutover prunes, and it deletes only dumps older than the previous
+  successful cutover's dump: every dump written since then survives, including
+  the first failed attempt's, taken before any row was deleted. It needs no
   restore test, Office-copy rehearsal, backfill or rollback evidence, or
   confirmation of Office database state.
 - Verify a cutover on Testcontainers PostgreSQL and the local QA database

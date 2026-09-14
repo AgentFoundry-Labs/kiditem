@@ -33,7 +33,7 @@ $script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:DatabaseDumpsRoot = Join-Path $script:DeploymentsRoot 'database-dumps'
-$script:DatabaseDumpRetentionCount = 3
+$script:LastSuccessfulCutoverDumpRecord = Join-Path $script:DatabaseDumpsRoot 'last-successful-cutover.txt'
 $script:ComposeArgs = @()
 # Office Gateway deliberately uses the invoking operator's existing Windows
 # profile so the bundled CLIs see that profile's approved Codex/Claude login.
@@ -2025,24 +2025,36 @@ function New-CutoverDatabaseDump {
 function Remove-StaleCutoverDatabaseDumps {
   param([Parameter(Mandatory = $true)][string]$KeepDumpPath)
 
-  # Runs only after a cutover deployment succeeded. A failed attempt prunes
-  # nothing, so retries that dump an already cleaned database keep the dump
-  # taken before the first deletion. Keep the dump this cutover started from
-  # plus the newest older ones; excluding it by name means host clock skew can
-  # never prune it.
+  # Runs only after a cutover deployment succeeded. Every dump written since the
+  # previous successful cutover survives: failed attempts before this success
+  # each wrote one, and the first of them is the only dump taken before any row
+  # was deleted. Only dumps older than the previous successful cutover's dump are
+  # pruned, and nothing is without that record. This cutover's dump then becomes
+  # the record; excluding it by name means host clock skew can never prune it.
   $keepName = Split-Path -Leaf $KeepDumpPath
-  $olderDumps = @(
-    Get-ChildItem -LiteralPath $script:DatabaseDumpsRoot -File |
-      Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName } |
-      Sort-Object -Property Name -Descending
-  )
-  foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1))) {
-    try {
-      Remove-Item -LiteralPath $staleDump.FullName -Force
+  $previousName = $null
+  if (Test-Path -LiteralPath $script:LastSuccessfulCutoverDumpRecord -PathType Leaf) {
+    $previousName = ([System.IO.File]::ReadAllText($script:LastSuccessfulCutoverDumpRecord)).Trim()
+  }
+  if ($previousName -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$') {
+    $staleDumps = @(
+      Get-ChildItem -LiteralPath $script:DatabaseDumpsRoot -File |
+        Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName -and [string]::CompareOrdinal($_.Name, $previousName) -lt 0 }
+    )
+    foreach ($staleDump in $staleDumps) {
+      try {
+        Remove-Item -LiteralPath $staleDump.FullName -Force
+      }
+      catch {
+        Write-Warning "Could not prune old database dump $($staleDump.FullName); remove it manually. $($_.Exception.Message)"
+      }
     }
-    catch {
-      Write-Warning "Could not prune old database dump $($staleDump.FullName); remove it manually. $($_.Exception.Message)"
-    }
+  }
+  try {
+    [System.IO.File]::WriteAllText($script:LastSuccessfulCutoverDumpRecord, $keepName, [System.Text.UTF8Encoding]::new($false))
+  }
+  catch {
+    Write-Warning "Could not record the successful cutover dump $keepName; the next cutover prunes less. $($_.Exception.Message)"
   }
 }
 

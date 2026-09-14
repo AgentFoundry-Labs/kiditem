@@ -242,7 +242,13 @@ test('cutover dump uses container credentials, counts only verified custom-forma
   const dump = script.slice(dumpStart, script.indexOf('\nfunction ', dumpStart));
 
   assert.match(script, /^\$script:DatabaseDumpsRoot = Join-Path \$script:DeploymentsRoot 'database-dumps'$/m);
-  assert.match(script, /^\$script:DatabaseDumpRetentionCount = 3$/m);
+  assert.match(
+    script,
+    /^\$script:LastSuccessfulCutoverDumpRecord = Join-Path \$script:DatabaseDumpsRoot 'last-successful-cutover\.txt'$/m,
+  );
+  // No fixed dump count: failed attempts before a success each write a dump,
+  // and a count would push out the first one, taken before any row was deleted.
+  assert.doesNotMatch(script, /DatabaseDumpRetentionCount/);
   assert.match(dump, /'kiditem-\{0\}-\{1\}\.dump' -f \$timestamp, \$GitSha\.Substring\(0, 12\)/);
   assert.match(dump, /\$partialPath = "\$dumpPath\.partial"/);
   assert.match(
@@ -269,7 +275,7 @@ test('cutover dump uses container credentials, counts only verified custom-forma
   assert.doesNotMatch(dump, /staleDump|Select-Object -Skip|Remove-StaleCutoverDatabaseDumps/, 'writing a dump never prunes older dumps');
 });
 
-test('old cutover dumps are pruned to three only after the cutover deployment is recorded', () => {
+test('a successful cutover prunes only dumps older than the previous successful cutover, then records its own', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const pruneStart = script.indexOf('function Remove-StaleCutoverDatabaseDumps {');
   assert.ok(pruneStart > 0, 'Remove-StaleCutoverDatabaseDumps must exist');
@@ -278,16 +284,24 @@ test('old cutover dumps are pruned to three only after the cutover deployment is
   let previous = -1;
   for (const step of [
     '$keepName = Split-Path -Leaf $KeepDumpPath',
-    String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName`,
-    'Sort-Object -Property Name -Descending',
-    'foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1)))',
+    '$previousName = $null',
+    'if (Test-Path -LiteralPath $script:LastSuccessfulCutoverDumpRecord -PathType Leaf) {',
+    '$previousName = ([System.IO.File]::ReadAllText($script:LastSuccessfulCutoverDumpRecord)).Trim()',
+    String.raw`if ($previousName -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$') {`,
+    String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $keepName -and [string]::CompareOrdinal($_.Name, $previousName) -lt 0`,
     'Remove-Item -LiteralPath $staleDump.FullName -Force',
     'Write-Warning "Could not prune old database dump',
+    '[System.IO.File]::WriteAllText($script:LastSuccessfulCutoverDumpRecord, $keepName',
+    'Write-Warning "Could not record the successful cutover dump',
   ]) {
     const position = prune.indexOf(step);
     assert.ok(position > previous, `dump pruning must run "${step}" after the previous step`);
     previous = position;
   }
+  // Three failed attempts that each deleted rows and then a success must still
+  // leave the first attempt's dump: retention is anchored on the previous
+  // successful cutover, never on a count of the newest dumps.
+  assert.doesNotMatch(prune, /Select-Object -Skip|Sort-Object/, 'pruning never keeps a fixed number of newest dumps');
 
   const install = script.slice(script.indexOf('function Install-Deployment {'), script.indexOf('function Show-OfficeStatus {'));
   assert.equal(script.match(/Remove-StaleCutoverDatabaseDumps -KeepDumpPath/g)?.length, 1, 'pruning has one call site');
@@ -306,6 +320,16 @@ test('old cutover dumps are pruned to three only after the cutover deployment is
     const position = install.lastIndexOf(step);
     assert.ok(position > 0 && position < call, `dump pruning must wait until after "${step}"`);
   }
+});
+
+test('the data-loss policy states that every dump since the previous successful cutover survives', () => {
+  const policy = read('docs/runbooks/deployment-architecture.md').replace(/\s+/g, ' ');
+  assert.ok(
+    policy.includes("Only a successful cutover prunes, and it deletes only dumps older than the previous successful cutover's dump"),
+    'the policy names which dumps a successful cutover prunes',
+  );
+  assert.ok(policy.includes('every dump written since then survives'), 'the policy states the guarantee failed attempts rely on');
+  assert.doesNotMatch(policy, /latest three/);
 });
 
 test('controlled recreate preserves runtime evidence and automatically restores app-only failures', () => {
