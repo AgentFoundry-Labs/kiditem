@@ -802,6 +802,18 @@ export const CoupangCatalogCollectionRunSchema = z.object({
 });
 export type CoupangCatalogCollectionRun = z.infer<typeof CoupangCatalogCollectionRunSchema>;
 
+/**
+ * An account's latest browser catalog import (KID-147). `latestAttempt` is the
+ * root the import started with: its `overallState` is the whole import's state
+ * and its id is what an operator stops. `detailsAttempt` is the details child
+ * once the handoff admitted it.
+ */
+export const CoupangCatalogSourceStatusSchema = z.object({
+  latestAttempt: CoupangCatalogCollectionRunSchema.nullable(),
+  detailsAttempt: CoupangCatalogCollectionRunSchema.nullable(),
+});
+export type CoupangCatalogSourceStatus = z.infer<typeof CoupangCatalogSourceStatusSchema>;
+
 export const FinalizeCoupangCatalogCollectionRequestSchema = z.object({
   snapshotHash: Sha256Schema,
 });

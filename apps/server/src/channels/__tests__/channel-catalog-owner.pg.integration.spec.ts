@@ -5,6 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
@@ -13,6 +14,7 @@ import {
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
 import { ChannelCatalogCollectionController } from '../adapter/in/http/channel-catalog-collection.controller';
+import { ChannelCatalogSourceController } from '../adapter/in/http/channel-catalog-source.controller';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
@@ -83,7 +85,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       publisher,
     );
     const module = await Test.createTestingModule({
-      controllers: [ChannelCatalogCollectionController],
+      controllers: [ChannelCatalogCollectionController, ChannelCatalogSourceController],
       providers: [{ provide: CHANNEL_CATALOG_COLLECTION_PORT, useValue: owner }],
     }).compile();
     app = module.createNestApplication({ logger: false });
@@ -876,6 +878,130 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       mappingValid: true,
       saleStartDate: '2026-04-01',
     }]);
+  });
+  // ── Operator stop and the account's source read (KID-147) ──────────────────
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl)
+      .post(`${base}/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+  const readSource = (channelAccountId = ACCOUNT, organizationId = ORG) =>
+    request(httpUrl)
+      .get(`/api/channels/accounts/${channelAccountId}/catalog-imports/coupang-wing/source`)
+      .set('x-test-org', organizationId)
+      .expect(200);
+  it('stops a running import for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const permit: CoupangCatalogCollectionPermit = (
+      await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)
+    ).body;
+    await cancel(permit.attemptId, OTHER_ORGANIZATION_ID).expect(404);
+
+    const stopped = (await cancel(permit.attemptId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: permit.attemptId,
+      state: 'FAILED',
+      overallState: 'FAILED',
+      error: { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.' },
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await alerts.list(ORG)).toEqual([]);
+    // The browser that still holds the token can no longer end it differently.
+    await fail(permit).expect(409);
+    expect((await cancel(permit.attemptId).expect(200)).body).toEqual(stopped);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('stops a whole import from its root while the details child runs', async () => {
+    const basics = await stageBasics();
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    const child = await startDetails(undefined, basics.manifest, childKey);
+
+    const stopped = (await cancel(basics.permit.attemptId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: basics.permit.attemptId,
+      state: 'COMPLETE',
+      currentAttemptId: child.permit.attemptId,
+      currentStage: 'details',
+      overallState: 'FAILED',
+    });
+    await expect(read(child.permit.attemptId)).resolves.toMatchObject({ body: {
+      state: 'FAILED',
+      error: { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.' },
+    } });
+    expect(await alerts.list(ORG)).toEqual([]);
+  });
+  it('ends a pending details handoff by admitting and stopping its child, which the extension replay then reads', async () => {
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    expect((await read(rootId)).body.overallState).toBe('RUNNING');
+
+    const stopped = (await cancel(rootId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: rootId,
+      state: 'COMPLETE',
+      currentStage: 'details',
+      overallState: 'FAILED',
+    });
+    expect(stopped.currentAttemptId).not.toBe(rootId);
+    // The extension's own admission of the preallocated child finds it ended.
+    const replay = (await start(childKey, 'wing-inventory-v1', 'details', rootId).expect(201)).body;
+    expect(replay).toMatchObject({
+      attemptId: stopped.currentAttemptId,
+      state: 'FAILED',
+      plan: { stage: 'details', rootAttemptId: rootId, basicAttemptId: rootId },
+    });
+    expect(await alerts.list(ORG)).toEqual([]);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('settles a stop after the lease passed as expiry with its Alert and leaves a terminal import unchanged', async () => {
+    const permit: CoupangCatalogCollectionPermit = (
+      await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)
+    ).body;
+    await prisma.sourceImportRun.update({
+      where: { id: permit.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+
+    expect((await cancel(permit.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      error: { code: 'ATTEMPT_EXPIRED' },
+    });
+    expect(await alerts.list(ORG)).toMatchObject([{ attemptId: permit.attemptId, status: 'OPEN' }]);
+
+    const staged = await stage('P-STOP');
+    await finish(staged.permit, staged.hash).expect(201);
+    const completed = (await read(staged.permit.attemptId)).body;
+    expect(completed.state).toBe('COMPLETE');
+    expect((await cancel(staged.permit.attemptId).expect(200)).body).toEqual(completed);
+  });
+  it('reads the account latest import with its details child for every 상품 받기 control', async () => {
+    expect((await readSource()).body).toEqual({ latestAttempt: null, detailsAttempt: null });
+    const basics = await stageBasics();
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    const child = await startDetails(undefined, basics.manifest, childKey);
+
+    const source = (await readSource()).body;
+
+    expect(source.latestAttempt).toMatchObject({
+      attemptId: basics.permit.attemptId,
+      currentAttemptId: child.permit.attemptId,
+      currentStage: 'details',
+      overallState: 'RUNNING',
+    });
+    expect(source.detailsAttempt).toMatchObject({
+      attemptId: child.permit.attemptId,
+      state: 'RUNNING',
+      plan: { stage: 'details' },
+    });
+    expect(JSON.stringify(source)).not.toContain(child.permit.attemptToken);
+    expect(JSON.stringify(source)).not.toContain(basics.permit.attemptToken);
+    expect((await readSource(OTHER_ACCOUNT)).body).toEqual({ latestAttempt: null, detailsAttempt: null });
+    expect((await readSource(ACCOUNT, OTHER_ORGANIZATION_ID)).body).toEqual({
+      latestAttempt: null,
+      detailsAttempt: null,
+    });
   });
   it('replays the exact frozen permit and exposes safe status without a token', async () => {
     const key = randomUUID();

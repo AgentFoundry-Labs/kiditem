@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   Param,
   ParseIntPipe,
@@ -139,6 +140,23 @@ export class ChannelCatalogCollectionController {
       runId,
       attemptToken,
       request,
+    });
+  }
+
+  /** Operator stop from any browser: no attempt token, organization-scoped (KID-147). */
+  @Post(':runId/cancel')
+  @HttpCode(200)
+  cancel(
+    @Param('channelAccountId', new ParseUUIDPipe()) channelAccountId: string,
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.collection.cancel({
+      organizationId,
+      userId: user.id,
+      channelAccountId,
+      runId,
     });
   }
 }

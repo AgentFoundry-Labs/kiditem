@@ -20,6 +20,8 @@ describe('ChannelCatalogCollectionController', () => {
     expect(route('pause')).toEqual([':runId/pause', RequestMethod.POST]);
     expect(route('fail')).toEqual([':runId/fail', RequestMethod.POST]);
     expect(route('finalize')).toEqual([':runId/finalize', RequestMethod.POST]);
+    expect(route('cancel')).toEqual([':runId/cancel', RequestMethod.POST]);
+    expect(Reflect.getMetadata('__httpCode__', ChannelCatalogCollectionController.prototype.cancel)).toBe(200);
   });
 
   it('uses authenticated organization and user rather than body tenancy', async () => {
@@ -84,6 +86,20 @@ describe('ChannelCatalogCollectionController', () => {
     });
   });
 
+  it('stops an attempt for the authenticated organization and operator without an attempt token', async () => {
+    const port = makePort();
+    const controller = new ChannelCatalogCollectionController(port);
+
+    await controller.cancel(ACCOUNT_ID, RUN_ID, ORGANIZATION_ID, { id: USER_ID } as never);
+
+    expect(port.cancel).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      runId: RUN_ID,
+    });
+  });
+
   it('passes the exact provider pause body with the owner token', async () => {
     const port = makePort();
     const controller = new ChannelCatalogCollectionController(port);
@@ -120,5 +136,7 @@ function makePort() {
     pause: vi.fn<ChannelCatalogCollectionPort['pause']>().mockResolvedValue({} as never),
     fail: vi.fn<ChannelCatalogCollectionPort['fail']>().mockResolvedValue({} as never),
     finalize: vi.fn<ChannelCatalogCollectionPort['finalize']>().mockResolvedValue({} as never),
+    cancel: vi.fn<ChannelCatalogCollectionPort['cancel']>().mockResolvedValue({} as never),
+    readSource: vi.fn<ChannelCatalogCollectionPort['readSource']>().mockResolvedValue({} as never),
   };
 }

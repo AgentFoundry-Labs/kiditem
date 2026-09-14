@@ -703,6 +703,63 @@ describe('ChannelCatalogCollectionService', () => {
   });
 });
 
+describe('ChannelCatalogCollectionService operator stop and source read', () => {
+  it('stops an attempt through the owner transaction and answers the stopped attempt view', async () => {
+    const repository = makeRepository();
+    repository.getOwnedRunWithChunks.mockResolvedValue({
+      ...runWithChunks([]),
+      status: 'failed',
+      errorJson: { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.', phase: 'discovery' },
+    });
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+    const input = {
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      runId: RUN_ID,
+    };
+
+    const result = await service.cancel(input);
+
+    expect(repository.cancel).toHaveBeenCalledWith(input);
+    expect(repository.cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      repository.getOwnedRunWithChunks.mock.invocationCallOrder[0],
+    );
+    expect(result).toMatchObject({ attemptId: RUN_ID, state: 'FAILED', error: { code: 'USER_CANCELLED' } });
+  });
+
+  it('reads no import for an account that never started one', async () => {
+    const repository = makeRepository();
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+    await expect(
+      service.readSource({ organizationId: ORGANIZATION_ID, channelAccountId: ACCOUNT_ID }),
+    ).resolves.toEqual({ latestAttempt: null, detailsAttempt: null });
+    expect(repository.findLatestRootAttempt).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+    });
+    expect(repository.getOwnedRunWithChunks).not.toHaveBeenCalled();
+  });
+
+  it('reads the latest root import and no details attempt before its handoff', async () => {
+    const repository = makeRepository();
+    repository.findLatestRootAttempt.mockResolvedValue({ id: RUN_ID });
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+    const source = await service.readSource({ organizationId: ORGANIZATION_ID, channelAccountId: ACCOUNT_ID });
+
+    expect(source.latestAttempt).toMatchObject({ attemptId: RUN_ID, overallState: 'RUNNING' });
+    expect(source.detailsAttempt).toBeNull();
+    expect(repository.getOwnedRunWithChunks).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      runId: RUN_ID,
+      includePayload: false,
+    });
+  });
+});
+
 function ownedInput() {
   return {
     organizationId: ORGANIZATION_ID,
@@ -728,6 +785,10 @@ function makeRepository() {
       .mockResolvedValue({ stored: true, chunk: {} as never }),
     markFailed: vi.fn<ChannelCatalogCollectionRepositoryPort['markFailed']>(),
     markPaused: vi.fn<ChannelCatalogCollectionRepositoryPort['markPaused']>(),
+    cancel: vi.fn<ChannelCatalogCollectionRepositoryPort['cancel']>().mockResolvedValue(undefined),
+    findLatestRootAttempt: vi
+      .fn<ChannelCatalogCollectionRepositoryPort['findLatestRootAttempt']>()
+      .mockResolvedValue(null),
   };
 }
 

@@ -14,6 +14,7 @@ import { ChannelListingController } from './adapter/in/http/channel-listing.cont
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rocket-sellpia-matching-csv-import.controller';
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
+import { ChannelCatalogSourceController } from './adapter/in/http/channel-catalog-source.controller';
 import { ChannelProductMatchingController } from './adapter/in/http/channel-product-matching.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { CoupangWingInventoryExportController } from './adapter/in/http/coupang-wing-inventory-export.controller';
@@ -87,6 +88,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelCatalogImportController,
     RocketSellpiaMatchingCsvImportController,
     ChannelCatalogCollectionController,
+    ChannelCatalogSourceController,
     ChannelProductMatchingController,
     ChannelSkuAvailabilityController,
     CoupangWingInventoryExportController,
