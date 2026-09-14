@@ -1417,6 +1417,46 @@ test('Coupang collections take the shared window only after the previous collect
   }
 });
 
+test('a Wing traffic request refused while another attempt collects still answers the web app', async () => {
+  const runningId = '71111111-1111-4111-8111-111111111111';
+  const refusedId = '72222222-2222-4222-8222-222222222222';
+  const collecting = Promise.withResolvers();
+  const releaseCollect = Promise.withResolvers();
+  const h = bootServiceWorker({ fetch: async (url) => {
+    const href = String(url);
+    for (const id of [runningId, refusedId]) {
+      if (href.endsWith(`/api/ads/traffic/attempts/${id}/control`)) return coupangWindowJson(coupangTrafficAttempt(id));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  h.context.wingTrafficCollector = {
+    collectTraffic: async () => {
+      collecting.resolve();
+      await releaseCollect.promise;
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('wingReportCollectors.local = { collectTraffic: (input) => wingTrafficCollector.collectTraffic(input) };', h.context);
+  try {
+    const running = externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: runningId });
+    await collecting.promise;
+
+    const refused = await externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: refusedId });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(refused)), {
+      success: false,
+      errorCode: 'SOURCE_COLLECTION_REQUEST_FAILED',
+      error: '다른 Wing 트래픽 수집이 진행 중입니다.',
+    });
+    releaseCollect.resolve();
+    assert.equal((await running).attemptId, runningId);
+  } finally {
+    releaseCollect.resolve();
+    h.close();
+  }
+});
+
 test('the shared Coupang window clears a leftover whose attempt ended and names a collection that still runs', async (t) => {
   const leftoverId = '61111111-1111-4111-8111-111111111111';
   const incomingId = '62222222-2222-4222-8222-222222222222';

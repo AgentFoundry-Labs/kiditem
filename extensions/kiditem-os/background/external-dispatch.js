@@ -78,11 +78,17 @@
           });
           return false;
         }
-        Promise.resolve(sourceAction.handle(input, environmentId))
+        // Start the handler inside the chain: one that throws before returning
+        // a promise still owes the web app an answer.
+        Promise.resolve()
+          .then(() => sourceAction.handle(input, environmentId))
           .then(sendResponse)
           .catch((error) =>
             sendResponse({
               success: false,
+              errorCode: typeof error?.code === "string" && error.code.trim()
+                ? error.code.trim().slice(0, 100)
+                : "SOURCE_COLLECTION_REQUEST_FAILED",
               error: error?.message || "Source collection request failed",
             }),
           );

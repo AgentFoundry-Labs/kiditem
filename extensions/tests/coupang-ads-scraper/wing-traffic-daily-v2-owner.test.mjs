@@ -189,7 +189,7 @@ function harness(request, collect) {
       return { ok: !response?.httpStatus, status: response?.httpStatus || 200, json: async () => clone(response) };
     },
     collect: async (input) => {
-      await sessions.attachTab(attemptId, { tabId: 41, windowId: 7 });
+      await sessions.attachTab(input.attemptId, { tabId: 41, windowId: 7 });
       return collect(input, owner);
     },
     environmentForTab: async tabId => tabId === 41 ? "local" : "office",
@@ -394,4 +394,106 @@ test("Wing traffic daily v2 owner refuses a declared day it never staged", async
 
   assert.equal(result.terminalState, "FAILED");
   assert.equal(h.getCurrent().errorCode, "INCOMPLETE_TRAFFIC_COVERAGE");
+});
+
+const secondAttemptId = "44444444-4444-4444-8444-444444444444";
+
+// Serves each attempt's control read and records a failure report through
+// `onFail`, which decides what the owner actually stored.
+function attemptServer({ onFail } = {}) {
+  const attempts = new Map([
+    [attemptId, control()],
+    [secondAttemptId, { ...control(), attemptId: secondAttemptId }],
+  ]);
+  return {
+    attempts,
+    async request(path, init) {
+      const [, id, action] = /\/attempts\/([^/]+)\/(control|fail|complete)$/.exec(path) || [];
+      const attempt = attempts.get(decodeURIComponent(id || ""));
+      if (!attempt) return { httpStatus: 404, message: "not found" };
+      if (action === "fail" && init?.method === "POST") await onFail?.(attempt, JSON.parse(init.body));
+      return attempt;
+    },
+  };
+}
+
+// The owner ended the attempt itself (for example on expiry) before the
+// extension's failure report landed, so the acknowledgement does not match.
+const expireBeforeReport = (attempt) => Object.assign(attempt, {
+  state: "FAILED",
+  errorCode: "ATTEMPT_EXPIRED",
+  errorMessage: "attempt expired",
+});
+
+test("Wing traffic daily v2 owner runs the next attempt after a run settles without its terminal acknowledgement", async () => {
+  const server = attemptServer({ onFail: expireBeforeReport });
+  const collected = [];
+  const h = harness(server.request, async (input) => {
+    collected.push(input.attemptId);
+    return { success: false, error: "Wing 매출분석 표를 읽지 못했습니다." };
+  });
+
+  const first = await h.owner.run({ environmentId: "local", attemptId });
+  assert.equal(first.errorCode, "SOURCE_OWNER_UNAVAILABLE", "the unmatched acknowledgement is reported, not trusted");
+
+  let second;
+  assert.doesNotThrow(() => {
+    second = h.owner.run({ environmentId: "local", attemptId: secondAttemptId });
+  }, "a settled run must not keep refusing every later attempt");
+  assert.equal((await second).attemptId, secondAttemptId);
+  assert.deepEqual(collected, [attemptId, secondAttemptId]);
+  assert.equal(await h.sessions.getOwned(attemptId, "local"), null, "the ended attempt's session is cleared on the way");
+});
+
+test("Wing traffic daily v2 owner refuses another attempt only while a cancellation is still being reported", async () => {
+  const reporting = Promise.withResolvers();
+  const releaseReport = Promise.withResolvers();
+  const server = attemptServer({
+    onFail: async (attempt) => {
+      reporting.resolve();
+      await releaseReport.promise;
+      expireBeforeReport(attempt);
+    },
+  });
+  const h = harness(server.request, async () => ({ success: false, error: "Wing 매출분석 표를 읽지 못했습니다." }));
+  await h.sessions.start({ attemptId, environmentId: "local", producer: "dashboard.wing_sales" });
+
+  const cancelling = h.owner.cancel({ environmentId: "local", attemptId });
+  await reporting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: "local", attemptId: secondAttemptId }),
+    /다른 Wing 트래픽 수집이 진행 중입니다/,
+  );
+
+  releaseReport.resolve();
+  assert.equal((await cancelling).errorCode, "SOURCE_OWNER_UNAVAILABLE");
+
+  let second;
+  assert.doesNotThrow(() => {
+    second = h.owner.run({ environmentId: "local", attemptId: secondAttemptId });
+  }, "a settled cancellation must not keep refusing every later attempt");
+  assert.equal((await second).attemptId, secondAttemptId);
+});
+
+test("Wing traffic daily v2 owner refuses another attempt while a run is still collecting", async () => {
+  const collecting = Promise.withResolvers();
+  const finishCollect = Promise.withResolvers();
+  const server = attemptServer();
+  const h = harness(server.request, async (input) => {
+    if (input.attemptId === attemptId) {
+      collecting.resolve();
+      await finishCollect.promise;
+    }
+    return { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "stopped" };
+  });
+
+  const first = h.owner.run({ environmentId: "local", attemptId });
+  await collecting.promise;
+  await assert.rejects(
+    async () => h.owner.run({ environmentId: "local", attemptId: secondAttemptId }),
+    /다른 Wing 트래픽 수집이 진행 중입니다/,
+  );
+
+  finishCollect.resolve();
+  assert.equal((await first).attemptId, attemptId);
 });

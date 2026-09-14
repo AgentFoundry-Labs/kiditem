@@ -127,7 +127,7 @@ function harness({ kind, request, collect }) {
       return { ok: !response?.httpStatus, status: response?.httpStatus || 200, json: async () => clone(response) };
     },
     collect: async input => {
-      await sessions.attachTab(attemptId, { tabId: 41, windowId: 7 });
+      await sessions.attachTab(input.attemptId, { tabId: 41, windowId: 7 });
       return collect(input, owner);
     },
     environmentForTab: async tabId => tabId === 41 ? 'local' : 'office',
@@ -227,6 +227,43 @@ test('Wing traffic owner stages exact page receipts and finalizes only complete 
     [completePath],
   );
   assert.equal(await h.sessions.getOwned(attemptId, 'local'), null);
+});
+
+test('Wing traffic owner runs the next attempt after a run settles without its terminal acknowledgement', async () => {
+  const secondAttemptId = '44444444-4444-4444-8444-444444444444';
+  const attempts = new Map([
+    [attemptId, trafficControl()],
+    [secondAttemptId, { ...trafficControl(), attemptId: secondAttemptId }],
+  ]);
+  const collected = [];
+  const h = harness({
+    kind: 'traffic',
+    request: async (path, init) => {
+      const [, id, action] = /\/attempts\/([^/]+)\/(control|fail)$/.exec(path) || [];
+      const attempt = attempts.get(decodeURIComponent(id || ''));
+      if (!attempt) return { httpStatus: 404, message: 'not found' };
+      if (action === 'fail' && init?.method === 'POST') {
+        // The owner expired the attempt before the failure report landed, so
+        // the acknowledgement does not match the requested body.
+        Object.assign(attempt, { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED', errorMessage: 'attempt expired' });
+      }
+      return attempt;
+    },
+    collect: async (input) => {
+      collected.push(input.attemptId);
+      return { success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' };
+    },
+  });
+
+  const first = await h.owner.run({ environmentId: 'local', attemptId });
+  assert.equal(first.errorCode, 'SOURCE_OWNER_UNAVAILABLE');
+
+  let second;
+  assert.doesNotThrow(() => {
+    second = h.owner.run({ environmentId: 'local', attemptId: secondAttemptId });
+  }, 'a settled run must not keep refusing every later attempt');
+  assert.equal((await second).attemptId, secondAttemptId);
+  assert.deepEqual(collected, [attemptId, secondAttemptId]);
 });
 
 test('Wing traffic owner never reconciles a receipt with a different body', async () => {
