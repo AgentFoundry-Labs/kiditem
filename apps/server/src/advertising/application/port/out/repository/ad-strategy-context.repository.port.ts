@@ -14,6 +14,7 @@ import type {
   HydratedListing,
 } from '../../../../domain/model/strategy-types';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
+import type { KstQueryWindow } from '../../../../../common/kst';
 import type { AdPeriod } from '../../../../domain/ad-metrics';
 
 export const AD_STRATEGY_CONTEXT_REPOSITORY_PORT = Symbol(
@@ -30,6 +31,12 @@ export interface StrategyContext {
    * and so are absent from `profitRateByListing`.
    */
   profitWithheldListings: number;
+  /**
+   * Whether a completed Orders collection covered every business date of the
+   * profit-rate window. Short of it `profitRateByListing` is empty: a rate over
+   * the orders collected so far is not the window's.
+   */
+  orderWindowComplete: boolean;
   channelStateByListing: Map<string, ChannelStateSignal>;
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
   trafficByListing: Map<string, { revenue: number; orders: number }>;
@@ -43,8 +50,8 @@ export interface AdStrategyContextRepositoryPort {
    */
   loadStrategyContext(
     organizationId: string,
-    year: number,
-    month: number,
+    /** The window listing profit rates are evaluated over (`getProfitRateWindow`). */
+    profitWindow: KstQueryWindow,
     period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext>;

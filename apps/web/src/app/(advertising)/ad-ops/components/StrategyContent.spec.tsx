@@ -53,6 +53,7 @@ const strategy: AdWeeklyPlan = {
   tierAnalysis: [],
   top20: [],
   profitWithheldListings: 0,
+  orderWindowComplete: true,
 };
 
 function availabilityResponse(sellableStock: number | null) {

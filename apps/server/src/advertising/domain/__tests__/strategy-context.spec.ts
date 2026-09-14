@@ -3,6 +3,7 @@ import * as strategyContext from '../strategy-context';
 import {
   buildGradeMap,
   getCurrentPeriod,
+  getProfitRateWindow,
   getWeekRange,
   toAdAggregateRows,
   toGradeMapStrict,
@@ -47,6 +48,22 @@ describe('domain/strategy-context — date helpers', () => {
     ).toEqual({
       start: '2026-07-01',
       end: '2026-07-23',
+    });
+  });
+
+  it('getProfitRateWindow is the current KST month through its last closed day', () => {
+    // 12:00 KST on 20 September: 1–19 September are closed, the 20th is open.
+    expect(getProfitRateWindow(new Date('2026-09-20T03:00:00.000Z'))).toEqual({
+      from: new Date('2026-08-31T15:00:00.000Z'),
+      to: new Date('2026-09-19T15:00:00.000Z'),
+    });
+  });
+
+  it('getProfitRateWindow is empty on the 1st rather than reaching into the previous month', () => {
+    // 00:30 KST on 1 October is still 30 September in UTC.
+    expect(getProfitRateWindow(new Date('2026-09-30T15:30:00.000Z'))).toEqual({
+      from: new Date('2026-09-30T15:00:00.000Z'),
+      to: new Date('2026-09-30T15:00:00.000Z'),
     });
   });
 });

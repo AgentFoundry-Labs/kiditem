@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 
 import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -15,7 +15,7 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { kstBusinessDate, kstMonthStart } from '../../common/kst';
+import type { AdWeeklyPlan } from '@kiditem/shared/advertising';
 import {
   seedAd as seedAdTargetDay,
   seedCompletedAdSweepRun,
@@ -41,16 +41,39 @@ describe('AdStrategy flow (PG integration)', () => {
         listingOptionId: string;
         optionId?: string;
       }>;
+      /**
+       * Channel of the account the order came through. Defaults to the
+       * organization's Coupang account; `'rocket'` is a Rocket direct-purchase
+       * order, whose sales carry no commission or other per-sale cost.
+       */
+      orderChannel?: string;
     },
   ) {
-    const account = await client.channelAccount.findFirstOrThrow({
-      where: {
-        organizationId: opts.organizationId,
-        channel: 'coupang',
-        status: 'active',
-      },
-      orderBy: { isPrimary: 'desc' },
-    });
+    const account = opts.orderChannel
+      ? await client.channelAccount.upsert({
+          where: {
+            organizationId_channel_externalAccountId: {
+              organizationId: opts.organizationId,
+              channel: opts.orderChannel,
+              externalAccountId: `advertising-strategy-${opts.orderChannel}`,
+            },
+          },
+          create: {
+            organizationId: opts.organizationId,
+            channel: opts.orderChannel,
+            name: `Advertising Strategy PG ${opts.orderChannel}`,
+            externalAccountId: `advertising-strategy-${opts.orderChannel}`,
+          },
+          update: {},
+        })
+      : await client.channelAccount.findFirstOrThrow({
+          where: {
+            organizationId: opts.organizationId,
+            channel: 'coupang',
+            status: 'active',
+          },
+          orderBy: { isPrimary: 'desc' },
+        });
     const order = await client.order.create({
       data: {
         organizationId: opts.organizationId,
@@ -205,26 +228,49 @@ describe('AdStrategy flow (PG integration)', () => {
   }
 
   /**
-   * The campaign sweep measured every business date of the current KST month —
-   * the window the strategy context reads per-listing profit over. Per-listing
-   * profit is withheld for the whole window unless every date in it was
-   * measured (ADR-0006), so a test that expects a measured profit rate has to
-   * declare the sweep's coverage.
+   * The clock every case reads at. Profit rates evaluate the current KST month
+   * clipped to its closed days (ADR-0001), so on the wall clock that window
+   * would move under the fixtures and be empty on the 1st. 12:00 KST on
+   * 20 September 2026 closes 1–19 September.
    */
-  async function measureCurrentMonth(organizationId: string) {
-    const now = new Date();
-    const year = kstBusinessDate(now).getUTCFullYear();
-    const month = kstBusinessDate(now).getUTCMonth() + 1;
-    const startDate = kstBusinessDate(kstMonthStart(year, month));
-    const nextMonth = kstBusinessDate(kstMonthStart(year, month + 1));
-    const endDate = new Date(nextMonth.getTime() - 86_400_000);
+  const STRATEGY_NOW = new Date('2026-09-20T03:00:00.000Z');
+
+  /** A `YYYY-MM-DD` business date in the clock's month. */
+  function septemberDay(dayOfMonth: number): string {
+    return `2026-09-${String(dayOfMonth).padStart(2, '0')}`;
+  }
+
+  /** Noon KST on a day of the clock's month, as an ISO instant. */
+  function saleAt(dayOfMonth: number): string {
+    return new Date(`${septemberDay(dayOfMonth)}T12:00:00+09:00`).toISOString();
+  }
+
+  /**
+   * The campaign sweep measured the clock's month from the 1st through its
+   * last closed day, the most a real sweep can have reached — the window the
+   * strategy context reads per-listing profit over. Per-listing profit is
+   * withheld for the whole window unless every date in it was measured
+   * (ADR-0006), so a test that expects a measured profit rate has to declare
+   * the sweep's coverage.
+   */
+  async function measureClosedDays(organizationId: string) {
     await seedCompletedAdSweepRun(prisma, {
       organizationId,
       generation: 1,
-      window: {
-        startDate: startDate.toISOString().slice(0, 10),
-        endDate: endDate.toISOString().slice(0, 10),
-      },
+      window: { startDate: septemberDay(1), endDate: septemberDay(19) },
+    });
+  }
+
+  /**
+   * The Orders collection covered the clock's month from the 1st through
+   * `throughDay`. Seed the orders first: the run adopts the orders already in
+   * its window.
+   */
+  async function collectOrders(organizationId: string, throughDay = 19) {
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId,
+      startDate: septemberDay(1),
+      endDate: septemberDay(throughDay),
     });
   }
 
@@ -246,6 +292,8 @@ describe('AdStrategy flow (PG integration)', () => {
   });
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(STRATEGY_NOW);
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     inventoryImportRunByOrganization = new Map();
@@ -279,6 +327,10 @@ describe('AdStrategy flow (PG integration)', () => {
     }
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('getRules / getWeeklyPlan — 3-grade listing scenario', () => {
     it('#1 A 등급 ROAS 480+ → recommendations 에 포함 + summary 집계', async () => {
       const a = await seedGradedListing({
@@ -291,7 +343,7 @@ describe('AdStrategy flow (PG integration)', () => {
       await seedOrderWithLineItems(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ORD-A-EXPAND',
-        orderedAt: new Date().toISOString(),
+        orderedAt: saleAt(15),
         shippingPrice: 2_000,
         lineItems: [
           {
@@ -312,7 +364,8 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      await measureCurrentMonth(TEST_ORGANIZATION_ID);
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
 
       const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
 
@@ -346,7 +399,7 @@ describe('AdStrategy flow (PG integration)', () => {
       await seedOrderWithLineItems(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ORD-WITHHELD',
-        orderedAt: new Date().toISOString(),
+        orderedAt: saleAt(15),
         shippingPrice: 0,
         lineItems: [{
           quantity: 1,
@@ -365,20 +418,15 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 1_000,
         conversions: 1,
       });
-      await measureCurrentMonth(TEST_ORGANIZATION_ID);
-      const today = kstBusinessDate(new Date());
-      const monthStart = kstBusinessDate(kstMonthStart(today.getUTCFullYear(), today.getUTCMonth() + 1));
-      const nextMonth = kstBusinessDate(kstMonthStart(today.getUTCFullYear(), today.getUTCMonth() + 2));
-      await seedCompletedOrderCoverageRun(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        startDate: monthStart.toISOString().slice(0, 10),
-        endDate: new Date(nextMonth.getTime() - 86_400_000).toISOString().slice(0, 10),
-      });
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
 
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       // The order came through a Coupang account, whose sales commission has
-      // no measured source: the listing's profit is withheld.
+      // no measured source: the listing's profit is withheld over a window the
+      // Orders collection did cover.
+      expect(plan.orderWindowComplete).toBe(true);
       expect(plan.profitWithheldListings).toBe(1);
     });
 
@@ -617,6 +665,106 @@ describe('AdStrategy flow (PG integration)', () => {
         (row) => row.listing.listingId === measured.listing.id,
       );
       expect(measuredTopRow?.traffic).toBeNull();
+    });
+  });
+
+  /**
+   * KID-136 — profit rates evaluate the current KST month clipped to its closed
+   * days (ADR-0001): the only dates an Orders collection and the campaign sweep
+   * can have covered. A Rocket direct-purchase sale carries no commission or
+   * other per-sale cost, so its listing's profit is measurable once both
+   * sources cover that window.
+   */
+  describe('profit rates over the closed days of the current KST month', () => {
+    /**
+     * An A-grade listing sold once at noon KST on `businessDate` through a
+     * Rocket account and advertised that day: 20,000 revenue − 10,000 purchase
+     * cost − 2,000 shipping − 2,000 ad spend = 6,000, a 30% profit rate.
+     */
+    async function seedRocketSale(suffix: string, businessDate: string): Promise<string> {
+      const listing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        costPrice: 10_000,
+        suffix,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `ORD-${suffix}`,
+        orderedAt: new Date(`${businessDate}T12:00:00+09:00`).toISOString(),
+        shippingPrice: 2_000,
+        orderChannel: 'rocket',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 20_000,
+          listingOptionId: listing.listingOption.id,
+        }],
+      });
+      await seedAdTargetDay(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.listing.id,
+        date: businessDate,
+        spend: 2_000,
+        revenue: 10_000,
+        clicks: 100,
+        impressions: 10_000,
+        conversions: 10,
+      });
+      return listing.listing.id;
+    }
+
+    function proposedRate(plan: AdWeeklyPlan, listingId: string): number | null {
+      return plan.actions.find((action) => action.listing.listingId === listingId)?.proposedValue ?? null;
+    }
+
+    it('proposes a rate from the closed days once orders and the sweep cover them', async () => {
+      const listingId = await seedRocketSale('ROCKET-COVERED', septemberDay(15));
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // Both sources stop at the 19th; the open 20th is not asked for.
+      expect(proposedRate(plan, listingId)).toBe(30);
+      expect(plan.profitWithheldListings).toBe(0);
+      expect(plan.orderWindowComplete).toBe(true);
+    });
+
+    it('proposes no rate while the Orders collection stops short of the last closed day', async () => {
+      const listingId = await seedRocketSale('ROCKET-ORDERS-SHORT', septemberDay(15));
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID, 18);
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // The 19th was not collected, so the rows are only the orders collected
+      // so far and no rate over them is the window's.
+      expect(plan.orderWindowComplete).toBe(false);
+      expect(proposedRate(plan, listingId)).toBeNull();
+    });
+
+    it('proposes no rate on the 1st rather than borrowing the closed previous month', async () => {
+      // 12:00 KST on 1 September: August has closed, September has no closed
+      // day. August is collected, swept and holds a measurable 30% sale.
+      vi.setSystemTime(new Date('2026-09-01T03:00:00.000Z'));
+      const listingId = await seedRocketSale('ROCKET-FIRST', '2026-08-25');
+      await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+      });
+      await seedCompletedOrderCoverageRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-08-01',
+        endDate: '2026-08-31',
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      expect(plan.orderWindowComplete).toBe(false);
+      expect(plan.profitWithheldListings).toBe(0);
+      expect(proposedRate(plan, listingId)).toBeNull();
     });
   });
 

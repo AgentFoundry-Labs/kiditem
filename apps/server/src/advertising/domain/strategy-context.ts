@@ -3,7 +3,13 @@ import type {
   HydratedListing,
 } from './model/strategy-types';
 import { periodBounds } from './ad-metrics';
-import { businessDateKey, kstBusinessDate } from '../../common/kst';
+import {
+  businessDateKey,
+  clipToClosedKstDays,
+  kstBusinessDate,
+  kstMonthWindow,
+  type KstQueryWindow,
+} from '../../common/kst';
 import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 
 /**
@@ -16,6 +22,18 @@ import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-ava
 export function getCurrentPeriod(now: Date = new Date()): { year: number; month: number } {
   const businessDate = kstBusinessDate(now);
   return { year: businessDate.getUTCFullYear(), month: businessDate.getUTCMonth() + 1 };
+}
+
+/**
+ * The window listing profit rates are evaluated over: the KST month containing
+ * `now`, clipped to the days already closed (ADR-0001). Those are the only
+ * dates an Orders collection and the campaign sweep can have covered, so a
+ * mid-month rate stops at yesterday, and on the 1st the window is empty rather
+ * than borrowing the previous month.
+ */
+export function getProfitRateWindow(now: Date = new Date()): KstQueryWindow {
+  const { year, month } = getCurrentPeriod(now);
+  return clipToClosedKstDays(now, kstMonthWindow(year, month));
 }
 
 /**

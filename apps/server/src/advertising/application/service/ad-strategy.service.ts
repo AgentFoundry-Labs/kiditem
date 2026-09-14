@@ -11,7 +11,7 @@ import { AdRecommendService } from './ad-recommend.service';
 import type { RegisterCampaignDto } from '../../adapter/in/http/dto/register-campaign.dto';
 import {
   applyChannelSkuAvailability,
-  getCurrentPeriod,
+  getProfitRateWindow,
   getWeekRange,
   toGradeMapStrict,
 } from '../../domain/strategy-context';
@@ -92,12 +92,10 @@ export class AdStrategyService {
     period: '7d' | '14d' | 'month',
     organizationId: string,
   ): Promise<AdWeeklyPlan> {
-    const { year, month } = getCurrentPeriod();
     const config = await this.adConfigService.getConfig(organizationId);
     const ctx = await this.strategyContextRepo.loadStrategyContext(
       organizationId,
-      year,
-      month,
+      getProfitRateWindow(),
       period,
       config,
     );
@@ -141,6 +139,7 @@ export class AdStrategyService {
       top20,
       week: getWeekRange(period),
       profitWithheldListings: ctx.profitWithheldListings,
+      orderWindowComplete: ctx.orderWindowComplete,
     } satisfies AdWeeklyPlan;
   }
 
@@ -244,12 +243,10 @@ export class AdStrategyService {
     organizationId: string,
     period: '7d' | '14d' | 'month',
   ): Promise<AdStrategyAction[]> {
-    const { year, month } = getCurrentPeriod();
     const config = await this.adConfigService.getConfig(organizationId);
     const ctx = await this.strategyContextRepo.loadStrategyContext(
       organizationId,
-      year,
-      month,
+      getProfitRateWindow(),
       period,
       config,
     );

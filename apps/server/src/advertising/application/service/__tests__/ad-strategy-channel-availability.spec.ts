@@ -31,6 +31,7 @@ describe('AdStrategyService ChannelSku availability', () => {
         listings: [listing],
         profitRateByListing: new Map(),
         profitWithheldListings: 0,
+        orderWindowComplete: true,
         channelStateByListing: new Map(),
         gradeMap: new Map([[listing.id, 'A']]),
         trafficByListing: new Map(),
@@ -66,8 +67,7 @@ describe('AdStrategyService ChannelSku availability', () => {
 
     expect(strategyContextRepo.loadStrategyContext).toHaveBeenCalledWith(
       '44444444-4444-4444-8444-444444444444',
-      expect.any(Number),
-      expect.any(Number),
+      { from: expect.any(Date), to: expect.any(Date) },
       '14d',
       expect.anything(),
     );
