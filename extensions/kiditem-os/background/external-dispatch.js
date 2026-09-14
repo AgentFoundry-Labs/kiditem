@@ -89,7 +89,7 @@
               errorCode: typeof error?.code === "string" && error.code.trim()
                 ? error.code.trim().slice(0, 100)
                 : "SOURCE_COLLECTION_REQUEST_FAILED",
-              error: error?.message || "Source collection request failed",
+              error: error?.message || "수집 요청을 처리하지 못했습니다.",
             }),
           );
         return true;

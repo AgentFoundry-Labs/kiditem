@@ -75,3 +75,17 @@ test('a source action still answers with its result once the run finishes', asyn
 
   assert.deepEqual(plain(response), { success: true, attemptId, terminalState: 'COMPLETE' });
 });
+
+test('a source action that fails without a message answers with a Korean reason', async () => {
+  const dispatch = dispatchWith(() => {
+    throw new Error();
+  });
+
+  const response = await request(dispatch, { action: 'collectAdvertisingWingTraffic', attemptId });
+
+  assert.deepEqual(plain(response), {
+    success: false,
+    errorCode: 'SOURCE_COLLECTION_REQUEST_FAILED',
+    error: '수집 요청을 처리하지 못했습니다.',
+  });
+});
