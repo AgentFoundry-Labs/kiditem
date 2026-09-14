@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
+import { WingRankCurrentBatchSchema } from '@kiditem/shared/advertising';
 import {
   afterAll,
   beforeAll,
@@ -389,6 +390,42 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       ),
     ).toBe(true);
     expect((await read('serp', key).expect(200)).body).toEqual(response);
+  });
+
+  it('reads the current Wing batch without its key: a batch with a running member before a newer settled one', async () => {
+    const current = (org = ORG) =>
+      request(httpUrl)
+        .get('/api/ads/keyword-rank/wing/batch-attempts/current')
+        .set('x-test-org', org)
+        .expect(200);
+    expect((await current()).text).toBe('');
+
+    const olderKey = randomUUID();
+    const older = (await begin('wing', olderKey).expect(201)).body;
+    expect(older.attempts).toHaveLength(2);
+    expect(WingRankCurrentBatchSchema.parse((await current()).body)).toEqual({
+      batchKey: olderKey,
+      ...older,
+    });
+    expect((await current(OTHER_ORG)).text).toBe('');
+
+    await cancel('wing', olderKey).expect(201);
+    const newerKey = randomUUID();
+    await begin('wing', newerKey).expect(201);
+    expect((await current()).body).toMatchObject({ batchKey: newerKey });
+    const settled = (await cancel('wing', newerKey).expect(201)).body;
+    expect(WingRankCurrentBatchSchema.parse((await current()).body)).toEqual({
+      batchKey: newerKey,
+      ...settled,
+    });
+
+    await prisma.sourceImportRun.update({
+      where: { id: older.attempts[1].attemptId },
+      data: { status: 'running', errorCode: null, errorMessage: null },
+    });
+    const running = WingRankCurrentBatchSchema.parse((await current()).body);
+    expect(running.batchKey).toBe(olderKey);
+    expect(running.attempts.map((attempt) => attempt.state)).toEqual(['FAILED', 'RUNNING']);
   });
 
   it('freezes the exact Wing pending selection and assignments once, preserving counts, order and replay after drift', async () => {

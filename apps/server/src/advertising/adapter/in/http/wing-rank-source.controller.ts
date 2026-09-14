@@ -48,6 +48,12 @@ export class WingRankSourceController {
     return this.owner.readBatch(org, key.trim());
   }
 
+  /** The current batch without its key; an empty body when the organization has none. */
+  @Get("batch-attempts/current")
+  readCurrentBatch(@CurrentOrganization() org: string) {
+    return this.owner.readCurrentBatch(org);
+  }
+
   @Post("batch-attempts/cancel")
   cancelBatch(
     @CurrentOrganization() org: string,
