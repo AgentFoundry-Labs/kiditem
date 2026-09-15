@@ -393,6 +393,9 @@ function preparationRegistrationInput(
     selectedDetailPageArtifactId: _selectedDetailPageArtifactId,
     selectedDetailPageRevisionId: _selectedDetailPageRevisionId,
     thumbnailPreviewUrls: _thumbnailPreviewUrls,
+    // 몰 등록 값은 후보에만 산다 — 준비로 복사하면 아무도 읽지 않는 옛 사본이 된다.
+    mallRegisterValues: _mallRegisterValues,
+    mallRegisterShared: _mallRegisterShared,
     ...registrationInput
   } = basicInfo;
   return { ...registrationInput, name: productName };

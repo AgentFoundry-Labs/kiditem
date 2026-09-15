@@ -340,19 +340,28 @@ describe('buildProductBasics', () => {
       expect(result.mallRegisterShared).toEqual({});
     });
 
-    it('preparation registrationInput 이 있으면 그쪽이 이긴다', () => {
+    it('⭐ 준비 registrationInput 에 사본이 있어도 후보 manualBasics 만 읽는다 — 송신 전 점검과 같은 문서', () => {
       const result = buildProductBasics({
         candidate: {
           ...candidate,
-          rawData: { manualBasics: { mallRegisterValues: { '11st': { categoryPath: '수기' } } } },
+          rawData: {
+            manualBasics: {
+              mallRegisterValues: { '11st': { categoryPath: '수기' } },
+              mallRegisterShared: { certNumber: 'CB065R1579-2008' },
+            },
+          },
         },
         preparation: {
-          registrationInput: { mallRegisterValues: { '11st': { categoryPath: '등록준비' } } },
+          registrationInput: {
+            mallRegisterValues: { '11st': { categoryPath: '등록준비' } },
+            mallRegisterShared: { certNumber: 'OLD-COPY' },
+          },
           selectedThumbnailUrl: null,
           selectedDetailPageGenerationId: null,
         },
       });
-      expect(result.mallRegisterValues).toEqual({ '11st': { categoryPath: '등록준비' } });
+      expect(result.mallRegisterValues).toEqual({ '11st': { categoryPath: '수기' } });
+      expect(result.mallRegisterShared).toEqual({ certNumber: 'CB065R1579-2008' });
     });
   });
 

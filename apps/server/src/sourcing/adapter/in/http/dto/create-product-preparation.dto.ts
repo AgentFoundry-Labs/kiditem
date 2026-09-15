@@ -7,7 +7,9 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  Validate,
 } from 'class-validator';
+import { RegistrationInputWithoutMallRegisterValues } from './registration-input-mall-values.validator';
 
 export class CreateProductPreparationDto {
   @IsUUID()
@@ -20,6 +22,7 @@ export class CreateProductPreparationDto {
   displayName!: string;
 
   @IsObject()
+  @Validate(RegistrationInputWithoutMallRegisterValues)
   registrationInput!: Record<string, unknown>;
 
   @IsOptional()

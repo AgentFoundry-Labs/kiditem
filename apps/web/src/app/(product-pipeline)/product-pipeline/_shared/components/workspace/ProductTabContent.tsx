@@ -31,6 +31,8 @@ interface Props {
   costCny?: number | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
+  /** 몰 등록 값 저장. 준비가 있어도 후보에만 저장한다. */
+  onCommitMallRegisterValues?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
@@ -88,6 +90,7 @@ export default function ProductTabContent({
   costCny = null,
   updateField,
   onCommitBasicInfo,
+  onCommitMallRegisterValues,
   nameLength,
   productId,
   detailPreviewHtml,
@@ -259,8 +262,8 @@ export default function ProductTabContent({
             basicInfo={basicInfo}
             productName={editData.name}
             salePrice={editData.salePrice}
-            onCommit={onCommitBasicInfo}
-            readOnly={!onCommitBasicInfo}
+            onCommit={onCommitMallRegisterValues}
+            readOnly={!onCommitMallRegisterValues}
           />
         </div>
       );

@@ -32,6 +32,20 @@ describe('product preparation DTOs', () => {
     expect(await validate(dto)).not.toHaveLength(0);
   });
 
+  it('⭐ rejects mall register values on a preparation — they live on the candidate basic info', async () => {
+    const update = plainToInstance(UpdateProductPreparationDto, {
+      registrationInput: { mallRegisterValues: { '11st': { categoryPath: 'A' } } },
+    });
+    const create = plainToInstance(CreateProductPreparationDto, {
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      displayName: 'Rain boots',
+      registrationInput: { name: 'Rain boots', mallRegisterShared: { certNumber: 'CB065R1579-2008' } },
+    });
+
+    expect(await validate(update)).not.toHaveLength(0);
+    expect(await validate(create)).not.toHaveLength(0);
+  });
+
   it('rejects an empty update command', async () => {
     const dto = plainToInstance(UpdateProductPreparationDto, {});
 

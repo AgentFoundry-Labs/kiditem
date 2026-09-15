@@ -123,10 +123,6 @@ const stringMapMap = (value: unknown): Record<string, Record<string, string>> =>
   return result;
 };
 
-/** 앞이 비면 뒤로 폴백하는 맵 선택. 빈 객체는 "저장한 적 없다"는 뜻이다. */
-const pickMap = <T extends Record<string, unknown>>(primary: T, fallback: T): T =>
-  Object.keys(primary).length > 0 ? primary : fallback;
-
 /** 앞 값이 비어 있으면 뒤 값으로 폴백하는 문자열 배열 선택. */
 const pickStrings = (primary: unknown, fallback: unknown): string[] => {
   const primaryValues = strings(primary);
@@ -225,16 +221,11 @@ export function buildProductBasics({
       thumbnail: strings(registrationImages?.thumbnail),
       detail: strings(registrationImages?.detail),
     },
-    // 몰별 등록 칸도 다른 수기 값과 같은 우선순위다 — 준비가 생기면 그쪽이 이기고,
-    // 그 전까지는 후보에 저장한 값(manualBasics)이 이긴다.
-    mallRegisterValues: pickMap(
-      stringMapMap(input.mallRegisterValues),
-      stringMapMap(manual.mallRegisterValues),
-    ),
-    mallRegisterShared: pickMap(
-      stringMap(input.mallRegisterShared),
-      stringMap(manual.mallRegisterShared),
-    ),
+    // 몰별 등록 칸은 준비가 있어도 후보에 저장한 값(manualBasics)만 읽는다. 송신 전 점검과
+    // 폼 채우기가 그 문서를 읽으므로, 준비 registrationInput 에 남은 옛 사본이 이기면 화면과
+    // 점검이 서로 다른 값을 본다.
+    mallRegisterValues: stringMapMap(manual.mallRegisterValues),
+    mallRegisterShared: stringMap(manual.mallRegisterShared),
     // 준비가 이긴다. 워크스페이스 선택은 준비가 없는 후보를 위한 폴백이다.
     // 폴백 여부는 대표 URL 하나로 판정한다 — 준비에 대표가 있는데 파생 id 만
     // 워크스페이스에서 끌어오면 서로 다른 이미지의 값이 섞인다.
