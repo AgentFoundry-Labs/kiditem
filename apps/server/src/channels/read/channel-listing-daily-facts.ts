@@ -281,6 +281,13 @@ export async function readLatestListingStateFacts(
     FROM channel_listing_daily_snapshots
     WHERE organization_id = ${input.organizationId}::uuid
       AND listing_id = ANY(${[...input.listingIds]}::uuid[])
+      -- A row that observed only traffic (a Wing zero row, say) carries no
+      -- listing state and must not hide an older state observation.
+      AND num_nonnulls(
+        product_name, status, exposure_status, sale_status, channel_price,
+        is_offer_winner, my_price, winner_price, winner_gap_price,
+        product_rank, category_rank
+      ) > 0
     ORDER BY
       listing_id,
       ${currentRowTieBreakSql({
@@ -434,6 +441,12 @@ function coverageFor(
   const missingDates: string[] = [];
   const factKeys = new Set(facts.map((fact) => listingDateKey(fact.listingId, fact.businessDate)));
   const observedDates = new Set(observedFacts.map((fact) => fact.businessDate));
+  const keptFacts = new Set(facts);
+  // A Wing row the date's selected attempt did not publish was dropped as
+  // stale, so that listing's value on the date is unknown.
+  const staleWingDates = new Set(observedFacts
+    .filter((fact) => fact.source === 'wing' && !keptFacts.has(fact))
+    .map((fact) => fact.businessDate));
 
   for (const date of dates) {
     const attempts = new Map<string, CompletedTrafficAttempt>();
@@ -447,10 +460,14 @@ function coverageFor(
     }
     const hasObservedRow = observedDates.has(date);
     const hasEvidence = hasObservedRow || attempts.size > 0;
+    // A date the account's selected attempt confirmed is collected for all of
+    // its listings: the traffic owner published a zero row for a listing Wing
+    // left out, and a listing without a row stays unmeasured. An account
+    // without an attempt (a CSV upload) still needs a row for every listing.
     const complete = population.length > 0
-      ? population.every((listing) =>
-          factKeys.has(listingDateKey(listing.id, date))
-          || attemptProvesEmptyDate(attempts.get(listing.channelAccountId), date))
+      ? !staleWingDates.has(date) && population.every((listing) =>
+          attempts.has(listing.channelAccountId)
+          || factKeys.has(listingDateKey(listing.id, date)))
       : fallbackAccountIds.length > 0
         ? fallbackAccountIds.every((accountId) =>
             attemptProvesEmptyDate(attempts.get(accountId), date))

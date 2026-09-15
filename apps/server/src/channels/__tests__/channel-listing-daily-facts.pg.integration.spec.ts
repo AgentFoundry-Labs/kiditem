@@ -10,6 +10,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import {
   readLatestListingSaleStatusFacts,
+  readLatestListingStateFacts,
   readListingTrafficWindowFacts,
 } from '../read/channel-listing-daily-facts';
 import type { PrismaClient } from '@prisma/client';
@@ -164,9 +165,15 @@ describe('listing daily facts reader (PG integration)', () => {
     expect(result.latestObservedAt).toEqual(importedAt);
   });
 
-  it('refuses to treat one observed listing as complete for a filtered listing population', async () => {
+  it('counts a date the account attempt confirmed when a filtered listing has no row', async () => {
     const first = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'PARTIAL-1');
-    const second = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'PARTIAL-2');
+    const second = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: first.accountId,
+        externalId: 'LISTING-PARTIAL-2',
+      },
+    });
     const attempt = await seedTrafficAttempt({
       accountId: first.accountId,
       status: 'completed',
@@ -192,12 +199,62 @@ describe('listing daily facts reader (PG integration)', () => {
 
     const result = await readListingTrafficWindowFacts(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      listingIds: [first.listingId, second.listingId],
+      listingIds: [first.listingId, second.id],
       from: new Date('2026-09-01T00:00:00.000Z'),
       to: new Date('2026-09-02T00:00:00.000Z'),
     });
 
+    // The second listing has no row, so it stays unmeasured rather than zero.
+    expect(result.rows.map((row) => row.listingId)).toEqual([first.listingId]);
     expect(result.observedDates).toEqual(['2026-09-01']);
+    expect(result.coverage).toEqual({
+      includedDates: ['2026-09-01'],
+      invalidDates: [],
+      missingDates: [],
+    });
+    expect(result.totals).toEqual({
+      visitors: 4,
+      views: 6,
+      cartAdds: 0,
+      orders: 1,
+      salesQty: 0,
+      revenue: 10_000,
+    });
+  });
+
+  it('still requires a row from every listing of an account without a completed attempt', async () => {
+    const attempted = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'ATTEMPTED');
+    const uploaded = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'CSV-ONLY');
+    const attempt = await seedTrafficAttempt({
+      accountId: attempted.accountId,
+      status: 'completed',
+      generation: 1n,
+      confirmedDates: ['2026-09-01'],
+      providerBackedEmptyProof: false,
+      importedAt: new Date('2026-09-01T06:00:00.000Z'),
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: trafficRow({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: attempted.listingId,
+        date: '2026-09-01',
+        observedAt: new Date('2026-09-01T05:00:00.000Z'),
+        visitors: 4,
+        views: 6,
+        orders: 1,
+        revenue: 10_000,
+        source: 'wing',
+        sourceAttemptId: attempt.id,
+      }),
+    });
+
+    const result = await readListingTrafficWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [attempted.listingId, uploaded.listingId],
+      from: new Date('2026-09-01T00:00:00.000Z'),
+      to: new Date('2026-09-02T00:00:00.000Z'),
+    });
+
     expect(result.coverage).toEqual({
       includedDates: [],
       invalidDates: ['2026-09-01'],
@@ -486,6 +543,37 @@ describe('listing daily facts reader (PG integration)', () => {
       businessDate: '2026-09-02',
       saleStatus: '판매중지',
       observedAt: new Date('2026-09-02T06:00:00.000Z'),
+    }]);
+  });
+
+  it('reads the latest listing state past a later row that observed only traffic', async () => {
+    const listingId = await seedListing(TEST_ORGANIZATION_ID, 'STATE-BEHIND-TRAFFIC');
+    await prisma.channelListingDailySnapshot.createMany({
+      data: [
+        statusRow(TEST_ORGANIZATION_ID, listingId, '2026-09-01', '판매중'),
+        trafficRow({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId,
+          date: '2026-09-02',
+          observedAt: new Date('2026-09-02T01:00:00.000Z'),
+          visitors: 0,
+          views: 0,
+          orders: 0,
+          revenue: 0,
+          source: 'wing',
+        }),
+      ],
+    });
+
+    const result = await readLatestListingStateFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [listingId],
+    });
+
+    expect(result).toMatchObject([{
+      listingId,
+      businessDate: new Date('2026-09-01T00:00:00.000Z'),
+      saleStatus: '판매중',
     }]);
   });
 

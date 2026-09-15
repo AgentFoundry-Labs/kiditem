@@ -421,11 +421,13 @@ function toListItem(
   const visitorCount = trafficMeasured
     ? nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.visitors)
     : null;
+  // A covered window measures a listing only through its rows; a product with
+  // none has unmeasured traffic, not zero.
   const viewCount = trafficMeasured
-    ? trafficFacts.reduce((sum, fact) => sum + fact.views, 0)
+    ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.views)
     : null;
   const cartAddCount = trafficMeasured
-    ? trafficFacts.reduce((sum, fact) => sum + fact.cartAdds, 0)
+    ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.cartAdds)
     : null;
   const optionIds = new Set(row.channelListings.flatMap((listing) => listing.options.map(({ id }) => id)));
   const productOrders = orderLines.filter((line) => optionIds.has(line.listingOptionId));

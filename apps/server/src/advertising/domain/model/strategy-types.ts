@@ -95,8 +95,8 @@ export interface GradeRulesInput {
    * Optional latest `ChannelListingDailySnapshot` (+ primary option daily)
    * per listing. When present, the rule engine attaches it to each
    * `AdStrategyAction.channelState` and enriches the `reason` text with
-   * product-state evidence. When omitted (or no snapshot exists for a
-   * listing), `channelState` is null and the original reason text stands.
+   * product-state evidence. When omitted (or no daily row observed the
+   * listing's state), `channelState` is null and the original reason text stands.
    */
   channelStateByListing?: Map<string, ChannelStateSignal>;
 }

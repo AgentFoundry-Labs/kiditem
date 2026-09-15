@@ -260,4 +260,19 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
     expect(result[0].traffic).toEqual({ revenue: 100000, orders: 8 });
     expect(result[1].listing.listingId).toBe('L_A');
   });
+
+  it('publishes measured zero traffic as 0 and a listing without traffic facts as unmeasured', () => {
+    const result = service.calcTop20({
+      listings: [listingA, listingB],
+      adGroups: [
+        { listingId: 'L_A', spend: 2000, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+        { listingId: 'L_B', spend: 1000, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+      ],
+      trafficByListing: new Map([['L_A', { revenue: 0, orders: 0 }]]),
+    });
+    expect(result.map((item) => [item.listing.listingId, item.traffic])).toEqual([
+      ['L_A', { revenue: 0, orders: 0 }],
+      ['L_B', null],
+    ]);
+  });
 });
