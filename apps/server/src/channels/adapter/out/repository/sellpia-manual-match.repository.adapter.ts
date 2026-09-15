@@ -16,6 +16,7 @@ import {
   type SellpiaManualMatchPlan,
   type SellpiaManualMatchSnapshot,
   type SellpiaManualMatchSnapshotStatus,
+  type SellpiaManualMatchPublicAttempt,
   type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchRow,
 } from '@kiditem/shared/sellpia-manual-match';
@@ -133,9 +134,9 @@ implements SellpiaManualMatchRepositoryPort {
         }
         if (effectiveState(existing, now) === 'FAILED' && existing.status === DB_RUNNING) {
           const expired = await this.expireAttempt(tx, existing);
-          return publicAttempt(expired);
+          return controlAttempt(expired);
         }
-        return publicAttempt(existing);
+        return controlAttempt(existing);
       }
 
       const active = await listActiveSkus(tx, input.organizationId);
@@ -176,7 +177,7 @@ implements SellpiaManualMatchRepositoryPort {
           parserVersion: SELLPIA_MANUAL_MATCH_PARSER_VERSION,
         },
       });
-      return publicAttempt(run);
+      return controlAttempt(run);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -192,7 +193,7 @@ implements SellpiaManualMatchRepositoryPort {
       },
     });
     if (!attempt) throw new NotFoundException('SELLPIA_MANUAL_MATCH_ATTEMPT_NOT_FOUND');
-    return publicAttempt(attempt);
+    return controlAttempt(attempt);
   }
 
   async readCurrent(input: {
@@ -239,7 +240,7 @@ implements SellpiaManualMatchRepositoryPort {
         if (attempt.contentChecksum !== payloadHash) {
           throw new ConflictException('SELLPIA_MANUAL_MATCH_REPLAY_CONFLICT');
         }
-        return publicAttempt(attempt);
+        return controlAttempt(attempt);
       }
       if (state === 'FAILED') throw new ConflictException(
         attempt.status === DB_RUNNING ? 'ATTEMPT_EXPIRED' : 'ATTEMPT_TERMINAL',
@@ -304,7 +305,7 @@ implements SellpiaManualMatchRepositoryPort {
         attemptId: input.attemptId,
       });
       const completed = await findAttempt(tx, input.organizationId, input.attemptId);
-      return publicAttempt(completed);
+      return controlAttempt(completed);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -326,7 +327,7 @@ implements SellpiaManualMatchRepositoryPort {
           attempt.errorCode !== input.errorCode
           || attempt.errorMessage !== input.errorMessage
         ) throw new ConflictException('ATTEMPT_TERMINAL');
-        return publicAttempt(attempt);
+        return controlAttempt(attempt);
       }
       if (effectiveState(attempt, new Date()) === 'FAILED') {
         throw new ConflictException('ATTEMPT_EXPIRED');
@@ -352,7 +353,7 @@ implements SellpiaManualMatchRepositoryPort {
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
       }));
-      return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
+      return controlAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
     }, TRANSACTION_OPTIONS);
   }
 
@@ -369,9 +370,9 @@ implements SellpiaManualMatchRepositoryPort {
       await lockSellpiaInventorySource(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
+      if (attempt.status !== DB_RUNNING) return controlAttempt(attempt);
       if (effectiveState(attempt, new Date()) === 'FAILED') {
-        return publicAttempt(await this.expireAttempt(tx, attempt));
+        return controlAttempt(await this.expireAttempt(tx, attempt));
       }
       const updated = await tx.sourceImportRun.updateMany({
         where: {
@@ -393,7 +394,7 @@ implements SellpiaManualMatchRepositoryPort {
         errorCode: OPERATOR_CANCEL_CODE,
         errorMessage: OPERATOR_CANCEL_MESSAGE,
       }));
-      return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
+      return controlAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
     }, TRANSACTION_OPTIONS);
   }
 
@@ -678,7 +679,17 @@ function parseAttemptPlan(value: Prisma.JsonValue | null): SellpiaManualMatchPla
   return SellpiaManualMatchPlanSchema.parse(value);
 }
 
-function publicAttempt(attempt: SourceAttempt): SellpiaManualMatchAttempt {
+/**
+ * 상태 읽기가 내보내는 시도. 쿠팡 쉽먼트 요약 리더와 같은 자리에서 fence 토큰을
+ * 벗긴다 — 토큰은 확장이 부르는 제어 읽기에만 나간다.
+ */
+function publicAttempt(attempt: SourceAttempt): SellpiaManualMatchPublicAttempt {
+  const { attemptToken: _token, ...status } = controlAttempt(attempt);
+  return status;
+}
+
+/** 확장이 부르는 제어 읽기용. 시도를 이어가려면 fence 토큰이 필요하다. */
+function controlAttempt(attempt: SourceAttempt): SellpiaManualMatchAttempt {
   const plan = parseAttemptPlan(attempt.plan);
   return {
     attemptId: attempt.id,

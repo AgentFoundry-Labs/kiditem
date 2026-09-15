@@ -16,7 +16,10 @@ import { ChannelProductMatchingController } from '../adapter/in/http/channel-pro
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
-import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
+import {
+  SellpiaManualMatchSourceStatusSchema,
+  type SellpiaManualMatchSnapshot,
+} from '@kiditem/shared/sellpia-manual-match';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { INestApplication } from '@nestjs/common';
@@ -386,6 +389,34 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       attemptId: completed.attemptId,
     })).toEqual(published);
+  });
+
+  it('keeps the fence token out of the status read while the control read still carries it', async () => {
+    const base = '/api/channels/product-mappings/sellpia-manual-match';
+    const begin = await request(httpUrl)
+      .post(`${base}/attempts`)
+      .set('Idempotency-Key', 'token-scope')
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .send({})
+      .expect(201);
+    const control = begin.body as { attemptId: string; attemptToken: string };
+    expect(control.attemptToken).toEqual(expect.any(String));
+
+    const current = await request(httpUrl)
+      .get(`${base}/attempts/current`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(SellpiaManualMatchSourceStatusSchema.parse(current.body).latestAttempt)
+      .toMatchObject({ attemptId: control.attemptId, state: 'RUNNING' });
+    expect(current.body.latestAttempt).not.toHaveProperty('attemptToken');
+    expect(JSON.stringify(current.body)).not.toContain(control.attemptToken);
+
+    // 확장이 부르는 제어 읽기에는 fence 토큰이 그대로 나간다.
+    const attempt = await request(httpUrl)
+      .get(`${base}/attempts/${control.attemptId}`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(attempt.body.attemptToken).toBe(control.attemptToken);
   });
 
   it('publishes and replays through HTTP, rejects changed terminal payloads, and retires the old import route', async () => {
