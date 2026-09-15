@@ -117,7 +117,6 @@ describe('AdGradeRulesService.calcActions', () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({ grade: 'B', priority: 'high', actionType: 'increase' });
       expect(result[0].reason).toBe('ROAS 500% — 일예산 증액 추천');
-      expect(result[0].reason).not.toMatch(/등급|캠페인|승격|이동/);
     });
   });
 

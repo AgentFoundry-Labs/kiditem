@@ -299,14 +299,13 @@ export class AdGradeRulesService {
   }
 
   /**
-   * rule key → AdAction.actionType 매핑.
+   * rule key → AdStrategyAction.actionType 매핑.
    *
-   * 기존 ad-strategy.service.ts:941-953 의 ruleToActionType 본문 복원.
    * 등급별 rule prefix (A-1 / B-5 / A-3 / C-1 / C-2 / B-4) 또는 rule 본문 키워드 (재고0 / 순이익 / 전환0)
    * 에 따라 'increase' / 'stop' / 'decrease' / 'maintain' 중 하나로 환원.
    */
   ruleToActionType(rule: string): string {
-    if (rule.startsWith('A-1') || rule.startsWith('A-5') || rule.startsWith('B-5')) return 'increase';
+    if (rule.startsWith('A-1') || rule.startsWith('B-5')) return 'increase';
     if (rule.startsWith('A-3') || rule.startsWith('C-1') || rule.includes('재고0'))
       return 'stop';
     if (
