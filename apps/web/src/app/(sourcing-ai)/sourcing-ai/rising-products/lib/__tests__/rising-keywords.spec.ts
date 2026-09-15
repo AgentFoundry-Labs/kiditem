@@ -20,6 +20,7 @@ function board(
     boardKey: boardLabel,
     boardLabel,
     latest: (opts.latest ?? []).map(([rank, keyword]) => ({ rank, keyword })),
+    comparedFrom: '2026-07-06',
     risers: (opts.risers ?? []).map(([keyword, rankDelta]) => ({ keyword, rankDelta })),
   };
 }

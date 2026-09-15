@@ -104,11 +104,15 @@ export function ToyCategorySourcingPage() {
     (sum, keyword) => sum + (keyword.monthlyTotalSearchCount ?? 0),
     0,
   );
-  const risingCount = visibleKeywords.filter(
-    (keyword) => keyword.rankDelta === null
-      || (typeof keyword.rankDelta === 'number' && keyword.rankDelta > 0)
-      || (keyword.trendDelta !== null && keyword.trendDelta > 0),
-  ).length;
+  // New entries and rank rises exist only against an earlier toy board day, so
+  // without one the combined rise signal count is unknown, not a smaller number.
+  const risingCount = toyBoard?.comparedFrom != null
+    ? visibleKeywords.filter(
+      (keyword) => keyword.rankDelta === null
+        || (typeof keyword.rankDelta === 'number' && keyword.rankDelta > 0)
+        || (keyword.trendDelta !== null && keyword.trendDelta > 0),
+    ).length
+    : null;
   const latestBusinessDate = keywordQuery.data?.keywords
     .map((keyword) => keyword.latest.businessDate)
     .sort()
@@ -249,7 +253,7 @@ export function ToyCategorySourcingPage() {
             caption={`${formatNumber(measuredKeywords.length)}개 합계`}
             tone="sky"
           />
-          <MetricCard icon={TrendingUp} label="상승 신호" value={`${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
+          <MetricCard icon={TrendingUp} label="상승 신호" value={risingCount === null ? '—' : `${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
           <MetricCard icon={Database} label="활성 네이버 시드" value={`${formatNumber(activeNaverSeedCount)}개`} caption="검색량 수집 대상" tone="orange" />
         </div>
 

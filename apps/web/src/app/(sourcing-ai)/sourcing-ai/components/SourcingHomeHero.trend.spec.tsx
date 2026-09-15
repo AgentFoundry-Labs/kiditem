@@ -143,12 +143,31 @@ describe('Sourcing home rank board counts', () => {
       boardKey: 'toys_dolls',
       boardLabel: '완구',
       latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+      comparedFrom: '2026-09-08',
       risers: [{ keyword: '슬라임', rankDelta: null }],
     }];
     const { client } = renderHero();
     await settle(client);
 
     expect(['신규 키워드', '인기 키워드', 'SNS 소셜 인기'].map(columnCount)).toEqual(['1개', '2개', '-']);
+    client.clear();
+  });
+
+  it('shows new keywords as -, not 0개, while a covered board has no earlier day to compare', async () => {
+    status = { ...idle, naver: complete('naver-first') };
+    // The first Naver collection ranked the board, but no earlier day tells a new
+    // entry from an old one. The popular count is still measured.
+    boards = [{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+      comparedFrom: null,
+      risers: [],
+    }];
+    const { client } = renderHero();
+    await settle(client);
+
+    expect(['신규 키워드', '인기 키워드'].map(columnCount)).toEqual(['-', '2개']);
     client.clear();
   });
 
@@ -173,9 +192,9 @@ describe('Sourcing home rank board counts', () => {
 
   it('keeps a covered read that found nothing as 0개', async () => {
     status = { naver: complete('naver-done'), shorts: complete('shorts-done') };
-    // A covered board that ranked no keyword, and a Shorts snapshot day none of
+    // A compared board that ranked no keyword, and a Shorts snapshot day none of
     // whose videos matched a stationery or toy trend.
-    boards = [{ boardKey: 'toys_dolls', boardLabel: '완구', latest: [], risers: [] }];
+    boards = [{ boardKey: 'toys_dolls', boardLabel: '완구', latest: [], comparedFrom: '2026-09-08', risers: [] }];
     shorts = { days: 30, businessDate: '2026-09-14', capturedAt: '2026-09-14T06:00:00.000Z', items: [] };
     vi.mocked(apiClient.getNullable).mockResolvedValue({ model: { candidates: [] } } as never);
     const { client } = renderHero();

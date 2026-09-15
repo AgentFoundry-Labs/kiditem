@@ -145,12 +145,15 @@ export function SourcingHomeHero() {
 
   // A trend card counts only what its read measured; otherwise the count is
   // unknown, not 0. Rising counts once a snapshot exists. The 7-day board read
-  // returns each board a completed Naver collection covered, empty ones too.
+  // returns each board a completed Naver collection covered, empty ones too;
+  // new keywords also need every board compared with an earlier ranked day.
   // The 30-day Shorts read names a business date only when it holds a
   // snapshot, so a Shorts collection that stored no video stays unknown. A
   // source that last completed before its window measured nothing in it,
   // whatever the trend status says.
-  const boardsCovered = (boardsData?.boards?.length ?? 0) > 0;
+  const trendBoards = boardsData?.boards ?? [];
+  const boardsCovered = trendBoards.length > 0;
+  const boardsCompared = boardsCovered && trendBoards.every((board) => board.comparedFrom != null);
   const shortsCovered = shortsData?.businessDate != null;
 
   const columns: RankColumn[] = [
@@ -170,7 +173,7 @@ export function SourcingHomeHero() {
     },
     {
       label: '신규 키워드',
-      count: boardsCovered ? newKeywords.length : null,
+      count: boardsCompared ? newKeywords.length : null,
       accent: '#7c3aed',
       icon: Sparkles,
       href: '/sourcing-ai/keywords',

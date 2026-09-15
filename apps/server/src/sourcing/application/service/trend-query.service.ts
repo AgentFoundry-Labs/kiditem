@@ -44,6 +44,12 @@ export interface PopularKeywordBoardView {
   boardKey: string;
   boardLabel: string | null;
   latest: Array<{ rank: number; keyword: string }>;
+  /**
+   * The day `risers` compare the latest board with: the oldest day in the
+   * window that ranked keywords. Null when there is no earlier one, so rises
+   * and new entries are unmeasured rather than none.
+   */
+  comparedFrom: string | null;
   risers: PopularKeywordRiser[];
 }
 
@@ -181,10 +187,11 @@ export class TrendQueryService {
       }
 
       const boardLabel = boardRows.find((row) => row.boardLabel)?.boardLabel ?? null;
+      // Without an earlier ranked day there is nothing to compare the latest board with.
+      const comparedFrom = oldestDate < latestDate ? toDateStringFromMs(oldestDate) : null;
       const risers: PopularKeywordRiser[] = [];
-      const isSingleDay = latestDate === oldestDate;
       for (const row of latestRows) {
-        if (isSingleDay) break;
+        if (comparedFrom === null) break;
         const oldestRank = oldestRankByKeyword.get(row.keyword);
         if (oldestRank === undefined) {
           risers.push({ keyword: row.keyword, rankDelta: null });
@@ -198,6 +205,7 @@ export class TrendQueryService {
         boardKey,
         boardLabel,
         latest: latestRows.map((row) => ({ rank: row.rank, keyword: row.keyword })),
+        comparedFrom,
         risers,
       });
     }

@@ -17,6 +17,7 @@ const board: PopularKeywordBoardView = {
     { rank: 2, keyword: '블록 장난감' },
     { rank: 3, keyword: '역할놀이' },
   ],
+  comparedFrom: '2026-07-06',
   risers: [
     { keyword: '말랑이', rankDelta: null },
     { keyword: '블록 장난감', rankDelta: 4 },
