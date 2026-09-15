@@ -34,9 +34,14 @@ vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn().mockRejectedValue(new Error('no status read in this spec')), post: vi.fn() },
 }));
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
+import { toast } from 'sonner';
 import { useAllMarketplaceOrderCollection } from './useAllMarketplaceOrderCollection';
 import { ApiError } from '@/lib/api-error';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
 import type { OrderCollectionMallAccount } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
 
@@ -336,5 +341,117 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
       expect.objectContaining({ attemptId: attemptFor('kidsnote', 8).attemptId }),
       expect.objectContaining({ code: 'NO_NEW_ORDERS' }),
     );
+  });
+});
+
+/**
+ * KID-220. 운영자가 중단하면 서버는 시도를 취소하고 확장은 몰 탭을 닫지만, 그 몰의
+ * 제너레이터는 영영 오지 않을 확장 메시지를 기다리며 그대로 서 있을 수 있다(탭을 하나도
+ * 열지 못한 카카오, OTP 화면에 멈춘 키드키즈). 중단 안내를 그 약속의 거절에만 매달아
+ * 두면 카드는 0.6초 만에 쉬는 상태로 돌아가는데 운영자는 아무 말도 듣지 못하고, 그
+ * 약속을 기다리던 전체 수집도 풀리지 않는다.
+ */
+describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
+  const kidkids = mall('kidkids', '키드키즈');
+  const attempt = attemptFor('kidkids', 5);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    mocks.begin.mockResolvedValue({
+      ...attempt,
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attempt);
+  });
+
+  function renderOneMall() {
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidkids],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+      }),
+      { wrapper },
+    );
+    return result;
+  }
+
+  /** 카드의 공용 컨트롤이 시작하는 것과 같은 자리 — 이 시작만 운영자에게 결과를 알린다. */
+  async function startFromCard(result: ReturnType<typeof renderOneMall>) {
+    await act(async () => {
+      await result.current.mallCollectionAdapter(kidkids).start?.({}, { status: undefined });
+    });
+  }
+
+  it('⭐ 확장의 답을 기다리다 멈춘 수집도 중단하면 중단 안내를 한 번 띄운다', async () => {
+    mocks.collectMall.mockImplementation(() => new Promise<never>(() => undefined));
+    const result = renderOneMall();
+    await startFromCard(result);
+
+    await act(async () => {
+      result.current.sessionControls.abortLocalRun(attempt.attemptId);
+    });
+
+    expect(toast.info).toHaveBeenCalledTimes(1);
+    expect(toast.info).toHaveBeenCalledWith(COLLECTION_STOPPED_MESSAGE);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('수집이 제대로 끝나면 성공 안내 그대로 — 중단 감시가 결과를 가리지 않는다', async () => {
+    mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
+    const result = renderOneMall();
+
+    await startFromCard(result);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledWith('키드키즈 수집 완료');
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('⭐ 중단한 뒤 제너레이터가 실패로 끝나도 안내는 중단 하나뿐이다', async () => {
+    let failCollection: (error: Error) => void = () => undefined;
+    mocks.collectMall.mockImplementation(() => new Promise<never>((_resolve, reject) => {
+      failCollection = reject;
+    }));
+    const result = renderOneMall();
+    await startFromCard(result);
+
+    await act(async () => {
+      result.current.sessionControls.abortLocalRun(attempt.attemptId);
+    });
+    await act(async () => {
+      failCollection(new Error('수집 창이 닫혔습니다.'));
+    });
+
+    expect(toast.info).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('⭐ 중단하면 전체 수집의 기다림도 풀린다 — 끝나지 않는 몰에 매달리지 않는다', async () => {
+    const result = renderOneMall();
+    mocks.collectMall.mockImplementation((
+      _account: OrderCollectionMallAccount,
+      run: { attemptId: string },
+    ) => {
+      // 공용 컨트롤의 중단이 이 브라우저의 절차부터 끊는다. 확장은 탭을 닫았지만 몰
+      // 제너레이터는 오지 않을 메시지를 계속 기다린다.
+      result.current.sessionControls.abortLocalRun(run.attemptId);
+      return new Promise<never>(() => undefined);
+    });
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toMatchObject({ successCount: 0, failedCount: 1 });
+    // 전체 수집은 운영자에게 몰 하나하나를 알리지 않는다.
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
