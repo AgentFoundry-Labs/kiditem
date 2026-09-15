@@ -32,7 +32,7 @@ describe('ProductOperationsDataStatusDialog', () => {
     expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 
-  it('keeps the official publication visible while labeling stale live data and both cutoffs', () => {
+  it('labels stale live data and both cutoffs, and still offers the grade refresh', () => {
     const data = readyStatus();
     data.sources.sellpia.ready = false;
     data.sources.sellpia.actualCutoff = '2026-08-31';
@@ -43,8 +43,11 @@ describe('ProductOperationsDataStatusDialog', () => {
     expect(screen.getByText('공식 등급 기준일 2026-07-31')).toBeInTheDocument();
     expect(screen.getByText('표시 데이터 기준일 2026-08-31')).toBeInTheDocument();
     expect(screen.getByText('갱신 필요')).toBeInTheDocument();
-    expect(screen.getByText(/기존 공식 등급은 유지됩니다/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+    expect(screen.getByText(
+      '필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익의 끝 날짜가 같은 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.',
+    )).toBeInTheDocument();
+    // The server publishes the newest pair that ends together, as the dashboard's refresh does.
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 
   it('renders the command outcome as an inline message without dismissing the dialog', () => {
@@ -73,6 +76,7 @@ function renderDialog(
       loading={false}
       error={false}
       refreshing={false}
+      checking={false}
       onRefresh={vi.fn()}
       data={data}
       {...overrides}

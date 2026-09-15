@@ -29,6 +29,7 @@ export function ProductOperationsDataStatusDialog({
   loading,
   error,
   refreshing,
+  checking,
   feedback,
   onRefresh,
 }: {
@@ -38,6 +39,14 @@ export function ProductOperationsDataStatusDialog({
   loading: boolean;
   error: boolean;
   refreshing: boolean;
+  /**
+   * A read of the data status is in flight, so the source dates on screen may
+   * be older than the server's. The grade refresh waits for it, and stays
+   * closed after that read fails (`error`) until a later read answers. Source
+   * readiness never holds it, because the server publishes the newest pair
+   * that ends together, as the dashboard's refresh does.
+   */
+  checking: boolean;
   feedback?: ProductOperationsDataStatusFeedback | null;
   onRefresh: () => void;
 }) {
@@ -77,7 +86,7 @@ export function ProductOperationsDataStatusDialog({
               <MappingRow ready={data.sources.mapping.ready} generation={data.sources.mapping.generation} />
             </section>
 
-            {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 준비될 때까지 기존 공식 등급은 유지됩니다.</p> : null}
+            {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익의 끝 날짜가 같은 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.</p> : null}
             {feedback ? <p role="status" className={feedbackClass(feedback.tone)}>{feedback.message}</p> : null}
 
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
@@ -92,9 +101,9 @@ export function ProductOperationsDataStatusDialog({
             </section>
 
             <div className="flex justify-end rounded-xl bg-[var(--surface-sunken)] px-4 py-3">
-              <button type="button" onClick={onRefresh} disabled={refreshing || !sourcesReady} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-bold text-white disabled:opacity-50">
-                {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {refreshing ? '계산 중' : '등급 새로고침'}
+              <button type="button" onClick={onRefresh} disabled={refreshing || checking || error} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+                {refreshing || checking ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {refreshing ? '계산 중' : checking ? '현황 확인 중' : '등급 새로고침'}
               </button>
             </div>
           </div> : null}

@@ -17,5 +17,8 @@ export function useProductOperationsDataStatus(
       ProductOperationsDataStatusSchema,
     ),
     enabled: open,
+    // Every open reads again, even within the app's one-minute freshness: a
+    // collection another tab finished must show before the grade refresh.
+    staleTime: 0,
   });
 }

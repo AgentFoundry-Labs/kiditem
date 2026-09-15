@@ -348,6 +348,35 @@ describe('MasterProductAbcService', () => {
     expect(calls).toEqual(['targets', 'evidence']);
   });
 
+  it('refuses with INPUT_CHANGED when the mapping generation moves before the evidence load', async () => {
+    // Products reads mapping generation 7. While it captures its targets the
+    // mapping moves to 8, and both sources complete on 8 before the load reads
+    // them: no source is waiting, the calculation's own input changed.
+    let mappingGeneration = '7';
+    const products = repository({
+      getFormulaState: vi.fn(async () => ({ ...state, publishedAt: null, mappingGeneration })),
+      listCurrentAbcTargetIds: vi.fn(async () => {
+        mappingGeneration = '8';
+        return [productA];
+      }),
+    });
+    const evidence = snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }]);
+    const profitability: ProfitabilityEvidence = {
+      load: vi.fn(async () => ({
+        ...evidence,
+        mappingGeneration,
+        sourceVector: {
+          sellpia: { ...evidence.sourceVector.sellpia, mappingGeneration },
+          advertising: { ...evidence.sourceVector.advertising, mappingGeneration },
+        },
+      })),
+    };
+
+    await expect(new MasterProductAbcService(products, profitability).recalculate({ organizationId }))
+      .rejects.toMatchObject({ status: 409, response: { code: 'INPUT_CHANGED' } });
+    expect(products.publish).not.toHaveBeenCalled();
+  });
+
   it('does not change a product score when another product is added', async () => {
     const alone = repository();
     const aloneContext = serviceWith(alone, snapshot([
