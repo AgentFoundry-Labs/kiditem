@@ -204,9 +204,9 @@ export class AdCampaignsService {
       campaignIdentity: string;
     },
   ): Promise<AdKeywordsData> {
-    const [rollups, openActions] = await Promise.all([
+    const [rollups, pauseProposals] = await Promise.all([
       this.campaignRepo.findKeywordTargetRollups(organizationId, period, campaign),
-      this.actionRepo.findOpenKeywordRelevanceActions(organizationId),
+      this.actionRepo.findKeywordPauseProposals(organizationId),
     ]);
     if (rollups.length === 0) {
       return {
@@ -217,13 +217,14 @@ export class AdCampaignsService {
         keywords: [],
       } satisfies AdKeywordsData;
     }
-    // An open `pause_keyword` proposal is the agent's verdict awaiting
-    // approval. Keyed by keyword text plus the advertised option so the same
+    // A keyword's latest `pause_keyword` proposal that was not rejected is the
+    // agent's verdict, which the operator reviews here whatever its execution
+    // state. Keyed by keyword text plus the advertised option so the same
     // keyword on another product is not marked by proxy.
-    const relevanceByKey = new Map(
-      openActions.map((action) => [
-        `${action.externalId ?? ''}::${action.targetLabel}`,
-        action.reason,
+    const proposalByKey = new Map(
+      pauseProposals.map((proposal) => [
+        `${proposal.externalId ?? ''}::${proposal.targetLabel}`,
+        proposal,
       ]),
     );
 
@@ -239,18 +240,13 @@ export class AdCampaignsService {
         ? await this.listingRepo.findScopedAdListings(organizationId, listingIds)
         : new Map();
 
-    const keywords = rollups.map((rollup) => {
-      const reason = relevanceByKey.get(
-        `${rollup.externalOptionId ?? ''}::${rollup.keyword}`,
-      );
-      return toAdKeywordSnapshot(
+    const keywords = rollups.map((rollup) =>
+      toAdKeywordSnapshot(
         rollup,
         rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null,
-        reason
-          ? { verdict: 'irrelevant', reason }
-          : { verdict: null, reason: null },
-      );
-    });
+        proposalByKey.get(`${rollup.externalOptionId ?? ''}::${rollup.keyword}`) ?? null,
+      ),
+    );
     const collectedAt = rollups.reduce<Date | null>(
       (latest, rollup) =>
         !latest || rollup.lastObservedAt > latest ? rollup.lastObservedAt : latest,

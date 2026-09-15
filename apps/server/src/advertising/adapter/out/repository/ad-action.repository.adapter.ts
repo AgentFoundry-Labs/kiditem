@@ -6,6 +6,7 @@
 
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
+import { AdKeywordPauseProposalSchema } from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readAdTargetRowEvidence,
@@ -40,7 +41,7 @@ import type {
   AdActionRepositoryPort,
   AdActionReviewResult,
   ExistingAdActionDedupRow,
-  OpenKeywordRelevanceActionRow,
+  KeywordPauseProposalRow,
   HydratedAdAction,
   LatestTargetRow,
 } from '../../../application/port/out/repository/ad-action.repository.port';
@@ -352,22 +353,53 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     `);
   }
 
-  async findOpenKeywordRelevanceActions(
+  async findKeywordPauseProposals(
     organizationId: string,
-  ): Promise<OpenKeywordRelevanceActionRow[]> {
-    return this.prisma.$queryRaw<OpenKeywordRelevanceActionRow[]>(Prisma.sql`
-      SELECT
-        action.target_label AS "targetLabel",
+  ): Promise<KeywordPauseProposalRow[]> {
+    // One instant for the execution deadline across every proposal.
+    const now = new Date();
+    const rows = await this.prisma.$queryRaw<Array<{
+      actionId: string;
+      externalId: string | null;
+      targetLabel: string;
+      reason: string;
+      approvalStatus: string;
+    } & LatestExecutionTaskColumns>>(Prisma.sql`
+      SELECT DISTINCT ON (action.external_id, action.target_label)
+        action.id AS "actionId",
         action.external_id AS "externalId",
-        action.reason
+        action.target_label AS "targetLabel",
+        action.reason,
+        action.approval_status AS "approvalStatus",
+        ${LATEST_EXECUTION_TASK_COLUMNS}
       FROM ad_actions action
       ${LATEST_EXECUTION_TASK_JOIN}
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.action_type = 'pause_keyword'
         AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
-      ORDER BY action.created_at DESC, action.id DESC
+      ORDER BY action.external_id, action.target_label, action.created_at DESC, action.id DESC
     `);
+    return rows.flatMap((row) => {
+      const execution = deriveAdActionExecution(latestExecutionTaskOf(row), now);
+      const approvalStatus = AdKeywordPauseProposalSchema.shape.approvalStatus.safeParse(
+        row.approvalStatus,
+      );
+      const executeStatus = AdKeywordPauseProposalSchema.shape.executeStatus.safeParse(
+        execution.executeStatus,
+      );
+      // A task status outside the lifecycle reads as itself; such a proposal is
+      // not offered for review.
+      if (!approvalStatus.success || !executeStatus.success) return [];
+      return [{
+        actionId: row.actionId,
+        externalId: row.externalId,
+        targetLabel: row.targetLabel,
+        reason: row.reason,
+        approvalStatus: approvalStatus.data,
+        executeStatus: executeStatus.data,
+        errorMessage: execution.errorMessage,
+      }];
+    });
   }
 
   async createAdActionsFromCandidates(

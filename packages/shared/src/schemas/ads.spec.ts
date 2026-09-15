@@ -160,7 +160,26 @@ describe('keyword conversion availability', () => {
     metrics,
     relevance: null,
     relevanceReason: null,
+    pauseProposal: null,
   };
+
+  it('carries the pause proposal still in play on a keyword row, never a rejected one (KID-138)', () => {
+    const proposal = {
+      actionId: '00000000-0000-4000-8000-0000000000aa',
+      approvalStatus: 'approved',
+      executeStatus: 'failed',
+      errorMessage: '실행 기한 초과',
+    };
+    const row = { ...keyword, conversionsAvailable: true, pauseProposal: proposal };
+
+    expect(AdKeywordSnapshotSchema.parse(row).pauseProposal).toEqual(proposal);
+    expect(AdKeywordSnapshotSchema.parse({ ...row, pauseProposal: null }).pauseProposal).toBeNull();
+    expect(AdKeywordSnapshotSchema.safeParse({ ...row, pauseProposal: undefined }).success).toBe(false);
+    expect(AdKeywordSnapshotSchema.safeParse({
+      ...row,
+      pauseProposal: { ...proposal, approvalStatus: 'rejected' },
+    }).success).toBe(false);
+  });
 
   it('requires keyword snapshots to say whether the conversion count was collected', () => {
     // A stored 0 from a table without the conversion column is not a count.

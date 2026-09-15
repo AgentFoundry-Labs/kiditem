@@ -164,6 +164,25 @@ export const AdKeywordRelevanceSchema = z.enum([
 ]);
 export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 
+/**
+ * The latest `pause_keyword` proposal of a keyword that was not rejected. A
+ * rejected proposal is not shown; one that failed or is done still is, so an
+ * operator can run a failure again.
+ */
+export const AdKeywordPauseProposalSchema = z.object({
+  actionId: z.string().uuid(),
+  approvalStatus: z.enum(['pending_review', 'approved']),
+  /**
+   * Execution state read from the proposal's latest attempt. A proposal
+   * awaiting review has no attempt and reads `queued`; a running attempt past
+   * its execution deadline reads `failed`.
+   */
+  executeStatus: z.enum(['queued', 'running', 'done', 'failed']),
+  /** Why the latest attempt failed, such as "실행 기한 초과"; null otherwise. */
+  errorMessage: z.string().nullable(),
+});
+export type AdKeywordPauseProposal = z.infer<typeof AdKeywordPauseProposalSchema>;
+
 export const AdKeywordSnapshotSchema = z.object({
   channelAccountId: z.string().uuid(),
   campaignIdentity: z.string().nullable(),
@@ -193,6 +212,8 @@ export const AdKeywordSnapshotSchema = z.object({
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
+  /** The pause proposal behind an "irrelevant" verdict; null when none is in play. */
+  pauseProposal: AdKeywordPauseProposalSchema.nullable(),
 });
 export type AdKeywordSnapshot = z.infer<typeof AdKeywordSnapshotSchema>;
 

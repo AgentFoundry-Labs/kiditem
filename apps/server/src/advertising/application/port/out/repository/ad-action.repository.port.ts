@@ -4,6 +4,7 @@
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type { AdAction } from '@prisma/client';
+import type { AdKeywordPauseProposal } from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
 
 export const AD_ACTION_REPOSITORY_PORT = Symbol('AdActionRepositoryPort');
@@ -123,10 +124,16 @@ export interface ExistingAdActionDedupRow {
   proposedValue: number | null;
 }
 
-/** Open keyword-relevance proposal, used to badge the keyword view. */
-export interface OpenKeywordRelevanceActionRow {
-  targetLabel: string;
+/**
+ * A keyword's latest `pause_keyword` proposal that was not rejected, with the
+ * execution state its latest attempt reads. The keyword view shows it as
+ * "연관 없음" and offers its review actions.
+ */
+export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
+  /** The advertised option the proposal pauses the keyword on. */
   externalId: string | null;
+  /** The keyword text. */
+  targetLabel: string;
   reason: string;
 }
 
@@ -160,14 +167,14 @@ export interface AdActionRepositoryPort {
   ): Promise<ExistingAdActionDedupRow[]>;
 
   /**
-   * Open (`pending_review` or approved-but-unexecuted) `pause_keyword`
-   * proposals. A keyword with one of these is what the keyword view shows as
-   * "연관 없음"; the verdict itself is not a daily fact and is not stored on the
-   * fact row.
+   * One row per keyword (advertised option and keyword text): its latest
+   * `pause_keyword` proposal that was not rejected, whatever its execution
+   * state. A keyword with one is what the keyword view shows as "연관 없음"; the
+   * verdict itself is not a daily fact and is not stored on the fact row.
    */
-  findOpenKeywordRelevanceActions(
+  findKeywordPauseProposals(
     organizationId: string,
-  ): Promise<OpenKeywordRelevanceActionRow[]>;
+  ): Promise<KeywordPauseProposalRow[]>;
 
   // Writes
   createAdActionsFromCandidates(
