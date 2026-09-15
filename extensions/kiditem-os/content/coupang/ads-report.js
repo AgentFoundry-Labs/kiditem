@@ -2636,6 +2636,10 @@
     // the end leaves it failed, since creating without knowing could make a
     // second campaign.
     const campaignName = normalizeText(payload.campaignName || action.targetLabel || "");
+    if (!campaignName) {
+      // A campaign without a name can be neither checked against the roster nor registered.
+      return { success: false, errorMessage: CAMPAIGN_NAME_MISSING_MESSAGE };
+    }
     const roster = await fetchAdCampaignRoster();
     if (!roster.ok) {
       return { success: false, errorMessage: CAMPAIGN_ROSTER_UNREAD_MESSAGE };
@@ -2790,6 +2794,8 @@
     `실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.`;
   const CAMPAIGN_ROSTER_UNREAD_MESSAGE =
     "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
+  const CAMPAIGN_NAME_MISSING_MESSAGE =
+    "캠페인 이름이 없습니다. 전략 탭에서 캠페인 이름을 넣어 다시 생성해주세요.";
 
   /**
    * Checked immediately before each click that can write to Coupang, with

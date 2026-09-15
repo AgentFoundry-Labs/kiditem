@@ -3631,6 +3631,8 @@ const CONFIRM_DEADLINE_FAILURE =
   "실행 기한(10분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.";
 const CAMPAIGN_ROSTER_UNREAD_FAILURE =
   "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
+const CAMPAIGN_NAME_MISSING_FAILURE =
+  "캠페인 이름이 없습니다. 전략 탭에서 캠페인 이름을 넣어 다시 생성해주세요.";
 
 /** A clock the content script reads through `Date`, moved by the test instead of waiting. */
 function controllableClock(startMs = Date.UTC(2026, 8, 15, 6, 0, 0)) {
@@ -4573,6 +4575,34 @@ test("create_campaign reports done without creating when the ad center already h
   assert.deepEqual({ ...response }, { success: true, executed: 1, skipped: 0 });
 });
 
+test("create_campaign treats a requested name that differs only in spacing as the ad center's campaign", async () => {
+  const page = openCampaignRegistrationTab({
+    roster: campaignRosterResponse([
+      { id: 104640999, name: "봄 신상 캠페인", isActive: true, groupList: [] },
+    ]),
+  });
+  const spaced = {
+    ...CREATE_CAMPAIGN_ACTION,
+    targetLabel: " 봄  신상 캠페인 ",
+    payload: { ...CREATE_CAMPAIGN_ACTION.payload, campaignName: " 봄  신상 캠페인 " },
+  };
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [spaced]);
+
+  assert.deepEqual(page.events, [
+    "markRunning:task-create-campaign",
+    "roster:isDeleted=false",
+    "markDone:task-create-campaign",
+  ]);
+  assert.deepEqual(page.reports.at(-1).afterJson, {
+    note: "campaign_already_exists",
+    campaignName: "봄 신상 캠페인",
+    campaignId: "104640999",
+  });
+  assert.equal(page.clicks.complete, 0, "no second campaign is created for a spacing variant");
+  assert.deepEqual({ ...response }, { success: true, executed: 1, skipped: 0 });
+});
+
 test("create_campaign reports failure without creating when the campaign roster cannot be read to the end", async () => {
   const page = openCampaignRegistrationTab({
     roster: { ok: false, status: 503, text: async () => "" },
@@ -4588,6 +4618,30 @@ test("create_campaign reports failure without creating when the campaign roster 
   assert.equal(page.reports.at(-1).errorMessage, CAMPAIGN_ROSTER_UNREAD_FAILURE);
   assert.equal(page.nameInput.value, "");
   assert.equal(page.clicks.complete, 0, "a campaign is never created without the same-name check");
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("create_campaign without a campaign name reports failure before reading the roster or touching the form", async () => {
+  const page = openCampaignRegistrationTab({
+    roster: campaignRosterResponse([
+      { id: 104640375, name: "쿠팡윙 집중광고", isActive: true, groupList: [] },
+    ]),
+  });
+  const unnamed = {
+    ...CREATE_CAMPAIGN_ACTION,
+    targetLabel: "",
+    payload: { ...CREATE_CAMPAIGN_ACTION.payload, campaignName: "   " },
+  };
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [unnamed]);
+
+  assert.deepEqual(page.events, [
+    "markRunning:task-create-campaign",
+    "markFailed:task-create-campaign",
+  ]);
+  assert.equal(page.reports.at(-1).errorMessage, CAMPAIGN_NAME_MISSING_FAILURE);
+  assert.equal(page.nameInput.value, "", "the registration form is left untouched");
+  assert.equal(page.clicks.complete, 0);
   assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 1 });
 });
 
