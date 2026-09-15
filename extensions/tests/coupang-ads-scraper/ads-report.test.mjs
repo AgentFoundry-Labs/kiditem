@@ -3622,9 +3622,10 @@ test("pollUntil still gives up once the budget and the attempt floor are both sp
 const CLAIM_REFUSED_WARNING =
   "실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.";
 const CLAIM_UNREPORTED_WARNING =
-  "시작 보고 전달에 실패한 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 서버에 실행 중으로 남았다면 실행 기한이 지나 실패로 바뀐 뒤 다시 승인할 수 있습니다.";
+  "시작 보고 전달에 실패한 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 서버에 실행 중으로 남았다면 실행 기한(30분)이 지나 실패로 바뀐 뒤 다시 승인할 수 있습니다.";
+// The refused report says nothing about Coupang, so the warning does not state the change as fact.
 const DONE_REFUSED_WARNING =
-  "승인 액션 1개는 광고센터에 반영했지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.";
+  "승인 액션 1개는 광고센터에 반영됐을 수 있지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.";
 const WRITE_DEADLINE_MS = 10 * 60 * 1000;
 const WRITE_DEADLINE_FAILURE = "실행 기한(10분)이 지나 광고센터에 쓰지 않았습니다.";
 const CONFIRM_DEADLINE_FAILURE =
