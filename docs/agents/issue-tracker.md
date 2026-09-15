@@ -68,8 +68,19 @@ In Progress means claimed; In Review means a PR or verification is pending;
 Blocked means started work waiting on a dependency; Duplicate and Done close
 the issue. Backlog and Todo stay empty.
 
-- Create work found during a task or reported from outside in Triage, and
-  issues published by `/to-spec` or `/to-tickets` in Ready.
+- Open an issue only for work worth tracking on its own: a defect an
+  operator meets, a rule or contract change, a decision someone must make, or
+  work another person will own. Create it in Triage when found during a task
+  or reported from outside; `/to-spec` and `/to-tickets` publish to Ready.
+  Findings that share one cause share one issue.
+- Everything else found during a task goes into a `## 파생` checklist on the
+  issue that found it (one `- [ ]` line each) and rides along in that issue's
+  PR or in one cleanup issue per milestone; promote a line to an issue only
+  when it meets the rule above.
+- Keep an issue's record readable: one comment thread per topic (QA, review,
+  decision) with replies under it instead of a flat list. Code-review
+  findings live on the PR's Linear review as diff threads and are resolved
+  there; the issue keeps one summary line.
 - Triage each issue to Ready, Human Input, Canceled, or Duplicate, with exactly
   one of `Bug`, `Feature`, or `Improvement`.
 - An accepted issue that waits on another stays in Ready with a blocked-by
