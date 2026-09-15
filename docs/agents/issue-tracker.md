@@ -114,8 +114,9 @@ leader that no open issue delegates to.
    with no tool or account prefix; every contributor pulls `develop` and
    branches for themselves, so never hand a branch to someone else. Do not
    rebase a topic branch: when `develop` moves, `git merge origin/develop`, so
-   the commit SHAs recorded in Linear stay reachable. Prefer one PR per phase
-   (schema, then feature) over one large PR. In the PR body write
+   the commit SHAs recorded in Linear stay reachable. Size a PR as one unit
+   that is reviewed and verified together (see the root `CLAUDE.md`); do not
+   split one piece of work into step-by-step PRs. In the PR body write
    `Fixes KID-nnn` for every issue the merge completes and `Refs KID-nnn` for
    issues that still need verification after merge (QA, a workflow run). The
    Linear GitHub integration moves `Fixes` issues to In Review on open and Done
