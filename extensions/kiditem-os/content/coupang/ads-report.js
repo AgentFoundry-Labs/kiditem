@@ -2470,13 +2470,21 @@
     const result = await kiditemApiRequest("/api/ads/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: type, id: action.id, ...payload }),
+      // Every report names the attempt the queue listed (KID-160), so it moves
+      // only that attempt and never a retry queued after it.
+      body: JSON.stringify({
+        action: type,
+        id: action.id,
+        executionTaskId: action.executionTaskId,
+        ...payload,
+      }),
     });
     // The worker answers every HTTP status with success:true. The server refuses
     // a report with 409 when the attempt is not this executor's to report:
-    // another executor started it, or it was cancelled or closed. That must stop
-    // the action before it touches Coupang, and this executor reports nothing
-    // more for it. Any other status is a failed request, not a refusal.
+    // another executor started it, a newer attempt replaced it, its execution
+    // deadline passed, or it was cancelled or closed. That must stop the action
+    // before it touches Coupang, and this executor reports nothing more for it.
+    // Any other status is a failed request, not a refusal.
     if (!result.ok) {
       const refused = result.status === 409;
       const error = new Error(`실행 보고 ${refused ? "거절" : "실패"} (${type}): ${result.status}`);
@@ -2494,10 +2502,11 @@
   }
 
   // Called only after the change reached Coupang. A refused done report (409)
-  // means the attempt is no longer this executor's; any other failure leaves the
-  // server without the outcome. Neither becomes a failure report, which would
-  // invite approving the action again and changing Coupang twice. The attempt
-  // stays running until it is recovered (KID-160).
+  // means the attempt is no longer this executor's (its deadline passed or a
+  // newer attempt replaced it); any other failure leaves the server without the
+  // outcome. Neither becomes a failure report, which would invite approving the
+  // action again and changing Coupang twice. The executor warns about both; a
+  // lost report leaves the attempt running until its execution deadline passes.
   async function reportActionDone(action, afterJson) {
     try {
       await reportAction(action, "markDone", { afterJson });
@@ -2613,11 +2622,38 @@
     return true;
   }
 
-  async function executeCreateCampaign(action) {
+  async function executeCreateCampaign(action, claim) {
     const payload = action.payload || {};
     const listings = Array.isArray(payload.listings) ? payload.listings : [];
     if (listings.length === 0) {
       return { success: false, errorMessage: "등록할 광고 상품이 없습니다. 전략 탭에서 상품이 포함된 캠페인을 다시 생성해주세요." };
+    }
+
+    // A retried attempt may follow one that already created the campaign before
+    // its report was lost and its attempt released (KID-160). The ad center's
+    // campaign roster is read first, without leaving the page: a campaign with
+    // this name ends the action as done, and a roster that cannot be read to
+    // the end leaves it failed, since creating without knowing could make a
+    // second campaign.
+    const campaignName = normalizeText(payload.campaignName || action.targetLabel || "");
+    if (!campaignName) {
+      // A campaign without a name can be neither checked against the roster nor registered.
+      return { success: false, errorMessage: CAMPAIGN_NAME_MISSING_MESSAGE };
+    }
+    const roster = await fetchAdCampaignRoster();
+    if (!roster.ok) {
+      return { success: false, errorMessage: CAMPAIGN_ROSTER_UNREAD_MESSAGE };
+    }
+    const existing = roster.campaigns.find((campaign) => campaign.name === campaignName);
+    if (existing) {
+      return {
+        success: true,
+        afterJson: {
+          note: "campaign_already_exists",
+          campaignName,
+          campaignId: existing.campaignId,
+        },
+      };
     }
 
     await ensureCampaignRegistrationPage();
@@ -2655,6 +2691,7 @@
     await sleep(500);
     const completeButton = findClickableByText(["완료"]);
     if (!completeButton) throw new Error("완료 버튼을 찾지 못했습니다.");
+    assertWithinWriteDeadline(claim);
     completeButton.click();
     await sleep(1500);
 
@@ -2662,6 +2699,7 @@
     if (dialog) {
       const confirmButton = findClickableByText(["등록", "확인", "완료"], dialog);
       if (confirmButton) {
+        assertWithinWriteDeadline(claim, { confirmationStep: true });
         confirmButton.click();
         await sleep(1500);
       }
@@ -2687,31 +2725,37 @@
     };
   }
 
-  async function executePauseKeyword(action, row) {
+  async function executePauseKeyword(action, row, claim) {
     const rowText = normalizeText(row.innerText).toLowerCase();
     if (["off", "중지", "일시중지", "비활성"].some((token) => rowText.includes(token))) {
       return { success: true, afterJson: { note: "already_paused" } };
     }
 
+    assertWithinWriteDeadline(claim);
     if (!clickBestButton(row, ["중지", "off", "일시중지", "끄기", "비활성"])) {
       throw new Error("키워드 중지 버튼을 찾지 못했습니다.");
     }
     await sleep(600);
     const dialog = findDialog();
     if (dialog) {
+      assertWithinWriteDeadline(claim, { confirmationStep: true });
       clickBestButton(dialog, ["확인", "저장", "적용"]);
       await sleep(1200);
     }
     return { success: true, afterJson: { status: "paused_attempted" } };
   }
 
-  async function executeNumericChange(action, row, labelHints) {
+  async function executeNumericChange(action, row, labelHints, claim) {
+    // The row's edit control is matched by its label only, so a tab already
+    // past its deadline does not click it at all.
+    assertWithinWriteDeadline(claim);
     await openEditor(row);
     const dialog = findDialog() || document.body;
     const input = findInputInDialog(dialog, labelHints);
     if (!input) throw new Error("수정 입력창을 찾지 못했습니다.");
     setNativeValue(input, String(action.proposedValue || ""));
     await sleep(200);
+    assertWithinWriteDeadline(claim);
     await submitDialog(dialog);
     return {
       success: true,
@@ -2733,9 +2777,45 @@
       : { url: window.location.href };
   }
 
-  async function executeClaimedAction(action) {
+  // An approved action writes to Coupang only within this long after its claim.
+  // The server treats a running attempt with no outcome for 30 minutes as
+  // stopped and lets the operator queue it again
+  // (EXECUTION_TASK_RUNNING_DEADLINE_MS in
+  // apps/server/src/advertising/domain/execution-task-lifecycle.ts). An executor
+  // that stalled after its claim (a sleeping PC, a throttled tab) must not write
+  // that late, so this deadline stays well inside the server's while leaving
+  // room for several slow ad-center page loads.
+  const ACTION_WRITE_DEADLINE_MS = 10 * 60 * 1000;
+  const ACTION_WRITE_DEADLINE_MESSAGE =
+    `실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 광고센터에 쓰지 않았습니다.`;
+  // A stop at a confirmation click follows a click that may already have
+  // written, so its failure does not claim that nothing changed.
+  const ACTION_CONFIRM_DEADLINE_MESSAGE =
+    `실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.`;
+  const CAMPAIGN_ROSTER_UNREAD_MESSAGE =
+    "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
+  const CAMPAIGN_NAME_MISSING_MESSAGE =
+    "캠페인 이름이 없습니다. 전략 탭에서 캠페인 이름을 넣어 다시 생성해주세요.";
+
+  /**
+   * Checked immediately before each click that can write to Coupang, with
+   * nothing awaited in between; the thrown failure becomes the action's
+   * reported outcome. A stop at a confirmation click follows a click that may
+   * already have written, so its error carries `executionMayHaveApplied` and
+   * the run warns about it.
+   */
+  function assertWithinWriteDeadline(claim, { confirmationStep = false } = {}) {
+    if (Date.now() - claim.claimedAt <= ACTION_WRITE_DEADLINE_MS) return;
+    const error = new Error(
+      confirmationStep ? ACTION_CONFIRM_DEADLINE_MESSAGE : ACTION_WRITE_DEADLINE_MESSAGE,
+    );
+    error.executionMayHaveApplied = confirmationStep;
+    throw error;
+  }
+
+  async function executeClaimedAction(action, claim) {
     if (action.actionType === "create_campaign") {
-      return executeCreateCampaign(action);
+      return executeCreateCampaign(action, claim);
     }
 
     const row = findTargetRow(action);
@@ -2744,13 +2824,13 @@
     }
 
     if (action.actionType === "pause_keyword") {
-      return executePauseKeyword(action, row);
+      return executePauseKeyword(action, row, claim);
     }
     if (action.actionType === "change_bid") {
-      return executeNumericChange(action, row, ["입찰가", "bid"]);
+      return executeNumericChange(action, row, ["입찰가", "bid"], claim);
     }
     if (action.actionType === "change_daily_budget") {
-      return executeNumericChange(action, row, ["일예산", "예산", "budget"]);
+      return executeNumericChange(action, row, ["일예산", "예산", "budget"], claim);
     }
 
     return { success: false, errorMessage: `지원하지 않는 액션: ${action.actionType}` };
@@ -2769,10 +2849,28 @@
     }
 
     let executed = 0;
-    let executedUnrecorded = 0;
     let skipped = actions.length - runnable.length;
+    // Actions listed without their attempt id, which are never claimed.
+    let missingAttemptId = 0;
+    // Reports that did not land. The operator sees each kind as a warning.
+    let claimRefused = 0;
+    let claimUnreported = 0;
+    // Actions stopped at a confirmation click, after which Coupang may already have changed.
+    let confirmationStopped = 0;
+    let doneRefused = 0;
+    let doneUnreported = 0;
 
     for (const action of runnable) {
+      // Every report names the attempt it is for. An action listed without one
+      // (an older server, or an approved action with no attempt) cannot be
+      // fenced to an attempt, so it is not claimed at all.
+      if (typeof action.executionTaskId !== "string" || !action.executionTaskId.trim()) {
+        skipped++;
+        missingAttemptId++;
+        continue;
+      }
+      // The write deadline runs from the moment the claim is sent.
+      const claim = { claimedAt: Date.now() };
       try {
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
         await reportAction(action, "markRunning", { beforeJson: claimEvidence(action) });
@@ -2780,6 +2878,8 @@
         // No accepted claim: another executor may own the attempt, so this one
         // reports nothing for the action and never touches Coupang for it.
         skipped++;
+        if (error?.executionReportRefused) claimRefused++;
+        else claimUnreported++;
         console.warn(
           "[KidItem] 실행 선점이 받아들여지지 않아 액션을 건너뜁니다:",
           error instanceof Error ? error.message : error,
@@ -2788,10 +2888,11 @@
       }
       let result;
       try {
-        result = await executeClaimedAction(action);
+        result = await executeClaimedAction(action, claim);
       } catch (error) {
         // The action failed while it was being worked on Coupang.
         skipped++;
+        if (error?.executionMayHaveApplied) confirmationStopped++;
         await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
@@ -2807,14 +2908,44 @@
       }
       const done = await reportActionDone(action, result.afterJson || {});
       if (done === "recorded") executed++;
-      else if (done === "refused") skipped++;
-      else executedUnrecorded++;
+      else if (done === "refused") doneRefused++;
+      else doneUnreported++;
     }
 
-    if (executedUnrecorded > 0) {
-      const warning = `승인 액션 ${executedUnrecorded}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`;
+    // A refused or lost done report follows a change that reached Coupang; only
+    // its record is missing.
+    const executedUnrecorded = doneRefused + doneUnreported;
+    // A skip the operator must act on, or a report that did not land, is a
+    // warning, never only a count.
+    const warnings = [];
+    if (missingAttemptId > 0) {
+      warnings.push(`실행 시도 id가 없는 승인 액션 ${missingAttemptId}개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.`);
+    }
+    if (claimRefused > 0) {
+      warnings.push(`실행 보고가 거절된 승인 액션 ${claimRefused}개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.`);
+    }
+    if (claimUnreported > 0) {
+      warnings.push(`시작 보고 전달에 실패한 승인 액션 ${claimUnreported}개는 광고센터에 쓰지 않고 건너뛰었습니다. 서버에 실행 중으로 남았다면 실행 기한(30분)이 지나 실패로 바뀐 뒤 다시 승인할 수 있습니다.`);
+    }
+    if (confirmationStopped > 0) {
+      warnings.push(`승인 액션 ${confirmationStopped}개는 확인 단계에서 실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
+    }
+    if (doneRefused > 0) {
+      warnings.push(`승인 액션 ${doneRefused}개는 광고센터에 반영됐을 수 있지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
+    }
+    if (doneUnreported > 0) {
+      warnings.push(`승인 액션 ${doneUnreported}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
+    }
+    if (warnings.length > 0) {
+      const warning = warnings.join(" ");
       showBadge(`⚠️ ${warning}`, "#f59e0b");
-      return { success: true, executed, executedUnrecorded, skipped, warning };
+      return {
+        success: true,
+        executed,
+        ...(executedUnrecorded > 0 ? { executedUnrecorded } : {}),
+        skipped,
+        warning,
+      };
     }
     showBadge(`✅ 승인 액션 ${executed}개 실행 완료`, "#22c55e");
     return { success: true, executed, skipped };

@@ -1,6 +1,11 @@
 import { Prisma } from '@prisma/client';
 import type { AdActionExecution } from '../application/port/out/repository/ad-action.repository.port';
-import type { ExecutionTaskStatus } from '../domain/execution-task-lifecycle';
+import {
+  EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
+  executionDeadlineCutoff,
+  isExpiredRunningExecutionTask,
+  type ExecutionTaskStatus,
+} from '../domain/execution-task-lifecycle';
 
 /**
  * An AdAction's execution state is its latest ExecutionTask; the action keeps
@@ -15,6 +20,10 @@ import type { ExecutionTaskStatus } from '../domain/execution-task-lifecycle';
  *   while the stored copy existed, and its approval status keeps it out of
  *   every execution queue. A status outside the map passes through unchanged,
  *   so an unexpected word never reads as queued work.
+ * - A `running` task past its execution deadline reads `failed` with the
+ *   deadline message (KID-160). Reading writes nothing; approval or a late
+ *   report closes the task. A read judges the deadline at one `now`, and the
+ *   SQL twin compares against the same instant.
  * - `errorMessage` is the failure message of a failed task and `executedAt` the
  *   finish time of a done task; `beforeJson` / `afterJson` are the task's own.
  */
@@ -31,6 +40,7 @@ const EXECUTE_STATUS_BY_TASK_STATUS: Readonly<
 };
 
 const NO_TASK_EXECUTE_STATUS: AdActionExecuteStatus = 'queued';
+const EXPIRED_RUNNING_EXECUTE_STATUS: AdActionExecuteStatus = 'failed';
 
 export interface LatestExecutionTask {
   id: string;
@@ -44,13 +54,25 @@ export interface LatestExecutionTask {
 
 export function deriveAdActionExecution(
   latestTask: LatestExecutionTask | null,
+  now: Date,
 ): AdActionExecution {
   if (!latestTask) {
     return {
+      executionTaskId: null,
       executeStatus: NO_TASK_EXECUTE_STATUS,
       beforeJson: null,
       afterJson: null,
       errorMessage: null,
+      executedAt: null,
+    };
+  }
+  if (isExpiredRunningExecutionTask(latestTask, now)) {
+    return {
+      executionTaskId: latestTask.id,
+      executeStatus: EXPIRED_RUNNING_EXECUTE_STATUS,
+      beforeJson: latestTask.beforeJson,
+      afterJson: latestTask.afterJson,
+      errorMessage: EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
       executedAt: null,
     };
   }
@@ -61,6 +83,7 @@ export function deriveAdActionExecution(
     ? EXECUTE_STATUS_BY_TASK_STATUS[latestTask.status as ExecutionTaskStatus]
     : latestTask.status;
   return {
+    executionTaskId: latestTask.id,
     executeStatus,
     beforeJson: latestTask.beforeJson,
     afterJson: latestTask.afterJson,
@@ -119,27 +142,46 @@ export function latestExecutionTaskOf(
   };
 }
 
-/** SQL twin of `deriveAdActionExecution(...).executeStatus`, built from the same map. */
-const DERIVED_EXECUTE_STATUS = Prisma.sql`COALESCE(
-  CASE latest_execution_task.status
-    ${Prisma.join(
-      Object.entries(EXECUTE_STATUS_BY_TASK_STATUS).map(
-        ([taskStatus, executeStatus]) =>
-          Prisma.sql`WHEN ${taskStatus}::text THEN ${executeStatus}::text`,
-      ),
-      ' ',
-    )}
-    ELSE latest_execution_task.status
-  END,
-  ${NO_TASK_EXECUTE_STATUS}::text
-)`;
+/**
+ * SQL twin of `deriveAdActionExecution(..., now).executeStatus`, built from the
+ * same status map and the same deadline cutoff.
+ */
+function derivedExecuteStatus(now: Date): Prisma.Sql {
+  return Prisma.sql`COALESCE(
+    CASE
+      WHEN latest_execution_task.status = 'running'
+        AND (
+          latest_execution_task.started_at IS NULL
+          OR latest_execution_task.started_at < ${executionDeadlineCutoff(now)}::timestamptz
+        )
+        THEN ${EXPIRED_RUNNING_EXECUTE_STATUS}::text
+      ELSE CASE latest_execution_task.status
+        ${Prisma.join(
+          Object.entries(EXECUTE_STATUS_BY_TASK_STATUS).map(
+            ([taskStatus, executeStatus]) =>
+              Prisma.sql`WHEN ${taskStatus}::text THEN ${executeStatus}::text`,
+          ),
+          ' ',
+        )}
+        ELSE latest_execution_task.status
+      END
+    END,
+    ${NO_TASK_EXECUTE_STATUS}::text
+  )`;
+}
 
-/** The action's derived execution word is one of `statuses`. Requires `LATEST_EXECUTION_TASK_JOIN`. */
-export function derivedExecuteStatusIn(statuses: readonly string[]): Prisma.Sql {
+/**
+ * The action's derived execution word at `now` is one of `statuses`. Requires
+ * `LATEST_EXECUTION_TASK_JOIN`.
+ */
+export function derivedExecuteStatusIn(
+  statuses: readonly string[],
+  now: Date,
+): Prisma.Sql {
   if (statuses.length === 0) {
     throw new Error('derivedExecuteStatusIn requires at least one status.');
   }
-  return Prisma.sql`${DERIVED_EXECUTE_STATUS} IN (${Prisma.join(
+  return Prisma.sql`${derivedExecuteStatus(now)} IN (${Prisma.join(
     statuses.map((status) => Prisma.sql`${status}::text`),
   )})`;
 }
