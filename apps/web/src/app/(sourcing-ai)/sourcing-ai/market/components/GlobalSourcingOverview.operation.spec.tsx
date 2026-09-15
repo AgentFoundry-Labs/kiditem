@@ -90,6 +90,7 @@ describe('GlobalSourcingOverview YouTube Shorts signal', () => {
     const { card, row } = await shortsViews();
 
     await waitFor(() => expect(card).toHaveTextContent('수집 완료 2026-09-07'));
+    expect(card).toHaveTextContent('최근 수집분에 문구·완구 관련 영상이 없습니다.');
     expect(card).not.toHaveTextContent('수집 대기');
     expect(row).toHaveTextContent('수집 스냅샷');
     expect(row).not.toHaveTextContent('수집 대기');
@@ -103,5 +104,28 @@ describe('GlobalSourcingOverview YouTube Shorts signal', () => {
 
     expect(card).toHaveTextContent('수집 대기');
     expect(row).toHaveTextContent('수집 대기');
+    // No collection covered the window, so the card cannot say one found nothing.
+    expect(card).toHaveTextContent('최근 수집한 유튜브 쇼츠 스냅샷이 없습니다.');
+    expect(card).not.toHaveTextContent('최근 수집분에 문구·완구 관련 영상이 없습니다.');
+  });
+
+  it('shows a pending Shorts read as loading, not as not collected', async () => {
+    vi.mocked(fetchShortsTrends).mockReturnValue(new Promise<never>(() => undefined));
+    renderOverview();
+    const { card } = await shortsViews();
+
+    expect(card).toHaveTextContent('유튜브 쇼츠 데이터를 불러오는 중입니다.');
+    expect(card).not.toHaveTextContent('최근 수집한 유튜브 쇼츠 스냅샷이 없습니다.');
+    expect(card).not.toHaveTextContent('최근 수집분에 문구·완구 관련 영상이 없습니다.');
+  });
+
+  it('shows a failed Shorts read as failed, not as not collected', async () => {
+    vi.mocked(fetchShortsTrends).mockRejectedValue(new Error('shorts read failed'));
+    renderOverview();
+    const { card } = await shortsViews();
+
+    await waitFor(() => expect(card).toHaveTextContent('유튜브 쇼츠 데이터를 가져오지 못했습니다.'));
+    expect(card).not.toHaveTextContent('최근 수집한 유튜브 쇼츠 스냅샷이 없습니다.');
+    expect(card).not.toHaveTextContent('최근 수집분에 문구·완구 관련 영상이 없습니다.');
   });
 });

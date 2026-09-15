@@ -111,6 +111,8 @@ export function GlobalSourcingOverview() {
           items={globalVideos}
           capturedAt={globalQuery.data?.capturedAt ?? null}
           businessDate={globalQuery.data?.businessDate ?? null}
+          loading={globalQuery.isLoading}
+          error={globalQuery.isError}
         />
         <KoreaSignals
           items={koreaKeywords}
@@ -239,14 +241,23 @@ function ChinaSignals({ offers, capturedAt }: { offers: Hot1688OfferView[]; capt
   );
 }
 
-function GlobalSignals({ items, capturedAt, businessDate }: { items: ShortsTrendView[]; capturedAt: string | null; businessDate: string | null }) {
+function GlobalSignals({ items, capturedAt, businessDate, loading, error }: {
+  items: ShortsTrendView[];
+  capturedAt: string | null;
+  businessDate: string | null;
+  loading: boolean;
+  error: boolean;
+}) {
   // A completed collection that stored no video still names the day it covered.
   const badge = capturedAt
     ? `저장 ${formatDateTime(capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
     : businessDate ? `수집 완료 ${businessDate}` : '수집 대기';
   return (
     <SignalCard icon={Globe2} title="글로벌 반응" subtitle="YouTube 최근 48시간 문구·완구 스냅샷" badge={badge}>
-      {items.length === 0 ? <CompactEmpty text="최근 수집분에 문구·완구 관련 영상이 없습니다." /> : (
+      {loading ? <CompactEmpty text="유튜브 쇼츠 데이터를 불러오는 중입니다." loading /> : error ? <CompactEmpty text="유튜브 쇼츠 데이터를 가져오지 못했습니다." error /> : items.length === 0 ? (
+        // Only a completed collection can report that it found no video.
+        <CompactEmpty text={businessDate ? '최근 수집분에 문구·완구 관련 영상이 없습니다.' : '최근 수집한 유튜브 쇼츠 스냅샷이 없습니다.'} />
+      ) : (
         <ul className="divide-y divide-[var(--border-subtle)]">
           {items.slice(0, 5).map((item) => (
             <li key={item.videoKey} className="flex items-center gap-3 px-4 py-3">
