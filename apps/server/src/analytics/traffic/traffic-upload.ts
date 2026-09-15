@@ -175,10 +175,9 @@ export async function uploadTrafficStats({
                   },
                 } as Prisma.InputJsonValue,
               },
+              // The row's observation count, time and raw snapshot record the
+              // listing-state observations; the upload changes only its traffic columns.
               update: {
-                sampleCount: { increment: 1 },
-                lastObservedAt: observedAt,
-                rawSnapshotId: d.rawSnapshotId,
                 trafficVisitors: d.visitors,
                 trafficViews: d.views,
                 trafficCartAdds: d.cartAdds,

@@ -654,6 +654,89 @@ describe('TrafficService (PG integration) — daily facts', () => {
     }
   });
 
+  it('uploadTrafficStats — changes only the traffic columns of an item-winner listing-day it updates', async () => {
+    const listing = await seedListing(TEST_ORGANIZATION_ID, 'SHARED-DAY');
+    const businessDate = '2026-04-14';
+    const day = new Date(`${businessDate}T00:00:00.000Z`);
+    const itemWinnerObservedAt = new Date(`${businessDate}T05:00:00.000Z`);
+    // The item-winner source observed the listing's state three times that day.
+    const itemWinnerRun = await prisma.channelScrapeRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        channel: 'coupang',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate: day,
+      },
+    });
+    const itemWinnerSnapshot = await prisma.channelScrapeSnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        scrapeRunId: itemWinnerRun.id,
+        channel: 'coupang',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate: day,
+        observedAt: itemWinnerObservedAt,
+        externalId: listing.externalId,
+        listingId: listing.id,
+        matchStatus: 'matched_listing_only',
+        rawJson: { externalId: listing.externalId },
+      },
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: day,
+        isOfferWinner: true,
+        saleStatus: '판매중',
+        sampleCount: 3,
+        firstObservedAt: itemWinnerObservedAt,
+        lastObservedAt: itemWinnerObservedAt,
+        rawSnapshotId: itemWinnerSnapshot.id,
+      },
+    });
+
+    await expect(service.uploadTrafficStats(
+      trafficWorkbook([{
+        등록상품ID: listing.externalId,
+        날짜: businessDate,
+        방문자: 30,
+        조회: 40,
+        주문: 2,
+        판매량: 3,
+        '매출(원)': 4000,
+      }], 'traffic-shared-day.xlsx'),
+      TEST_ORGANIZATION_ID,
+    )).resolves.toMatchObject({ success: true, upserted: 1 });
+
+    await expect(prisma.channelListingDailySnapshot.findUniqueOrThrow({
+      where: {
+        organizationId_listingId_businessDate: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          businessDate: day,
+        },
+      },
+    })).resolves.toMatchObject({
+      trafficVisitors: 30,
+      trafficViews: 40,
+      trafficOrders: 2,
+      trafficSalesQty: 3,
+      trafficRevenue: 4000,
+      trafficObservedAt: expect.any(Date),
+      metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      isOfferWinner: true,
+      sampleCount: 3,
+      lastObservedAt: itemWinnerObservedAt,
+      rawSnapshotId: itemWinnerSnapshot.id,
+    });
+  });
+
   it('getMonthlyRevenue — aggregates complete owner days, averages visitors, and blocks listing fallback', async () => {
     const listing = await seedListing(TEST_ORGANIZATION_ID, 'M');
     const legacyListing = await prisma.channelListing.create({
