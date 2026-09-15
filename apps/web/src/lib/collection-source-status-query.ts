@@ -27,28 +27,40 @@ export function stoppedAttempt(
 
 const ERROR_REFETCH_MS = 30_000;
 const MAX_TRANSIENT_RETRIES = 3;
+/** React Query's own doubling ceiling, for a failure whose response named no wait. */
+const MAX_DOUBLED_DELAY_MS = 30_000;
+/** However long a throttler asks for, a status this stale is worth re-reading. */
+const MAX_RETRY_AFTER_MS = 60_000;
 
 /**
  * Only failures that can clear by themselves are retried: no response, a
- * client deadline, or a 5xx. Authentication, organization context, other 4xx,
- * and schema drift will not change by asking again.
+ * client deadline, a throttled request, or a 5xx. Authentication, organization
+ * context, other 4xx, and schema drift will not change by asking again.
  */
 function isTransientStatusReadFailure(error: unknown): boolean {
   if (error instanceof ZodError || !isApiError(error)) return false;
   if (error.status === 0) {
     return error.code === 'network_error' || error.code === 'request_timeout';
   }
-  return error.status >= 500;
+  return error.status === 429 || error.status >= 500;
+}
+
+/** The wait the failing response itself named, when it named one this side of a minute. */
+function namedWait(error: unknown): number | null {
+  const wait = isApiError(error) ? error.details.retryAfterMs : undefined;
+  return wait === undefined ? null : Math.min(wait, MAX_RETRY_AFTER_MS);
 }
 
 /**
  * The shared read rule for collection source-status queries. Transient
- * failures retry up to three times with doubling delays; while the query is
- * in error it reads again every 30 seconds so a status recovers without
- * operator action, and the global error toast fires once per failure streak;
- * otherwise the caller's own `refetchInterval` (such as the faster poll while
- * an attempt is RUNNING) stays in charge. Every other option, including
- * `meta.suppressGlobalErrorToast`, passes through.
+ * failures retry up to three times with doubling delays, except that a
+ * response naming its own `Retry-After` — a throttled read — is asked again on
+ * that clock rather than on a guess; while the query is in error it reads
+ * again every 30 seconds, or after that named wait, so a status recovers
+ * without operator action, and the global error toast fires once per failure
+ * streak; otherwise the caller's own `refetchInterval` (such as the faster
+ * poll while an attempt is RUNNING) stays in charge. Every other option,
+ * including `meta.suppressGlobalErrorToast`, passes through.
  */
 export function collectionSourceStatusQueryOptions<
   TQueryFnData = unknown,
@@ -79,12 +91,16 @@ export function collectionSourceStatusQueryOptions<
     ...options,
     // The 30-second re-reads fail again every cycle; the global toast fires once per streak.
     meta: { ...options.meta, globalErrorToastOncePerFailureStreak: true },
-    // Delays stay React Query's doubling default (1s, 2s, 4s), which a spec's
-    // QueryClient `retryDelay` default can shorten deterministically.
     retry: (failureCount, error) =>
       failureCount < MAX_TRANSIENT_RETRIES && isTransientStatusReadFailure(error),
+    // A failure that named its own wait is asked again then; every other one
+    // keeps React Query's doubling default (1s, 2s, 4s).
+    retryDelay: (failureCount, error) =>
+      namedWait(error) ?? Math.min(1_000 * 2 ** failureCount, MAX_DOUBLED_DELAY_MS),
     refetchInterval: (query) => {
-      if (query.state.status === 'error') return ERROR_REFETCH_MS;
+      if (query.state.status === 'error') {
+        return namedWait(query.state.error) ?? ERROR_REFETCH_MS;
+      }
       return typeof refetchInterval === 'function' ? refetchInterval(query) : refetchInterval;
     },
   };

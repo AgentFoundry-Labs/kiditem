@@ -5,6 +5,7 @@ import {
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
 import type { QueryKey } from '@tanstack/react-query';
+import { z } from 'zod';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -50,13 +51,30 @@ export type MallOrderCollectionHandoff = Readonly<{
   input: MallOrderCollectionStartInput;
 }>;
 
-export function readMallOrderCollectionSource(
+/** 화면이 띄우는 몰 전체의 현재 상태. 카드마다 자기 몰 칸을 골라 읽는다. */
+export type MallOrderCollectionSourceList = readonly OrderCollectionSourceStatus[];
+
+const MallOrderCollectionSourceListSchema = z.object({
+  malls: z.array(OrderCollectionSourceStatusSchema),
+}).strict();
+
+/**
+ * 몰 카드 20장이 각자 자기 몰을 물으면 폴링만으로 전역 throttler(60초 120회)를 넘겨
+ * 화면 전체가 429를 받는다. 화면 하나가 이 목록 한 번으로 20칸을 모두 읽는다
+ * (KID-170 D2).
+ */
+export function readMallOrderCollectionSources(): Promise<MallOrderCollectionSourceList> {
+  return apiClient
+    .getParsed(`${ORDER_COLLECTION_SOURCE_PATH}/sources`, MallOrderCollectionSourceListSchema)
+    .then((body) => body.malls);
+}
+
+/** 이 몰의 칸. owner 가 아직 그 몰을 답하지 않은 목록이면 없다. */
+export function findMallSource(
+  sources: MallOrderCollectionSourceList,
   mallKey: string,
-): Promise<OrderCollectionSourceStatus> {
-  return apiClient.getParsed(
-    `${ORDER_COLLECTION_SOURCE_PATH}/source?mallKey=${encodeURIComponent(mallKey)}`,
-    OrderCollectionSourceStatusSchema,
-  );
+): OrderCollectionSourceStatus | null {
+  return sources.find((source) => source.mallKey === mallKey) ?? null;
 }
 
 /** The owner's operator stop. Organization-scoped, so any tab can end the attempt. */
@@ -177,25 +195,27 @@ export function mallOrderCollectionSource({
   handOff: (handoff: MallOrderCollectionHandoff) => Promise<void>;
   /** Ends this browser's procedure for the attempt the operator is stopping. */
   abortLocalRun?: (attemptId: string) => void;
-}>): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> {
+}>): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> {
   return {
     sourceKey: `orders.mall:${account.key}`,
     label: `${account.name} 주문 수집`,
     statusQuery: collectionSourceStatusQueryOptions<
-      OrderCollectionSourceStatus,
+      MallOrderCollectionSourceList,
       Error,
-      OrderCollectionSourceStatus,
+      MallOrderCollectionSourceList,
       QueryKey
     >({
-      queryKey: queryKeys.orders.collectionSource(organizationId ?? '', account.key),
-      queryFn: () => readMallOrderCollectionSource(account.key),
+      queryKey: queryKeys.orders.collectionSources(organizationId ?? ''),
+      queryFn: readMallOrderCollectionSources,
       enabled: Boolean(organizationId),
       refetchInterval: SOURCE_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),
-    readRunning: (status) =>
-      status.running ? { attemptId: status.running.attemptId, scopeLabel: account.name } : null,
+    readRunning: (sources) => {
+      const running = findMallSource(sources, account.key)?.running;
+      return running ? { attemptId: running.attemptId, scopeLabel: account.name } : null;
+    },
     start: (input) => {
       let opened: OrderCollectionSourceAttemptControl | null = null;
       return startWebOpenedCollection({
@@ -262,7 +282,8 @@ export function mallOrderCollectionSource({
     cancelOnServer: cancelMallOrderCollectionAttempt,
     // Order owners assign no publication number, so the completed attempt is
     // the latest collection's identity (KID-189 2c-1).
-    readCompleteId: (status) => status.lastComplete?.attemptId ?? null,
+    readCompleteId: (sources) =>
+      findMallSource(sources, account.key)?.lastComplete?.attemptId ?? null,
     onNewComplete: (queryClient) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.stats() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.pipelines() });

@@ -187,9 +187,12 @@ export const queryKeys = {
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,
-    /** One mall's order-collection owner status, for the shared start control. */
-    collectionSource: (organizationId: string, mallKey: string) =>
-      [...queryKeys.orders.all, 'collection', 'source', organizationId, mallKey] as const,
+    /**
+     * Every mall's order-collection owner status in one read, shared by all the
+     * screen's mall cards so 20 start controls poll the owner once (KID-170 D2).
+     */
+    collectionSources: (organizationId: string) =>
+      [...queryKeys.orders.all, 'collection', 'sources', organizationId] as const,
     /** The organization's Sellpia shipment-tracking collection owner status. */
     sellpiaShipmentTrackingSource: () =>
       [...queryKeys.orders.all, 'sellpia-shipment-tracking-source'] as const,

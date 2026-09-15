@@ -78,6 +78,64 @@ describe('collection source-status query rule', () => {
     expect(queryFn).toHaveBeenCalledTimes(4);
   });
 
+  /**
+   * 한 화면이 여러 원천을 읽으면 전역 throttler 에 걸릴 수 있다. 그때 응답이 알려 준
+   * 대기 시간을 지키지 않고 짐작한 간격으로 다시 두드리면 창이 열릴 때까지 계속
+   * 429 만 받는다(KID-170 D2).
+   */
+  it('waits the throttled response`s own Retry-After before asking again, and re-reads on that clock', async () => {
+    const throttled = new ApiError(429, 'Too Many Requests', '요청이 너무 많습니다.', {
+      retryAfterMs: 45_000,
+    });
+    const queryFn = vi.fn<() => Promise<Status>>().mockRejectedValue(throttled);
+    const state = observeStatusQuery(queryFn);
+
+    await advance(0);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    // 짐작한 1초가 아니라 창이 열린다고 한 시각까지 기다린다.
+    await advance(44_000);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await advance(90_000);
+    expect(queryFn).toHaveBeenCalledTimes(4);
+    expect(state()?.status).toBe('error');
+
+    // 오류가 난 뒤의 다시 읽기도 고정 30초가 아니라 같은 시각을 지킨다.
+    await advance(29_000);
+    expect(queryFn).toHaveBeenCalledTimes(4);
+    await advance(16_000);
+    expect(queryFn).toHaveBeenCalledTimes(5);
+  });
+
+  it('retries a throttled read on the doubling default when the response named no wait', async () => {
+    const queryFn = vi.fn<() => Promise<Status>>()
+      .mockRejectedValue(new ApiError(429, 'Too Many Requests', '요청이 너무 많습니다.'));
+    const state = observeStatusQuery(queryFn);
+
+    await advance(0);
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await advance(2_000);
+    expect(queryFn).toHaveBeenCalledTimes(3);
+    await advance(4_000);
+    expect(queryFn).toHaveBeenCalledTimes(4);
+    expect(state()?.status).toBe('error');
+  });
+
+  it('waits at most a minute even when the throttled response asks for longer', async () => {
+    const queryFn = vi.fn<() => Promise<Status>>().mockRejectedValue(
+      new ApiError(429, 'Too Many Requests', '요청이 너무 많습니다.', { retryAfterMs: 600_000 }),
+    );
+    observeStatusQuery(queryFn);
+
+    await advance(0);
+    await advance(59_000);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['an expired session', new ApiError(401, 'auth_required', 'expired')],
     ['a missing organization', new ApiError(401, 'no_organization_context', 'no organization')],

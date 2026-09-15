@@ -105,6 +105,15 @@ export interface OrderCollectionSourcePort {
     mallKey: string;
   }): Promise<OrderCollectionSourceStatus>;
 
+  /**
+   * 주문 수집 화면 한 장이 읽는 몰 전체의 현재 상태. 레지스트리 순서로 몰마다 한 칸이며,
+   * 이 조직에 계정 행이 없는 몰은 범위와 상태를 비운 칸으로 돌려준다. 몰 하나짜리 읽기와
+   * 같은 판정을 쓰고, 마찬가지로 시도 토큰은 담지 않는다.
+   */
+  readSourceStatuses(input: {
+    organizationId: string;
+  }): Promise<OrderCollectionSourceStatus[]>;
+
   validateCompletion(input: {
     organizationId: string;
     attemptId: string;

@@ -136,6 +136,19 @@ async function read401Message(
   }
 }
 
+/**
+ * How long `Retry-After` says to wait, in either form the header allows: whole
+ * seconds, or an HTTP date. A moment already past means nothing is left to
+ * wait for; a header the client cannot read leaves the caller its own cadence.
+ */
+function retryAfterDetail(res: Response): { retryAfterMs?: number } {
+  const header = res.headers.get('Retry-After')?.trim();
+  if (!header) return {};
+  if (/^\d+$/.test(header)) return { retryAfterMs: Number(header) * 1_000 };
+  const until = Date.parse(header);
+  return Number.isNaN(until) ? {} : { retryAfterMs: Math.max(0, until - Date.now()) };
+}
+
 async function consumeResponse<T>(
   res: Response,
   signal: AbortSignal,
@@ -183,6 +196,7 @@ async function consumeResponse<T>(
     throw new ApiError(res.status, code, detail, {
       ...(typeof record.code === 'string' && record.code.trim() ? { code: record.code } : {}),
       ...(typeof record.attemptId === 'string' && record.attemptId ? { attemptId: record.attemptId } : {}),
+      ...retryAfterDetail(res),
     });
   }
 

@@ -4,7 +4,10 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { mallOrderCollectionSource } from './mall-order-collection-source';
+import {
+  mallOrderCollectionSource,
+  readMallOrderCollectionSources,
+} from './mall-order-collection-source';
 import {
   readActiveOrderCollectionAttempt,
   rememberActiveOrderCollectionAttempt,
@@ -34,14 +37,33 @@ const ACCOUNT = {
   enabled: true,
 } as unknown as OrderCollectionMallAccount;
 
+const OTHER_MALL_KEY = 'kidsnote';
+const CHANNEL_ACCOUNT_ID = '77777777-7777-4777-8777-777777777777';
+
 function status(patch: Partial<OrderCollectionSourceStatus> = {}): OrderCollectionSourceStatus {
   return {
     mallKey: ACCOUNT.key,
-    channelAccountId: null,
+    channelAccountId: CHANNEL_ACCOUNT_ID,
     running: null,
     lastComplete: null,
     lastAttempt: null,
     ...patch,
+  };
+}
+
+/** owner 는 화면이 띄우는 몰을 한 번에 답한다. 카드마다 자기 칸을 골라 읽는다. */
+function sources(
+  ...entries: readonly Partial<OrderCollectionSourceStatus>[]
+): OrderCollectionSourceStatus[] {
+  return entries.length === 0 ? [status()] : entries.map((entry) => status(entry));
+}
+
+function runningAt(attemptId: string): OrderCollectionSourceStatus['running'] {
+  return {
+    attemptId,
+    collectionMode: 'browser',
+    startedAt: '2026-09-15T01:00:00.000Z',
+    expiresAt: '2026-09-15T01:30:00.000Z',
   };
 }
 
@@ -122,32 +144,57 @@ beforeEach(() => {
 });
 
 describe('mallOrderCollectionSource', () => {
-  it('reads the mall as its own source key and status query', () => {
+  /**
+   * 카드 20장이 각자 자기 몰을 물으면 폴링만으로 전역 throttler 를 넘긴다. 몰마다 키를
+   * 따로 두지 않고 화면 하나가 목록 한 번을 읽는다(KID-170 D2).
+   */
+  it('reads the mall as its own source key and the screen`s one shared status query', async () => {
     const { source } = adapter();
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ malls: sources() });
 
     expect(source.sourceKey).toBe(`orders.mall:${ACCOUNT.key}`);
     expect(source.statusQuery.queryKey).toEqual(
-      queryKeys.orders.collectionSource(ORGANIZATION_ID, ACCOUNT.key),
+      queryKeys.orders.collectionSources(ORGANIZATION_ID),
+    );
+
+    await expect(readMallOrderCollectionSources()).resolves.toEqual(sources());
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/orders/collection/sources',
+      expect.anything(),
     );
   });
 
   it('shows the owner running attempt under the mall name', () => {
     const { source } = adapter();
 
-    expect(source.readRunning(status({
-      running: {
-        attemptId: RUNNING_ATTEMPT_ID,
-        collectionMode: 'browser',
-        startedAt: '2026-09-15T01:00:00.000Z',
-        expiresAt: '2026-09-15T01:30:00.000Z',
-      },
-    }))).toEqual({ attemptId: RUNNING_ATTEMPT_ID, scopeLabel: ACCOUNT.name });
+    expect(source.readRunning(sources({ running: runningAt(RUNNING_ATTEMPT_ID) })))
+      .toEqual({ attemptId: RUNNING_ATTEMPT_ID, scopeLabel: ACCOUNT.name });
+  });
+
+  /** 한 몰이 수집 중이라고 옆 카드까지 수집 중으로 보이면 안 된다. */
+  it('reads only its own mall`s slot out of the shared list', () => {
+    const { source } = adapter();
+    const list = sources(
+      { mallKey: OTHER_MALL_KEY, running: runningAt(RUNNING_ATTEMPT_ID) },
+      { mallKey: ACCOUNT.key },
+    );
+
+    expect(source.readRunning(list)).toBeNull();
+    expect(source.readCompleteId(list)).toBeNull();
+  });
+
+  /** 목록에 아직 이 몰 칸이 없으면(읽기 직후의 옛 목록) 진행 중이라고 말하지 않는다. */
+  it('says nothing about a mall the list does not carry', () => {
+    const { source } = adapter();
+
+    expect(source.readRunning(sources({ mallKey: OTHER_MALL_KEY }))).toBeNull();
+    expect(source.readCompleteId(sources({ mallKey: OTHER_MALL_KEY }))).toBeNull();
   });
 
   it('is not running when the lease expired and the owner reports only the last attempt', () => {
     const { source } = adapter();
 
-    expect(source.readRunning(status({
+    expect(source.readRunning(sources({
       lastAttempt: {
         attemptId: RUNNING_ATTEMPT_ID,
         state: 'FAILED',
@@ -161,14 +208,14 @@ describe('mallOrderCollectionSource', () => {
   it('names the latest complete attempt, since order owners assign no publication number', () => {
     const { source } = adapter();
 
-    expect(source.readCompleteId(status({
+    expect(source.readCompleteId(sources({
       lastComplete: {
         attemptId: COMPLETE_ATTEMPT_ID,
         completedAt: '2026-09-15T01:10:00.000Z',
         publicationSequence: null,
       },
     }))).toBe(COMPLETE_ATTEMPT_ID);
-    expect(source.readCompleteId(status())).toBeNull();
+    expect(source.readCompleteId(sources())).toBeNull();
   });
 
   it('stops the running attempt through the owner cancel route, without an attempt token', async () => {

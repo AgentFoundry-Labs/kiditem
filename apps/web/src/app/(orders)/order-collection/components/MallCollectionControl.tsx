@@ -1,18 +1,20 @@
 'use client';
 
 import { useMemo, type ReactNode } from 'react';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import {
   useCollectionSourceControl,
   type CollectionSourceAdapter,
 } from '@/hooks/use-collection-source-control';
 import type { MallCardCollection } from './MallAccountGroups';
-import type { MallOrderCollectionStartInput } from '../lib/mall-order-collection-source';
+import type {
+  MallOrderCollectionSourceList,
+  MallOrderCollectionStartInput,
+} from '../lib/mall-order-collection-source';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
 export type MallCollectionAdapter = CollectionSourceAdapter<
-  OrderCollectionSourceStatus,
+  MallOrderCollectionSourceList,
   MallOrderCollectionStartInput
 >;
 

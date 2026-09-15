@@ -22,6 +22,7 @@ import {
 import {
   mallOrderCollectionSource,
   type MallOrderCollectionHandoff,
+  type MallOrderCollectionSourceList,
   type MallOrderCollectionStartInput,
 } from '@/app/(orders)/order-collection/lib/mall-order-collection-source';
 import {
@@ -49,7 +50,6 @@ import {
   SELLPIA_RECONCILE_PARTIAL_MESSAGE,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
 
@@ -295,13 +295,16 @@ export function useAllMarketplaceOrderCollection({
   const collectionAdapter = useCallback((
     account: OrderCollectionMallAccount,
     report = true,
-  ): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> => (
+  ): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> => (
     account.key === COUPANG_DIRECT_MALL_KEY
       ? coupangDirectshipCollectionSource({
         channelAccountId: rocketChannelAccountId,
         handOff: (handoff) => handOffDirectship(account, handoff, report),
         abortLocalRun,
-      }) as CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput>
+      }) as unknown as CollectionSourceAdapter<
+        MallOrderCollectionSourceList,
+        MallOrderCollectionStartInput
+      >
       : mallOrderCollectionSource({
         organizationId,
         account,

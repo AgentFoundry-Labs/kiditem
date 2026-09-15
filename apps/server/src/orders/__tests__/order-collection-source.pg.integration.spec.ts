@@ -11,7 +11,10 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
+import {
+  OrderCollectionSourceStatusSchema,
+  type OrderCollectionSourceStatus,
+} from '@kiditem/shared/order-collection-source';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
@@ -23,6 +26,7 @@ import { OrderCollectionSourceController } from '../controllers/order-collection
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
+import { ORDER_COLLECTION_MALLS } from '../services/order-collection-mall-account.service';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
@@ -445,6 +449,9 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     return request(httpUrl).get(`${BASE}/source${query}`).set('x-test-org', organizationId);
   };
 
+  const readSources = (organizationId = ORG) =>
+    request(httpUrl).get(`${BASE}/sources`).set('x-test-org', organizationId);
+
   const cancel = (attemptId: string, organizationId = ORG) =>
     request(httpUrl)
       .post(`${BASE}/attempts/${attemptId}/cancel`)
@@ -535,6 +542,89 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     // 읽기는 행을 끝내지 않는다. 만료 처리는 owner의 쓰기 경로가 한다.
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
       .resolves.toMatchObject({ status: 'running', errorCode: null });
+  });
+
+  /**
+   * 주문 수집 화면은 몰 카드 20장을 함께 띄운다. 카드마다 한 번씩 읽으면 폴링만으로
+   * 전역 throttler(60초 120회)를 넘겨 화면 전체가 429를 받으므로, 화면 하나가 이
+   * 목록 한 번으로 20칸을 모두 읽는다(KID-170 D2).
+   */
+  it('answers every registry mall in one organization-scoped read, in registry order', async () => {
+    const complete = (await begin('art09').expect(201)).body;
+    await convertArt09(complete).expect(201);
+    const cancelled = (await begin('art09').expect(201)).body;
+    await cancel(cancelled.attemptId).expect(200);
+    const live = (await begin('domeggook').expect(201)).body;
+    const leased = (await begin('haebub-mall').expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: leased.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    const body = (await readSources().expect(200)).body;
+    const malls: OrderCollectionSourceStatus[] = body.malls
+      .map((mall: unknown) => OrderCollectionSourceStatusSchema.parse(mall));
+    const byKey = new Map(malls.map((mall) => [mall.mallKey, mall]));
+
+    expect(malls.map((mall) => mall.mallKey))
+      .toEqual(ORDER_COLLECTION_MALLS.map((mall) => mall.key));
+
+    // 이 조직에 계정 행이 없는 몰은 범위만 비운 채로 한 칸을 차지한다 — 오류가 아니다.
+    expect(byKey.get('one-polaris')).toEqual({
+      mallKey: 'one-polaris',
+      channelAccountId: null,
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    // 계정 행은 있지만 아직 시도가 없는 몰.
+    expect(byKey.get('kakao')).toMatchObject({
+      channelAccountId: expect.any(String),
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    expect(byKey.get('domeggook')?.running).toMatchObject({
+      attemptId: live.attemptId,
+      collectionMode: 'browser',
+    });
+
+    // 임대가 지난 RUNNING 행은 진행 중이 아니고, 마지막 시도 자리에 만료로만 비친다.
+    expect(byKey.get('haebub-mall')?.running).toBeNull();
+    expect(byKey.get('haebub-mall')?.lastAttempt).toMatchObject({
+      attemptId: leased.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: leased.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
+
+    // 몰 하나짜리 읽기와 같은 답이어야 한 화면 안에서 카드가 서로 다른 말을 하지 않는다.
+    expect(byKey.get('art09')).toEqual(
+      OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body),
+    );
+    expect(byKey.get('art09')?.lastComplete?.attemptId).toBe(complete.attemptId);
+    expect(byKey.get('art09')?.lastAttempt).toMatchObject({
+      attemptId: cancelled.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+
+    // 상태 목록도 시도 토큰을 담지 않는다(strict 스키마가 여분 키를 거른다).
+    expect(JSON.stringify(malls)).not.toContain(complete.attemptToken);
+  });
+
+  it('shows another organization its own empty mall registry', async () => {
+    const mine = (await begin('art09').expect(201)).body;
+
+    const malls: OrderCollectionSourceStatus[] = (await readSources(OTHER_ORG).expect(200)).body
+      .malls.map((mall: unknown) => OrderCollectionSourceStatusSchema.parse(mall));
+
+    expect(malls).toHaveLength(ORDER_COLLECTION_MALLS.length);
+    expect(malls.every((mall) => mall.channelAccountId === null)).toBe(true);
+    expect(JSON.stringify(malls)).not.toContain(mine.attemptId);
   });
 
   it('stops a running mall attempt for an operator without its token or an Alert', async () => {

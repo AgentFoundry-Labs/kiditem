@@ -284,7 +284,7 @@ describe("MallAccountSection", () => {
     const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
     const onOpenCalendar = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(
-      async () => runningOwnerStatus(account.key),
+      async () => ({ malls: [runningOwnerStatus(account.key)] }),
     );
 
     renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
@@ -300,8 +300,7 @@ describe("MallAccountSection", () => {
     const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
     const onOpenCalendar = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
-      ...runningOwnerStatus(account.key),
-      running: null,
+      malls: [{ ...runningOwnerStatus(account.key), running: null }],
     }));
 
     renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });

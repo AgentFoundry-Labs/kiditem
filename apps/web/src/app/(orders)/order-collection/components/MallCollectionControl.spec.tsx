@@ -60,8 +60,14 @@ function running(): OrderCollectionSourceStatus {
   };
 }
 
-function renderControl(
-  account = ACCOUNT,
+const buildAdapter = (target: OrderCollectionMallAccount) => mallOrderCollectionSource({
+  organizationId: ORGANIZATION_ID,
+  account: target,
+  handOff: vi.fn().mockResolvedValue(undefined),
+});
+
+function renderControls(
+  accounts: OrderCollectionMallAccount[],
   startBlockedReason: string | null = null,
 ) {
   const client = new QueryClient({
@@ -69,24 +75,31 @@ function renderControl(
   });
   render(
     <QueryClientProvider client={client}>
-      <MallCollectionControl
-        account={account}
-        startBlockedReason={startBlockedReason}
-        buildAdapter={(target) => mallOrderCollectionSource({
-          organizationId: ORGANIZATION_ID,
-          account: target,
-          handOff: vi.fn().mockResolvedValue(undefined),
-        })}
-      />
+      {accounts.map((account) => (
+        <MallCollectionControl
+          key={account.key}
+          account={account}
+          startBlockedReason={startBlockedReason}
+          buildAdapter={buildAdapter}
+        />
+      ))}
     </QueryClientProvider>,
   );
   return client;
 }
 
+function renderControl(
+  account = ACCOUNT,
+  startBlockedReason: string | null = null,
+) {
+  return renderControls([account], startBlockedReason);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   status = idle();
-  vi.mocked(apiClient.getParsed).mockImplementation(async () => status);
+  // owner 는 화면이 띄우는 몰을 한 번에 답한다(KID-170 D2).
+  vi.mocked(apiClient.getParsed).mockImplementation(async () => ({ malls: [status] }));
   vi.mocked(apiClient.post).mockResolvedValue({});
 });
 
@@ -142,6 +155,20 @@ describe('MallCollectionControl', () => {
     )).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
     expect(screen.getByText('수집 중 · 키즈노트')).toBeInTheDocument();
+  });
+
+  /**
+   * 카드마다 자기 몰을 물으면 20장짜리 화면이 폴링만으로 전역 throttler(60초 120회)를
+   * 넘겨 화면 전체가 429를 받는다. 한 화면의 카드들은 목록 하나를 함께 본다(KID-170 D2).
+   */
+  it('reads the owner once for all the mall cards the screen mounts', async () => {
+    status = running();
+    renderControls([ACCOUNT, { ...ACCOUNT, key: 'kkomangse', name: '꼬망세' }]);
+
+    expect(await screen.findByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    // 옆 카드는 자기 몰 칸을 읽으므로 이 수집에 휩쓸리지 않는다.
+    expect(await screen.findByRole('button', { name: '꼬망세 수집' })).toBeEnabled();
+    expect(apiClient.getParsed).toHaveBeenCalledTimes(1);
   });
 
   it('never offers a start for a mall that cannot collect yet', async () => {

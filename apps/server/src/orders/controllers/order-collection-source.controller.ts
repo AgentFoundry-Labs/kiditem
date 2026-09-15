@@ -80,6 +80,18 @@ export class OrderCollectionSourceController {
     return this.source.readSourceStatus({ organizationId, mallKey: key });
   }
 
+  /**
+   * 몰 카드 20장을 띄우는 화면이 폴링 한 번으로 읽는 조직 범위 목록. 카드마다 읽으면
+   * 폴링만으로 전역 throttler를 넘겨 화면 전체가 429를 받는다(KID-170 D2). 몰 하나짜리
+   * 읽기와 마찬가지로 시도 토큰은 담지 않는다.
+   */
+  @Get('sources')
+  async readSourceStatuses(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<{ malls: OrderCollectionSourceStatus[] }> {
+    return { malls: await this.source.readSourceStatuses({ organizationId }) };
+  }
+
   @Get('attempts/:attemptId')
   async readAttempt(
     @CurrentOrganization() organizationId: string,

@@ -255,6 +255,43 @@ describe('OrderCollectionSourceController', () => {
     expect(OrderCollectionSourceStatusSchema.parse(view)).toEqual(status);
   });
 
+  /**
+   * 주문 수집 화면은 몰 카드 20장을 한 번에 띄운다. 카드마다 한 번씩 읽으면 폴링만으로
+   * 전역 throttler(60초 120회)를 넘겨 화면 전체가 429를 받는다(KID-170 D2).
+   */
+  it('answers every mall of the screen in one organization-scoped source list', async () => {
+    const malls = [
+      {
+        mallKey: 'one-polaris',
+        channelAccountId: null,
+        running: null,
+        lastComplete: null,
+        lastAttempt: null,
+      },
+      {
+        mallKey: 'art09',
+        channelAccountId: '66666666-6666-4666-8666-666666666666',
+        running: null,
+        lastComplete: null,
+        lastAttempt: {
+          attemptId: ATTEMPT,
+          state: 'COMPLETE',
+          errorCode: null,
+          errorMessage: null,
+          endedAt: '2026-09-15T00:10:00.000Z',
+        },
+      },
+    ];
+    const source = { readSourceStatuses: vi.fn().mockResolvedValue(malls) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    const view = await controller.readSourceStatuses(ORG);
+
+    expect(source.readSourceStatuses).toHaveBeenCalledWith({ organizationId: ORG });
+    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
+    expect(view.malls.map((mall) => OrderCollectionSourceStatusSchema.parse(mall))).toEqual(malls);
+  });
+
   it('refuses a mall source read with no mall key', async () => {
     const source = { readSourceStatus: vi.fn() };
     const controller = new OrderCollectionSourceController(source as never, {} as never);

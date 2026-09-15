@@ -56,6 +56,16 @@ type Tx = Prisma.TransactionClient;
 type SourceRun = Prisma.SourceImportRunGetPayload<{}>;
 type ArtifactRow = Prisma.OrderCollectionArtifactGetPayload<{ select: typeof ARTIFACT_SELECT }>;
 
+/** 상태 한 칸을 짓는 데 필요한 행들. 몰 하나짜리 읽기와 화면 목록이 같은 것을 고른다. */
+type StatusRuns = {
+  running: SourceRun | null;
+  lastComplete: SourceRun | null;
+  lastRow: SourceRun | null;
+};
+
+const NO_STATUS_RUNS: StatusRuns = { running: null, lastComplete: null, lastRow: null };
+const LATEST_FIRST = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
+
 @Injectable()
 export class OrderCollectionSourceRepository implements OrderCollectionSourcePort {
   constructor(
@@ -212,42 +222,111 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         sourceType: SOURCE_TYPE,
         channelAccountId: account.id,
       } as const;
-      const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
 
-      const running = (await tx.sourceImportRun.findMany({
-        where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
-        orderBy: [...order],
-      })).find((row) => !expired(row)) ?? null;
-      const lastComplete = await tx.sourceImportRun.findFirst({
-        where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-        orderBy: [{ importedAt: 'desc' }, ...order],
+      return sourceStatusView(account, {
+        running: (await tx.sourceImportRun.findMany({
+          where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+          orderBy: [...LATEST_FIRST],
+        })).find((row) => !expired(row)) ?? null,
+        lastComplete: await tx.sourceImportRun.findFirst({
+          where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+          orderBy: [{ importedAt: 'desc' }, ...LATEST_FIRST],
+        }),
+        lastRow: await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...LATEST_FIRST] }),
       });
-      const lastRow = await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...order] });
-      const lastAttempt = lastRow ? await this.attemptView(tx, lastRow) : null;
-
-      return {
-        mallKey: account.mallKey,
-        channelAccountId: account.id,
-        running: running ? {
-          attemptId: running.id,
-          collectionMode: readPlan(running.plan).collectionMode,
-          startedAt: running.createdAt.toISOString(),
-          expiresAt: running.expiresAt?.toISOString() ?? null,
-        } : null,
-        lastComplete: lastComplete ? {
-          attemptId: lastComplete.id,
-          completedAt: lastComplete.importedAt?.toISOString() ?? null,
-          publicationSequence: lastComplete.publicationSequence?.toString() ?? null,
-        } : null,
-        lastAttempt: lastRow && lastAttempt ? {
-          attemptId: lastAttempt.attemptId,
-          state: lastAttempt.state,
-          errorCode: lastAttempt.errorCode,
-          errorMessage: lastAttempt.errorMessage,
-          endedAt: endedAt(lastRow, lastAttempt.state),
-        } : null,
-      } satisfies OrderCollectionSourceStatus;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  /**
+   * 주문 수집 화면 한 장이 읽는 몰 전체의 현재 상태. 레지스트리 순서로 몰마다 한 칸을
+   * 돌려주며, 이 조직에 계정 행이 없는 몰은 범위와 상태를 모두 비운 칸이다(찾지 못한
+   * 것이 아니라 아직 설정되지 않은 것이다). 몰 하나짜리 읽기와 같은 판정을 쓰고,
+   * 시도는 몰마다 따로 묻지 않고 조직 범위 묶음 조회 세 번으로 읽는다(KID-170 D2).
+   */
+  async readSourceStatuses(input: {
+    organizationId: string;
+  }): Promise<OrderCollectionSourceStatus[]> {
+    return this.prisma.$transaction(async (tx) => {
+      const accounts = await tx.channelAccount.findMany({
+        where: {
+          organizationId: input.organizationId,
+          channel: 'order_collection',
+          externalAccountId: { in: ORDER_COLLECTION_MALLS.map((mall) => mall.key) },
+        },
+        select: { id: true, externalAccountId: true },
+      });
+      const accountByMallKey = new Map(
+        accounts.map((account) => [account.externalAccountId, account.id]),
+      );
+      const runs = await this.findStatusRuns(
+        tx,
+        input.organizationId,
+        accounts.map((account) => account.id),
+      );
+
+      return ORDER_COLLECTION_MALLS.map((mall) => {
+        const id = accountByMallKey.get(mall.key);
+        return id === undefined
+          ? {
+            mallKey: mall.key,
+            channelAccountId: null,
+            running: null,
+            lastComplete: null,
+            lastAttempt: null,
+          } satisfies OrderCollectionSourceStatus
+          : sourceStatusView({ id, mallKey: mall.key }, runs.get(id) ?? NO_STATUS_RUNS);
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  /** 계정마다 진행 중·마지막 완료분·마지막 시도 행. 계정 수와 무관하게 조회 세 번이다. */
+  private async findStatusRuns(
+    tx: Tx,
+    organizationId: string,
+    channelAccountIds: readonly string[],
+  ): Promise<Map<string, StatusRuns>> {
+    const byAccount = new Map<string, StatusRuns>();
+    if (channelAccountIds.length === 0) return byAccount;
+    const scope: Prisma.SourceImportRunWhereInput = {
+      organizationId,
+      sourceType: SOURCE_TYPE,
+      channelAccountId: { in: [...channelAccountIds] },
+    };
+    const perAccount = [{ channelAccountId: 'asc' }] as const;
+
+    const runs = (id: string | null): StatusRuns | null => {
+      if (!id) return null;
+      const current = byAccount.get(id)
+        ?? { running: null, lastComplete: null, lastRow: null };
+      byAccount.set(id, current);
+      return current;
+    };
+
+    for (const row of await tx.sourceImportRun.findMany({
+      where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+      orderBy: [...LATEST_FIRST],
+    })) {
+      const current = runs(row.channelAccountId);
+      // 임대가 지난 RUNNING 행은 아무도 돌리고 있지 않다. 몰 하나짜리 읽기와 같은 규칙.
+      if (current && !current.running && !expired(row)) current.running = row;
+    }
+    for (const row of await tx.sourceImportRun.findMany({
+      where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+      orderBy: [...perAccount, { importedAt: 'desc' }, ...LATEST_FIRST],
+      distinct: ['channelAccountId'],
+    })) {
+      const current = runs(row.channelAccountId);
+      if (current) current.lastComplete = row;
+    }
+    for (const row of await tx.sourceImportRun.findMany({
+      where: scope,
+      orderBy: [...perAccount, ...LATEST_FIRST],
+      distinct: ['channelAccountId'],
+    })) {
+      const current = runs(row.channelAccountId);
+      if (current) current.lastRow = row;
+    }
+    return byAccount;
   }
 
   async validateCompletion(input: {
@@ -471,18 +550,16 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
   private async attemptView(tx: Tx, row: SourceRun): Promise<OrderCollectionAttempt> {
     const artifact = await this.findArtifact(tx, row.organizationId, row.id);
     const plan = readPlan(row.plan);
-    const isExpired = expired(row);
     return {
       attemptId: row.id,
       sourceImportRunId: row.id,
-      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? 'COMPLETE' : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired ? 'RUNNING' : 'FAILED',
+      state: attemptStateOf(row),
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       artifactId: artifact?.id ?? null,
       coverageStartDate: row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null,
       coverageEndDate: row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null,
-      errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? 'Order collection expired.' : row.errorMessage,
+      ...attemptFailure(row),
     };
   }
 
@@ -607,6 +684,53 @@ function dateOnly(value: string): Date {
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
   return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+}
+
+function attemptStateOf(
+  row: Pick<SourceRun, 'status' | 'expiresAt'>,
+): 'RUNNING' | 'COMPLETE' | 'FAILED' {
+  if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return 'COMPLETE';
+  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !expired(row) ? 'RUNNING' : 'FAILED';
+}
+
+/** 임대만 지난 채 RUNNING으로 남은 행은 만료로 읽는다. 읽기는 그 행을 끝내지 않는다. */
+function attemptFailure(
+  row: Pick<SourceRun, 'status' | 'expiresAt' | 'errorCode' | 'errorMessage'>,
+): Readonly<{ errorCode: string | null; errorMessage: string | null }> {
+  return expired(row)
+    ? { errorCode: 'ATTEMPT_EXPIRED', errorMessage: 'Order collection expired.' }
+    : { errorCode: row.errorCode, errorMessage: row.errorMessage };
+}
+
+/**
+ * 몰 한 곳의 현재 상태. 행을 고르는 일과 답을 짓는 일을 갈라, 몰 하나짜리 읽기와
+ * 화면 전체 목록이 같은 진행 중·만료·마지막 완료분 판정을 쓰게 한다.
+ */
+function sourceStatusView(
+  account: Readonly<{ id: string; mallKey: string }>,
+  { running, lastComplete, lastRow }: StatusRuns,
+): OrderCollectionSourceStatus {
+  return {
+    mallKey: account.mallKey,
+    channelAccountId: account.id,
+    running: running ? {
+      attemptId: running.id,
+      collectionMode: readPlan(running.plan).collectionMode,
+      startedAt: running.createdAt.toISOString(),
+      expiresAt: running.expiresAt?.toISOString() ?? null,
+    } : null,
+    lastComplete: lastComplete ? {
+      attemptId: lastComplete.id,
+      completedAt: lastComplete.importedAt?.toISOString() ?? null,
+      publicationSequence: lastComplete.publicationSequence?.toString() ?? null,
+    } : null,
+    lastAttempt: lastRow ? {
+      attemptId: lastRow.id,
+      state: attemptStateOf(lastRow),
+      ...attemptFailure(lastRow),
+      endedAt: endedAt(lastRow, attemptStateOf(lastRow)),
+    } : null,
+  } satisfies OrderCollectionSourceStatus;
 }
 
 /**
