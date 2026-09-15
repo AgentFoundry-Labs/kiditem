@@ -34,6 +34,7 @@ import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
+import { invalidateMallOrderCollectionSources } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
@@ -177,6 +178,9 @@ export function OrderCollectionWorkspace() {
           current?.map((account) => (account.key === saved.key ? saved : account)) ?? [saved],
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
+      // 저장이 이 몰의 ChannelAccount 행을 만든다. 원천 목록을 그대로 두면 그 칸이
+      // 아직 채워지지 않아, 카드가 방금 저장한 운영자의 시작을 계속 거절한다(KID-170).
+      void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
       setMallDraft((current) => ({ ...current, password: '' }));
       setMallSettingsOpen(false);
       toast.success(`${saved.name} 계정 저장 완료`);
@@ -328,7 +332,8 @@ export function OrderCollectionWorkspace() {
   });
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
-  }, [queryClient]);
+    void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
+  }, [queryClient, user?.organizationId]);
 
   useEffect(() => {
     historyRef.current = history;

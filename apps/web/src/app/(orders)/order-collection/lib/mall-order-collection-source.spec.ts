@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { apiClient } from '@/lib/api-client';
@@ -5,6 +6,7 @@ import { ApiError } from '@/lib/api-error';
 import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
+  invalidateMallOrderCollectionSources,
   mallOrderCollectionSource,
   readMallOrderCollectionSources,
   refusedAsNotConfigured,
@@ -25,6 +27,7 @@ vi.mock('@/lib/extension-bridge', () => ({
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 
 const ORGANIZATION_ID = '99999999-9999-4999-8999-999999999999';
+const OTHER_ORGANIZATION_ID = '88888888-8888-4888-8888-888888888888';
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const RUNNING_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 const COMPLETE_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
@@ -450,5 +453,38 @@ describe('mallOrderCollectionSource', () => {
     const keys = beginKeys();
     expect(keys).toHaveLength(2);
     expect(keys[1]).toBe(keys[0]);
+  });
+});
+
+describe('invalidateMallOrderCollectionSources', () => {
+  /**
+   * 몰 설정 저장은 이 몰의 ChannelAccount 행을 만든다. 화면이 든 목록 캐시가 그대로면
+   * 그 칸은 여전히 channelAccountId: null 이라, 방금 저장한 운영자의 시작을 카드가
+   * 60초 유휴 폴링이 돌 때까지 계속 "설정에서 켜고 저장한 뒤"라고 거절한다(KID-170).
+   */
+  it('re-reads the screen`s own source list and leaves every other read alone', async () => {
+    const client = new QueryClient();
+    const mine = queryKeys.orders.collectionSources(ORGANIZATION_ID);
+    const theirs = queryKeys.orders.collectionSources(OTHER_ORGANIZATION_ID);
+    client.setQueryData(mine, sources({ channelAccountId: null }));
+    client.setQueryData(theirs, sources());
+    client.setQueryData(queryKeys.orders.collectionMalls(), []);
+
+    await invalidateMallOrderCollectionSources(client, ORGANIZATION_ID);
+
+    expect(client.getQueryState(mine)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(theirs)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.orders.collectionMalls())?.isInvalidated).toBe(false);
+  });
+
+  /** 조직이 없으면 화면은 목록을 읽지 않는다. 남의 조직 목록을 건드리지 않는다. */
+  it('touches nothing when the browser has no organization yet', async () => {
+    const client = new QueryClient();
+    const mine = queryKeys.orders.collectionSources(ORGANIZATION_ID);
+    client.setQueryData(mine, sources());
+
+    await invalidateMallOrderCollectionSources(client, null);
+
+    expect(client.getQueryState(mine)?.isInvalidated).toBe(false);
   });
 });

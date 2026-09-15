@@ -4,7 +4,7 @@ import {
   OrderCollectionSourceStatusSchema,
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
-import type { QueryKey } from '@tanstack/react-query';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import type {
   CollectionSourceAdapter,
@@ -70,6 +70,26 @@ export function readMallOrderCollectionSources(): Promise<MallOrderCollectionSou
   return apiClient
     .getParsed(`${ORDER_COLLECTION_SOURCE_PATH}/sources`, MallOrderCollectionSourceListSchema)
     .then((body) => body.malls);
+}
+
+/** 화면 하나가 함께 보는 몰 목록 읽기의 키. 조직이 없으면 그 읽기는 꺼져 있다. */
+function sourcesQueryKey(organizationId: string | null): QueryKey {
+  return queryKeys.orders.collectionSources(organizationId ?? '');
+}
+
+/**
+ * 몰 설정 저장이 낡게 만드는 읽기. 저장은 이 몰의 ChannelAccount 행을 만들어 목록의
+ * 이 칸을 channelAccountId: null 에서 id 로 바꾸는데, 캐시가 그대로면 60초 유휴 폴링이
+ * 돌 때까지 카드가 방금 저장한 운영자의 시작을 계속 거절한다(KID-170).
+ */
+export function invalidateMallOrderCollectionSources(
+  queryClient: QueryClient,
+  organizationId: string | null,
+): Promise<void> {
+  return queryClient.invalidateQueries({
+    queryKey: sourcesQueryKey(organizationId),
+    exact: true,
+  });
 }
 
 /** 이 몰의 칸. owner 가 아직 그 몰을 답하지 않은 목록이면 없다. */
@@ -229,7 +249,7 @@ export function mallOrderCollectionSource({
       MallOrderCollectionSourceList,
       QueryKey
     >({
-      queryKey: queryKeys.orders.collectionSources(organizationId ?? ''),
+      queryKey: sourcesQueryKey(organizationId),
       queryFn: readMallOrderCollectionSources,
       enabled: Boolean(organizationId),
       refetchInterval: SOURCE_IDLE_POLL_MS,
