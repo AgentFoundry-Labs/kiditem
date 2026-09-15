@@ -46,9 +46,10 @@ export class AdTrafficSourceController {
   ) {
     const body = AdTrafficSourceBeginSchema.safeParse(rawBody ?? {});
     if (!body.success) {
-      // The schema's only custom rule is the 92-day cap, and it runs only once
-      // every field is valid, so a failure made of that rule alone is a range
-      // that is too long, the code the owner gives a range with a defaulted date.
+      // The start schema's only custom rule is the 92-day range cap. When that
+      // rule is the only issue, the range is too long, the code the owner gives
+      // a range with a defaulted date; any other issue, alone or beside the
+      // cap, is a malformed scope.
       const tooLong = body.error.issues.every((issue) => issue.code === 'custom');
       throw new BadRequestException(tooLong ? 'TRAFFIC_RANGE_TOO_LONG' : 'INVALID_TRAFFIC_SCOPE');
     }
