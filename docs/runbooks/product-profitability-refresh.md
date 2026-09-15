@@ -25,8 +25,8 @@ workflow.
   It does not calculate a grade.
 - Products owns the immutable absolute ABC formula, eligibility, evaluation,
   publication, current grade, and grade history. Source completion never calls
-  ABC. Only the authenticated Product Hub **등급 새로고침** action calls
-  `POST /api/products/abc/recalculate`.
+  ABC. Only the authenticated Product Hub **등급 새로고침** and Dashboard
+  수익성 ABC **재계산** actions call `POST /api/products/abc/recalculate`.
 - A source `RUNNING` or `FAILED` attempt never replaces its owner's current
   complete pointer. Readers show the latest attempt and the previous complete
   cutoff together. A failed or stale source leaves the last normal official
@@ -40,7 +40,7 @@ workflow.
 | Sellpia inventory source | Inventory source-owner hook and API | Product Hub **상품 전체 데이터 갱신** starts `manual_request` inventory collection independently from product-profit collection |
 | Advertising profitability source | Advertising `PROFITABILITY_AD_IMPORT_PORT` and `ADVERTISING_PROFITABILITY_READ_PORT` | `/api/ads/profitability-imports`; the installed extension owner action is `collectAdvertisingProfitability` with capability `profitabilityAdvertisingSourceOwnerV1` |
 | Combined evidence | Finance `ProfitabilityEvidence.load({ organizationId, targetCutoff })` | Reads owner-published facts; it does not write source or ABC state |
-| ABC calculation/publication | Products `MasterProductAbcService` through `MASTER_PRODUCT_ABC_RECALCULATION_PORT` | Product Hub **ABC 등급 현황 → 등급 새로고침**; response is `PUBLISHED` or `SOURCE_NOT_READY` |
+| ABC calculation/publication | Products `MasterProductAbcService` through `MASTER_PRODUCT_ABC_RECALCULATION_PORT` | Product Hub **ABC 등급 현황 → 등급 새로고침** and Dashboard 수익성 ABC **재계산**; response is `PUBLISHED` or `SOURCE_NOT_READY` |
 
 The Product Hub **상품 전체 데이터 갱신** button is a convenience action for
 the inventory and Sellpia profitability source owners. It does not collect
@@ -53,12 +53,14 @@ keyword, traffic, or dashboard ad sync is not a substitute for the
 button sends `collectAdvertisingProfitability` through the installed extension
 owner and reads `/api/ads/profitability-imports/current` for `RUNNING`,
 `FAILED`, or `COMPLETE` plus the previous complete cutoff. It never starts ABC;
-ABC remains the separate Product Hub action.
+ABC remains the separate Product Hub or Dashboard action.
 
 The **ABC 등급 현황** dialog reads source status, latest capture time, actual
 cutoff, official cutoff, formula revision, publication revision, and summary
-counts. Its **등급 새로고침** button is disabled until Sellpia, Advertising, and
-mapping are `READY`. The dialog does not invent a pending ABC lifecycle.
+counts, again on every open. Source readiness does not gate its
+**등급 새로고침** button: the button waits only for that in-flight status read,
+and stays disabled after the read fails until a later read succeeds. The
+dialog does not invent a pending ABC lifecycle.
 
 ## Source collection
 
@@ -216,9 +218,9 @@ and previous cutoff while retaining the last normal official grade.
 5. Click **등급 새로고침** once the dialog has finished reading the latest
    status; source readiness does not gate it. A publication uses the newest
    Sellpia and Advertising pair that ends together and names any source that
-   collected past its official cutoff. On `SOURCE_NOT_READY`, fix the named
-   owner source and retry explicitly; do not publish a manual zero or
-   downgrade a retained grade.
+   collected past the publication's official cutoff. On `SOURCE_NOT_READY`,
+   fix the named owner source and retry explicitly; do not publish a manual
+   zero or downgrade a retained grade.
 6. Confirm Dashboard, Product Management, and Product Outflow read the same
    stored grade/status and source cutoff. These screens are readers, not
    independent ABC calculators.

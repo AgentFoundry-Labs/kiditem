@@ -154,7 +154,7 @@ describe('ProductOperationsDataStatusAction', () => {
     expect(mocks.refetchProducts).not.toHaveBeenCalled();
   });
 
-  it('names the source a publication did not reach in the same words as the dashboard', async () => {
+  it('names a source collected past the official cutoff in the same words as the dashboard', async () => {
     // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
     // so the pair that ends together on 2026-09-12 published.
     mocks.recalculateProductAbc.mockResolvedValue({
@@ -175,7 +175,7 @@ describe('ProductOperationsDataStatusAction', () => {
     fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
 
     expect(await screen.findByText(
-      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 반영하지 못한 원천: 셀피아 상품 손익(2026-09-13까지 수집)',
+      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 기준일 뒤 수집분 미반영: 셀피아 상품 손익(2026-09-13까지 수집)',
     )).toBeInTheDocument();
   });
 
@@ -214,6 +214,33 @@ describe('ProductOperationsDataStatusAction', () => {
     await act(async () => answer());
     expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
     expect(within(await sourceRow('광고비')).getByText('2026-08-31까지')).toBeInTheDocument();
+  });
+
+  it('keeps the grade refresh closed while the latest status read has failed', async () => {
+    const { rerender } = renderAction();
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
+
+    // The operator reopens the dialog and that read fails, so the dates still
+    // on screen are the previous read's.
+    let readFails = true;
+    vi.mocked(apiClient.getParsed).mockImplementation(async (_path, schema) => {
+      if (readFails) throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Service unavailable');
+      return schema.parse(statusData);
+    });
+    rerender(action({ open: false }));
+    rerender(action({ open: true }));
+
+    expect(await screen.findByText('데이터 현황을 불러오지 못했습니다.', undefined, { timeout: 4_000 }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+
+    // A later open reads successfully, and the grade refresh opens again.
+    readFails = false;
+    rerender(action({ open: false }));
+    rerender(action({ open: true }));
+
+    await waitFor(() => expect(screen.queryByText('데이터 현황을 불러오지 못했습니다.')).not.toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 });
 

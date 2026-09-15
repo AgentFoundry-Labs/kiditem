@@ -67,10 +67,10 @@ owns physical stock quantities.
   operator review. AI output and rank alone never confirm inventory identity.
 - The current `MasterProductAbcEvaluation` is the nullable official ABC output;
   `MasterProduct` has no grade column, and no grade is operator input.
-  Products publishes ABC only through the explicit Product Hub grade-refresh
-  command. The service reads the latest compatible `COMPLETE` source snapshots,
-  persists formula/evaluation provenance, and records only actual grade changes
-  in history.
+  Products publishes ABC only through the explicit grade-refresh command, which
+  both Product Hub and Dashboard call. The service reads the latest compatible
+  `COMPLETE` source snapshots, persists formula/evaluation provenance, and
+  records only actual grade changes in history.
 - Evaluation requires a selling product, valid mapping, complete Sellpia
   profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, a verified
   sale age of at least 30 days at the evaluation cutoff, and a measured

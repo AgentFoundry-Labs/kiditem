@@ -44,7 +44,7 @@ describe('ProductOperationsDataStatusDialog', () => {
     expect(screen.getByText('표시 데이터 기준일 2026-08-31')).toBeInTheDocument();
     expect(screen.getByText('갱신 필요')).toBeInTheDocument();
     expect(screen.getByText(
-      '필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익이 함께 도달한 날짜까지만 발행합니다. 그런 날짜가 없으면 기존 공식 등급을 유지합니다.',
+      '필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익의 끝 날짜가 같은 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.',
     )).toBeInTheDocument();
     // The server publishes the newest pair that ends together, as the dashboard's refresh does.
     expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeEnabled();

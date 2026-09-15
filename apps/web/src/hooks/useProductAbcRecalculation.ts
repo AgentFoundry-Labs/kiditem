@@ -62,21 +62,22 @@ function sourceNotReadyMessage(result: SourceNotReady): string {
 }
 
 /**
- * A publication pairs the newest generations that end together, so a source
- * that collected further than the other stays out of it. Each such source is
- * named with the day its newest collection reaches: the official cutoff is not
- * the newest data, and the operator reads that from whichever screen refreshed.
+ * A publication pairs the newest collections that end together, so a source
+ * that collected further than the other is reflected only through the official
+ * cutoff. Each such source is named with the day its newest collection
+ * reaches: the days after the cutoff are what the grades leave out, and the
+ * operator reads that from whichever screen refreshed.
  */
 function publishedMessage(result: Published): string {
-  const unreflected = (['sellpia', 'advertising'] as const).flatMap((source) => {
+  const collectedPastCutoff = (['sellpia', 'advertising'] as const).flatMap((source) => {
     const { actualCutoff } = result.sources[source];
     return actualCutoff !== null && actualCutoff > result.officialCutoff
       ? [`${PUBLISHED_SOURCE_LABELS[source]}(${actualCutoff}까지 수집)`]
       : [];
   });
   const published = `ABC 등급을 발행했습니다. 공식 등급 기준일 ${result.officialCutoff}`;
-  return unreflected.length > 0
-    ? `${published} · 반영하지 못한 원천: ${unreflected.join(', ')}`
+  return collectedPastCutoff.length > 0
+    ? `${published} · 기준일 뒤 수집분 미반영: ${collectedPastCutoff.join(', ')}`
     : published;
 }
 

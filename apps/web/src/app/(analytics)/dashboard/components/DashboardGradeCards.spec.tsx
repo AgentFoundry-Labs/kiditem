@@ -157,9 +157,10 @@ describe('DashboardGradeCards', () => {
     expect(recalculateProductAbc).toHaveBeenCalledTimes(1);
   });
 
-  it('names the source a publication did not reach, with the day that source reaches', async () => {
+  it('names a source collected past the official cutoff, with the day its collection reaches', async () => {
     // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
-    // so the pair that ends together on 2026-09-12 published.
+    // so the pair whose ends meet on 2026-09-12 published: Sellpia is reflected
+    // through that day, and only its 2026-09-13 is left out.
     recalculateProductAbc.mockResolvedValue({
       outcome: 'PUBLISHED',
       publicationRevision: 2,
@@ -178,7 +179,7 @@ describe('DashboardGradeCards', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
 
     expect(await screen.findByText(
-      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 반영하지 못한 원천: 셀피아 상품 손익(2026-09-13까지 수집)',
+      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 기준일 뒤 수집분 미반영: 셀피아 상품 손익(2026-09-13까지 수집)',
     )).toBeInTheDocument();
   });
 });
