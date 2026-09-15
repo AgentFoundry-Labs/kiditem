@@ -28,6 +28,7 @@ import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber
 import {
   isOpenExecutionTaskStatus,
   resolveExecutionReport,
+  type ExecutionReportDecision,
 } from '../../../domain/execution-task-lifecycle';
 import type {
   AdActionExecution,
@@ -589,12 +590,13 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         actionIds: [action.id],
       });
       const latest = latestTasks.get(action.id) ?? null;
-      const decision = resolveExecutionReport(latest?.status ?? null, report.status);
+      // A report moves only the attempt it names, and only while that attempt
+      // is the action's latest: an older attempt's late report never moves a
+      // retry queued or running after it.
+      const decision = resolveExecutionReport(latest, report);
       if (decision === 'replay') return;
-      if (decision === 'conflict' || !latest) {
-        throw new ConflictException(
-          `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
-        );
+      if (decision !== 'apply' || !latest) {
+        throw executionReportConflict(decision, latest, report);
       }
 
       const now = new Date();
@@ -627,9 +629,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         data,
       });
       if (updated.count !== 1) {
-        throw new ConflictException(
-          '실행 작업 상태가 동시에 바뀌었습니다. 다시 시도해 주세요.',
-        );
+        throw new ConflictException({
+          code: EXECUTION_REPORT_INVALID_TRANSITION,
+          message: '실행 보고를 반영할 수 없습니다. 실행 작업 상태가 동시에 바뀌었습니다.',
+        });
       }
     });
   }
@@ -680,6 +683,28 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       };
     });
   }
+}
+
+// 409 codes of a refused execution report, so the executor and an operator can
+// tell a report for a replaced attempt from one the attempt cannot take.
+const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
+const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
+
+function executionReportConflict(
+  decision: ExecutionReportDecision,
+  latest: { status: string } | null,
+  report: AdActionExecutionReport,
+): ConflictException {
+  if (decision === 'not_latest_attempt') {
+    return new ConflictException({
+      code: EXECUTION_TASK_NOT_LATEST,
+      message: '실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.',
+    });
+  }
+  return new ConflictException({
+    code: EXECUTION_REPORT_INVALID_TRANSITION,
+    message: `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
+  });
 }
 
 function pauseKeywordActionKey(input: {

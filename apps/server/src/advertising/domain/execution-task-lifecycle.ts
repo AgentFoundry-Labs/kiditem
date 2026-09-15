@@ -22,18 +22,31 @@ export type ExecutionReportStatus = Extract<
   'running' | 'done' | 'failed'
 >;
 
+/** A browser execution report names the attempt it reports for. */
+export interface ExecutionReportTarget {
+  executionTaskId: string;
+  status: ExecutionReportStatus;
+}
+
 /**
  * - `apply`: move the latest task to the reported status.
  * - `replay`: the latest task already has that outcome; a repeated done or
  *   failed report changes nothing.
- * - `conflict`: the report is not the executor's to make — the action has no
- *   attempt, its attempt was cancelled, a different outcome is already
- *   recorded, or the attempt is already running. The extension never repeats a
+ * - `not_latest_attempt`: the report names an attempt that is not the action's
+ *   latest. A newer attempt replaced it (or the action never had one), and a
+ *   report for the old attempt must not move the new one.
+ * - `invalid_transition`: the report names the latest attempt but is not the
+ *   executor's to make — the attempt was cancelled, a different outcome is
+ *   already recorded, or it is already running. The extension never repeats a
  *   running report the server applied (it retries only a request refused with
  *   401), so a second running report comes from another executor and must not
  *   reach Coupang.
  */
-export type ExecutionReportDecision = 'apply' | 'replay' | 'conflict';
+export type ExecutionReportDecision =
+  | 'apply'
+  | 'replay'
+  | 'not_latest_attempt'
+  | 'invalid_transition';
 
 /** An attempt waiting for or undergoing execution. Approval adds no attempt while one is open. */
 export function isOpenExecutionTaskStatus(
@@ -43,13 +56,16 @@ export function isOpenExecutionTaskStatus(
 }
 
 export function resolveExecutionReport(
-  latestTaskStatus: string | null,
-  reported: ExecutionReportStatus,
+  latestTask: { id: string; status: string } | null,
+  report: ExecutionReportTarget,
 ): ExecutionReportDecision {
-  if (latestTaskStatus === 'queued') return 'apply';
-  if (latestTaskStatus === 'running') {
-    return reported === 'running' ? 'conflict' : 'apply';
+  if (!latestTask || latestTask.id !== report.executionTaskId) {
+    return 'not_latest_attempt';
   }
-  if (latestTaskStatus === reported) return 'replay';
-  return 'conflict';
+  if (latestTask.status === 'queued') return 'apply';
+  if (latestTask.status === 'running') {
+    return report.status === 'running' ? 'invalid_transition' : 'apply';
+  }
+  if (latestTask.status === report.status) return 'replay';
+  return 'invalid_transition';
 }

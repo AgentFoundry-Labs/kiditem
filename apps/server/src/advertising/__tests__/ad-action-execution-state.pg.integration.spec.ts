@@ -79,8 +79,8 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       errorMessage?: string;
       finishedAt?: Date;
     },
-  ): Promise<void> {
-    await prisma.executionTask.create({
+  ): Promise<string> {
+    const created = await prisma.executionTask.create({
       data: {
         ...(task.id ? { id: task.id } : {}),
         actionId,
@@ -91,19 +91,25 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
         errorMessage: task.errorMessage,
         finishedAt: task.finishedAt,
       },
+      select: { id: true },
     });
+    return created.id;
   }
 
-  it('reads each action from its latest task and filters and counts on the same words', async () => {
+  it('reads each action from its latest task, names that task, and filters and counts on the same words', async () => {
     const finishedAt = at(30);
     const pending = await seedAction('pending', { approvalStatus: 'pending_review' });
     const retried = await seedAction('retried');
     await seedTask(retried, { status: 'failed', createdAt: at(1), errorMessage: 'first attempt' });
-    await seedTask(retried, { status: 'queued', createdAt: at(2) });
+    const retriedAttempt = await seedTask(retried, { status: 'queued', createdAt: at(2) });
     const running = await seedAction('running');
-    await seedTask(running, { status: 'running', createdAt: at(1), beforeJson: { bid: 700 } });
+    const runningAttempt = await seedTask(running, {
+      status: 'running',
+      createdAt: at(1),
+      beforeJson: { bid: 700 },
+    });
     const done = await seedAction('done');
-    await seedTask(done, {
+    const doneAttempt = await seedTask(done, {
       status: 'done',
       createdAt: at(1),
       beforeJson: { bid: 700 },
@@ -111,14 +117,14 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       finishedAt,
     });
     const failed = await seedAction('failed');
-    await seedTask(failed, {
+    const failedAttempt = await seedTask(failed, {
       status: 'failed',
       createdAt: at(1),
       errorMessage: 'row not found',
       finishedAt,
     });
     const rejected = await seedAction('rejected', { approvalStatus: 'rejected' });
-    await seedTask(rejected, {
+    const rejectedAttempt = await seedTask(rejected, {
       status: 'cancelled',
       createdAt: at(1),
       errorMessage: '사용자 보류 처리',
@@ -132,14 +138,14 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       createdAt: at(5),
       errorMessage: 'lower id',
     });
-    await seedTask(tied, {
+    const tiedAttempt = await seedTask(tied, {
       id: 'ffffffff-ffff-4fff-bfff-ffffffffffff',
       status: 'done',
       createdAt: at(5),
       finishedAt,
     });
     const unexpected = await seedAction('unexpected');
-    await seedTask(unexpected, { status: 'paused', createdAt: at(1) });
+    const unexpectedAttempt = await seedTask(unexpected, { status: 'paused', createdAt: at(1) });
     const foreign = await seedAction('foreign', { organizationId: OTHER_ORGANIZATION_ID });
     await seedTask(foreign, { status: 'queued', createdAt: at(1) });
 
@@ -147,26 +153,38 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
 
     const none = { beforeJson: null, afterJson: null, errorMessage: null, executedAt: null };
     expect(Object.fromEntries(review.items.map((item) => [item.id, {
+      executionTaskId: item.executionTaskId,
       executeStatus: item.executeStatus,
       beforeJson: item.beforeJson,
       afterJson: item.afterJson,
       errorMessage: item.errorMessage,
       executedAt: item.executedAt,
     }]))).toEqual({
-      [pending]: { ...none, executeStatus: 'queued' },
-      [retried]: { ...none, executeStatus: 'queued' },
-      [running]: { ...none, executeStatus: 'running', beforeJson: { bid: 700 } },
+      [pending]: { ...none, executionTaskId: null, executeStatus: 'queued' },
+      [retried]: { ...none, executionTaskId: retriedAttempt, executeStatus: 'queued' },
+      [running]: {
+        ...none,
+        executionTaskId: runningAttempt,
+        executeStatus: 'running',
+        beforeJson: { bid: 700 },
+      },
       [done]: {
+        executionTaskId: doneAttempt,
         executeStatus: 'done',
         beforeJson: { bid: 700 },
         afterJson: { bid: 600 },
         errorMessage: null,
         executedAt: finishedAt,
       },
-      [failed]: { ...none, executeStatus: 'failed', errorMessage: 'row not found' },
-      [rejected]: { ...none, executeStatus: 'queued' },
-      [tied]: { ...none, executeStatus: 'done', executedAt: finishedAt },
-      [unexpected]: { ...none, executeStatus: 'paused' },
+      [failed]: {
+        ...none,
+        executionTaskId: failedAttempt,
+        executeStatus: 'failed',
+        errorMessage: 'row not found',
+      },
+      [rejected]: { ...none, executionTaskId: rejectedAttempt, executeStatus: 'queued' },
+      [tied]: { ...none, executionTaskId: tiedAttempt, executeStatus: 'done', executedAt: finishedAt },
+      [unexpected]: { ...none, executionTaskId: unexpectedAttempt, executeStatus: 'paused' },
     });
     expect(review.summary).toMatchObject({
       pendingReview: 1,

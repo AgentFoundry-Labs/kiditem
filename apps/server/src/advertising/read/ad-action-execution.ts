@@ -47,6 +47,7 @@ export function deriveAdActionExecution(
 ): AdActionExecution {
   if (!latestTask) {
     return {
+      executionTaskId: null,
       executeStatus: NO_TASK_EXECUTE_STATUS,
       beforeJson: null,
       afterJson: null,
@@ -61,6 +62,7 @@ export function deriveAdActionExecution(
     ? EXECUTE_STATUS_BY_TASK_STATUS[latestTask.status as ExecutionTaskStatus]
     : latestTask.status;
   return {
+    executionTaskId: latestTask.id,
     executeStatus,
     beforeJson: latestTask.beforeJson,
     afterJson: latestTask.afterJson,

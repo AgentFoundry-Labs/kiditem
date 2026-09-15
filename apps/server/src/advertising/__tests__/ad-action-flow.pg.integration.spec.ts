@@ -307,6 +307,25 @@ describe('AdAction flow (PG integration)', () => {
     return item;
   }
 
+  /** The attempt an executor reports for: the latest task id the action listing carries. */
+  async function attemptOf(actionId: string) {
+    const { executionTaskId } = await reviewItem(actionId);
+    if (!executionTaskId) throw new Error('action has no execution attempt: ' + actionId);
+    return executionTaskId;
+  }
+
+  /** The 409 body of a refused execution report. */
+  async function refusal(report: Promise<unknown>) {
+    const error = await report.then(
+      () => {
+        throw new Error('the execution report was accepted');
+      },
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(ConflictException);
+    return (error as ConflictException).getResponse();
+  }
+
   /** The browser extension's queue: GET /api/ads/actions?approvalStatus=approved&executeStatus=queued. */
   async function extensionQueueIds() {
     const { items } = await adActionService.getActions(
@@ -593,15 +612,16 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#8 markRunning → markDone records the outcome on the task; a repeated report is harmless', async () => {
       const action = await approvedAction('CAMP-DONE');
+      const attempt = await attemptOf(action.id);
 
-      await adActionService.markRunning(action.id, { rowText: 'before' }, TEST_ORGANIZATION_ID);
+      await adActionService.markRunning(action.id, attempt, { rowText: 'before' }, TEST_ORGANIZATION_ID);
       expect(await reviewItem(action.id)).toMatchObject({
         executeStatus: 'running',
         beforeJson: { rowText: 'before' },
       });
       expect(await extensionQueueIds()).toEqual([]);
 
-      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
 
       const [task] = await tasksOf(action.id);
       expect(task).toMatchObject({
@@ -621,10 +641,10 @@ describe('AdAction flow (PG integration)', () => {
       });
 
       // The extension repeats a report whose response it lost.
-      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
-      await expect(
-        adActionService.markFailed(action.id, 'late failure', undefined, TEST_ORGANIZATION_ID),
-      ).rejects.toBeInstanceOf(ConflictException);
+      await adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      expect(await refusal(
+        adActionService.markFailed(action.id, attempt, 'late failure', undefined, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_REPORT_INVALID_TRANSITION' });
       expect((await tasksOf(action.id)).map((t) => t.status)).toEqual(['done']);
       const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
       expect(summary).toMatchObject({ approvedQueued: 0, running: 0, done: 1, failed: 0 });
@@ -632,10 +652,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#9 markFailed stores the scrubbed message on the task and the action reads failed', async () => {
       const action = await approvedAction('CAMP-FAIL');
+      const attempt = await attemptOf(action.id);
 
-      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markRunning(action.id, attempt, undefined, TEST_ORGANIZATION_ID);
       await adActionService.markFailed(
         action.id,
+        attempt,
         'timeout Bearer abc.def',
         { url: 'x' },
         TEST_ORGANIZATION_ID,
@@ -654,7 +676,13 @@ describe('AdAction flow (PG integration)', () => {
     it('#9b a failure reported before the extension starts fails the queued attempt', async () => {
       const action = await approvedAction('CAMP-ROW-MISSING');
 
-      await adActionService.markFailed(action.id, undefined, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(
+        action.id,
+        await attemptOf(action.id),
+        undefined,
+        undefined,
+        TEST_ORGANIZATION_ID,
+      );
 
       expect(await reviewItem(action.id)).toMatchObject({
         executeStatus: 'failed',
@@ -664,42 +692,48 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#10 approving a failed action queues a new attempt that the extension picks up again', async () => {
       const action = await approvedAction('CAMP-RETRY');
-      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
-      await adActionService.markFailed(action.id, 'timeout', undefined, TEST_ORGANIZATION_ID);
+      const first = await attemptOf(action.id);
+      await adActionService.markRunning(action.id, first, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(action.id, first, 'timeout', undefined, TEST_ORGANIZATION_ID);
       expect(await extensionQueueIds()).toEqual([]);
 
       await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
 
-      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'queued']);
+      const tasks = await tasksOf(action.id);
+      expect(tasks.map((task) => task.status)).toEqual(['failed', 'queued']);
+      // The listing names the new attempt, so the extension reports for it.
       expect(await reviewItem(action.id)).toMatchObject({
         executeStatus: 'queued',
         errorMessage: null,
+        executionTaskId: tasks[1].id,
       });
       expect(await extensionQueueIds()).toEqual([action.id]);
       const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
       expect(summary).toMatchObject({ approvedQueued: 1, failed: 0 });
 
-      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
-      await adActionService.markDone(action.id, undefined, TEST_ORGANIZATION_ID);
+      const second = await attemptOf(action.id);
+      await adActionService.markRunning(action.id, second, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, second, undefined, TEST_ORGANIZATION_ID);
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'done']);
       expect(await reviewItem(action.id)).toMatchObject({ executeStatus: 'done' });
     });
 
     it("#10b refuses a second executor's running report and still records the first executor's outcome", async () => {
       const action = await approvedAction('CAMP-SECOND-EXECUTOR');
+      const attempt = await attemptOf(action.id);
 
-      await adActionService.markRunning(action.id, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
+      await adActionService.markRunning(action.id, attempt, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
       // Another tab starts the same queued action. Its running report is
       // refused, so it never reaches Coupang.
-      await expect(
-        adActionService.markRunning(action.id, { rowText: 'second executor' }, TEST_ORGANIZATION_ID),
-      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await refusal(
+        adActionService.markRunning(action.id, attempt, { rowText: 'second executor' }, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_REPORT_INVALID_TRANSITION' });
       expect(await reviewItem(action.id)).toMatchObject({
         executeStatus: 'running',
         beforeJson: { rowText: 'first executor' },
       });
 
-      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
 
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['done']);
       expect(await reviewItem(action.id)).toMatchObject({
@@ -711,7 +745,8 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#10c approving again leaves a running attempt untouched, even after 30 minutes without a report', async () => {
       const action = await approvedAction('CAMP-STILL-RUNNING');
-      await adActionService.markRunning(action.id, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
+      const attempt = await attemptOf(action.id);
+      await adActionService.markRunning(action.id, attempt, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
 
       // A slow executor and a stopped one look the same, and Coupang may
       // already have changed. Only the executor's own report can say, so
@@ -734,12 +769,53 @@ describe('AdAction flow (PG integration)', () => {
       expect(await extensionQueueIds()).toEqual([]);
 
       // The executor that started the attempt still records its outcome.
-      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['done']);
+    });
+
+    it('#10d a report for an older attempt is refused and leaves the newer attempt untouched (#515 re-review scenarios 4, 5)', async () => {
+      const action = await approvedAction('CAMP-STALE-REPORT');
+      const older = await attemptOf(action.id);
+      await adActionService.markRunning(action.id, older, { rowText: 'executor 1' }, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(action.id, older, 'tab closed', undefined, TEST_ORGANIZATION_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+      const newer = await attemptOf(action.id);
+      expect(newer).not.toBe(older);
+
+      // Scenario 5: executor 1's late report lands before anyone starts the
+      // retry. The queued retry must not become done without running.
+      expect(await refusal(
+        adActionService.markDone(action.id, older, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_TASK_NOT_LATEST' });
+      expect(await extensionQueueIds()).toEqual([action.id]);
+
+      // Scenario 4: executor 2 is running the retry when executor 1's reports
+      // land. The retry keeps running and records executor 2's outcome.
+      await adActionService.markRunning(action.id, newer, { rowText: 'executor 2' }, TEST_ORGANIZATION_ID);
+      for (const lateReport of [
+        () => adActionService.markDone(action.id, older, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+        () => adActionService.markFailed(action.id, older, 'late failure', undefined, TEST_ORGANIZATION_ID),
+        () => adActionService.markRunning(action.id, older, undefined, TEST_ORGANIZATION_ID),
+      ]) {
+        expect(await refusal(lateReport())).toMatchObject({ code: 'EXECUTION_TASK_NOT_LATEST' });
+      }
+      expect(await tasksOf(action.id)).toEqual([
+        expect.objectContaining({ id: older, status: 'failed', errorMessage: 'tab closed' }),
+        expect.objectContaining({
+          id: newer,
+          status: 'running',
+          finishedAt: null,
+          beforeJson: { rowText: 'executor 2' },
+        }),
+      ]);
+
+      await adActionService.markDone(action.id, newer, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'done']);
     });
 
     it('#11 reject cancels the queued attempt and refuses a late extension report', async () => {
       const action = await approvedAction('CAMP-REJECT');
+      const attempt = await attemptOf(action.id);
 
       await adActionService.rejectActions([action.id], TEST_ORGANIZATION_ID);
 
@@ -750,9 +826,9 @@ describe('AdAction flow (PG integration)', () => {
         errorMessage: null,
       });
       expect(await extensionQueueIds()).toEqual([]);
-      await expect(
-        adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID),
-      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await refusal(
+        adActionService.markRunning(action.id, attempt, undefined, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_REPORT_INVALID_TRANSITION' });
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['cancelled']);
     });
 
@@ -762,10 +838,16 @@ describe('AdAction flow (PG integration)', () => {
       expect(await reviewItem(action.id)).toMatchObject({
         approvalStatus: 'pending_review',
         executeStatus: 'queued',
+        executionTaskId: null,
       });
-      await expect(
-        adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID),
-      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await refusal(
+        adActionService.markRunning(
+          action.id,
+          '00000000-0000-4000-8000-000000000000',
+          undefined,
+          TEST_ORGANIZATION_ID,
+        ),
+      )).toMatchObject({ code: 'EXECUTION_TASK_NOT_LATEST' });
       expect(await tasksOf(action.id)).toEqual([]);
     });
   });
@@ -860,9 +942,10 @@ describe('AdAction flow (PG integration)', () => {
         where: { organizationId: OTHER_ORGANIZATION_ID },
       });
       await adActionService.approveActions([foreignAction.id], OTHER_ORGANIZATION_ID);
+      const [foreignAttempt] = await tasksOf(foreignAction.id);
 
       await expect(
-        adActionService.markRunning(foreignAction.id, undefined, TEST_ORGANIZATION_ID),
+        adActionService.markRunning(foreignAction.id, foreignAttempt.id, undefined, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(/not found/i);
       await adActionService.approveActions([foreignAction.id], TEST_ORGANIZATION_ID);
 

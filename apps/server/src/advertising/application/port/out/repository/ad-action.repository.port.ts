@@ -68,6 +68,11 @@ export interface AdActionReviewSummary {
  * these field names.
  */
 export interface AdActionExecution {
+  /**
+   * The latest ExecutionTask: the attempt an executor names in every report
+   * (KID-160). `null` while the action has no attempt.
+   */
+  executionTaskId: string | null;
   executeStatus: string;
   beforeJson: unknown;
   afterJson: unknown;
@@ -125,15 +130,20 @@ export interface OpenKeywordRelevanceActionRow {
   reason: string;
 }
 
-/** A browser execution report for an approved action's latest ExecutionTask. */
-export type AdActionExecutionReport =
+/**
+ * A browser execution report for one attempt of an approved action. It names
+ * the attempt (`executionTaskId`, from the action listing) so it can move only
+ * that attempt, and only while it is the action's latest.
+ */
+export type AdActionExecutionReport = { executionTaskId: string } & (
   | { status: 'running'; beforeJson?: Record<string, unknown> }
   | { status: 'done'; afterJson?: Record<string, unknown> }
   | {
       status: 'failed';
       errorMessage: string;
       afterJson?: Record<string, unknown>;
-    };
+    }
+);
 
 export interface AdActionRepositoryPort {
   // Reads
@@ -175,10 +185,11 @@ export interface AdActionRepositoryPort {
   rejectAdActions(ids: string[], organizationId: string): Promise<void>;
 
   /**
-   * Move the action's latest ExecutionTask for a browser execution report.
-   * Throws NotFoundException for an action outside the organization and
-   * ConflictException when that task cannot take the report; repeating the
-   * recorded status changes nothing.
+   * Move the attempt a browser execution report names. Throws
+   * NotFoundException for an action outside the organization and
+   * ConflictException, with a `code` saying why, when the named attempt is not
+   * the action's latest or cannot take the report; repeating the recorded
+   * status changes nothing.
    */
   reportActionExecution(
     id: string,

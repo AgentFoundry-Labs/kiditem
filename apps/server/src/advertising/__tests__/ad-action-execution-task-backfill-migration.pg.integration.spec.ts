@@ -222,6 +222,7 @@ describe('v0.1.31:011 backfill ad action execution tasks (PostgreSQL)', () => {
       taskRanAfterStoredQueued: 'running',
     });
     expect(derived.executed).toEqual({
+      executionTaskId: latestTasks.get(executed)?.id,
       executeStatus: 'done',
       beforeJson: { bid: 700 },
       afterJson: { bid: 600 },
