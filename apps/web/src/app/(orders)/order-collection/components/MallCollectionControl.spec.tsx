@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { MallCollectionControl } from './MallCollectionControl';
 import { mallOrderCollectionSource } from '../lib/mall-order-collection-source';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
@@ -22,6 +23,8 @@ vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 
 const ORGANIZATION_ID = '99999999-9999-4999-8999-999999999999';
 const RUNNING_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
+const CHANNEL_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const NOT_CONFIGURED = '설정에서 사용을 켜고 저장한 뒤 수집할 수 있습니다.';
 
 const ACCOUNT: OrderCollectionMallAccount = {
   key: 'kidsnote',
@@ -169,6 +172,36 @@ describe('MallCollectionControl', () => {
     // 옆 카드는 자기 몰 칸을 읽으므로 이 수집에 휩쓸리지 않는다.
     expect(await screen.findByRole('button', { name: '꼬망세 수집' })).toBeEnabled();
     expect(apiClient.getParsed).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 카드 20장이 목록 하나를 함께 본다. 전체 수집이 도는 동안 다른 몰이 시작·중단할
+   * 때마다 그 목록이 통째로 새로 오는데, 그때마다 이 카드의 안내가 사라지면 운영자는
+   * 무엇을 해야 하는지 읽을 겨를이 없다(KID-170).
+   */
+  it('keeps a mall`s refusal notice while another mall in the same read starts collecting', async () => {
+    const user = userEvent.setup();
+    const other = { ...ACCOUNT, key: 'kkomangse', name: '꼬망세' };
+    let malls: OrderCollectionSourceStatus[] = [
+      // 키즈노트는 아직 설정되지 않았다(계정 행이 없다).
+      idle(),
+      { ...idle(), mallKey: other.key, channelAccountId: CHANNEL_ACCOUNT_ID },
+    ];
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({ malls }));
+    const client = renderControls([ACCOUNT, other]);
+    await screen.findByRole('button', { name: '키즈노트 수집' });
+
+    await user.click(screen.getByRole('button', { name: '키즈노트 수집' }));
+    expect(await screen.findByText(NOT_CONFIGURED)).toBeInTheDocument();
+
+    malls = [malls[0]!, { ...malls[1]!, running: running().running }];
+    await act(async () => {
+      await client.refetchQueries({ queryKey: queryKeys.orders.collectionSources(ORGANIZATION_ID) });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(await screen.findByText('수집 중 · 꼬망세')).toBeInTheDocument();
+    expect(screen.getByText(NOT_CONFIGURED)).toBeInTheDocument();
   });
 
   it('never offers a start for a mall that cannot collect yet', async () => {

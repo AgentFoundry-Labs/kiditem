@@ -260,6 +260,9 @@ export function mallOrderCollectionSource({
       const running = findMallSource(sources, account.key)?.running;
       return running ? { attemptId: running.attemptId, scopeLabel: account.name } : null;
     },
+    // 화면 하나가 몰 20칸을 한 읽기로 받는다. 전체 수집이 도는 동안 옆 몰이 시작·중단할
+    // 때마다 목록 전체가 새로 오므로, 이 카드의 안내는 자기 칸이 바뀔 때만 물러난다.
+    readStatusIdentity: (sources) => findMallSource(sources, account.key),
     start: (input, { status }) => {
       // 이 조직에 이 몰의 계정 행이 없으면 owner 는 시작을 받지 못한다. 상태를 읽지
       // 못한 것이 아니라 아직 설정되지 않은 것이므로, 아무도 부르지 않고 무엇을 하면

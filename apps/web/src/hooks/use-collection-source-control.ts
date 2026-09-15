@@ -66,6 +66,14 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
    * seconds since the page first saw it gets the no-progress notice.
    */
   readProgress?: (status: TStatus) => string | null;
+  /**
+   * What this source's own part of the status read is, for a read that answers
+   * several sources at once (the order screen's 20 mall cards share one list).
+   * A start notice speaks about the status it was decided against, so it is
+   * retired when that part changes; without this the whole read is compared and
+   * any other source's transition retires it (KID-170).
+   */
+  readStatusIdentity?: (status: TStatus) => unknown;
   /** The latest complete collection's identity; a change while mounted is a newly finished collection. */
   readCompleteId: (status: TStatus) => string | null;
   /** Refreshes the reads a newly finished collection republished. */
@@ -276,9 +284,10 @@ function operatorMessage(error: unknown, fallback: string): string {
 function startNotice<TStatus, TInput>(
   latest: StartState<TStatus, TInput> | undefined,
   status: TStatus | undefined,
+  identity: (status: TStatus | undefined) => unknown,
 ): CollectionControlNotice | null {
   if (!latest || latest.status === 'idle' || latest.status === 'pending') return null;
-  if (latest.variables?.statusAtStart !== status) return null;
+  if (identity(latest.variables?.statusAtStart) !== identity(status)) return null;
   if (latest.status === 'error') {
     return { tone: 'error', message: operatorMessage(latest.error, START_FAILED) };
   }
@@ -380,6 +389,12 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     adapter.onNewComplete(queryClient);
   }, [adapter, completeId, queryClient]);
 
+  // 아직 아무것도 읽지 않은 상태는 그 자체가 신원이다.
+  const statusIdentity = (status: TStatus | undefined): unknown =>
+    status === undefined || !adapter.readStatusIdentity
+      ? status
+      : adapter.readStatusIdentity(status);
+
   const statusRead = collectionSourceStatusRead(query);
   const running = query.data === undefined ? null : adapter.readRunning(query.data);
   const canStop = Boolean(adapter.cancelOnServer) && running?.attemptId != null;
@@ -395,7 +410,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
       : running
         ? stopNotice(latestStop, running) ??
           (noProgress ? { tone: 'warning' as const, message: NO_PROGRESS } : null)
-        : startNotice(latestStart, query.data);
+        : startNotice(latestStart, query.data, statusIdentity);
   const state: CollectionControlState =
     statusRead === 'loading'
       ? 'loading'
