@@ -53,6 +53,7 @@ import {
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
 import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 const NOOP = () => undefined;
@@ -339,26 +340,32 @@ export function useAllMarketplaceOrderCollection({
    * One mall's adapter for the shared control. The card that renders it starts,
    * shows and stops the same collection every other browser sees.
    */
-  const collectionAdapter = useCallback((
+  const mallCollectionAdapter = useCallback((
     account: OrderCollectionMallAccount,
     report = true,
   ): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> => (
-    account.key === COUPANG_DIRECT_MALL_KEY
-      ? coupangDirectshipCollectionSource({
-        channelAccountId: rocketChannelAccountId,
-        handOff: (handoff) => handOffDirectship(account, handoff, report),
-        abortLocalRun,
-      }) as unknown as CollectionSourceAdapter<
-        MallOrderCollectionSourceList,
-        MallOrderCollectionStartInput
-      >
-      : mallOrderCollectionSource({
-        organizationId,
-        account,
-        handOff: (handoff) => handOffMall(account, handoff, report),
-        abortLocalRun,
-      })
-  ), [abortLocalRun, handOffDirectship, handOffMall, organizationId, rocketChannelAccountId]);
+    mallOrderCollectionSource({
+      organizationId,
+      account,
+      handOff: (handoff) => handOffMall(account, handoff, report),
+      abortLocalRun,
+    })
+  ), [abortLocalRun, handOffMall, organizationId]);
+
+  /**
+   * 쿠팡 직배송 카드의 어댑터. 몰 카드가 함께 읽는 목록과 달리 로켓 계정 하나의 원천
+   * 상태를 따로 읽으므로, 그 읽기 타입을 그대로 들고 다닌다(KID-214).
+   */
+  const directshipCollectionAdapter = useCallback((
+    account: OrderCollectionMallAccount,
+    report = true,
+  ): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> => (
+    coupangDirectshipCollectionSource({
+      channelAccountId: rocketChannelAccountId,
+      handOff: (handoff) => handOffDirectship(account, handoff, report),
+      abortLocalRun,
+    })
+  ), [abortLocalRun, handOffDirectship, rocketChannelAccountId]);
 
   /**
    * Starts one mall through its shared control from outside a mounted card,
@@ -373,18 +380,16 @@ export function useAllMarketplaceOrderCollection({
     collection: Promise<BrowserMallCollectionResult> | null;
   }>> => {
     collectionsRef.current.delete(account.key);
-    const outcome = await startCollectionSource(
-      queryClient,
-      collectionAdapter(account, false),
-      input,
-    );
+    const outcome = await (account.key === COUPANG_DIRECT_MALL_KEY
+      ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
+      : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {
       outcome,
       collection: outcome.outcome === 'started'
         ? collectionsRef.current.get(account.key) ?? null
         : null,
     };
-  }, [collectionAdapter, queryClient]);
+  }, [directshipCollectionAdapter, mallCollectionAdapter, queryClient]);
 
   const collectAccounts = useCallback(async (
     accounts: OrderCollectionMallAccount[],
@@ -442,7 +447,8 @@ export function useAllMarketplaceOrderCollection({
     collectAccount,
     collectAccounts,
     collectAll,
-    collectionAdapter,
+    directshipCollectionAdapter,
+    mallCollectionAdapter,
     startMall,
     collectableAccountCount: mallAccounts.filter(
       (account) => account.enabled && isBrowserCollectableMall(account),

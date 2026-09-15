@@ -380,7 +380,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
   /** 카드의 공용 컨트롤이 시작하는 것과 같은 자리 — 이 시작만 운영자에게 결과를 알린다. */
   async function startFromCard(result: ReturnType<typeof renderOneMall>) {
     await act(async () => {
-      await result.current.collectionAdapter(kidkids).start?.({}, { status: undefined });
+      await result.current.mallCollectionAdapter(kidkids).start?.({}, { status: undefined });
     });
   }
 

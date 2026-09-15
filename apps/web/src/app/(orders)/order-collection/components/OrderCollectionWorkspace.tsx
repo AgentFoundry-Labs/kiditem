@@ -319,7 +319,8 @@ export function OrderCollectionWorkspace() {
     collectAccount,
     collectAccounts,
     collectAll,
-    collectionAdapter,
+    directshipCollectionAdapter,
+    mallCollectionAdapter,
     startMall,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
@@ -919,15 +920,17 @@ export function OrderCollectionWorkspace() {
         selectedMall={selectedMall}
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
-        renderCollectionControl={(account, renderCard) => (
-          <MallCollectionControl
-            account={account}
-            buildAdapter={collectionAdapter}
-            startBlockedReason={mallStartBlockedReason(account)}
-          >
-            {renderCard}
-          </MallCollectionControl>
-        )}
+        renderCollectionControl={(account, renderCard) => {
+          const card = {
+            account,
+            startBlockedReason: mallStartBlockedReason(account),
+            children: renderCard,
+          };
+          // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).
+          return account.key === COUPANG_DIRECT_MALL_KEY
+            ? <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />
+            : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
+        }}
         onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
