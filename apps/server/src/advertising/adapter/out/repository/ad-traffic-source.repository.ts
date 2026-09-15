@@ -611,10 +611,10 @@ async function upsertDailyFactPublication(
         ${publishedAt.toISOString()}::timestamptz
       FROM wing_zero` : Prisma.empty}
       ON CONFLICT (organization_id, listing_id, business_date)
+      -- A row another source wrote keeps its sample_count, last_observed_at
+      -- and raw_snapshot_id: they record the listing-state observations, and
+      -- traffic publication changes only its own columns.
       DO UPDATE SET
-        sample_count = EXCLUDED.sample_count,
-        last_observed_at = EXCLUDED.last_observed_at,
-        raw_snapshot_id = EXCLUDED.raw_snapshot_id,
         traffic_visitors = EXCLUDED.traffic_visitors,
         traffic_views = EXCLUDED.traffic_views,
         traffic_cart_adds = EXCLUDED.traffic_cart_adds,
@@ -1495,9 +1495,9 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const daily = existing
         ? await tx.channelListingDailySnapshot.update({
             where: { id: existing.id },
+            // The row's observation count, time and raw snapshot record the
+            // listing-state observations; traffic changes only its own columns.
             data: {
-              sampleCount: { increment: 1 },
-              lastObservedAt: observedAt,
               ...traffic,
               trafficObservedAt: observedAt,
             },
