@@ -580,10 +580,6 @@ describe('TrafficService (PG integration) — daily facts', () => {
       businessDate,
       summary(),
     );
-    // The gate pauses the publication at its first row, after its upsert
-    // statement has read which listing-days to zero.
-    await prisma.$executeRaw`CREATE FUNCTION test_wing_traffic_publication_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.meta_json -> 'traffic.currentSource' = '"wing.traffic"'::jsonb THEN PERFORM pg_advisory_xact_lock(195195); END IF; RETURN NEW; END $$`;
-    await prisma.$executeRaw`CREATE TRIGGER test_wing_traffic_publication_gate BEFORE INSERT ON channel_listing_daily_snapshots FOR EACH ROW EXECUTE FUNCTION test_wing_traffic_publication_gate()`;
     let openGate!: () => void;
     let gateHeld!: () => void;
     const opened = new Promise<void>((resolve) => { openGate = resolve; });
@@ -596,6 +592,11 @@ describe('TrafficService (PG integration) — daily facts', () => {
     let publication: Promise<unknown> = Promise.resolve();
     let upload: Promise<unknown> = Promise.resolve();
     try {
+      // The gate pauses the publication at its first row, after its upsert
+      // statement has read which listing-days to zero. `finally` drops it
+      // even when this setup fails partway.
+      await prisma.$executeRaw`CREATE FUNCTION test_wing_traffic_publication_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.meta_json -> 'traffic.currentSource' = '"wing.traffic"'::jsonb THEN PERFORM pg_advisory_xact_lock(195195); END IF; RETURN NEW; END $$`;
+      await prisma.$executeRaw`CREATE TRIGGER test_wing_traffic_publication_gate BEFORE INSERT ON channel_listing_daily_snapshots FOR EACH ROW EXECUTE FUNCTION test_wing_traffic_publication_gate()`;
       await held;
       publication = trafficOwner.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID, ...staged })
         .then(() => 'COMPLETE', (error: unknown) => error);
