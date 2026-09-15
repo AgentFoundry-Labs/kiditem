@@ -970,6 +970,44 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       }]);
     });
 
+    it('replaces a published zero with the real values when a later collection reports the listing', async () => {
+      const plan = range();
+      const listing = await catalogListing('EXT-ZERO-THEN-REAL', registered());
+      await prisma.channelListingOption.create({
+        data: { organizationId: ORG, listingId: listing.id, externalOptionId: '2001', isActive: true },
+      });
+
+      const zeroAttempt = await collectOne(plan);
+      await expect(listingDays(listing.id)).resolves.toMatchObject([{
+        trafficViews: 0,
+        trafficRevenue: 0,
+        metaJson: { 'wing.traffic': { sourceAttemptId: zeroAttempt.attemptId } },
+      }]);
+
+      const realAttempt = await collectOne(
+        plan,
+        summary({ visitors: 15, views: 29, cartAdds: 4, orders: 3, salesQty: 5, revenue: 390 }),
+        [
+          row('1001'),
+          row('2001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
+        ],
+      );
+
+      await expect(listingDays(listing.id)).resolves.toMatchObject([{
+        trafficVisitors: 5,
+        trafficViews: 9,
+        trafficCartAdds: 1,
+        trafficOrders: 1,
+        trafficSalesQty: 1,
+        trafficRevenue: 90,
+        trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { sourceAttemptId: realAttempt.attemptId },
+        },
+      }]);
+    });
+
     it('publishes nothing for a listing without a Wing registration date', async () => {
       const listing = await catalogListing('EXT-WORKBOOK-ONLY', { 등록상품ID: 'EXT-WORKBOOK-ONLY' });
 
