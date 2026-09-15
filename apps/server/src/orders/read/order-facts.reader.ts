@@ -202,6 +202,25 @@ export async function readOrderStatusCounts(
 }
 
 /**
+ * How many orders completed source runs published for each channel account,
+ * whatever their status: whether an account has collected orders at all.
+ */
+export async function readOrderCountsByChannelAccount(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<Array<{ channelAccountId: string; orderCount: number }>> {
+  const rows = await tx.order.groupBy({
+    by: ['channelAccountId'],
+    where: completeOrderWhere(organizationId),
+    _count: { _all: true },
+  });
+  return rows.map((row) => ({
+    channelAccountId: row.channelAccountId,
+    orderCount: row._count._all,
+  }));
+}
+
+/**
  * Reads canonical Order, OrderLineItem, and declared collection coverage facts.
  * The caller owns the transaction; this reader has no cache or lifecycle state.
  */
