@@ -2839,6 +2839,8 @@
 
     let executed = 0;
     let skipped = actions.length - runnable.length;
+    // Actions listed without their attempt id, which are never claimed.
+    let missingAttemptId = 0;
     // Reports that did not land. The operator sees each kind as a warning.
     let claimRefused = 0;
     let claimUnreported = 0;
@@ -2846,6 +2848,14 @@
     let doneUnreported = 0;
 
     for (const action of runnable) {
+      // Every report names the attempt it is for. An action listed without one
+      // (an older server, or an approved action with no attempt) cannot be
+      // fenced to an attempt, so it is not claimed at all.
+      if (typeof action.executionTaskId !== "string" || !action.executionTaskId.trim()) {
+        skipped++;
+        missingAttemptId++;
+        continue;
+      }
       // The write deadline runs from the moment the claim is sent.
       const claim = { claimedAt: Date.now() };
       try {
@@ -2891,8 +2901,12 @@
     // A refused or lost done report follows a change that reached Coupang; only
     // its record is missing.
     const executedUnrecorded = doneRefused + doneUnreported;
-    // A report that did not land is a warning, never only a count.
+    // A skip the operator must act on, or a report that did not land, is a
+    // warning, never only a count.
     const warnings = [];
+    if (missingAttemptId > 0) {
+      warnings.push(`실행 시도 id가 없는 승인 액션 ${missingAttemptId}개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.`);
+    }
     if (claimRefused > 0) {
       warnings.push(`실행 보고가 거절된 승인 액션 ${claimRefused}개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.`);
     }

@@ -3695,8 +3695,8 @@ test("a rejected running report stops the approved action before any Coupang wri
       action: "executeApprovedAdActions",
       payload: {
         actions: [
-          { id: "action-rejected", actionType: "change_daily_budget", targetLabel: labels.rejected, proposedValue: 20000 },
-          { id: "action-accepted", actionType: "change_daily_budget", targetLabel: labels.accepted, proposedValue: 30000 },
+          { id: "action-rejected", executionTaskId: "task-rejected", actionType: "change_daily_budget", targetLabel: labels.rejected, proposedValue: 20000 },
+          { id: "action-accepted", executionTaskId: "task-accepted", actionType: "change_daily_budget", targetLabel: labels.accepted, proposedValue: 30000 },
         ],
       },
     };
@@ -3755,7 +3755,7 @@ test("a refused done report after the Coupang change warns to check the ad cente
   });
 
   const response = await dispatchExecuteApprovedAdActions(tab, [
-    { id: "action-done-refused", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+    { id: "action-done-refused", executionTaskId: "task-done-refused", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
   ]);
 
   assert.equal(pauseClicks.count, 1, "the approved pause reached Coupang once");
@@ -3827,6 +3827,39 @@ test("a start report whose response is lost or fails skips the action without a 
   }
 });
 
+test("an approved action listed without an execution attempt id is skipped before its claim, with a warning to check the versions", async () => {
+  const reports = [];
+  const pauseClicks = { count: 0 };
+  const label = "시도 id 없는 키워드";
+  const pauseButton = { innerText: "중지", click: () => { pauseClicks.count += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const page = openAdActionTestPage({ rows: [row], sendMessage: recordingReportServer(reports) });
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    // An older server lists no attempt id; an approved action without an attempt lists null.
+    { id: "action-without-attempt-id", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+    {
+      id: "action-null-attempt-id",
+      executionTaskId: null,
+      actionType: "pause_keyword",
+      targetLabel: label,
+      payload: { keyword: label },
+    },
+  ]);
+
+  // Nothing is claimed or read: a report that names no attempt cannot be fenced to one.
+  assert.deepEqual(reports, []);
+  assert.equal(page.rowLookups.count, 0);
+  assert.equal(pauseClicks.count, 0);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 0,
+    skipped: 2,
+    warning:
+      "실행 시도 id가 없는 승인 액션 2개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.",
+  });
+});
+
 function openAdActionTestTab({ label, clicks, sendMessage }) {
   const editButton = { innerText: "수정", click: () => { clicks.count += 1; } };
   const row = { innerText: label, querySelectorAll: () => [editButton], click: () => { clicks.count += 1; } };
@@ -3893,7 +3926,7 @@ test("a second executor whose page lacks the action's row is refused at its clai
   const firstClicks = { count: 0 };
   const firstTab = openAdActionTestTab({ label, clicks: firstClicks, sendMessage: server("first") });
   const secondPage = openAdActionTestPage({ rows: [], sendMessage: server("second") });
-  const actions = [{ id: "action-row-elsewhere", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+  const actions = [{ id: "action-row-elsewhere", executionTaskId: "task-row-elsewhere", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
 
   const [first, second] = await Promise.all([
     dispatchExecuteApprovedAdActions(firstTab, actions),
@@ -4019,7 +4052,7 @@ test("a second executor refused at its running report leaves Coupang untouched a
   const secondClicks = { count: 0 };
   const firstTab = openAdActionTestTab({ label, clicks: firstClicks, sendMessage: server("first") });
   const secondTab = openAdActionTestTab({ label, clicks: secondClicks, sendMessage: server("second") });
-  const actions = [{ id: "action-shared", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+  const actions = [{ id: "action-shared", executionTaskId: "task-shared", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
 
   const [first, second] = await Promise.all([
     dispatchExecuteApprovedAdActions(firstTab, actions),
@@ -4061,7 +4094,7 @@ test("a repeated Run in the same tab joins the approved-action execution already
       return { success: true, ok: true, status: 201, body: {} };
     },
   });
-  const actions = [{ id: "action-once", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
+  const actions = [{ id: "action-once", executionTaskId: "task-once", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 }];
 
   const [first, second] = await Promise.all([
     dispatchExecuteApprovedAdActions(tab, actions),
@@ -4094,10 +4127,10 @@ test("a Run in the same tab with other actions is refused while an execution is 
   });
 
   const inFlight = dispatchExecuteApprovedAdActions(tab, [
-    { id: "action-in-flight", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 },
+    { id: "action-in-flight", executionTaskId: "task-in-flight", actionType: "change_daily_budget", targetLabel: label, proposedValue: 20000 },
   ]);
   const refused = await dispatchExecuteApprovedAdActions(tab, [
-    { id: "action-other", actionType: "change_daily_budget", targetLabel: label, proposedValue: 30000 },
+    { id: "action-other", executionTaskId: "task-other", actionType: "change_daily_budget", targetLabel: label, proposedValue: 30000 },
   ]);
 
   // The popup shows `error` as the run's result, so the operator sees why the
@@ -4134,7 +4167,7 @@ async function runKeywordPauseWithDoneReport(doneReport) {
     },
   });
   const response = await dispatchExecuteApprovedAdActions(page.tab, [
-    { id: "action-unrecorded", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
+    { id: "action-unrecorded", executionTaskId: "task-unrecorded", actionType: "pause_keyword", targetLabel: label, payload: { keyword: label } },
   ]);
   return { reports, pauseClicks, response };
 }
