@@ -960,6 +960,32 @@ describe('AdAction flow (PG integration)', () => {
       expect((await tasksOf(failed.id)).map((task) => task.status)).toEqual(['failed']);
     });
 
+    it('#11d reject refuses an action whose attempt already ran and changes nothing in the request (KID-138)', async () => {
+      const done = await approvedAction('CAMP-REJECT-DONE');
+      const doneAttempt = await attemptOf(done.id);
+      await adActionService.markRunning(done.id, doneAttempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(done.id, doneAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      const queued = await approvedAction('CAMP-REJECT-DONE-QUEUED');
+      const queuedAttempt = await attemptOf(queued.id);
+
+      // The change already reached Coupang; a rejection would hide a pause that happened.
+      expect(await refusal(adActionService.rejectActions([queued.id, done.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_DONE' });
+      expect(await reviewItem(done.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'done',
+        executionTaskId: doneAttempt,
+      });
+      // The queued action named in the same request is not rejected or cancelled either.
+      expect(await reviewItem(queued.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'queued',
+        executionTaskId: queuedAttempt,
+      });
+      expect((await tasksOf(done.id)).map((task) => task.status)).toEqual(['done']);
+      expect((await tasksOf(queued.id)).map((task) => task.status)).toEqual(['queued']);
+    });
+
     it('#11c reject is refused when the executor starts the attempt while the rejection is deciding (KID-138)', async () => {
       const action = await approvedAction('CAMP-REJECT-RACE');
       const attempt = await attemptOf(action.id);

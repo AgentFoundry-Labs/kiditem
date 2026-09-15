@@ -565,9 +565,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       if (scopedIds.length === 0) return 0;
 
       // An attempt running within its deadline may already be writing to
-      // Coupang, so the rejection is refused and this transaction rolls back.
-      // An attempt the extension has not started is cancelled; a failed, done
-      // or expired attempt stays as it is and only the approval changes.
+      // Coupang, and a done attempt already changed it, so either refuses the
+      // rejection and this transaction rolls back. An attempt the extension has
+      // not started is cancelled; a failed or expired attempt stays as it is and
+      // only the approval changes.
       const now = new Date();
       const latestTasks = await readLatestExecutionTasks(tx, {
         organizationId,
@@ -579,6 +580,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         if (latest.status === 'running' && !isExpiredRunningExecutionTask(latest, now)) {
           throw rejectRunningConflict();
         }
+        if (latest.status === 'done') throw rejectDoneConflict();
         if (latest.status === 'queued') queuedAttemptIds.push(latest.id);
       }
       if (queuedAttemptIds.length > 0) {
@@ -786,14 +788,23 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
 const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
 const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
-// 409 code of a rejection refused because an attempt is running within its deadline.
+// 409 codes of a refused rejection: an attempt running within its deadline may
+// already be changing Coupang, and a done attempt already changed it.
 const EXECUTION_TASK_RUNNING = 'EXECUTION_TASK_RUNNING';
+const EXECUTION_TASK_DONE = 'EXECUTION_TASK_DONE';
 
 function rejectRunningConflict(): ConflictException {
   return new ConflictException({
     code: EXECUTION_TASK_RUNNING,
     message:
       '실행 중인 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영 중일 수 있으니 실행이 끝난 뒤 다시 확인해 주세요.',
+  });
+}
+
+function rejectDoneConflict(): ConflictException {
+  return new ConflictException({
+    code: EXECUTION_TASK_DONE,
+    message: '이미 실행된 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영됐습니다.',
   });
 }
 

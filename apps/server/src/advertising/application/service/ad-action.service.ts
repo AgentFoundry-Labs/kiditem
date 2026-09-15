@@ -35,8 +35,9 @@ const ACTION_DEDUP_HOURS = 24;
  * markRunning for a running task is another executor and is refused.
  * Approving a failed action queues a new one. A running attempt past its
  * execution deadline reads failed; approving again or a late report closes it.
- * Rejecting cancels a queued attempt and is refused while an attempt runs
- * within its deadline, since that executor may already be changing Coupang.
+ * Rejecting cancels a queued attempt. It is refused while an attempt runs
+ * within its deadline, since that executor may already be changing Coupang,
+ * and once the latest attempt is done, since Coupang already changed.
  */
 @Injectable()
 export class AdActionService {
