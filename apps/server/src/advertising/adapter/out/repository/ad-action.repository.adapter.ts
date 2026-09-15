@@ -495,7 +495,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         // Still-running only: an outcome report that lands first keeps its
         // outcome. Either way the attempt is no longer open.
         await tx.executionTask.updateMany({
-          where: { id: { in: expiredTaskIds }, status: 'running' },
+          where: {
+            id: { in: expiredTaskIds },
+            actionId: { in: scopedIds },
+            status: 'running',
+          },
           data: expiredAttemptClosure(now),
         });
       }
