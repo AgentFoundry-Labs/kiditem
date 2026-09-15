@@ -69,6 +69,48 @@ export type MarketplaceOrderCollectionActivityKind =
   | 'login'
   | 'error';
 
+/** 중단이 끝낸 절차의 거절. 표준 취소와 같은 이름이라 중단인 줄 알아볼 수 있다. */
+function collectionStoppedError(): Error {
+  return new DOMException(COLLECTION_STOPPED_MESSAGE, 'AbortError');
+}
+
+/**
+ * Ends the tracked collection the moment the operator's stop reaches it, even
+ * when the mall's own procedure never observes that stop: a generator parked on
+ * an extension message that never arrives (a mall that opened no tab, one left
+ * on a login page) leaves its promise pending for good, so the stopped notice
+ * never shows and a batch waits on it forever (KID-220).
+ *
+ * The underlying collection is left to settle whenever it does; this promise
+ * already answered, so a later success or failure changes nothing.
+ */
+function endsWhenStopped<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return operation;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const stop = () => {
+      if (settled) return;
+      settled = true;
+      reject(collectionStoppedError());
+    };
+    const answer = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', stop);
+      settle();
+    };
+    operation.then(
+      (value) => answer(() => resolve(value)),
+      (error: unknown) => answer(() => reject(error)),
+    );
+    if (signal.aborted) stop();
+    else signal.addEventListener('abort', stop, { once: true });
+  });
+}
+
 export type MarketplaceOrderCollectionBatchResult = {
   successCount: number;
   failedCount: number;
@@ -237,7 +279,8 @@ export function useAllMarketplaceOrderCollection({
   /**
    * Keeps the collection a hand-off left running, so a batch can wait for it,
    * and tells the operator how the one mall they started ended. A collection
-   * the operator stopped is not a failure.
+   * the operator stopped is not a failure, and the stop ends it here rather
+   * than waiting for the mall's own procedure to notice (KID-220).
    */
   const startCollectionProcedure = useCallback((
     account: OrderCollectionMallAccount,
@@ -245,8 +288,9 @@ export function useAllMarketplaceOrderCollection({
     collection: Promise<BrowserMallCollectionResult>,
     report: boolean,
   ) => {
-    collectionsRef.current.set(account.key, collection);
-    collection.then(
+    const tracked = endsWhenStopped(collection, run.signal);
+    collectionsRef.current.set(account.key, tracked);
+    tracked.then(
       (collected) => {
         if (!report) return;
         if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
