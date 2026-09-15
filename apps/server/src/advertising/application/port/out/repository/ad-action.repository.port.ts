@@ -206,8 +206,8 @@ export interface AdActionRepositoryPort {
 
   /**
    * Look up an open `actionType='create_campaign'` AdAction by campaign label.
-   * Returns the row when its latest task reads queued/running/done so the
-   * caller can throw a deterministic 409 Conflict.
+   * Returns the row when it is not rejected and its latest task reads
+   * queued/running/done so the caller can throw a deterministic 409 Conflict.
    */
   findOpenCreateCampaignAction(
     organizationId: string,

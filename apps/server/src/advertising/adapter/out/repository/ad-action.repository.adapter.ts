@@ -563,6 +563,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.action_type = 'create_campaign'
         AND action.target_label = ${campaignName}
+        -- A rejected registration is not in progress (KID-138), whatever its cancelled task reads.
+        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
         AND ${derivedExecuteStatusIn(['queued', 'running', 'done'], now)}
       ORDER BY action.created_at DESC, action.id DESC
       LIMIT 1
