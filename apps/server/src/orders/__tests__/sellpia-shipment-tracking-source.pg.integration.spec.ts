@@ -19,6 +19,7 @@ import {
 } from '../application/port/in/sellpia-shipment-tracking-source.port';
 import { SellpiaShipmentTrackingSourceRepository } from '../adapter/out/repository/sellpia-shipment-tracking-source.repository';
 import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 
 const BASE = '/api/orders/sellpia-shipment-tracking';
 const DATE = '2026-09-07';
@@ -325,6 +326,79 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     expect(nextForeign.attemptId).not.toBe(foreign.attemptId);
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: foreign.attemptId } }))
       .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+  });
+
+  const readSource = (organizationId = ORG) =>
+    request(httpUrl).get(`${BASE}/source`).set('x-test-org', organizationId);
+
+  it('answers the shipment tracking source with its running, last complete and last attempt slots', async () => {
+    const idle = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(idle).toEqual({
+      mallKey: null,
+      channelAccountId: null,
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    const started = (await begin().expect(201)).body;
+    const runningView = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(runningView.running).toMatchObject({
+      attemptId: started.attemptId,
+      collectionMode: null,
+      expiresAt: started.expiresAt,
+    });
+    expect(runningView.lastAttempt).toMatchObject({ attemptId: started.attemptId, state: 'RUNNING' });
+    // 상태 읽기는 토큰을 담지 않는다(strict 스키마가 여분 키를 거른다).
+    expect(JSON.stringify(runningView)).not.toContain(started.attemptToken);
+    // 다른 조직은 이 조직의 수집을 보지 못한다.
+    expect(OrderCollectionSourceStatusSchema.parse((await readSource(OTHER_ORG).expect(200)).body))
+      .toMatchObject({ running: null, lastAttempt: null });
+
+    const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;
+    await complete(ORG, scopedControl).expect(201);
+    const completed = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(completed.running).toBeNull();
+    expect(completed.lastComplete).toMatchObject({
+      attemptId: started.attemptId,
+      publicationSequence: null,
+    });
+    expect(completed.lastComplete?.completedAt).toEqual(expect.any(String));
+    expect(completed.lastAttempt).toMatchObject({ attemptId: started.attemptId, state: 'COMPLETE' });
+
+    // 뒤이어 중단한 시도는 lastAttempt만 바꾸고 마지막 완료분은 그대로 둔다.
+    const stopped = (await begin().expect(201)).body;
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${stopped.attemptId}/cancel`)
+      .set('x-test-org', ORG)
+      .expect(200);
+    const afterStop = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(afterStop.running).toBeNull();
+    expect(afterStop.lastComplete?.attemptId).toBe(started.attemptId);
+    expect(afterStop.lastAttempt).toMatchObject({
+      attemptId: stopped.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+    expect(afterStop.lastAttempt?.endedAt).toEqual(expect.any(String));
+  });
+
+  it('reads an expired shipment tracking lease as no longer running without writing the attempt', async () => {
+    const started = (await begin().expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: started.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    const view = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(view.running).toBeNull();
+    expect(view.lastAttempt).toMatchObject({
+      attemptId: started.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
   });
 
   it('serves the persisted raw artifact through the owner source read', async () => {

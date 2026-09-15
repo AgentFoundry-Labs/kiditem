@@ -22,6 +22,7 @@ import {
   SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
   type SellpiaShipmentTrackingSourcePort,
 } from '../application/port/in/sellpia-shipment-tracking-source.port';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type { Response } from 'express';
 import type { AuthUser } from '../../auth/auth.types';
 
@@ -55,6 +56,17 @@ export class SellpiaShipmentTrackingSourceController {
       idempotencyKey,
       ...input,
     });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 조직 범위 현재 상태. 시도 토큰은 담지 않는다 —
+   * fence 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('source')
+  readSourceStatus(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.source.readSourceStatus({ organizationId });
   }
 
   @Get('attempts/:attemptId')

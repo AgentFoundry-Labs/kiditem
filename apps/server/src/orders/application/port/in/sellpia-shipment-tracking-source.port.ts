@@ -1,4 +1,5 @@
 import { canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 export const SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT = Symbol(
   'SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT',
@@ -81,6 +82,14 @@ export interface SellpiaShipmentTrackingSourcePort {
     organizationId: string;
     attemptId: string;
   }): Promise<SellpiaShipmentTrackingAttemptControl | null>;
+
+  /**
+   * 공용 시작 컨트롤이 읽는 조직 범위 현재 상태. 진행 중 시도·마지막 완료분·마지막
+   * 시도를 한 번에 돌려주며 시도 토큰은 담지 않는다.
+   */
+  readSourceStatus(input: {
+    organizationId: string;
+  }): Promise<OrderCollectionSourceStatus>;
 
   completeAttempt(input: {
     organizationId: string;
