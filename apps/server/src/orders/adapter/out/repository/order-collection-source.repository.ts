@@ -23,8 +23,13 @@ import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-ke
 import { businessDateKey } from '../../../../common/kst';
 import {
   ORDER_COLLECTION_MALLS,
+  ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
+  findOrderCollectionMall,
+  orderCollectionMallAccountChannels,
+  orderCollectionMallAccountFilter,
+  pickOrderCollectionMallAccounts,
   type OrderCollectionMallKey,
-} from '../../../services/order-collection-mall-account.service';
+} from '../../../domain/order-collection-malls';
 import type {
   OrderCollectionArtifact,
   OrderCollectionAttempt,
@@ -259,21 +264,25 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]> {
     return this.prisma.$transaction(async (tx) => {
+      const { own, shared } = orderCollectionMallAccountChannels();
       const accounts = await tx.channelAccount.findMany({
         where: {
           organizationId: input.organizationId,
-          channel: 'order_collection',
-          externalAccountId: { in: ORDER_COLLECTION_MALLS.map((mall) => mall.key) },
+          OR: [
+            { channel: { in: own }, externalAccountId: { in: own } },
+            { channel: { in: shared } },
+          ],
         },
-        select: { id: true, externalAccountId: true },
+        orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
+        select: { id: true, channel: true, externalAccountId: true },
       });
       const accountByMallKey = new Map(
-        accounts.map((account) => [account.externalAccountId, account.id]),
+        [...pickOrderCollectionMallAccounts(accounts)].map(([mallKey, account]) => [mallKey, account.id]),
       );
       const runs = await this.findStatusRuns(
         tx,
         input.organizationId,
-        accounts.map((account) => account.id),
+        [...new Set(accountByMallKey.values())],
       );
 
       return ORDER_COLLECTION_MALLS.map((mall) => {
@@ -542,20 +551,23 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     };
   }
 
-  /** 몰 계정 식별. 시작 경로와 같은 조회라 모르는 몰은 같은 오류로 끝난다. */
+  /**
+   * 몰 계정 식별(ADR-0012: 몰 하나 = 계정 행 하나). 시작 경로와 같은 조회라 모르는 몰과
+   * 계정 행이 없는 몰은 같은 오류로 끝난다.
+   */
   private async findMallAccount(tx: Tx, organizationId: string, mallKey: string): Promise<{
     id: string;
     mallKey: OrderCollectionMallKey;
     mallName: string;
   }> {
+    const mall = findOrderCollectionMall(mallKey);
+    if (!mall) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
     const account = await tx.channelAccount.findFirst({
-      where: { organizationId, channel: 'order_collection', externalAccountId: mallKey },
-      select: { id: true, externalAccountId: true },
+      where: { organizationId, ...orderCollectionMallAccountFilter(mall) },
+      orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
+      select: { id: true },
     });
-    if (!account || !account.externalAccountId) {
-      throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
-    }
-    const mall = mallByKey(account.externalAccountId);
+    if (!account) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
     return { id: account.id, mallKey: mall.key, mallName: mall.name };
   }
 
@@ -629,12 +641,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${organizationId}:${SOURCE_TYPE}`}, 0))::text AS lock
       FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant WHERE organization_id = ${organizationId}::uuid`;
   }
-}
-
-function mallByKey(key: string): { key: OrderCollectionMallKey; name: string } {
-  const mall = ORDER_COLLECTION_MALLS.find((item) => item.key === key);
-  if (!mall) throw new BadRequestException('ORDER_COLLECTION_MALL_UNSUPPORTED');
-  return mall;
 }
 
 function readPlan(value: Prisma.JsonValue | null): OrderCollectionPlan {

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type ChannelAccount } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CoupangCredentialCryptoError,
@@ -8,34 +8,19 @@ import {
   type EncryptedCredentialEnvelope,
   isEncryptedCredentialEnvelope,
 } from '../../channels/domain/channel-credential-crypto';
+import {
+  ORDER_COLLECTION_MALLS,
+  ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
+  findOrderCollectionMall,
+  orderCollectionMallAccountChannels,
+  orderCollectionMallAccountFilter,
+  orderCollectionMallAccountIdentity,
+  pickOrderCollectionMallAccounts,
+  type OrderCollectionMall,
+  type OrderCollectionMallKey,
+} from '../domain/order-collection-malls';
 
-const ORDER_COLLECTION_CHANNEL = 'order_collection';
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
-
-export const ORDER_COLLECTION_MALLS = [
-  { key: 'one-polaris', name: '원폴라리스' },
-  { key: 'icecream-mall', name: '아이스크림몰' },
-  { key: 'kidkids', name: '키드키즈' },
-  { key: 'kidsnote', name: '키즈노트' },
-  { key: 'haebub-mall', name: '해법몰' },
-  { key: 'onch', name: '온채널' },
-  { key: 'kkomangse', name: '꼬망세' },
-  { key: 'art09', name: '아트공구' },
-  { key: 'tekville-edu', name: '테크빌교육' },
-  { key: 'benepia-mul', name: '베네피아물' },
-  { key: 'domeggook', name: '도매꾹' },
-  { key: 'lotte-on', name: '롯데ON' },
-  { key: 'boribori', name: '보리보리' },
-  { key: 'always', name: '올웨이즈' },
-  { key: 'woongjin-class', name: '웅진클래스몰' },
-  { key: 'kakao', name: '카카오' },
-  { key: 'toss', name: '토스' },
-  { key: 'teacher-mall', name: '티쳐몰' },
-  { key: 'gs-shop', name: 'GS샵' },
-  { key: 'coupang-direct', name: '쿠팡직배송' },
-] as const;
-
-export type OrderCollectionMallKey = (typeof ORDER_COLLECTION_MALLS)[number]['key'];
 
 export interface OrderCollectionMallAccount {
   key: OrderCollectionMallKey;
@@ -65,20 +50,27 @@ export interface OrderCollectionMallPassword {
   password: string | null;
 }
 
+/**
+ * 주문 수집 몰 로그인. 몰마다의 로그인은 그 몰의 채널 계정 행(ADR-0012)의
+ * `config.orderCollection` 에 두고, 몰 행을 만드는 곳은 이 서비스 하나다.
+ */
 @Injectable()
 export class OrderCollectionMallAccountService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string): Promise<OrderCollectionMallAccount[]> {
+    const { own, shared } = orderCollectionMallAccountChannels();
     const rows = await this.prisma.channelAccount.findMany({
       where: {
         organizationId,
-        channel: ORDER_COLLECTION_CHANNEL,
-        externalAccountId: { in: ORDER_COLLECTION_MALLS.map((mall) => mall.key) },
+        OR: [
+          { channel: { in: own }, externalAccountId: { in: own } },
+          { channel: { in: shared } },
+        ],
       },
-      orderBy: { name: 'asc' },
+      orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
     });
-    const byKey = new Map(rows.map((row) => [row.externalAccountId, row]));
+    const byKey = pickOrderCollectionMallAccounts(rows);
 
     return ORDER_COLLECTION_MALLS.map((mall) => {
       const account = byKey.get(mall.key);
@@ -99,13 +91,14 @@ export class OrderCollectionMallAccountService {
     const memo = trimToNullable(input.memo);
     const enabled = typeof input.enabled === 'boolean' ? input.enabled : true;
 
-    const existing = await this.prisma.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: ORDER_COLLECTION_CHANNEL,
-        externalAccountId: mall.key,
-      },
-    });
+    const identity = orderCollectionMallAccountIdentity(mall);
+    const existing = await this.findAccountRow(organizationId, mall);
+    // 공유 마켓 행은 그 마켓의 연결이 만든다. 로그인을 저장하려고 마켓 행을 지어내지 않는다.
+    if (!existing && identity.kind === 'shared') {
+      throw new BadRequestException(
+        `${mall.name} 로그인은 ${identity.channel} 채널 계정에 저장합니다. 그 채널 계정을 먼저 연결하세요.`,
+      );
+    }
     const existingConfig = toJsonRecord(existing?.config);
     const existingOrderConfig = readOrderCollectionConfig(existingConfig);
     const existingPassword = existingOrderConfig.password;
@@ -128,26 +121,30 @@ export class OrderCollectionMallAccountService {
       },
     } satisfies Prisma.InputJsonObject;
 
-    const saved = existing
-      ? await this.prisma.channelAccount.update({
-          where: { id: existing.id },
-          data: {
-            name: mall.name,
-            status: enabled ? 'configured' : 'paused',
-            config: nextConfig,
-          },
-        })
-      : await this.prisma.channelAccount.create({
-          data: {
-            organizationId,
-            channel: ORDER_COLLECTION_CHANNEL,
-            name: mall.name,
-            externalAccountId: mall.key,
-            status: enabled ? 'configured' : 'paused',
-            isPrimary: false,
-            config: nextConfig,
-          },
-        });
+    let saved: ChannelAccount;
+    if (existing) {
+      saved = await this.prisma.channelAccount.update({
+        where: { id_organizationId: { id: existing.id, organizationId } },
+        // 공유 마켓 행의 이름·상태는 그 마켓의 것이다(로켓 발주·직배송이 `active` 를 읽는다).
+        // 로그인 설정만 더한다.
+        data: identity.kind === 'own'
+          ? { name: mall.name, status: enabled ? 'configured' : 'paused', config: nextConfig }
+          : { config: nextConfig },
+      });
+    } else {
+      if (identity.kind !== 'own') throw new Error('ORDER_COLLECTION_SHARED_ACCOUNT_MISSING');
+      saved = await this.prisma.channelAccount.create({
+        data: {
+          organizationId,
+          channel: identity.channel,
+          name: mall.name,
+          externalAccountId: identity.externalAccountId,
+          status: enabled ? 'configured' : 'paused',
+          isPrimary: false,
+          config: nextConfig,
+        },
+      });
+    }
 
     return toMallAccount(mall.key, mall.name, saved);
   }
@@ -157,13 +154,7 @@ export class OrderCollectionMallAccountService {
     mallKey: string,
   ): Promise<OrderCollectionMallPassword> {
     const mall = findMall(mallKey);
-    const existing = await this.prisma.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: ORDER_COLLECTION_CHANNEL,
-        externalAccountId: mall.key,
-      },
-    });
+    const existing = await this.findAccountRow(organizationId, mall);
     const config = readOrderCollectionConfig(toJsonRecord(existing?.config));
     const encryptedPassword = config.password;
 
@@ -183,10 +174,17 @@ export class OrderCollectionMallAccountService {
       throw err;
     }
   }
+
+  private findAccountRow(organizationId: string, mall: OrderCollectionMall) {
+    return this.prisma.channelAccount.findFirst({
+      where: { organizationId, ...orderCollectionMallAccountFilter(mall) },
+      orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
+    });
+  }
 }
 
-function findMall(mallKey: string): (typeof ORDER_COLLECTION_MALLS)[number] {
-  const mall = ORDER_COLLECTION_MALLS.find((item) => item.key === mallKey);
+function findMall(mallKey: string): OrderCollectionMall {
+  const mall = findOrderCollectionMall(mallKey);
   if (!mall) throw new BadRequestException('지원하지 않는 몰입니다.');
   return mall;
 }

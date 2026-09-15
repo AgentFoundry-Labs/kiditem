@@ -101,7 +101,7 @@ export function findMallSource(
 }
 
 /**
- * 이 조직에 이 몰의 order_collection 계정 행이 없어 아직 수집할 수 없다. 상태를 읽지
+ * 이 조직에 이 몰의 계정 행(ADR-0012)이 없어 아직 수집할 수 없다. 상태를 읽지
  * 못한 것도, 수집이 실패한 것도 아니므로 운영자에게 다음 할 일을 말한다(KID-170 D1).
  */
 const NOT_CONFIGURED = {

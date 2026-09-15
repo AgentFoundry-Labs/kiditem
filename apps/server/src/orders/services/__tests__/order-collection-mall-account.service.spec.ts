@@ -125,6 +125,90 @@ describe('OrderCollectionMallAccountService', () => {
     expect(JSON.stringify(stored?.config)).not.toContain('art09-password');
   });
 
+  it('⭐ creates a missing mall row whose channel is the mall key (ADR-0012)', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findFirst.mockResolvedValue(null);
+    prisma.channelAccount.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...data,
+      updatedAt: new Date('2026-09-15T12:00:00.000Z'),
+    }));
+
+    await service.update(ORGANIZATION_ID, 'kidkids', { loginId: 'kid', password: 'pw', siteUrl: 'https://example.com' });
+
+    expect(prisma.channelAccount.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: ORGANIZATION_ID, channel: 'kidkids', externalAccountId: 'kidkids' },
+    }));
+    expect(prisma.channelAccount.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ channel: 'kidkids', externalAccountId: 'kidkids', name: '키드키즈' }),
+    });
+  });
+
+  it('⭐ stores the Coupang direct login on the Rocket row without renaming or pausing it', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findFirst.mockResolvedValue({
+      id: 'rocket-account',
+      channel: 'rocket',
+      name: '로켓',
+      status: 'active',
+      config: { rocketSetting: true },
+      updatedAt: new Date('2026-09-15T12:00:00.000Z'),
+    });
+    prisma.channelAccount.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'rocket-account',
+      ...data,
+      updatedAt: new Date('2026-09-15T12:01:00.000Z'),
+    }));
+
+    const account = await service.update(ORGANIZATION_ID, 'coupang-direct', {
+      enabled: false,
+      loginId: 'supplier-user',
+      password: 'supplier-password',
+      siteUrl: 'https://supplier.coupang.com',
+    });
+
+    expect(prisma.channelAccount.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: ORGANIZATION_ID, channel: 'rocket' },
+    }));
+    const { data } = prisma.channelAccount.update.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(Object.keys(data)).toEqual(['config']);
+    expect(data.config).toMatchObject({ rocketSetting: true, orderCollection: { loginId: 'supplier-user', enabled: false } });
+    expect(JSON.stringify(data.config)).not.toContain('supplier-password');
+    expect(prisma.channelAccount.create).not.toHaveBeenCalled();
+    expect(account).toMatchObject({ key: 'coupang-direct', configured: true, enabled: false });
+  });
+
+  it('refuses the Coupang direct login when the organization has no Rocket row', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findFirst.mockResolvedValue(null);
+
+    await expect(service.update(ORGANIZATION_ID, 'coupang-direct', {
+      loginId: 'supplier-user',
+      password: 'supplier-password',
+    })).rejects.toThrow(/rocket 채널 계정/);
+    expect(prisma.channelAccount.create).not.toHaveBeenCalled();
+  });
+
+  it('⭐ lists the Rocket row as Coupang direct and ignores a mall-channel row with a foreign external id', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    const updatedAt = new Date('2026-09-15T12:00:00.000Z');
+    prisma.channelAccount.findMany.mockResolvedValue([
+      { channel: 'rocket', externalAccountId: 'V001', config: { orderCollection: { loginId: 'rocket-login' } }, updatedAt },
+      { channel: 'toss', externalAccountId: 'someone-else', config: { orderCollection: { loginId: 'wrong' } }, updatedAt },
+      { channel: 'toss', externalAccountId: 'toss', config: { orderCollection: { loginId: 'toss-login' } }, updatedAt },
+    ]);
+
+    const accounts = await service.list(ORGANIZATION_ID);
+    const byKey = Object.fromEntries(accounts.map((account) => [account.key, account]));
+
+    expect(byKey['coupang-direct']?.loginId).toBe('rocket-login');
+    expect(byKey.toss?.loginId).toBe('toss-login');
+    expect(byKey.kidkids?.loginId).toBeNull();
+  });
+
   it('reveals a saved mall password only through the password lookup', async () => {
     const prisma = makePrisma();
     const service = new OrderCollectionMallAccountService(prisma as never);

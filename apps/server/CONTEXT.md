@@ -118,8 +118,10 @@ Tax and settlement identity.
 _Avoid_: company, seller
 
 **Channel account**:
-Marketplace or store identity.
-_Avoid_: shop, store, seller account
+Marketplace or store identity. One row per mall or marketplace seller system;
+every mall-scoped record hangs off that row
+([ADR-0012](../../docs/adr/0012-one-channel-account-row-per-mall.md)).
+_Avoid_: shop, store, seller account, mall account
 
 **Source owner**:
 The single module that owns one external source's collection attempts,
