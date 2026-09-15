@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { CollectionStopOnlyControl } from '@/components/collection/CollectionStopOnlyControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { sellpiaShipmentTrackingCollectionSource } from '../lib/sellpia-shipment-tracking-collection-source';
 
@@ -14,17 +14,5 @@ export function SellpiaShipmentTrackingControl() {
   const adapter = useMemo(() => sellpiaShipmentTrackingCollectionSource(), []);
   const control = useCollectionSourceControl(adapter);
 
-  if (control.state !== 'running' && control.state !== 'stopping' && !control.notice) return null;
-
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] px-3 py-2">
-      <span className="text-xs font-medium text-[var(--text-secondary)]">셀피아 송장 조회</span>
-      <CollectionStartControl
-        control={control}
-        startLabel="셀피아 송장 조회"
-        onStart={() => undefined}
-        onStop={control.stop}
-      />
-    </div>
-  );
+  return <CollectionStopOnlyControl control={control} label="셀피아 송장 조회" />;
 }

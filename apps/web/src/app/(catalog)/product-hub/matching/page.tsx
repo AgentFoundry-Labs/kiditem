@@ -12,7 +12,7 @@ import { ChannelCatalogImportDialog } from './components/ChannelCatalogImportDia
 import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
-import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { CollectionStopOnlyControl } from '@/components/collection/CollectionStopOnlyControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { sellpiaManualMatchCollectionSource } from './lib/sellpia-manual-match-source';
 import {
@@ -404,17 +404,11 @@ function SellpiaManualMatchCollectionControl() {
   const adapter = useMemo(() => sellpiaManualMatchCollectionSource(), []);
   const control = useCollectionSourceControl(adapter);
 
-  if (control.state !== 'running' && control.state !== 'stopping' && !control.notice) return null;
-
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-2">
-      <span className="text-xs font-semibold text-slate-500">셀피아 수동상품매칭 수집</span>
-      <CollectionStartControl
-        control={control}
-        startLabel="셀피아 수동상품매칭 수집"
-        onStart={() => undefined}
-        onStop={control.stop}
-      />
-    </div>
+    <CollectionStopOnlyControl
+      control={control}
+      label="셀피아 수동상품매칭 수집"
+      className="rounded-xl px-4"
+    />
   );
 }

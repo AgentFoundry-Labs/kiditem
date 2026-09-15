@@ -39,7 +39,8 @@ export function CollectionStartControl({
 }: {
   control: CollectionControlView;
   startLabel: string;
-  onStart: () => void;
+  /** A source its own screen starts offers none; the control then shows only running and stop. */
+  onStart?: () => void;
   onStop: () => void;
   /** A route-owned reason the start cannot be requested yet, shown in place of the start. */
   startBlockedReason?: string | null;

@@ -16,7 +16,7 @@ import {
   collectionSourceStatusQueryOptions,
   collectionSourceStatusRead,
 } from "@/lib/collection-source-status-query";
-import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
+import { CollectionStopOnlyControl } from "@/components/collection/CollectionStopOnlyControl";
 import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
@@ -630,17 +630,11 @@ function ShipmentSummaryCollectionControl() {
   const adapter = useMemo(() => coupangShipmentSummaryCollectionSource(), []);
   const control = useCollectionSourceControl(adapter);
 
-  if (control.state !== "running" && control.state !== "stopping" && !control.notice) return null;
-
   return (
-    <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
-      <span className="text-xs font-medium text-slate-500">쿠팡 쉽먼트 발송일 조회</span>
-      <CollectionStartControl
-        control={control}
-        startLabel="발송일 조회"
-        onStart={() => undefined}
-        onStop={control.stop}
-      />
-    </div>
+    <CollectionStopOnlyControl
+      control={control}
+      label="쿠팡 쉽먼트 발송일 조회"
+      className="mb-2"
+    />
   );
 }
