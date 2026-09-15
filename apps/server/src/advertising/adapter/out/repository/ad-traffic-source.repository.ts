@@ -52,6 +52,7 @@ import {
   pickStringField,
   type ListingMap,
 } from '../../../domain/listing-match';
+import { omittedListingZeroTrafficDates } from '../../../domain/wing-traffic-omission';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,
@@ -1377,10 +1378,39 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         .map((entry) => [entry.input.businessDate, entry.input] as const),
     );
     const finalFacts = new Map<string, DailyFactPublication>();
+    const zeroFact = (
+      fact: Pick<DailyFactPublication, 'id' | 'listingId' | 'externalId' | 'businessDate' | 'observedAt'>,
+    ): DailyFactPublication => ({
+      ...fact,
+      rawSnapshotId: null,
+      metaJson: {
+        'wing.traffic': {
+          grain: 'listing_option_sum',
+          scope: 'matched_listings',
+          periodDays: 1,
+          businessDate: fact.businessDate,
+          sourceAttemptId: row.id,
+          providerVendorId: plan.providerVendorId,
+          filterScope: plan.filterScope,
+          targetUrl: plan.targetUrl,
+        },
+        'traffic.currentSource': 'wing.traffic',
+      },
+      metrics: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+      },
+    });
+    const otherWriterFactKeys = new Set<string>();
     for (const candidate of resetCandidates) {
       const businessDate = businessDateKey(candidate.businessDate);
       const pageOne = pageOneByDate.get(businessDate);
       if (!pageOne) continue;
+      const key = `${candidate.listingId}:${businessDate}`;
       const meta = asRecord(candidate.metaJson);
       const wingMeta = asRecord(meta['wing.traffic']);
       const previousAttemptId = wingMeta.sourceAttemptId;
@@ -1392,44 +1422,62 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const wasWingOwned = currentListingIds.has(candidate.listingId)
         && (!Object.keys(meta).length || wingIsCurrent)
         || (typeof previousAttemptId === 'string' && accountRunIds.has(previousAttemptId) && wingIsCurrent);
-      // A CSV-only fact is an independent source and must not be erased by an
-      // empty Wing recollection. A pre-marker row with both namespaces is
-      // ambiguous and therefore fails closed; the marker resolves newer rows.
-      const markerSaysCsv = currentSource === 'traffic.csv_upload';
-      const ambiguousPreMarker = currentSource === undefined && hasWingMeta && hasCsvMeta;
-      if (!wasWingOwned || markerSaysCsv || ambiguousPreMarker) {
+      // A CSV-only fact is an independent source and must not be erased by a
+      // Wing recollection. A pre-marker row with the CSV namespace is ambiguous
+      // and therefore fails closed, as does a marker this owner does not know;
+      // the marker resolves newer rows.
+      const anotherWriterMayOwn = currentSource === undefined
+        ? hasCsvMeta
+        : currentSource !== 'wing.traffic';
+      if (anotherWriterMayOwn) otherWriterFactKeys.add(key);
+      if (!wasWingOwned || anotherWriterMayOwn) {
         continue;
       }
-      const observedAt = new Date(pageOne.capturedAt);
-      finalFacts.set(`${candidate.listingId}:${businessDate}`, {
+      finalFacts.set(key, zeroFact({
         id: candidate.id,
         listingId: candidate.listingId,
         externalId: candidate.externalId,
         businessDate,
-        observedAt,
-        rawSnapshotId: null,
-        metaJson: {
-          'wing.traffic': {
-            grain: 'listing_option_sum',
-            scope: 'matched_listings',
-            periodDays: 1,
-            businessDate,
-            sourceAttemptId: row.id,
-            providerVendorId: plan.providerVendorId,
-            filterScope: plan.filterScope,
-            targetUrl: plan.targetUrl,
-          },
-          'traffic.currentSource': 'wing.traffic',
-        },
-        metrics: {
-          visitors: 0,
-          views: 0,
-          cartAdds: 0,
-          orders: 0,
-          salesQty: 0,
-          revenue: 0,
-        },
+        observedAt: new Date(pageOne.capturedAt),
+      }));
+    }
+    // A listing the report left out of a confirmed date had no traffic that day
+    // when the catalog already held it: the owner publishes that zero too.
+    const confirmedDates = confirmedDatesOf(plan, entries);
+    const catalogListings = await tx.$queryRaw<Array<{
+      id: string;
+      externalId: string;
+      createdAt: Date;
+      createdOn: string | null;
+    }>>`
+      SELECT id,
+             external_id AS "externalId",
+             created_at AS "createdAt",
+             raw_json ->> 'createdOn' AS "createdOn"
+      FROM channel_listings
+      WHERE organization_id = ${row.organizationId}::uuid
+        AND channel_account_id = ${row.channelAccountId}::uuid
+        AND is_active = TRUE
+    `;
+    for (const listing of catalogListings) {
+      const zeroDates = omittedListingZeroTrafficDates({
+        listingCreatedAt: listing.createdAt,
+        wingCreatedOn: listing.createdOn,
+        collectionStartedAt: row.createdAt,
+        confirmedDates,
       });
+      for (const businessDate of zeroDates) {
+        const key = `${listing.id}:${businessDate}`;
+        const pageOne = pageOneByDate.get(businessDate);
+        if (!pageOne || finalFacts.has(key) || otherWriterFactKeys.has(key)) continue;
+        finalFacts.set(key, zeroFact({
+          id: randomUUID(),
+          listingId: listing.id,
+          externalId: listing.externalId,
+          businessDate,
+          observedAt: new Date(pageOne.capturedAt),
+        }));
+      }
     }
     const aggregates = new Map<string, ListingAggregate>();
     let matchedCount = 0;

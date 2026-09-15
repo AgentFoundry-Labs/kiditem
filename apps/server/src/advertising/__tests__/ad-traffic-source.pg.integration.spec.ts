@@ -14,6 +14,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { DEFAULT_TRANSACTION_OPTIONS } from '../../prisma/prisma.service';
 import { AdTrafficSourceController } from '../adapter/in/http/ad-traffic-source.controller';
 import { AdTrafficSourceRepository } from '../adapter/out/repository/ad-traffic-source.repository';
 import {
@@ -759,6 +760,235 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         revenue: 0,
       },
     });
+  });
+
+  /**
+   * Wing's report rows add up to the account totals, so a catalog listing a
+   * confirmed date left out had no traffic that day. The owner publishes that
+   * zero; a listing the catalog did not hold when the collection started, or a
+   * day before Wing registered the listing, stays unmeasured.
+   */
+  describe('catalog listings a confirmed date left out', () => {
+    const REGISTERED_BEFORE_WINDOW = '2026-01-02 09:00:00';
+    const zero = summary({
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      providerConversionRate: null,
+    });
+
+    function registered(createdOn = REGISTERED_BEFORE_WINDOW) {
+      return { source: 'coupang_catalog_basics', createdOn };
+    }
+
+    function catalogListing(
+      externalId: string,
+      rawJson: Record<string, string>,
+      createdAt = new Date(Date.now() - DAY_MS),
+    ) {
+      return prisma.channelListing.create({
+        data: { organizationId: ORG, channelAccountId: accountId, externalId, createdAt, rawJson },
+      });
+    }
+
+    function listingDays(listingId: string) {
+      return prisma.channelListingDailySnapshot.findMany({
+        where: { organizationId: ORG, listingId },
+        orderBy: { businessDate: 'asc' },
+      });
+    }
+
+    it('publishes zero traffic for a listing the catalog held before the collection started, and leaves a CSV day alone', async () => {
+      const plan = range();
+      const omitted = await catalogListing('EXT-OMITTED', registered());
+      const csvOwned = await catalogListing('EXT-CSV-OWNED', registered());
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          organizationId: ORG,
+          listingId: csvOwned.id,
+          channel: 'coupang',
+          externalId: 'EXT-CSV-OWNED',
+          businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+          trafficViews: 7,
+          trafficRevenue: 70,
+          trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
+          metaJson: {
+            'traffic.currentSource': 'traffic.csv_upload',
+            'traffic.csv_upload': { source: 'traffic_csv_upload' },
+          },
+        },
+      });
+
+      const attempt = await collectOne(plan);
+
+      await expect(listingDays(omitted.id)).resolves.toMatchObject([{
+        businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+        trafficVisitors: 0,
+        trafficViews: 0,
+        trafficCartAdds: 0,
+        trafficOrders: 0,
+        trafficSalesQty: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { businessDate: plan.startDate, sourceAttemptId: attempt.attemptId },
+        },
+      }]);
+      await expect(listingDays(csvOwned.id)).resolves.toMatchObject([{
+        trafficViews: 7,
+        trafficRevenue: 70,
+        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      }]);
+    });
+
+    it('publishes nothing for a listing the catalog imported while the collection ran', async () => {
+      const plan = range();
+      const started = await begin(plan);
+      const run = await prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: started.attempt.attemptId },
+      });
+      const imported = await catalogListing(
+        'EXT-IMPORTED-DURING-RUN',
+        registered(),
+        new Date(run.createdAt.getTime() + 1_000),
+      );
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001')])).expect(200);
+      await upload(started.attempt, 100, periodReceipt(started.attempt, plan)).expect(200);
+      await complete(started.attempt, 201);
+
+      await expect(listingDays(imported.id)).resolves.toEqual([]);
+    });
+
+    it('publishes zero traffic only from the KST day Wing registered the listing', async () => {
+      const plan = range(3);
+      const registrationDate = dateShift(plan.startDate, 1);
+      // The value carries no zone. Read as UTC, 23:50 would fall on the next KST day.
+      const listing = await catalogListing(
+        'EXT-REGISTERED-IN-WINDOW',
+        registered(`${registrationDate} 23:50:00`),
+      );
+
+      await collectRange(plan);
+
+      const days = await listingDays(listing.id);
+      expect(days.map((day) => dateText(day.businessDate))).toEqual([registrationDate, plan.endDate]);
+      expect(days.map((day) => [day.trafficViews, day.trafficObservedAt !== null])).toEqual([[0, true], [0, true]]);
+    });
+
+    it('publishes nothing on a date the collection did not confirm', async () => {
+      const plan = range(2);
+      const listing = await catalogListing('EXT-UNCONFIRMED-DAY', registered());
+      const started = await begin(plan);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001')])).expect(200);
+      await upload(started.attempt, 200, periodReceipt(started.attempt, { ...plan, endDate: plan.startDate })).expect(200);
+      await complete(started.attempt, 201);
+
+      const days = await listingDays(listing.id);
+      expect(days.map((day) => dateText(day.businessDate))).toEqual([plan.startDate]);
+    });
+
+    it('publishes zero traffic on a date Wing reported empty', async () => {
+      const plan = range();
+      const listing = await catalogListing('EXT-EMPTY-DAY', registered());
+
+      await collectOne(plan, zero, []);
+
+      await expect(listingDays(listing.id)).resolves.toMatchObject([{
+        businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+        trafficViews: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+      }]);
+    });
+
+    it('publishes nothing for a listing without a Wing registration date', async () => {
+      const listing = await catalogListing('EXT-WORKBOOK-ONLY', { 등록상품ID: 'EXT-WORKBOOK-ONLY' });
+
+      await collectOne(range());
+
+      await expect(listingDays(listing.id)).resolves.toEqual([]);
+    });
+
+    it('publishes and re-publishes 13 days of zero traffic for 1,228 catalog listings in bounded statements', async () => {
+      const listings = 1_228;
+      const plan = range(13);
+      const dates = Array.from({ length: 13 }, (_, index) => dateShift(plan.startDate, index));
+      await prisma.channelListing.createMany({
+        data: Array.from({ length: listings }, (_, index) => ({
+          organizationId: ORG,
+          channelAccountId: accountId,
+          externalId: `EXT-CATALOG-${index + 1}`,
+          createdAt: new Date(Date.now() - DAY_MS),
+          rawJson: registered(),
+        })),
+      });
+
+      const measurements: Array<{ pass: string; elapsedMs: number; insertStatements: number }> = [];
+      for (const pass of ['first', 'recollection']) {
+        const started = await begin(plan);
+        for (const [index, businessDate] of dates.entries()) {
+          await upload(
+            started.attempt,
+            index * 100,
+            dailyReceipt(started.attempt, plan, businessDate, 1, 1, [row('1001')]),
+          ).expect(200);
+        }
+        await upload(started.attempt, dates.length * 100, periodReceipt(started.attempt, plan)).expect(200);
+        const control = (
+          await request(httpUrl)
+            .get(`${base}/attempts/${started.attempt.attemptId}/control`)
+            .set('x-test-org', ORG)
+            .expect(200)
+        ).body;
+        const measured = new PrismaClient({
+          adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
+          log: [{ emit: 'event', level: 'query' }],
+          transactionOptions: DEFAULT_TRANSACTION_OPTIONS,
+        });
+        const statements: string[] = [];
+        measured.$on('query', (event) => statements.push(event.query));
+        const startedAt = performance.now();
+        try {
+          await new AdTrafficSourceRepository(
+            measured as never,
+            new SourceFailureAlerts(measured as never),
+          ).finalizeAttempt({
+            organizationId: ORG,
+            attemptId: started.attempt.attemptId,
+            attemptToken: started.attempt.attemptToken,
+            manifestChecksum: control.manifestChecksum,
+          });
+        } finally {
+          await measured.$disconnect();
+        }
+        measurements.push({
+          pass,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          insertStatements: statements
+            .filter((sql) => /INSERT INTO channel_listing_daily_snapshots/i.test(sql)).length,
+        });
+
+        await expect(prisma.channelListingDailySnapshot.count({
+          where: {
+            organizationId: ORG,
+            listing: { is: { externalId: { startsWith: 'EXT-CATALOG-' } } },
+            trafficViews: 0,
+            trafficObservedAt: { not: null },
+            metaJson: { path: ['wing.traffic', 'sourceAttemptId'], equals: started.attempt.attemptId },
+          },
+        })).resolves.toBe(listings * dates.length);
+      }
+      process.stdout.write(
+        `WING_OMITTED_LISTING_ZERO_MEASUREMENT ${JSON.stringify({ listings, days: dates.length, measurements })}\n`,
+      );
+      for (const measurement of measurements) {
+        expect(measurement.insertStatements).toBeLessThanOrEqual(16);
+      }
+    }, 120_000);
   });
 
   it('re-publishes a 534-option day with bounded statements and preserves shared fact namespaces', async () => {
