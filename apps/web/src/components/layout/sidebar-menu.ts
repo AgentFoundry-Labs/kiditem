@@ -1,5 +1,6 @@
 import {
   Bot,
+  Workflow,
   BrainCircuit,
   Boxes,
   Building2,
@@ -15,13 +16,18 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  PackagePlus,
   PackageSearch,
+  PackageX,
   Plus,
   Rocket,
   Search,
   Settings,
+  Share2,
   ShoppingCart,
+  Store,
   Sparkles,
+  Target,
   TrendingUp,
   Wand2,
   Warehouse,
@@ -101,6 +107,18 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
+    label: '쇼핑몰 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/mall-home', label: '쇼핑몰 홈', icon: Target },
+      { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
+      { href: '/mall-settings', label: '쇼핑몰 계정', icon: Store },
+      { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },
+      { href: '/mall-availability', label: '품절 관리', icon: PackageX },
+      { href: '/mall-tasks', label: '송신 내역', icon: ClipboardList },
+    ],
+  },
+  {
     label: '주문관리',
     collapsible: true,
     items: [
@@ -135,6 +153,7 @@ export const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
+      { href: '/agent-org', label: 'Agent Org', icon: Workflow },
       { href: '/agent-os', label: 'Agent OS', icon: Bot },
       { href: '/settings', label: '설정', icon: Settings },
     ],

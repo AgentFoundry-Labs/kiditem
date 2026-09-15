@@ -244,6 +244,32 @@ body {
     @apply overflow-x-auto max-h-[400px] overflow-y-auto;
   }
 
+  /*
+    늘 보이는 가로 스크롤바.
+
+    macOS 의 기본 스크롤바는 오버레이라 건드리기 전에는 보이지 않는다. 표 위에 둔
+    스크롤바는 "여기를 밀면 된다"고 말해 주려고 둔 것이라, 보이지 않으면 없는 것과
+    같다. 그래서 직접 그린다.
+  */
+  .scrollbar-x-visible {
+    scrollbar-width: thin;
+    scrollbar-color: theme(colors.slate.300) transparent;
+  }
+  .scrollbar-x-visible::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 8px;
+  }
+  .scrollbar-x-visible::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-x-visible::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: theme(colors.slate.300);
+  }
+  .scrollbar-x-visible:hover::-webkit-scrollbar-thumb {
+    background-color: theme(colors.slate.400);
+  }
+
   /* ── Empty State ── */
   .empty-state {
     @apply text-center py-12 text-slate-400 text-sm;
