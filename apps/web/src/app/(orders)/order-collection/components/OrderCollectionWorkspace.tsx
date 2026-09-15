@@ -24,6 +24,7 @@ import { OrderCollectionDailyPanel } from './OrderCollectionDailyPanel';
 import { OrderCollectionPipeline } from './OrderCollectionPipeline';
 import { OrderUploadModal } from './OrderUploadModal';
 import { useOrderActivityEvents } from '../hooks/use-order-activity-events';
+import { useMallOrderDrag } from '../hooks/use-mall-order-drag';
 import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
@@ -63,6 +64,7 @@ import {
   createStoredTrackingFile,
   deleteGeneratedOrderFile,
   loadGeneratedOrderFiles,
+  subscribeGeneratedOrderFiles,
   saveGeneratedOrderFile,
 } from '../lib/order-generated-file-store';
 import {
@@ -336,6 +338,11 @@ export function OrderCollectionWorkspace() {
     void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
   }, [queryClient, user?.organizationId]);
 
+  const mallOrder = useMallOrderDrag({
+    mallAccounts,
+    onSaved: refreshMallAccounts,
+  });
+
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
@@ -351,17 +358,32 @@ export function OrderCollectionWorkspace() {
     );
   }, [mallAccounts]);
 
+  // 수집 파일 목록은 이 화면만 담는 게 아니다 — 대시보드 부서 버튼, 자동 운전 고리, 다른 탭도
+  // 같은 저장소에 쌓는다. 저장소가 바뀌었다고 알릴 때와 창으로 돌아올 때 다시 읽어, 몰 카드의
+  // '당일 · 신규'가 다른 곳의 수집을 따라가게 한다.
   useEffect(() => {
     let active = true;
-    loadGeneratedOrderFiles()
-      .then((files) => {
-        if (active) setHistory(files);
-      })
-      .catch(() => {
-        if (active) setHistory([]);
-      });
+    const refresh = () => {
+      loadGeneratedOrderFiles()
+        .then((files) => {
+          if (active) setHistory(files);
+        })
+        .catch(() => {
+          if (active) setHistory([]);
+        });
+    };
+    refresh();
+    const unsubscribe = subscribeGeneratedOrderFiles(refresh);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       active = false;
+      unsubscribe();
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 
@@ -905,8 +927,10 @@ export function OrderCollectionWorkspace() {
         enabledMallCount={enabledMallCount}
         failedMallCount={failedMallAccounts.length}
         failedMallReasonByKey={failedMallReasonByKey}
-        mallAccounts={mallAccounts}
+        mallAccounts={mallOrder.accounts}
         mallCollectionStats={mallStatsByKey}
+        onMoveMall={mallOrder.move}
+        onDropMall={mallOrder.drop}
         onReconcileSellpia={() => void handleReconcileWithSellpia({})}
         reconciling={reconciling}
         reconcileCheckedAt={sellpiaReconcile?.checkedAt ?? null}

@@ -58,6 +58,29 @@ multiple route groups.
   control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
   by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
   fail a source.
+- `mall-operation-outcomes-api.ts` owns recording the mall observation log
+  (관찰 기록) for login checks, login tests, and registration fills only.
+  Recording is fire-and-forget and never blocks the work; payloads carry counts
+  and reason codes only (no credentials, recipients, or order numbers), and the
+  strict contract drops unknown keys.
+- `mall-session-probe.ts` owns the passive mall login check (`probeMallSession`)
+  and the `sweepMallSessions` round used by the agent loop. It sends only a mall
+  key, never credentials, and maps anything unexpected to `unknown`; a stale
+  extension is reported as outdated, not absent. The sweep names the malls it
+  found signed out (`signedOutKeys`) so the loop can skip collecting them this
+  round; `unknown` never lands in that list.
+- `mall-login-block.ts` remembers which malls had an auto-login failure. After
+  one failure the agent never logs into that mall again — collection stops with
+  a "직접 로그인" notice, because retrying locks the operator's account. The
+  block clears only when the operator's own session is observed (`signed_in`)
+  or a login test succeeds. Only a real credential rejection blocks; an
+  extension that did not answer in time (`EXTENSION_TIMEOUT_MESSAGE`) is not a
+  wrong password. A screen that shows a confirmed `signed_in` never shows a
+  login block beside it.
+- `mall-agent-loop.ts` holds the agent loop's interval, schedule, and last-round
+  state. Only the interval and the last round persist; the on state lives in the
+  tab, so a loaded app never starts the loop. The runner that acts on it lives
+  in `hooks/use-mall-agent-loop.ts`.
 
 ## Boundary Rules
 

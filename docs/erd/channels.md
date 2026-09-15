@@ -25,6 +25,7 @@
 | CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
+| MallOperationOutcome | `mall_operation_outcomes` | 쇼핑몰 에이전트의 관찰 기록 — 원천 owner 가 없는 브라우저 몰 작업 결과 한 줄(로그인 확인 · 로그인 테스트 · 등록 폼 채움). 주문 수집 · 송장 전송 결과는 Orders 리더에서 파생하고 여기에 쓰지 않는다. append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
@@ -359,6 +360,21 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MallOperationOutcome {
+    String id PK
+    String organizationId FK
+    String actorUserId FK
+    String idempotencyKey
+    String mallKey
+    String operation
+    String outcome
+    String reasonCode
+    String message
+    Int itemCount
+    Int failedCount
+    Int warningCount
+    DateTime occurredAt
+  }
   RocketPoCatalogLine {
     String id PK
     String organizationId FK
@@ -522,6 +538,8 @@ erDiagram
 | CoupangWingSalesRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
+| MallOperationOutcome | actorUser | references external | Core | User |
+| MallOperationOutcome | organization | references external | Core | Organization |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |

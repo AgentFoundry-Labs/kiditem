@@ -93,6 +93,20 @@ function control() {
   return { ...attempt(), attemptToken: TOKEN };
 }
 
+/** 브라우저 저장소처럼 몰 자리와 마지막 자리를 따로 기억한다. */
+function useBrowserSlots() {
+  type Slot = { attemptId: string | null; idempotencyKey: string | null; mallKey?: string };
+  const slots = new Map<string, Slot>();
+  mocks.readActive.mockImplementation(
+    (_organizationId: string, _environmentKey: string, mallKey?: string) => slots.get(mallKey ?? 'latest') ?? null,
+  );
+  mocks.remember.mockImplementation(
+    (_organizationId: string, next: Slot, _environmentKey: string, mallKey?: string) => {
+      slots.set(mallKey ?? 'latest', next);
+    },
+  );
+}
+
 function wrapper({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={new QueryClient()}>

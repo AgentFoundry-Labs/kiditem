@@ -471,7 +471,11 @@ export function usePersistedAllMarketplaceOrderCollection({
   });
   const mallAccountsLoading = mallAccountsQuery.isLoading;
   const refetchMallAccounts = mallAccountsQuery.refetch;
-  const mallAccounts = mallAccountsQuery.data ?? EMPTY_MALL_ACCOUNTS;
+  // 이 훅은 앱 전역(자동 운전 고리)에서도 마운트된다. 응답이 배열이 아니면 그때 바로 깨지지
+  // 않고 빈 목록으로 선다 — 수집은 목록을 다시 받아 확인한 뒤에만 시작한다.
+  const mallAccounts = Array.isArray(mallAccountsQuery.data)
+    ? mallAccountsQuery.data
+    : EMPTY_MALL_ACCOUNTS;
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     generatedFileWriteQueueRef.current = generatedFileWriteQueueRef.current
       .catch(() => undefined)
@@ -497,7 +501,12 @@ export function usePersistedAllMarketplaceOrderCollection({
     addGeneratedFile,
   });
 
-  const collectAllOrders = useCallback(async () => {
+  /**
+   * 전체 수집. `skipMallKeys` 는 사람이 직접 로그인·인증해야 하는 몰이다 — 자동 운전 고리가
+   * 넘겨준다. 그 몰을 그냥 돌리면 로그인 화면만 열고 실패하면서 몰 탭을 하나씩 남기고,
+   * 그 탭이 바퀴마다 쌓이면 멀쩡한 몰까지 응답 시간 초과로 끌어내린다.
+   */
+  const collectAllOrders = useCallback(async (skipMallKeys: readonly string[] = []) => {
     if (mallAccountsLoading) {
       throw new Error('몰 계정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
     }
@@ -513,9 +522,14 @@ export function usePersistedAllMarketplaceOrderCollection({
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const batch = await collectAll(latestAccounts);
+    const skipped = new Set(skipMallKeys);
+    const targetAccounts = latestAccounts.filter((account) => !skipped.has(account.key));
+    const batch = await collectAll(targetAccounts);
     await generatedFileWriteQueueRef.current;
-    const notice = orderCollectionBatchNotice(batch);
+    const notice = orderCollectionBatchNotice({
+      ...batch,
+      skippedCount: latestAccounts.length - targetAccounts.length,
+    });
     if (notice.tone === 'warning') toast.warning(notice.message);
     else toast.success(notice.message);
 

@@ -53,6 +53,12 @@ export function isChromeExtensionRuntimeAvailable(): boolean {
 // 이 경우에만 워커가 깨어날 시간을 주고 재시도한다(다른 오류는 즉시 전파).
 const EXTENSION_WAKE_RETRY_DELAYS_MS = [250, 600, 1200];
 
+/**
+ * 확장이 제 시간에 답하지 않았다는 말. 몰이 실패한 것도, 로그인이 풀린 것도 아니다 — 우리가
+ * 물어봤는데 못 들었을 뿐이다. 부르는 쪽이 이 상수로 알아보고 '실패'와 다르게 다룬다.
+ */
+export const EXTENSION_TIMEOUT_MESSAGE = '익스텐션 응답 시간이 초과되었습니다.';
+
 function isExtensionWakeError(message: string | undefined): boolean {
   if (!message) return false;
   return /Receiving end does not exist|Could not establish connection/i.test(message);
@@ -101,7 +107,7 @@ function sendToExtensionOnce<TResponse = unknown>(
     };
     if (timeoutMs !== null) {
       timeout = window.setTimeout(() => {
-        settle(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+        settle(() => reject(new Error(EXTENSION_TIMEOUT_MESSAGE)));
       }, timeoutMs);
     }
 
@@ -192,7 +198,7 @@ export function sendToExtensionViaPort<TResponse = unknown>(
     };
     if (timeoutMs !== null) {
       timeout = window.setTimeout(() => {
-        finish(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+        finish(() => reject(new Error(EXTENSION_TIMEOUT_MESSAGE)));
       }, timeoutMs);
     }
 
@@ -302,12 +308,24 @@ function requestExtensionIdsFromHandshake(
   });
 }
 
+/**
+ * 잠든 서비스워커를 깨우는 데 드는 시간.
+ *
+ * MV3 서비스워커는 놀면 내려간다. 확장을 갓 리로드한 직후나 한동안 안 쓴 뒤의
+ * 첫 `ping` 은 워커가 모듈을 다시 읽는 시간을 포함한다. 라이브 실측(2026-09-10)에서
+ * **따뜻한 상태의 왕복이 0.28~0.89초**였다 — 예전 제한 1.2초는 콜드 스타트를 못 버틴다.
+ *
+ * 못 버티면 화면은 "확장을 찾지 못했습니다"라고 말하고, 사람은 멀쩡한 확장을
+ * 또 리로드한다. 없는 확장과 잠든 확장을 구별하지 못한 것이 원인이었다.
+ */
+const EXTENSION_WAKE_TIMEOUT_MS = 6000;
+
 async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
-  const tryPing = async (id: string): Promise<boolean> => {
+  const tryPing = async (id: string, timeoutMs: number): Promise<boolean> => {
     try {
-      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, options.timeoutMs);
+      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, timeoutMs);
       return !!response?.success && options.accepts(response);
     } catch {
       return false;
@@ -315,11 +333,16 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
   };
 
   const stored = safeStorageGet('local', options.storageKey);
-  if (stored && (await tryPing(stored))) return stored;
+  if (stored) {
+    // 첫 번째는 짧게 — 있으면 대개 바로 답한다.
+    if (await tryPing(stored, options.timeoutMs)) return stored;
+    // 안 오면 자고 있는 것으로 보고 한 번 더, 깨어날 시간을 준다.
+    if (await tryPing(stored, EXTENSION_WAKE_TIMEOUT_MS)) return stored;
+  }
 
   const fromHandshake = await requestExtensionIdFromHandshake(options);
 
-  if (fromHandshake && (await tryPing(fromHandshake))) {
+  if (fromHandshake && (await tryPing(fromHandshake, EXTENSION_WAKE_TIMEOUT_MS))) {
     safeStorageSet('local', options.storageKey, fromHandshake);
     return fromHandshake;
   }

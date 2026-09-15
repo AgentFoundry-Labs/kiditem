@@ -37,6 +37,13 @@ export const ORDER_COLLECTION_MALLS = [
   { key: 'teacher-mall', name: '티쳐몰' },
   { key: 'gs-shop', name: 'GS샵' },
   { key: 'coupang-direct', name: '쿠팡직배송', sharedAccountChannel: 'rocket' },
+  { key: 'gmarket', name: '지마켓' },
+  { key: 'auction', name: '옥션' },
+  { key: '11st', name: '11번가' },
+  { key: 'smartstore', name: '스마트스토어' },
+  { key: 'ssg', name: '신세계' },
+  { key: 'thirtymall', name: '떠리몰' },
+  { key: 'yoons', name: '윤선생' },
 ] as const satisfies readonly OrderCollectionMallEntry[];
 
 export type OrderCollectionMall = (typeof ORDER_COLLECTION_MALLS)[number];

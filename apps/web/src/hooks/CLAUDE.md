@@ -21,6 +21,18 @@ needs them.
   control for Sourcing and Dashboard: one start and one server status, no stop.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
+- `useMallAgentLoopRunner()` is the only place that drives the mall agent loop
+  on a timer; `useMallAgentLoop()` is the read/toggle view for screens. The
+  runner mounts only after the operator starts the loop in this tab, runs one
+  round at once, then follows the schedule. It composes existing shared actions
+  (`sweepMallSessions`, `usePersistedAllMarketplaceOrderCollection`) instead of
+  new collectors, skips a round when another tab holds the lock, and never
+  performs irreversible mall work. Loop state lives in `lib/mall-agent-loop.ts`.
+- A round collects only the malls a human is not already blocking. The probe's
+  `signedOutKeys` plus the auto-login blocks become `collectAllOrders`'
+  skip list; collecting a signed-out mall only opens its login page, fails, and
+  leaves one more tab behind each round. `unknown` is not a skip — no signal is
+  not a logged-out signal.
 - `useProductAbcRecalculation()` shares Products' ABC publication trigger
   between Product Management and Dashboard: the `SOURCE_NOT_READY` and
   conflict outcomes, the publication message that names each source whose

@@ -4,10 +4,25 @@ Before working in this directory, always read this document first rather than re
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang
 catalog publication/import, matching, account-scoped browser registration,
-channel capacity projections, and dashboard reads. Coupang Open API product,
-order, return, and deletion verification are unsupported; the legacy sync HTTP
-routes return 501 without IO. Wing/browser evidence and approved internal
-sources remain supported.
+channel capacity projections, dashboard reads, and the mall operation
+observation log. Coupang Open API product, order, return, and deletion
+verification are unsupported; the legacy sync HTTP routes return 501 without
+IO. Wing/browser evidence and approved internal sources remain supported.
+
+`MallOperationOutcome` is an append-only, idempotent observation log (관찰
+기록) written by the web through `/api/channels/mall-operation-outcomes`. It
+holds only `login_check`, `login_test`, and `registration_fill`; order
+collection, Sellpia transfer, and tracking upload results are Orders facts and
+never land here. Organization and actor come from the session, the body is a
+strict shared contract, the mall key must be in the adapter manifest, rows hold
+counts and reason codes only, and reads go through
+`read/mall-operation-outcome.reader.ts`.
+
+Mall publishing reads one account row per mall (`channel` = mall key,
+ADR-0012) and never creates or edits account rows; the Orders mall account
+service is their only writer. A missing row means the mall has no account. The
+listing profile is that row's `config.listingProfile` document, and preflight
+reads KC input from the linked sourcing candidate's `rawData.manualBasics`.
 
 ## Identity And Ownership
 

@@ -1,6 +1,11 @@
 import { toast } from 'sonner';
+import {
+  blockMallAutoLogin,
+  clearMallAutoLoginBlock,
+  mallAutoLoginBlock,
+} from '@/lib/mall-login-block';
 import { formatNumber } from '@/lib/utils';
-import { sendToExtension } from '@/lib/extension-bridge';
+import { EXTENSION_TIMEOUT_MESSAGE, sendToExtension } from '@/lib/extension-bridge';
 import {
   collectIcecreamMallRowsFromExtension,
   createOrderCollectionExtensionError,
@@ -119,15 +124,41 @@ export function createBrowserMallCollector({
     mallKey: string,
     run: OrderCollectionExtensionRun,
   ): Promise<void> => {
+    const mallName = currentMallAccountByKey.get(mallKey)?.name ?? mallKey;
+    // 한 번 실패한 몰은 **다시 로그인하러 들어가지 않는다**(또 두드리면 계정이 잠긴다).
+    // 다만 수집까지 막지는 않는다 — 브라우저에 세션이 살아 있으면 로그인 없이도 수집된다.
+    // 세션까지 죽었으면 수집기가 "로그인 필요"로 정확히 알려 준다.
+    if (mallAutoLoginBlock(mallKey)) {
+      toast.warning(`${mallName} 자동 로그인은 멈춰 있습니다`, {
+        description: '한 번 실패해 다시 시도하지 않습니다. 로그인이 풀렸다면 몰에 직접 로그인해 주세요.',
+      });
+      return;
+    }
     const credentials = await tryLoadMallCredentials(mallKey);
     if (!credentials) return;
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
-    if (!result.success) {
-      throw createOrderCollectionExtensionError(
-        result,
-        `${mallKey} 로그인을 완료하지 못했습니다.`,
-      );
+    if (result.success) {
+      clearMallAutoLoginBlock(mallKey);
+      return;
     }
+    // 사람이 몰 화면에서 인증(본인확인 · OTP · 캡차)만 하면 되는 상태는 자격증명 문제가
+    // 아니므로 막지 않는다. 그 밖의 실패(비밀번호 거부 · 폼 제출 실패)만 다음부터 건너뛴다.
+    //
+    // 확장이 제 시간에 답하지 않은 것도 막지 않는다 — 비밀번호가 틀린 게 아니라 우리가 못
+    // 들은 것이다. 이걸로 막으면 멀쩡히 로그인된 몰이 '직접 로그인 필요'로 굳어, 사장님은
+    // 로그인돼 있는데 로그인하라는 화면을 보게 된다.
+    const reason = result.error ?? '자동 로그인을 완료하지 못했습니다.';
+    const timedOut = reason === EXTENSION_TIMEOUT_MESSAGE;
+    if (!result.pendingLogin && !timedOut) {
+      blockMallAutoLogin(mallKey, reason);
+      toast.error(`${mallName} 자동 로그인 실패 — 직접 로그인해 주세요`, {
+        description: '다음부터는 자동 로그인을 시도하지 않습니다. 몰에 직접 로그인한 뒤 수집해 주세요.',
+      });
+    }
+    throw createOrderCollectionExtensionError(
+      result,
+      `${mallName} 로그인을 완료하지 못했습니다. 직접 로그인해 주세요.`,
+    );
   };
 
   /**
@@ -469,8 +500,10 @@ export function createBrowserMallCollector({
     const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
       './lotteon-orders-api'
     );
-    // 롯데ON은 통합회원 SSO/토큰 로그인이라 form-fill 자동로그인 불가 — 미로그인 시 collectLotteon 이
-    // 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
+    // 로그인 화면(login_SO.wsp)은 <form> 없는 WebSquare 지만 사용자ID/비밀번호 input 과
+    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 된다(2026-09-01 DOM 확인).
+    // 자동 로그인이 실패하면 collectLotteon 이 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
+    await ensureMallLogin('lotte-on', run);
     const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
     try {

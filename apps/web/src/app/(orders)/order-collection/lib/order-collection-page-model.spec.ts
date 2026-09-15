@@ -235,6 +235,14 @@ describe('orderCollectionBatchNotice', () => {
       message: '전체 수집 완료',
     });
   });
+
+  /** 자동 운전이 직접 로그인이 필요한 몰을 뺐으면, 뺐다는 사실을 숨기지 않는다. */
+  it('names the malls the round skipped because a person must sign in', () => {
+    expect(orderCollectionBatchNotice(batch({ successCount: 4, skippedCount: 2 }))).toEqual({
+      tone: 'warning',
+      message: '전체 수집 4개 성공, 2개 건너뜀(직접 로그인 필요)',
+    });
+  });
 });
 
 /**

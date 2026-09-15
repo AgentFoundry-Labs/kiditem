@@ -28,6 +28,16 @@ export class OrderCollectionMallAccountController {
     return this.accounts.getPassword(organizationId, mallKey);
   }
 
+  /** ':mallKey' 보다 먼저 선언해야 'display-order' 가 몰 키로 잡히지 않는다. */
+  @Patch('display-order')
+  @Roles('owner', 'admin')
+  reorder(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { mallKeys?: unknown },
+  ): Promise<OrderCollectionMallAccount[]> {
+    return this.accounts.reorder(organizationId, body?.mallKeys);
+  }
+
   @Patch(':mallKey')
   @Roles('owner', 'admin')
   update(

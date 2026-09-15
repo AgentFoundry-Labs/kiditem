@@ -44,6 +44,13 @@ export const ORDER_COLLECTION_MALL_ENV = [
   { key: "teacher-mall", prefix: "TEACHER_MALL" },
   { key: "gs-shop", prefix: "GS_SHOP" },
   { key: "coupang-direct", prefix: "COUPANG_DIRECT" },
+  { key: "gmarket", prefix: "GMARKET" },
+  { key: "auction", prefix: "AUCTION" },
+  { key: "11st", prefix: "ELEVEN_ST" },
+  { key: "smartstore", prefix: "SMARTSTORE" },
+  { key: "ssg", prefix: "SSG" },
+  { key: "thirtymall", prefix: "THIRTYMALL" },
+  { key: "yoons", prefix: "YOONS" },
 ] as const;
 
 type OrderCollectionMallSeedKey =

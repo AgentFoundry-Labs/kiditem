@@ -1,5 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Truck, Upload } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { GripVertical, Truck, Upload } from 'lucide-react';
+import {
+  clearMallAutoLoginBlock,
+  getMallLoginBlocks,
+  getMallLoginBlocksServerSnapshot,
+  subscribeMallLoginBlocks,
+} from '@/lib/mall-login-block';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
 import {
@@ -21,6 +27,9 @@ export interface MallCardCollection {
 
 interface MallAccountGroupsProps {
   accounts: OrderCollectionMallAccount[];
+  /** 카드 손잡이를 끌어 순서를 바꾼다. 없으면 손잡이를 감춘다. */
+  onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
+  onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   stats: Map<string, MallCollectionStat>;
   failedMallReasonByKey?: Map<string, FailedMallReason>;
   selectedMall: OrderCollectionMallAccount | null | undefined;
@@ -44,6 +53,8 @@ interface MallAccountGroupsProps {
 
 export function MallAccountGroups({
   accounts,
+  onMoveMall,
+  onDropMall,
   stats,
   failedMallReasonByKey,
   selectedMall,
@@ -62,9 +73,14 @@ export function MallAccountGroups({
         data-testid="mall-account-card-grid"
         className="grid min-w-[720px] grid-cols-5 gap-3"
       >
-        {accounts.map((account) => (
+        {accounts.map((account, index) => (
           <MallAccountCard
             key={account.key}
+            position={index + 1}
+            isFirst={index === 0}
+            isLast={index === accounts.length - 1}
+            onMoveMall={onMoveMall}
+            onDropMall={onDropMall}
             account={account}
             collectionStat={stats.get(account.key)}
             failedReason={failedMallReasonByKey?.get(account.key)}
@@ -85,6 +101,12 @@ export function MallAccountGroups({
 
 interface MallAccountCardProps {
   account: OrderCollectionMallAccount;
+  /** 손잡이 툴팁에 쓰는 현재 순번(1부터). */
+  position: number;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
+  onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   collectionStat: MallCollectionStat | undefined;
   failedReason: FailedMallReason | undefined;
   isOpen: boolean;
@@ -101,6 +123,11 @@ interface MallAccountCardProps {
 
 function MallAccountCard({
   account,
+  position,
+  isFirst,
+  isLast,
+  onMoveMall,
+  onDropMall,
   collectionStat,
   failedReason,
   isOpen,
@@ -117,20 +144,62 @@ function MallAccountCard({
   const trackingSupported = isTrackingSupportedMall(account.key);
   // 로그인 실패·인증 필요일 때만 상태등을 빨간불 + 카드 배경을 빨강으로 표시한다.
   // 일반 수집 오류(주문 없음 등)는 초록불/흰 배경을 유지한다.
-  const failed = failedReason !== undefined;
-  const failedTitle =
-    failedReason === 'login'
-      ? '로그인 필요 · 재수집 필요'
-      : '인증 필요 · 재수집 필요';
+  //
+  // 자동 로그인이 막힌 몰도 같은 빨간 카드다. 자동 운전 고리도 자동감지도 이 몰에는 더
+  // 들어가지 않는다 — 다시 돌릴지는 사장님이 정하신다.
+  const loginBlocks = useSyncExternalStore(
+    subscribeMallLoginBlocks,
+    getMallLoginBlocks,
+    getMallLoginBlocksServerSnapshot,
+  );
+  const loginBlock = loginBlocks.find((block) => block.mallKey === account.key) ?? null;
+  const failed = loginBlock !== null || failedReason !== undefined;
+  const needsVerification = failedReason
+    ? failedReason === 'auth'
+    : loginBlock?.kind === 'verification';
+  const failedTitle = needsVerification
+    ? '인증 필요 · 재수집 필요'
+    : '로그인 필요 · 재수집 필요';
 
   // 쿠팡직배송은 카드 영역을 누르면 입고예정일 달력이 열린다.
   // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
   const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
 
+  // 카드 아무 데나 잡아 끌리면 수집·설정 클릭과 헷갈린다. 손잡이를 누른 동안만
+  // draggable 을 켜서 손잡이로만 순서가 바뀌게 한다.
+  const reorderable = Boolean(onDropMall);
+  const [dragArmed, setDragArmed] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
   // 진행 중 판정은 이 카드가 마운트한 공용 컨트롤이 owner에게서 읽어 준다(KID-189).
   return renderCollectionControl(account, ({ control, running }) => (
     <article
       aria-label={`${account.name} 계정 카드`}
+      draggable={dragArmed}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', account.key);
+      }}
+      onDragEnd={() => {
+        setDragArmed(false);
+        setDragOver(false);
+      }}
+      onDragOver={reorderable
+        ? (event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOver(true);
+          }
+        : undefined}
+      onDragLeave={reorderable ? () => setDragOver(false) : undefined}
+      onDrop={reorderable
+        ? (event) => {
+            event.preventDefault();
+            setDragOver(false);
+            const sourceKey = event.dataTransfer.getData('text/plain');
+            if (sourceKey && sourceKey !== account.key) onDropMall?.(sourceKey, account.key);
+          }
+        : undefined}
       onClick={cardOpensCalendar && !running
         ? (event) => {
             // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
@@ -147,10 +216,34 @@ function MallAccountCard({
             ? 'border-slate-200 hover:border-purple-300'
             : 'border-slate-100 bg-slate-50/40',
         isOpen && 'ring-1 ring-purple-300',
+        dragOver && 'ring-2 ring-purple-400',
+        dragArmed && 'opacity-60',
       )}
     >
       <div className="flex min-w-0 items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
+          {reorderable ? (
+            <button
+              type="button"
+              aria-label={`${account.name} 순서 ${position}번 — 끌어서 옮기기`}
+              title="끌어서 순서 변경 (방향키로도 이동)"
+              onMouseDown={() => setDragArmed(true)}
+              onMouseUp={() => setDragArmed(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' && !isFirst) {
+                  event.preventDefault();
+                  onMoveMall?.(account.key, -1);
+                }
+                if (event.key === 'ArrowRight' && !isLast) {
+                  event.preventDefault();
+                  onMoveMall?.(account.key, 1);
+                }
+              }}
+              className="-ml-1 flex-none cursor-grab rounded p-0.5 text-slate-300 transition-colors hover:text-slate-500 active:cursor-grabbing"
+            >
+              <GripVertical size={13} />
+            </button>
+          ) : null}
           <span
             className={cn(
               'h-1.5 w-1.5 flex-none rounded-full',
@@ -220,7 +313,26 @@ function MallAccountCard({
       </div>
 
       <div className="mt-2.5 flex h-5 items-center justify-center text-[11px]">
-        {!collectable ? (
+        {loginBlock ? (
+          // 자동은 멈췄다. 다시 켜는 건 사장님 몫이다 — 누르면 그때부터 다시 자동으로 돈다.
+          <button
+            type="button"
+            onClick={() => clearMallAutoLoginBlock(account.key)}
+            aria-label={`${account.name} 자동 수집 다시 켜기`}
+            title={[
+              loginBlock.kind === 'verification'
+                ? '자동 수집을 멈췄습니다. 몰에서 직접 인증해 주세요.'
+                : '자동 수집을 멈췄습니다. 몰에 직접 로그인해 주세요.',
+              loginBlock.reason,
+              '직접 로그인하시면 자동으로 풀립니다. 지금 바로 다시 켜려면 누르세요.',
+            ]
+              .filter(Boolean)
+              .join('\n')}
+            className="truncate font-medium text-red-600 underline decoration-dotted underline-offset-2 hover:text-red-700"
+          >
+            {loginBlock.kind === 'verification' ? '자동 멈춤 · 직접 인증' : '자동 멈춤 · 직접 로그인'}
+          </button>
+        ) : !collectable ? (
           <span className="text-slate-300">준비 중</span>
         ) : autoDetect && autoDetectable && autoNextRunAt !== null ? (
           <AutoDetectCountdown running={autoRunning} targetAt={autoNextRunAt} />

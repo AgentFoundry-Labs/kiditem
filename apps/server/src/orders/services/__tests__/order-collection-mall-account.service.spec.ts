@@ -13,6 +13,19 @@ function makePrisma() {
       create: vi.fn(),
       update: vi.fn(),
     },
+    // reorder 는 준비된 쓰기 배열을 한 트랜잭션으로 넘긴다.
+    $transaction: vi.fn(async (operations: unknown[]) => operations),
+  };
+}
+
+function mallRow(key: string, orderConfig: Record<string, unknown>) {
+  return {
+    id: `row-${key}`,
+    // ADR-0012: 몰 행은 channel · externalAccountId 모두 몰 키다.
+    channel: key,
+    externalAccountId: key,
+    config: { orderCollection: orderConfig },
+    updatedAt: new Date('2026-08-30T00:00:00.000Z'),
   };
 }
 
@@ -49,12 +62,99 @@ describe('OrderCollectionMallAccountService', () => {
       '티쳐몰',
       'GS샵',
       '쿠팡직배송',
+      '지마켓',
+      '옥션',
+      '11번가',
+      '스마트스토어',
+      '신세계',
+      '떠리몰',
+      '윤선생',
     ]);
     expect(accounts[0]).toMatchObject({
       configured: false,
       loginId: null,
       hasPassword: false,
     });
+  });
+
+  it('orders malls by the saved display order and keeps the rest in catalog order', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findMany.mockResolvedValue([
+      mallRow('gs-shop', { sortOrder: 0 }),
+      mallRow('kakao', { sortOrder: 1 }),
+    ]);
+
+    const accounts = await service.list(ORGANIZATION_ID);
+
+    expect(accounts.slice(0, 3).map((account) => account.name)).toEqual([
+      'GS샵',
+      '카카오',
+      '원폴라리스',
+    ]);
+    expect(accounts[0]).toMatchObject({ key: 'gs-shop', sortOrder: 0 });
+  });
+
+  it('assigns display order from the submitted mall list', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findMany.mockResolvedValue([]);
+
+    await service.reorder(ORGANIZATION_ID, ['kakao', 'onch']);
+
+    expect(prisma.channelAccount.create).toHaveBeenCalledTimes(2);
+    const created = prisma.channelAccount.create.mock.calls.map(
+      ([args]: [{ data: { externalAccountId: string; config: Record<string, { sortOrder: number }> } }]) => ({
+        key: args.data.externalAccountId,
+        sortOrder: args.data.config.orderCollection.sortOrder,
+      }),
+    );
+    expect(created).toEqual([
+      { key: 'onch', sortOrder: 1 },
+      { key: 'kakao', sortOrder: 0 },
+    ]);
+  });
+
+  it('clears the display order of malls that are left out', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findMany.mockResolvedValue([mallRow('kakao', { sortOrder: 3 })]);
+
+    await service.reorder(ORGANIZATION_ID, []);
+
+    expect(prisma.channelAccount.update).toHaveBeenCalledTimes(1);
+    const [args] = prisma.channelAccount.update.mock.calls[0] as [
+      { data: { config: Record<string, { sortOrder: number | null }> } },
+    ];
+    expect(args.data.config.orderCollection.sortOrder).toBeNull();
+  });
+
+  it('rejects an invalid or duplicated mall order', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findMany.mockResolvedValue([]);
+
+    await expect(service.reorder(ORGANIZATION_ID, 'kakao')).rejects.toThrow('배열');
+    await expect(service.reorder(ORGANIZATION_ID, ['nope'])).rejects.toThrow('지원하지 않는');
+    await expect(service.reorder(ORGANIZATION_ID, ['kakao', 'kakao'])).rejects.toThrow('두 번');
+  });
+
+  it('keeps the saved display order when the mall account is edited', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findFirst.mockResolvedValue(mallRow('kakao', { sortOrder: 4 }));
+    prisma.channelAccount.update.mockResolvedValue(mallRow('kakao', { sortOrder: 4 }));
+
+    await service.update(ORGANIZATION_ID, 'kakao', {
+      loginId: 'operator',
+      siteUrl: 'https://example.test',
+      enabled: true,
+    });
+
+    const [args] = prisma.channelAccount.update.mock.calls[0] as [
+      { data: { config: Record<string, { sortOrder: number | null }> } },
+    ];
+    expect(args.data.config.orderCollection.sortOrder).toBe(4);
   });
 
   it('stores mall login password encrypted and never returns it', async () => {
