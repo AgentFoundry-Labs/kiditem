@@ -635,6 +635,19 @@ function createOptionAndNoticeHarness({
 
   const selectAll = checkbox('selectAll');
   const rows = Array.from({ length: rowCount }, () => checkbox('row'));
+  /**
+   * 옵션 행 한 줄.
+   *
+   * 라이브 구조(2026-09-10 실측): 행은 `.option-pane-table-row` 이고 그 안에
+   * 체크박스가 있다. 행을 담는 상자 이름(`-content` → `-body`)은 쿠팡이 바꾼다.
+   * 그래서 하네스도 상자가 아니라 행으로 준다.
+   */
+  const asDataRow = (box) => ({
+    className: 'option-pane-table-row',
+    closest: () => null,
+    querySelector: (selector) => (selector.includes('checkbox') ? box : null),
+    querySelectorAll: () => [],
+  });
   selectAll.click = function click() {
     this.checked = !this.checked;
     events.push(`selectAll:${this.checked}`);
@@ -732,8 +745,12 @@ function createOptionAndNoticeHarness({
   });
   const columnCells = COLUMN_X.map((range, index) =>
     [3, 4, 8, 9, 10, 11].includes(index) ? textCell(range) : plainCell(range));
+  // 실제 본문 행에는 체크박스가 있다. 없으면 행을 못 찾아 일괄입력이 조용히 무시된다.
+  const columnRowCheck = checkbox('row');
   const columnBodyRow = {
+    className: 'option-pane-table-row',
     closest: () => null,
+    querySelector: (selector) => (selector.includes('checkbox') ? columnRowCheck : null),
     querySelectorAll: () => columnCells,
   };
   const headCell = (text, range, nested) => ({
@@ -769,10 +786,9 @@ function createOptionAndNoticeHarness({
       return selector.includes('option-pane-table-head') ? selectAll : null;
     },
     querySelectorAll(selector) {
-      if (selector.includes('option-pane-table-content')) return rows;
       if (vendorCodeColumnOnly && selector.includes('option-pane-table-head')) return headCells;
-      if (vendorCodeColumnOnly && selector.includes('option-pane-table-row')) {
-        return [columnBodyRow];
+      if (selector.includes('option-pane-table-row')) {
+        return vendorCodeColumnOnly ? [columnBodyRow] : rows.map(asDataRow);
       }
       return [];
     },

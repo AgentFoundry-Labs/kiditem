@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 // 세 확장을 kiditem-os 하나로 합치면서, 도메인 워커는 더 이상 스스로
@@ -94,5 +95,12 @@ export function dispatchExternalMessage(listeners, message, sender) {
 }
 
 // 세 확장을 합친 kiditem-os 의 manifest 버전. 개별 확장 버전(0.1.95 / 1.2.x /
-// 2.3.x)을 잇는 값이 아니라 새 확장의 첫 릴리스다.
-export const MERGED_EXTENSION_VERSION = '1.0.23';
+// 2.3.x)을 잇는 값이 아니라 합친 확장 자신의 버전이다.
+//
+// 매니페스트에서 읽는다. 여기 숫자를 따로 적어두면 버전을 올릴 때마다 관계없는
+// 테스트 네 개가 같이 깨진다 — 그 깨짐은 "버전이 틀렸다"가 아니라 "복사본이 낡았다"
+// 라서 아무것도 지켜주지 않는다. 지켜야 할 것은 **모든 도메인이 한 버전을 말한다**
+// 는 쪽이고, 그건 하나의 출처를 읽어야 지켜진다.
+export const MERGED_EXTENSION_VERSION = JSON.parse(
+  readFileSync(new URL('../../kiditem-os/manifest.json', import.meta.url), 'utf8'),
+).version;

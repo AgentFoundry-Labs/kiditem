@@ -250,6 +250,110 @@ describe('buildProductBasics', () => {
       expect(result.keywords).toEqual(['등록키워드']);
       expect(result.salePrice).toBe(9900);
     });
+
+    it('사람이 적은 키워드가 없으면 상품 등록이 rawData.keywords 에 남긴 키워드를 쓴다', () => {
+      const generated = buildProductBasics({
+        candidate: {
+          ...candidate,
+          tags: ['단품'],
+          rawData: { keywords: ['스핀', '장난감'] },
+        },
+        preparation: null,
+      });
+      expect(generated.keywords).toEqual(['스핀', '장난감']);
+
+      const typed = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: { keywords: ['스핀'], manualBasics: { keywords: ['수기키워드'] } },
+        },
+        preparation: null,
+      });
+      expect(typed.keywords).toEqual(['수기키워드']);
+    });
+  });
+
+  describe('몰별 등록 칸 값', () => {
+    const candidate = {
+      id: 'candidate-1',
+      name: '할로윈 LED 거미줄',
+      description: null,
+      category: null,
+      tags: [],
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+    };
+
+    it('manualBasics 에 저장한 몰별 값을 되읽는다', () => {
+      // 상품 상세에서 한 번 적어 두면 목록에서는 버튼만 누른다. 프리젠터가 이걸
+      // 되읽지 못하면 매번 다시 치게 되고, 그러면 같은 상품인데 몰마다 다른 값이
+      // 들어간다.
+      const result = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: {
+            manualBasics: {
+              mallRegisterValues: {
+                '11st': { categoryPath: '문구/사무용품>디자인/팬시용품>기능성 팬시' },
+                always: { teamPrice: '1800' },
+              },
+              mallRegisterShared: { certNumber: 'CB065R1579-2008' },
+            },
+          },
+        },
+        preparation: null,
+      });
+
+      expect(result.mallRegisterValues).toEqual({
+        '11st': { categoryPath: '문구/사무용품>디자인/팬시용품>기능성 팬시' },
+        always: { teamPrice: '1800' },
+      });
+      expect(result.mallRegisterShared).toEqual({ certNumber: 'CB065R1579-2008' });
+    });
+
+    it('저장한 적 없으면 빈 객체다 — 없는 값을 지어내지 않는다', () => {
+      const result = buildProductBasics({
+        candidate: { ...candidate, rawData: {} },
+        preparation: null,
+      });
+      expect(result.mallRegisterValues).toEqual({});
+      expect(result.mallRegisterShared).toEqual({});
+    });
+
+    it('문자열이 아닌 값과 빈 몰은 버린다', () => {
+      // rawData 는 무엇이든 들어올 수 있는 JSON 이다. 숫자를 그대로 내보내면
+      // 프런트가 `.trim()` 에서 터진다.
+      const result = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: {
+            manualBasics: {
+              mallRegisterValues: { '11st': { quantity: 3 }, onch: { supplyPrice: '2000' } },
+              mallRegisterShared: { certNumber: ['x'] },
+            },
+          },
+        },
+        preparation: null,
+      });
+      expect(result.mallRegisterValues).toEqual({ onch: { supplyPrice: '2000' } });
+      expect(result.mallRegisterShared).toEqual({});
+    });
+
+    it('preparation registrationInput 이 있으면 그쪽이 이긴다', () => {
+      const result = buildProductBasics({
+        candidate: {
+          ...candidate,
+          rawData: { manualBasics: { mallRegisterValues: { '11st': { categoryPath: '수기' } } } },
+        },
+        preparation: {
+          registrationInput: { mallRegisterValues: { '11st': { categoryPath: '등록준비' } } },
+          selectedThumbnailUrl: null,
+          selectedDetailPageGenerationId: null,
+        },
+      });
+      expect(result.mallRegisterValues).toEqual({ '11st': { categoryPath: '등록준비' } });
+    });
   });
 
   describe('registrationImages', () => {

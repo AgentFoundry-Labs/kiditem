@@ -40,6 +40,15 @@ export interface ProductBasics {
    * which are raw originals that fail the Coupang 1,000x1,000 spec.
    */
   registrationImages: RegistrationImages;
+  /**
+   * 몰별 상품등록 칸 값. `{ 몰키: { 칸키: 값 } }`.
+   *
+   * 상품마다 한 번 정해 두면 목록에서 버튼만 눌러 등록할 수 있다. 서버는 뜻을
+   * 모른다 — 어느 몰이 어떤 칸을 요구하는지 아는 것은 프런트 어댑터뿐이다.
+   */
+  mallRegisterValues: Record<string, Record<string, string>>;
+  /** 여러 몰이 함께 쓰는 칸 값(안전인증번호 등). `{ 칸키: 값 }`. */
+  mallRegisterShared: Record<string, string>;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
@@ -92,6 +101,31 @@ const strings = (value: unknown): string[] =>
 
 const num = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+/** `{ 키: 문자열 }` 만 남긴다. 다른 타입이 섞여 있으면 그 항목만 버린다. */
+const stringMap = (value: unknown): Record<string, string> => {
+  const source = toRecord(value);
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    if (typeof entry === 'string') result[key] = entry;
+  }
+  return result;
+};
+
+/** `{ 키: { 키: 문자열 } }`. 빈 몰은 담지 않는다. */
+const stringMapMap = (value: unknown): Record<string, Record<string, string>> => {
+  const source = toRecord(value);
+  const result: Record<string, Record<string, string>> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    const inner = stringMap(entry);
+    if (Object.keys(inner).length > 0) result[key] = inner;
+  }
+  return result;
+};
+
+/** 앞이 비면 뒤로 폴백하는 맵 선택. 빈 객체는 "저장한 적 없다"는 뜻이다. */
+const pickMap = <T extends Record<string, unknown>>(primary: T, fallback: T): T =>
+  Object.keys(primary).length > 0 ? primary : fallback;
 
 /** 앞 값이 비어 있으면 뒤 값으로 폴백하는 문자열 배열 선택. */
 const pickStrings = (primary: unknown, fallback: unknown): string[] => {
@@ -164,7 +198,9 @@ export function buildProductBasics({
     target: str(input.target) ?? str(manual.target) ?? str(raw.target) ?? '',
     ageGroup: str(input.ageGroup) ?? str(manual.ageGroup) ?? str(raw.ageGroup) ?? '',
     tags: inputTags.length > 0 ? inputTags : strings(candidate.tags),
-    keywords: pickStrings(input.keywords, manual.keywords),
+    // 상품 등록(직접 등록 · AI 채움)은 키워드를 rawData.keywords 에 남긴다. 사람이 적은
+    // 값이 없을 때 그걸 읽지 않으면 몰 등록 초안의 키워드가 옵션 이름으로 떨어진다.
+    keywords: pickStrings(input.keywords, pickStrings(manual.keywords, raw.keywords)),
     optionNames: inputOptions.length > 0
       ? inputOptions
       : pickStrings(manual.optionNames, raw.optionNames ?? raw.options),
@@ -189,6 +225,16 @@ export function buildProductBasics({
       thumbnail: strings(registrationImages?.thumbnail),
       detail: strings(registrationImages?.detail),
     },
+    // 몰별 등록 칸도 다른 수기 값과 같은 우선순위다 — 준비가 생기면 그쪽이 이기고,
+    // 그 전까지는 후보에 저장한 값(manualBasics)이 이긴다.
+    mallRegisterValues: pickMap(
+      stringMapMap(input.mallRegisterValues),
+      stringMapMap(manual.mallRegisterValues),
+    ),
+    mallRegisterShared: pickMap(
+      stringMap(input.mallRegisterShared),
+      stringMap(manual.mallRegisterShared),
+    ),
     // 준비가 이긴다. 워크스페이스 선택은 준비가 없는 후보를 위한 폴백이다.
     // 폴백 여부는 대표 URL 하나로 판정한다 — 준비에 대표가 있는데 파생 id 만
     // 워크스페이스에서 끌어오면 서로 다른 이미지의 값이 섞인다.
