@@ -199,6 +199,77 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     expect(logActivity).not.toHaveBeenCalled();
   });
 
+  /**
+   * KID-159. 운영자 중단은 owner 취소가 terminal 이다. 공용 컨트롤의 중단이 이
+   * 브라우저의 절차를 끊으면 수집 fetch 가 거절되는데, 그 오류를 화면이
+   * `/fail COLLECTION_FAILED` 로 다시 닫으면 owner 취소보다 먼저 닿아 실패
+   * 알림이 남는다("멈춰도 실패 알림이 남지 않는다" 위반).
+   */
+  it('⭐ 운영자 중단으로 끊긴 수집은 실패로 닫지 않는다 — /fail 도 실패 활동도 없다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    const logActivity = vi.fn();
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 6),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kidsnote', 6));
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+    mocks.collectMall.mockImplementation(async (
+      _account: OrderCollectionMallAccount,
+      run: { attemptId: string },
+    ) => {
+      // 공용 컨트롤의 중단이 서버 취소에 앞서 이 브라우저의 절차부터 끊는다.
+      result.current.sessionControls.abortLocalRun(run.attemptId);
+      throw new Error('수집 창이 닫혔습니다.');
+    });
+
+    await act(async () => {
+      await result.current.collectAll();
+    });
+
+    expect(mocks.fail).not.toHaveBeenCalled();
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it('중단이 아닌 진짜 실패는 그대로 COLLECTION_FAILED 로 닫고 활동에 남긴다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    const logActivity = vi.fn();
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 6),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kidsnote', 6));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kidsnote', 6), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(new Error('주문 표를 읽지 못했습니다.'));
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAll();
+    });
+
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: attemptFor('kidsnote', 6).attemptId }),
+      expect.objectContaining({ code: 'COLLECTION_FAILED' }),
+    );
+    expect(logActivity).toHaveBeenCalledWith('error', '키즈노트', expect.any(String));
+  });
+
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {
     const kidsnote = mall('kidsnote', '키즈노트');
     mocks.begin.mockResolvedValue({ ...attemptFor('kidsnote', 8), attemptToken: '33333333-3333-4333-8333-333333333333' });

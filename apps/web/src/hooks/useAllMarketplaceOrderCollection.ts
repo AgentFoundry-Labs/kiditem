@@ -167,6 +167,9 @@ export function useAllMarketplaceOrderCollection({
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
       } catch (error) {
+        // 운영자 중단이 이 절차를 끊었으면 terminal 은 owner 취소의 몫이다.
+        // 여기서 실패를 먼저 보내면 `COLLECTION_FAILED` 실패 알림이 남는다(KID-159).
+        const stopped = activeRun?.signal?.aborted === true;
         const message = mallCollectionFailureMessage(
           account.name,
           friendlyError(error) ?? '브라우저 수집 실패',
@@ -175,7 +178,7 @@ export function useAllMarketplaceOrderCollection({
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
-        const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
+        const noNewOrders = !stopped && failureKind === 'empty';
         const ownerReconciliationRequired = error instanceof Error &&
           'ownerReconciliationRequired' in error &&
           (error as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
@@ -187,7 +190,7 @@ export function useAllMarketplaceOrderCollection({
             );
           });
         }
-        if (activeRun && !attentionKind && !ownerReconciliationRequired) {
+        if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
           const unsupported = error instanceof Error && 'sourcePayload' in error
             ? (error as Error & { sourcePayload?: unknown }).sourcePayload
             : undefined;
@@ -210,7 +213,7 @@ export function useAllMarketplaceOrderCollection({
           logActivity('empty', account.name);
           return { rowCount: 0, masked: false, date: activeRun?.date ?? null };
         }
-        if (!activeRun?.signal?.aborted) {
+        if (!stopped) {
           logActivity(attentionKind ?? 'error', account.name, message);
         }
         throw error;
