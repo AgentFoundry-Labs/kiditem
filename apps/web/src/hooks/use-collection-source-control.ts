@@ -114,8 +114,12 @@ export const COLLECTION_ALREADY_RUNNING_MESSAGE = '이미 진행 중인 수집�
 const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
-// Every screen that shows a running collection reads its owner this often.
-const RUNNING_POLL_MS = 2_000;
+/**
+ * Every screen that shows a running collection reads its owner this often. A
+ * source its own screen starts borrows this cadence while that start is in
+ * flight, so the control learns the attempt before a short run is over.
+ */
+export const COLLECTION_RUNNING_POLL_MS = 2_000;
 // A real Wing traffic run uploads its first receipt 30 to 50 seconds in (KID-132).
 const NO_PROGRESS_NOTICE_MS = 90_000;
 const NO_PROGRESS =
@@ -303,7 +307,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     refetchInterval: (current) => {
       const data = current.state.data;
       if (current.state.status !== 'error' && data !== undefined && adapter.readRunning(data)) {
-        return RUNNING_POLL_MS;
+        return COLLECTION_RUNNING_POLL_MS;
       }
       const own = adapter.statusQuery.refetchInterval;
       return typeof own === 'function' ? own(current) : own;

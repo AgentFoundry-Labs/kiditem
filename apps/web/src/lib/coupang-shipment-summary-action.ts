@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { QueryKey } from "@tanstack/react-query";
-import type { CollectionSourceAdapter } from "@/hooks/use-collection-source-control";
+import {
+  COLLECTION_RUNNING_POLL_MS,
+  type CollectionSourceAdapter,
+} from "@/hooks/use-collection-source-control";
 import { apiClient } from "./api-client";
 import { isApiError } from "./api-error";
 import { collectionSourceStatusQueryOptions } from "./collection-source-status-query";
@@ -106,8 +109,15 @@ const SOURCE_IDLE_POLL_MS = 60_000;
  * screen still starts it itself, because the operator picks what to query and
  * the caller reads the collected days back; the control adds the running
  * collection every browser can see and the operator stop it never had.
+ *
+ * While that screen-owned start is in flight the owner is read at the running
+ * cadence, so the control names the attempt within seconds instead of after
+ * the next idle read — an 11-second query otherwise ends before the operator
+ * is ever offered a stop (KID-170 D3).
  */
-export function coupangShipmentSummaryCollectionSource():
+export function coupangShipmentSummaryCollectionSource({
+  localStartInFlight = false,
+}: Readonly<{ localStartInFlight?: boolean }> = {}):
 CollectionSourceAdapter<CoupangShipmentSummarySource> {
   return {
     sourceKey: "inventory.coupang_shipment_summary",
@@ -120,7 +130,7 @@ CollectionSourceAdapter<CoupangShipmentSummarySource> {
     >({
       queryKey: queryKeys.inventory.coupangShipmentSummary(),
       queryFn: loadCoupangShipmentSummarySource,
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : SOURCE_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

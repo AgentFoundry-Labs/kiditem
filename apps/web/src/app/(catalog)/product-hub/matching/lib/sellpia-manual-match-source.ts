@@ -2,7 +2,10 @@
 
 import type { SellpiaManualMatchSourceStatus } from '@kiditem/shared/sellpia-manual-match';
 import type { QueryKey } from '@tanstack/react-query';
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import {
+  COLLECTION_RUNNING_POLL_MS,
+  type CollectionSourceAdapter,
+} from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
@@ -21,8 +24,15 @@ export function cancelSellpiaManualMatchAttempt(attemptId: string) {
  * it itself, because the run that follows consumes the collected snapshot; what
  * the control adds is the running collection every browser can see and the
  * operator stop the screen never had.
+ *
+ * While that screen-owned run is in flight the owner is read at the running
+ * cadence, so the control names the attempt within seconds instead of after
+ * the next idle read — a short collection otherwise ends before the operator
+ * is ever offered a stop (KID-170 D3).
  */
-export function sellpiaManualMatchCollectionSource():
+export function sellpiaManualMatchCollectionSource({
+  localStartInFlight = false,
+}: Readonly<{ localStartInFlight?: boolean }> = {}):
 CollectionSourceAdapter<SellpiaManualMatchSourceStatus> {
   return {
     sourceKey: 'channels.sellpia_manual_match',
@@ -35,7 +45,7 @@ CollectionSourceAdapter<SellpiaManualMatchSourceStatus> {
     >({
       queryKey: queryKeys.channelSkuMappings.sellpiaManualMatchSource(),
       queryFn: readSellpiaManualMatchSourceCurrent,
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : SOURCE_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

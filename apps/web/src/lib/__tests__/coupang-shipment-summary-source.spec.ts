@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
 import {
   coupangShipmentSummaryCollectionSource,
   type CoupangShipmentSummarySource,
@@ -66,6 +67,24 @@ describe('coupangShipmentSummaryCollectionSource', () => {
       latestComplete: attempt({ state: 'COMPLETE', generation: '9' }),
     }))).toBe('9');
     expect(coupangShipmentSummaryCollectionSource().readCompleteId(source())).toBeNull();
+  });
+
+  /**
+   * 조회는 이 화면이 시작하고, 끝나야 원천을 다시 읽었다. 60초짜리 대기 중에 11초짜리
+   * 조회가 통째로 지나가 "수집 중단"이 한 번도 보이지 않았다(KID-170 D3).
+   */
+  it('reads the owner at the running cadence while the screen`s own query is in flight', () => {
+    const poll = (adapter: ReturnType<typeof coupangShipmentSummaryCollectionSource>) => {
+      const interval = adapter.statusQuery.refetchInterval;
+      return typeof interval === 'function'
+        ? interval({ state: { status: 'success', error: null } } as never)
+        : interval;
+    };
+
+    expect(poll(coupangShipmentSummaryCollectionSource({ localStartInFlight: true })))
+      .toBe(COLLECTION_RUNNING_POLL_MS);
+    expect(poll(coupangShipmentSummaryCollectionSource({ localStartInFlight: false }))).toBe(60_000);
+    expect(poll(coupangShipmentSummaryCollectionSource())).toBe(60_000);
   });
 
   it('stops the running attempt through the owner cancel route, without an attempt token', async () => {

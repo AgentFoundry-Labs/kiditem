@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SellpiaManualMatchSourceStatus } from '@kiditem/shared/sellpia-manual-match';
 import { apiClient } from '@/lib/api-client';
+import { COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
 import { sellpiaManualMatchCollectionSource } from './sellpia-manual-match-source';
 
 vi.mock('@/lib/api-client', () => ({
@@ -58,6 +59,24 @@ describe('sellpiaManualMatchCollectionSource', () => {
     expect(sellpiaManualMatchCollectionSource().readCompleteId(status({
       latestAttempt: attempt({ state: 'FAILED' }),
     }))).toBeNull();
+  });
+
+  /**
+   * 수집은 매칭 실행이 시작하고, 끝나야 원천을 다시 읽었다. 60초짜리 대기 중에 짧은
+   * 수집이 통째로 지나가 "수집 중단"이 한 번도 보이지 않았다(KID-170 D3).
+   */
+  it('reads the owner at the running cadence while the screen`s own run is in flight', () => {
+    const poll = (adapter: ReturnType<typeof sellpiaManualMatchCollectionSource>) => {
+      const interval = adapter.statusQuery.refetchInterval;
+      return typeof interval === 'function'
+        ? interval({ state: { status: 'success', error: null } } as never)
+        : interval;
+    };
+
+    expect(poll(sellpiaManualMatchCollectionSource({ localStartInFlight: true })))
+      .toBe(COLLECTION_RUNNING_POLL_MS);
+    expect(poll(sellpiaManualMatchCollectionSource({ localStartInFlight: false }))).toBe(60_000);
+    expect(poll(sellpiaManualMatchCollectionSource())).toBe(60_000);
   });
 
   it('stops the running attempt through the owner cancel route, without an attempt token', async () => {
