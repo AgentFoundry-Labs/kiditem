@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AD_ACTION_TARGET_TYPES } from '../../../../domain/model/strategy-types';
 
@@ -40,13 +40,16 @@ export class AdActionCommandDto {
   @IsIn(['generate', 'approve', 'reject', 'markRunning', 'markDone', 'markFailed'])
   action: string;
 
+  /** Actions to approve or reject, at most the action listing's page size. */
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  @IsUUID(undefined, { each: true })
   ids?: string[];
 
+  /** The action an execution report is for. */
   @IsOptional()
-  @IsString()
+  @IsUUID()
   id?: string;
 
   /** The attempt an execution report is for: the action listing's `executionTaskId`. */
