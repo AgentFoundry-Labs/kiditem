@@ -5919,12 +5919,17 @@
       // **이미 열어 둔 탭에서** 로그인하고 한 번만 다시 채운다. 새 탭을 열지 않는 이유는
       // 몰이 로그인 후 원래 주소로 되돌려 주기 때문이다.
       //
+      // 폼을 찾았는데 채우다 실패한 것(분류 선택 실패 · 수정 화면 등)은 로그인 문제가 아니다.
+      // 그때 로그인을 돌리면 등록 화면의 칸에 아이디 · 비밀번호를 넣고 제출 폴백까지 누를 수
+      // 있으므로 `noForm` 일 때만 로그인한다.
+      //
       // 자격증명은 사장님이 설정에 저장한 값이고, 여기서는 그대로 흘려보내기만 한다.
       // 로그·응답·저장소 어디에도 남기지 않는다.
-      if (!outcome.ok && ensureLogin && message.credentials?.loginId) {
+      if (!outcome.ok && outcome.noForm && ensureLogin && message.credentials?.loginId) {
         const login = await ensureLogin(tab.id, message.credentials, message.accountKey || null)
           .catch((error) => ({ success: false, error: error?.message || String(error) }));
-        if (login?.submitted) {
+        // 눌렀어도 로그인 화면이 남았으면(`success: false`) 다시 채우지 않는다.
+        if (login?.submitted && login.success !== false) {
           await waitForTabComplete(tab.id).catch(() => undefined);
           await new Promise((resolve) => setTimeout(resolve, 1200));
           outcome = pickOutcome(await injectWithRetry(injectOptions));

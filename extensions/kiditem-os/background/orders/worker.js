@@ -1130,6 +1130,29 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(ensureMallLoginWithLifecycle(msg));
   }
 
+  // 쇼핑몰 계정 화면의 로그인 테스트. 수집이 아니어서 수집 시도 없이 돈다 — 백그라운드 탭에서
+  // 저장된 계정으로 로그인만 해 보고 닫는다. 서버로는 아무것도 보내지 않는다.
+  if (msg?.action === "testMallLogin") {
+    const credentials = msg.credentials;
+    const validRequest = typeof msg.mallKey === "string"
+      && typeof credentials?.loginId === "string"
+      && typeof credentials?.password === "string"
+      && (credentials.supplierLoginId === undefined || typeof credentials.supplierLoginId === "string");
+    if (!validRequest) {
+      sendResponse({ success: false, errorCode: "invalid_request", error: "로그인 테스트 요청이 올바르지 않습니다." });
+      return true;
+    }
+    return respond(ensureMallLoggedIn(
+      msg.mallKey,
+      {
+        loginId: credentials.loginId,
+        password: credentials.password,
+        ...(credentials.supplierLoginId ? { supplierLoginId: credentials.supplierLoginId } : {}),
+      },
+      null,
+    ));
+  }
+
   if (msg?.action === "collectKidkidsOrders") {
     return respond(runOwnedOrderCollection(
       msg,
@@ -5900,6 +5923,18 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       await delay(1500);
       await waitForTabReady(tabId); // 로그인 후 리다이렉트 정착
       await delay(1200);
+      // 눌렀다고 로그인된 것은 아니다. 비밀번호를 거절한 몰은 로그인 폼을 그대로 두거나 알림 창을
+      // 띄운다. 그걸 성공으로 돌려주면 웹이 자동 로그인 차단을 풀고, 다음 수집이 같은 비밀번호를
+      // 또 제출해 몇 번 뒤 몰이 계정을 잠근다.
+      if (await loginFormRemainsAfterSubmit(tabId)) {
+        return {
+          success: false,
+          submitted: true,
+          method: submitted.method || null,
+          errorCode: "login_rejected",
+          error: "로그인 버튼을 누른 뒤에도 로그인 화면이 남아 있습니다(알림 창이 떠 있을 수 있습니다). 열린 탭을 확인하고 몰에 직접 로그인해 주세요.",
+        };
+      }
       return { success: true, submitted: true, method: submitted.method || null };
     }
     // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
@@ -5975,6 +6010,38 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
     };
   }
   return { success: true, submitted: false, reason: "already_signed_in" }; // 폼 못 봄
+}
+
+// 로그인 버튼을 누른 뒤 로그인 폼이 남았는가. 값을 넣거나 누르지 않고 폼만 찾는다.
+//
+// 알림 창이 떠 있으면 페이지 스크립트가 멈춰 확인 스크립트도 답하지 않는다 — 답이 없으면 남은
+// 것으로 본다. 화면이 넘어가는 중이라 주입이 실패하면 잠시 뒤 다시 보고, 마지막으로 본 화면에
+// 폼이 있을 때만 남았다고 한다.
+async function loginFormRemainsAfterSubmit(tabId) {
+  const noAnswer = "login-form-check-no-answer";
+  let lastSeen = false;
+  for (let check = 0; check < 3; check += 1) {
+    if (check > 0) await delay(1500);
+    let results;
+    try {
+      const injected = await withTimeout(
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: autoSubmitIcecreamMallLogin,
+          args: [null, { detectOnly: true }],
+        }),
+        5000,
+        noAnswer,
+      );
+      results = (injected || []).map((item) => item.result).filter(Boolean);
+    } catch (error) {
+      if (error?.message === noAnswer) return true;
+      continue;
+    }
+    lastSeen = results.some((result) => result.state === "login-form");
+    if (!lastSeen) return false;
+  }
+  return lastSeen;
 }
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
@@ -6131,11 +6198,17 @@ function detectIcecreamMallLoginState() {
   }
 }
 
-function autoSubmitIcecreamMallLogin(credentials) {
+function autoSubmitIcecreamMallLogin(credentials, options) {
   const passwordInput = pickPasswordInput();
   if (!passwordInput) {
     // 비밀번호 입력칸이 아직 없음 → 로그인 폼 미표시(이미 로그인했거나 렌더 전). 호출부에서 재시도.
     return { state: "no-login-form" };
+  }
+
+  // 제출 뒤 확인(`loginFormRemainsAfterSubmit`) — 값을 넣거나 누르지 않는다. 비밀번호 칸 곁에
+  // 아이디 칸까지 보여야 로그인 폼이다.
+  if (options && options.detectOnly) {
+    return { state: pickLoginIdInput(passwordInput) ? "login-form" : "no-login-form" };
   }
 
   if (!credentials || !credentials.loginId || !credentials.password) {
@@ -7310,6 +7383,7 @@ KidItemDomains.register({
     mallCategoryLookupMalls: ["onch"],
     // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
     mallSessionProbeV1: true,
+    mallLoginTestV1: true,
     mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "kkomangse"],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,

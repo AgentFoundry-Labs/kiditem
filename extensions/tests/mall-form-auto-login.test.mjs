@@ -94,6 +94,36 @@ test('폼이 있으면 로그인을 건드리지 않는다', async () => {
   assert.deepEqual(loginCalls, [], '멀쩡한 세션에 손대지 않는다');
 });
 
+test('⭐ 폼을 찾았는데 채우다 실패하면 로그인하지 않고 그 오류를 남긴다', async () => {
+  // 분류 선택 실패 · 기존 상품 수정 화면처럼 폼은 있는데 실패한 경우다. 여기서 로그인을 돌리면
+  // 등록 화면의 칸에 아이디 · 비밀번호를 넣고 제출 폴백까지 누를 수 있다.
+  const formFailure = { ok: false, error: '분류를 고르지 못했습니다.' };
+  const { api, loginCalls, injectCalls } = harness({
+    fills: [formFailure],
+    login: { success: true, submitted: true },
+  });
+  const result = await api.register({
+    mall: 'domeggook', form: form(), accountKey: 'domeggook', credentials: CREDENTIALS,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /분류를 고르지 못했습니다/);
+  assert.deepEqual(loginCalls, [], '폼이 있으면 로그인을 건드리지 않는다');
+  assert.equal(injectCalls.length, 1, '다시 채우지 않는다');
+});
+
+test('⭐ 로그인 버튼을 눌렀어도 로그인 화면이 남았으면 다시 채우지 않는다', async () => {
+  const { api, injectCalls } = harness({
+    fills: [noForm, ok],
+    login: { success: false, submitted: true, errorCode: 'login_rejected', error: '로그인 화면이 남아 있습니다.' },
+  });
+  const result = await api.register({
+    mall: 'domeggook', form: form(), accountKey: 'domeggook', credentials: CREDENTIALS,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /직접 로그인/);
+  assert.equal(injectCalls.length, 1, '로그인이 안 됐으면 다시 채우지 않는다');
+});
+
 test('폼이 없으면 그 탭에서 로그인하고 한 번 더 채운다', async () => {
   const { api, loginCalls, injectCalls, createdTabs } = harness({
     fills: [noForm, ok],

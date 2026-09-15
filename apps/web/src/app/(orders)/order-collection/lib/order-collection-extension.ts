@@ -194,6 +194,62 @@ export async function collectIcecreamMallRowsFromExtension(
   };
 }
 
+export const MALL_LOGIN_TEST_CAPABILITY = 'mallLoginTestV1';
+
+/** 로그인 테스트가 확장에 닿지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다. */
+export type MallLoginTestUnavailable = 'extension_not_found' | 'extension_outdated' | 'extension_no_answer';
+
+export interface MallLoginTestResponse {
+  success: boolean;
+  /** 아이디 · 비밀번호를 넣고 로그인 버튼을 눌렀는가. 누른 뒤 로그인 화면이 남았으면 `success` 는 false. */
+  submitted?: boolean;
+  reason?: MallLoginEnsureResult['reason'];
+  method?: string | null;
+  pendingLogin?: boolean;
+  /** 확장이 돌려준 이유 코드(`login_rejected` 등). */
+  errorCode?: string;
+  error?: string;
+  /** 확장에 닿지 못했을 때만 있다. */
+  unavailable?: MallLoginTestUnavailable;
+}
+
+/**
+ * 쇼핑몰 계정 화면의 로그인 테스트. 확장이 백그라운드 탭에서 저장된 계정으로 로그인만 해 보고
+ * 닫는다. 수집이 아니므로 수집 시도 없이 도는 `testMallLogin` 을 부른다 — 수집 시도 안에서만
+ * 도는 `ensureMallLoggedIn` 으로 보내면 확장이 늘 거절한다.
+ */
+export async function testMallLoginViaExtension(
+  mallKey: string,
+  credentials: IcecreamMallExtensionCredentials,
+): Promise<MallLoginTestResponse> {
+  const runtime = await detectOrderCollectionExtensionRuntime(1500, [MALL_LOGIN_TEST_CAPABILITY]);
+  if (runtime.status !== 'ready') {
+    return {
+      success: false,
+      unavailable: runtime.status === 'incompatible' ? 'extension_outdated' : 'extension_not_found',
+      error: orderCollectionExtensionUnavailableMessage(runtime),
+    };
+  }
+  try {
+    const response = await sendToExtension<MallLoginTestResponse>(
+      runtime.extensionId,
+      { action: 'testMallLogin', mallKey, credentials },
+      60_000,
+    );
+    return response ?? {
+      success: false,
+      unavailable: 'extension_no_answer',
+      error: '확장이 로그인 테스트에 답하지 않았습니다.',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      unavailable: 'extension_no_answer',
+      error: error instanceof Error ? error.message : '확장이 로그인 테스트에 답하지 않았습니다.',
+    };
+  }
+}
+
 /**
  * 수집 전 자동 로그인 보장(선택). 저장된 계정이 있으면 확장이 백그라운드로 해당 몰에 로그인해둔다.
  * 로그인 보장 결과를 호출자에게 돌려줘 수집을 계속할지 명시적으로 결정하게 한다.
