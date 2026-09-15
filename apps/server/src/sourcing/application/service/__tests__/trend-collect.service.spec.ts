@@ -88,6 +88,7 @@ function buildPorts() {
     findLatestCompleteTrendScope: vi.fn(async () => null),
     find1688HotHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => []),
+    findShortsHistoryWithCoverage: vi.fn(async () => ({ rows: [], coverage: [] })),
     findTiktokCcHistory: vi.fn(async () => []),
   };
   const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];

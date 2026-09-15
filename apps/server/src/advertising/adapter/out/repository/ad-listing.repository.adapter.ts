@@ -3,10 +3,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import { readProductAbcPublication } from '../../../../products/read/product-abc-publication.reader';
 import type {
   AdListingRepositoryPort,
   ScopedAdListingReadModel,
+  ScopedAdListingSnapshot,
 } from '../../../application/port/out/repository/ad-listing.repository.port';
 
 @Injectable()
@@ -17,11 +18,24 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     listingIds: Array<string | null | undefined>,
   ): Promise<Map<string, ScopedAdListingReadModel>> {
-    const ids = Array.from(
-      new Set(listingIds.filter((id): id is string => Boolean(id))),
-    );
+    const ids = uniqueListingIds(listingIds);
     if (ids.length === 0) return new Map();
 
+    return (await this.readScopedAdListings(organizationId, ids)).listings;
+  }
+
+  async findScopedAdListingsWithAbcCutoff(
+    organizationId: string,
+    listingIds: Array<string | null | undefined>,
+  ): Promise<ScopedAdListingSnapshot> {
+    // Read even without listing ids: the publication cutoff still applies.
+    return this.readScopedAdListings(organizationId, uniqueListingIds(listingIds));
+  }
+
+  private readScopedAdListings(
+    organizationId: string,
+    ids: string[],
+  ): Promise<ScopedAdListingSnapshot> {
     return this.prisma.$transaction(
       (tx) => this.findScopedAdListingsSnapshot(tx, organizationId, ids),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -32,7 +46,7 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     tx: Prisma.TransactionClient,
     organizationId: string,
     ids: string[],
-  ): Promise<Map<string, ScopedAdListingReadModel>> {
+  ): Promise<ScopedAdListingSnapshot> {
     const listings = await tx.channelListing.findMany({
       where: {
         id: { in: ids },
@@ -53,11 +67,16 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         },
       },
     });
-    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+    // One publication read yields the grades and the cutoff that fences them.
+    const abc = await readProductAbcPublication(tx, {
       organizationId,
       masterProductIds: listings.flatMap((listing) =>
         listing.masterProduct ? [listing.masterProduct.id] : []),
     });
+    const gradeByProductId = new Map(abc.products.flatMap((product) =>
+      product.evaluation
+        ? [[product.masterProductId, product.evaluation.abcGrade] as const]
+        : []));
     const out = new Map<string, ScopedAdListingReadModel>();
     for (const listing of listings) {
       out.set(listing.id, {
@@ -75,7 +94,10 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         },
       });
     }
-    return out;
+    return {
+      listings: out,
+      abcOfficialCutoffDate: abc.publication?.officialCutoffDate ?? null,
+    };
   }
 
   async verifyListingOwnership(
@@ -88,4 +110,10 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     });
     return row != null;
   }
+}
+
+function uniqueListingIds(listingIds: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(listingIds.filter((id): id is string => Boolean(id))),
+  );
 }

@@ -44,6 +44,12 @@ export interface PopularKeywordBoardView {
   boardKey: string;
   boardLabel: string | null;
   latest: Array<{ rank: number; keyword: string }>;
+  /**
+   * The day `risers` compare the latest board with: the oldest day in the
+   * window that ranked keywords. Null when there is no earlier one, so rises
+   * and new entries are unmeasured rather than none.
+   */
+  comparedFrom: string | null;
   risers: PopularKeywordRiser[];
 }
 
@@ -181,10 +187,11 @@ export class TrendQueryService {
       }
 
       const boardLabel = boardRows.find((row) => row.boardLabel)?.boardLabel ?? null;
+      // Without an earlier ranked day there is nothing to compare the latest board with.
+      const comparedFrom = oldestDate < latestDate ? toDateStringFromMs(oldestDate) : null;
       const risers: PopularKeywordRiser[] = [];
-      const isSingleDay = latestDate === oldestDate;
       for (const row of latestRows) {
-        if (isSingleDay) break;
+        if (comparedFrom === null) break;
         const oldestRank = oldestRankByKeyword.get(row.keyword);
         if (oldestRank === undefined) {
           risers.push({ keyword: row.keyword, rankDelta: null });
@@ -198,6 +205,7 @@ export class TrendQueryService {
         boardKey,
         boardLabel,
         latest: latestRows.map((row) => ({ rank: row.rank, keyword: row.keyword })),
+        comparedFrom,
         risers,
       });
     }
@@ -246,13 +254,14 @@ export class TrendQueryService {
     organizationId: string,
     days: number,
   ): Promise<{ days: number; businessDate: string | null; capturedAt: string | null; items: ShortsTrendView[] }> {
-    const [rows, seeds] = await Promise.all([
-      this.repository.findShortsHistory({ organizationId, days }),
+    const [{ rows, coverage }, seeds] = await Promise.all([
+      this.repository.findShortsHistoryWithCoverage({ organizationId, days }),
       this.repository.listSeeds(organizationId),
     ]);
-    if (rows.length === 0) return { days, businessDate: null, capturedAt: null, items: [] };
+    // The latest day a complete collection covered, even one that stored no video.
+    const businessDate = coverage.length > 0 ? toDateStringFromMs(maxBusinessDateMs(coverage)) : null;
+    if (rows.length === 0) return { days, businessDate, capturedAt: null, items: [] };
 
-    const latestDate = maxBusinessDateMs(rows);
     const capturedAt = latestCapturedAt(rows);
     const latestCapturedAtMs = Math.max(...rows.map((row) => row.capturedAt.getTime()));
     const publishedCutoffMs = latestCapturedAtMs - Math.max(days, 1) * ONE_DAY_MS;
@@ -295,7 +304,7 @@ export class TrendQueryService {
       };
     });
 
-    return { days, businessDate: toDateStringFromMs(latestDate), capturedAt, items };
+    return { days, businessDate, capturedAt, items };
   }
 
   async getTiktokCc(

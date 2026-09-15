@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey } from '../../common/kst';
 import { currentRowTieBreakSql } from '../../common/current-row';
+import { wingListingRegistrationDate } from '../domain/wing-listing-registration';
 import {
   dailyTrafficFactSource,
   type DailyTrafficFactSource,
@@ -184,6 +185,49 @@ export async function readListingTrafficWindowFacts(
     ({ channelAccountId: _, sourceAttemptId: __, ...fact }) => fact,
   );
   const dates = readDates(input, observedFacts, selectedAttempts);
+  // An attempt matched Wing's rows to the catalog it saw while it ran, so a
+  // listing the catalog imported after the attempt started may be missing from
+  // its report. A selected account-date is refused while such a listing is
+  // active and was already registered on Wing by the date, or has no readable
+  // registration date.
+  const selected = [...selectedAttempts.entries()];
+  const earliestAttemptStart = selected.reduce<Date | null>(
+    (earliest, [, attempt]) => (!earliest || attempt.createdAt < earliest ? attempt.createdAt : earliest),
+    null,
+  );
+  const selectedAccountIds = [...new Set(selected.flatMap(([, attempt]) =>
+    attempt.channelAccountId ? [attempt.channelAccountId] : []))];
+  const lateListings = earliestAttemptStart
+    ? (await prisma.$queryRaw<Array<{
+        channelAccountId: string;
+        createdAt: Date;
+        createdOn: string | null;
+        sourceCandidateId: string | null;
+      }>>`
+        SELECT channel_account_id AS "channelAccountId",
+               created_at AS "createdAt",
+               raw_json ->> 'createdOn' AS "createdOn",
+               source_candidate_id AS "sourceCandidateId"
+        FROM channel_listings
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND channel_account_id = ANY(${selectedAccountIds}::uuid[])
+          AND is_active = TRUE
+          AND created_at >= ${earliestAttemptStart.toISOString()}::timestamptz
+      `).map((listing) => ({
+        channelAccountId: listing.channelAccountId,
+        createdAt: listing.createdAt,
+        registeredOn: wingListingRegistrationDate(listing),
+      }))
+    : [];
+  const lateListingDates = new Set(selected.flatMap(([key, attempt]) => {
+    const date = key.slice(key.lastIndexOf(':') + 1);
+    return lateListings.some((listing) =>
+      listing.channelAccountId === attempt.channelAccountId
+      && listing.createdAt >= attempt.createdAt
+      && (listing.registeredOn === null || listing.registeredOn <= date))
+      ? [key]
+      : [];
+  }));
   const coverage = coverageFor(
     dates,
     population,
@@ -191,6 +235,7 @@ export async function readListingTrafficWindowFacts(
     observedFacts,
     facts,
     selectedAttempts,
+    lateListingDates,
   );
   const ownerObservedAt = [...selectedAttempts.values()].reduce<Date | null>(
     (latest, attempt) => latestDate(
@@ -281,6 +326,13 @@ export async function readLatestListingStateFacts(
     FROM channel_listing_daily_snapshots
     WHERE organization_id = ${input.organizationId}::uuid
       AND listing_id = ANY(${[...input.listingIds]}::uuid[])
+      -- A row that observed only traffic (a Wing zero row, say) carries no
+      -- listing state and must not hide an older state observation.
+      AND num_nonnulls(
+        product_name, status, exposure_status, sale_status, channel_price,
+        is_offer_winner, my_price, winner_price, winner_gap_price,
+        product_rank, category_rank
+      ) > 0
     ORDER BY
       listing_id,
       ${currentRowTieBreakSql({
@@ -428,12 +480,19 @@ function coverageFor(
   observedFacts: readonly ObservedTrafficFact[],
   facts: readonly ObservedTrafficFact[],
   selectedAttempts: ReadonlyMap<string, CompletedTrafficAttempt>,
+  lateListingDates: ReadonlySet<string>,
 ): ListingTrafficWindowFacts['coverage'] {
   const includedDates: string[] = [];
   const invalidDates: string[] = [];
   const missingDates: string[] = [];
   const factKeys = new Set(facts.map((fact) => listingDateKey(fact.listingId, fact.businessDate)));
   const observedDates = new Set(observedFacts.map((fact) => fact.businessDate));
+  const keptFacts = new Set(facts);
+  // A Wing row the date's selected attempt did not publish was dropped as
+  // stale, so that listing's value on the date is unknown.
+  const staleWingDates = new Set(observedFacts
+    .filter((fact) => fact.source === 'wing' && !keptFacts.has(fact))
+    .map((fact) => fact.businessDate));
 
   for (const date of dates) {
     const attempts = new Map<string, CompletedTrafficAttempt>();
@@ -447,10 +506,20 @@ function coverageFor(
     }
     const hasObservedRow = observedDates.has(date);
     const hasEvidence = hasObservedRow || attempts.size > 0;
+    // A date the account's selected attempt confirmed is collected for all of
+    // its listings: the traffic owner published a zero row for a listing Wing
+    // left out, and a listing without a row stays unmeasured. An account
+    // without an attempt (a CSV upload) still needs a row for every listing.
+    // A listing the catalog imported after the attempt started, and already
+    // registered on Wing by the date, may be missing from the report, so the
+    // date is not collected for its account.
     const complete = population.length > 0
-      ? population.every((listing) =>
-          factKeys.has(listingDateKey(listing.id, date))
-          || attemptProvesEmptyDate(attempts.get(listing.channelAccountId), date))
+      ? !staleWingDates.has(date)
+        && ![...attempts.keys()].some((accountId) =>
+          lateListingDates.has(accountDateKey(accountId, date)))
+        && population.every((listing) =>
+          attempts.has(listing.channelAccountId)
+          || factKeys.has(listingDateKey(listing.id, date)))
       : fallbackAccountIds.length > 0
         ? fallbackAccountIds.every((accountId) =>
             attemptProvesEmptyDate(attempts.get(accountId), date))

@@ -143,10 +143,22 @@ export function SourcingHomeHero() {
 
   const lastUpdated = risingQuery.dataUpdatedAt || undefined;
 
+  // A trend card counts only what its read measured; otherwise the count is
+  // unknown, not 0. Rising counts once a snapshot exists. The 7-day board read
+  // returns each board a completed Naver collection covered, empty ones too;
+  // new keywords also need every board compared with an earlier ranked day.
+  // The 30-day Shorts read names the latest day a completed Shorts collection
+  // covered, even one that stored no video. A source that last completed
+  // before its window measured nothing in it, whatever the trend status says.
+  const trendBoards = boardsData?.boards ?? [];
+  const boardsCovered = trendBoards.length > 0;
+  const boardsCompared = boardsCovered && trendBoards.every((board) => board.comparedFrom != null);
+  const shortsCovered = shortsData?.businessDate != null;
+
   const columns: RankColumn[] = [
     {
       label: '급상승 후보',
-      count: rising.length,
+      count: risingQuery.data != null ? rising.length : null,
       accent: '#ea580c',
       icon: Flame,
       href: '/sourcing-ai/rising-products',
@@ -160,7 +172,7 @@ export function SourcingHomeHero() {
     },
     {
       label: '신규 키워드',
-      count: newKeywords.length,
+      count: boardsCompared ? newKeywords.length : null,
       accent: '#7c3aed',
       icon: Sparkles,
       href: '/sourcing-ai/keywords',
@@ -174,7 +186,7 @@ export function SourcingHomeHero() {
     },
     {
       label: 'SNS 소셜 인기',
-      count: snsKeywords.length,
+      count: shortsCovered ? snsKeywords.length : null,
       accent: '#db2777',
       icon: Share2,
       href: '/sourcing-ai/market',
@@ -201,7 +213,7 @@ export function SourcingHomeHero() {
     },
     {
       label: '인기 키워드',
-      count: popularTotal,
+      count: boardsCovered ? popularTotal : null,
       accent: '#059669',
       icon: Star,
       href: '/sourcing-ai/keywords',

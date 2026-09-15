@@ -431,7 +431,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량0개');
-    expect(screen.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자177.5명');
+    expect(screen.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자178명');
     expect(screen.getByText('조회').parentElement).toHaveTextContent('조회80회');
     expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
     expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
@@ -503,7 +503,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     // screen, and in its accessible name for anyone not reading colour.
     expect(funnel.getByRole('button', { name: /근거 안내 · 일부 기간 미수집/ })).toBeInTheDocument();
     expect(funnel.queryByText(/부분 10\/11일/)).not.toBeInTheDocument();
-    expect(funnel.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자185.1명');
+    expect(funnel.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자185명');
     expect(funnel.getByText('조회').parentElement).toHaveTextContent('조회2,325회');
     expect(funnel.getByText('주문').parentElement).toHaveTextContent('주문92건');
     expect(document.body).not.toHaveTextContent('Wing 트래픽 미수집');
@@ -514,6 +514,39 @@ describe('Dashboard absolute ABC grade cards', () => {
     // quotient recomputed from the headline counts above.
     expect(funnel.getByText('장바구니').parentElement).toHaveTextContent('7.7%');
     expect(funnel.getByText('주문').parentElement).toHaveTextContent('8.8%');
+  });
+
+  /**
+   * Wing publishes visitors per day, so the first step is an average over the
+   * covered days and is rarely whole: QA saw 2,424 visitors over 13 days read
+   * 186.462명. Visitors are counted whole, the way the sales-analysis card
+   * shows the same average.
+   */
+  it('shows a fractional daily average as whole visitors', async () => {
+    salesResponse = {
+      ...sales,
+      trafficKpi: {
+        ...sales.trafficKpi,
+        visitors: 2424 / 13,
+        dailyAverageVisitors: 2424 / 13,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-13',
+          targetDays: 13,
+          completedDays: 13,
+          missingDates: [],
+        },
+        source: 'wing',
+        trafficAvailable: true,
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const funnel = within(screen.getByTestId('dashboard-traffic-funnel'));
+    expect(funnel.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자186명');
+    expect(document.body).not.toHaveTextContent('186.462');
   });
 
   it('keeps nullable traffic orders unavailable instead of falling back to today orders', async () => {

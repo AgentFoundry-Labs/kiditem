@@ -15,18 +15,29 @@ type NormalizedColumn = {
   label: string;
   keys: readonly string[];
   kind: MetricKind;
+  /** The `_observedMetrics` entry proving the provider grid carried this column. */
+  observedMetric?: string;
 };
 
 const NORMALIZED_COLUMNS: readonly NormalizedColumn[] = [
-  { label: "광고비", keys: ["runningAdSpend", "spend", "adSpend"], kind: "money" },
-  { label: "광고매출", keys: ["revenue", "adRevenue"], kind: "money" },
-  { label: "노출", keys: ["impressions"], kind: "count" },
-  { label: "클릭", keys: ["clicks"], kind: "count" },
-  { label: "전환", keys: ["conversions", "orders"], kind: "count" },
+  { label: "광고비", keys: ["runningAdSpend", "spend", "adSpend"], kind: "money", observedMetric: "adSpend" },
+  { label: "광고매출", keys: ["revenue", "adRevenue"], kind: "money", observedMetric: "adRevenue" },
+  { label: "노출", keys: ["impressions"], kind: "count", observedMetric: "impressions" },
+  { label: "클릭", keys: ["clicks"], kind: "count", observedMetric: "clicks" },
+  { label: "전환", keys: ["conversions", "orders"], kind: "count", observedMetric: "conversions" },
   { label: "ROAS", keys: ["roas"], kind: "percent" },
   { label: "CTR", keys: ["ctr"], kind: "percent" },
   { label: "CVR", keys: ["conversionRate"], kind: "percent" },
 ];
+
+// The extension stores 0 for an additive column the provider grid did not
+// carry, so only `_observedMetrics` separates that from a measured 0.
+function isObservedMetric(row: ReportRecord, column: NormalizedColumn): boolean {
+  if (!column.observedMetric) return true;
+  const evidence = row._observedMetrics;
+  return typeof evidence === "object" && evidence !== null
+    && (evidence as ReportRecord)[column.observedMetric] === true;
+}
 
 function primitiveText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -173,7 +184,9 @@ function NormalizedReportTable({ report }: { report: AdCampaignManualReport }) {
               </td>
               {NORMALIZED_COLUMNS.map((column) => (
                 <td key={column.label} className="px-2 py-2 text-right tabular-nums">
-                  {formatNormalizedValue(exactValue(row.row, column.keys), column.kind)}
+                  {isObservedMetric(row.row, column)
+                    ? formatNormalizedValue(exactValue(row.row, column.keys), column.kind)
+                    : "-"}
                 </td>
               ))}
             </tr>

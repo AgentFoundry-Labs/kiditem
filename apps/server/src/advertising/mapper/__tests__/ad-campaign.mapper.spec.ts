@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { toAdKeywordSnapshot, toAdTrendsData } from '../ad-campaign.mapper';
-import type { KeywordTargetRollup } from '../../application/port/out/repository/ad-campaign.repository.port';
+import { toAdKeywordSnapshot, toAdProductSnapshot, toAdTrendsData } from '../ad-campaign.mapper';
+import type {
+  KeywordTargetRollup,
+  ProductTargetRollup,
+} from '../../application/port/out/repository/ad-campaign.repository.port';
 
 function keywordRollup(overrides: Partial<KeywordTargetRollup> = {}): KeywordTargetRollup {
   return {
@@ -104,6 +107,70 @@ describe('toAdTrendsData', () => {
       observedAt: '2026-09-13T00:00:00.000Z',
       metrics: { spend: 1_500, revenue: 4_500 },
       orders: 2,
+    });
+  });
+});
+
+function productRollup(overrides: Partial<ProductTargetRollup> = {}): ProductTargetRollup {
+  return {
+    targetKey: 'account:00000000-0000-4000-8000-000000000001:product:campaign:1::95514044205',
+    channelAccountId: '00000000-0000-4000-8000-000000000001',
+    campaignIdentity: 'campaign:1',
+    campaignId: '1',
+    campaignName: '쿠팡윙 집중광고',
+    listingId: null,
+    listingOptionId: null,
+    externalId: null,
+    externalOptionId: '95514044205',
+    keyword: null,
+    status: null,
+    onOff: null,
+    metaJson: null,
+    spend: 3_000,
+    revenue: 9_000,
+    impressions: 400,
+    clicks: 20,
+    conversions: 1,
+    orders: 1,
+    ...overrides,
+  };
+}
+
+// Since #493 ingest writes target descriptors as `{ source, data }`;
+// `keywordRollup` above still carries the older namespaced key.
+describe('ledger meta descriptors', () => {
+  it('reads an advertised product name, image, link and sale type from the meta data', () => {
+    const snapshot = toAdProductSnapshot(productRollup({
+      metaJson: {
+        source: 'advertising.campaign.target',
+        data: {
+          productName: '캐릭터 문어발 비눗방울 1p',
+          imageUrl: 'https://image.example.com/bubble.jpg',
+          productUrl: 'https://www.coupang.com/vp/products/1',
+          saleType: '판매자배송',
+        },
+      },
+    }), null, '7d');
+
+    expect(snapshot).toMatchObject({
+      productName: '캐릭터 문어발 비눗방울 1p',
+      imageUrl: 'https://image.example.com/bubble.jpg',
+      productUrl: 'https://www.coupang.com/vp/products/1',
+      saleType: '판매자배송',
+    });
+  });
+
+  it('reads a keyword product name and origin from the meta data', () => {
+    const snapshot = toAdKeywordSnapshot(keywordRollup({
+      metaJson: {
+        source: 'advertising.keyword.target',
+        data: { origin: 'registered', productName: '캐릭터 문어발 비눗방울 1p' },
+      },
+    }), null);
+
+    expect(snapshot).toMatchObject({
+      productName: '캐릭터 문어발 비눗방울 1p',
+      origin: 'registered',
     });
   });
 });

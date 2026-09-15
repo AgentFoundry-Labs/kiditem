@@ -839,6 +839,36 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('keeps the stored Wing registration date when a workbook import replaces listing raw JSON', async () => {
+    const identities = [
+      { externalProductId: 'P-REGISTERED', externalSkuId: 'S-REGISTERED' },
+      { externalProductId: 'P-UNREGISTERED', externalSkuId: 'S-UNREGISTERED' },
+    ];
+    await importCatalog(
+      identities.map((identity, index) => makeRow(index, identity)),
+      fileHash('registration-first'),
+    );
+    // Only the browser catalog's inventory-list stage observes the date.
+    await prisma.channelListing.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-REGISTERED' },
+      data: { rawJson: { source: 'coupang_catalog_basics', createdOn: '2026-04-01 11:32:06' } },
+    });
+
+    await importCatalog(
+      identities.map((identity, index) => makeRow(index, { ...identity, rawJson: { revision: 2 } })),
+      fileHash('registration-second'),
+    );
+
+    await expect(prisma.channelListing.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: WING_ACCOUNT_ID },
+      select: { externalId: true, rawJson: true },
+      orderBy: { externalId: 'asc' },
+    })).resolves.toEqual([
+      { externalId: 'P-REGISTERED', rawJson: { revision: 2, createdOn: '2026-04-01 11:32:06' } },
+      { externalId: 'P-UNREGISTERED', rawJson: { revision: 2 } },
+    ]);
+  });
+
   it('rejects moving an existing external SKU to another parent and rolls back the whole import', async () => {
     await importCatalog(
       [

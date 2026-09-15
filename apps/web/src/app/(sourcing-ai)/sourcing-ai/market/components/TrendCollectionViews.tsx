@@ -388,7 +388,10 @@ function PopularBoardCard({ board }: { board: PopularKeywordBoardView }) {
 
       <div className="mt-3">
         <p className="text-[11px] font-semibold text-purple-700">급상승 · 신규 진입</p>
-        {board.risers.length === 0 ? (
+        {board.comparedFrom === null ? (
+          // 비교할 이전 순위일이 없으면 급상승·신규 진입은 알 수 없다. 신호 없음과 다르다.
+          <p className="mt-1.5 text-xs text-[var(--text-tertiary)]">비교할 이전 순위일 없음</p>
+        ) : board.risers.length === 0 ? (
           <p className="mt-1.5 text-xs text-[var(--text-tertiary)]">범위 내 상승 신호 없음</p>
         ) : (
           <ul className="mt-1.5 space-y-1">

@@ -166,6 +166,7 @@ function trendRepository(input: { empty?: boolean } = {}): TrendCollectionReposi
       thumbnailUrl: 'https://example.test/short.png',
       videoUrl: 'https://youtube.test/short-1',
     }]),
+    findShortsHistoryWithCoverage: vi.fn(async () => ({ rows: [], coverage: [] })),
   };
 }
 

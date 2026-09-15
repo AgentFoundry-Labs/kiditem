@@ -82,6 +82,8 @@ export interface PopularKeywordBoardView {
   boardKey: string;
   boardLabel: string | null;
   latest: Array<{ rank: number; keyword: string }>;
+  /** risers가 latest와 비교한 날(범위 안 가장 이른 순위일). null이면 비교할 날이 없어 급상승·신규 진입을 모른다. */
+  comparedFrom: string | null;
   risers: PopularKeywordRiser[];
 }
 

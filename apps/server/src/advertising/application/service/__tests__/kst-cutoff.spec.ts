@@ -89,7 +89,10 @@ describe('Advertising read services — KST cutoff', () => {
         },
         perListing: [],
       });
-      listingRepo.findScopedAdListings.mockResolvedValue(new Map());
+      listingRepo.findScopedAdListingsWithAbcCutoff.mockResolvedValue({
+        listings: new Map(),
+        abcOfficialCutoffDate: null,
+      });
       const adConfig: any = {
         getConfig: vi.fn().mockResolvedValue({}),
       };

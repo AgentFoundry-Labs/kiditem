@@ -6,6 +6,8 @@ import type {
 
 export type ToyKeywordScope = 'all' | 'popular' | 'tracked';
 export type ToyQuickFilter = 'new-entry' | 'rank-riser' | 'mobile-strong' | 'trend-up';
+/** Quick filters that read a toy board comparison, so they need an earlier board day. */
+export const BOARD_COMPARISON_QUICK_FILTERS: readonly ToyQuickFilter[] = ['new-entry', 'rank-riser'];
 export type ToySortKey = 'rank' | 'searches' | 'mobile' | 'trend';
 export type ToyClusterId =
   | 'new-entry'

@@ -20,6 +20,7 @@ import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import {
+  BOARD_COMPARISON_QUICK_FILTERS,
   buildToyKeywordCsv,
   clusterToyKeywords,
   filterToyKeywords,
@@ -82,13 +83,25 @@ export function ToyCategorySourcingPage() {
   });
 
   const toyBoard = popularQuery.data?.boards.find((board) => board.boardKey === 'toys_dolls');
+  // New entries and rank rises exist only against an earlier toy board day. Without
+  // one, their filters stay off instead of matching nothing.
+  const boardCompared = toyBoard?.comparedFrom != null;
+  // What those filters show instead: the page's loading mark while the board loads,
+  // its unavailable mark without a toy board, and why a read board cannot compare.
+  const unavailableComparisonCaption = boardCompared ? null
+    : popularQuery.isLoading ? '…'
+    : toyBoard ? '비교할 이전 순위일 없음'
+    : '—';
   const allKeywords = useMemo(
     () => mergeToyKeywordSignals(toyBoard, keywordQuery.data?.keywords ?? []),
     [toyBoard, keywordQuery.data?.keywords],
   );
   const visibleKeywords = useMemo(
-    () => filterToyKeywords(allKeywords, appliedFilters),
-    [allKeywords, appliedFilters],
+    () => filterToyKeywords(allKeywords, boardCompared ? appliedFilters : {
+      ...appliedFilters,
+      quickFilters: appliedFilters.quickFilters.filter((filter) => !BOARD_COMPARISON_QUICK_FILTERS.includes(filter)),
+    }),
+    [allKeywords, appliedFilters, boardCompared],
   );
   const clusters = useMemo(() => clusterToyKeywords(visibleKeywords), [visibleKeywords]);
   const selectedKeywords = useMemo(
@@ -104,11 +117,15 @@ export function ToyCategorySourcingPage() {
     (sum, keyword) => sum + (keyword.monthlyTotalSearchCount ?? 0),
     0,
   );
-  const risingCount = visibleKeywords.filter(
-    (keyword) => keyword.rankDelta === null
-      || (typeof keyword.rankDelta === 'number' && keyword.rankDelta > 0)
-      || (keyword.trendDelta !== null && keyword.trendDelta > 0),
-  ).length;
+  // Without an earlier toy board day the combined rise signal count is unknown,
+  // not a smaller number.
+  const risingCount = boardCompared
+    ? visibleKeywords.filter(
+      (keyword) => keyword.rankDelta === null
+        || (typeof keyword.rankDelta === 'number' && keyword.rankDelta > 0)
+        || (keyword.trendDelta !== null && keyword.trendDelta > 0),
+    ).length
+    : null;
   const latestBusinessDate = keywordQuery.data?.keywords
     .map((keyword) => keyword.latest.businessDate)
     .sort()
@@ -249,7 +266,7 @@ export function ToyCategorySourcingPage() {
             caption={`${formatNumber(measuredKeywords.length)}개 합계`}
             tone="sky"
           />
-          <MetricCard icon={TrendingUp} label="상승 신호" value={`${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
+          <MetricCard icon={TrendingUp} label="상승 신호" value={isLoading ? '…' : risingCount === null ? '—' : `${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
           <MetricCard icon={Database} label="활성 네이버 시드" value={`${formatNumber(activeNaverSeedCount)}개`} caption="검색량 수집 대상" tone="orange" />
         </div>
 
@@ -257,6 +274,7 @@ export function ToyCategorySourcingPage() {
           filters={draftFilters}
           resultCount={visibleKeywords.length}
           activeNaverSeedCount={activeNaverSeedCount}
+          unavailableComparisonCaption={unavailableComparisonCaption}
           isDirty={filtersDirty}
           onFiltersChange={setDraftFilters}
           onSearch={applySearch}

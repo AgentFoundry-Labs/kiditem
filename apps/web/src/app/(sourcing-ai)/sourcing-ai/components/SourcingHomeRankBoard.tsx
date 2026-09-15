@@ -13,7 +13,8 @@ export interface RankItem {
 
 export interface RankColumn {
   label: string;
-  count: number;
+  /** Null when the column's source has measured nothing yet. */
+  count: number | null;
   accent: string;
   icon: LucideIcon;
   href: string;
@@ -51,7 +52,7 @@ function RankColumnCard({ col }: { col: RankColumn }) {
           className="shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums"
           style={{ background: `${col.accent}14`, color: col.accent }}
         >
-          {formatNumber(col.count)}개
+          {col.count === null ? '-' : `${formatNumber(col.count)}개`}
         </span>
       </div>
       {col.items.length === 0 ? (

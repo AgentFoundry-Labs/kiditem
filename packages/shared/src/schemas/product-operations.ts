@@ -283,6 +283,9 @@ export const ProductOperationsListSummarySchema = z.object({
   }).strict(),
   contributionOverview: ProductAbcContributionOverviewSchema.nullable(),
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
+  // The retained ABC publication's cutoff. Null until Products publishes, when
+  // `abcGradeCounts.A/B/C` measure nothing and must not read as 0.
+  abcOfficialCutoffDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({

@@ -543,7 +543,9 @@ export default function Dashboard() {
   const formatFunnelRate = (value: number | null): string | null =>
     value === null ? null : `${value.toFixed(1)}%`;
   const trafficFunnelSteps = [
-    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors, '명'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.visitors'), rateBasis: null },
+    // A daily average is rarely whole (2,424 visitors over 13 days is 186.46);
+    // show whole visitors, as the sales-analysis card does.
+    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors === null ? null : Math.round(trafficDailyAverageVisitors), '명'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.visitors'), rateBasis: null },
     // No rate against visitors. The first step is a daily average of account
     // unique visitors and every later step is a period sum, so the quotient is
     // not a share of anything — with ten days collected it read 1256.1%. Wing

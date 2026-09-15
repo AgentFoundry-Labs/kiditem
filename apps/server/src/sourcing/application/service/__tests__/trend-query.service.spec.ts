@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TrendQueryService } from '../trend-query.service';
-import type { TrendCollectionRepositoryPort } from '../../port/out/repository/trend-collection.repository.port';
+import type {
+  TrendCollectionRepositoryPort,
+  TrendHistoryQuery,
+} from '../../port/out/repository/trend-collection.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const BUSINESS_DATE = new Date('2026-07-13T00:00:00.000Z');
@@ -8,7 +11,7 @@ const CAPTURED_AT = new Date('2026-07-13T05:40:00.000Z');
 const EARLIER_CAPTURED_AT = new Date('2026-07-13T01:20:00.000Z');
 
 function repositoryStub(): TrendCollectionRepositoryPort {
-  return {
+  const repository: TrendCollectionRepositoryPort = {
     listSeeds: vi.fn(async () => [
       {
         id: 'seed-sanrio',
@@ -92,7 +95,13 @@ function repositoryStub(): TrendCollectionRepositoryPort {
         videoUrl: null,
       },
     ]),
+    // The rows above, read with the days complete collections covered.
+    findShortsHistoryWithCoverage: vi.fn(async (query: TrendHistoryQuery) => ({
+      rows: await repository.findShortsHistory(query),
+      coverage: [{ businessDate: BUSINESS_DATE }],
+    })),
   };
+  return repository;
 }
 
 describe('TrendQueryService Shorts relevance', () => {
@@ -165,7 +174,7 @@ describe('TrendQueryService Shorts relevance', () => {
 
     const result = await service.getShorts(ORGANIZATION_ID, 30);
 
-    expect(repository.findShortsHistory).toHaveBeenCalledWith({
+    expect(repository.findShortsHistoryWithCoverage).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       days: 30,
     });
@@ -229,6 +238,34 @@ describe('TrendQueryService Shorts relevance', () => {
   });
 });
 
+describe('TrendQueryService Shorts coverage', () => {
+  /** A window holding no Shorts row, with the days complete collections covered. */
+  function emptyShortsWindow(coveredDays: Date[]) {
+    const repository = repositoryStub();
+    vi.mocked(repository.findShortsHistory).mockResolvedValue([]);
+    vi.mocked(repository.findShortsHistoryWithCoverage).mockResolvedValue({
+      rows: [],
+      coverage: coveredDays.map((businessDate) => ({ businessDate })),
+    });
+    return repository;
+  }
+
+  it('names the latest covered day when complete Shorts collections stored no video', async () => {
+    const repository = emptyShortsWindow([BUSINESS_DATE, new Date('2026-07-14T00:00:00.000Z')]);
+
+    // The collections measured those days and found nothing: a count of 0, not unknown.
+    expect(await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 30))
+      .toEqual({ days: 30, businessDate: '2026-07-14', capturedAt: null, items: [] });
+  });
+
+  it('names no business date while no complete collection covered the window', async () => {
+    const repository = emptyShortsWindow([]);
+
+    expect(await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 30))
+      .toEqual({ days: 30, businessDate: null, capturedAt: null, items: [] });
+  });
+});
+
 describe('TrendQueryService TikTok Creative Center', () => {
   const PRIOR_DATE = new Date('2026-07-12T00:00:00.000Z');
   const LATEST_DATE = new Date('2026-07-13T00:00:00.000Z');
@@ -289,6 +326,12 @@ describe('TrendQueryService TikTok Creative Center', () => {
 });
 
 describe('TrendQueryService popular board coverage', () => {
+  const EARLIER_DATE = new Date('2026-07-11T00:00:00.000Z');
+
+  function boardRow(businessDate: Date, rank: number, keyword: string) {
+    return { boardKey: 'toys_dolls', boardLabel: '완구', cid: null, businessDate, rank, keyword, linkId: null };
+  }
+
   it('keeps an older board history but presents the latest covered empty day as empty', async () => {
     const repository = repositoryStub();
     vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
@@ -300,6 +343,69 @@ describe('TrendQueryService popular board coverage', () => {
       ],
     });
     expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards)
-      .toEqual([{ boardKey: 'toys_dolls', boardLabel: '완구', latest: [], risers: [] }]);
+      .toEqual([{ boardKey: 'toys_dolls', boardLabel: '완구', latest: [], comparedFrom: '2026-07-13', risers: [] }]);
+  });
+
+  it('publishes no comparison start and no rises for a board collected on one day', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
+      rows: [boardRow(BUSINESS_DATE, 1, '레고'), boardRow(BUSINESS_DATE, 2, '슬라임')],
+      coverage: [{ boardKey: 'toys_dolls', businessDate: BUSINESS_DATE }],
+    });
+
+    // Nothing earlier to compare with, so no keyword can be told new or risen.
+    expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards).toEqual([{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+      comparedFrom: null,
+      risers: [],
+    }]);
+  });
+
+  it('publishes no comparison start when the earlier covered day ranked no keyword', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
+      rows: [boardRow(BUSINESS_DATE, 1, '레고'), boardRow(BUSINESS_DATE, 2, '슬라임')],
+      coverage: [
+        { boardKey: 'toys_dolls', businessDate: EARLIER_DATE },
+        { boardKey: 'toys_dolls', businessDate: BUSINESS_DATE },
+      ],
+    });
+
+    // An empty earlier board is no comparison base: against it every latest keyword
+    // would read as a new entry.
+    expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards).toEqual([{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+      comparedFrom: null,
+      risers: [],
+    }]);
+  });
+
+  it('compares the latest board with its oldest ranked day in the window', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
+      rows: [
+        boardRow(EARLIER_DATE, 1, '슬라임'),
+        boardRow(EARLIER_DATE, 3, '레고'),
+        boardRow(BUSINESS_DATE, 1, '레고'),
+        boardRow(BUSINESS_DATE, 2, '말랑이'),
+        boardRow(BUSINESS_DATE, 3, '슬라임'),
+      ],
+      coverage: [
+        { boardKey: 'toys_dolls', businessDate: EARLIER_DATE },
+        { boardKey: 'toys_dolls', businessDate: BUSINESS_DATE },
+      ],
+    });
+
+    expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards).toEqual([{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '말랑이' }, { rank: 3, keyword: '슬라임' }],
+      comparedFrom: '2026-07-11',
+      risers: [{ keyword: '말랑이', rankDelta: null }, { keyword: '레고', rankDelta: 2 }],
+    }]);
   });
 });

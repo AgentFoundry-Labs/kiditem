@@ -85,6 +85,7 @@ export function GlobalSourcingOverview() {
   const sourceContext: SourceContext = {
     chinaCount: chinaOffers.length,
     globalCount: globalVideos.length,
+    globalCollected: globalQuery.data?.businessDate != null,
     koreaCount: koreaKeywords.length,
     naverLoading: naverQuery.isLoading,
     naverError: naverQuery.isError,
@@ -106,7 +107,13 @@ export function GlobalSourcingOverview() {
 
       <div className="grid gap-5 xl:grid-cols-3">
         <ChinaSignals offers={chinaOffers} capturedAt={chinaQuery.data?.capturedAt ?? null} />
-        <GlobalSignals items={globalVideos} capturedAt={globalQuery.data?.capturedAt ?? null} />
+        <GlobalSignals
+          items={globalVideos}
+          capturedAt={globalQuery.data?.capturedAt ?? null}
+          businessDate={globalQuery.data?.businessDate ?? null}
+          loading={globalQuery.isLoading}
+          error={globalQuery.isError}
+        />
         <KoreaSignals
           items={koreaKeywords}
           generatedAt={naverQuery.data?.generatedAt || null}
@@ -234,10 +241,23 @@ function ChinaSignals({ offers, capturedAt }: { offers: Hot1688OfferView[]; capt
   );
 }
 
-function GlobalSignals({ items, capturedAt }: { items: ShortsTrendView[]; capturedAt: string | null }) {
+function GlobalSignals({ items, capturedAt, businessDate, loading, error }: {
+  items: ShortsTrendView[];
+  capturedAt: string | null;
+  businessDate: string | null;
+  loading: boolean;
+  error: boolean;
+}) {
+  // A completed collection that stored no video still names the day it covered.
+  const badge = capturedAt
+    ? `저장 ${formatDateTime(capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+    : businessDate ? `수집 완료 ${businessDate}` : '수집 대기';
   return (
-    <SignalCard icon={Globe2} title="글로벌 반응" subtitle="YouTube 최근 48시간 문구·완구 스냅샷" badge={capturedAt ? `저장 ${formatDateTime(capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '수집 대기'}>
-      {items.length === 0 ? <CompactEmpty text="최근 수집분에 문구·완구 관련 영상이 없습니다." /> : (
+    <SignalCard icon={Globe2} title="글로벌 반응" subtitle="YouTube 최근 48시간 문구·완구 스냅샷" badge={badge}>
+      {loading ? <CompactEmpty text="유튜브 쇼츠 데이터를 불러오는 중입니다." loading /> : error ? <CompactEmpty text="유튜브 쇼츠 데이터를 가져오지 못했습니다." error /> : items.length === 0 ? (
+        // Only a completed collection can report that it found no video.
+        <CompactEmpty text={businessDate ? '최근 수집분에 문구·완구 관련 영상이 없습니다.' : '최근 수집한 유튜브 쇼츠 스냅샷이 없습니다.'} />
+      ) : (
         <ul className="divide-y divide-[var(--border-subtle)]">
           {items.slice(0, 5).map((item) => (
             <li key={item.videoKey} className="flex items-center gap-3 px-4 py-3">
@@ -410,6 +430,8 @@ function CompactEmpty({ text, loading = false, error = false }: { text: string; 
 interface SourceContext {
   chinaCount: number;
   globalCount: number;
+  /** A completed Shorts collection covered a day in the window, even with no video. */
+  globalCollected: boolean;
   koreaCount: number;
   naverLoading: boolean;
   naverError: boolean;
@@ -419,7 +441,7 @@ interface SourceContext {
 
 function sourceStatus(source: GlobalSourcingSource, context: SourceContext): { label: string; className: string } {
   if (source.id === '1688') return context.chinaCount > 0 ? collectedStatus() : { label: '수집·인증 확인', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
-  if (source.id === 'youtube') return context.globalCount > 0 ? collectedStatus() : { label: '수집 대기', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
+  if (source.id === 'youtube') return context.globalCount > 0 || context.globalCollected ? collectedStatus() : { label: '수집 대기', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
   if (source.id === 'naver') {
     if (context.naverLoading) return { label: '연결 중', className: 'bg-slate-100 text-slate-600 ring-slate-200' };
     if (context.naverError) return { label: '연동 확인', className: 'bg-rose-50 text-rose-700 ring-rose-200' };

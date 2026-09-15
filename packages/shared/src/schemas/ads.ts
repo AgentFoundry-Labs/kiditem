@@ -70,6 +70,9 @@ export type AdsSummary = AdsHubSummary;
 export const AdsHubDataSchema = z.object({
   products: z.array(AdsListItemSchema),
   summary: AdsHubSummarySchema,
+  // Products' retained ABC publication cutoff. Null before any publication:
+  // no product's grade membership is measured, so a per-grade count is unknown.
+  abcOfficialCutoffDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
 });
 export type AdsHubData = z.infer<typeof AdsHubDataSchema>;
 

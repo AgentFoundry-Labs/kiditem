@@ -6,10 +6,11 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import type {
-  ToyKeywordFilters,
-  ToyKeywordScope,
-  ToyQuickFilter,
+import {
+  BOARD_COMPARISON_QUICK_FILTERS,
+  type ToyKeywordFilters,
+  type ToyKeywordScope,
+  type ToyQuickFilter,
 } from '../lib/toy-keyword-intelligence';
 
 const quickFilterMeta: Array<{
@@ -35,6 +36,7 @@ export function ToyCategoryControls({
   filters,
   resultCount,
   activeNaverSeedCount,
+  unavailableComparisonCaption,
   isDirty,
   onFiltersChange,
   onSearch,
@@ -43,6 +45,8 @@ export function ToyCategoryControls({
   filters: ToyKeywordFilters;
   resultCount: number;
   activeNaverSeedCount: number;
+  /** What the new entry and rank rise filters show while they cannot apply; null once the toy board was compared. */
+  unavailableComparisonCaption: string | null;
   isDirty: boolean;
   onFiltersChange: (filters: ToyKeywordFilters) => void;
   onSearch: () => void;
@@ -129,12 +133,15 @@ export function ToyCategoryControls({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[11px] font-black text-[var(--text-tertiary)]">실데이터 빠른 조건</span>
             {quickFilterMeta.map((item) => {
-              const active = filters.quickFilters.includes(item.id);
+              // These filters read the board comparison, so they wait until one exists.
+              const unavailable = unavailableComparisonCaption !== null && BOARD_COMPARISON_QUICK_FILTERS.includes(item.id);
+              const active = !unavailable && filters.quickFilters.includes(item.id);
               return (
                 <button
                   key={item.id}
                   type="button"
                   aria-pressed={active}
+                  disabled={unavailable}
                   onClick={() => onFiltersChange({
                     ...filters,
                     quickFilters: active
@@ -142,14 +149,14 @@ export function ToyCategoryControls({
                       : [...filters.quickFilters, item.id],
                   })}
                   className={cn(
-                    'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-black transition',
+                    'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-black transition disabled:cursor-not-allowed disabled:opacity-50',
                     active
                       ? 'border-violet-200 bg-violet-50 text-violet-700'
                       : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]',
                   )}
                 >
                   {item.label}
-                  <span className="font-bold opacity-70">{item.caption}</span>
+                  <span className="font-bold opacity-70">{unavailable ? unavailableComparisonCaption : item.caption}</span>
                 </button>
               );
             })}

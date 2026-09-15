@@ -19,6 +19,13 @@ const payload = z.record(z.string(), z.unknown());
 const metric = z.number().finite().int().safe();
 const providerRatio = z.number().finite().nullable();
 
+/**
+ * The longest range an operator may start collecting at once. A longer plan an
+ * earlier release admitted still reads, uploads and finalizes: the plan and
+ * receipt schemas below keep accepting up to 366 days.
+ */
+export const WING_TRAFFIC_MAX_COLLECTION_DAYS = 92;
+
 /** The browser may suggest a range/URL; the owner freezes the accepted values. */
 export const AdTrafficSourceBeginSchema = z
   .object({
@@ -27,7 +34,19 @@ export const AdTrafficSourceBeginSchema = z
     endDate: date.optional(),
     url: z.string().url().max(2048).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.startDate || !value.endDate) return;
+    const start = parseBusinessDate(value.startDate);
+    const end = parseBusinessDate(value.endDate);
+    if (start && end && inclusiveDayCount(start, end) > WING_TRAFFIC_MAX_COLLECTION_DAYS) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endDate'],
+        message: `A collection range must not exceed ${WING_TRAFFIC_MAX_COLLECTION_DAYS} days.`,
+      });
+    }
+  });
 
 const legacyPlanSchema = z
   .object({

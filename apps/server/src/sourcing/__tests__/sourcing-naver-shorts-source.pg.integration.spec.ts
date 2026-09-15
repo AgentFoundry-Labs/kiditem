@@ -64,6 +64,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
   it.each(COLLECTION_CLOCKS)('publishes Shorts once, replays without IO after seed drift, retains prior COMPLETE on failure and replaces confirmed empty coverage at %s', async (_clock, now) => {
     vi.setSystemTime(now);
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
+    // Nothing collected yet, so the Shorts read names no day and its count stays unknown.
+    expect((await controller.getShorts({ days: 7 }, organizationId)).businessDate).toBeNull();
     const first = await controller.collect({ sources: ['shorts'] }, organizationId, { id: TEST_USER_ID } as never, 'first');
     expect(first.results[0], JSON.stringify(first.results[0])).toMatchObject({ source: 'shorts', ok: true, state: 'COMPLETE', collected: 1 });
     expect(fetchTrending).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, publishedWithinDays: 30,
@@ -86,12 +88,18 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect((await service.collect(organizationId, ['shorts'], TEST_USER_ID, 'empty')).results[0])
       .toMatchObject({ state: 'COMPLETE', collected: 0 });
     expect(await history.findShortsHistory({ organizationId, days: 7 })).toEqual([]);
+    // The empty collection still measured its day: the read names it with no video.
+    expect(await controller.getShorts({ days: 7 }, organizationId))
+      .toEqual({ days: 7, businessDate: '2026-09-07', capturedAt: null, items: [] });
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
       SELECT to_regclass('public.operation_runs') IS NULL AS absent
     `)[0]?.absent).toBe(true);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
     expect(await prisma.alert.findMany({ where: { organizationId, type: 'source_failure' } }))
       .toMatchObject([{ status: 'RESOLVED' }]);
+    // Eight days on, the 7-day window holds no covered day again.
+    vi.setSystemTime(new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000));
+    expect((await controller.getShorts({ days: 7 }, organizationId)).businessDate).toBeNull();
   });
   it('attempts later Naver stages and Shorts after popular failure, without exposing partial daily data', async () => {
     await history.upsertSeedByKeyword({ organizationId, keyword: '슬라임', sources: ['naver'] });
@@ -190,6 +198,45 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect((await new TrendQueryService(history).getPopularKeywords(organizationId, 7)).boards)
       .toEqual(expect.arrayContaining([expect.objectContaining({ boardKey: 'toys_dolls', latest: [] })]));
     expect(await history.findNaverKeywordHistory({ organizationId, days: 7 })).toHaveLength(2);
+  });
+
+  it('compares the latest popular board only with an earlier ranked day inside the 7-day window', async () => {
+    searchRelatedKeywords.mockResolvedValue({ items: [] });
+    compareSearchTrends.mockResolvedValue({ items: [] });
+    const controller = new TrendCollectionController(service, new TrendQueryService(history));
+    const collectBoards = async (idempotencyKey: string, toys: string[], stationery: string[]) => {
+      const providerBoard = (key: string, label: string, keywords: string[]) => ({ key, label, cid: 1, error: null,
+        ranks: keywords.map((keyword, index) => ({ rank: index + 1, keyword, linkId: null })) });
+      searchPopularKeywords.mockResolvedValueOnce({ boards: [providerBoard('toys_dolls', '완구', toys),
+        providerBoard('stationery_office', '문구', stationery)] });
+      expect((await controller.collect({ sources: ['naver'] }, organizationId, { id: TEST_USER_ID } as never, idempotencyKey))
+        .results[0]).toMatchObject({ source: 'naver', state: 'COMPLETE' });
+    };
+    const readBoard = async (boardKey: string) => (await controller.getPopularKeywords({ days: 7 }, organizationId)).boards
+      .find((board) => board.boardKey === boardKey);
+
+    // 2026-09-07: the toys board ranks keywords for the first time; the stationery board ranks none.
+    await collectBoards('boards-0907', ['슬라임', '말랑이', '레고'], []);
+    // One ranked day has nothing earlier to compare with, so no keyword can read as new or risen.
+    expect(await readBoard('toys_dolls')).toEqual({ boardKey: 'toys_dolls', boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '슬라임' }, { rank: 2, keyword: '말랑이' }, { rank: 3, keyword: '레고' }],
+      comparedFrom: null, risers: [] });
+
+    vi.setSystemTime(NEXT_KST_DAWN);
+    await collectBoards('boards-0908', ['레고', '슬라임', '키링'], ['색연필', '스티커']);
+    // 2026-09-08 against 09-07: 키링 entered, 레고 rose two places, 슬라임 fell and is no riser.
+    expect(await readBoard('toys_dolls')).toEqual({ boardKey: 'toys_dolls', boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }, { rank: 3, keyword: '키링' }],
+      comparedFrom: '2026-09-07', risers: [{ keyword: '키링', rankDelta: null }, { keyword: '레고', rankDelta: 2 }] });
+    // The stationery board's covered 09-07 ranked nothing, so it is no comparison start.
+    expect(await readBoard('stationery_office')).toEqual({ boardKey: 'stationery_office', boardLabel: '문구',
+      latest: [{ rank: 1, keyword: '색연필' }, { rank: 2, keyword: '스티커' }], comparedFrom: null, risers: [] });
+
+    // 2026-09-14 03:30 KST: the 7-day window starts on 09-08, so 09-07 no longer counts.
+    vi.setSystemTime(new Date('2026-09-13T18:30:00.000Z'));
+    expect(await readBoard('toys_dolls')).toEqual({ boardKey: 'toys_dolls', boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }, { rank: 3, keyword: '키링' }],
+      comparedFrom: null, risers: [] });
   });
 
   it.each(['naver', 'shorts'] as const)('keeps %s visible COMPLETE cutoff and last failure across day rollover', async (source) => {

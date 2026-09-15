@@ -1256,11 +1256,11 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('observable state absent → reason untouched (C4-#2 fallback, H3 semantics)', async () => {
       // Ad facts live in the target-day ledger; `channelState` comes from the
-      // listing-daily row. A listing whose latest daily row carries no
-      // observable winner/exposure/saleStatus still produces a (mostly empty)
-      // `channelState`. The C4 contract that matters here is: when no
-      // observable state is present, the rule engine MUST NOT append the
-      // ' · 관측' evidence suffix to `reason`.
+      // latest listing-daily row that observed listing state. A row with no
+      // observable state (a bare row, or a Wing traffic zero row) is not a
+      // state observation, so the listing has no `channelState`. The C4
+      // contract that matters here is: when no observable state is present,
+      // the rule engine MUST NOT append the ' · 관측' evidence suffix to `reason`.
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -1288,12 +1288,8 @@ describe('AdStrategy flow (PG integration)', () => {
         (r) => r.listing.listingId === a.listing.id,
       );
       expect(action).toBeDefined();
-      // channelState exists (a bare daily row), but observable
-      // winner/exposure/sale fields are all null.
-      expect(action?.channelState?.isOfferWinner).toBeNull();
-      expect(action?.channelState?.exposureStatus).toBeNull();
-      expect(action?.channelState?.saleStatus).toBeNull();
-      expect(action?.channelState?.primaryOption).toBeNull();
+      // The bare daily row observed no winner/exposure/sale state.
+      expect(action?.channelState).toBeNull();
       // No '관측' suffix, no winner-loss appendix — observable state was empty.
       expect(action?.reason).not.toContain('관측');
       expect(action?.reason).not.toContain('아이템위너');
@@ -1320,12 +1316,14 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      // Our own bare daily row: channelState exists, observable state empty.
+      // Our own daily row observed only the sale status, so channelState exists
+      // without any winner state of its own.
       await seedListingDaily({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: ours.listing.id,
         externalId: ours.listing.externalId,
         businessDate: periodBounds('14d').to.toISOString().slice(0, 10),
+        saleStatus: '판매중',
       });
       // Seed a noisy daily snapshot in the OTHER organization — must not leak.
       await seedListingDaily({
@@ -1342,9 +1340,9 @@ describe('AdStrategy flow (PG integration)', () => {
         (r) => r.listing.listingId === ours.listing.id,
       );
       expect(action).toBeDefined();
-      // Ours has a bare daily row, so channelState exists but carries OUR
-      // externalId (not OTHER's -9999 winner gap). The cross-tenant invariant is the externalId
-      // and the absence of OTHER's winner state.
+      // channelState carries OUR externalId (not OTHER's -9999 winner gap).
+      // The cross-tenant invariant is the externalId and the absence of
+      // OTHER's winner state.
       expect(action?.channelState?.externalId).toBe(ours.listing.externalId);
       expect(action?.channelState?.winnerGapPrice).toBeNull();
       expect(action?.channelState?.isOfferWinner).toBeNull();

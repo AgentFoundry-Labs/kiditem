@@ -38,6 +38,10 @@ export type MockAdListingRepo = {
 export function buildMockAdListingRepo(): MockAdListingRepo {
   return {
     findScopedAdListings: vi.fn(),
+    findScopedAdListingsWithAbcCutoff: vi.fn().mockResolvedValue({
+      listings: new Map(),
+      abcOfficialCutoffDate: null,
+    }),
     verifyListingOwnership: vi.fn(),
   };
 }

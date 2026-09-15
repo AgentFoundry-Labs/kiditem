@@ -438,4 +438,36 @@ describe('AdCampaignsService.getKeywords conversion availability', () => {
       metrics: { clicks: 40, cvr: null },
     });
   });
+
+  it('counts registered and smart-targeting keywords from the ledger meta data', async () => {
+    // Since #493 ingest writes target descriptors as `{ source, data }`.
+    const descriptor = (origin: string) => ({
+      source: 'advertising.keyword.target',
+      data: { origin, productName: '캐릭터 문어발 비눗방울 1p' },
+    });
+    const campaignRepo = buildMockAdCampaignRepo();
+    campaignRepo.findKeywordTargetRollups.mockResolvedValue([
+      keywordRollup('비눗방울', { metaJson: descriptor('registered') }),
+      keywordRollup('문어발', { metaJson: descriptor('registered') }),
+      keywordRollup('캐릭터 비눗방울', { metaJson: descriptor('smart_targeting') }),
+    ]);
+    const service = new AdCampaignsService(
+      campaignRepo as unknown as AdCampaignRepositoryPort,
+      buildMockAdListingRepo() as unknown as AdListingRepositoryPort,
+      // The mock resolves no open keyword relevance proposal.
+      buildMockAdActionRepo() as unknown as AdActionRepositoryPort,
+      { getConfig: vi.fn() } as never,
+    );
+
+    const result = await service.getKeywords('7d', 'organization-1');
+
+    expect(result.products).toEqual([
+      expect.objectContaining({
+        externalOptionId: '95514044205',
+        keywordCount: 3,
+        registeredCount: 2,
+        smartTargetingCount: 1,
+      }),
+    ]);
+  });
 });

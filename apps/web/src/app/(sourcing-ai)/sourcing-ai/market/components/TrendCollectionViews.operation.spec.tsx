@@ -240,3 +240,40 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
     expect(source).not.toContain('sourcing.collect_tiktok_cc_trends');
   });
 });
+
+describe('TrendCollectionViews Naver popular boards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    trendMocks.fetch1688HotProducts.mockResolvedValue({ offers: [], capturedAt: null });
+    trendMocks.fetchNaverKeywordTrends.mockResolvedValue({ keywords: [] });
+    trendMocks.fetchShortsTrends.mockResolvedValue({ items: [] });
+    trendMocks.fetchTiktokCcTrends.mockResolvedValue(persistedSnapshot());
+    directOwnerMocks.fetchStatus.mockResolvedValue(readyStatus());
+  });
+
+  function rankedBoard(comparedFrom: string | null) {
+    return {
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }],
+      comparedFrom,
+      risers: [],
+    };
+  }
+
+  it('shows a board with no earlier day to compare as unmeasured, not as no rise signal', async () => {
+    trendMocks.fetchPopularKeywordBoards.mockResolvedValue({ days: 7, boards: [rankedBoard(null)] });
+    renderViews();
+
+    expect(await screen.findByText('비교할 이전 순위일 없음')).toBeInTheDocument();
+    expect(screen.queryByText('범위 내 상승 신호 없음')).not.toBeInTheDocument();
+  });
+
+  it('keeps a compared board without a riser as a measured absence', async () => {
+    trendMocks.fetchPopularKeywordBoards.mockResolvedValue({ days: 7, boards: [rankedBoard('2026-09-08')] });
+    renderViews();
+
+    expect(await screen.findByText('범위 내 상승 신호 없음')).toBeInTheDocument();
+    expect(screen.queryByText('비교할 이전 순위일 없음')).not.toBeInTheDocument();
+  });
+});

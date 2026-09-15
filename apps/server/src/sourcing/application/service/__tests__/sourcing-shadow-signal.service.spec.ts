@@ -421,6 +421,7 @@ function trendRepository(): TrendCollectionRepositoryPort {
         videoUrl: null,
       },
     ]),
+    findShortsHistoryWithCoverage: vi.fn(async () => ({ rows: [], coverage: [] })),
   };
 }
 

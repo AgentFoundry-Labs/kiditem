@@ -91,6 +91,7 @@ const state = vi.hoisted(() => ({
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
       contributionOverview: null,
       abcFormula: null,
+      abcOfficialCutoffDate: '2026-07-31',
       displayDataAsOf: '2026-07-31',
       channelProductCounts: [{
         channelAccountId: '00000000-0000-4000-8000-000000000004',
@@ -281,6 +282,25 @@ describe('<ProductsPageContent>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'A등급 상품 보기' }));
     expect(state.setAbcGrade).toHaveBeenCalledWith('A');
     expect(screen.queryByRole('button', { name: '관찰 중 상품 보기' })).not.toBeInTheDocument();
+  });
+
+  it('shows ABC grade counts as unknown, not 0, before Products publishes ABC', () => {
+    state.overviewData = {
+      ...defaultData,
+      summary: {
+        ...defaultData.summary,
+        abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 126 },
+        abcOfficialCutoffDate: null,
+      },
+    };
+
+    render(<ProductsPageContent headingLevel={1} />);
+
+    for (const label of ['A등급', 'B등급', 'C등급']) {
+      expect(screen.getByRole('button', { name: `${label} 상품 보기` })).toHaveTextContent(`${label}—`);
+    }
+    // Unclassified counts catalog products, not a publication, so it stays a number.
+    expect(screen.getByRole('button', { name: '미분류 상품 보기' })).toHaveTextContent('미분류126');
   });
 
   it('filters the product list from each inventory command-center indicator', () => {

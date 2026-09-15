@@ -100,7 +100,9 @@ export class AdBudgetAllocatorService {
           revenue,
           trafficRevenue,
           trafficOrders,
-          traffic: trafficRevenue > 0 || trafficOrders > 0 ? { revenue: trafficRevenue, orders: trafficOrders } : null,
+          // Traffic facts show as measured, zero included; without any the
+          // listing's traffic stays unmeasured.
+          traffic: traffic ? { revenue: traffic.revenue, orders: traffic.orders } : null,
           metrics: {
             spend,
             impressions,

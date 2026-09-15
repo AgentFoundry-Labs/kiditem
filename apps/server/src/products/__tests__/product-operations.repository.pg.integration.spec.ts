@@ -44,6 +44,9 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
+/** Seeded catalog listings predate every Wing traffic attempt a case creates. */
+const CATALOG_SEEDED_AT = new Date('2026-08-01T00:00:00.000Z');
+
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ProductOperationsService;
@@ -1226,6 +1229,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId,
         masterProductId: withFacts.id,
         externalId: 'P-001',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const now = new Date();
@@ -1384,6 +1388,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-PARTIAL-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1448,7 +1453,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('publishes provider-backed empty product traffic as measured zero', async () => {
+  it('keeps product traffic unmeasured when its listing has no row in a covered window', async () => {
     const product = await service.createProduct(
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
@@ -1467,6 +1472,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1497,10 +1503,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       activeStatus: 'all',
     });
 
+    // Only the traffic owner's zero row makes an omitted listing a measured 0.
     expect(page.items.find((item) => item.id === product.id)).toMatchObject({
       visitorCount: null,
-      viewCount: 0,
-      cartAddCount: 0,
+      viewCount: null,
+      cartAddCount: null,
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
@@ -1513,6 +1520,74 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         },
         orders: { ready: false },
       },
+    });
+  });
+
+  it('publishes the traffic owner zero rows of a covered window as measured zero', async () => {
+    const product = await service.createProduct(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      { code: 'KI-TRAFFIC-ZERO-WINDOW', name: 'Zero traffic window' },
+    );
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Zero traffic window Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterProductId: product.id,
+        externalId: 'TRAFFIC-ZERO-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
+      },
+    });
+    const cutoff = productAbcEvidenceCutoff(new Date());
+    const confirmedDates = Array.from({ length: 7 }, (_, index) =>
+      businessDateKey(addDays(new Date(`${cutoff}T00:00:00.000Z`), index - 6)));
+    const capturedAt = new Date(`${cutoff}T02:00:00.000Z`);
+    const attempt = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: false,
+        qualityReport: { confirmedDates },
+        importedAt: capturedAt,
+      },
+    });
+    await prisma.channelListingDailySnapshot.createMany({
+      data: confirmedDates.map((date) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficObservedAt: capturedAt,
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { sourceAttemptId: attempt.id, businessDate: date },
+        },
+      })),
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+    });
+
+    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+      visitorCount: null,
+      viewCount: 0,
+      cartAddCount: 0,
+      metricsFreshness: { traffic: { ready: true } },
     });
   });
 
@@ -1659,6 +1734,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-1',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1752,6 +1828,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-MIXED-1',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());

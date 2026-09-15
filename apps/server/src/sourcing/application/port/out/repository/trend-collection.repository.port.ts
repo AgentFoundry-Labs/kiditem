@@ -218,5 +218,10 @@ export interface TrendCollectionRepositoryPort {
   findPopularKeywordHistory(query: TrendHistoryQuery): Promise<{ rows: NaverPopularKeywordSnapshotRow[]; coverage: Array<{ boardKey: string; businessDate: Date }> }>;
   find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]>;
   findShortsHistory(query: TrendHistoryQuery): Promise<ShortsSnapshotRow[]>;
+  /**
+   * The same rows with every business date a complete collection covered in the
+   * window, including a day whose collection stored no video.
+   */
+  findShortsHistoryWithCoverage(query: TrendHistoryQuery): Promise<{ rows: ShortsSnapshotRow[]; coverage: Array<{ businessDate: Date }> }>;
   findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]>;
 }
