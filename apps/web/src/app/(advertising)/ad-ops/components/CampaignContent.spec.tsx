@@ -210,6 +210,9 @@ describe("CampaignContent", () => {
                   roas: 460.3,
                   ctr: 12,
                   conversionRate: 25,
+                  _observedMetrics: {
+                    adSpend: true, adRevenue: true, impressions: true, clicks: true, conversions: true, orders: true,
+                  },
                 }],
                 campaignName: "manual-report-a",
                 timestamp: "2026-09-06T00:00:00.000Z",
@@ -243,6 +246,9 @@ describe("CampaignContent", () => {
                   roas: 450,
                   ctr: 10,
                   conversionRate: 25,
+                  _observedMetrics: {
+                    adSpend: true, adRevenue: true, impressions: true, clicks: true, conversions: true, orders: true,
+                  },
                 }],
                 campaignName: "manual-report-b",
                 timestamp: "2026-09-05T00:00:00.000Z",
@@ -320,6 +326,65 @@ describe("CampaignContent", () => {
     expect(rawTable).toHaveTextContent("클릭률");
     expect(rawTable).toHaveTextContent("4.5%");
     expect(rawTable).not.toHaveTextContent("12,000원");
+  });
+
+  it("prints a report metric the provider grid did not carry as - instead of its stored 0", async () => {
+    const attemptId = "99999999-9999-4999-8999-999999999999";
+    const observedAll = {
+      adSpend: true, adRevenue: true, impressions: true, clicks: true, conversions: true, orders: true,
+    };
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: ACCOUNT_ID,
+          reports: [{
+            attemptId,
+            generation: "7",
+            plan: {
+              sourceType: "coupang_ad_campaign",
+              parserVersion: "ad-campaign-v1",
+              captureMode: "manual_report",
+              period: "1d",
+              channelAccountId: ACCOUNT_ID,
+              expectedAdvertiserId: "advertiser-1",
+              startDate: "2026-09-05",
+              endDate: "2026-09-05",
+              targetUrl: "https://advertising.coupang.com/campaigns",
+              businessDates: ["2026-09-05"],
+            },
+            payload: {
+              data: [{ campaign: "dashboard-grid" }],
+              normalizedRows: [{
+                // The campaign dashboard grid has no conversion-count column.
+                campaignName: "전환 열 없는 캠페인",
+                spend: 1000, revenue: 5000, impressions: 400, clicks: 20,
+                conversions: 0, orders: 0, roas: 500, ctr: 5, conversionRate: 5,
+                _observedMetrics: { ...observedAll, conversions: false, orders: false },
+              }, {
+                campaignName: "전환 0 관측 캠페인",
+                spend: 1000, revenue: 0, impressions: 400, clicks: 20,
+                conversions: 0, orders: 0, roas: 0, ctr: 5, conversionRate: 0,
+                _observedMetrics: observedAll,
+              }],
+              campaignName: "manual-report-dashboard",
+              timestamp: "2026-09-06T00:00:00.000Z",
+            },
+          }],
+        });
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="7d" />, {
+      wrapper: wrapper(),
+    });
+
+    const table = await screen.findByTestId(`manual-report-table-${attemptId}`);
+    // Cells: row label, 광고비, 광고매출, 노출, 클릭, 전환, ROAS, CTR, CVR.
+    const conversionsCell = (label: string) =>
+      within(within(table).getByText(label).closest("tr")!).getAllByRole("cell")[5];
+    expect(conversionsCell("전환 열 없는 캠페인")).toHaveTextContent(/^-$/);
+    expect(conversionsCell("전환 0 관측 캠페인")).toHaveTextContent(/^0$/);
   });
 
   it("renders an explicit empty manual report as confirmed empty evidence", async () => {
