@@ -90,6 +90,10 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       },
       ready: true,
     });
+    // Each slice reports 7 KRW on its last day, the closed day included, so nothing is held and the
+    // published spend proves no empty provider report.
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ providerBackedEmptyProof: false });
 
     const receipts = await prisma.channelScrapeRun.findMany({
       where: {
@@ -342,7 +346,8 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
         orderBy: { channelAccountId: 'asc' },
       });
 
-      await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+      const published = await owner.finalizeAttempt(fence(attempt));
+      expect(published).toMatchObject({
         latestComplete: {
           sourceImportRunId: attempt.attemptId,
           coveredThrough: '2026-08-31',
@@ -356,6 +361,38 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
         coveredThrough: '2026-08-31',
         requestedThrough: '2026-09-01',
       });
+
+      const qualitySummary = {
+        // Upload basis: the plan and all 24 receipts. Their 23 rows (128 bytes each, 1 for the
+        // empty report) include A's row on the held 1st.
+        plannedAccountCount: 2,
+        plannedSliceCount: 24,
+        receiptCount: 24,
+        reportIdCount: 24,
+        campaignCount: 23,
+        expectedRowCount: 23,
+        collectedRowCount: 23,
+        responseBytes: 2_945,
+        // Published basis: the 22 target rows through 2026-08-31, and the 22 monthly facts left
+        // once September is dropped.
+        targetFactCount: 22,
+        matchedTargetCount: 22,
+        unmatchedTargetCount: 0,
+        allocatableTargetCount: 22,
+        unallocatableTargetCount: 0,
+        monthlyAllocationFactCount: 22,
+        providerSpendKrw: 154,
+        allocatedSpendKrw: 154,
+        unmatchedSpendKrw: 0,
+        unallocatableSpendKrw: 0,
+      };
+      expect(published.latestComplete?.qualitySummary).toMatchObject(qualitySummary);
+      expect(generation?.summary.qualitySummary).toMatchObject(qualitySummary);
+
+      // The empty proof is on the published basis. A day is held only after a day with spend, and
+      // that day is published, so a held-day run never proves an empty provider report.
+      await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
+        .resolves.toMatchObject({ providerBackedEmptyProof: false });
 
       // A's spend on the 1st stays as evidence, and the 1st leaves every account's published facts with its month.
       await expect(prisma.channelAdTargetDailySnapshot.aggregate({
@@ -396,65 +433,6 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       ]);
       expect(publishedFacts._sum.allocatedSpend).toBe(BigInt(publishedTargets._sum.adSpend ?? 0));
       expect(publishedFacts._sum.allocatedSpend).toBe(154n);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('counts a held-day run\'s receipts with the held day and its published targets, spend and facts without it', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
-      // 2026-09-02 12:00 KST: the import requests 2025-10-01 through 2026-09-01.
-      vi.setSystemTime(new Date('2026-09-02T03:00:00.000Z'));
-      const attempt = await owner.beginAttempt({
-        organizationId: TEST_ORGANIZATION_ID,
-        idempotencyKey: FIRST_KEY,
-      });
-      // Account A reports 7 KRW on the last day of every slice, 2026-09-01 included.
-      // Account B does the same through 2026-08-31 and reports nothing for 2026-09-01, which holds the 1st.
-      for (const receipt of plannedUploads(attempt, (slice, account) =>
-        slice.from === '2026-09-01' && account.externalAccountId === 'account-b'
-          ? null
-          : slice.businessDates.at(-1)!)) {
-        await owner.uploadSlice(receipt);
-      }
-      const published = await owner.finalizeAttempt(fence(attempt));
-      expect(published.latestComplete?.coveredThrough).toBe('2026-08-31');
-
-      const qualitySummary = {
-        // Upload basis: the plan and all 24 receipts. Their 23 rows (128 bytes each, 1 for the
-        // empty report) include A's row on the held 1st.
-        plannedAccountCount: 2,
-        plannedSliceCount: 24,
-        receiptCount: 24,
-        reportIdCount: 24,
-        campaignCount: 23,
-        expectedRowCount: 23,
-        collectedRowCount: 23,
-        responseBytes: 2_945,
-        // Published basis: the 22 target rows through 2026-08-31, and the 22 monthly facts left
-        // once September is dropped.
-        targetFactCount: 22,
-        matchedTargetCount: 22,
-        unmatchedTargetCount: 0,
-        allocatableTargetCount: 22,
-        unallocatableTargetCount: 0,
-        monthlyAllocationFactCount: 22,
-        providerSpendKrw: 154,
-        allocatedSpendKrw: 154,
-        unmatchedSpendKrw: 0,
-        unallocatableSpendKrw: 0,
-      };
-      expect(published.latestComplete?.qualitySummary).toMatchObject(qualitySummary);
-      await expect(owner.readGeneration({
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceImportRunId: attempt.attemptId,
-      })).resolves.toMatchObject({ summary: { qualitySummary } });
-
-      // The empty proof is on the published basis. A day is held only after a day with spend, and
-      // that day is published, so a held-day run never proves an empty provider report.
-      await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
-        .resolves.toMatchObject({ providerBackedEmptyProof: false });
     } finally {
       vi.useRealTimers();
     }
@@ -669,6 +647,9 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       summary: { qualitySummary: { plannedAccountCount: 0 } },
       allocations: [],
     });
+    // A plan without accounts requests no report and publishes no target, which proves an empty report.
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ providerBackedEmptyProof: true });
   });
 
   it('returns unavailable before collection when a retained account has no advertising identity', async () => {
