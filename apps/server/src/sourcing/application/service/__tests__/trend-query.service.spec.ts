@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TrendQueryService } from '../trend-query.service';
-import type { TrendCollectionRepositoryPort } from '../../port/out/repository/trend-collection.repository.port';
+import type {
+  TrendCollectionRepositoryPort,
+  TrendHistoryQuery,
+} from '../../port/out/repository/trend-collection.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const BUSINESS_DATE = new Date('2026-07-13T00:00:00.000Z');
@@ -8,7 +11,7 @@ const CAPTURED_AT = new Date('2026-07-13T05:40:00.000Z');
 const EARLIER_CAPTURED_AT = new Date('2026-07-13T01:20:00.000Z');
 
 function repositoryStub(): TrendCollectionRepositoryPort {
-  return {
+  const repository: TrendCollectionRepositoryPort = {
     listSeeds: vi.fn(async () => [
       {
         id: 'seed-sanrio',
@@ -92,7 +95,13 @@ function repositoryStub(): TrendCollectionRepositoryPort {
         videoUrl: null,
       },
     ]),
+    // The rows above, read with the days complete collections covered.
+    findShortsHistoryWithCoverage: vi.fn(async (query: TrendHistoryQuery) => ({
+      rows: await repository.findShortsHistory(query),
+      coverage: [{ businessDate: BUSINESS_DATE }],
+    })),
   };
+  return repository;
 }
 
 describe('TrendQueryService Shorts relevance', () => {
@@ -165,7 +174,7 @@ describe('TrendQueryService Shorts relevance', () => {
 
     const result = await service.getShorts(ORGANIZATION_ID, 30);
 
-    expect(repository.findShortsHistory).toHaveBeenCalledWith({
+    expect(repository.findShortsHistoryWithCoverage).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       days: 30,
     });
@@ -226,6 +235,34 @@ describe('TrendQueryService Shorts relevance', () => {
     const result = await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 7);
 
     expect(result.items.map((item) => item.videoKey)).toEqual(['recent-toy']);
+  });
+});
+
+describe('TrendQueryService Shorts coverage', () => {
+  /** A window holding no Shorts row, with the days complete collections covered. */
+  function emptyShortsWindow(coveredDays: Date[]) {
+    const repository = repositoryStub();
+    vi.mocked(repository.findShortsHistory).mockResolvedValue([]);
+    vi.mocked(repository.findShortsHistoryWithCoverage).mockResolvedValue({
+      rows: [],
+      coverage: coveredDays.map((businessDate) => ({ businessDate })),
+    });
+    return repository;
+  }
+
+  it('names the latest covered day when complete Shorts collections stored no video', async () => {
+    const repository = emptyShortsWindow([BUSINESS_DATE, new Date('2026-07-14T00:00:00.000Z')]);
+
+    // The collections measured those days and found nothing: a count of 0, not unknown.
+    expect(await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 30))
+      .toEqual({ days: 30, businessDate: '2026-07-14', capturedAt: null, items: [] });
+  });
+
+  it('names no business date while no complete collection covered the window', async () => {
+    const repository = emptyShortsWindow([]);
+
+    expect(await new TrendQueryService(repository).getShorts(ORGANIZATION_ID, 30))
+      .toEqual({ days: 30, businessDate: null, capturedAt: null, items: [] });
   });
 });
 

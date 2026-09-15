@@ -250,6 +250,11 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   }
 
   async findShortsHistory(query: TrendHistoryQuery): Promise<ShortsSnapshotRow[]> {
+    return (await this.findShortsHistoryWithCoverage(query)).rows;
+  }
+
+  async findShortsHistoryWithCoverage(query: TrendHistoryQuery) {
+    // Read coverage even when a complete attempt stored no video.
     const start = kstInclusiveDaysStart(query.days);
     const attempts = await readCompleteShortsHistoryRuns(this.prisma, {
       organizationId: query.organizationId,
@@ -262,7 +267,8 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       selected.forEach((dateKeyValue) => selectedDates.add(dateKeyValue));
       return attempt.shortsTrendDailySnapshots.filter((row) => selected.includes(dateKey(row.businessDate)));
     });
-    return latestTrendRows(rows, (row) => `${dateKey(row.businessDate)}:${row.videoKey}`)
+    const coverage = [...selectedDates].sort().map((dateKeyValue) => ({ businessDate: dateFromKey(dateKeyValue) }));
+    const shortsRows = latestTrendRows(rows, (row) => `${dateKey(row.businessDate)}:${row.videoKey}`)
       .sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime()
         || compareNullableRank(a.rank, b.rank))
       .map((row) => ({
@@ -280,6 +286,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       thumbnailUrl: row.thumbnailUrl,
       videoUrl: row.videoUrl,
     }));
+    return { rows: shortsRows, coverage };
   }
 
   async findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]> {

@@ -254,13 +254,14 @@ export class TrendQueryService {
     organizationId: string,
     days: number,
   ): Promise<{ days: number; businessDate: string | null; capturedAt: string | null; items: ShortsTrendView[] }> {
-    const [rows, seeds] = await Promise.all([
-      this.repository.findShortsHistory({ organizationId, days }),
+    const [{ rows, coverage }, seeds] = await Promise.all([
+      this.repository.findShortsHistoryWithCoverage({ organizationId, days }),
       this.repository.listSeeds(organizationId),
     ]);
-    if (rows.length === 0) return { days, businessDate: null, capturedAt: null, items: [] };
+    // The latest day a complete collection covered, even one that stored no video.
+    const businessDate = coverage.length > 0 ? toDateStringFromMs(maxBusinessDateMs(coverage)) : null;
+    if (rows.length === 0) return { days, businessDate, capturedAt: null, items: [] };
 
-    const latestDate = maxBusinessDateMs(rows);
     const capturedAt = latestCapturedAt(rows);
     const latestCapturedAtMs = Math.max(...rows.map((row) => row.capturedAt.getTime()));
     const publishedCutoffMs = latestCapturedAtMs - Math.max(days, 1) * ONE_DAY_MS;
@@ -303,7 +304,7 @@ export class TrendQueryService {
       };
     });
 
-    return { days, businessDate: toDateStringFromMs(latestDate), capturedAt, items };
+    return { days, businessDate, capturedAt, items };
   }
 
   async getTiktokCc(

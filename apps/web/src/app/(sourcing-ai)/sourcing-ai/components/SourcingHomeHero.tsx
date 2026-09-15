@@ -147,10 +147,9 @@ export function SourcingHomeHero() {
   // unknown, not 0. Rising counts once a snapshot exists. The 7-day board read
   // returns each board a completed Naver collection covered, empty ones too;
   // new keywords also need every board compared with an earlier ranked day.
-  // The 30-day Shorts read names a business date only when it holds a
-  // snapshot, so a Shorts collection that stored no video stays unknown. A
-  // source that last completed before its window measured nothing in it,
-  // whatever the trend status says.
+  // The 30-day Shorts read names the latest day a completed Shorts collection
+  // covered, even one that stored no video. A source that last completed
+  // before its window measured nothing in it, whatever the trend status says.
   const trendBoards = boardsData?.boards ?? [];
   const boardsCovered = trendBoards.length > 0;
   const boardsCompared = boardsCovered && trendBoards.every((board) => board.comparedFrom != null);

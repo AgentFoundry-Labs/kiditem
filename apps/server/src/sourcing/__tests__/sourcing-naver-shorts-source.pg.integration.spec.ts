@@ -64,6 +64,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
   it.each(COLLECTION_CLOCKS)('publishes Shorts once, replays without IO after seed drift, retains prior COMPLETE on failure and replaces confirmed empty coverage at %s', async (_clock, now) => {
     vi.setSystemTime(now);
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
+    // Nothing collected yet, so the Shorts read names no day and its count stays unknown.
+    expect((await controller.getShorts({ days: 7 }, organizationId)).businessDate).toBeNull();
     const first = await controller.collect({ sources: ['shorts'] }, organizationId, { id: TEST_USER_ID } as never, 'first');
     expect(first.results[0], JSON.stringify(first.results[0])).toMatchObject({ source: 'shorts', ok: true, state: 'COMPLETE', collected: 1 });
     expect(fetchTrending).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, publishedWithinDays: 30,
@@ -86,12 +88,18 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect((await service.collect(organizationId, ['shorts'], TEST_USER_ID, 'empty')).results[0])
       .toMatchObject({ state: 'COMPLETE', collected: 0 });
     expect(await history.findShortsHistory({ organizationId, days: 7 })).toEqual([]);
+    // The empty collection still measured its day: the read names it with no video.
+    expect(await controller.getShorts({ days: 7 }, organizationId))
+      .toEqual({ days: 7, businessDate: '2026-09-07', capturedAt: null, items: [] });
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
       SELECT to_regclass('public.operation_runs') IS NULL AS absent
     `)[0]?.absent).toBe(true);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
     expect(await prisma.alert.findMany({ where: { organizationId, type: 'source_failure' } }))
       .toMatchObject([{ status: 'RESOLVED' }]);
+    // Eight days on, the 7-day window holds no covered day again.
+    vi.setSystemTime(new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000));
+    expect((await controller.getShorts({ days: 7 }, organizationId)).businessDate).toBeNull();
   });
   it('attempts later Naver stages and Shorts after popular failure, without exposing partial daily data', async () => {
     await history.upsertSeedByKeyword({ organizationId, keyword: '슬라임', sources: ['naver'] });
