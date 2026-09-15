@@ -81,9 +81,6 @@ const state = vi.hoisted(() => ({
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         traffic: {
-          ready: false,
-          coverageStartDate: null,
-          coverageEndDate: null,
           capturedAt: null,
           basis: {
             kind: 'period' as const,

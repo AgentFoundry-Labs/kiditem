@@ -139,9 +139,6 @@ describe('ProductRowCard', () => {
       metricsFreshness: {
         ...product().metricsFreshness,
         traffic: {
-          ready: true,
-          coverageStartDate: '2026-09-01',
-          coverageEndDate: '2026-09-14',
           capturedAt: '2026-09-15T00:00:00.000Z',
           basis: buildPeriodBasis({
             from: '2026-09-01',
@@ -170,9 +167,6 @@ describe('ProductRowCard', () => {
       metricsFreshness: {
         ...product().metricsFreshness,
         traffic: {
-          ready: false,
-          coverageStartDate: '2026-09-01',
-          coverageEndDate: '2026-09-14',
           capturedAt: null,
           basis: buildPeriodBasis({ from: '2026-09-01', to: '2026-09-14', sources: ['wing_traffic'] }),
         },
@@ -272,9 +266,6 @@ function product(): MasterProductOperationsListItem {
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
-        ready: true,
-        coverageStartDate: '2026-07-01',
-        coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
         basis: buildPeriodBasis({
           from: '2026-07-01',

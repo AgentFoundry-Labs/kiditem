@@ -193,15 +193,16 @@ const ProductOperationsMetricFreshnessSchema = z.object({
 }).strict();
 
 /**
- * Views and cart adds sum only the window's days Wing traffic covered, so
- * their freshness carries the period basis behind those sums: `ready` means
- * at least one day is covered, and visitors are published only on a complete
- * basis. Read the status word through `periodBasisStatus(basis)` from
- * `@kiditem/shared/dashboard`.
+ * Wing traffic freshness is the capture time and the period basis the views
+ * and cart adds were summed over. Nothing derived from the basis travels
+ * beside it (ADR-0006): views and cart adds are measured unless
+ * `periodBasisStatus(basis)` is `empty`, and visitors only when it is
+ * `complete`.
  */
-const ProductOperationsTrafficFreshnessSchema = ProductOperationsMetricFreshnessSchema.extend({
+const ProductOperationsTrafficFreshnessSchema = z.object({
+  capturedAt: zIsoDate.nullable(),
   basis: DashboardPeriodBasisSchema,
-});
+}).strict();
 
 export const ProductOperationsDataSourceStatusSchema = SourceReadinessSchema;
 export type ProductOperationsDataSourceStatus = z.infer<

@@ -267,7 +267,7 @@ describe('product operations contracts', () => {
         adSpendRate: null,
         metricsFreshness: {
           orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-          traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null, basis: uncoveredTrafficBasis },
+          traffic: { capturedAt: null, basis: uncoveredTrafficBasis },
           advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         },
       }),
@@ -277,23 +277,28 @@ describe('product operations contracts', () => {
     expect(MasterProductOperationsListItemSchema.safeParse(legacy).success).toBe(false);
   });
 
-  it('carries the period basis Wing views and cart adds were summed over', () => {
+  it('carries only the capture time and the period basis on Wing traffic freshness', () => {
     const basis = buildPeriodBasis({
       from: '2026-09-01',
       to: '2026-09-14',
       includedDates: Array.from({ length: 13 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`),
       sources: ['wing_traffic'],
     });
-    const traffic = {
-      ready: true,
-      coverageStartDate: '2026-09-01',
-      coverageEndDate: '2026-09-14',
-      capturedAt: '2026-09-15T00:00:00.000Z',
-      basis,
-    };
+    const traffic = { capturedAt: '2026-09-15T00:00:00.000Z', basis };
 
-    expect(MasterProductOperationsListItemSchema.parse(listItemWithTrafficFreshness(traffic))
-      .metricsFreshness.traffic.basis).toEqual(basis);
+    const parsed = MasterProductOperationsListItemSchema.parse(listItemWithTrafficFreshness(traffic));
+    expect(Object.keys(parsed.metricsFreshness.traffic).sort()).toEqual(['basis', 'capturedAt']);
+    expect(parsed.metricsFreshness.traffic.basis).toEqual(basis);
+    // The basis already says whether, and over which dates, traffic was measured.
+    for (const derived of [
+      { ready: true },
+      { coverageStartDate: '2026-09-01' },
+      { coverageEndDate: '2026-09-14' },
+    ]) {
+      expect(MasterProductOperationsListItemSchema.safeParse(
+        listItemWithTrafficFreshness({ ...traffic, ...derived }),
+      ).success).toBe(false);
+    }
     const { basis: _basis, ...withoutBasis } = traffic;
     expect(MasterProductOperationsListItemSchema.safeParse(listItemWithTrafficFreshness(withoutBasis)).success)
       .toBe(false);
@@ -488,7 +493,7 @@ describe('product operations contracts', () => {
       adSpendRate: null,
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null, basis: uncoveredTrafficBasis },
+        traffic: { capturedAt: null, basis: uncoveredTrafficBasis },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     });

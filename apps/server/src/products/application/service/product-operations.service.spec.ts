@@ -751,9 +751,6 @@ function rawListProduct(id: string) {
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
-        ready: true,
-        coverageStartDate: '2026-07-01',
-        coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
         basis: buildPeriodBasis({
           from: '2026-07-01',

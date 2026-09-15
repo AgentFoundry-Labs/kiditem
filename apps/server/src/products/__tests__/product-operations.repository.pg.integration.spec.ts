@@ -1331,7 +1331,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: null,
       adSpend: null,
-      metricsFreshness: { traffic: { ready: true } },
       abcEvaluation: null,
     });
     expect(periodBasisStatus(byId.get(withFacts.id)!.metricsFreshness.traffic.basis)).toBe('partial');
@@ -1369,7 +1368,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
-      metricsFreshness: { traffic: { ready: true }, orders: { ready: false } },
+      metricsFreshness: { orders: { ready: false } },
     });
     expect(periodBasisStatus(measuredWithFacts!.metricsFreshness.traffic.basis)).toBe('complete');
   });
@@ -1450,24 +1449,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
-      metricsFreshness: {
-        traffic: {
-          ready: true,
-          coverageStartDate: dates[0],
-          coverageEndDate: dates[13],
-          capturedAt,
-        },
-        orders: { ready: false },
-      },
+      metricsFreshness: { orders: { ready: false } },
     });
-    expect(item?.metricsFreshness.traffic.basis).toEqual({
-      kind: 'period',
-      from: dates[0],
-      to: dates[13],
-      targetDays: 14,
-      includedDates: coveredDates,
-      invalidDates: [],
-      sources: ['wing_traffic'],
+    // Traffic freshness is the capture time and the basis, with nothing derived from them.
+    expect(item?.metricsFreshness.traffic).toEqual({
+      capturedAt,
+      basis: {
+        kind: 'period',
+        from: dates[0],
+        to: dates[13],
+        targetDays: 14,
+        includedDates: coveredDates,
+        invalidDates: [],
+        sources: ['wing_traffic'],
+      },
     });
     expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('partial');
   });
@@ -1492,7 +1487,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       visitorCount: null,
       viewCount: null,
       cartAddCount: null,
-      metricsFreshness: { traffic: { ready: false } },
     });
     expect(item?.metricsFreshness.traffic.basis).toEqual({
       kind: 'period',
@@ -1528,12 +1522,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       visitorCount: null,
       viewCount: 42,
       cartAddCount: 12,
-      metricsFreshness: { traffic: { ready: true } },
     });
     expect(item?.metricsFreshness.traffic.basis).toMatchObject({
       includedDates: coveredDates,
       invalidDates: [refusedDate],
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('partial');
   });
 
   it('keeps product traffic unmeasured when its listing has no row in a covered window', async () => {
@@ -1587,7 +1581,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     // Only the traffic owner's zero row makes an omitted listing a measured 0.
-    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
       visitorCount: null,
       viewCount: null,
       cartAddCount: null,
@@ -1595,15 +1590,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: null,
       metricsFreshness: {
-        traffic: {
-          ready: true,
-          coverageStartDate: confirmedDates[0],
-          coverageEndDate: cutoff,
-          capturedAt,
-        },
+        traffic: { capturedAt, basis: { from: confirmedDates[0], to: cutoff } },
         orders: { ready: false },
       },
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('complete');
   });
 
   it('publishes the traffic owner zero rows of a covered window as measured zero', async () => {
@@ -1666,12 +1657,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       activeStatus: 'all',
     });
 
-    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
       visitorCount: null,
       viewCount: 0,
       cartAddCount: 0,
-      metricsFreshness: { traffic: { ready: true } },
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('complete');
   });
 
   it('keeps a missing traffic date distinct from measured zero in the public data status', async () => {

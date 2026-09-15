@@ -192,21 +192,17 @@ implements ProductOperationsRepositoryPort {
       trafficByListing.set(fact.listingId, facts);
     }
     const adFactsByListing = new Map(adByListing.map((facts) => [facts.listingId, facts]));
-    const trafficBasis = buildPeriodBasis({
-      from: businessDateKey(periodStart),
-      to: businessDateKey(cutoff),
-      includedDates: traffic.coverage.includedDates,
-      invalidDates: traffic.coverage.invalidDates,
-      sources: [WING_TRAFFIC_SOURCE],
-    });
-    // Views and cart adds are measured over the days Wing traffic covered; the
-    // basis carries how many of the window's days that is.
+    // Views and cart adds sum the days Wing traffic covered. The basis carries
+    // those days, and every reader derives the status word from it.
     const trafficCoverage = {
-      ready: trafficBasis.includedDates.length > 0,
-      coverageStartDate: businessDateKey(periodStart),
-      coverageEndDate: businessDateKey(cutoff),
       capturedAt: traffic.latestObservedAt,
-      basis: trafficBasis,
+      basis: buildPeriodBasis({
+        from: businessDateKey(periodStart),
+        to: businessDateKey(cutoff),
+        includedDates: traffic.coverage.includedDates,
+        invalidDates: traffic.coverage.invalidDates,
+        sources: [WING_TRAFFIC_SOURCE],
+      }),
     };
     const orderCoverage = {
       ready: orders.orderCount !== null,
@@ -428,19 +424,20 @@ function toListItem(
       && listing.channelAccount.channel === 'coupang'
       && listing.channelAccount.status === 'active',
   );
+  const trafficStatus = periodBasisStatus(trafficCoverage.basis);
   // Wing listing projections carry option/page visitors, not account UV.
   // Product Hub may retain explicitly uploaded listing visitors, but never
   // presents a sum of Wing option projections as unique visitors. Visitors
   // stay a whole-window value, summed only when every day is covered.
-  const visitorCount = listedOnWing && periodBasisStatus(trafficCoverage.basis) === 'complete'
+  const visitorCount = listedOnWing && trafficStatus === 'complete'
     ? nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.visitors)
     : null;
   // Views and cart adds sum the covered days. A covered day measures a listing
   // only through its row; a product with none has unmeasured traffic, not zero.
-  const viewCount = listedOnWing && trafficCoverage.ready
+  const viewCount = listedOnWing && trafficStatus !== 'empty'
     ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.views)
     : null;
-  const cartAddCount = listedOnWing && trafficCoverage.ready
+  const cartAddCount = listedOnWing && trafficStatus !== 'empty'
     ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.cartAdds)
     : null;
   const optionIds = new Set(row.channelListings.flatMap((listing) => listing.options.map(({ id }) => id)));

@@ -116,9 +116,6 @@ function rawListItem(): ProductOperationsRepositoryListItem {
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
-        ready: false,
-        coverageStartDate: null,
-        coverageEndDate: null,
         capturedAt: null,
         basis: buildPeriodBasis({ from: '2026-07-11', to: '2026-07-17', sources: ['wing_traffic'] }),
       },
