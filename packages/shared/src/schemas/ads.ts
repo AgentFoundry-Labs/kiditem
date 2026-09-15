@@ -165,9 +165,9 @@ export const AdKeywordRelevanceSchema = z.enum([
 export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 
 /**
- * The latest `pause_keyword` proposal of a keyword that was not rejected. A
- * rejected proposal is not shown; one that failed or is done still is, so an
- * operator can run a failure again.
+ * A keyword's latest `pause_keyword` proposal. Once that proposal is rejected
+ * the keyword shows none, and an older proposal does not come back; one that
+ * failed or is done is still shown, so an operator can run a failure again.
  */
 export const AdKeywordPauseProposalSchema = z.object({
   actionId: z.string().uuid(),

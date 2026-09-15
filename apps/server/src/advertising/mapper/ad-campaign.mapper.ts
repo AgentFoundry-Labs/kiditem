@@ -130,9 +130,9 @@ export function toAdProductSnapshot(
 }
 
 /**
- * A keyword row with the keyword's latest pause proposal that was not
- * rejected. That proposal is the agent's "irrelevant" verdict and carries its
- * reason; a keyword without one has no verdict.
+ * A keyword row with the keyword's latest pause proposal, absent when that
+ * proposal was rejected. That proposal is the agent's "irrelevant" verdict and
+ * carries its reason; a keyword without one has no verdict.
  */
 export function toAdKeywordSnapshot(
   rollup: KeywordTargetRollup,

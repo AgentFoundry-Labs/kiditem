@@ -394,7 +394,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     });
   }
 
-  it("carries each keyword's latest pause proposal that was not rejected, with its execution state, on the keyword read (KID-138)", async () => {
+  it("carries each keyword's latest pause proposal with its execution state on the keyword read, and none once that proposal is rejected (KID-138)", async () => {
     await seedKeywordCollection([
       ['VID-1', '콩순이'],
       ['VID-1', '타요'],
@@ -433,13 +433,17 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     // The agent proposed again after the earlier pause finished: the newer proposal is read.
     await seedTask(await pause('쥬쥬', { createdAt: at(1) }), { status: 'done', createdAt: at(1) });
     const reproposed = await pause('쥬쥬', { approvalStatus: 'pending_review', createdAt: at(2) });
-    // A rejected proposal is left out, even when it is the newest one.
+    // A rejected proposal is left out.
     await seedTask(await pause('캐치', { approvalStatus: 'rejected' }), {
       status: 'cancelled',
       createdAt: at(1),
     });
-    const failedBeforeRejection = await pause('시크릿', { createdAt: at(1) });
-    await seedTask(failedBeforeRejection, { status: 'failed', createdAt: at(1), errorMessage: 'timeout' });
+    // Rejecting the newest proposal leaves the keyword unmarked; an older failed one does not come back.
+    await seedTask(await pause('시크릿', { createdAt: at(1) }), {
+      status: 'failed',
+      createdAt: at(1),
+      errorMessage: 'timeout',
+    });
     await seedTask(await pause('시크릿', { approvalStatus: 'rejected', createdAt: at(2) }), {
       status: 'cancelled',
       createdAt: at(2),
@@ -484,7 +488,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       'VID-1:브레드': flagged('브레드', done, 'approved', 'done'),
       'VID-1:쥬쥬': flagged('쥬쥬', reproposed, 'pending_review', 'queued'),
       'VID-1:캐치': unmarked,
-      'VID-1:시크릿': flagged('시크릿', failedBeforeRejection, 'approved', 'failed', 'timeout'),
+      'VID-1:시크릿': unmarked,
       'VID-1:입찰가': unmarked,
       'VID-1:미미': unmarked,
       'VID-2:콩순이': unmarked,

@@ -217,10 +217,10 @@ export class AdCampaignsService {
         keywords: [],
       } satisfies AdKeywordsData;
     }
-    // A keyword's latest `pause_keyword` proposal that was not rejected is the
-    // agent's verdict, which the operator reviews here whatever its execution
-    // state. Keyed by keyword text plus the advertised option so the same
-    // keyword on another product is not marked by proxy.
+    // A keyword's latest `pause_keyword` proposal, unless it was rejected, is
+    // the agent's verdict, which the operator reviews here whatever its
+    // execution state. Keyed by keyword text plus the advertised option so the
+    // same keyword on another product is not marked by proxy.
     const proposalByKey = new Map(
       pauseProposals.map((proposal) => [
         `${proposal.externalId ?? ''}::${proposal.targetLabel}`,

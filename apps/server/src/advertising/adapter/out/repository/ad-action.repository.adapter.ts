@@ -365,19 +365,35 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       reason: string;
       approvalStatus: string;
     } & LatestExecutionTaskColumns>>(Prisma.sql`
-      SELECT DISTINCT ON (action.external_id, action.target_label)
+      WITH latest_proposal AS (
+        -- Each keyword's newest proposal, whatever its review. Rejecting it is
+        -- the last word on the keyword, so an older proposal does not come back.
+        SELECT DISTINCT ON (proposal.external_id, proposal.target_label)
+          proposal.id,
+          proposal.external_id,
+          proposal.target_label,
+          proposal.reason,
+          proposal.approval_status
+        FROM ad_actions proposal
+        WHERE proposal.organization_id = ${organizationId}::uuid
+          AND proposal.action_type = 'pause_keyword'
+        ORDER BY proposal.external_id, proposal.target_label,
+          proposal.created_at DESC, proposal.id DESC
+      ),
+      open_proposal AS (
+        SELECT * FROM latest_proposal
+        WHERE latest_proposal.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+      )
+      -- Attempts are joined only for the newest proposals still in play.
+      SELECT
         action.id AS "actionId",
         action.external_id AS "externalId",
         action.target_label AS "targetLabel",
         action.reason,
         action.approval_status AS "approvalStatus",
         ${LATEST_EXECUTION_TASK_COLUMNS}
-      FROM ad_actions action
+      FROM open_proposal action
       ${LATEST_EXECUTION_TASK_JOIN}
-      WHERE action.organization_id = ${organizationId}::uuid
-        AND action.action_type = 'pause_keyword'
-        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-      ORDER BY action.external_id, action.target_label, action.created_at DESC, action.id DESC
     `);
     return rows.flatMap((row) => {
       const execution = deriveAdActionExecution(latestExecutionTaskOf(row), now);

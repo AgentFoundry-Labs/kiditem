@@ -125,9 +125,9 @@ export interface ExistingAdActionDedupRow {
 }
 
 /**
- * A keyword's latest `pause_keyword` proposal that was not rejected, with the
- * execution state its latest attempt reads. The keyword view shows it as
- * "연관 없음" and offers its review actions.
+ * A keyword's latest `pause_keyword` proposal, unless that proposal was
+ * rejected, with the execution state its latest attempt reads. The keyword view
+ * shows it as "연관 없음" and offers its review actions.
  */
 export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
   /** The advertised option the proposal pauses the keyword on. */
@@ -167,10 +167,11 @@ export interface AdActionRepositoryPort {
   ): Promise<ExistingAdActionDedupRow[]>;
 
   /**
-   * One row per keyword (advertised option and keyword text): its latest
-   * `pause_keyword` proposal that was not rejected, whatever its execution
-   * state. A keyword with one is what the keyword view shows as "연관 없음"; the
-   * verdict itself is not a daily fact and is not stored on the fact row.
+   * At most one row per keyword (advertised option and keyword text): its
+   * latest `pause_keyword` proposal whatever its execution state, and none when
+   * that latest proposal was rejected, so an older one does not come back. A
+   * keyword with one is what the keyword view shows as "연관 없음"; the verdict
+   * itself is not a daily fact and is not stored on the fact row.
    */
   findKeywordPauseProposals(
     organizationId: string,
