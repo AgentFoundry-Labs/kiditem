@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOrderAutoDetect } from './use-order-auto-detect';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
+const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
+
 const ACCOUNT: OrderCollectionMallAccount = {
   key: 'kidsnote',
   name: '키즈노트',
@@ -27,28 +29,16 @@ describe('useOrderAutoDetect', () => {
     vi.useRealTimers();
   });
 
-  it('does not fail an owner attempt again when conversion acknowledgement is uncertain', async () => {
-    const reconciliationError = Object.assign(
-      new Error('owner reconciliation required'),
-      { ownerReconciliationRequired: true },
-    );
-    const prepareRun = vi.fn().mockResolvedValue({
-      attemptId: '11111111-1111-4111-8111-111111111111',
-      attemptToken: '22222222-2222-4222-8222-222222222222',
-      date: '2026-09-10',
+  it('starts each tick through the mall shared control and waits for its collection', async () => {
+    const collection = Promise.resolve({ rowCount: 3, masked: false, date: '2026-09-10' });
+    const startMall = vi.fn().mockResolvedValue({
+      outcome: { outcome: 'started', attemptId: ATTEMPT_ID },
+      collection,
     });
-    const collectAccount = vi.fn().mockRejectedValue(reconciliationError);
-    const failRun = vi.fn();
-    const releaseRun = vi.fn();
-    const markCollecting = vi.fn();
     const logActivity = vi.fn();
     const { result } = renderHook(() => useOrderAutoDetect({
       mallAccounts: [ACCOUNT],
-      collectAccount,
-      prepareRun,
-      failRun,
-      releaseRun,
-      markCollecting,
+      startMall,
       logActivity,
     }));
 
@@ -56,21 +46,52 @@ describe('useOrderAutoDetect', () => {
       await result.current.run();
     });
 
-    expect(prepareRun).toHaveBeenCalledWith(
+    expect(startMall).toHaveBeenCalledWith(
       ACCOUNT,
-      undefined,
-      undefined,
       expect.objectContaining({ selectionMode: 'automatic' }),
     );
-    expect(collectAccount).toHaveBeenCalledWith(
-      ACCOUNT,
-      expect.objectContaining({ attemptId: '11111111-1111-4111-8111-111111111111' }),
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  /** KID-106 Q6. 앞선 tick 의 수집이 아직 돌고 있으면 owner 가 진행 중이라고 답한다. 실패가 아니다. */
+  it('⭐ leaves a mall that is still collecting alone — no failure, no activity record', async () => {
+    const startMall = vi.fn().mockResolvedValue({
+      outcome: { outcome: 'running', attemptId: ATTEMPT_ID },
+      collection: null,
+    });
+    const logActivity = vi.fn();
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      startMall,
+      logActivity,
+    }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it('records why a mall could not be started at all', async () => {
+    const startMall = vi.fn().mockRejectedValue(
+      new Error('주문수집 확장프로그램을 찾지 못했습니다.'),
     );
-    expect(failRun).not.toHaveBeenCalled();
-    expect(releaseRun).toHaveBeenCalledWith(
-      ACCOUNT.key,
-      '11111111-1111-4111-8111-111111111111',
+    const logActivity = vi.fn();
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      startMall,
+      logActivity,
+    }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(logActivity).toHaveBeenCalledWith(
+      'error',
+      ACCOUNT.name,
+      '주문수집 확장프로그램을 찾지 못했습니다.',
     );
-    expect(markCollecting).toHaveBeenLastCalledWith(ACCOUNT.key, false);
   });
 });

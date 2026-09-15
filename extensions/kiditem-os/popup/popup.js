@@ -346,10 +346,11 @@ document.getElementById('btnRunApproved').addEventListener('click', async () => 
           showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '실행 실패'}`, true);
           return;
         }
+        // A warning (a refused report, a change not recorded) is shown in full;
+        // a plain 보류 count would hide why an action did not run.
         const unrecorded = response.executedUnrecorded || 0;
-        showResult(unrecorded > 0
-          ? `⚠️ ${response.executed || 0}개 실행, ${unrecorded}개는 실행됐지만 기록되지 않음, ${response.skipped || 0}개 보류. ${response.warning || ''}`.trim()
-          : `✅ ${response.executed || 0}개 실행, ${response.skipped || 0}개 보류`);
+        const counts = `${response.executed || 0}개 실행${unrecorded > 0 ? `, ${unrecorded}개는 실행됐지만 기록되지 않음` : ''}, ${response.skipped || 0}개 보류`;
+        showResult(response.warning ? `⚠️ ${counts}. ${response.warning}` : `✅ ${counts}`);
       },
     );
   } catch (error) {

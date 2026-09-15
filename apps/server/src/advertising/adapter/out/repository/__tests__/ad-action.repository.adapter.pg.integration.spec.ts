@@ -202,11 +202,20 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
     const [executed] = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
     await repository.approveAdActions([executed.id], TEST_ORGANIZATION_ID);
-    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, { status: 'running' });
+    const { id: executionTaskId } = await observerPrisma.executionTask.findFirstOrThrow({
+      where: { actionId: executed.id },
+    });
+    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, {
+      status: 'running',
+      executionTaskId,
+    });
     await expect(
       repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]),
     ).resolves.toEqual([]);
-    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, { status: 'done' });
+    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, {
+      status: 'done',
+      executionTaskId,
+    });
 
     const [rejected] = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
     expect(rejected).toBeDefined();

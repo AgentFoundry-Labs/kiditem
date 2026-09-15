@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useMemo, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
@@ -13,14 +14,30 @@ import {
   saveGeneratedOrderFile,
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
+import { type OrderCollectionExtensionRun } from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import {
-  type OrderCollectionExtensionRun,
-} from '@/app/(orders)/order-collection/lib/order-collection-extension';
-import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
+  coupangDirectshipCollectionSource,
+  type CoupangDirectshipHandoff,
+} from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
+import {
+  mallOrderCollectionSource,
+  refusedAsNotConfigured,
+  type MallOrderCollectionHandoff,
+  type MallOrderCollectionSourceList,
+  type MallOrderCollectionStartInput,
+} from '@/app/(orders)/order-collection/lib/mall-order-collection-source';
+import {
+  startCollectionSource,
+  type CollectionSourceAdapter,
+  type CollectionStartOutcome,
+} from '@/hooks/use-collection-source-control';
+import { useAuth } from '@/hooks/useAuth';
 import {
   classifyOrderCollectionFailure,
+  COUPANG_DIRECT_MALL_KEY,
   isBrowserCollectableMall,
   mallCollectionFailureMessage,
+  orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
 } from '@/app/(orders)/order-collection/lib/order-collection-page-model';
@@ -31,13 +48,14 @@ import {
 import {
   collectSellpiaOrderSnapshot,
   reconcileCollectedOrdersWithSellpia,
+  SELLPIA_RECONCILE_PARTIAL_MESSAGE,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
+import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 const NOOP = () => undefined;
-const NOOP_COLLECTING = (_mallKey: string, _collecting: boolean) => undefined;
 const NOOP_ACTIVITY = (
   _kind: MarketplaceOrderCollectionActivityKind,
   _mallName: string,
@@ -54,6 +72,10 @@ export type MarketplaceOrderCollectionActivityKind =
 export type MarketplaceOrderCollectionBatchResult = {
   successCount: number;
   failedCount: number;
+  /** Malls the owner was already collecting, so this batch opened nothing for them. */
+  inProgressCount: number;
+  /** Malls this organization has not set up yet, which cannot be started at all. */
+  unconfiguredCount: number;
 };
 
 type UseAllMarketplaceOrderCollectionOptions = {
@@ -61,7 +83,6 @@ type UseAllMarketplaceOrderCollectionOptions = {
   rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId?: (id: string) => void;
-  markCollecting?: (mallKey: string, collecting: boolean) => void;
   clearMallErrorActivity?: (mallName: string) => void;
   logActivity?: (
     kind: MarketplaceOrderCollectionActivityKind,
@@ -80,20 +101,26 @@ export function useAllMarketplaceOrderCollection({
   rocketChannelAccountId,
   addGeneratedFile,
   setPreviewId = NOOP,
-  markCollecting = NOOP_COLLECTING,
   clearMallErrorActivity = NOOP,
   logActivity = NOOP_ACTIVITY,
 }: UseAllMarketplaceOrderCollectionOptions) {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const organizationId = user?.organizationId ?? null;
   const sessionControls = useOrderCollectionSessionControls(
     mallAccounts,
     rocketChannelAccountId,
   );
   const {
+    abortLocalRun,
+    activateDirectOwnerRun,
+    activateOwnerRun,
     failRun,
-    prepareRun,
     releaseRun,
     syncRun,
   } = sessionControls;
+  /** The collection each mall's hand-off left running, for a caller that waits on it. */
+  const collectionsRef = useRef(new Map<string, Promise<BrowserMallCollectionResult>>());
   const collectBrowserMall = useMemo(
     () => createBrowserMallCollector({
       mallAccounts,
@@ -107,19 +134,11 @@ export function useAllMarketplaceOrderCollection({
   const collectAccount = useCallback(
     async (
       account: OrderCollectionMallAccount,
-      run?: OrderCollectionExtensionRun,
+      run: OrderCollectionExtensionRun,
       directship?: { eddDates: string[]; data?: CoupangDirectData },
-      knownExtensionStatus?: ExtensionRuntimeStatus,
     ) => {
-      markCollecting(account.key, true);
-      let activeRun = run;
+      const activeRun = run;
       try {
-        if (!activeRun) {
-          activeRun = await prepareRun(account, undefined, knownExtensionStatus) ?? undefined;
-        }
-        if (!activeRun) {
-          throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
-        }
         const collected = await collectBrowserMall(account, activeRun, { directship });
         if (collected.rowCount === 0) {
           // Empty provider results have no converter response to fence. Keep
@@ -128,11 +147,18 @@ export function useAllMarketplaceOrderCollection({
           // probe, so it must remain a successful no-op rather than issuing
           // a terminal failure against the completed source owner.
           if (activeRun.sourceOwner !== 'coupang_directship') {
-            await failRun(
-              activeRun,
-              'NO_NEW_ORDERS',
-              `${account.name} 배송준비전 주문이 없습니다.`,
-            );
+            // Confirmed-coverage malls (해법몰 · 도매꾹) complete the owner with an
+            // empty snapshot themselves. Failing an attempt that is no longer
+            // running is refused as a terminal replay and would turn "no new
+            // orders" into a failed collection.
+            const current = await syncRun(activeRun.attemptId);
+            if (current.state === 'RUNNING') {
+              await failRun(
+                activeRun,
+                'NO_NEW_ORDERS',
+                `${account.name} 배송준비전 주문이 없습니다.`,
+              );
+            }
           }
         } else {
           // Server conversion endpoints complete the source owner after the
@@ -144,6 +170,9 @@ export function useAllMarketplaceOrderCollection({
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
       } catch (error) {
+        // 운영자 중단이 이 절차를 끊었으면 terminal 은 owner 취소의 몫이다.
+        // 여기서 실패를 먼저 보내면 `COLLECTION_FAILED` 실패 알림이 남는다(KID-159).
+        const stopped = activeRun?.signal?.aborted === true;
         const message = mallCollectionFailureMessage(
           account.name,
           friendlyError(error) ?? '브라우저 수집 실패',
@@ -152,7 +181,7 @@ export function useAllMarketplaceOrderCollection({
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
-        const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
+        const noNewOrders = !stopped && failureKind === 'empty';
         const ownerReconciliationRequired = error instanceof Error &&
           'ownerReconciliationRequired' in error &&
           (error as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
@@ -164,7 +193,7 @@ export function useAllMarketplaceOrderCollection({
             );
           });
         }
-        if (activeRun && !attentionKind && !ownerReconciliationRequired) {
+        if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
           const unsupported = error instanceof Error && 'sourcePayload' in error
             ? (error as Error & { sourcePayload?: unknown }).sourcePayload
             : undefined;
@@ -187,13 +216,12 @@ export function useAllMarketplaceOrderCollection({
           logActivity('empty', account.name);
           return { rowCount: 0, masked: false, date: activeRun?.date ?? null };
         }
-        if (!activeRun?.signal?.aborted) {
+        if (!stopped) {
           logActivity(attentionKind ?? 'error', account.name, message);
         }
         throw error;
       } finally {
         if (activeRun) releaseRun(account.key, activeRun.attemptId);
-        markCollecting(account.key, false);
       }
     },
     [
@@ -201,35 +229,162 @@ export function useAllMarketplaceOrderCollection({
       collectBrowserMall,
       failRun,
       logActivity,
-      markCollecting,
-      prepareRun,
       releaseRun,
       syncRun,
     ],
   );
 
+  /**
+   * Keeps the collection a hand-off left running, so a batch can wait for it,
+   * and tells the operator how the one mall they started ended. A collection
+   * the operator stopped is not a failure.
+   */
+  const startCollectionProcedure = useCallback((
+    account: OrderCollectionMallAccount,
+    run: OrderCollectionExtensionRun,
+    collection: Promise<BrowserMallCollectionResult>,
+    report: boolean,
+  ) => {
+    collectionsRef.current.set(account.key, collection);
+    collection.then(
+      (collected) => {
+        if (!report) return;
+        if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
+        if (collected.rowCount > 0) toast.success(`${account.name} 수집 완료`);
+      },
+      (error: unknown) => {
+        if (!report) return;
+        if (run.signal?.aborted) {
+          toast.info(COLLECTION_STOPPED_MESSAGE);
+          return;
+        }
+        toast.error(mallCollectionFailureMessage(
+          account.name,
+          friendlyError(error) ?? '브라우저 수집 실패',
+        ));
+      },
+    );
+  }, []);
+
+  /**
+   * The mall's hand-off: the owner already admitted the attempt, so this turns
+   * it into a run and lets the collection go on. The start settles here, and
+   * the owner's running status is what every screen shows until it ends.
+   */
+  const handOffMall = useCallback((
+    account: OrderCollectionMallAccount,
+    { extensionId, attempt }: MallOrderCollectionHandoff,
+    report: boolean,
+  ) => {
+    const run = activateOwnerRun(account, attempt, extensionId);
+    startCollectionProcedure(account, run, collectAccount(account, run), report);
+    return Promise.resolve();
+  }, [activateOwnerRun, collectAccount, startCollectionProcedure]);
+
+  const handOffDirectship = useCallback((
+    account: OrderCollectionMallAccount,
+    { extensionId, attempt }: CoupangDirectshipHandoff,
+    report: boolean,
+  ) => {
+    const run = activateDirectOwnerRun(account, attempt, extensionId);
+    startCollectionProcedure(account, run, collectAccount(account, run), report);
+    return Promise.resolve();
+  }, [activateDirectOwnerRun, collectAccount, startCollectionProcedure]);
+
+  /**
+   * One mall's adapter for the shared control. The card that renders it starts,
+   * shows and stops the same collection every other browser sees.
+   */
+  const collectionAdapter = useCallback((
+    account: OrderCollectionMallAccount,
+    report = true,
+  ): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> => (
+    account.key === COUPANG_DIRECT_MALL_KEY
+      ? coupangDirectshipCollectionSource({
+        channelAccountId: rocketChannelAccountId,
+        handOff: (handoff) => handOffDirectship(account, handoff, report),
+        abortLocalRun,
+      }) as unknown as CollectionSourceAdapter<
+        MallOrderCollectionSourceList,
+        MallOrderCollectionStartInput
+      >
+      : mallOrderCollectionSource({
+        organizationId,
+        account,
+        handOff: (handoff) => handOffMall(account, handoff, report),
+        abortLocalRun,
+      })
+  ), [abortLocalRun, handOffDirectship, handOffMall, organizationId, rocketChannelAccountId]);
+
+  /**
+   * Starts one mall through its shared control from outside a mounted card,
+   * and names the collection that start left running so a batch can wait for
+   * it. A mall the owner is already collecting opens nothing.
+   */
+  const startMall = useCallback(async (
+    account: OrderCollectionMallAccount,
+    input: MallOrderCollectionStartInput = {},
+  ): Promise<Readonly<{
+    outcome: CollectionStartOutcome;
+    collection: Promise<BrowserMallCollectionResult> | null;
+  }>> => {
+    collectionsRef.current.delete(account.key);
+    const outcome = await startCollectionSource(
+      queryClient,
+      collectionAdapter(account, false),
+      input,
+    );
+    return {
+      outcome,
+      collection: outcome.outcome === 'started'
+        ? collectionsRef.current.get(account.key) ?? null
+        : null,
+    };
+  }, [collectionAdapter, queryClient]);
+
   const collectAccounts = useCallback(async (
     accounts: OrderCollectionMallAccount[],
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
-      return { successCount: 0, failedCount: 0 };
+      return { successCount: 0, failedCount: 0, inProgressCount: 0, unconfiguredCount: 0 };
     }
 
     let successCount = 0;
     let failedCount = 0;
+    let inProgressCount = 0;
+    let unconfiguredCount = 0;
     await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
+      let started: Awaited<ReturnType<typeof startMall>>;
       try {
-        // Each account is admitted by the source owner before extension
-        // detection/provider I/O. The owner idempotency key, not a generic
-        // browser run, is the batch's execution authority.
-        await collectAccount(account);
+        // Every mall is admitted by its source owner through the shared start
+        // control before extension detection or provider I/O.
+        started = await startMall(account);
+      } catch {
+        failedCount += 1;
+        return;
+      }
+      // A mall the owner is already collecting keeps that collection; it is
+      // neither a new success nor a failure of this batch (KID-106 Q6).
+      if (started.outcome.outcome === 'running') {
+        inProgressCount += 1;
+        return;
+      }
+      if (started.outcome.outcome === 'refused') {
+        // 아직 설정되지 않은 몰은 시작 자체가 없었던 것이지 수집이 실패한 것이
+        // 아니다. 실패로 세면 전체 수집이 고장처럼 읽힌다(KID-170 D1).
+        if (refusedAsNotConfigured(started.outcome)) unconfiguredCount += 1;
+        else failedCount += 1;
+        return;
+      }
+      try {
+        await started.collection;
         successCount += 1;
       } catch {
         failedCount += 1;
       }
     });
-    return { successCount, failedCount };
-  }, [collectAccount]);
+    return { successCount, failedCount, inProgressCount, unconfiguredCount };
+  }, [startMall]);
 
   const collectAll = useCallback((
     sourceAccounts: OrderCollectionMallAccount[] = mallAccounts,
@@ -243,6 +398,8 @@ export function useAllMarketplaceOrderCollection({
     collectAccount,
     collectAccounts,
     collectAll,
+    collectionAdapter,
+    startMall,
     collectableAccountCount: mallAccounts.filter(
       (account) => account.enabled && isBrowserCollectableMall(account),
     ).length,
@@ -306,15 +463,11 @@ export function usePersistedAllMarketplaceOrderCollection({
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const { successCount, failedCount } = await collectAll(latestAccounts);
+    const batch = await collectAll(latestAccounts);
     await generatedFileWriteQueueRef.current;
-    if (failedCount > 0) {
-      toast.warning(
-        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패`,
-      );
-    } else {
-      toast.success('전체 수집 완료');
-    }
+    const notice = orderCollectionBatchNotice(batch);
+    if (notice.tone === 'warning') toast.warning(notice.message);
+    else toast.success(notice.message);
 
     try {
       const [history, snapshot] = await Promise.all([
@@ -328,10 +481,11 @@ export function usePersistedAllMarketplaceOrderCollection({
         partial: snapshot.partial,
         checkedAt: Date.now(),
       });
-      const missing = [...reconciled.missingCountByMallKey.values()]
-        .reduce((sum, count) => sum + count, 0);
-      if (missing > 0) {
-        toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(missing)}건`);
+      // 부분 조회는 "안 올라간 주문"과 "못 본 주문"을 가를 수 없어 숫자를 내지 않는다(KID-163).
+      if (reconciled.missingTotal === null) {
+        toast.warning(SELLPIA_RECONCILE_PARTIAL_MESSAGE);
+      } else if (reconciled.missingTotal > 0) {
+        toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(reconciled.missingTotal)}건`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '셀피아 대조에 실패했습니다.');

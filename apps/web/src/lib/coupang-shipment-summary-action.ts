@@ -1,6 +1,13 @@
 import { z } from "zod";
+import type { QueryKey } from "@tanstack/react-query";
+import {
+  COLLECTION_RUNNING_POLL_MS,
+  type CollectionSourceAdapter,
+} from "@/hooks/use-collection-source-control";
 import { apiClient } from "./api-client";
 import { isApiError } from "./api-error";
+import { collectionSourceStatusQueryOptions } from "./collection-source-status-query";
+import { queryKeys } from "./query-keys";
 import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
@@ -88,6 +95,59 @@ export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
 }
 export function loadCoupangShipmentSummarySource(): Promise<CoupangShipmentSummarySource> {
   return apiClient.getParsed(`${BASE}/source`, sourceSchema);
+}
+
+/** The owner's operator stop, without the extension's fence token (KID-159). */
+export function cancelCoupangShipmentSummaryAttempt(attemptId: string) {
+  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
+const SOURCE_IDLE_POLL_MS = 60_000;
+
+/**
+ * The shipment date-summary collection for the shared control. The calendar
+ * screen still starts it itself, because the operator picks what to query and
+ * the caller reads the collected days back; the control adds the running
+ * collection every browser can see and the operator stop it never had.
+ *
+ * While that screen-owned start is in flight the owner is read at the running
+ * cadence, so the control names the attempt within seconds instead of after
+ * the next idle read — an 11-second query otherwise ends before the operator
+ * is ever offered a stop (KID-170 D3).
+ */
+export function coupangShipmentSummaryCollectionSource({
+  localStartInFlight = false,
+}: Readonly<{ localStartInFlight?: boolean }> = {}):
+CollectionSourceAdapter<CoupangShipmentSummarySource> {
+  return {
+    sourceKey: "inventory.coupang_shipment_summary",
+    label: "쿠팡 쉽먼트 발송일 조회",
+    statusQuery: collectionSourceStatusQueryOptions<
+      CoupangShipmentSummarySource,
+      Error,
+      CoupangShipmentSummarySource,
+      QueryKey
+    >({
+      queryKey: queryKeys.inventory.coupangShipmentSummary(),
+      queryFn: loadCoupangShipmentSummarySource,
+      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : SOURCE_IDLE_POLL_MS,
+      refetchIntervalInBackground: false,
+      meta: { suppressGlobalErrorToast: true },
+    }),
+    // 임대가 지난 RUNNING 행은 아무도 돌리고 있지 않다. 재고 owner 읽기와 같은 규칙이다.
+    readRunning: (source) => {
+      const attempt = source.latestAttempt;
+      if (attempt?.state !== "RUNNING") return null;
+      if (Date.parse(attempt.expiresAt) <= Date.now()) return null;
+      return { attemptId: attempt.attemptId, scopeLabel: null };
+    },
+    cancelOnServer: cancelCoupangShipmentSummaryAttempt,
+    readCompleteId: (source) => source.latestComplete?.generation ?? null,
+    // 대시보드의 "쿠팡 쉽먼트" 칸이 들고 있는 마지막 수집 시각(KID-185).
+    onNewComplete: (queryClient) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.collections() });
+    },
+  };
 }
 
 /** Both manual buttons use the same owner; the page never receives or uploads provider rows. */

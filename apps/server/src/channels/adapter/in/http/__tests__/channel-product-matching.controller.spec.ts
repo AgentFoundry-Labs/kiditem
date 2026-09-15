@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { SellpiaManualMatchSourceStatusSchema } from '@kiditem/shared/sellpia-manual-match';
 import { ChannelProductMatchingController } from '../channel-product-matching.controller';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
@@ -20,6 +21,7 @@ describe('ChannelProductMatchingController', () => {
       ['sellpiaManualMatchAttempt', 'sellpia-manual-match/attempts/:attemptId', RequestMethod.GET],
       ['completeSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/complete', RequestMethod.POST],
       ['failSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/fail', RequestMethod.POST],
+      ['cancelSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/cancel', RequestMethod.POST],
       ['productCandidates', ':channelListingId/candidates', RequestMethod.GET],
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
     ] as const;
@@ -46,6 +48,7 @@ describe('ChannelProductMatchingController', () => {
       readAttempt: vi.fn(),
       completeAttempt: vi.fn(),
       failAttempt: vi.fn(),
+      cancelAttempt: vi.fn(),
     };
     const controller = new ChannelProductMatchingController(
       matching as never,
@@ -72,6 +75,8 @@ describe('ChannelProductMatchingController', () => {
       '00000000-0000-4000-8000-000000000003',
       { errorCode: 'FAILED', errorMessage: 'failure' },
     );
+    // 운영자 중단은 시도 토큰 없이 조직 범위로만 끝낸다.
+    await controller.cancelSellpiaManualMatch(organizationId, listingId);
 
     expect(matching.list).toHaveBeenCalledWith(organizationId, {});
     expect(matching.autoMatch).toHaveBeenCalledWith(
@@ -90,6 +95,10 @@ describe('ChannelProductMatchingController', () => {
       idempotencyKey: 'retry-key',
     });
     expect(manualMatches.readCurrent).toHaveBeenCalledWith(organizationId);
+    expect(manualMatches.cancelAttempt).toHaveBeenCalledWith({
+      organizationId,
+      attemptId: listingId,
+    });
     expect(manualMatches.readAttempt).toHaveBeenCalledWith({
       organizationId,
       attemptId: listingId,
@@ -107,5 +116,39 @@ describe('ChannelProductMatchingController', () => {
       errorCode: 'FAILED',
       errorMessage: 'failure',
     });
+  });
+
+  it('answers the manual-match status read without the fence token', async () => {
+    const status = {
+      latestAttempt: {
+        attemptId: '00000000-0000-4000-8000-000000000004',
+        state: 'RUNNING',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        plan: {
+          sourceType: 'sellpia_product_manual_match',
+          parserVersion: 'sellpia-manual-match-v1',
+          sourceOrigin: 'https://kiditem.sellpia.com',
+          sourcePath: '/product_manual_match.html',
+          targetCount: 1,
+          targetCodes: ['634-1'],
+        },
+        contentChecksum: null,
+        capturedAt: null,
+        errorCode: null,
+        errorMessage: null,
+      },
+      currentSnapshot: null,
+    };
+    const manualMatches = { readCurrent: vi.fn().mockResolvedValue(status) };
+    const controller = new ChannelProductMatchingController(
+      {} as never,
+      manualMatches as never,
+    );
+
+    const view = await controller.sellpiaManualMatchCurrent(organizationId);
+
+    // strict 스키마라 attemptToken이 남아 있으면 여기서 깨진다.
+    expect(SellpiaManualMatchSourceStatusSchema.parse(view)).toEqual(status);
+    expect(view.latestAttempt).not.toHaveProperty('attemptToken');
   });
 });

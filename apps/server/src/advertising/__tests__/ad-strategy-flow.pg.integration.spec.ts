@@ -931,8 +931,9 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         actionIds: [result.actionId],
       });
-      expect(deriveAdActionExecution(latestTasks.get(result.actionId) ?? null).executeStatus)
-        .toBe('queued');
+      expect(
+        deriveAdActionExecution(latestTasks.get(result.actionId) ?? null, new Date()).executeStatus,
+      ).toBe('queued');
 
       const tasks = await prisma.executionTask.findMany({
         where: { actionId: result.actionId },

@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { MallAccountGroups } from './MallAccountGroups';
+import { MallAccountGroups, type MallCardCollection } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
@@ -22,6 +23,27 @@ function account(
     passwordUpdatedAt: overrides.passwordUpdatedAt ?? null,
     updatedAt: overrides.updatedAt ?? null,
   };
+}
+
+/**
+ * 시작·중단은 몰마다 자기 공용 컨트롤이 그린다(KID-189). 카드는 그 컨트롤에게서
+ * 컨트롤 자리와 owner 진행 중을 함께 받는다. 여기서는 그 배선만 본다.
+ */
+function collectButton(
+  onCollect: (account: OrderCollectionMallAccount) => void,
+  running = false,
+) {
+  return (
+    account: OrderCollectionMallAccount,
+    renderCard: (collection: MallCardCollection) => ReactNode,
+  ) => renderCard({
+    control: (
+      <button type="button" onClick={() => onCollect(account)}>
+        {account.name} 수집
+      </button>
+    ),
+    running,
+  });
 }
 
 describe('MallAccountGroups', () => {
@@ -49,14 +71,11 @@ describe('MallAccountGroups', () => {
         stats={stats}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
-        cancellingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        onCollectMall={onCollectMall}
-        onCancelMall={vi.fn()}
+        renderCollectionControl={collectButton(onCollectMall)}
         onUploadTracking={vi.fn()}
       />,
     );
@@ -85,15 +104,12 @@ describe('MallAccountGroups', () => {
         stats={new Map()}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
-        cancellingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        onCollectMall={onCollectMall}
+        renderCollectionControl={collectButton(onCollectMall)}
         onOpenCalendar={onOpenCalendar}
-        onCancelMall={vi.fn()}
         onUploadTracking={vi.fn()}
       />,
     );
@@ -107,7 +123,7 @@ describe('MallAccountGroups', () => {
     expect(onCollectMall).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps another mall collection button enabled while one mall is collecting', async () => {
+  it('gives every mall its own collection control, one per card', async () => {
     const user = userEvent.setup();
     const kidsnote = account('kidsnote', { name: '키즈노트' });
     const kakao = account('kakao', { name: '카카오' });
@@ -119,19 +135,15 @@ describe('MallAccountGroups', () => {
         stats={new Map()}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set(['kidsnote'])}
-        cancellingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        onCollectMall={onCollectMall}
-        onCancelMall={vi.fn()}
+        renderCollectionControl={collectButton(onCollectMall)}
         onUploadTracking={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('button', { name: '키즈노트 중단' })).toBeEnabled();
     const kakaoCollect = screen.getByRole('button', { name: '카카오 수집' });
     expect(kakaoCollect).toBeEnabled();
     await user.click(kakaoCollect);
@@ -153,14 +165,11 @@ describe('MallAccountGroups', () => {
         ])}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
-        cancellingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        onCollectMall={vi.fn()}
-        onCancelMall={vi.fn()}
+        renderCollectionControl={collectButton(vi.fn())}
         onUploadTracking={vi.fn()}
       />,
     );

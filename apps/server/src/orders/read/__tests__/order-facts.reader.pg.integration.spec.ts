@@ -8,6 +8,7 @@ import {
 } from '../../../test-helpers/real-prisma';
 import {
   readOrderByIdFact,
+  readOrderCountsByChannelAccount,
   readOrderListFacts,
   readOrderStatusCounts,
   readObservedOrderBounds,
@@ -531,6 +532,51 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     expect(result.one).toMatchObject({ id: order.id, totalPrice: 19_000 });
     expect(result.incomplete).toBeNull();
     expect(result.statuses).toEqual({ total: 1, byStatus: { paid: 1 } });
+  });
+
+  it('counts each channel account\'s published orders and leaves other organizations out', async () => {
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ACCOUNT-COUNT-1', 10_000, [
+      { totalPrice: 10_000, quantity: 1 },
+    ]);
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ACCOUNT-COUNT-2', 10_000, [
+      { totalPrice: 10_000, quantity: 1 },
+    ]);
+    await seedOrder(TEST_ORGANIZATION_ID, SECOND_ACCOUNT_ID, 'ACCOUNT-COUNT-3', 10_000, [
+      { totalPrice: 10_000, quantity: 1 },
+    ]);
+    await seedOrder(OTHER_ORGANIZATION_ID, OTHER_ACCOUNT_ID, 'ACCOUNT-COUNT-FOREIGN', 10_000, [
+      { totalPrice: 10_000, quantity: 1 },
+    ]);
+    // An order whose source run never completed is not published, so it is not counted.
+    const running = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: SECOND_ACCOUNT_ID,
+        sourceType: 'order_collection_mall',
+        status: 'running',
+        importedAt: new Date('2026-05-01T05:00:00.000Z'),
+      },
+    });
+    const incomplete = await seedOrder(
+      TEST_ORGANIZATION_ID,
+      SECOND_ACCOUNT_ID,
+      'ACCOUNT-COUNT-RUNNING',
+      10_000,
+      [{ totalPrice: 10_000, quantity: 1 }],
+    );
+    await prisma.order.update({
+      where: { id: incomplete.id },
+      data: { sourceImportRunId: running.id },
+    });
+
+    const counts = await prisma.$transaction(
+      (tx) => readOrderCountsByChannelAccount(tx, TEST_ORGANIZATION_ID),
+    );
+
+    expect([...counts].sort((a, b) => a.channelAccountId.localeCompare(b.channelAccountId))).toEqual([
+      { channelAccountId: ACCOUNT_ID, orderCount: 2 },
+      { channelAccountId: SECOND_ACCOUNT_ID, orderCount: 1 },
+    ]);
   });
 
   async function seedOrder(

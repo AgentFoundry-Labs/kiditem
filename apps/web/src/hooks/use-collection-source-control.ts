@@ -66,6 +66,14 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
    * seconds since the page first saw it gets the no-progress notice.
    */
   readProgress?: (status: TStatus) => string | null;
+  /**
+   * What this source's own part of the status read is, for a read that answers
+   * several sources at once (the order screen's 20 mall cards share one list).
+   * A start notice speaks about the status it was decided against, so it is
+   * retired when that part changes; without this the whole read is compared and
+   * any other source's transition retires it (KID-170).
+   */
+  readStatusIdentity?: (status: TStatus) => unknown;
   /** The latest complete collection's identity; a change while mounted is a newly finished collection. */
   readCompleteId: (status: TStatus) => string | null;
   /** Refreshes the reads a newly finished collection republished. */
@@ -109,12 +117,17 @@ export type CollectionSourceControl<TStatus, TInput = void> = CollectionControlV
 
 const START_FAILED = '수집을 시작하지 못했습니다.';
 const STOP_FAILED = '수집을 중단하지 못했습니다. 잠시 후 다시 시도해 주세요.';
-const ALREADY_RUNNING = '이미 진행 중인 수집이 있습니다.';
+/** 같은 원천을 다시 시작했을 때의 안내. 컨트롤 밖에서 시작하는 화면도 같은 문장을 쓴다. */
+export const COLLECTION_ALREADY_RUNNING_MESSAGE = '이미 진행 중인 수집이 있습니다.';
 const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
-// Every screen that shows a running collection reads its owner this often.
-const RUNNING_POLL_MS = 2_000;
+/**
+ * Every screen that shows a running collection reads its owner this often. A
+ * source its own screen starts borrows this cadence while that start is in
+ * flight, so the control learns the attempt before a short run is over.
+ */
+export const COLLECTION_RUNNING_POLL_MS = 2_000;
 // A real Wing traffic run uploads its first receipt 30 to 50 seconds in (KID-132).
 const NO_PROGRESS_NOTICE_MS = 90_000;
 const NO_PROGRESS =
@@ -132,6 +145,49 @@ type StartState<TStatus, TInput> = MutationState<
   StartVariables<TStatus, TInput>,
   unknown
 >;
+
+async function runStart<TStatus, TInput>(
+  queryClient: QueryClient,
+  adapter: CollectionSourceAdapter<TStatus, TInput>,
+  { input, statusAtStart }: StartVariables<TStatus, TInput>,
+): Promise<CollectionStartOutcome> {
+  if (!adapter.start) throw new Error(`${adapter.label} starts from its own screen action`);
+  const outcome = await adapter.start(input, { status: statusAtStart });
+  // Running state is the owner's to report; read it before settling.
+  if (outcome.outcome !== 'refused') {
+    await queryClient.invalidateQueries({ queryKey: adapter.statusQuery.queryKey, exact: true });
+  }
+  return outcome;
+}
+
+/**
+ * Starts one source from outside a mounted control, for a screen that fans a
+ * start out over sources no hook can loop over (the order screen collects
+ * every mall at once). It runs through the source's own keyed start mutation,
+ * so every mounted control of that source shows the same starting state and
+ * outcome, and a source whose start is already in flight answers as running
+ * instead of opening a second collection.
+ */
+export function startCollectionSource<TStatus, TInput>(
+  queryClient: QueryClient,
+  adapter: CollectionSourceAdapter<TStatus, TInput>,
+  input: TInput,
+): Promise<CollectionStartOutcome> {
+  const mutationKey = queryKeys.collectionControl.mutation(adapter.sourceKey, 'start');
+  if (queryClient.isMutating({ mutationKey }) > 0) {
+    return Promise.resolve({ outcome: 'running', attemptId: null });
+  }
+  return queryClient
+    .getMutationCache()
+    .build<CollectionStartOutcome, Error, StartVariables<TStatus, TInput>, unknown>(queryClient, {
+      mutationKey,
+      mutationFn: (variables) => runStart(queryClient, adapter, variables),
+    })
+    .execute({
+      input,
+      statusAtStart: queryClient.getQueryData<TStatus>(adapter.statusQuery.queryKey),
+    });
+}
 
 type StopVariables<TStatus> = Readonly<{
   attemptId: string;
@@ -228,14 +284,17 @@ function operatorMessage(error: unknown, fallback: string): string {
 function startNotice<TStatus, TInput>(
   latest: StartState<TStatus, TInput> | undefined,
   status: TStatus | undefined,
+  identity: (status: TStatus | undefined) => unknown,
 ): CollectionControlNotice | null {
   if (!latest || latest.status === 'idle' || latest.status === 'pending') return null;
-  if (latest.variables?.statusAtStart !== status) return null;
+  if (identity(latest.variables?.statusAtStart) !== identity(status)) return null;
   if (latest.status === 'error') {
     return { tone: 'error', message: operatorMessage(latest.error, START_FAILED) };
   }
   if (latest.data?.outcome === 'refused') return { tone: 'refused', message: latest.data.message };
-  if (latest.data?.outcome === 'running') return { tone: 'info', message: ALREADY_RUNNING };
+  if (latest.data?.outcome === 'running') {
+    return { tone: 'info', message: COLLECTION_ALREADY_RUNNING_MESSAGE };
+  }
   return null;
 }
 
@@ -257,7 +316,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     refetchInterval: (current) => {
       const data = current.state.data;
       if (current.state.status !== 'error' && data !== undefined && adapter.readRunning(data)) {
-        return RUNNING_POLL_MS;
+        return COLLECTION_RUNNING_POLL_MS;
       }
       const own = adapter.statusQuery.refetchInterval;
       return typeof own === 'function' ? own(current) : own;
@@ -268,15 +327,8 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
 
   const startMutation = useMutation({
     mutationKey: startKey,
-    mutationFn: async ({ input, statusAtStart }: StartVariables<TStatus, TInput>) => {
-      if (!adapter.start) throw new Error(`${adapter.label} starts from its own screen action`);
-      const outcome = await adapter.start(input, { status: statusAtStart });
-      // Running state is the owner's to report; read it before settling.
-      if (outcome.outcome !== 'refused') {
-        await queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true });
-      }
-      return outcome;
-    },
+    mutationFn: (variables: StartVariables<TStatus, TInput>) =>
+      runStart(queryClient, adapter, variables),
   });
   const starting = useIsMutating({ mutationKey: startKey }) > 0;
   const latestStart = latestSubmitted(
@@ -337,6 +389,12 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
     adapter.onNewComplete(queryClient);
   }, [adapter, completeId, queryClient]);
 
+  // 아직 아무것도 읽지 않은 상태는 그 자체가 신원이다.
+  const statusIdentity = (status: TStatus | undefined): unknown =>
+    status === undefined || !adapter.readStatusIdentity
+      ? status
+      : adapter.readStatusIdentity(status);
+
   const statusRead = collectionSourceStatusRead(query);
   const running = query.data === undefined ? null : adapter.readRunning(query.data);
   const canStop = Boolean(adapter.cancelOnServer) && running?.attemptId != null;
@@ -352,7 +410,7 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
       : running
         ? stopNotice(latestStop, running) ??
           (noProgress ? { tone: 'warning' as const, message: NO_PROGRESS } : null)
-        : startNotice(latestStart, query.data);
+        : startNotice(latestStart, query.data, statusIdentity);
   const state: CollectionControlState =
     statusRead === 'loading'
       ? 'loading'

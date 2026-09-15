@@ -30,8 +30,8 @@ export async function readCoupangShipmentSummarySource(
   return {
     ready:
       !!complete && input.requestFingerprint === complete.requestFingerprint,
-    latestAttempt: latest ? publicAttempt(latest) : null,
-    latestComplete: complete ? publicAttempt(complete) : null,
+    latestAttempt: latest ? publicShipmentSummaryAttempt(latest) : null,
+    latestComplete: complete ? publicShipmentSummaryAttempt(complete) : null,
     capturedItems: complete
       ? await readCapturedShipmentDates(tx, input.organizationId, complete.id)
       : [],
@@ -99,7 +99,10 @@ export function shipmentSummaryAttempt(
   };
 }
 
-function publicAttempt(run: SourceImportRun) {
+/** The attempt as a page reads it: the fence token stays with the extension's control reads. */
+export function publicShipmentSummaryAttempt(
+  run: SourceImportRun,
+): Omit<ShipmentSummaryAttempt, "attemptToken"> {
   const { attemptToken: _token, ...attempt } = shipmentSummaryAttempt(run);
   return attempt;
 }

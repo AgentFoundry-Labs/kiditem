@@ -207,6 +207,9 @@
   }
 
   function requireCaptureShape(mallKey, capture) {
+    // A collector that confirmed there is nothing to collect sends no file or
+    // rows. The empty check reports it as no new orders, not a malformed capture.
+    if (capture?.empty === true) return;
     const isArray = (key) => Array.isArray(capture?.[key]);
     const isBase64 = (key) => typeof capture?.[key] === "string" && capture[key].trim();
     let valid = true;

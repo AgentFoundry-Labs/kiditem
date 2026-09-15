@@ -1288,12 +1288,16 @@
    * `` `${$t(inventoryIdText)} : ${inventoryId}` `` 로 렌더된다):
    *   `등록상품ID : 16311492950`
    * 콜론+공백은 `[^0-9]{0,10}` 안에 들어오므로 기존 패턴으로 그대로 잡힌다.
+   *
+   * 출처는 URL 의 `vendorInventoryId` 와 `등록상품ID` 글자뿐이다. "상품번호" 글자는 읽지
+   * 않는다(KID-204): 확인한 Wing 화면에는 그 글자가 없고, 옆 숫자는 노출상품 productId 처럼
+   * 트래픽 행과 연결되지 않는 다른 번호일 수 있다. 둘 다 없으면 null 이다.
    */
   function extractRegisteredProductId() {
     const fromUrl = /vendorInventoryId=(\d{8,})/.exec(location.href || '');
     if (fromUrl) return fromUrl[1];
     const body = (document.body && document.body.innerText) || '';
-    const match = /등록상품ID[^0-9]{0,10}(\d{8,})/.exec(body) || /상품번호[^0-9]{0,10}(\d{8,})/.exec(body);
+    const match = /등록상품ID[^0-9]{0,10}(\d{8,})/.exec(body);
     return match ? match[1] : null;
   }
 

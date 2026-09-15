@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -113,6 +114,16 @@ export class ChannelProductMatchingController {
       errorCode: failure.errorCode,
       errorMessage: failure.errorMessage,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('sellpia-manual-match/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelSellpiaManualMatch(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.sellpiaManualMatches.cancelAttempt({ organizationId, attemptId });
   }
 
   @Get(':channelListingId/candidates')

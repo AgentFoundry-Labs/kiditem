@@ -30,9 +30,11 @@ const ACTION_DEDUP_HOURS = 24;
  * service supplies it from the controller's `@CurrentOrganization()`.
  *
  * Execution state lives on the action's latest ExecutionTask. The browser
- * extension's markRunning / markDone / markFailed reports move that task; a
- * second markRunning for a running task is another executor and is refused.
- * Approving a failed action queues a new one.
+ * extension's markRunning / markDone / markFailed reports name the attempt
+ * they report for and move only that task while it is the latest; a second
+ * markRunning for a running task is another executor and is refused.
+ * Approving a failed action queues a new one. A running attempt past its
+ * execution deadline reads failed; approving again or a late report closes it.
  */
 @Injectable()
 export class AdActionService {
@@ -158,15 +160,27 @@ export class AdActionService {
     return { updated: ids.length };
   }
 
-  async markRunning(id: string, beforeJson: Record<string, unknown> | undefined, organizationId: string) {
+  async markRunning(
+    id: string,
+    executionTaskId: string,
+    beforeJson: Record<string, unknown> | undefined,
+    organizationId: string,
+  ) {
     await this.repo.reportActionExecution(id, organizationId, {
+      executionTaskId,
       status: 'running',
       beforeJson,
     });
   }
 
-  async markDone(id: string, afterJson: Record<string, unknown> | undefined, organizationId: string) {
+  async markDone(
+    id: string,
+    executionTaskId: string,
+    afterJson: Record<string, unknown> | undefined,
+    organizationId: string,
+  ) {
     await this.repo.reportActionExecution(id, organizationId, {
+      executionTaskId,
       status: 'done',
       afterJson,
     });
@@ -174,11 +188,13 @@ export class AdActionService {
 
   async markFailed(
     id: string,
+    executionTaskId: string,
     errorMessage: string | undefined,
     afterJson: Record<string, unknown> | undefined,
     organizationId: string,
   ) {
     await this.repo.reportActionExecution(id, organizationId, {
+      executionTaskId,
       status: 'failed',
       errorMessage: errorMessage || '실행 실패',
       afterJson,

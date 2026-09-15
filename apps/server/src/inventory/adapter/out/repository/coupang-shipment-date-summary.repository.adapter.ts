@@ -13,6 +13,10 @@ import {
 } from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { SourceFailureAlerts } from "../../../../alerts/alerts.service";
+import {
+  OPERATOR_CANCEL_CODE,
+  OPERATOR_CANCEL_MESSAGE,
+} from "../../../../common/operator-cancel";
 import type { CoupangShipmentDateSummaryRepositoryPort } from "../../../application/port/out/repository/coupang-shipment-date-summary.repository.port";
 import type {
   ShipmentSummaryPlan,
@@ -23,6 +27,7 @@ import {
   COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE,
   readCoupangShipmentSummaryAttempt,
   readCoupangShipmentSummarySource,
+  publicShipmentSummaryAttempt,
   shipmentSummaryAttempt,
 } from "../../../read/coupang-shipment-date-summary.reader";
 
@@ -223,6 +228,31 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
         return control(run);
       writable(run);
       return control(await this.fail(tx, run, code, message));
+    });
+  }
+
+  /**
+   * Operator stop without the attempt token. It fails through the same terminal
+   * path as an extension-reported failure, so the alert suppression for
+   * `*_CANCELLED` applies; a terminal attempt is returned as is.
+   */
+  async cancelSummary(organizationId: string, attemptId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await lock(tx, organizationId);
+      const run = await find(tx, organizationId, attemptId);
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        return publicShipmentSummaryAttempt(run);
+      }
+      return publicShipmentSummaryAttempt(
+        expired(run)
+          ? await this.fail(
+              tx,
+              run,
+              "ATTEMPT_EXPIRED",
+              "쿠팡 쉽먼트 조회가 만료되었습니다.",
+            )
+          : await this.fail(tx, run, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE),
+      );
     });
   }
 

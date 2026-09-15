@@ -12,6 +12,9 @@ import { ChannelCatalogImportDialog } from './components/ChannelCatalogImportDia
 import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
+import { CollectionStopOnlyControl } from '@/components/collection/CollectionStopOnlyControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import { sellpiaManualMatchCollectionSource } from './lib/sellpia-manual-match-source';
 import {
   useChannelAccounts,
   useChannelProductMappings,
@@ -223,6 +226,8 @@ export default function MatchingPage() {
         </div>
       </div>
 
+      <SellpiaManualMatchCollectionControl startInFlight={autoMatch.isPending} />
+
       {autoMatch.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(autoMatch.error)}</p> : null}
       {autoMatch.data ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">상품 {autoMatch.data.matchedListings}개 · 재고 구성 {autoMatch.data.configuredOptions}개를 자동 매칭했습니다.</p> : null}
 
@@ -388,4 +393,26 @@ function normalizedOperatorStatus(value: string | null): typeof STATUS_OPTIONS[n
     return 'unmatched';
   }
   return 'all';
+}
+
+/**
+ * 셀피아 수동상품매칭 수집의 진행 중 표시와 운영자 중단. 시작은 매칭 실행이 그대로
+ * 한다(뒤이어 도는 매칭이 그 스냅샷을 쓴다). 컨트롤은 owner가 말하는 진행 중과
+ * 중단만 맡는다(KID-159). 그 매칭이 도는 동안에는 owner를 진행 중 주기로 읽어, 짧은
+ * 수집도 중단할 틈을 준다(KID-170 D3).
+ */
+function SellpiaManualMatchCollectionControl({ startInFlight }: { startInFlight: boolean }) {
+  const adapter = useMemo(
+    () => sellpiaManualMatchCollectionSource({ localStartInFlight: startInFlight }),
+    [startInFlight],
+  );
+  const control = useCollectionSourceControl(adapter);
+
+  return (
+    <CollectionStopOnlyControl
+      control={control}
+      label="셀피아 수동상품매칭 수집"
+      className="rounded-xl px-4"
+    />
+  );
 }

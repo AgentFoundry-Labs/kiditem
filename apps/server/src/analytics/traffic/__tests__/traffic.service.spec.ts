@@ -56,6 +56,8 @@ function makePrisma() {
     channelListingDailySnapshot: {
       upsert: vi.fn(async () => ({})),
     },
+    // The upload takes the listing traffic lock before it writes.
+    $queryRaw: vi.fn(async () => [{ lock: '' }]),
     $executeRaw: vi.fn(async () => 1),
   };
   const prisma = {
