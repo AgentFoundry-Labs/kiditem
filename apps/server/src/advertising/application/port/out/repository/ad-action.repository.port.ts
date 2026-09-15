@@ -179,12 +179,16 @@ export interface AdActionRepositoryPort {
    * Approve and, in the same $transaction, queue a new ExecutionTask for each
    * action whose latest task is not open (queued, or running within its
    * execution deadline). A running task past its deadline is closed as failed
-   * first.
+   * first. Returns how many distinct actions of the organization the ids name.
    */
-  approveAdActions(ids: string[], organizationId: string): Promise<void>;
+  approveAdActions(ids: string[], organizationId: string): Promise<number>;
 
-  /** Reject + cancel not-yet-started execution tasks inside a single $transaction. */
-  rejectAdActions(ids: string[], organizationId: string): Promise<void>;
+  /**
+   * Reject + cancel not-yet-started execution tasks inside a single
+   * $transaction. Returns how many distinct actions of the organization the ids
+   * name.
+   */
+  rejectAdActions(ids: string[], organizationId: string): Promise<number>;
 
   /**
    * Move the attempt a browser execution report names. Throws

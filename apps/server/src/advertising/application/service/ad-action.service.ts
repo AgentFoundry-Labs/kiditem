@@ -150,14 +150,16 @@ export class AdActionService {
     };
   }
 
+  /**
+   * `updated` is how many distinct actions of the organization the ids name; a
+   * repeated id, another organization's action or an unknown id adds nothing.
+   */
   async approveActions(ids: string[], organizationId: string) {
-    await this.repo.approveAdActions(ids, organizationId);
-    return { updated: ids.length };
+    return { updated: await this.repo.approveAdActions(ids, organizationId) };
   }
 
   async rejectActions(ids: string[], organizationId: string) {
-    await this.repo.rejectAdActions(ids, organizationId);
-    return { updated: ids.length };
+    return { updated: await this.repo.rejectAdActions(ids, organizationId) };
   }
 
   async markRunning(

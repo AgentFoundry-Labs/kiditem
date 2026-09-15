@@ -457,9 +457,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   async approveAdActions(
     ids: string[],
     organizationId: string,
-  ): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(async (tx) => {
       // The row locks this update takes serialize concurrent approvals of the
       // same actions, so each reads the attempt the other committed.
       await tx.adAction.updateMany({
@@ -475,7 +475,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         select: { id: true },
       });
       const scopedIds = scopedActions.map((a) => a.id);
-      if (scopedIds.length === 0) return;
+      if (scopedIds.length === 0) return 0;
 
       // Approval queues a new attempt unless the latest one is still open. A
       // failed or done attempt stays as evidence and the new queued task
@@ -510,15 +510,16 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       if (toCreate.length > 0) {
         await tx.executionTask.createMany({ data: toCreate });
       }
+      return scopedIds.length;
     });
   }
 
   async rejectAdActions(
     ids: string[],
     organizationId: string,
-  ): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(async (tx) => {
       await tx.adAction.updateMany({
         where: { id: { in: ids }, organizationId },
         data: { approvalStatus: 'rejected' },
@@ -529,7 +530,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         select: { id: true },
       });
       const scopedIds = scopedActions.map((a) => a.id);
-      if (scopedIds.length === 0) return;
+      if (scopedIds.length === 0) return 0;
 
       // An attempt the extension has not started is cancelled; one already
       // running keeps reporting the outcome that happened on Coupang.
@@ -544,6 +545,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           errorMessage: '사용자 보류 처리',
         },
       });
+      return scopedIds.length;
     });
   }
 

@@ -1043,5 +1043,27 @@ describe('AdAction flow (PG integration)', () => {
       expect(foreign.items.map((item) => [item.id, item.approvalStatus, item.executeStatus]))
         .toEqual([[foreignAction.id, 'approved', 'queued']]);
     });
+
+    it('#14 approve and reject answer how many distinct actions of the organization they found (KID-212)', async () => {
+      const first = await seedPendingAction('CAMP-COUNT-1');
+      const second = await seedPendingAction('CAMP-COUNT-2');
+      const foreign = await seedPendingAction('CAMP-COUNT-FOREIGN', OTHER_ORGANIZATION_ID);
+      const unknownId = '00000000-0000-4000-8000-00000000abcd';
+      // A duplicate id, another organization's action and an id no action has.
+      const requested = [first.id, second.id, first.id, foreign.id, unknownId];
+
+      await expect(adActionService.approveActions(requested, TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      await expect(adActionService.rejectActions(requested, TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      await expect(adActionService.approveActions([foreign.id, unknownId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 0 });
+      await expect(adActionService.rejectActions([foreign.id, unknownId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 0 });
+
+      expect(await prisma.adAction.findUniqueOrThrow({ where: { id: foreign.id } }))
+        .toMatchObject({ approvalStatus: 'pending_review' });
+      expect(await tasksOf(foreign.id)).toEqual([]);
+    });
   });
 });
