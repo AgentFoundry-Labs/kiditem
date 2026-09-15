@@ -54,6 +54,7 @@ export function ProductOperationsDataStatusAction({
         loading={status.isLoading}
         error={status.isError}
         refreshing={refresh.isPending}
+        checking={status.isFetching}
         feedback={feedback}
         onRefresh={() => {
           setFeedback(null);

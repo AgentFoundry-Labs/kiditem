@@ -23,6 +23,12 @@ export type ProductAbcRecalculationFeedback = {
 };
 
 type SourceNotReady = Extract<ProductAbcRecalculationResponse, { outcome: 'SOURCE_NOT_READY' }>;
+type Published = Extract<ProductAbcRecalculationResponse, { outcome: 'PUBLISHED' }>;
+
+const PUBLISHED_SOURCE_LABELS = {
+  sellpia: '셀피아 상품 손익',
+  advertising: '광고 손익',
+} as const;
 
 function notReadySourceLabels(result: SourceNotReady): string {
   return Object.entries(result.sources)
@@ -55,6 +61,25 @@ function sourceNotReadyMessage(result: SourceNotReady): string {
   return `원천이 준비되지 않아 기존 공식 등급을 유지합니다. ${officialCutoff} · 표시 데이터 기준일 ${result.actualCutoff ?? '없음'}${notReady ? ` · 준비 필요: ${notReady}` : ''}`;
 }
 
+/**
+ * A publication pairs the newest generations that end together, so a source
+ * that collected further than the other stays out of it. Each such source is
+ * named with the day its newest collection reaches: the official cutoff is not
+ * the newest data, and the operator reads that from whichever screen refreshed.
+ */
+function publishedMessage(result: Published): string {
+  const unreflected = (['sellpia', 'advertising'] as const).flatMap((source) => {
+    const { actualCutoff } = result.sources[source];
+    return actualCutoff !== null && actualCutoff > result.officialCutoff
+      ? [`${PUBLISHED_SOURCE_LABELS[source]}(${actualCutoff}까지 수집)`]
+      : [];
+  });
+  const published = `ABC 등급을 발행했습니다. 공식 등급 기준일 ${result.officialCutoff}`;
+  return unreflected.length > 0
+    ? `${published} · 반영하지 못한 원천: ${unreflected.join(', ')}`
+    : published;
+}
+
 export function useProductAbcRecalculation({
   onFeedback,
   refetchReads,
@@ -77,10 +102,7 @@ export function useProductAbcRecalculation({
       }
 
       await refetchReads();
-      onFeedback({
-        tone: 'success',
-        message: `ABC 등급을 발행했습니다. 공식 등급 기준일 ${result.officialCutoff}`,
-      });
+      onFeedback({ tone: 'success', message: publishedMessage(result) });
     },
     onError: async (error: unknown) => {
       if (isApiError(error) && error.status === 409) {

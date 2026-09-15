@@ -187,6 +187,12 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
         outcome: 'PUBLISHED',
         officialCutoff: '2026-09-05',
         classifiedProductCount: 1,
+        // Each source's own newest end rides on the result, so the Sellpia day
+        // this publication leaves out can be named.
+        sources: {
+          sellpia: { ready: true, actualCutoff: '2026-09-06' },
+          advertising: { ready: false, actualCutoff: '2026-09-05' },
+        },
       });
       await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },

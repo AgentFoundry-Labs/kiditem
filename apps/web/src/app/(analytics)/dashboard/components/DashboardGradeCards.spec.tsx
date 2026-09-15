@@ -156,6 +156,31 @@ describe('DashboardGradeCards', () => {
     expect(refetchReads).toHaveBeenCalledTimes(1);
     expect(recalculateProductAbc).toHaveBeenCalledTimes(1);
   });
+
+  it('names the source a publication did not reach, with the day that source reaches', async () => {
+    // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
+    // so the pair that ends together on 2026-09-12 published.
+    recalculateProductAbc.mockResolvedValue({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      formulaRevision: 1,
+      officialCutoff: '2026-09-12',
+      classifiedProductCount: 4,
+      unclassifiedProductCount: 0,
+      changedProductCount: 0,
+      sources: {
+        sellpia: readySource('2026-09-13'),
+        advertising: { ...readySource('2026-09-12'), ready: false, requiredCutoff: '2026-09-13' },
+      },
+    });
+
+    render(<DashboardGradeCards {...summary} refetchReads={async () => {}} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
+
+    expect(await screen.findByText(
+      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 반영하지 못한 원천: 셀피아 상품 손익(2026-09-13까지 수집)',
+    )).toBeInTheDocument();
+  });
 });
 
 /** A source whose newest generation reaches the cutoff its owner requires of it. */

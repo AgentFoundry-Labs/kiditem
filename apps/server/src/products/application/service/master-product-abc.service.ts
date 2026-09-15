@@ -141,6 +141,7 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       classifiedProductCount: candidates.length,
       unclassifiedProductCount,
       changedProductCount: published.changedProductCount,
+      sources: snapshot.sources,
     };
   }
 }

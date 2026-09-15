@@ -20,6 +20,10 @@ describe('recalculateProductAbc', () => {
       classifiedProductCount: 7,
       unclassifiedProductCount: 2,
       changedProductCount: 3,
+      sources: {
+        sellpia: sourceEndingOn('2026-08-31'),
+        advertising: sourceEndingOn('2026-08-31'),
+      },
     });
 
     await expect(recalculateProductAbc()).resolves.toMatchObject({
@@ -31,6 +35,31 @@ describe('recalculateProductAbc', () => {
       undefined,
       { timeoutMs: null },
     );
+  });
+
+  it('keeps each source end on a publication, so a source newer than the official cutoff can be named', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      formulaRevision: 1,
+      officialCutoff: '2026-09-12',
+      classifiedProductCount: 7,
+      unclassifiedProductCount: 2,
+      changedProductCount: 0,
+      sources: {
+        sellpia: sourceEndingOn('2026-09-13'),
+        advertising: sourceEndingOn('2026-09-12', '2026-09-13'),
+      },
+    });
+
+    await expect(recalculateProductAbc()).resolves.toMatchObject({
+      outcome: 'PUBLISHED',
+      officialCutoff: '2026-09-12',
+      sources: {
+        sellpia: { ready: true, actualCutoff: '2026-09-13' },
+        advertising: { ready: false, actualCutoff: '2026-09-12' },
+      },
+    });
   });
 
   it('returns SOURCE_NOT_READY as ordinary 200 data', async () => {
@@ -100,5 +129,16 @@ function source(ready: boolean) {
     actualCutoff: '2026-07-31',
     latestAttempt: { state: 'COMPLETE' },
     latestComplete: { actualCutoff: '2026-07-31' },
+  } as const;
+}
+
+/** A source whose newest complete generation ends on `end` and is due through `requiredCutoff`. */
+function sourceEndingOn(end: string, requiredCutoff = end) {
+  return {
+    ready: end >= requiredCutoff,
+    requiredCutoff,
+    actualCutoff: end,
+    latestAttempt: { state: 'COMPLETE' },
+    latestComplete: { actualCutoff: end },
   } as const;
 }

@@ -206,9 +206,12 @@ and previous cutoff while retaining the last normal official grade.
 4. Open **ABC 등급 현황** in Product Hub. Record the Sellpia and Advertising
    statuses, actual cutoffs, mapping generation, official cutoff, formula
    revision, and publication revision.
-5. Click **등급 새로고침** only after the required sources and mapping are
-   `READY`. On `SOURCE_NOT_READY`, fix the named owner source and retry
-   explicitly; do not publish a manual zero or downgrade a retained grade.
+5. Click **등급 새로고침** once the dialog has finished reading the latest
+   status; source readiness does not gate it. A publication uses the newest
+   Sellpia and Advertising pair that ends together and names any source that
+   collected past its official cutoff. On `SOURCE_NOT_READY`, fix the named
+   owner source and retry explicitly; do not publish a manual zero or
+   downgrade a retained grade.
 6. Confirm Dashboard, Product Management, and Product Outflow read the same
    stored grade/status and source cutoff. These screens are readers, not
    independent ABC calculators.

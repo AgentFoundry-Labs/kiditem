@@ -23,8 +23,9 @@ needs them.
   preserving query parameters owned by nested views and filters.
 - `useProductAbcRecalculation()` shares Products' ABC publication trigger
   between Product Management and Dashboard: the `SOURCE_NOT_READY` and
-  conflict outcomes, and refetching before reporting. Each caller passes the
-  reads it renders.
+  conflict outcomes, the publication message that names each source whose
+  newest end passes the official cutoff, and refetching before reporting.
+  Each caller passes the reads it renders.
 
 ## State Rules
 

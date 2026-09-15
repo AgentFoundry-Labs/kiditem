@@ -238,6 +238,11 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         classifiedProductCount: 1,
         unclassifiedProductCount: 1,
         changedProductCount: 1,
+        // Both sources end on the official cutoff, so the publication left none out.
+        sources: {
+          sellpia: expect.objectContaining({ ready: true, actualCutoff: EXPECTED_CUTOFF }),
+          advertising: expect.objectContaining({ ready: true, actualCutoff: EXPECTED_CUTOFF }),
+        },
       });
 
     const [normalDetail, insufficientDetail, all, gradeA, unclassified, ready, withheld] =
