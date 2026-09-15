@@ -54,6 +54,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
   let abc: MasterProductAbcService;
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
+  let profitability: MasterProductProfitabilityReadService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -63,7 +64,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
-    const profitability = new MasterProductProfitabilityReadService(
+    profitability = new MasterProductProfitabilityReadService(
       sellpia,
       advertising,
       prismaService,
@@ -330,6 +331,71 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     expect(ready.items.map(({ abc }) => productAbcDisplayStatus(abc))).toEqual(['READY']);
     expect(withheld.items.map(({ abc }) => productAbcDisplayStatus(abc)))
       .toEqual(['INSUFFICIENT_EVIDENCE']);
+  });
+
+  it('refuses with INPUT_CHANGED and writes nothing when a recipe replacement moves the mapping during a recalculation', async () => {
+    await seedFormula(prisma);
+    const fixture = await seedProducts(prisma);
+    await recipes.applyPreservingRecipes({
+      organizationId: TEST_ORGANIZATION_ID,
+      mutations: [{
+        channelListingOptionId: fixture.insufficient.optionId,
+        expectedMasterProductId: fixture.insufficient.productId,
+        components: [{ sellpiaInventorySkuId: fixture.insufficient.skuId, quantity: 3 }],
+      }],
+    });
+    await completeProfitabilitySources(fixture, null, 'previous');
+
+    // Products reads mapping generation 1 and captures its targets. Before the
+    // evidence load reads the mapping, the operator replaces a recipe and both
+    // sources complete on generation 2.
+    const repository = new MasterProductAbcRepositoryAdapter(prisma as unknown as PrismaService);
+    const listTargets = repository.listCurrentAbcTargetIds.bind(repository);
+    repository.listCurrentAbcTargetIds = async (organizationId) => {
+      const targets = await listTargets(organizationId);
+      await products.replaceChannelOptionInventory(TEST_ORGANIZATION_ID, fixture.normal.optionId, {
+        components: [{ sellpiaInventorySkuId: fixture.normal.skuId, quantity: 2 }],
+      });
+      await completeProfitabilitySources(fixture, null, 'current');
+      return targets;
+    };
+
+    await expect(new MasterProductAbcService(repository, profitability)
+      .recalculate({ organizationId: TEST_ORGANIZATION_ID }))
+      .rejects.toMatchObject({ status: 409, response: { code: 'INPUT_CHANGED' } });
+
+    // No source is waiting: both read ready on the new generation, so this is
+    // not SOURCE_NOT_READY, and nothing was published.
+    await expect(profitability.load({
+      organizationId: TEST_ORGANIZATION_ID,
+      targetCutoff: EXPECTED_CUTOFF,
+    })).resolves.toMatchObject({
+      actualCutoff: EXPECTED_CUTOFF,
+      mappingGeneration: '2',
+      sources: { sellpia: { ready: true }, advertising: { ready: true } },
+    });
+    await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toMatchObject({
+      mappingGeneration: 2n,
+      publicationRevision: 0,
+      officialCutoffDate: null,
+      publishedMappingGeneration: null,
+    });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProductAbcGradeHistory.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+
+    // The retry the operator is told to make publishes on generation 2.
+    await expect(abc.recalculate({ organizationId: TEST_ORGANIZATION_ID }))
+      .resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        publicationRevision: 1,
+        officialCutoff: EXPECTED_CUTOFF,
+      });
   });
 
   function listProducts(filter: Record<string, unknown> = {}) {

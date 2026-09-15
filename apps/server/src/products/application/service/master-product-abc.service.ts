@@ -56,6 +56,14 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       organizationId: input.organizationId,
       targetCutoff,
     });
+    // The load reads the mapping generation again. A pair on another generation
+    // means the mapping moved after this calculation read its state: the input
+    // changed and no source is waiting. Without a pair the snapshot carries no
+    // generation, and the sources are what the operator waits on.
+    if (snapshot.mappingGeneration !== null
+      && snapshot.mappingGeneration !== state.mappingGeneration) {
+      throw new ConflictException({ code: 'INPUT_CHANGED' });
+    }
     if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)) {
       const pairing = unpairedSourceEnds(snapshot);
       return {
