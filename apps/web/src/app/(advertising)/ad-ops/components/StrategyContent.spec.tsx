@@ -142,11 +142,11 @@ function availabilityResponse(sellableStock: number | null) {
   };
 }
 
-function Harness({ trends }: { trends: AdTrendsData | null }) {
+function Harness({ trends, plan }: { trends: AdTrendsData | null; plan: AdWeeklyPlan }) {
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   return (
     <StrategyContent
-      strategy={strategy}
+      strategy={plan}
       rules={[]}
       trends={trends}
       period="14d"
@@ -168,13 +168,13 @@ function Harness({ trends }: { trends: AdTrendsData | null }) {
   );
 }
 
-function renderStrategy(trends: AdTrendsData | null = null) {
+function renderStrategy(trends: AdTrendsData | null = null, plan: AdWeeklyPlan = strategy) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Harness trends={trends} />
+      <Harness trends={trends} plan={plan} />
     </QueryClientProvider>,
   );
 }
@@ -279,21 +279,22 @@ describe('StrategyContent grade card advertising status', () => {
 });
 
 describe('StrategyContent grade card ABC publication', () => {
+  const unpublishedHub: AdsHubData = {
+    products: hub.products.map((product) => ({ ...product, grade: null })),
+    summary: {
+      ...hub.summary,
+      gradeSpend: { A: 0, B: 0, C: 0 },
+      gradeSpendPercent: { A: 0, B: 0, C: 0 },
+    },
+    abcOfficialCutoffDate: null,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
   });
 
   it('shows grade membership counts as unknown, not 0, before Products publishes ABC', async () => {
-    const unpublishedHub: AdsHubData = {
-      products: hub.products.map((product) => ({ ...product, grade: null })),
-      summary: {
-        ...hub.summary,
-        gradeSpend: { A: 0, B: 0, C: 0 },
-        gradeSpendPercent: { A: 0, B: 0, C: 0 },
-      },
-      abcOfficialCutoffDate: null,
-    };
     vi.mocked(apiClient.getParsed).mockImplementation(((url: string) => Promise.resolve(
       url === '/api/ads/hub' ? unpublishedHub : availabilityResponse(3),
     )) as never);
@@ -304,6 +305,24 @@ describe('StrategyContent grade card ABC publication', () => {
       await waitFor(() => expect(card).toHaveTextContent('-상품'));
       expect(card).not.toHaveTextContent('0개');
       expect(within(card).getByRole('button', { name: '전체 -' })).toBeInTheDocument();
+    }
+  });
+
+  it('shows the recommendation count as unknown, not 0, before Products publishes ABC', async () => {
+    // A recommendation takes its grade from the publication, so none has one yet.
+    const ungradedPlan: AdWeeklyPlan = {
+      ...strategy,
+      actions: strategy.actions.map((planned) => ({ ...planned, grade: null })),
+    };
+    vi.mocked(apiClient.getParsed).mockImplementation(((url: string) => Promise.resolve(
+      url === '/api/ads/hub' ? unpublishedHub : availabilityResponse(3),
+    )) as never);
+    renderStrategy(null, ungradedPlan);
+
+    for (const grade of ['A', 'B', 'C'] as const) {
+      const card = await screen.findByTestId(`strategy-grade-card-${grade}`);
+      await waitFor(() => expect(card).toHaveTextContent('-상품'));
+      expect(within(card).getByText('추천 -')).toBeInTheDocument();
     }
   });
 
@@ -319,5 +338,7 @@ describe('StrategyContent grade card ABC publication', () => {
     const cardB = screen.getByTestId('strategy-grade-card-B');
     expect(cardB).toHaveTextContent('0개상품');
     expect(within(cardB).getByRole('button', { name: '전체 0' })).toBeInTheDocument();
+    expect(within(cardB).getByText('추천 0')).toBeInTheDocument();
+    expect(within(screen.getByTestId('strategy-grade-card-A')).getByText('추천 1')).toBeInTheDocument();
   });
 });

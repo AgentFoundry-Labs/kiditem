@@ -317,8 +317,9 @@ function GradeCardPanel({
     queryFn: () => apiClient.getParsed('/api/ads/hub', AdsHubDataSchema),
   });
   const products = (adsHub?.products ?? []).filter((product) => product.grade === cfg.grade);
-  // Grade membership is measured only once Products publishes ABC. Before that,
-  // or before the hub loads, a per-grade count is unknown rather than 0.
+  // Grade membership is measured only once Products publishes ABC, and a
+  // recommendation takes its grade from that publication. Before that, or
+  // before the hub loads, a per-grade count is unknown rather than 0.
   const abcPublished = adsHub?.abcOfficialCutoffDate != null;
   const membershipCount = (count: number) => (abcPublished ? count : "-");
 
@@ -378,7 +379,7 @@ function GradeCardPanel({
         <div className="flex flex-wrap items-center gap-1">
           {urgentCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentCount}</span>}
           <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">{PRODUCT_ADVERTISING_LABELS.active} {membershipCount(adProducts.length)}</span>
-          <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">추천 {gradeActions.length}</span>
+          <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">추천 {membershipCount(gradeActions.length)}</span>
         </div>
       </div>
 
