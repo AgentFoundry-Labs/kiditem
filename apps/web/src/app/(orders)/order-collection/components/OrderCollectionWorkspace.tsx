@@ -221,9 +221,11 @@ export function OrderCollectionWorkspace() {
     if (reconciling) return;
     setReconciling(true);
     try {
-      const { collectSellpiaOrderSnapshot, reconcileCollectedOrdersWithSellpia } = await import(
-        '../lib/sellpia-order-reconcile'
-      );
+      const {
+        collectSellpiaOrderSnapshot,
+        reconcileCollectedOrdersWithSellpia,
+        SELLPIA_RECONCILE_PARTIAL_MESSAGE,
+      } = await import('../lib/sellpia-order-reconcile');
       const { rows, partial } = await collectSellpiaOrderSnapshot();
       const result = reconcileCollectedOrdersWithSellpia({
         history: historyRef.current,
@@ -233,8 +235,11 @@ export function OrderCollectionWorkspace() {
         checkedAt: Date.now(),
       });
       setSellpiaReconcile(result);
-      const missing = [...result.missingCountByMallKey.values()].reduce((sum, n) => sum + n, 0);
-      if (missing > 0) {
+      const missing = result.missingTotal;
+      // 부분 조회는 숫자를 낼 수 없다. 조용히 넘기지 않고 미확인이라고 말한다(KID-163).
+      if (missing === null) {
+        toast.warning(SELLPIA_RECONCILE_PARTIAL_MESSAGE);
+      } else if (missing > 0) {
         toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(missing)}건`);
       } else if (!silentWhenClean) {
         // 전체 수집 뒤 자동 대조는 문제가 없으면 조용히 지나간다(수집 완료 토스트와 중복 방지).

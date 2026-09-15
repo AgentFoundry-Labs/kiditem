@@ -34,6 +34,7 @@ import {
 import {
   collectSellpiaOrderSnapshot,
   reconcileCollectedOrdersWithSellpia,
+  SELLPIA_RECONCILE_PARTIAL_MESSAGE,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
 import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
@@ -344,10 +345,11 @@ export function usePersistedAllMarketplaceOrderCollection({
         partial: snapshot.partial,
         checkedAt: Date.now(),
       });
-      const missing = [...reconciled.missingCountByMallKey.values()]
-        .reduce((sum, count) => sum + count, 0);
-      if (missing > 0) {
-        toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(missing)}건`);
+      // 부분 조회는 "안 올라간 주문"과 "못 본 주문"을 가를 수 없어 숫자를 내지 않는다(KID-163).
+      if (reconciled.missingTotal === null) {
+        toast.warning(SELLPIA_RECONCILE_PARTIAL_MESSAGE);
+      } else if (reconciled.missingTotal > 0) {
+        toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(reconciled.missingTotal)}건`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '셀피아 대조에 실패했습니다.');

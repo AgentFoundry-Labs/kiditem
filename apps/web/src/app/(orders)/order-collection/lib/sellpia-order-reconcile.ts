@@ -28,8 +28,11 @@ export interface MallReconcileResult {
 }
 
 export interface SellpiaReconcileResult {
-  /** 몰 key -> 아직 안 올라간 주문 수. 몰 카드 "신규"가 이 값을 쓴다. */
+  /** 몰 key -> 아직 안 올라간 주문 수. 몰 카드 "신규"가 이 값을 쓴다. 부분 조회면 비어 있다. */
   missingCountByMallKey: Map<string, number>;
+  /** 아직 안 올라간 주문 수 합계. 부분 조회면 null — 숫자가 아니라 "미확인"이다(KID-163). */
+  missingTotal: number | null;
+  /** 대조에 쓴 몰별 근거. 부분 조회에서는 결론이 아니라 읽어 본 범위일 뿐이다. */
   byMall: MallReconcileResult[];
   /** 셀피아에서 읽은 전체 주문 수. */
   sellpiaOrderCount: number;
@@ -37,6 +40,10 @@ export interface SellpiaReconcileResult {
   partial: boolean;
   checkedAt: number;
 }
+
+/** 부분 조회라 누락 여부를 확정할 수 없을 때 운영자가 보는 문장. */
+export const SELLPIA_RECONCILE_PARTIAL_MESSAGE =
+  '셀피아 대조: 일부 화면만 읽혀 누락 여부는 미확인입니다. 잠시 후 다시 대조해 주세요.';
 
 /**
  * 확장이 셀피아(대기목록 + 재고매칭)에서 현재 올라와 있는 주문을 읽어온다.
@@ -146,8 +153,22 @@ export function reconcileCollectedOrdersWithSellpia({
     missingCountByMallKey.set(mallKey, missingOrderNumbers.length);
   }
 
+  // 일부 화면만 읽었으면 "안 올라간 주문"과 "못 본 주문"을 가를 수 없다. 그 숫자를 근거로
+  // 다시 전송하면 중복이 되므로, 숫자 대신 미확인으로 남긴다(KID-163).
+  if (partial) {
+    return {
+      missingCountByMallKey: new Map(),
+      missingTotal: null,
+      byMall,
+      sellpiaOrderCount: sellpiaAll.size,
+      partial,
+      checkedAt,
+    };
+  }
+
   return {
     missingCountByMallKey,
+    missingTotal: [...missingCountByMallKey.values()].reduce((sum, count) => sum + count, 0),
     byMall,
     sellpiaOrderCount: sellpiaAll.size,
     partial,
