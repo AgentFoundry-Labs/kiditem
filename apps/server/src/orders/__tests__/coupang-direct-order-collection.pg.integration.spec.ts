@@ -9,6 +9,7 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
+  OTHER_ORGANIZATION_ID,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
@@ -782,6 +783,69 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     );
     expect(await prisma.coupangDirectTransportReceipt.count()).toBe(0);
     expect(await prisma.coupangDirectTransportConsumption.count()).toBe(0);
+  });
+
+  it('stops a running attempt for an operator without its token or an Alert, and admits the next begin at once', async () => {
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+
+    await expect(service.cancelAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).rejects.toMatchObject({ status: 404 });
+
+    const stopped = await service.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    });
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.findFirst({
+      where: { sourceType: 'coupang_direct_order_capture', attemptId: attempt.attemptId },
+    })).toBeNull();
+    // 같은 중단을 다시 눌러도 끝난 시도를 그대로 돌려준다.
+    expect(await service.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).toMatchObject({ state: 'FAILED', errorCode: 'USER_CANCELLED' });
+
+    const next = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+    expect(next.state).toBe('RUNNING');
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert', async () => {
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    expect(await service.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.findFirstOrThrow({
+      where: { sourceType: 'coupang_direct_order_capture', attemptId: attempt.attemptId },
+    })).toMatchObject({ status: 'OPEN' });
   });
 
   it('fences an expired owner attempt and records the terminal Alert', async () => {

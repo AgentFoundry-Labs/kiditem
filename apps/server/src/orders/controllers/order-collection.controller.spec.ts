@@ -400,6 +400,31 @@ describe('OrderCollectionController Coupang direct convert', () => {
     )).rejects.toBe(conversionError);
     expect(collection.failAttempt).not.toHaveBeenCalled();
   });
+
+  it('stops a running directship attempt with organization scope only, never the attempt token', async () => {
+    const stopped = {
+      attemptId: ATTEMPT_ID,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    };
+    const owner = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
+    const controller = new OrderCollectionController(
+      {} as never,
+      {} as never,
+      owner as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      controller.cancelCoupangDirectAttempt(ATTEMPT_ID, ORGANIZATION_ID),
+    ).resolves.toEqual(stopped);
+    expect(owner.cancelAttempt).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      attemptId: ATTEMPT_ID,
+    });
+  });
+
 });
 
 function request() {

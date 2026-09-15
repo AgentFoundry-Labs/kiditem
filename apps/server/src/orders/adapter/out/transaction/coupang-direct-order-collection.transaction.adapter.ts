@@ -6,6 +6,10 @@ import {
 } from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
+  OPERATOR_CANCEL_CODE,
+  OPERATOR_CANCEL_MESSAGE,
+} from '../../../../common/operator-cancel';
+import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -375,6 +379,32 @@ implements CoupangDirectOrderCollectionTransactionPort {
           'Coupang direct order capture expired.',
         )
         : await this.failIn(tx, row, input.code, message);
+      return this.attemptView(tx, failed);
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Operator stop without the attempt token. It fails through the same terminal
+   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
+   * the alert rule; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(
+    input: Parameters<CoupangDirectOrderCollectionTransactionPort['cancelAttempt']>[0],
+  ): Promise<CoupangDirectOwnerAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockOwner(tx, input.organizationId);
+      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        return this.attemptView(tx, row);
+      }
+      const failed = expired(row)
+        ? await this.failIn(
+          tx,
+          row,
+          'ATTEMPT_EXPIRED',
+          'Coupang direct order capture expired.',
+        )
+        : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
     }, TRANSACTION_OPTIONS);
   }

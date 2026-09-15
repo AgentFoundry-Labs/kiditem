@@ -7,6 +7,7 @@ import {
   Get,
   Header,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -173,6 +174,16 @@ export class OrderCollectionController {
       code: failure.code,
       message: failure.message,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('coupang-directship/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  async cancelCoupangDirectAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.coupangDirectOrderCollection.cancelAttempt({ organizationId, attemptId });
   }
 
   // 입고예정일 달력이 즉시 뜨도록 마지막 수집분을 계정 범위로 보관/조회한다.

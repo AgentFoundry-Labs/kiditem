@@ -101,6 +101,12 @@ implements CoupangDirectOrderCollectionPort {
     return this.transactions.failAttempt(input);
   }
 
+  cancelAttempt(
+    input: Parameters<CoupangDirectOrderCollectionPort['cancelAttempt']>[0],
+  ): Promise<CoupangDirectOwnerAttempt> {
+    return this.transactions.cancelAttempt(input);
+  }
+
   readCaptured(
     input: Parameters<CoupangDirectOrderCollectionPort['readCaptured']>[0],
   ) {
