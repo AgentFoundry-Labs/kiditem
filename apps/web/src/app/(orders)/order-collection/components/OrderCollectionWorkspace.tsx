@@ -38,6 +38,7 @@ import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
 import {
   collectionAttentionNotice,
+  COUPANG_DIRECT_MALL_KEY,
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
@@ -515,7 +516,11 @@ export function OrderCollectionWorkspace() {
   /** 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. */
   const mallStartBlockedReason = (account: OrderCollectionMallAccount): string | null => {
     if (!account.enabled) return '중지된 계정입니다.';
-    return isBrowserCollectableMall(account) ? null : '자동 수집 준비 중';
+    if (!isBrowserCollectableMall(account)) return '자동 수집 준비 중';
+    // 직배송은 로켓 계정 범위로 수집한다. 계정이 없으면 시작 자체가 없다.
+    return account.key === COUPANG_DIRECT_MALL_KEY && !selectedRocketAccount
+      ? '쿠팡 로켓 계정을 먼저 선택해 주세요.'
+      : null;
   };
 
   const handleModalUpload = async ({
