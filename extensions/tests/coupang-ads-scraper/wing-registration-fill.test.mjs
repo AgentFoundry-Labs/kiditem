@@ -1195,6 +1195,8 @@ function createSubmitHarness({
   confirmModalLabel = null,
   // 완료 안내 문구. 라이브는 `등록상품ID : 16311492950`(콜론+공백).
   successText = null,
+  // 제출 뒤 탭의 URL. 기본 formV2 에는 vendorInventoryId 가 없다.
+  href = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2',
 } = {}) {
   let listener = null;
   const clicks = [];
@@ -1347,7 +1349,7 @@ function createSubmitHarness({
   });
   context.window = context;
   context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
-  context.location = { href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2' };
+  context.location = { href };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
   return {
@@ -1460,6 +1462,31 @@ test('extracts the registered id from the live 등록상품ID : 16311492950 word
 
   assert.equal(result.submission.ok, true);
   assert.equal(result.submission.externalListingId, '16311492950');
+});
+
+test('reports no registered id when the completion page shows only a 상품번호 number', async () => {
+  // KID-204: 확인한 Wing 화면 어디에도 "상품번호" 글자는 없고, 그 옆 숫자(예: 노출상품
+  // productId)는 등록상품ID 가 아닐 수 있다. 그 숫자로 만든 리스팅은 트래픽 행과 연결되지 않는다.
+  const harness = createSubmitHarness({
+    successText: '상품등록이 완료되었습니다.\n상품번호 12345678901\n상품목록 새로운 상품등록',
+  });
+  const result = await harness.fill({ autoSubmit: true });
+
+  assert.equal(result.submission.ok, true);
+  assert.equal(result.submission.status, 'registered');
+  assert.equal(result.submission.externalListingId, null);
+  assert.ok(result.steps.includes('submit:ok:noId'));
+});
+
+test('reads the registered id from the vendorInventoryId in the tab URL', async () => {
+  const harness = createSubmitHarness({
+    href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify?vendorInventoryId=16311500001',
+    successText: '상품등록이 완료되었습니다.',
+  });
+  const result = await harness.fill({ autoSubmit: true });
+
+  assert.equal(result.submission.status, 'registered');
+  assert.equal(result.submission.externalListingId, '16311500001');
 });
 
 test('never mistakes the 별점주기 위젯 등록 button for the submit button', async () => {
