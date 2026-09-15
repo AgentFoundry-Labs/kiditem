@@ -55,7 +55,11 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
       ) : null}
 
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      {/* The period caption hangs up to 15px below the period control. The
+          header's bottom padding and the actions' wrapped row gap reserve that
+          room, so the caption never covers the next block or a wrapped action,
+          and nothing moves when it appears. */}
+      <header className="flex flex-wrap items-center justify-between gap-3 pb-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--primary)]">
             <Package size={20} className="text-white" />
@@ -69,10 +73,10 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-5">
           <div
             className="relative flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
-            title="선택한 기간의 주문·매출과 방문·조회 데이터를 각각 표시합니다. 수집 범위가 부족한 지표는 미수집으로 표시됩니다."
+            title='선택한 기간의 주문·매출과 방문·조회 데이터를 각각 표시합니다. 조회·장바구니는 수집된 날만 합산하고, 일부 날만 수집됐으면 "부분 N/M일"을 표시합니다. 수집 범위가 부족한 다른 지표는 미수집으로 표시됩니다.'
           >
             {PERIOD_OPTIONS.map((item) => (
               <button
