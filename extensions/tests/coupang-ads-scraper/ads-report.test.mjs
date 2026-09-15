@@ -4040,6 +4040,64 @@ test("an executor that claims a keyword pause reports it done after the Coupang 
   assert.deepEqual({ ...response }, { success: true, executed: 1, skipped: 0 });
 });
 
+test("a claim refused with 409 skips only that action, and the next approved action still runs through its done report", async () => {
+  const reports = [];
+  // Neither label carries a word the executor reads as an already paused row.
+  const labels = { refused: "다른 실행이 맡은 키워드", next: "다음 차례 키워드" };
+  const pauseClicks = { refused: 0, next: 0 };
+  const row = (key) => {
+    const pauseButton = { innerText: "중지", click: () => { pauseClicks[key] += 1; } };
+    return { innerText: labels[key], querySelectorAll: () => [pauseButton], click: () => {} };
+  };
+  const page = openAdActionTestPage({
+    rows: [row("refused"), row("next")],
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(`${report.id}:${report.action}`);
+      // The first action's attempt is not this executor's to claim (KID-138 decision 3).
+      return report.id === "action-refused"
+        ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+        : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await dispatchExecuteApprovedAdActions(page.tab, [
+    {
+      id: "action-refused",
+      executionTaskId: "task-refused",
+      actionType: "pause_keyword",
+      targetLabel: labels.refused,
+      payload: { keyword: labels.refused },
+    },
+    {
+      id: "action-next",
+      executionTaskId: "task-next",
+      actionType: "pause_keyword",
+      targetLabel: labels.next,
+      payload: { keyword: labels.next },
+    },
+  ]);
+
+  assert.equal(pauseClicks.refused, 0, "the refused action never reaches Coupang");
+  assert.equal(pauseClicks.next, 1, "the next approved action still pauses its keyword");
+  assert.deepEqual(reports, [
+    "action-refused:markRunning",
+    "action-next:markRunning",
+    "action-next:markDone",
+  ]);
+  assert.deepEqual({ ...response }, {
+    success: true,
+    executed: 1,
+    skipped: 1,
+    warning: CLAIM_REFUSED_WARNING,
+  });
+});
+
 test("a second executor refused at its running report leaves Coupang untouched and cannot fail the first executor's attempt", async () => {
   // One server behind two ad-center tabs. It fences the attempt the way the
   // lifecycle policy does: the first running report starts it, and another
