@@ -12,8 +12,9 @@ const idleStatus = {
   naver: { latestAttempt: null, actualCutoffAt: null },
   shorts: { latestAttempt: null, actualCutoffAt: null },
 };
-// What the 7-day popular board read returns.
+// What the 7-day popular board read returns, or whether it is still pending.
 let boards: unknown[];
+let boardsPending: boolean;
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -29,12 +30,15 @@ function metricValue(label: string): string | null | undefined {
 beforeEach(() => {
   vi.resetAllMocks();
   boards = [];
+  boardsPending = false;
   vi.mocked(apiClient.getParsed).mockImplementation(async (url) => {
     if (url === STATUS_PATH) return idleStatus;
     throw new Error(`unexpected GET ${url}`);
   });
   vi.mocked(apiClient.get).mockImplementation(async (url) => {
-    if (url === '/api/sourcing/trend/popular-keywords?days=7') return { days: 7, boards };
+    if (url === '/api/sourcing/trend/popular-keywords?days=7') {
+      return boardsPending ? new Promise(() => undefined) : { days: 7, boards };
+    }
     if (url === '/api/sourcing/trend/naver-keywords?days=30') return { days: 30, keywords: [] };
     if (url === '/api/sourcing/trend/seeds') return { seeds: [] };
     throw new Error(`unexpected GET ${url}`);
@@ -89,7 +93,7 @@ describe('Toy category board comparison quick filters', () => {
     for (const label of ['신규 진입', '순위 상승']) {
       const filter = screen.getByRole('button', { name: new RegExp(`^${label}`) });
       expect(filter).toBeDisabled();
-      expect(filter).toHaveTextContent('이전 비교일 없음');
+      expect(filter).toHaveTextContent('비교할 이전 순위일 없음');
       fireEvent.click(filter);
     }
     fireEvent.click(screen.getByRole('button', { name: '검색' }));
@@ -145,6 +149,33 @@ describe('Toy category board comparison quick filters', () => {
     // instead of reporting none.
     expect(metricValue('조건 결과')).toBe('2개');
     expect(screen.queryByText('검색 조건에 맞는 완구 키워드가 없습니다.')).not.toBeInTheDocument();
+    client.clear();
+  });
+
+  it('shows the page loading mark, not the no-earlier-day reason, while the toy board is still loading', async () => {
+    boardsPending = true;
+    const { client } = renderPage();
+
+    for (const label of ['신규 진입', '순위 상승']) {
+      const filter = await screen.findByRole('button', { name: new RegExp(`^${label}`) });
+      expect(filter).toBeDisabled();
+      expect(filter).toHaveTextContent('…');
+      expect(filter).not.toHaveTextContent('비교할 이전 순위일 없음');
+    }
+    client.clear();
+  });
+
+  it('shows the page unavailable mark, not the no-earlier-day reason, when no toy board was read', async () => {
+    // A completed read without the toy board ranked nothing to compare.
+    const { client } = renderPage();
+    await waitFor(() => expect(metricValue('조건 결과')).toBe('0개'));
+
+    for (const label of ['신규 진입', '순위 상승']) {
+      const filter = screen.getByRole('button', { name: new RegExp(`^${label}`) });
+      expect(filter).toBeDisabled();
+      expect(filter).toHaveTextContent('—');
+      expect(filter).not.toHaveTextContent('비교할 이전 순위일 없음');
+    }
     client.clear();
   });
 });

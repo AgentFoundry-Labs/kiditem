@@ -86,6 +86,12 @@ export function ToyCategorySourcingPage() {
   // New entries and rank rises exist only against an earlier toy board day. Without
   // one, their filters stay off instead of matching nothing.
   const boardCompared = toyBoard?.comparedFrom != null;
+  // What those filters show instead: the page's loading mark while the board loads,
+  // its unavailable mark without a toy board, and why a read board cannot compare.
+  const unavailableComparisonCaption = boardCompared ? null
+    : popularQuery.isLoading ? '…'
+    : toyBoard ? '비교할 이전 순위일 없음'
+    : '—';
   const allKeywords = useMemo(
     () => mergeToyKeywordSignals(toyBoard, keywordQuery.data?.keywords ?? []),
     [toyBoard, keywordQuery.data?.keywords],
@@ -268,7 +274,7 @@ export function ToyCategorySourcingPage() {
           filters={draftFilters}
           resultCount={visibleKeywords.length}
           activeNaverSeedCount={activeNaverSeedCount}
-          boardCompared={boardCompared}
+          unavailableComparisonCaption={unavailableComparisonCaption}
           isDirty={filtersDirty}
           onFiltersChange={setDraftFilters}
           onSearch={applySearch}

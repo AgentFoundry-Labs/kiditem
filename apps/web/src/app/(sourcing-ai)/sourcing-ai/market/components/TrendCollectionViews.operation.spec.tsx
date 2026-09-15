@@ -265,7 +265,7 @@ describe('TrendCollectionViews Naver popular boards', () => {
     trendMocks.fetchPopularKeywordBoards.mockResolvedValue({ days: 7, boards: [rankedBoard(null)] });
     renderViews();
 
-    expect(await screen.findByText('이전 비교일 없음')).toBeInTheDocument();
+    expect(await screen.findByText('비교할 이전 순위일 없음')).toBeInTheDocument();
     expect(screen.queryByText('범위 내 상승 신호 없음')).not.toBeInTheDocument();
   });
 
@@ -274,6 +274,6 @@ describe('TrendCollectionViews Naver popular boards', () => {
     renderViews();
 
     expect(await screen.findByText('범위 내 상승 신호 없음')).toBeInTheDocument();
-    expect(screen.queryByText('이전 비교일 없음')).not.toBeInTheDocument();
+    expect(screen.queryByText('비교할 이전 순위일 없음')).not.toBeInTheDocument();
   });
 });
