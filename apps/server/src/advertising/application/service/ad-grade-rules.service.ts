@@ -136,9 +136,11 @@ export class AdGradeRulesService {
         }
       } else if (grade === 'B') {
         if (roas >= 480) {
+          // The grade is Products' publication and the campaign layout is the
+          // operator's, so a high ROAS recommends more budget and nothing else.
           recs.push({
-            rule: 'B-5 A승격',
-            reason: `ROAS ${roas}% — A등급 캠페인으로 이동. 예산 비중 확대 (60~70% 목표)`,
+            rule: 'B-5 예산 증액',
+            reason: `ROAS ${roas}% — 일예산 증액 추천`,
             priority: 'high',
           });
         } else if (roas >= 300) {
@@ -300,11 +302,11 @@ export class AdGradeRulesService {
    * rule key → AdAction.actionType 매핑.
    *
    * 기존 ad-strategy.service.ts:941-953 의 ruleToActionType 본문 복원.
-   * 등급별 rule prefix (A-1 / A-3 / C-1 / C-2 / B-4) 또는 rule 본문 키워드 (재고0 / 순이익 / 전환0)
+   * 등급별 rule prefix (A-1 / B-5 / A-3 / C-1 / C-2 / B-4) 또는 rule 본문 키워드 (재고0 / 순이익 / 전환0)
    * 에 따라 'increase' / 'stop' / 'decrease' / 'maintain' 중 하나로 환원.
    */
   ruleToActionType(rule: string): string {
-    if (rule.startsWith('A-1') || rule.startsWith('A-5')) return 'increase';
+    if (rule.startsWith('A-1') || rule.startsWith('A-5') || rule.startsWith('B-5')) return 'increase';
     if (rule.startsWith('A-3') || rule.startsWith('C-1') || rule.includes('재고0'))
       return 'stop';
     if (

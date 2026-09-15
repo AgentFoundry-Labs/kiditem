@@ -107,14 +107,17 @@ describe('AdGradeRulesService.calcActions', () => {
       expect(result[0].actionType).toBe('maintain');
     });
 
-    it('B-5 A 승격: roas>=480 → priority=high + actionType=maintain', () => {
+    it('B-5 예산 증액: 등급·캠페인 이동 없이 예산 증액만 권한다 → priority=high + actionType=increase', () => {
       const input = buildInput(
         [adGroup({ spend: 10000, revenue: 50000 })],
         [listingBase()],
         'B',
       );
       const result = service.calcActions(input);
-      expect(result[0].priority).toBe('high');
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ grade: 'B', priority: 'high', actionType: 'increase' });
+      expect(result[0].reason).toBe('ROAS 500% — 일예산 증액 추천');
+      expect(result[0].reason).not.toMatch(/등급|캠페인|승격|이동/);
     });
   });
 
