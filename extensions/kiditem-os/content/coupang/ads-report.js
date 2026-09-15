@@ -2502,10 +2502,11 @@
   }
 
   // Called only after the change reached Coupang. A refused done report (409)
-  // means the attempt is no longer this executor's; any other failure leaves the
-  // server without the outcome. Neither becomes a failure report, which would
-  // invite approving the action again and changing Coupang twice. The attempt
-  // stays running until it is recovered (KID-160).
+  // means the attempt is no longer this executor's (its deadline passed or a
+  // newer attempt replaced it); any other failure leaves the server without the
+  // outcome. Neither becomes a failure report, which would invite approving the
+  // action again and changing Coupang twice. The executor warns about both; a
+  // lost report leaves the attempt running until its execution deadline passes.
   async function reportActionDone(action, afterJson) {
     try {
       await reportAction(action, "markDone", { afterJson });
@@ -2824,9 +2825,12 @@
     }
 
     let executed = 0;
-    let executedUnrecorded = 0;
-    let claimRefused = 0;
     let skipped = actions.length - runnable.length;
+    // Reports that did not land. The operator sees each kind as a warning.
+    let claimRefused = 0;
+    let claimUnreported = 0;
+    let doneRefused = 0;
+    let doneUnreported = 0;
 
     for (const action of runnable) {
       // The write deadline runs from the moment the claim is sent.
@@ -2839,6 +2843,7 @@
         // reports nothing for the action and never touches Coupang for it.
         skipped++;
         if (error?.executionReportRefused) claimRefused++;
+        else claimUnreported++;
         console.warn(
           "[KidItem] 실행 선점이 받아들여지지 않아 액션을 건너뜁니다:",
           error instanceof Error ? error.message : error,
@@ -2866,17 +2871,26 @@
       }
       const done = await reportActionDone(action, result.afterJson || {});
       if (done === "recorded") executed++;
-      else if (done === "refused") skipped++;
-      else executedUnrecorded++;
+      else if (done === "refused") doneRefused++;
+      else doneUnreported++;
     }
 
-    // A skip the operator needs to know about is a warning, never only a count.
+    // A refused or lost done report follows a change that reached Coupang; only
+    // its record is missing.
+    const executedUnrecorded = doneRefused + doneUnreported;
+    // A report that did not land is a warning, never only a count.
     const warnings = [];
     if (claimRefused > 0) {
       warnings.push(`실행 보고가 거절된 승인 액션 ${claimRefused}개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.`);
     }
-    if (executedUnrecorded > 0) {
-      warnings.push(`승인 액션 ${executedUnrecorded}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
+    if (claimUnreported > 0) {
+      warnings.push(`시작 보고 전달에 실패한 승인 액션 ${claimUnreported}개는 광고센터에 쓰지 않고 건너뛰었습니다. 서버에 실행 중으로 남았다면 실행 기한이 지나 실패로 바뀐 뒤 다시 승인할 수 있습니다.`);
+    }
+    if (doneRefused > 0) {
+      warnings.push(`승인 액션 ${doneRefused}개는 광고센터에 반영했지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
+    }
+    if (doneUnreported > 0) {
+      warnings.push(`승인 액션 ${doneUnreported}개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
     }
     if (warnings.length > 0) {
       const warning = warnings.join(" ");
