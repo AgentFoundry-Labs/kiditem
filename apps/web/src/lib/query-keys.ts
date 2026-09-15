@@ -190,6 +190,9 @@ export const queryKeys = {
     /** One mall's order-collection owner status, for the shared start control. */
     collectionSource: (organizationId: string, mallKey: string) =>
       [...queryKeys.orders.all, 'collection', 'source', organizationId, mallKey] as const,
+    /** One Rocket account's directship order-collection owner status. */
+    coupangDirectshipSource: (channelAccountId: string) =>
+      [...queryKeys.orders.all, 'collection', 'coupang-directship-source', channelAccountId] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
