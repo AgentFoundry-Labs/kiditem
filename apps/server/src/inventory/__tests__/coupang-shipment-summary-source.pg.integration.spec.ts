@@ -122,6 +122,60 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     expect((await get("")).body.items).toEqual(current.items);
   });
 
+  function cancel(attemptId: string, organizationId = TEST_ORGANIZATION_ID) {
+    return request(httpUrl)
+      .post(base + `/attempts/${attemptId}/cancel`)
+      .set("x-test-organization", organizationId);
+  }
+
+  it("stops a running attempt for an operator without its token or an Alert, and admits the next begin at once", async () => {
+    const attempt = await begin("operator-stop");
+    await cancel(attempt.attemptId, OTHER_ORGANIZATION_ID).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: "FAILED",
+      errorCode: "USER_CANCELLED",
+      errorMessage: "운영자가 수집을 중단했습니다.",
+    });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    await complete(attempt, [row("2026-09-07", 1)]).expect(409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = await begin("after-operator-stop");
+    expect(next.state).toBe("RUNNING");
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it("settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged", async () => {
+    const expiredAttempt = await begin("operator-expired");
+    await prisma.sourceImportRun.update({
+      where: { id: expiredAttempt.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+    expect((await cancel(expiredAttempt.attemptId).expect(200)).body).toMatchObject({
+      state: "FAILED",
+      errorCode: "ATTEMPT_EXPIRED",
+    });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
+      { attemptId: expiredAttempt.attemptId, status: "OPEN" },
+    ]);
+
+    const completed = await begin("operator-complete");
+    await complete(completed, [row("2026-09-08", 2)]).expect(200);
+    expect((await get(`/attempts/${completed.attemptId}`).expect(200)).body.state)
+      .toBe("COMPLETE");
+    expect((await cancel(completed.attemptId).expect(200)).body).toMatchObject({
+      attemptId: completed.attemptId,
+      state: "COMPLETE",
+      errorCode: null,
+    });
+    expect(
+      await prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: completed.attemptId },
+      }),
+    ).toMatchObject({ status: "completed", errorCode: null });
+  });
+
   function get(path: string, organizationId = TEST_ORGANIZATION_ID) {
     return request(httpUrl)
       .get(base + path)

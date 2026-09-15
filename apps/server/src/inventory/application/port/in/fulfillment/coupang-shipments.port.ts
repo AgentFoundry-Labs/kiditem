@@ -126,4 +126,9 @@ export interface CoupangShipmentsPort {
     code: string,
     message: string,
   ): Promise<ShipmentSummaryAttempt>;
+  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
+  cancelSummary(
+    organizationId: string,
+    attemptId: string,
+  ): Promise<ShipmentSummaryAttempt>;
 }

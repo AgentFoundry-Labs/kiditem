@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Header,
+  HttpCode,
   Inject,
   Param,
   Put,
@@ -104,6 +105,16 @@ export class CoupangShipmentsController {
       dto.code,
       dto.message,
     );
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post("date-summary/attempts/:attemptId/cancel")
+  @HttpCode(200)
+  cancelSummary(
+    @CurrentOrganization() organizationId: string,
+    @Param("attemptId", ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.coupangShipments.cancelSummary(organizationId, attemptId);
   }
 
   @Get("files/:runId/:date/:fileName")
