@@ -34,6 +34,9 @@ const TrendSourceStatusSchema = z
       })
       .passthrough()
       .nullable(),
+    // The newest collection this source completed; null until one has. A count
+    // read from a source that never completed is unknown, not 0.
+    latestComplete: z.object({ attemptId: z.string() }).passthrough().nullable().optional(),
     actualCutoffAt: z.string().nullable().optional(),
   })
   .passthrough();

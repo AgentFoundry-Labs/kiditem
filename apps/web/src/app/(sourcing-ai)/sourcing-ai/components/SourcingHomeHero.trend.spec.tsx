@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
@@ -11,13 +11,28 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 vi.mock('./SourcingHomeRecommendationRail', () => ({ SourcingHomeRecommendationRail: () => null }));
 
 const STATUS_PATH = '/api/sourcing/trend/status';
-const idle = { naver: { latestAttempt: null, actualCutoffAt: null }, shorts: { latestAttempt: null, actualCutoffAt: null } };
+const idle = {
+  naver: { latestAttempt: null, latestComplete: null, actualCutoffAt: null },
+  shorts: { latestAttempt: null, latestComplete: null, actualCutoffAt: null },
+};
 let status: Record<string, unknown>;
 
 function renderHero() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = render(<QueryClientProvider client={client}><SourcingHomeHero /></QueryClientProvider>);
   return { ...view, client };
+}
+
+/** The count badge of a rank board column: `N개`, or `-` when nothing was measured. */
+function columnCount(label: string): string | null {
+  const column = screen.getByText(label).closest('section')!;
+  return within(column).getByText(/^(-|[\d,]+개)$/).textContent;
+}
+
+/** A loading card also reads `-`, so assert only once every read has landed. */
+async function settle(client: QueryClient) {
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
 describe('Sourcing home trend control', () => {
@@ -65,6 +80,52 @@ describe('Sourcing home trend control', () => {
     expect(await screen.findByText('수집을 시작하지 못했습니다.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: '데이터 수집' })).toBeEnabled());
     expect(toast.success).not.toHaveBeenCalled();
+    client.clear();
+  });
+});
+
+describe('Sourcing home rank board counts', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    status = idle;
+    vi.mocked(apiClient.getNullable).mockResolvedValue(null);
+    vi.mocked(apiClient.getParsed).mockImplementation(async (url) => {
+      if (url === STATUS_PATH) return status;
+      throw new Error(`unexpected GET ${url}`);
+    });
+    vi.mocked(apiClient.get).mockImplementation(async (url) => {
+      if (url === '/api/ads/keyword-rank/trackers') return [];
+      return { keywords: [], boards: [], items: [] };
+    });
+  });
+
+  it('shows a card whose trend source never completed as -, not 0개', async () => {
+    const { client } = renderHero();
+    await settle(client);
+
+    // Naver feeds the keyword boards, Shorts the SNS card; no rising snapshot exists.
+    for (const label of ['급상승 후보', '신규 키워드', 'SNS 소셜 인기', '인기 키워드']) {
+      expect(columnCount(label)).toBe('-');
+    }
+    // Trackers are an operator list the read returned, so its empty count is measured.
+    expect(columnCount('추적 키워드')).toBe('0개');
+    client.clear();
+  });
+
+  it('keeps a completed source that found nothing as 0개', async () => {
+    const complete = (attemptId: string) => ({
+      latestAttempt: { attemptId, state: 'COMPLETE', errorMessage: null },
+      latestComplete: { attemptId, state: 'COMPLETE' },
+      actualCutoffAt: '2026-09-14T15:00:00.000Z',
+    });
+    status = { naver: complete('naver-done'), shorts: complete('shorts-done') };
+    vi.mocked(apiClient.getNullable).mockResolvedValue({ model: { candidates: [] } } as never);
+    const { client } = renderHero();
+    await settle(client);
+
+    for (const label of ['급상승 후보', '신규 키워드', 'SNS 소셜 인기', '추적 키워드', '인기 키워드']) {
+      expect(columnCount(label)).toBe('0개');
+    }
     client.clear();
   });
 });
