@@ -72,6 +72,62 @@ describe('ProductOperationsService', () => {
     );
   });
 
+  it('publishes the ABC official cutoff beside grade counts, null before Products publishes', async () => {
+    const published = abcStatusFacts();
+    const unpublished = {
+      ...published,
+      contributionBasis: null,
+      formulaState: {
+        ...published.formulaState,
+        publicationRevision: 0,
+        officialCutoff: null,
+        publishedAt: null,
+      },
+      products: published.products.map((product) => ({
+        ...product,
+        abcGrade: null,
+        evaluation: null,
+      })),
+    };
+    const summaryFor = async (status: unknown) => {
+      const repository = makeRepository();
+      repository.listProducts.mockResolvedValue({
+        items: [rawListProduct(productId)],
+        page: 1,
+        limit: 50,
+        sellingChannelProducts: [],
+      });
+      const service = new ProductOperationsService(
+        repository as never,
+        { findBySkuIds: vi.fn().mockResolvedValue({ snapshot: {}, items: [] }) } as never,
+        { findByMasterProductIds: vi.fn().mockResolvedValue(new Map()) } as never,
+        makeCatalogDisplayMedia() as never,
+        { read: vi.fn().mockResolvedValue(status) } as never,
+        makeContributionRead() as never,
+        makeRecipeMutations() as never,
+      );
+      const result = await service.listProducts(organizationId, {
+        page: 1,
+        limit: 50,
+        periodDays: 30,
+        activeStatus: 'all',
+        adStatus: 'all',
+      });
+      return result.summary;
+    };
+
+    // Without a publication no grade was measured; only the cutoff separates
+    // that from a publication that graded no product A, B or C.
+    await expect(summaryFor(unpublished)).resolves.toMatchObject({
+      abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 1 },
+      abcOfficialCutoffDate: null,
+    });
+    await expect(summaryFor(published)).resolves.toMatchObject({
+      abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 0 },
+      abcOfficialCutoffDate: '2026-07-31',
+    });
+  });
+
   it('hydrates availability once and keeps depletion summary counts independent of pagination', async () => {
     const repository = makeRepository();
     const first = rawListProduct(productId);

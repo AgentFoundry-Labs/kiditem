@@ -149,6 +149,7 @@ describe('product operations contracts', () => {
       abcGradeCounts: { A: 2, B: 3, C: 1, unclassified: 4 },
       contributionOverview: null,
       abcFormula: null,
+      abcOfficialCutoffDate: '2026-07-31',
       displayDataAsOf: '2026-07-31',
       channelProductCounts: [{
         channelAccountId: '00000000-0000-4000-8000-000000000004',
@@ -437,6 +438,7 @@ describe('product operations contracts', () => {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
         contributionOverview: null,
         abcFormula: null,
+        abcOfficialCutoffDate: '2026-07-31',
         displayDataAsOf: '2026-07-31',
         channelProductCounts: [{
           channelAccountId: '00000000-0000-4000-8000-000000000004',

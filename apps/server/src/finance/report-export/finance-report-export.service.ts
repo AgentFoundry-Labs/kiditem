@@ -384,5 +384,6 @@ function emptyAdsHub(): AdsHubData {
       gradeSpend: { A: 0, B: 0, C: 0 },
       gradeSpendPercent: { A: 0, B: 0, C: 0 },
     },
+    abcOfficialCutoffDate: null,
   };
 }

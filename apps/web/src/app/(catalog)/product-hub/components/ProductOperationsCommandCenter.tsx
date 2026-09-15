@@ -34,12 +34,13 @@ export function ProductOperationsCommandCenter({
   const lowProfitCount = data.summary.negativeProfitCount;
   const reorderProductCount = data.summary.reorderProductCount;
   const imminentProductCount = data.summary.imminentProductCount;
-  const {
-    A: aGradeCount,
-    B: bGradeCount,
-    C: cGradeCount,
-    unclassified: unclassifiedGradeCount,
-  } = data.summary.abcGradeCounts;
+  // A/B/C membership exists only once Products publishes ABC, so before that
+  // those counts are unknown, not 0. Unclassified counts catalog products.
+  const abcPublished = data.summary.abcOfficialCutoffDate != null;
+  const { A, B, C, unclassified: unclassifiedGradeCount } = data.summary.abcGradeCounts;
+  const aGradeCount = abcPublished ? A : '—';
+  const bGradeCount = abcPublished ? B : '—';
+  const cGradeCount = abcPublished ? C : '—';
   const contribution = data.summary.contributionOverview?.totals ?? null;
 
   return (

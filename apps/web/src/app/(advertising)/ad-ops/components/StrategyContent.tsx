@@ -317,6 +317,10 @@ function GradeCardPanel({
     queryFn: () => apiClient.getParsed('/api/ads/hub', AdsHubDataSchema),
   });
   const products = (adsHub?.products ?? []).filter((product) => product.grade === cfg.grade);
+  // Grade membership is measured only once Products publishes ABC. Before that,
+  // or before the hub loads, a per-grade count is unknown rather than 0.
+  const abcPublished = adsHub?.abcOfficialCutoffDate != null;
+  const membershipCount = (count: number) => (abcPublished ? count : "-");
 
   // Whether a product is advertising comes from its measured hub spend — the
   // same derivation Product Hub uses — not from a stored operator tier.
@@ -366,14 +370,14 @@ function GradeCardPanel({
             <div className="text-[12px] text-white/60 truncate">{cfg.subtitle}</div>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-2xl font-black text-white tabular-nums">{products.length}<span className="text-[13px] font-normal ml-0.5">개</span></div>
+            <div className="text-2xl font-black text-white tabular-nums">{abcPublished ? <>{products.length}<span className="text-[13px] font-normal ml-0.5">개</span></> : "-"}</div>
             <div className="text-[11px] text-white/60">상품</div>
           </div>
         </div>
         <div className="text-xl font-black text-white tabular-nums mb-1.5">{formatNumber(gradeBudget)}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
         <div className="flex flex-wrap items-center gap-1">
           {urgentCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentCount}</span>}
-          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">{PRODUCT_ADVERTISING_LABELS.active} {adProducts.length}</span>
+          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">{PRODUCT_ADVERTISING_LABELS.active} {membershipCount(adProducts.length)}</span>
           <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">추천 {gradeActions.length}</span>
         </div>
       </div>
@@ -418,9 +422,9 @@ function GradeCardPanel({
       <div className="px-3 py-2 flex flex-col gap-2 border-b" style={{ background: "var(--card-bg)", borderColor: "var(--border-subtle)" }}>
         <div className="flex rounded-md p-0.5" style={{ background: "var(--surface-sunken)" }}>
           {([
-            { key: "all" as const, label: `전체 ${products.length}` },
-            { key: "ad" as const, label: `${PRODUCT_ADVERTISING_LABELS.active} ${adProducts.length}` },
-            { key: "noad" as const, label: `${PRODUCT_ADVERTISING_LABELS.inactive} ${noAdProducts.length}` },
+            { key: "all" as const, label: `전체 ${membershipCount(products.length)}` },
+            { key: "ad" as const, label: `${PRODUCT_ADVERTISING_LABELS.active} ${membershipCount(adProducts.length)}` },
+            { key: "noad" as const, label: `${PRODUCT_ADVERTISING_LABELS.inactive} ${membershipCount(noAdProducts.length)}` },
           ]).map((item) => (
             <button
               key={item.key}

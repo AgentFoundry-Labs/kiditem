@@ -123,6 +123,7 @@ function buildService() {
       gradeSpend: { A: 10, B: 0, C: 0 },
       gradeSpendPercent: { A: 100, B: 0, C: 0 },
     },
+    abcOfficialCutoffDate: '2026-07-31',
   };
   const advertising = { getHubData: vi.fn().mockResolvedValue(ads) };
   const service = new FinanceReportExportService(

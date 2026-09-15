@@ -38,6 +38,7 @@ export type MockAdListingRepo = {
 export function buildMockAdListingRepo(): MockAdListingRepo {
   return {
     findScopedAdListings: vi.fn(),
+    findAbcOfficialCutoffDate: vi.fn().mockResolvedValue(null),
     verifyListingOwnership: vi.fn(),
   };
 }

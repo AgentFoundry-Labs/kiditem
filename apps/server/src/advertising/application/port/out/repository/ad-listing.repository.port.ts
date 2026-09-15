@@ -36,6 +36,12 @@ export interface AdListingRepositoryPort {
   ): Promise<Map<string, ScopedAdListingReadModel>>;
 
   /**
+   * Official cutoff of the retained Products ABC publication, or `null` when
+   * Products has never published and no grade membership is measured.
+   */
+  findAbcOfficialCutoffDate(organizationId: string): Promise<string | null>;
+
+  /**
    * IDOR guard helper — confirm a listing id belongs to the organization and
    * is active. Returns `true` only when the row exists in scope.
    */

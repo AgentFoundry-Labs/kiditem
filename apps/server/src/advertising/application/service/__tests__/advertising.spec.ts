@@ -197,6 +197,19 @@ describe('AdvertisingService', () => {
     expect(result.summary.totalRoas).toBeNull();
   });
 
+  it('getHubData carries the ABC official cutoff, null before Products publishes', async () => {
+    listingRepo.findAbcOfficialCutoffDate.mockResolvedValueOnce(null);
+    const unpublished = await service.getHubData('organization-1');
+
+    expect(unpublished.abcOfficialCutoffDate).toBeNull();
+
+    listingRepo.findAbcOfficialCutoffDate.mockResolvedValueOnce('2026-07-31');
+    const published = await service.getHubData('organization-1');
+
+    expect(published.abcOfficialCutoffDate).toBe('2026-07-31');
+    expect(listingRepo.findAbcOfficialCutoffDate).toHaveBeenCalledWith('organization-1');
+  });
+
   it('recomputes ROAS from sums (not averaged per-row provider ratio)', async () => {
     benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
       totals: {

@@ -31,9 +31,12 @@ export class AdvertisingService implements AdvertisingHubReadPort {
 
   async getHubData(organizationId: string): Promise<AdsHubData> {
     await this.adConfigService.getConfig(organizationId);
-    const products = await this.buildListingItems(organizationId);
+    const [products, abcOfficialCutoffDate] = await Promise.all([
+      this.buildListingItems(organizationId),
+      this.listingRepo.findAbcOfficialCutoffDate(organizationId),
+    ]);
     const summary = this.computeSummary(products);
-    return { products, summary } satisfies AdsHubData;
+    return { products, summary, abcOfficialCutoffDate } satisfies AdsHubData;
   }
 
   async findAll(

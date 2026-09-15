@@ -3,7 +3,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import {
+  readProductAbcPublication,
+  readPublishedProductAbcGrades,
+} from '../../../../products/read/product-abc-publication.reader';
 import type {
   AdListingRepositoryPort,
   ScopedAdListingReadModel,
@@ -26,6 +29,13 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       (tx) => this.findScopedAdListingsSnapshot(tx, organizationId, ids),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  async findAbcOfficialCutoffDate(organizationId: string): Promise<string | null> {
+    // No product ids: only the publication envelope is read.
+    const { publication } = await this.prisma.$transaction((tx) =>
+      readProductAbcPublication(tx, { organizationId, masterProductIds: [] }));
+    return publication?.officialCutoffDate ?? null;
   }
 
   private async findScopedAdListingsSnapshot(

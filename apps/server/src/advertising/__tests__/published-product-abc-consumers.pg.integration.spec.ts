@@ -33,6 +33,11 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
+  it('reads no ABC official cutoff before Products publishes', async () => {
+    await expect(new AdListingRepositoryAdapter(prisma as never).findAbcOfficialCutoffDate(ORG))
+      .resolves.toBeNull();
+  });
+
   it('hydrates every advertising grade consumer from the retained Products publication', async () => {
     const account = await prisma.channelAccount.create({
       data: {
@@ -177,6 +182,7 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');
+    await expect(listingReader.findAbcOfficialCutoffDate(ORG)).resolves.toBe('2026-08-31');
     expect((await keywordReader.listOwnVendorItems(ORG))[0]).toMatchObject({
       vendorItemId: option.externalOptionId,
       productName: 'Wing product',

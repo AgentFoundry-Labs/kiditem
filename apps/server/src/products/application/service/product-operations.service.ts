@@ -152,6 +152,7 @@ export class ProductOperationsService implements ProductOperationsPort {
           summarizeChannelProducts(raw.sellingChannelProducts ?? []),
           contributionOverview(contribution),
           dataStatus.displayDataAsOf,
+          dataStatus.formulaState.officialCutoff,
         ),
       },
     };
@@ -362,6 +363,7 @@ function summarizeProducts(
   channelProductCounts: ProductOperationsChannelProductCount[],
   contributionOverviewValue: ProductAbcContributionOverview | null,
   displayDataAsOf: string | null,
+  abcOfficialCutoffDate: string | null,
 ): ProductOperationsListSummary {
   const counts = products.reduce<ProductOperationsListSummary>((counts, product) => {
     const abcGrade = product.abcGrade;
@@ -390,6 +392,7 @@ function summarizeProducts(
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
     contributionOverview: contributionOverviewValue,
     abcFormula: null,
+    abcOfficialCutoffDate,
     displayDataAsOf,
     channelProductCounts,
     inventoryStatusCounts: {
