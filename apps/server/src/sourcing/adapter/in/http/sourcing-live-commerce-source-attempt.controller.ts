@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -89,6 +90,15 @@ export class SourcingLiveCommerceSourceAttemptController {
       code: typeof body?.code === 'string' ? body.code : '',
       message: typeof body?.message === 'string' ? body.message : '',
     }).then(toPublicAttempt);
+  }
+
+  @Post('browser/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelBrowser(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourceAttempts.cancelBrowser({ organizationId, attemptId }).then(toPublicAttempt);
   }
 }
 

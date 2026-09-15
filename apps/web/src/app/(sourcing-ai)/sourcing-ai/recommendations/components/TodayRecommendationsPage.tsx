@@ -4,13 +4,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
-  Loader2,
   PackageSearch,
   Radar,
   Search,
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -34,6 +34,7 @@ import {
 } from '../../hooks/use-sourcing-workspace';
 import { toTodayRecommendationRows } from '../../lib/sourcing-recommendation-presenter';
 import { SourcingReadState } from '../../components/SourcingReadState';
+import { WingCatalogCalculationActions } from '../../components/WingCatalogCalculationActions';
 import { WingCatalogSourceStatus } from '../../components/WingCatalogSourceStatus';
 import { useWingCatalogSource } from '../../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
@@ -77,11 +78,8 @@ export function TodayRecommendationsPage() {
     maxPages,
     purpose: 'recommendation_validation' as const,
   }), [keywords, maxPages]);
-  const wingSource = useWingCatalogSource({
-    input: operationInput,
-    snapshotQueryKey: queryKeys.sourcing.all,
-  });
-  const isRunning = wingSource.isRunning;
+  const wingSource = useWingCatalogSource({ input: operationInput });
+  const isRunning = wingSource.control.state === 'starting' || wingSource.control.running !== null;
 
   const applyKeywordAnalysisPool = useCallback(() => {
     if (popularKeywordsQuery.isLoading) {
@@ -114,7 +112,7 @@ export function TodayRecommendationsPage() {
     }
 
     setErrors([]);
-    void wingSource.start();
+    wingSource.start();
   };
 
   const trackProductInterest = async (row: TodayRecommendationRow) => {
@@ -242,24 +240,15 @@ export function TodayRecommendationsPage() {
                   {pageOptions.map((value) => <option key={value} value={value}>{value}페이지씩</option>)}
                 </select>
               </div>
-              <div className="mt-3 grid grid-cols-[minmax(0,1fr)_64px] gap-2">
-                <button
-                  type="button"
-                  onClick={runRecommendations}
-                  disabled={isRunning}
-                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isRunning ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
-                  <span className="truncate">키워드 검증 시작</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void wingSource.cancel()}
-                  disabled={!isRunning}
-                  className="h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm font-black text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  중단
-                </button>
+              <div className="mt-3 flex flex-wrap items-start justify-between gap-2">
+                <CollectionStartControl
+                  control={wingSource.control}
+                  startLabel="키워드 검증 시작"
+                  onStart={runRecommendations}
+                  onStop={wingSource.control.stop}
+                  className="items-start"
+                />
+                <WingCatalogCalculationActions attempt={wingSource.attempt} validation />
               </div>
             </div>
           </div>

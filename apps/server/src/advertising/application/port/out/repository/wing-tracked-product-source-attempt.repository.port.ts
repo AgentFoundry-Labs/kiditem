@@ -34,4 +34,9 @@ export interface WingTrackedProductSourceAttemptRepositoryPort {
     code: string;
     message: string;
   }): Promise<WingTrackedProductSourceView>;
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<WingTrackedProductSourceView>;
 }

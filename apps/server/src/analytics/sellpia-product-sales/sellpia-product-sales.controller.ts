@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -57,6 +58,15 @@ export class SellpiaProductSalesController {
     @CurrentOrganization() organizationId: string,
   ): Promise<SellpiaProfitabilityAttempt> {
     return this.source.failAttempt(organizationId, attemptId, body);
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelAttempt(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<SellpiaProfitabilityAttemptSummary> {
+    return this.source.cancelAttempt(organizationId, attemptId);
   }
 
   @Get('attempts/:attemptId')

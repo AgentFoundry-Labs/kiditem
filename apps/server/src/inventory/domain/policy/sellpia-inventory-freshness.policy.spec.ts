@@ -43,7 +43,7 @@ describe('Sellpia inventory freshness policy', () => {
     });
 
     expect(deriveFreshnessStatus(state, NOW)).toBe('failed');
-    expect(toFreshnessView(state, NOW, null)).toMatchObject({
+    expect(toFreshnessView(state, NOW, null, null)).toMatchObject({
       status: 'failed',
       activeSync: null,
       lastAttempt: {
@@ -125,7 +125,7 @@ describe('Sellpia inventory freshness policy', () => {
     const ATTEMPTED_AT = new Date('2026-07-14T23:50:00.000Z');
 
     it('publishes no last attempt before one ended', () => {
-      expect(toFreshnessView(makeState({ lastAttemptAt: null }), NOW, null).lastAttempt)
+      expect(toFreshnessView(makeState({ lastAttemptAt: null }), NOW, null, null).lastAttempt)
         .toBeNull();
     });
 
@@ -138,7 +138,7 @@ describe('Sellpia inventory freshness policy', () => {
         lastErrorMessage: 'Sellpia login required.',
       });
 
-      expect(toFreshnessView(state, NOW, null).lastAttempt).toEqual({
+      expect(toFreshnessView(state, NOW, null, null).lastAttempt).toEqual({
         attemptedAt: ATTEMPTED_AT.toISOString(),
         trigger: 'retry',
         scope: 'full',

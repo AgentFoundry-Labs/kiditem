@@ -34,6 +34,9 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   fail(input: Parameters<RocketPoCatalogPort['fail']>[0]) {
     return this.repository.fail(input);
   }
+  cancel(input: Parameters<RocketPoCatalogPort['cancel']>[0]) {
+    return this.repository.cancel(input);
+  }
   readComplete(input: Parameters<RocketPoCatalogPort['readComplete']>[0]) {
     return this.repository.readComplete(input);
   }

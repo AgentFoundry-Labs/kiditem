@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  CoupangCatalogBrowserCommandSchema,
-  CoupangCatalogBrowserStatusSchema,
-} from './coupang-catalog-snapshot';
+import { CoupangCatalogBrowserStatusSchema } from './coupang-catalog-snapshot';
 
 const attemptId = '11111111-1111-4111-8111-111111111111';
 const permit = {
@@ -29,18 +26,6 @@ describe('catalog extension wire', () => {
     expect(CoupangCatalogBrowserStatusSchema.parse(view)).toEqual(view);
     expect(CoupangCatalogBrowserStatusSchema.safeParse({
       ...view, status: 'done', attemptToken: permit.attemptToken,
-    }).success).toBe(false);
-  });
-
-  it('starts only with the owner permit and controls that exact attempt', () => {
-    expect(CoupangCatalogBrowserCommandSchema.parse({
-      action: 'startCoupangCatalogImport', permit,
-    })).toEqual({ action: 'startCoupangCatalogImport', permit });
-    for (const action of ['getCoupangCatalogImportStatus', 'cancelCoupangCatalogImport']) {
-      expect(CoupangCatalogBrowserCommandSchema.parse({ action, attemptId })).toEqual({ action, attemptId });
-    }
-    expect(CoupangCatalogBrowserCommandSchema.safeParse({
-      action: 'startCoupangCatalogImport', runId: attemptId, channelAccountId: permit.plan.channelAccountId,
     }).success).toBe(false);
   });
 });

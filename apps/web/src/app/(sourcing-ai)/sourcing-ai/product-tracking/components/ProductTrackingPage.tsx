@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,27 +12,25 @@ import {
   Loader2,
   Minus,
   PackageSearch,
-  RefreshCw,
   TrendingDown,
   TrendingUp,
   Trash2,
 } from 'lucide-react';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
-  beginWingTrackedProductAttempt,
-  collectWingTrackedProductsFromExtension,
   deleteWingTrackedProduct,
   fetchWingTrackedHistories,
-  fetchWingTrackedProductSourceStatus,
   listWingTrackedProducts,
-  requireWingTrackedProductExtension,
   type WingTrackedProduct,
   type WingTrackedProductSourceStatus,
   type WingTrackedSnapshot,
 } from '../../lib/wing-tracking-api';
+import { wingTrackedProductsCollection } from '../../lib/wing-tracked-products-collection';
 import {
   resolveCoupangCatalogImageUrl,
 } from '../../wing-catalog/lib/wing-catalog-presenter';
@@ -48,7 +46,6 @@ import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryChart';
 
 const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
-const TRACKED_SOURCE_STATUS_QUERY_KEY = queryKeys.sourcing.wingTrackedSourceStatus();
 
 interface RankedProduct {
   product: WingTrackedProduct;
@@ -61,7 +58,6 @@ export function ProductTrackingPage() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState<TrackingWindow>(7);
-  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: TRACKED_QUERY_KEY,
@@ -72,13 +68,9 @@ export function ProductTrackingPage() {
     queryKey: queryKeys.sourcing.wingTrackedHistories(30),
     queryFn: () => fetchWingTrackedHistories(30),
   });
-  const { data: sourceStatus } = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY,
-    queryFn: fetchWingTrackedProductSourceStatus,
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
-    ),
-  }));
+  // 지표 새로고침 starts the collection; the shared control shows it running and stops it.
+  const trackedSource = useCollectionSourceControl(wingTrackedProductsCollection);
+  const sourceStatus = trackedSource.status;
   const historyByTrackedProductId = useMemo(
     () => new Map(
       (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),
@@ -117,67 +109,6 @@ export function ProductTrackingPage() {
     ),
     [enabledProducts],
   );
-  const refreshMutation = useMutation({
-    mutationFn: async (keywords: string[]) => {
-      const requestFingerprint = JSON.stringify(keywords);
-      const idempotencyKey = retryKeysByRequestFingerprint.current.get(requestFingerprint)
-        ?? crypto.randomUUID();
-      retryKeysByRequestFingerprint.current.set(requestFingerprint, idempotencyKey);
-      const clearRetryKey = () => {
-        if (retryKeysByRequestFingerprint.current.get(requestFingerprint) === idempotencyKey) {
-          retryKeysByRequestFingerprint.current.delete(requestFingerprint);
-        }
-      };
-      const plan = await beginWingTrackedProductAttempt({ idempotencyKey, keywords });
-      if (plan.state === 'COMPLETE') {
-        clearRetryKey();
-        return;
-      }
-      if (plan.state === 'FAILED') {
-        clearRetryKey();
-        throw new Error('이전 추적 상품 수집이 실패했습니다. 새로고침을 다시 시도해주세요.');
-      }
-      await queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
-      const extensionId = await requireWingTrackedProductExtension();
-      const result = await collectWingTrackedProductsFromExtension({
-        extensionId,
-        idempotencyKey,
-        keywords,
-      });
-      if (result.attemptId !== plan.attemptId) {
-        throw new Error('KidItem OS 익스텐션이 다른 추적 수집 attempt를 반환했습니다.');
-      }
-      if (result.terminalState === 'COMPLETE') {
-        if (!result.success) {
-          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
-        }
-        clearRetryKey();
-        return;
-      }
-      if (result.terminalState === 'FAILED') {
-        clearRetryKey();
-        throw new Error(result.error ?? '추적 상품 지표 수집에 실패했습니다.');
-      }
-      if (!result.success) {
-        throw new Error(result.error ?? '추적 상품 지표 수집에 실패했습니다.');
-      }
-      throw new Error('KidItem OS 익스텐션이 완료되지 않은 추적 수집 결과를 반환했습니다.');
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: TRACKED_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.wingTrackedHistories(30) });
-      void queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
-      toast.success('추적 상품 지표를 새로고침했습니다');
-    },
-    onError: (error) => {
-      toast.error(isApiError(error) ? error.message : (
-        error instanceof Error ? error.message : '추적 상품 지표 수집에 실패했습니다'
-      ));
-      void queryClient.invalidateQueries({ queryKey: TRACKED_SOURCE_STATUS_QUERY_KEY });
-    },
-  });
-  const refreshing = refreshMutation.isPending || sourceStatus?.latestAttempt?.state === 'RUNNING';
-
   const handleRefresh = () => {
     if (enabledProducts.length === 0) {
       toast.error('갱신할 활성 추적 상품이 없습니다');
@@ -191,7 +122,7 @@ export function ProductTrackingPage() {
       toast.error('한 번에 수집할 수 있는 추적 키워드는 최대 12개입니다');
       return;
     }
-    refreshMutation.mutate(refreshKeywords);
+    trackedSource.start(refreshKeywords);
   };
 
   const keywordCount = useMemo(
@@ -219,15 +150,13 @@ export function ProductTrackingPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <WindowToggle value={windowDays} onChange={setWindowDays} />
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing || products.length === 0}
-              className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {refreshing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              지표 새로고침
-            </button>
+            <CollectionStartControl
+              control={trackedSource}
+              startLabel="지표 새로고침"
+              startTitle="활성 추적 상품의 키워드로 Wing 지표를 새로 받습니다."
+              onStart={handleRefresh}
+              onStop={trackedSource.stop}
+            />
           </div>
         </header>
 
@@ -592,6 +521,7 @@ function TrackedWingSourceStatus({
       ? '이전 완료 스냅샷 표시 중'
       : '완료된 추적 스냅샷 없음';
   const latest = source.latestAttempt;
+  const stopped = stoppedAttempt(latest);
   return (
     <section
       aria-label="추적 Wing 수집 상태"
@@ -599,7 +529,8 @@ function TrackedWingSourceStatus({
     >
       <span className="text-[var(--text-secondary)]">{summary}</span>
       {latest?.state === 'RUNNING' && <span>새 수집 진행 중</span>}
-      {latest?.state === 'FAILED' && (
+      {stopped && <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>}
+      {latest?.state === 'FAILED' && !stopped && (
         <span role="alert" className="text-rose-600">
           마지막 수집 실패: {latest.errorCode ?? 'UNKNOWN'}{latest.errorMessage ? ` — ${latest.errorMessage}` : ''}
         </span>

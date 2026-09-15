@@ -558,6 +558,50 @@ export const SellpiaSalesIngestResultSchema = z.object({
   sellerCount: z.number().int().nonnegative(),
 });
 
+// Source status: GET /api/sellpia-sales/source — the organization's latest
+// collection attempt and its latest COMPLETE collection, for every screen
+// that starts or watches Sellpia sales collection (KID-147).
+export const SellpiaSalesSourcePlanSchema = z
+  .object({
+    sourceType: z.literal('sellpia_sales_daily'),
+    parserVersion: z.literal('sellpia-sales-v1'),
+    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
+    sourcePath: z.literal('/sale_summary.html?mode=main_link'),
+    sourceAccountKey: z.literal('kiditem'),
+    range: z.object({ from: SellpiaYmdSchema, to: SellpiaYmdSchema }).strict(),
+    businessDates: z.array(SellpiaYmdSchema),
+  })
+  .strict();
+const SellpiaSalesSourceTimestampSchema = z.string().datetime({ offset: true });
+export const SellpiaSalesSourceLatestAttemptSchema = z
+  .object({
+    attemptId: z.string().uuid(),
+    // An expired RUNNING attempt reads as FAILED with ATTEMPT_EXPIRED.
+    state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+    plan: SellpiaSalesSourcePlanSchema,
+    expiresAt: SellpiaSalesSourceTimestampSchema,
+    errorCode: z.string().nullable(),
+    errorMessage: z.string().nullable(),
+  })
+  .strict();
+export const SellpiaSalesSourceLatestCompleteSchema = z
+  .object({
+    attemptId: z.string().uuid(),
+    plan: SellpiaSalesSourcePlanSchema,
+    completedAt: SellpiaSalesSourceTimestampSchema,
+    actualCutoffAt: SellpiaSalesSourceTimestampSchema,
+    businessDates: z.array(SellpiaYmdSchema),
+    rowCount: z.number().int().nonnegative(),
+    sellerCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export const SellpiaSalesSourceStatusSchema = z
+  .object({
+    latestAttempt: SellpiaSalesSourceLatestAttemptSchema.nullable(),
+    latestComplete: SellpiaSalesSourceLatestCompleteSchema.nullable(),
+  })
+  .strict();
+
 // Read 응답: GET /api/sellpia-sales?from&to
 export const SellpiaSalesDailyPointSchema = z.object({
   date: z.string(), // YYYY-MM-DD
@@ -846,6 +890,10 @@ export type SellpiaSalesIngestSeller = z.infer<typeof SellpiaSalesIngestSellerSc
 export type SellpiaSalesExplicitEmptyProvenance = z.infer<typeof SellpiaSalesExplicitEmptyProvenanceSchema>;
 export type SellpiaSalesIngestPayload = z.infer<typeof SellpiaSalesIngestPayloadSchema>;
 export type SellpiaSalesIngestResult = z.infer<typeof SellpiaSalesIngestResultSchema>;
+export type SellpiaSalesSourcePlan = z.infer<typeof SellpiaSalesSourcePlanSchema>;
+export type SellpiaSalesSourceLatestAttempt = z.infer<typeof SellpiaSalesSourceLatestAttemptSchema>;
+export type SellpiaSalesSourceLatestComplete = z.infer<typeof SellpiaSalesSourceLatestCompleteSchema>;
+export type SellpiaSalesSourceStatus = z.infer<typeof SellpiaSalesSourceStatusSchema>;
 export type SellpiaSalesDailyPoint = z.infer<typeof SellpiaSalesDailyPointSchema>;
 export type SellpiaSalesMall = z.infer<typeof SellpiaSalesMallSchema>;
 export type SellpiaSalesGroup = z.infer<typeof SellpiaSalesGroupSchema>;

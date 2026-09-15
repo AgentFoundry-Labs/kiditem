@@ -802,28 +802,24 @@ export const CoupangCatalogCollectionRunSchema = z.object({
 });
 export type CoupangCatalogCollectionRun = z.infer<typeof CoupangCatalogCollectionRunSchema>;
 
+/**
+ * An account's latest browser catalog import (KID-147). `latestAttempt` is the
+ * root the import started with: its `overallState` is the whole import's state
+ * and its id is what an operator stops. `detailsAttempt` is the details child
+ * once the handoff admitted it.
+ */
+export const CoupangCatalogSourceStatusSchema = z.object({
+  latestAttempt: CoupangCatalogCollectionRunSchema.nullable(),
+  detailsAttempt: CoupangCatalogCollectionRunSchema.nullable(),
+});
+export type CoupangCatalogSourceStatus = z.infer<typeof CoupangCatalogSourceStatusSchema>;
+
 export const FinalizeCoupangCatalogCollectionRequestSchema = z.object({
   snapshotHash: Sha256Schema,
 });
 export type FinalizeCoupangCatalogCollectionRequest = z.infer<
   typeof FinalizeCoupangCatalogCollectionRequestSchema
 >;
-
-export const CoupangCatalogBrowserCommandSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('startCoupangCatalogImport'),
-    permit: CoupangCatalogCollectionPermitSchema,
-  }).strict(),
-  z.object({
-    action: z.literal('getCoupangCatalogImportStatus'),
-    attemptId: z.string().uuid(),
-  }).strict(),
-  z.object({
-    action: z.literal('cancelCoupangCatalogImport'),
-    attemptId: z.string().uuid(),
-  }).strict(),
-]);
-export type CoupangCatalogBrowserCommand = z.infer<typeof CoupangCatalogBrowserCommandSchema>;
 
 export const CoupangCatalogBrowserStatusSchema = z.object({
   attemptId: z.string().uuid(),

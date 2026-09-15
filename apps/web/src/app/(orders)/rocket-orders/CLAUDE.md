@@ -11,9 +11,9 @@ second list.
 
 - The selected active Rocket account scopes collection, source lists, saved
   evidence, and preview. Multiple accounts require explicit selection.
-- Manual and dashboard collection share
-  `collectAndPersistRocketPurchaseOrders`. Reopen one exact complete source
-  run; never merge runs or expose a historical-source picker.
+- Manual and dashboard collection share the account's Rocket PO collection
+  control. Reopen one exact complete source run; never merge runs or expose a
+  historical-source picker.
 - Load the newest source automatically. Date selection narrows display and the
   workbook decision while server validation uses the complete source snapshot.
 - Preview always shows the complete selected evidence. Quantity/reason edits

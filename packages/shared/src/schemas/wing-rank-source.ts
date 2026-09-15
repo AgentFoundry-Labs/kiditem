@@ -139,3 +139,12 @@ export const WingRankBatchSchema = z
   })
   .strict();
 export type WingRankBatch = z.infer<typeof WingRankBatchSchema>;
+/**
+ * GET /api/ads/keyword-rank/wing/batch-attempts/current: the organization's
+ * current batch for screens that do not hold its key, a batch with a running
+ * member first and otherwise the newest. No batch answers an empty body.
+ */
+export const WingRankCurrentBatchSchema = WingRankBatchSchema.extend({
+  batchKey: z.string().min(1).max(128),
+}).strict();
+export type WingRankCurrentBatch = z.infer<typeof WingRankCurrentBatchSchema>;

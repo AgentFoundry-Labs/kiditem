@@ -79,6 +79,108 @@ export function assertCatalogRunning(run: { status: string; expiresAt: Date | nu
     throw new ConflictException('ATTEMPT_EXPIRED');
 }
 
+/** A workbook import holds its account until it goes this long without an update. */
+export const CATALOG_WORKBOOK_STALE_AFTER_MS = 30 * 60 * 1_000;
+
+const liveBrowserAttempt = (now: Date) => ({
+  parserVersion: CATALOG_PARSER,
+  sourceType: { in: [CATALOG_SOURCE, CATALOG_BASICS_SOURCE, CATALOG_DETAILS_SOURCE] },
+  expiresAt: { gt: now },
+});
+const liveWorkbookImport = (now: Date) => ({
+  sourceType: CATALOG_SOURCE,
+  fileHash: { not: null },
+  updatedAt: { gte: new Date(now.getTime() - CATALOG_WORKBOOK_STALE_AFTER_MS) },
+});
+
+export type LiveCatalogImport = { attemptId: string; source: 'browser' | 'workbook' };
+
+/**
+ * The account's live Wing catalog import, named by the attempt an operator
+ * stops (KID-147). One store account runs one import: a browser import from its
+ * basics root through its details child, including a completed basics root whose
+ * details handoff is still pending, or a running workbook import that is not
+ * stale. The workbook claim and every new browser import begin read this under
+ * `lockCatalogAccount`, so an account never runs two imports at once.
+ */
+export async function liveCatalogImport(
+  tx: Prisma.TransactionClient,
+  scope: CatalogScope,
+  now = new Date(),
+): Promise<LiveCatalogImport | null> {
+  const candidates = await tx.sourceImportRun.findMany({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      OR: [
+        { status: SOURCE_IMPORT_RUN_RUNNING_STATUS, ...liveBrowserAttempt(now) },
+        { status: SOURCE_IMPORT_RUN_RUNNING_STATUS, ...liveWorkbookImport(now) },
+        {
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+          parserVersion: CATALOG_PARSER,
+          sourceType: CATALOG_BASICS_SOURCE,
+          expiresAt: { gt: now },
+        },
+      ],
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, status: true, sourceType: true, parserVersion: true, plan: true },
+  });
+  for (const run of candidates) {
+    if (run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+      return run.parserVersion === CATALOG_PARSER
+        ? { attemptId: browserImportRoot(run), source: 'browser' }
+        : { attemptId: run.id, source: 'workbook' };
+    }
+    if (await detailsHandoffPending(tx, scope, run)) return { attemptId: run.id, source: 'browser' };
+  }
+  return null;
+}
+
+// A details child belongs to the import its basics root started.
+function browserImportRoot(run: { id: string; sourceType: string; plan: unknown }): string {
+  if (run.sourceType !== CATALOG_DETAILS_SOURCE) return run.id;
+  const plan = jsonRecord(run.plan);
+  if (typeof plan?.rootAttemptId === 'string') return plan.rootAttemptId;
+  return typeof plan?.basicAttemptId === 'string' ? plan.basicAttemptId : run.id;
+}
+
+// A completed basics root that preallocated a details key keeps its import live
+// until a child linked to it is admitted, as the root's status read projects.
+async function detailsHandoffPending(
+  tx: Prisma.TransactionClient,
+  scope: CatalogScope,
+  root: { id: string; plan: unknown },
+): Promise<boolean> {
+  const detailsIdempotencyKey = jsonRecord(root.plan)?.detailsIdempotencyKey;
+  if (typeof detailsIdempotencyKey !== 'string') return false;
+  const child = await tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      parserVersion: CATALOG_PARSER,
+      sourceType: CATALOG_DETAILS_SOURCE,
+      idempotencyKey: detailsIdempotencyKey,
+    },
+    select: { plan: true },
+  });
+  return !child || jsonRecord(child.plan)?.rootAttemptId !== root.id;
+}
+
+/** The account's running workbook import that is not stale. */
+export function liveCatalogWorkbookImport(tx: Prisma.TransactionClient, scope: CatalogScope, now = new Date()) {
+  return tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
+      ...liveWorkbookImport(now),
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true },
+  });
+}
+
 type CatalogPauseRun = {
   status: string;
   expiresAt: Date | null;

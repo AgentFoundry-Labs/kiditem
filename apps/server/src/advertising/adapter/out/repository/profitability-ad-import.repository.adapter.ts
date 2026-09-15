@@ -17,6 +17,7 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import {
   businessDateKey,
   datesInclusive,
@@ -692,33 +693,60 @@ export class ProfitabilityAdImportRepositoryAdapter
         return;
       }
       assertWritable(attempt);
-      const updated = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: PROFITABILITY_SOURCE_TYPE,
-          status: SOURCE_DB_RUNNING,
-          attemptToken: input.attemptToken,
-        },
-        data: {
-          status: SOURCE_DB_FAILED,
-          errorCode: input.code,
-          errorMessage: input.message,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.recordTerminalOutcome(tx, {
-        code: input.code,
-        organizationId: input.organizationId,
-        dedupeKey: PROFITABILITY_ALERT_DEDUPE_KEY,
-        sourceType: PROFITABILITY_SOURCE_TYPE,
-        attemptId: input.attemptId,
-        title: 'Coupang 광고 수익성 수집 실패',
-        message: input.message,
-        href: '/ad-ops',
-      });
+      await this.failIn(tx, attempt, input.code, input.message);
     }, mutationTransactionOptions());
     return this.readSourceStatus({ organizationId: input.organizationId });
+  }
+
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdvertisingProfitabilitySourceView> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockSource(tx, input.organizationId);
+      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
+      if (sourceDbState(attempt.status) !== SOURCE_DB_RUNNING) return;
+      if (attempt.expiresAt && attempt.expiresAt.getTime() <= Date.now()) {
+        await this.expireAttempt(tx, attempt);
+        return;
+      }
+      await this.failIn(tx, attempt, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
+    }, mutationTransactionOptions());
+    return this.readSourceStatus({ organizationId: input.organizationId });
+  }
+
+  private async failIn(
+    tx: Transaction,
+    attempt: SourceAttempt,
+    code: string,
+    message: string,
+  ): Promise<void> {
+    const updated = await tx.sourceImportRun.updateMany({
+      where: {
+        id: attempt.id,
+        organizationId: attempt.organizationId,
+        sourceType: PROFITABILITY_SOURCE_TYPE,
+        status: SOURCE_DB_RUNNING,
+        attemptToken: attempt.attemptToken,
+      },
+      data: {
+        status: SOURCE_DB_FAILED,
+        errorCode: code,
+        errorMessage: message,
+      },
+    });
+    if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
+      organizationId: attempt.organizationId,
+      dedupeKey: PROFITABILITY_ALERT_DEDUPE_KEY,
+      sourceType: PROFITABILITY_SOURCE_TYPE,
+      attemptId: attempt.id,
+      title: 'Coupang 광고 수익성 수집 실패',
+      message,
+      href: '/ad-ops',
+    });
   }
 
   async readGeneration(input: {

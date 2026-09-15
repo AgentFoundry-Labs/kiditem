@@ -18,9 +18,18 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
-  useSellpiaInventorySourceOwner: () => ({
-    start: vi.fn(),
-    isStarting: false,
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: 'idle',
+      statusRead: 'current',
+      running: null,
+      canStop: false,
+      notice: null,
+      start: vi.fn(),
+      stop: vi.fn(),
+    },
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
     state: {
       status: 'fresh',
       lastVerifiedAt: '2026-08-13T01:00:00.000Z',

@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { Info, RefreshCw } from 'lucide-react';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { cn } from '@/lib/utils';
-import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import {
-  formatWingTrafficRange,
   useWingTrafficCollection,
   type DashboardPeriod,
 } from '../hooks/use-wing-traffic-collection';
+import { formatWingTrafficRange } from '../lib/wing-traffic-collection';
 
 function statusLabel(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
@@ -50,31 +51,21 @@ export function WingDailyTrafficCollection({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const collection = useWingTrafficCollection({ period, selectedFrom, selectedTo });
+  const { control } = collection;
   const attempt = collection.latestAttempt;
   const running = attempt?.state === 'RUNNING';
-  const customRangeIncomplete = period === 'custom' && (!selectedFrom || !selectedTo);
-  const statusRead = collectionSourceStatusRead(collection.source);
-  const statusUnknown = statusRead === 'loading' || statusRead === 'unavailable';
+  const statusUnknown = control.statusRead === 'loading' || control.statusRead === 'unavailable';
   const rangeMismatch = running && !collection.activeRangeMatches;
-  const cancelled = attempt?.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
+  const cancelled = stoppedAttempt(attempt);
   const status = statusUnknown
-    ? statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
-    : statusLabel(attempt?.state, collection.source.data, cancelled);
-  const actionLabel = statusUnknown
-    ? status
-    : collection.actionPending
-      ? '수집 요청 중'
-      : running
-        ? rangeMismatch ? '현재 범위 확인' : '이어서 수집'
-        : attempt?.state === 'FAILED'
-          ? '다시 시도'
-          : '일별 수집 시작';
+    ? control.statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
+    : statusLabel(attempt?.state, control.status, cancelled);
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
       data-testid="wing-daily-traffic-collection"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -82,7 +73,7 @@ export function WingDailyTrafficCollection({
               <span
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-[11px] font-bold',
-                  statusClass(attempt?.state, collection.source.data, cancelled),
+                  statusClass(attempt?.state, control.status, cancelled),
                 )}
               >
                 {status}
@@ -105,52 +96,29 @@ export function WingDailyTrafficCollection({
                   ? '이번 달에 마감된 영업일이 없습니다'
                   : '수집 기간 확인 중'}
               {collection.range?.source === 'selected-custom-range' ? ' · 선택한 기간' : ' · KST 기준'}
-              {collection.source.data?.channelAccountId || collection.request?.channelAccountId
-                ? ' · 연결 계정'
-                : ' · 기본 계정'}
+              {control.status?.channelAccountId ? ' · 연결 계정' : ' · 기본 계정'}
             </p>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-start gap-1.5">
           <button
             type="button"
             aria-label="Wing 트래픽 상태 새로고침"
             title="상태 새로고침"
-            onClick={() => void collection.refresh()}
-            disabled={collection.source.isFetching}
+            onClick={() => void control.query.refetch()}
+            disabled={control.query.isFetching}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', collection.source.isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('h-3.5 w-3.5', control.query.isFetching && 'animate-spin')} />
           </button>
-          {running && (
-            <button
-              type="button"
-              onClick={() => void collection.cancel()}
-              disabled={collection.cancelPending || collection.actionPending}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 px-4 py-3 text-[13px] font-semibold text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-              data-testid="wing-traffic-cancel"
-            >
-              {collection.cancelPending
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <XCircle className="h-3.5 w-3.5" />}
-              {collection.cancelPending ? '중단 요청 중…' : '수집 중단'}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void collection.collect()}
-            disabled={collection.actionPending || collection.cancelPending || statusUnknown || !collection.rangeReady}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-            data-testid="wing-traffic-collect"
-          >
-            {collection.actionPending || (running && !rangeMismatch)
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : attempt?.state === 'COMPLETE'
-                ? <CheckCircle2 className="h-3.5 w-3.5" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
-            {actionLabel}
-          </button>
+          <CollectionStartControl
+            control={control}
+            startLabel="일별 수집 시작"
+            onStart={collection.collect}
+            onStop={control.stop}
+            startBlockedReason={collection.startBlockedReason}
+          />
         </div>
       </div>
 
@@ -161,7 +129,7 @@ export function WingDailyTrafficCollection({
             data-testid="wing-active-range"
           >
             현재 실행 범위: {formatWingTrafficRange(collection.activeRange)}
-            {rangeMismatch ? ' · 선택한 범위와 달라 이어받지 않음' : ''}
+            {rangeMismatch ? ' · 선택한 범위와 다름' : ''}
           </span>
         ) : null}
         {running && (
@@ -178,9 +146,6 @@ export function WingDailyTrafficCollection({
             마지막 완료 {formatWingTrafficRange(collection.latestComplete.plan)}
           </span>
         )}
-        {customRangeIncomplete && (
-          <span className="text-amber-700">시작일과 종료일을 모두 입력해 주세요.</span>
-        )}
       </div>
 
       {detailsOpen && (
@@ -193,27 +158,9 @@ export function WingDailyTrafficCollection({
       {attempt?.state === 'FAILED' && (
         <p className={cn('mt-2 text-[13px]', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
           {cancelled
-            ? '수집을 중단했습니다. 저장된 완료본은 유지됩니다.'
+            ? COLLECTION_STOPPED_MESSAGE
             : attempt.errorMessage ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
         </p>
-      )}
-      {collection.actionError && attempt?.state !== 'FAILED' && (
-        <p className="mt-2 text-[13px] text-amber-700" data-testid="wing-traffic-action-error">
-          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-          {collection.actionError}
-        </p>
-      )}
-      {collection.extensionNotice && (
-        <p className="mt-2 text-[13px] text-amber-700" data-testid="wing-traffic-extension-notice">
-          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-          {collection.extensionNotice}
-        </p>
-      )}
-      {statusRead === 'unavailable' && !collection.actionError && (
-        <p className="mt-2 text-[13px] text-red-600">Wing 수집 상태를 불러오지 못했습니다.</p>
-      )}
-      {statusRead === 'rechecking' && (
-        <p className="mt-2 text-[13px] text-slate-500">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
       )}
     </section>
   );

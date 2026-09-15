@@ -135,6 +135,15 @@
     return path === "/marketing/dashboard/sales";
   }
 
+  // The report page a manual campaign report opens in the collection window and
+  // freezes as its target. The owner requires a 1-day report to name its day
+  // and refuses a 7-day report that names one.
+  function manualReportUrl({ period, startDate, endDate }) {
+    return period === "1d"
+      ? `${SALES_URL}#targetDate=${startDate}`
+      : `${SALES_URL}#kiditemManualReport=${startDate}_${endDate}`;
+  }
+
   function dateSpan(startDate, endDate) {
     const start = Date.parse(`${startDate}T00:00:00Z`);
     const end = Date.parse(`${endDate}T00:00:00Z`);
@@ -992,5 +1001,6 @@
 
   root.KidItemAdCenterCollector = Object.freeze({
     create,
+    manualReportUrl,
   });
 })(globalThis);

@@ -406,6 +406,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     return state ? { ...state } : null;
   }
 
+  async findLeaseAttemptId(): Promise<string | null> {
+    return null;
+  }
+
   async withLockedState<T>(
     input: {
       organizationId: string;

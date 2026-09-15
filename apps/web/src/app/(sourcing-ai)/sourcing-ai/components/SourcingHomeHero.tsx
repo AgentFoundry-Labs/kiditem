@@ -4,15 +4,14 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Compass,
-  Database,
   Flame,
   Radar,
   Share2,
   Sparkles,
   Star,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { formatNumber, formatTime } from '@/lib/utils';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import {
   fetchKeywordTrackers,
@@ -30,14 +29,13 @@ import { SourcingHomeRankBoard, type RankColumn } from './SourcingHomeRankBoard'
 // 실시간 폴링 간격 — 메인 대시보드와 동일하게 60초.
 const REFETCH_MS = 60_000;
 const LIST_LIMIT = 10;
-const SOURCING_QUERY_KEY = ['sourcing'] as const;
 
 /**
  * 소싱 홈 상단 — 실시간 헤더 + KPI 5열 랭킹 보드 + 오늘의 추천 레일.
  * 5열: 급상승 후보 / 신규 키워드 / SNS 소셜 인기 / 추적 키워드 / 인기 키워드.
  */
 export function SourcingHomeHero() {
-  const { collect, isCollecting } = useTrendSourceCollection({ snapshotQueryKey: SOURCING_QUERY_KEY });
+  const trend = useTrendSourceCollection();
 
   const risingQuery = useQuery({
     queryKey: ['sourcing', 'home', 'rising'],
@@ -145,18 +143,6 @@ export function SourcingHomeHero() {
 
   const lastUpdated = risingQuery.dataUpdatedAt || undefined;
 
-  const handleCollect = async () => {
-    const result = await collect();
-    if (!result) return;
-    if (result.results.length > 0 && result.results.every((row) => row.state === 'COMPLETE' && row.ok)) {
-      toast.success('트렌드 수집이 완료됐습니다.');
-    } else if (result.results.length > 0 && result.results.every((row) => row.state === 'RUNNING' || (row.state === 'COMPLETE' && row.ok))) {
-      toast.info('트렌드 수집이 진행 중입니다.');
-    } else {
-      toast.error('일부 트렌드 수집에 실패했습니다. 다시 시도해주세요.');
-    }
-  };
-
   const columns: RankColumn[] = [
     {
       label: '급상승 후보',
@@ -245,16 +231,13 @@ export function SourcingHomeHero() {
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleCollect()}
-          disabled={isCollecting}
-          title="네이버·쇼츠 트렌드를 수집하고 전체 소싱 데이터를 갱신합니다"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Database size={14} className={isCollecting ? 'animate-pulse' : undefined} />
-          {isCollecting ? '수집 중…' : '데이터 수집'}
-        </button>
+        <CollectionStartControl
+          control={trend.control}
+          startLabel="데이터 수집"
+          startTitle="네이버·쇼츠 트렌드를 수집하고 전체 소싱 데이터를 갱신합니다"
+          onStart={() => trend.start()}
+          onStop={trend.control.stop}
+        />
       </div>
 
       {/* KPI 5열 랭킹 보드 */}

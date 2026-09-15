@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isSellpiaInventoryLastAttemptStopped } from '@kiditem/shared/sellpia-inventory-freshness';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -251,6 +252,130 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, releases the browser lease and admits the next begin at once', async () => {
+    const attempt = await begin('operator-stop');
+    await cancel(attempt.attemptId, OTHER_ORGANIZATION_ID).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    expect(
+      await prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ).toMatchObject({ activeSyncToken: null, activeSyncLeaseExpiresAt: null });
+    await expectComplete(attempt, snapshot(3), 409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = await begin('after-operator-stop');
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = await begin('operator-expired');
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    expect(
+      await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }),
+    ).toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
+      { attemptId: expired.attemptId, status: 'OPEN' },
+    ]);
+
+    const completed = await begin('operator-complete');
+    await complete(completed, snapshot(4)).expect(201);
+    const view = (await get(`/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
+  });
+
+  it('ends a stop from the operator route or the extension session as a cancellation, not a failure, keeping the previous snapshot current', async () => {
+    const basis = await begin('stopped-basis');
+    await complete(basis, snapshot(5)).expect(201);
+    const verified = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+
+    for (const stop of [
+      async () => cancel((await begin('stopped-by-operator')).attemptId).expect(200),
+      async () => fail(await begin('stopped-by-extension'), 'COLLECTION_CANCELLED').expect(201),
+    ]) {
+      await stop();
+      expect(await freshness.getState({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+      })).toMatchObject({
+        status: 'refresh_required',
+        verifiedGeneration: verified.verifiedGeneration,
+        lastVerifiedAt: verified.lastVerifiedAt,
+        activeSync: null,
+        lastAttempt: { errorCode: null, errorMessage: null },
+      });
+    }
+
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    const current = await snapshots.listSnapshot(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      stockStatus: 'all',
+    });
+    expect(current.latestImport).toMatchObject({ id: basis.attemptId });
+    expect(current.items[0]).toMatchObject({ code: 'SP-001', currentStock: 5 });
+  });
+
+  it('names the running attempt in the organization freshness read by its id, never its token, so any browser can stop it', async () => {
+    const attempt = await begin('freshness-names-attempt');
+    const running = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(running).toMatchObject({
+      status: 'syncing',
+      activeSync: { attemptId: attempt.attemptId },
+    });
+    expect(JSON.stringify(running)).not.toContain(attempt.attemptToken);
+
+    expect((await cancel(running.activeSync?.attemptId ?? attempt.attemptToken).expect(200)).body)
+      .toMatchObject({ attemptId: attempt.attemptId, state: 'FAILED', errorCode: 'USER_CANCELLED' });
+    expect(await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    })).toMatchObject({ activeSync: null });
+  });
+
+  it('names no attempt while a manual upload claim holds the lease', async () => {
+    const claimToken = randomUUID();
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        activeSyncToken: claimToken,
+        activeSyncOwnerUserId: TEST_USER_ID,
+        activeSyncStartedAt: new Date(),
+        activeSyncLeaseExpiresAt: new Date(Date.now() + 90_000),
+        activeSyncScope: 'inventory',
+        activeGeneration: 1n,
+      },
+    });
+
+    const view = await freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(view).toMatchObject({ status: 'syncing', activeSync: { attemptId: null } });
+    expect(JSON.stringify(view)).not.toContain(claimToken);
+  });
+
   it('publishes the last attempt error facts without an outcome word and clears them on completion', async () => {
     const readFreshness = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
@@ -269,6 +394,96 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       errorCode: null,
       errorMessage: null,
     });
+  });
+
+  it('publishes last attempt facts that tell an operator stop from a completion and a failure', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+
+    const completed = await begin('stop-facts-complete');
+    await complete(completed, snapshot(5)).expect(201);
+    const afterCompletion = await readFreshness();
+    expect(afterCompletion.lastAttempt).toMatchObject({ errorCode: null, errorMessage: null });
+    // A completion verifies the snapshot at the attempt's own instant.
+    expect(afterCompletion.lastAttempt?.attemptedAt).toBe(afterCompletion.lastVerifiedAt);
+    expect(isSellpiaInventoryLastAttemptStopped(afterCompletion)).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped({ ...afterCompletion, status: 'refresh_required' }))
+      .toBe(false);
+
+    await cancel((await begin('stop-facts-stop')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      lastVerifiedAt: afterCompletion.lastVerifiedAt,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    const stoppedAt = Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing');
+    expect(stoppedAt).toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+
+    await fail(await begin('stop-facts-failure'), 'sellpia_network_failed').expect(201);
+    const afterFailure = await readFreshness();
+    expect(afterFailure.lastAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
+    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped({ ...afterFailure, status: 'refresh_required' }))
+      .toBe(false);
+  });
+
+  it('publishes a stop after a real failure as a stopped last attempt, keeping the previous snapshot current', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    await complete(await begin('failure-then-stop-basis'), snapshot(5)).expect(201);
+    const verified = await readFreshness();
+
+    await fail(await begin('failure-then-stop-failure'), 'sellpia_network_failed').expect(201);
+    const afterFailure = await readFreshness();
+    expect(afterFailure).toMatchObject({
+      status: 'failed',
+      lastVerifiedAt: verified.lastVerifiedAt,
+      lastAttempt: { errorCode: 'sellpia_network_failed' },
+    });
+    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
+
+    await cancel((await begin('failure-then-stop-stop')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      verifiedGeneration: verified.verifiedGeneration,
+      lastVerifiedAt: verified.lastVerifiedAt,
+      activeSync: null,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    expect(Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing'))
+      .toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+  });
+
+  it('publishes a stop before any snapshot exists as a stopped last attempt with nothing verified', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(await readFreshness()).toMatchObject({
+      status: 'refresh_required',
+      lastVerifiedAt: null,
+      lastAttempt: null,
+    });
+
+    await cancel((await begin('stop-before-snapshot')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      verifiedGeneration: '0',
+      lastVerifiedAt: null,
+      activeSync: null,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
   });
 
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {
@@ -558,6 +773,12 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     return request(app.getHttpServer())
       .get(base + path)
       .set('x-test-organization', TEST_ORGANIZATION_ID);
+  }
+
+  function cancel(attemptId: string, organizationId = TEST_ORGANIZATION_ID) {
+    return request(app.getHttpServer())
+      .post(base + `/attempts/${attemptId}/cancel`)
+      .set('x-test-organization', organizationId);
   }
 
   function complete(

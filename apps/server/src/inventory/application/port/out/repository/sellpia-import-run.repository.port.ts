@@ -64,6 +64,11 @@ export interface SellpiaImportRunRepositoryPort {
     contentChecksum?: string;
   }): Promise<SellpiaInventorySourceAttempt>;
 
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaInventorySourceAttempt>;
+
   claimFileRun(input: {
     organizationId: string;
     userId: string;

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ArgumentsHost, BadRequestException, HttpException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  BadRequestException,
+  ConflictException,
+  HttpException,
+} from '@nestjs/common';
 import { AppException } from '@kiditem/shared/server-errors';
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
@@ -68,6 +73,56 @@ describe('GlobalExceptionFilter', () => {
     );
 
     expect(json.mock.calls[0][0].message).toBe('field1 required, field2 invalid');
+  });
+
+  it('HttpException (object response) → passes a string code, a UUID attemptId and the message through', () => {
+    const { host, status, json } = makeHost('POST', '/api/ads/ad-campaigns/attempts');
+    const attemptId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    filter.catch(
+      new ConflictException({
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId,
+        message: '이미 수집 중인 시도가 있습니다.',
+      }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json.mock.calls[0][0]).toEqual({
+      statusCode: 409,
+      error: 'HTTP_409',
+      message: '이미 수집 중인 시도가 있습니다.',
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId,
+      timestamp: expect.any(String),
+      path: '/api/ads/ad-campaigns/attempts',
+    });
+  });
+
+  it('HttpException (object response) → keeps a code without an attempt and drops malformed extras', () => {
+    const { host, json } = makeHost();
+    filter.catch(new ConflictException({ code: 'ATTEMPT_PAUSED', attemptId: 'not-a-uuid' }), host);
+    filter.catch(new ConflictException({ code: 42, attemptId: 7 }), host);
+
+    const paused = json.mock.calls[0][0];
+    expect(paused).toMatchObject({ statusCode: 409, error: 'HTTP_409', code: 'ATTEMPT_PAUSED' });
+    expect(paused).not.toHaveProperty('attemptId');
+    const malformed = json.mock.calls[1][0];
+    expect(malformed).not.toHaveProperty('code');
+    expect(malformed).not.toHaveProperty('attemptId');
+  });
+
+  it('HttpException without a code → leaves the body shape unchanged', () => {
+    const { host, json } = makeHost();
+    filter.catch(new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED'), host);
+
+    expect(Object.keys(json.mock.calls[0][0]).sort()).toEqual(
+      ['error', 'message', 'path', 'statusCode', 'timestamp'],
+    );
+    expect(json.mock.calls[0][0]).toMatchObject({
+      error: 'Conflict',
+      message: 'SOURCE_IDEMPOTENCY_KEY_REUSED',
+    });
   });
 
   it('HttpException (string response) → uses string as message', () => {

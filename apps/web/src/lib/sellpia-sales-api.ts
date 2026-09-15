@@ -11,17 +11,6 @@ import { z } from 'zod';
 // React Query 가 재시도(백오프)한다. 기간 전환 시 한 요청이 지연돼도 카드가 멈추지 않는다.
 const FETCH_TIMEOUT_MS = 12_000;
 
-export function sellpiaSalesErrorMessage(
-  error: unknown,
-  fallback = '판매현황 수집에 실패했습니다.',
-): string {
-  if (!(error instanceof Error)) return fallback;
-  if (/expired transaction|transaction.*timeout|P2028/i.test(error.message)) {
-    return '매출 저장 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.';
-  }
-  return error.message;
-}
-
 export async function fetchSellpiaSalesSummary(params?: {
   from?: string;
   to?: string;
@@ -75,13 +64,6 @@ export const SellpiaSalesSourceAttemptSchema = z.object({
 
 export type SellpiaSalesSourceAttempt = z.infer<typeof SellpiaSalesSourceAttemptSchema>;
 
-export const SellpiaSalesSourceOutcomeSchema = SellpiaSalesSourceAttemptSchema.extend({
-  success: z.boolean(),
-  terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-}).strict();
-
-export type SellpiaSalesSourceOutcome = z.infer<typeof SellpiaSalesSourceOutcomeSchema>;
-
 export function beginSellpiaSalesSourceAttempt(input: {
   idempotencyKey: string;
   from?: string;
@@ -93,13 +75,4 @@ export function beginSellpiaSalesSourceAttempt(input: {
       headers: { 'Idempotency-Key': input.idempotencyKey },
     })
     .then((raw) => SellpiaSalesSourceAttemptSchema.parse(raw));
-}
-
-export function readSellpiaSalesSourceAttempt(
-  attemptId: string,
-): Promise<SellpiaSalesSourceAttempt> {
-  return apiClient.getParsed(
-    `/api/sellpia-sales/attempts/${encodeURIComponent(attemptId)}`,
-    SellpiaSalesSourceAttemptSchema,
-  );
 }

@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -144,6 +145,15 @@ export class AdTrafficSourceController {
       attemptToken: uuidHeader(attemptToken),
       ...body.data,
     });
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelAttempt(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
   private async requireAttempt<T>(attempt: Promise<T | null>): Promise<T> {

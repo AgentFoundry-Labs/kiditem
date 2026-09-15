@@ -17,8 +17,8 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     const shipmentScreen = source(
       'src/app/(inventory)/coupang-shipments/page.tsx',
     );
-    const rocketWorkflow = source(
-      'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
+    const rocketPanel = source(
+      'src/app/(orders)/rocket-orders/components/RocketConfirmPanel.tsx',
     );
     const trendScreen = source(
       'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
@@ -26,11 +26,11 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     const sellpiaScreen = source(
       'src/app/(inventory)/_shared/sellpia-inventory-source-owner.ts',
     );
+    const sellpiaAction = source('src/app/(inventory)/_shared/SellpiaSyncAction.tsx');
+    const panel = source('src/app/(analytics)/dashboard/components/DashboardChartPanel.tsx');
     const sharedOrderAction = source('src/hooks/useAllMarketplaceOrderCollection.ts');
 
     expect(dashboard).toContain('usePersistedAllMarketplaceOrderCollection');
-    expect(dashboard).toContain('useSellpiaInventorySourceOwner');
-    expect(dashboard).toContain('startSellpiaInventoryRefresh');
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
     expect(sharedOrderAction).toContain('await refetchMallAccounts()');
     expect(sharedOrderAction).toContain('collectAll(latestAccounts)');
@@ -39,8 +39,9 @@ describe('useDepartmentQuickActions execution boundaries', () => {
 
     for (const [sharedAction, domainSource] of [
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
-      ['useRocketPoSource', rocketWorkflow],
+      ['useRocketPoCollection', rocketPanel],
       ['useTrendSourceCollection', trendScreen],
+      ['useSellpiaInventoryCollection', sellpiaAction],
     ] as const) {
       expect(dashboard).toContain(sharedAction);
       expect(domainSource).toContain(sharedAction);
@@ -50,5 +51,7 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     expect(dashboard).not.toContain('startTrendCollectionAction');
     expect(sellpiaScreen).toContain('collectSellpiaInventory');
     expect(dashboard).not.toContain('manual-operation-actions');
+    // Each cell reads its own source's state; no cell waits on another.
+    expect(panel).not.toContain('runningAction');
   });
 });

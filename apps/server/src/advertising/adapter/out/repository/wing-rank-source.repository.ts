@@ -11,6 +11,7 @@ import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
 import {
   WingRankSourcePlanSchema,
   type WingRankBatch,
+  type WingRankCurrentBatch,
   type WingRankCapture,
   type WingRankSourceBegin,
   type WingRankSourceAttempt,
@@ -39,7 +40,6 @@ const SOURCE = "coupang_wing_rank";
 const PARSER = "wing-rank-v1";
 // 2 × (60s tab + 5 × (4 × 20s request + 28s backoff) + 4 × 2.2s page delay) + 9s = 1226.6s.
 const TTL_MS = 25 * 60_000;
-const BATCH_CANCEL_CHUNK_SIZE = 50;
 type Attempt = Prisma.SourceImportRunGetPayload<{}>;
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -185,6 +185,39 @@ export class WingRankSourceRepository {
     );
   }
 
+  /**
+   * The organization's current batch for screens that do not hold its key: the
+   * batch of the newest live member first, otherwise the newest batch. Every
+   * member of a batch carries the batch fingerprint, and its anchor lists them.
+   */
+  async readCurrentBatch(org: string): Promise<WingRankCurrentBatch | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const batch = { ...scope(org), requestFingerprint: hash({ mode: "wing_pending_or_all" }) };
+        const newest = { orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }], select: { id: true } };
+        const member =
+          (await tx.sourceImportRun.findFirst({
+            where: { ...batch, status: SOURCE_IMPORT_RUN_RUNNING_STATUS, expiresAt: { gt: new Date() } },
+            ...newest,
+          })) ?? (await tx.sourceImportRun.findFirst({ where: batch, ...newest }));
+        if (!member) return null;
+        const anchor = await tx.sourceImportRun.findFirst({
+          where: {
+            ...batch,
+            plan: { path: ["admission", "attemptIds"], array_contains: [member.id] },
+          },
+        });
+        if (!anchor?.idempotencyKey)
+          throw new NotFoundException("WING_RANK_BATCH_ADMISSION_NOT_FOUND");
+        return {
+          batchKey: anchor.idempotencyKey,
+          ...(await this.batchView(tx, org, anchor)),
+        } satisfies WingRankCurrentBatch;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
   async cancelBatch(org: string, key: string): Promise<WingRankBatch> {
     return this.prisma.$transaction(
       async (tx) => {
@@ -207,10 +240,12 @@ export class WingRankSourceRepository {
         const byId = new Map(rows.map((row) => [row.id, row]));
         if (rows.length !== admission.attemptIds.length)
           throw new NotFoundException("WING_RANK_BATCH_MEMBER_NOT_FOUND");
+        // One stop ends every running member. A browser still running the batch
+        // then finds its remaining keywords stopped, so it cannot fail them as
+        // interrupted, which would raise failure Alerts.
         const pending = admission.attemptIds
           .map((id) => byId.get(id)!)
-          .filter((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS)
-          .slice(0, BATCH_CANCEL_CHUNK_SIZE);
+          .filter((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS);
         for (const row of pending) {
           await this.failIn(
             tx,
@@ -223,6 +258,7 @@ export class WingRankSourceRepository {
         }
         return this.batchView(tx, org, anchor);
       },
+      { timeout: 30_000 },
     );
   }
 

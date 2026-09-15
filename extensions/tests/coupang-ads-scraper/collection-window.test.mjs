@@ -125,18 +125,45 @@ test('close treats an absent owned record as idempotent success', async () => {
   assert.equal(fake.storage['owned-window'], undefined);
 });
 
-test('runExclusive serializes shared-resource operations', async () => {
+test('the window turn never waits: a held turn refuses another claim until its holder releases it', () => {
   const resource = load(fakeChrome());
-  const order = [];
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const first = resource.runExclusive(async () => { order.push('first:start'); await gate; order.push('first:end'); });
-  const second = resource.runExclusive(async () => { order.push('second:start'); });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(order, ['first:start']);
-  release();
-  await Promise.all([first, second]);
-  assert.deepEqual(order, ['first:start', 'first:end', 'second:start']);
+  const first = resource.claimTurn({ producer: 'advertising.ad_sync' });
+  assert.ok(first);
+  assert.deepEqual({ ...resource.turnHolder() }, { producer: 'advertising.ad_sync', attemptId: null });
+  first.setAttempt('attempt-a');
+
+  assert.equal(resource.claimTurn({ producer: 'dashboard.wing_sales' }), null);
+  assert.deepEqual({ ...resource.turnHolder() }, { producer: 'advertising.ad_sync', attemptId: 'attempt-a' });
+
+  first.release();
+  assert.equal(resource.turnHolder(), null);
+  const second = resource.claimTurn({ producer: 'dashboard.wing_sales' });
+  assert.ok(second);
+  first.release();
+  first.setAttempt('attempt-a');
+  assert.deepEqual({ ...resource.turnHolder() }, { producer: 'dashboard.wing_sales', attemptId: null }, 'a stale claim cannot touch the next turn');
+});
+
+test('a session left for one of the window collections protects it, the window record run first', async () => {
+  const fake = fakeChrome();
+  const records = new Map([
+    ['order', { attemptId: 'order', environmentId: 'local', producer: 'orders.mall', attention: null }],
+    ['wing', wingSession('wing')],
+    ['ad', adSession('ad')],
+  ]);
+  const sessions = {
+    async get(runId) { return records.get(runId) ?? null; },
+    async list(environmentId) { return [...records.values()].filter((session) => session.environmentId === environmentId); },
+  };
+  const resource = loadWithSessions(fake, sessions, { collectionName });
+
+  assert.equal((await resource.protectingSession('local')).attemptId, 'wing', 'without a window record the first collection session protects it');
+  await resource.getOrCreate('ad', 'https://example.test/ad', { reuse: () => true });
+  assert.equal((await resource.protectingSession('local')).attemptId, 'ad', 'the session of the run that holds the window is named first');
+
+  records.delete('wing');
+  records.delete('ad');
+  assert.equal(await resource.protectingSession('local'), null, 'another domain session does not protect the window');
 });
 
 test('a live owner session stays protected unless the caller grants a narrow reuse predicate', async () => {

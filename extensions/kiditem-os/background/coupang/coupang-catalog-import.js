@@ -22,6 +22,14 @@
   const activeSteps = new Map();
   const stateWrites = new Map();
   const stoppedChains = new Set();
+  // One import per browser environment: the import reads Wing through the
+  // browser's single Wing login. A start claims the environment's turn before
+  // it awaits anything; once its import is stored as running, the stored
+  // import holds the turn.
+  const admissions = new Map();
+  // A restarted worker continues only the imports it admitted, recovered or
+  // stopped in this worker life (KID-147).
+  const continuing = new Set();
 
   function rootAttemptId(state) {
     return state?.rootAttemptId || state?.attemptId || null;
@@ -179,6 +187,233 @@
     return { success: true, started: state.status === "running" && !hasPendingRateLimit(state), ...await publicStatus(state, dependencies) };
   }
 
+  // The collection start for one store account (`@kiditem/shared/collection-start`).
+  // A browser environment imports one account at a time because the import
+  // reads Wing through the browser's single Wing login. The start is answered
+  // once it is decided: `started` after the basics attempt opens or a paused
+  // attempt resumes, `running` for the account that is already importing, or
+  // `held` with the other account's import that holds the browser. Nothing
+  // opens unless the browser is free.
+  async function admit(request, dependencies) {
+    const channelAccountId = requiredUuid(request?.scope?.channelAccountId, "channelAccountId");
+    const idempotencyKey = requiredUuid(request?.idempotencyKey, "idempotencyKey");
+    const key = stateKey(dependencies);
+    // The claim is taken before anything is awaited, so a start that arrives
+    // while this one is being admitted already finds the browser held.
+    const pending = admissions.get(key);
+    if (pending) return occupiedBy(pending, channelAccountId);
+    const claim = { channelAccountId, attemptId: null };
+    admissions.set(key, claim);
+    let run = null;
+    try {
+      const holder = await storedHolder(dependencies);
+      if (holder && holder.channelAccountId !== channelAccountId) return occupiedBy(holder, channelAccountId);
+      if (holder) {
+        claim.attemptId = holder.attemptId;
+        // A provider rate limit waits for an explicit start of the same attempt.
+        const permit = holder.paused ? await replayPausedBegin(holder, dependencies) : null;
+        if (!permit) return { outcome: "running", attemptId: holder.attemptId };
+        continuing.add(key);
+        run = start({ permit }, dependencies);
+        return { outcome: "started", attemptId: holder.attemptId };
+      }
+      const opened = await beginBasics(channelAccountId, idempotencyKey, dependencies);
+      if (opened.inProgress) return { outcome: "running", attemptId: opened.attemptId };
+      claim.attemptId = opened.permit.plan.rootAttemptId || opened.permit.attemptId;
+      continuing.add(key);
+      run = start({ permit: opened.permit }, dependencies);
+      return { outcome: "started", attemptId: claim.attemptId };
+    } finally {
+      const release = () => {
+        if (admissions.get(key) === claim) admissions.delete(key);
+      };
+      if (run) {
+        // The claim keeps the turn until the import is stored as the holder.
+        dependencies.keepAlive(run).then(release, release);
+        run.catch((error) => console.error("[KIDITEM] 쿠팡 상품 수집 시작 실패:", error?.message || error));
+      } else {
+        release();
+      }
+    }
+  }
+
+  function occupiedBy(holder, channelAccountId) {
+    return holder.channelAccountId === channelAccountId
+      ? { outcome: "running", attemptId: holder.attemptId ?? null }
+      : {
+          outcome: "held",
+          holder: { channelAccountId: holder.channelAccountId, attemptId: holder.attemptId ?? null },
+        };
+  }
+
+  // A restarted worker continues its import only through the web-app lifetime,
+  // which recovers an environment after it confirms a connected KidItem tab.
+  // Recovery takes the turn exactly like a start and continues only the same
+  // attempt whose lease has not passed and whose chain the owner still runs.
+  async function recover(dependencies) {
+    const key = stateKey(dependencies);
+    const observed = await getState(dependencies);
+    if (!hasOwnerPermit(observed) || observed.status !== "running" || admissions.has(key)) return;
+    const claim = { channelAccountId: observed.channelAccountId, attemptId: rootAttemptId(observed) };
+    admissions.set(key, claim);
+    try {
+      const state = await getState(dependencies);
+      if (!hasOwnerPermit(state) || state.status !== "running" ||
+        rootAttemptId(state) !== claim.attemptId || Date.now() >= Date.parse(state.permit.expiresAt)) {
+        return;
+      }
+      if ((await readChain(state, dependencies)).state !== "RUNNING") return;
+      continuing.add(key);
+      await scheduleNextStep(dependencies);
+      runSoon(dependencies);
+    } finally {
+      if (admissions.get(key) === claim) admissions.delete(key);
+    }
+  }
+
+  // Whether this worker life may run the stored import's steps: it admitted,
+  // recovered or stopped that import. An alarm left from an earlier worker
+  // life runs nothing until then.
+  function isContinuing(dependencies) {
+    return continuing.has(stateKey(dependencies));
+  }
+
+  // The stored import holds the browser while the owner may still run its
+  // chain; an owner that cannot be read keeps it held. An import the owner
+  // already ended, such as one an operator stopped on the server, is a
+  // leftover: it is settled, and its window and session are released before
+  // another import opens.
+  async function storedHolder(dependencies) {
+    const state = await getState(dependencies);
+    if (!hasOwnerPermit(state)) return null;
+    const rootId = rootAttemptId(state);
+    if (state.status === "running") {
+      const chain = await readChain(state, dependencies);
+      if (chain.state !== "ENDED") {
+        return {
+          channelAccountId: state.channelAccountId,
+          attemptId: rootId,
+          paused: hasPendingRateLimit(state),
+          state,
+          root: chain.root,
+        };
+      }
+      await settleEndedImport(state, chain.root, dependencies);
+    }
+    if (!(await closeManagedWindow(dependencies, rootId))) {
+      throw Object.assign(
+        new Error("이전 쿠팡 상품 수집 창을 닫지 못했습니다. 창을 닫은 뒤 다시 시작해 주세요."),
+        { code: "CATALOG_WINDOW_CLEANUP_FAILED" },
+      );
+    }
+    await dependencies.collectionSessions.remove(rootId).catch(() => undefined);
+    return null;
+  }
+
+  // The root attempt carries the whole import's state: a completed basics root
+  // stays RUNNING while its details child runs. A root the owner no longer
+  // knows has ended.
+  async function readChain(state, dependencies) {
+    const rootId = rootAttemptId(state);
+    try {
+      const root = await apiJson(
+        dependencies,
+        `${attemptsPath(state.channelAccountId)}/${encodeURIComponent(rootId)}`,
+      );
+      if (root?.attemptId !== rootId || root?.channelAccountId !== state.channelAccountId) {
+        return { state: "UNKNOWN", root: null };
+      }
+      return { state: (root.overallState || root.state) === "RUNNING" ? "RUNNING" : "ENDED", root };
+    } catch (error) {
+      return { state: error?.status === 404 ? "ENDED" : "UNKNOWN", root: null };
+    }
+  }
+
+  async function settleEndedImport(state, root, dependencies) {
+    const rootId = rootAttemptId(state);
+    const completed = (root?.overallState || root?.state) === "COMPLETE";
+    await mutateState(dependencies, (current) => {
+      if (!current || rootAttemptId(current) !== rootId || current.status !== "running") return null;
+      return {
+        ...current,
+        status: completed ? "done" : "error",
+        phase: "finished",
+        chainPhase: "ended",
+        pendingTerminal: null,
+        error: completed ? null : current.error || "이미 끝난 쿠팡 상품 수집입니다",
+        endedAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    });
+    await clearAlarm(dependencies);
+    stoppedChains.delete(rootId);
+    continuing.delete(stateKey(dependencies));
+  }
+
+  async function beginBasics(channelAccountId, idempotencyKey, dependencies) {
+    const response = await dependencies.authedFetch(attemptsPath(channelAccountId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ collectorVersion: "wing-inventory-v1", stage: "basics" }),
+    });
+    const body = await response.json().catch(() => null);
+    // The account already has a live catalog attempt, such as a workbook import
+    // or an import in another browser: the same source does not open twice.
+    if (response.status === 409 && body?.code === "ATTEMPT_IN_PROGRESS" && isUuid(body.attemptId)) {
+      return { inProgress: true, attemptId: body.attemptId };
+    }
+    if (!response.ok) throw ownerRequestError(body, response.status);
+    const permit = validatePermit(body);
+    if (permit.plan.channelAccountId !== channelAccountId || permit.plan.stage !== "basics") {
+      throw new Error("쿠팡 상품 수집 시도 응답이 일치하지 않습니다");
+    }
+    return { permit };
+  }
+
+  // Resuming a rate-limit pause replays the attempt's own begin: the owner
+  // lifts the pause only for that same key, and only after its not-before time.
+  async function replayPausedBegin(holder, dependencies) {
+    const { state, root } = holder;
+    if (Date.parse(state.nextAllowedAt) > Date.now()) return null;
+    const stage = catalogStage(state);
+    const idempotencyKey = stage === "details" ? state.detailsIdempotencyKey : root?.idempotencyKey;
+    if (!isUuid(idempotencyKey)) return null;
+    const response = await dependencies.authedFetch(attemptsPath(state.channelAccountId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({
+        collectorVersion: state.permit.plan.collectorVersion,
+        ...(stage !== "full" ? { stage } : {}),
+        ...(stage === "details" ? { expectedBasicAttemptId: rootAttemptId(state) } : {}),
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    // ATTEMPT_PAUSED: the owner's not-before time has not passed yet.
+    if (response.status === 409) return null;
+    if (!response.ok) throw ownerRequestError(body, response.status);
+    const permit = validatePermit(body);
+    if (permit.attemptId !== state.attemptId || permit.plan.channelAccountId !== state.channelAccountId) {
+      throw new Error("쿠팡 상품 수집 시도 응답이 일치하지 않습니다");
+    }
+    return permit;
+  }
+
+  function ownerRequestError(body, status) {
+    const message = typeof body?.message === "string" && body.message.trim()
+      ? body.message.trim()
+      : `쿠팡 상품 수집을 시작하지 못했습니다 (HTTP ${status})`;
+    return Object.assign(new Error(message), { code: "SOURCE_OWNER_REQUEST_FAILED", status });
+  }
+
+  function attemptsPath(channelAccountId) {
+    return `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-wing/attempts`;
+  }
+
+  function isUuid(value) {
+    return typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
   function validatePermit(permit) {
     requiredUuid(permit?.attemptId, "attemptId");
     requiredUuid(permit?.attemptToken, "attemptToken");
@@ -283,6 +518,8 @@
     }
     const rootId = rootAttemptId(state);
     stoppedChains.add(rootId);
+    // A stop only settles the import, so its steps may run in this worker life.
+    continuing.add(stateKey(dependencies));
     await mutateState(dependencies, (current) => {
       if (!current || rootAttemptId(current) !== rootId) return current;
       return { ...current, chainStopRequested: true, updatedAt: Date.now() };
@@ -2256,10 +2493,13 @@
   }
 
   root.KidItemCoupangCatalogImport = {
+    admit,
     alarmName: ALARM_NAME,
     cancel,
     getStatus,
     handleAlarm,
+    isContinuing,
+    recover,
     start,
   };
 })(globalThis);

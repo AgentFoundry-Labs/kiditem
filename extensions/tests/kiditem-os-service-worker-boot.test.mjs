@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,6 +7,10 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { BrowserCollectionSessionViewSchema } from '@kiditem/shared/browser-collection-session';
+import {
+  CollectionStartRequestSchema,
+  CollectionStartResultSchema,
+} from '@kiditem/shared/collection-start';
 
 // 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 세 도메인 워커가
 // 하나의 서비스워커 전역 스코프를 공유하게 됐다. 이 조합은 아래 세 가지로
@@ -46,6 +50,8 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
   const installedListenerScripts = [];
   let loadingScript = null;
   const createdAlarms = [];
+  // A test fires a stored alarm through these, as Chrome does after a restart.
+  const alarmListeners = [];
   const internalMessageListeners = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
   const defaultStorage = {
@@ -80,6 +86,7 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
     installedListenerScripts,
     setLoadingScript: (script) => { loadingScript = script; },
     createdAlarms,
+    alarmListeners,
     internalMessageListeners,
     chrome: {
       runtime: {
@@ -102,7 +109,11 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
           addListener: (listener) => connectExternalListeners.push(listener),
         },
       },
-      alarms: { create: (name) => createdAlarms.push(name), clear(_name, callback) { callback?.(true); return Promise.resolve(true); }, onAlarm: noopEvent() },
+      alarms: {
+        create: (name) => createdAlarms.push(name),
+        clear(_name, callback) { callback?.(true); return Promise.resolve(true); },
+        onAlarm: { addListener: (listener) => alarmListeners.push(listener), removeListener() {} },
+      },
       storage: {
         local: storageAdapter || defaultStorage,
         onChanged: noopEvent(),
@@ -862,29 +873,6 @@ function popupItemwinnerAttempt(state, targetUrl = popupItemwinnerUrl, attemptId
   };
 }
 
-test('standalone advertising keyword action observes its complete owner without recollection or leaking control', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const requests = [];
-  const { fake, context } = bootServiceWorker({ fetch: async (url, init) => {
-    if (!String(url).includes('/ad-keywords/')) return { ok: true, json: async () => ({}) };
-    requests.push({ url: String(url), method: init?.method || 'GET' });
-    return { ok: true, json: async () => ({ attemptId, attemptToken: '22222222-2222-4222-8222-222222222222',
-      state: 'COMPLETE', channelAccountId: '33333333-3333-4333-8333-333333333333',
-      expiresAt: '2030-01-02T00:00:00.000Z', plan: { sourceType: 'coupang_ad_keyword', parserVersion: 'ad-keyword-v1',
-        channelAccountId: '33333333-3333-4333-8333-333333333333', expectedAdvertiserId: 'A0001',
-        startDate: '2026-08-30', endDate: '2026-09-05', windowDays: 7 }, roster: null, queue: [], receipts: [],
-      groupCount: 0, completedGroupCount: 0, manifestChecksum: 'a'.repeat(64), errorCode: null, errorMessage: null }) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await externalRequest(fake, { action: 'collectAdvertisingKeywords', attemptId });
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { success: true, attemptId, terminalState: 'COMPLETE', continuationRequired: false });
-  assert.equal(context.KidItemDomains.capabilities().advertisingKeywordSourceOwnerV1, true);
-  assert.equal(requests.length, 1);
-  assert.ok(requests[0].url.endsWith(`/attempts/${attemptId}/control`));
-  assert.equal(requests[0].method, 'GET');
-  assert.deepEqual(fake.createdTabs, []);
-});
-
 test('retired generic scrape ingress has no external responder', async () => {
   const { fake } = bootServiceWorker();
   const responders = externalResponderCount(fake, { action: 'scrapeTargets', producer: 'advertising.ad_keyword',
@@ -893,204 +881,7 @@ test('retired generic scrape ingress has no external responder', async () => {
   assert.deepEqual(fake.createdTabs, []);
 });
 
-test('popup Wing traffic owner requires the displayed date range and never guesses it', async () => {
-  const requests = [];
-  const { fake } = bootServiceWorker({ fetch: async (url) => {
-    requests.push(String(url));
-    return { ok: true, status: 200, json: async () => ({}) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await internalRequest(fake, {
-    action: 'collectAdvertisingWingTrafficFromPopup',
-    environmentId: 'local',
-    url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis',
-  });
-  assert.equal(result.success, false);
-  assert.match(result.error, /displayed 날짜 범위/);
-  assert.deepEqual(requests, []);
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('popup Wing traffic owner rejects a different running displayed range before provider IO', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const account = '33333333-3333-4333-8333-333333333333';
-  const requests = [];
-  const { fake } = bootServiceWorker({ fetch: async (url) => {
-    requests.push(String(url));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ latestAttempt: {
-        attemptId,
-        state: 'RUNNING',
-        channelAccountId: account,
-        plan: {
-          sourceType: 'coupang_wing_traffic',
-          parserVersion: 'wing-traffic-v1',
-          channelAccountId: account,
-          expectedAdvertiserId: 'A0001',
-          startDate: '2026-09-01',
-          endDate: '2026-09-02',
-          businessDate: '2026-09-02',
-          periodDays: 2,
-          targetUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-01&end_date=2026-09-02',
-        },
-      } }),
-    };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await internalRequest(fake, {
-    action: 'collectAdvertisingWingTrafficFromPopup',
-    environmentId: 'local',
-    url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-05&end_date=2026-09-06',
-  });
-  assert.equal(result.success, false);
-  assert.match(result.error, /다른 displayed 범위/);
-  assert.equal(requests.length, 1);
-  assert.ok(requests[0].endsWith('/api/ads/traffic/source'));
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('popup Wing itemwinner retries a lost begin acknowledgement with the same idempotency key', async () => {
-  const beginKeys = [];
-  let latestAttempt = null;
-  let loseFirstBegin = true;
-  const { fake } = bootServiceWorker({ fetch: async (url, init = {}) => {
-    const href = String(url);
-    if (href.endsWith('/api/ads/wing-itemwinner/source')) {
-      return { ok: true, status: 200, json: async () => ({ latestAttempt }) };
-    }
-    if (href.endsWith('/api/ads/wing-itemwinner/attempts')) {
-      beginKeys.push(typeof init.headers?.get === 'function'
-        ? init.headers.get('Idempotency-Key')
-        : init.headers?.['Idempotency-Key'] || init.headers?.['idempotency-key']);
-      latestAttempt = popupItemwinnerAttempt('RUNNING');
-      if (loseFirstBegin) {
-        loseFirstBegin = false;
-        throw new Error('begin acknowledgement lost');
-      }
-      return { ok: true, status: 200, json: async () => latestAttempt };
-    }
-    if (href.includes(`/api/ads/wing-itemwinner/attempts/${popupItemwinnerAttemptId}`)) {
-      latestAttempt = popupItemwinnerAttempt('COMPLETE');
-      return { ok: true, status: 200, json: async () => latestAttempt };
-    }
-    return { ok: true, status: 200, json: async () => ({}) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const request = {
-    action: 'collectAdvertisingWingItemwinnerFromPopup',
-    environmentId: 'local',
-    url: popupItemwinnerUrl,
-  };
-
-  const first = await internalRequest(fake, request);
-  assert.equal(first.success, false);
-  assert.match(first.error, /begin acknowledgement lost/);
-
-  const retry = await internalRequest(fake, request);
-  assert.equal(retry.success, true);
-  assert.equal(retry.terminalState, 'COMPLETE');
-  assert.equal(beginKeys.length, 2);
-  assert.ok(beginKeys[0]);
-  assert.equal(beginKeys[0], beginKeys[1]);
-});
-
-test('popup Wing itemwinner rejects the retired seller-web route before provider IO', async () => {
-  const requests = [];
-  const { fake } = bootServiceWorker({ fetch: async (url) => {
-    requests.push(String(url));
-    return { ok: true, status: 200, json: async () => ({}) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await internalRequest(fake, {
-    action: 'collectAdvertisingWingItemwinnerFromPopup',
-    environmentId: 'local',
-    url: 'https://wing.coupang.com/tenants/seller-web/seller-price-management?scope=retired',
-  });
-  assert.equal(result.success, false);
-  assert.match(result.error, /아이템위너 페이지가 아닙니다/);
-  assert.deepEqual(requests, []);
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('popup Wing itemwinner does not reuse a running attempt for a different displayed URL', async () => {
-  const activeUrl = 'https://wing.coupang.com/tenants/seller-price-management?scope=active';
-  const requests = [];
-  const { fake } = bootServiceWorker({ fetch: async (url) => {
-    const href = String(url);
-    requests.push(href);
-    if (href.endsWith('/api/ads/wing-itemwinner/source')) {
-      return { ok: true, status: 200, json: async () => ({
-        latestAttempt: popupItemwinnerAttempt('RUNNING', activeUrl),
-      }) };
-    }
-    if (href.includes(`/api/ads/wing-itemwinner/attempts/${popupItemwinnerAttemptId}`)) {
-      return { ok: true, status: 200, json: async () => popupItemwinnerAttempt('FAILED', activeUrl) };
-    }
-    return { ok: true, status: 200, json: async () => ({}) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await internalRequest(fake, {
-    action: 'collectAdvertisingWingItemwinnerFromPopup',
-    environmentId: 'local',
-    url: popupItemwinnerUrl,
-  });
-
-  assert.equal(result.success, false);
-  assert.match(result.error, /다른 displayed 범위/);
-  assert.equal(requests.length, 1);
-  assert.ok(requests[0].endsWith('/api/ads/wing-itemwinner/source'));
-});
-
-test('popup Wing itemwinner starts a fresh keyed attempt after a terminal attempt', async () => {
-  for (const terminalState of ['COMPLETE', 'FAILED']) {
-    const beginKeys = [];
-    const beginAttemptIds = [];
-    let latestAttempt = null;
-    let nextAttempt = 0;
-    const { fake } = bootServiceWorker({ fetch: async (url, init = {}) => {
-      const href = String(url);
-      if (href.endsWith('/api/ads/wing-itemwinner/source')) {
-        return { ok: true, status: 200, json: async () => ({ latestAttempt }) };
-      }
-      if (href.endsWith('/api/ads/wing-itemwinner/attempts')) {
-        const key = typeof init.headers?.get === 'function'
-          ? init.headers.get('Idempotency-Key')
-          : init.headers?.['Idempotency-Key'] || init.headers?.['idempotency-key'];
-        const attemptId = nextAttempt++ === 0
-          ? popupItemwinnerAttemptId
-          : popupItemwinnerSecondAttemptId;
-        beginKeys.push(key);
-        beginAttemptIds.push(attemptId);
-        latestAttempt = popupItemwinnerAttempt(terminalState, popupItemwinnerUrl, attemptId);
-        return { ok: true, status: 200, json: async () => latestAttempt };
-      }
-      if (href.includes('/api/ads/wing-itemwinner/attempts/')) {
-        return { ok: true, status: 200, json: async () => latestAttempt };
-      }
-      return { ok: true, status: 200, json: async () => ({}) };
-    } });
-    fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-    const request = {
-      action: 'collectAdvertisingWingItemwinnerFromPopup',
-      environmentId: 'local',
-      url: popupItemwinnerUrl,
-    };
-
-    const first = await internalRequest(fake, request);
-    const second = await internalRequest(fake, request);
-    assert.equal(first.terminalState, terminalState);
-    assert.equal(second.terminalState, terminalState);
-    assert.equal(beginKeys.length, 2);
-    assert.ok(beginKeys[0]);
-    assert.ok(beginKeys[1]);
-    assert.notEqual(beginKeys[0], beginKeys[1], `${terminalState} must not replay a terminal attempt key`);
-    assert.deepEqual(beginAttemptIds, [popupItemwinnerAttemptId, popupItemwinnerSecondAttemptId]);
-  }
-});
-
-test('standalone advertising keyword worker keeps HTTP and full queue replies constant as ad count grows', async () => {
+test('a started advertising keyword collection keeps HTTP and full queue replies constant as ad count grows', async () => {
   const volumes = [];
   for (const adCount of [1, 60]) {
   const attemptId = '11111111-1111-4111-8111-111111111111';
@@ -1102,6 +893,10 @@ test('standalone advertising keyword worker keeps HTTP and full queue replies co
   let state = 'RUNNING';
   const { fake, context } = bootServiceWorker({ fetch: async (url, init) => {
     if (!String(url).includes('/ad-keywords/')) return { ok: true, json: async () => ({}) };
+    if (init?.method === 'POST' && String(url).endsWith('/ad-keywords/attempts')) {
+      return { ok: true, status: 200, json: async () => ({ attemptId, state, channelAccountId: account,
+        expiresAt: '2030-01-02T00:00:00.000Z' }) };
+    }
     if (String(url).endsWith('/control')) controlReads++;
     if (init?.method === 'PUT' || init?.method === 'POST') {
       writes.push({ url: String(url), ...init });
@@ -1165,8 +960,10 @@ test('standalone advertising keyword worker keeps HTTP and full queue replies co
   };
   context.setTimeout = (callback, ms) => { if (ms < 10_000) queueMicrotask(callback); return 1; };
   context.clearTimeout = () => {};
-  const result = await externalRequest(fake, { action: 'collectAdvertisingKeywords', attemptId });
-  assert.equal(result.terminalState, 'COMPLETE', JSON.stringify({ result, writes, messages }));
+  const reply = startResult(await externalRequest(fake, startCollectionMessage('advertising.ad_keyword')));
+  assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId });
+  await eventually(() => closed.includes('COMPLETE'), JSON.stringify({ writes, messages }));
+  await settleCollections({ context });
   assert.equal(messages.filter(m => m.action === 'manualSync').length, 1);
   assert.equal(messages.find(m => m.action === 'manualSync').keywordControl.attemptId, attemptId);
   assert.equal(JSON.stringify(messages).includes(token), false);
@@ -1182,7 +979,7 @@ test('standalone advertising keyword worker keeps HTTP and full queue replies co
   assert.equal(volumes[0].fullQueueReplies, 1, 'only the group receipt returns refreshed frozen control');
 });
 
-test('campaign public worker runs the actual empty dashboard collector and waits for owner COMPLETE', async () => {
+test('a started campaign sweep runs the actual empty dashboard collector and waits for owner COMPLETE', async () => {
   const attemptId = '11111111-1111-4111-8111-111111111111';
   const token = '22222222-2222-4222-8222-222222222222';
   const account = '33333333-3333-4333-8333-333333333333';
@@ -1197,6 +994,10 @@ test('campaign public worker runs the actual empty dashboard collector and waits
     receipts: [], pages: [], campaigns: [] };
   const { fake, context } = bootServiceWorker({ fetch: async (url, init) => {
     if (!String(url).includes('/ad-campaigns/')) return { ok: true, json: async () => ({}) };
+    if (init?.method === 'POST' && String(url).endsWith('/ad-campaigns/attempts')) {
+      return { ok: true, status: 200, json: async () => ({ attemptId, state: control.state, channelAccountId: account,
+        expiresAt: control.expiresAt }) };
+    }
     requests.push({ url: String(url), ...init });
     let receipt;
     if (init?.method === 'PUT') {
@@ -1246,19 +1047,23 @@ test('campaign public worker runs the actual empty dashboard collector and waits
     for (const listener of listeners) listener(message, {}, callback);
   };
   try {
-    const result = externalRequest(fake, { action: 'collectAdvertisingCampaigns', attemptId });
+    const reply = startResult(await externalRequest(fake, startCollectionMessage('advertising.ad_sync')));
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_sync', attemptId });
     await completing.promise;
     assert.deepEqual(closed, []);
     assert.ok((await externalRequest(fake, { action: 'listCollectionSessions' })).some(s => s.attemptId === attemptId));
     completeAck.resolve();
-    assert.deepEqual(JSON.parse(JSON.stringify(await result)), { success: true, attemptId, terminalState: 'COMPLETE', continuationRequired: false });
+    await eventually(() => closed.includes('COMPLETE'), 'the sweep never reported COMPLETE');
+    await settleCollections({ context });
     assert.deepEqual(closed, ['COMPLETE']);
     assert.equal(context.KidItemDomains.capabilities().advertisingCampaignSourceOwnerV1, true);
     assert.equal(JSON.stringify(messages).includes(token), false);
     assert.equal(messages.filter(m => m.action === 'manualSync').length, 1);
     assert.deepEqual(requests.filter(r => r.method).map(r => r.method), ['PUT', 'POST']);
-    await externalRequest(fake, { action: 'collectAdvertisingCampaigns', attemptId });
-    assert.equal(messages.filter(m => m.action === 'manualSync').length, 1, 'COMPLETE replay is owner-only');
+    const replay = startResult(await externalRequest(fake, startCollectionMessage('advertising.ad_sync')));
+    assert.deepEqual(replay, { success: true, outcome: 'started', producer: 'advertising.ad_sync', attemptId });
+    await settleCollections({ context });
+    assert.equal(messages.filter(m => m.action === 'manualSync').length, 1, 'a COMPLETE replay runs nothing');
   } finally { completeAck.resolve(); dom?.window.close(); }
 });
 
@@ -1324,140 +1129,901 @@ function coupangProfitabilityPlan(attemptId) {
   };
 }
 
-test('Coupang collections take the shared window only after the previous collection reports and releases it', async () => {
-  const ids = {
-    campaign: '51111111-1111-4111-8111-111111111111',
-    keyword: '52222222-2222-4222-8222-222222222222',
-    traffic: '53333333-3333-4333-8333-333333333333',
-    itemwinner: '54444444-4444-4444-8444-444444444444',
-    profitability: '55555555-5555-4555-8555-555555555555',
-  };
-  const campaign = coupangCampaignAttempt(ids.campaign);
-  const campaignReporting = Promise.withResolvers();
-  const releaseCampaignReport = Promise.withResolvers();
-  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
-    const href = String(url);
-    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/control`)) return coupangWindowJson(campaign);
-    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/fail`)) {
-      campaignReporting.resolve();
-      await releaseCampaignReport.promise;
-      const body = JSON.parse(init.body);
-      Object.assign(campaign, { state: 'FAILED', errorCode: body.code, errorMessage: body.message });
-      return coupangWindowJson(campaign);
-    }
-    if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.keyword}/control`)) {
-      return coupangWindowJson(coupangKeywordAttempt(ids.keyword));
-    }
-    if (href.endsWith(`/api/ads/traffic/attempts/${ids.traffic}/control`)) {
-      return coupangWindowJson(coupangTrafficAttempt(ids.traffic));
-    }
-    if (href.endsWith(`/api/ads/wing-itemwinner/attempts/${ids.itemwinner}`)) {
-      return coupangWindowJson(popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, ids.itemwinner));
-    }
-    if (href.endsWith('/api/ads/profitability-imports') && init.method === 'POST') {
-      return coupangWindowJson(coupangProfitabilityPlan(ids.profitability));
-    }
-    return coupangWindowJson({});
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const sessions = vm.runInContext('collectionSessions', h.context);
-  const started = [];
-  const follower = (name) => async () => {
-    const campaignReleased = (await sessions.get(ids.campaign)) === null;
-    started.push(`${name}:${campaignReleased ? 'after campaign release' : 'while campaign holds the window'}`);
-    return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
-  };
-  h.context.coupangWindowCollectors = {
-    collectCampaigns: async () => {
-      started.push('campaign');
-      return { success: false, error: '광고 캠페인 상세 페이지를 열지 못했습니다.' };
-    },
-    collectKeywords: follower('keyword'),
-    collectTraffic: follower('traffic'),
-    collectItemwinner: follower('itemwinner'),
-    collectProfitabilitySlice: follower('profitability'),
-  };
-  vm.runInContext(`
-    adCenterCollectors.local = {
-      collectCampaigns: (input) => coupangWindowCollectors.collectCampaigns(input),
-      collectKeywords: (input) => coupangWindowCollectors.collectKeywords(input),
-      collectProfitabilitySlice: (input) => coupangWindowCollectors.collectProfitabilitySlice(input),
-    };
-    wingReportCollectors.local = {
-      collectTraffic: (input) => coupangWindowCollectors.collectTraffic(input),
-      collectItemwinner: (input) => coupangWindowCollectors.collectItemwinner(input),
-    };
-  `, h.context);
-  try {
-    const campaignRun = externalRequest(h.fake, { action: 'collectAdvertisingCampaigns', attemptId: ids.campaign });
-    await campaignReporting.promise;
-    const followers = [
-      externalRequest(h.fake, { action: 'collectAdvertisingKeywords', attemptId: ids.keyword }),
-      externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: ids.traffic }),
-      externalRequest(h.fake, { action: 'collectAdvertisingWingItemwinner', attemptId: ids.itemwinner }),
-      externalRequest(h.fake, { action: 'collectAdvertisingProfitability', idempotencyKey: 'coupang-window-turn' }),
-    ];
-    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(started, ['campaign'], 'no collection starts while the campaign collection reports its outcome');
+// ── Collection start (KID-147) ──────────────────────────────────────────────
+// A web page starts a Coupang window collection with one `startCollection`
+// request. The extension answers once the start is decided and runs the
+// collection afterwards, so every reply is checked against the shared contract.
 
-    releaseCampaignReport.resolve();
-    const [campaignOutcome] = await Promise.all([campaignRun, ...followers]);
+function startCollectionMessage(producer, scope = {}, idempotencyKey = randomUUID()) {
+  return { action: 'startCollection', producer, idempotencyKey, scope };
+}
 
-    assert.equal(campaignOutcome.terminalState, 'FAILED');
-    assert.deepEqual(started, [
-      'campaign',
-      'keyword:after campaign release',
-      'traffic:after campaign release',
-      'itemwinner:after campaign release',
-      'profitability:after campaign release',
-    ]);
-  } finally {
-    releaseCampaignReport.resolve();
-    h.close();
+function startResult(reply) {
+  return CollectionStartResultSchema.parse(JSON.parse(JSON.stringify(reply)));
+}
+
+function within(promise, milliseconds, message) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function eventually(predicate, message, turns = 500) {
+  for (let turn = 0; turn < turns; turn += 1) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
   }
-});
+  assert.fail(message);
+}
 
-test('a Wing traffic request refused while another attempt collects still answers the web app', async () => {
-  const runningId = '71111111-1111-4111-8111-111111111111';
-  const refusedId = '72222222-2222-4222-8222-222222222222';
+// A begin answers with the attempt view, which carries no attempt token.
+function coupangAttemptView(attemptId, state = 'RUNNING') {
+  return {
+    attemptId, state, channelAccountId: coupangWindowAccount, expiresAt: '2030-01-02T00:00:00.000Z',
+    errorCode: state === 'FAILED' ? 'SOURCE_COLLECTION_FAILED' : null,
+    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
+  };
+}
+
+function requestHeader(init, name) {
+  return new Headers(init?.headers || {}).get(name);
+}
+
+// Lets a started collection finish before the harness closes.
+async function settleCollections(h) {
+  await eventually(
+    () => vm.runInContext('KidItemWorkerKeepAlive.holders', h.context) === 0,
+    'a started collection kept the service worker alive',
+  );
+}
+
+test('a collection start on a free window answers started before its run ends and runs the owner', async () => {
+  const attemptId = '91111111-1111-4111-8111-111111111111';
+  const idempotencyKey = randomUUID();
+  const begins = [];
+  const collected = [];
   const collecting = Promise.withResolvers();
   const releaseCollect = Promise.withResolvers();
-  const h = bootServiceWorker({ fetch: async (url) => {
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
     const href = String(url);
-    for (const id of [runningId, refusedId]) {
-      if (href.endsWith(`/api/ads/traffic/attempts/${id}/control`)) return coupangWindowJson(coupangTrafficAttempt(id));
+    if (href.endsWith('/api/ads/ad-keywords/attempts') && init.method === 'POST') {
+      begins.push({ key: requestHeader(init, 'Idempotency-Key'), body: JSON.parse(init.body) });
+      return coupangWindowJson(coupangAttemptView(attemptId));
+    }
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${attemptId}/control`)) {
+      return coupangWindowJson(coupangKeywordAttempt(attemptId));
     }
     return coupangWindowJson({});
   } });
   h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  h.context.wingTrafficCollector = {
-    collectTraffic: async () => {
+  h.context.startCollector = {
+    collectKeywords: async (input) => {
+      collected.push(input.attemptId);
       collecting.resolve();
       await releaseCollect.promise;
       return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
     },
   };
-  vm.runInContext('wingReportCollectors.local = { collectTraffic: (input) => wingTrafficCollector.collectTraffic(input) };', h.context);
+  vm.runInContext('adCenterCollectors.local = { collectKeywords: (input) => startCollector.collectKeywords(input) };', h.context);
   try {
-    const running = externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: runningId });
-    await collecting.promise;
+    const reply = await within(
+      externalRequest(h.fake, startCollectionMessage(
+        'advertising.ad_keyword', { channelAccountId: coupangWindowAccount }, idempotencyKey,
+      )),
+      2000,
+      'the start reply waited for the collection to end',
+    );
 
-    const refused = await externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: refusedId });
-
-    assert.deepEqual(JSON.parse(JSON.stringify(refused)), {
-      success: false,
-      errorCode: 'SOURCE_COLLECTION_REQUEST_FAILED',
-      error: '다른 Wing 트래픽 수집이 진행 중입니다.',
+    assert.deepEqual(startResult(reply), {
+      success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId,
     });
+    assert.deepEqual(begins, [{ key: idempotencyKey, body: { channelAccountId: coupangWindowAccount } }]);
+    await within(collecting.promise, 2000, 'the started collection never ran');
+    assert.deepEqual(collected, [attemptId]);
     releaseCollect.resolve();
-    assert.equal((await running).attemptId, runningId);
+    await settleCollections(h);
   } finally {
     releaseCollect.resolve();
     h.close();
   }
 });
 
-test('a Coupang collection taking the window clears ended sessions that hold no window and keeps the rest', async () => {
+// Boots a worker whose keyword owner begins and reads attempts from the given
+// ids, and whose keyword capture waits until the test releases it.
+function bootKeywordStartHarness(attemptIds) {
+  const begins = [];
+  const collecting = Promise.withResolvers();
+  const releaseCollect = Promise.withResolvers();
+  let nextAttempt = 0;
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const href = String(url);
+    if (init.method === 'POST' && href.endsWith('/attempts')) {
+      begins.push({ href, key: requestHeader(init, 'Idempotency-Key'), body: JSON.parse(init.body) });
+      return coupangWindowJson(coupangAttemptView(attemptIds[nextAttempt++]));
+    }
+    for (const id of attemptIds) {
+      if (href.endsWith(`/api/ads/ad-keywords/attempts/${id}/control`)) {
+        return coupangWindowJson(coupangKeywordAttempt(id));
+      }
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  h.context.startCollector = {
+    collectKeywords: async () => {
+      collecting.resolve();
+      await releaseCollect.promise;
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('adCenterCollectors.local = { collectKeywords: (input) => startCollector.collectKeywords(input) };', h.context);
+  return { h, begins, collecting, releaseCollect };
+}
+
+const KEYWORD_HOLDER_REFUSAL = '쿠팡 광고 키워드 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.';
+
+test('starts that arrive together admit one collection and answer the others without opening an attempt', async () => {
+  const attemptId = '92111111-1111-4111-8111-111111111111';
+  const { h, begins, releaseCollect } = bootKeywordStartHarness([attemptId, randomUUID()]);
+  try {
+    const replies = await within(Promise.all([
+      externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')),
+      externalRequest(h.fake, startCollectionMessage('dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' })),
+      externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')),
+    ]), 2000, 'a start waited for another start');
+
+    assert.deepEqual(replies.map(startResult), [
+      { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId },
+      {
+        success: true, outcome: 'refused', producer: 'dashboard.wing_sales',
+        holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId: null },
+        message: KEYWORD_HOLDER_REFUSAL,
+      },
+      { success: true, outcome: 'running', producer: 'advertising.ad_keyword', attemptId: null },
+    ]);
+    assert.equal(begins.length, 1, 'only the admitted start opened an attempt');
+    releaseCollect.resolve();
+    await settleCollections(h);
+  } finally {
+    releaseCollect.resolve();
+    h.close();
+  }
+});
+
+test('a running collection keeps the window: another collection is refused and the same one answers running', async () => {
+  const attemptId = '93111111-1111-4111-8111-111111111111';
+  const { h, begins, collecting, releaseCollect } = bootKeywordStartHarness([attemptId, randomUUID()]);
+  try {
+    startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+    await within(collecting.promise, 2000, 'the admitted collection never ran');
+
+    const refused = startResult(await externalRequest(h.fake, startCollectionMessage(
+      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
+    )));
+    const running = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+
+    assert.deepEqual(refused, {
+      success: true, outcome: 'refused', producer: 'dashboard.wing_sales',
+      holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId },
+      message: KEYWORD_HOLDER_REFUSAL,
+    });
+    assert.deepEqual(running, { success: true, outcome: 'running', producer: 'advertising.ad_keyword', attemptId });
+    assert.equal(begins.length, 1, 'neither answer opened an attempt');
+    releaseCollect.resolve();
+    await settleCollections(h);
+  } finally {
+    releaseCollect.resolve();
+    h.close();
+  }
+});
+
+// A collection window and its tab left behind by a collection in an earlier
+// worker life: window 7 with tab 41, recorded for `runId`.
+function installLeftoverWindow(h, runId, windowStorageKey = 'COLLECTION_WINDOW_STORAGE_KEY') {
+  const windows = new Map([[7, { id: 7, type: 'normal', tabs: [
+    { id: 41, windowId: 7, status: 'complete', url: 'https://advertising.coupang.com/marketing/dashboard/sales' },
+  ] }]]);
+  const removedWindows = [];
+  h.fake.chrome.windows.get = (id, _options, callback) => {
+    const win = windows.get(id);
+    callback?.(win ? structuredClone(win) : undefined);
+  };
+  h.fake.chrome.windows.remove = (id, callback) => { removedWindows.push(id); windows.delete(id); callback?.(); };
+  h.fake.chrome.windows.create = (properties, callback) => {
+    const win = { id: 8, type: 'normal', tabs: [{ id: 42, windowId: 8, status: 'complete', url: properties.url }] };
+    windows.set(win.id, win);
+    callback?.(structuredClone(win));
+  };
+  h.fake.chrome.tabs.get = (id, callback) => {
+    const tab = [...windows.values()].flatMap((win) => win.tabs).find((entry) => entry.id === id);
+    callback?.(tab ? structuredClone(tab) : undefined);
+  };
+  const windowKey = vm.runInContext(`coupangEnvironment.stateKey(${windowStorageKey}, "local")`, h.context);
+  h.fake.storage[windowKey] = { runId, windowId: 7, tabId: 41 };
+  return { removedWindows, windowKey };
+}
+
+test('after a restart a session whose attempt still runs protects the window and nothing is opened', async () => {
+  const trafficId = '94111111-1111-4111-8111-111111111111';
+  const begins = [];
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const href = String(url);
+    if (init.method === 'POST' && href.endsWith('/attempts')) {
+      begins.push(href);
+      return coupangWindowJson(coupangAttemptView(randomUUID()));
+    }
+    if (href.endsWith(`/api/ads/traffic/attempts/${trafficId}/control`)) {
+      return coupangWindowJson(coupangTrafficAttempt(trafficId, 'RUNNING'));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const { removedWindows } = installLeftoverWindow(h, trafficId);
+  try {
+    const sessions = vm.runInContext('collectionSessions', h.context);
+    await sessions.start({ attemptId: trafficId, environmentId: 'local', producer: 'dashboard.wing_sales' });
+
+    const refused = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_sync')));
+    const running = startResult(await externalRequest(h.fake, startCollectionMessage(
+      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
+    )));
+
+    assert.deepEqual(refused, {
+      success: true, outcome: 'refused', producer: 'advertising.ad_sync',
+      holder: { producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', attemptId: trafficId },
+      message: '쿠팡 Wing 트래픽 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
+    });
+    assert.deepEqual(running, { success: true, outcome: 'running', producer: 'dashboard.wing_sales', attemptId: trafficId });
+    assert.deepEqual(begins, []);
+    assert.deepEqual(removedWindows, []);
+    assert.ok(await sessions.get(trafficId), 'the running collection keeps its session');
+  } finally {
+    h.close();
+  }
+});
+
+test('a leftover whose attempt an operator stopped on the server frees the window at the next start', async () => {
+  const leftoverId = '95111111-1111-4111-8111-111111111111';
+  const trafficId = '95222222-2222-4222-8222-222222222222';
+  const cancelled = { ...coupangCampaignAttempt(leftoverId, 'FAILED'), errorCode: 'USER_CANCELLED', errorMessage: '운영자가 수집을 중단했습니다.' };
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const href = String(url);
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${leftoverId}/control`)) return coupangWindowJson(cancelled);
+    if (init.method === 'POST' && href.endsWith('/api/ads/traffic/attempts')) {
+      return coupangWindowJson(coupangAttemptView(trafficId));
+    }
+    if (href.endsWith(`/api/ads/traffic/attempts/${trafficId}/control`)) {
+      return coupangWindowJson(coupangTrafficAttempt(trafficId));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const { removedWindows } = installLeftoverWindow(h, leftoverId);
+  h.context.trafficCollector = {
+    collectTraffic: async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' }),
+  };
+  vm.runInContext('wingReportCollectors.local = { collectTraffic: (input) => trafficCollector.collectTraffic(input) };', h.context);
+  try {
+    const sessions = vm.runInContext('collectionSessions', h.context);
+    await sessions.start({ attemptId: leftoverId, environmentId: 'local', producer: 'advertising.ad_sync' });
+    await sessions.requireAttention(leftoverId, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
+
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage(
+      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
+    )));
+
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'dashboard.wing_sales', attemptId: trafficId });
+    assert.deepEqual(removedWindows, [7], 'the stopped collection window is closed');
+    assert.equal(await sessions.get(leftoverId), null, 'and its session is cleared');
+    await settleCollections(h);
+  } finally {
+    h.close();
+  }
+});
+
+test('a begin the owner answers with ATTEMPT_IN_PROGRESS answers running with that attempt and runs nothing', async () => {
+  const runningId = '96111111-1111-4111-8111-111111111111';
+  for (const conflict of [
+    { code: 'ATTEMPT_IN_PROGRESS', attemptId: runningId },
+    { statusCode: 409, error: 'ATTEMPT_IN_PROGRESS', message: 'Conflict Exception', attemptId: runningId },
+  ]) {
+    const collected = [];
+    const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+      if (init.method === 'POST' && String(url).endsWith('/api/ads/wing-itemwinner/attempts')) {
+        return coupangWindowJson(conflict, 409);
+      }
+      return coupangWindowJson({});
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+    h.context.itemwinnerCollector = { collectItemwinner: async (input) => { collected.push(input.attemptId); return { success: false }; } };
+    vm.runInContext('wingReportCollectors.local = { collectItemwinner: (input) => itemwinnerCollector.collectItemwinner(input) };', h.context);
+    try {
+      const reply = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
+      assert.deepEqual(reply, { success: true, outcome: 'running', producer: 'dashboard.wing_kpi', attemptId: runningId });
+      await settleCollections(h);
+      assert.deepEqual(collected, []);
+
+      const next = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
+      assert.equal(next.outcome, 'running', 'the answered start left the window free');
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('a begin conflict that names no running attempt fails the start instead of guessing', async () => {
+  const h = bootServiceWorker({ fetch: async (url, init = {}) =>
+    init.method === 'POST' && String(url).endsWith('/api/ads/ad-keywords/attempts')
+      ? coupangWindowJson({ statusCode: 409, error: 'HTTP_409', message: 'SOURCE_IDEMPOTENCY_KEY_REUSED' }, 409)
+      : coupangWindowJson({}) });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  try {
+    const reply = JSON.parse(JSON.stringify(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword'))));
+    assert.equal(reply.success, false);
+    assert.equal(CollectionStartResultSchema.safeParse(reply).success, false);
+    assert.equal(reply.error, 'SOURCE_IDEMPOTENCY_KEY_REUSED');
+  } finally {
+    h.close();
+  }
+});
+
+test('a start whose begin replays a finished attempt answers started and runs nothing', async () => {
+  for (const state of ['COMPLETE', 'FAILED']) {
+    const attemptId = randomUUID();
+    const ownerRequests = [];
+    const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+      const href = String(url);
+      if (!href.includes('/api/ads/ad-keywords/')) return coupangWindowJson({});
+      ownerRequests.push(`${init.method || 'GET'} ${new URL(href).pathname}`);
+      return href.endsWith('/api/ads/ad-keywords/attempts')
+        ? coupangWindowJson(coupangAttemptView(attemptId, state))
+        : coupangWindowJson(coupangKeywordAttempt(attemptId, state));
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+    try {
+      const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+      await settleCollections(h);
+
+      assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId }, state);
+      assert.deepEqual(ownerRequests, ['POST /api/ads/ad-keywords/attempts'], `${state}: the web app reads the ended attempt itself`);
+      assert.deepEqual(h.fake.createdTabs, [], state);
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('each window collection opens its attempt with its own owner and scope, then runs that owner', async () => {
+  const account = coupangWindowAccount;
+  const cases = [
+    {
+      producer: 'advertising.ad_sync', scope: { channelAccountId: account }, path: '/api/ads/ad-campaigns/attempts',
+      controlPath: (id) => `/api/ads/ad-campaigns/attempts/${id}/control`, control: (id) => coupangCampaignAttempt(id),
+      collector: 'adCenterCollectors', method: 'collectCampaigns',
+    },
+    {
+      producer: 'advertising.ad_keyword', scope: {}, path: '/api/ads/ad-keywords/attempts',
+      controlPath: (id) => `/api/ads/ad-keywords/attempts/${id}/control`, control: (id) => coupangKeywordAttempt(id),
+      collector: 'adCenterCollectors', method: 'collectKeywords',
+    },
+    {
+      producer: 'dashboard.wing_sales', scope: { channelAccountId: account, startDate: '2026-09-05', endDate: '2026-09-06' },
+      path: '/api/ads/traffic/attempts',
+      controlPath: (id) => `/api/ads/traffic/attempts/${id}/control`, control: (id) => coupangTrafficAttempt(id),
+      collector: 'wingReportCollectors', method: 'collectTraffic',
+    },
+    {
+      producer: 'dashboard.wing_kpi', scope: { channelAccountId: account }, path: '/api/ads/wing-itemwinner/attempts',
+      controlPath: (id) => `/api/ads/wing-itemwinner/attempts/${id}`,
+      control: (id) => popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, id),
+      collector: 'wingReportCollectors', method: 'collectItemwinner',
+    },
+    {
+      producer: 'advertising.profitability_import', scope: {}, path: '/api/ads/profitability-imports',
+      begin: (id) => coupangProfitabilityPlan(id),
+      collector: 'adCenterCollectors', method: 'collectProfitabilitySlice',
+    },
+  ];
+  for (const scenario of cases) {
+    const attemptId = randomUUID();
+    const idempotencyKey = randomUUID();
+    const begins = [];
+    const collected = [];
+    const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (init.method === 'POST' && pathname === scenario.path) {
+        begins.push({ key: requestHeader(init, 'Idempotency-Key'), body: JSON.parse(init.body) });
+        return coupangWindowJson(scenario.begin ? scenario.begin(attemptId) : coupangAttemptView(attemptId));
+      }
+      if (scenario.controlPath && pathname === scenario.controlPath(attemptId)) {
+        return coupangWindowJson(scenario.control(attemptId));
+      }
+      return coupangWindowJson({});
+    } });
+    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+    h.context.startCollector = {
+      collect: async (input) => {
+        collected.push(input.attemptId);
+        return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+      },
+    };
+    vm.runInContext(`${scenario.collector}.local = { ${scenario.method}: (input) => startCollector.collect(input) };`, h.context);
+    try {
+      const reply = startResult(await externalRequest(
+        h.fake, startCollectionMessage(scenario.producer, scenario.scope, idempotencyKey),
+      ));
+      await eventually(() => collected.length > 0, `${scenario.producer} never ran its owner`);
+      await settleCollections(h);
+
+      assert.deepEqual(reply, { success: true, outcome: 'started', producer: scenario.producer, attemptId });
+      assert.deepEqual(begins[0], { key: idempotencyKey, body: scenario.scope }, scenario.producer);
+      assert.ok(begins.every((begin) => begin.key === idempotencyKey), `${scenario.producer} replays only its own key`);
+      assert.deepEqual([...new Set(collected)], [attemptId], scenario.producer);
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('the start request is validated exactly like the shared contract', () => {
+  const h = bootServiceWorker();
+  const key = '11111111-1111-4111-8111-111111111111';
+  const account = coupangWindowAccount;
+  const start = (producer, scope, extra = {}) => ({ action: 'startCollection', producer, idempotencyKey: key, scope, ...extra });
+  const manual = (fields) => start('advertising.ad_sync', { captureMode: 'manual_report', ...fields });
+  const messages = [
+    start('advertising.ad_sync', {}),
+    start('advertising.ad_sync', { channelAccountId: account }),
+    start('advertising.ad_sync', { channelAccountId: 'not-a-uuid' }),
+    start('advertising.ad_sync', { captureMode: 'campaign_sweep' }),
+    manual({ period: '1d', startDate: '2026-09-13', endDate: '2026-09-13' }),
+    manual({ channelAccountId: account, period: '7d', startDate: '2026-08-28', endDate: '2026-09-03' }),
+    manual({ period: '7d', startDate: '2026-12-29', endDate: '2027-01-04' }),
+    manual({ period: '7d', startDate: '2026-09-07', endDate: '2026-09-12' }),
+    manual({ period: '1d', startDate: '2026-09-13', endDate: '2026-09-14' }),
+    manual({ period: '14d', startDate: '2026-09-01', endDate: '2026-09-14' }),
+    manual({ period: '1d', startDate: '2026-09-13', endDate: '2026-09-13', targetUrl: 'https://advertising.coupang.com/marketing/dashboard/sales' }),
+    start('advertising.ad_keyword', {}),
+    start('advertising.ad_keyword', { startDate: '2026-09-01' }),
+    start('advertising.profitability_import', {}),
+    start('advertising.profitability_import', { channelAccountId: account }),
+    start('dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' }),
+    start('dashboard.wing_sales', { channelAccountId: account, startDate: '2024-02-29', endDate: '2024-03-01' }),
+    start('dashboard.wing_sales', { startDate: '2026-02-29', endDate: '2026-03-01' }),
+    start('dashboard.wing_sales', { startDate: '2026-09-06', endDate: '2026-09-05' }),
+    start('dashboard.wing_sales', { startDate: '2026-09-05' }),
+    start('dashboard.wing_kpi', { channelAccountId: account }),
+    start('dashboard.wing_kpi', { channelAccountId: account }, { environmentId: 'office' }),
+    start('dashboard.wing_kpi', undefined),
+    start('dashboard.wing_kpi', []),
+    start('channels.coupang_catalog', { channelAccountId: account }),
+    start('channels.coupang_catalog', {}),
+    start('channels.coupang_catalog', { channelAccountId: 'not-a-uuid' }),
+    start('channels.coupang_catalog', { channelAccountId: account, stage: 'basics' }),
+    start('advertising.wing_rank', {}),
+    { ...start('dashboard.wing_kpi', {}), idempotencyKey: 'not-a-uuid' },
+    { ...start('dashboard.wing_kpi', {}), idempotencyKey: 'AAAAAAAA-AAAA-0AAA-0AAA-AAAAAAAAAAAA' },
+    { ...start('dashboard.wing_kpi', {}), action: 'collectAdvertisingWingItemwinner' },
+    { action: 'startCollection', producer: 'dashboard.wing_kpi', scope: {} },
+    null,
+    [],
+  ];
+  try {
+    const parse = (message) => {
+      try {
+        h.context.KidItemCoupangCollectionStart.parseRequest(message);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const message of messages) {
+      assert.equal(parse(message), CollectionStartRequestSchema.safeParse(message).success, JSON.stringify(message));
+    }
+    assert.ok(messages.some((message) => CollectionStartRequestSchema.safeParse(message).success));
+    assert.ok(messages.some((message) => !CollectionStartRequestSchema.safeParse(message).success));
+  } finally {
+    h.close();
+  }
+});
+
+// ── Manual campaign report through the collection start ───────────────────────
+// The server freezes the begin into a manual-report plan; the fixture does the same.
+function manualReportControl(attemptId, begin, state = 'RUNNING') {
+  return {
+    attemptId, attemptToken: coupangWindowAttemptToken, channelAccountId: coupangWindowAccount, state,
+    expiresAt: '2030-01-02T00:00:00.000Z', manifestChecksum: 'c'.repeat(64),
+    errorCode: null, errorMessage: null,
+    plan: {
+      sourceType: 'coupang_ad_campaign', parserVersion: 'ad-campaign-v1', channelAccountId: coupangWindowAccount,
+      expectedAdvertiserId: 'A0001', captureMode: 'manual_report', period: begin.period,
+      startDate: begin.startDate, endDate: begin.endDate, targetUrl: begin.targetUrl, businessDates: [begin.endDate],
+    },
+    receipts: [], pages: [], campaigns: [],
+  };
+}
+
+// Runs the real Ads collector against a fake collection window. The report tab
+// answers the manual sync with `reportReply`.
+async function runManualReportStart(scope, reportReply) {
+  const attemptId = randomUUID();
+  const begins = [];
+  const failures = [];
+  const reports = [];
+  let control = null;
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const pathname = new URL(String(url)).pathname;
+    if (init.method === 'POST' && pathname === '/api/ads/ad-campaigns/attempts') {
+      const body = JSON.parse(init.body);
+      begins.push(body);
+      control = manualReportControl(attemptId, body);
+      return coupangWindowJson(coupangAttemptView(attemptId));
+    }
+    if (pathname === `/api/ads/ad-campaigns/attempts/${attemptId}/control`) return coupangWindowJson(control);
+    if (init.method === 'POST' && pathname === `/api/ads/ad-campaigns/attempts/${attemptId}/fail`) {
+      const body = JSON.parse(init.body);
+      failures.push(body);
+      Object.assign(control, { state: 'FAILED', errorCode: body.code, errorMessage: body.message });
+      return coupangWindowJson(control);
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  let tab = null;
+  h.fake.chrome.windows.create = (properties, callback) => {
+    tab = { id: 41, windowId: 7, status: 'complete', url: properties.url };
+    callback({ id: 7, type: 'normal', tabs: [tab] });
+  };
+  h.fake.chrome.windows.get = (_id, _options, callback) => {
+    const win = tab ? { id: 7, type: 'normal', tabs: [tab] } : undefined;
+    callback?.(win);
+  };
+  h.fake.chrome.windows.remove = (_id, callback) => { tab = null; callback?.(); };
+  h.fake.chrome.tabs.get = (_id, callback) => { callback?.(tab ? { ...tab } : undefined); };
+  h.fake.chrome.tabs.update = (_id, properties, callback) => { Object.assign(tab, properties); callback?.({ ...tab }); };
+  h.fake.chrome.tabs.sendMessage = (_id, message, callback) => {
+    if (message.action !== 'manualSync') return callback?.({ success: true });
+    reports.push({ tabUrl: tab?.url, message: structuredClone(message) });
+    callback(reportReply);
+  };
+  // The collector lets a report page settle for seconds; the fixture page is ready.
+  h.context.setTimeout = (callback, milliseconds) => {
+    if (milliseconds < 10_000) {
+      queueMicrotask(callback);
+      return 1;
+    }
+    return setTimeout(callback, milliseconds);
+  };
+  try {
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_sync', scope)));
+    await eventually(() => failures.length > 0, 'the manual report attempt never settled');
+    await settleCollections(h);
+    return { attemptId, reply, begins, failures, reports };
+  } finally {
+    h.close();
+  }
+}
+
+test('a 1-day manual report start opens that day\'s report page in the collection window', async () => {
+  const mismatch = {
+    success: false, errorCode: 'MANUAL_REPORT_SCOPE_MISMATCH',
+    error: '광고 보고서 기간을 2026-09-13 ~ 2026-09-13로 맞추지 못했습니다.',
+  };
+  const scope = { captureMode: 'manual_report', channelAccountId: coupangWindowAccount, period: '1d', startDate: '2026-09-13', endDate: '2026-09-13' };
+  const targetUrl = 'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-09-13';
+
+  const { attemptId, reply, begins, failures, reports } = await runManualReportStart(scope, mismatch);
+
+  assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_sync', attemptId });
+  assert.deepEqual(begins, [{ ...scope, targetUrl }]);
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].tabUrl, targetUrl, 'the collection window shows the report page it began');
+  assert.equal(reports[0].message.syncMode, 'campaign_manual_report');
+  assert.equal(reports[0].message.campaignControl.plan.targetUrl, targetUrl);
+  assert.equal(JSON.stringify(reports[0].message).includes(coupangWindowAttemptToken), false);
+  assert.deepEqual(failures, [{ code: mismatch.errorCode, message: mismatch.error }], 'an unconfirmed range fails the attempt');
+});
+
+test('a 7-day manual report start opens the report page without a single-day marker', async () => {
+  const scope = { captureMode: 'manual_report', period: '7d', startDate: '2026-09-07', endDate: '2026-09-13' };
+  const targetUrl = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemManualReport=2026-09-07_2026-09-13';
+
+  const { reply, begins, reports } = await runManualReportStart(scope, {
+    success: false, errorCode: 'MANUAL_REPORT_SCOPE_MISMATCH', error: '광고 보고서 기간을 맞추지 못했습니다.',
+  });
+
+  assert.equal(reply.outcome, 'started');
+  assert.deepEqual(begins, [{ ...scope, targetUrl }]);
+  assert.doesNotMatch(begins[0].targetUrl, /targetDate=/, 'the owner refuses a 7-day plan that names one day');
+  assert.equal(reports[0].tabUrl, targetUrl);
+  assert.equal(reports[0].message.campaignControl.plan.period, '7d');
+});
+
+test('a manual report is refused while another producer\'s sweep holds the window and runs with its own sweep', async () => {
+  const keywordId = '97111111-1111-4111-8111-111111111111';
+  const manualScope = { captureMode: 'manual_report', period: '1d', startDate: '2026-09-13', endDate: '2026-09-13' };
+  const { h, begins, collecting, releaseCollect } = bootKeywordStartHarness([keywordId]);
+  try {
+    startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+    await within(collecting.promise, 2000, 'the keyword sweep never ran');
+
+    const refused = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_sync', manualScope)));
+
+    assert.deepEqual(refused, {
+      success: true, outcome: 'refused', producer: 'advertising.ad_sync',
+      holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId: keywordId },
+      message: KEYWORD_HOLDER_REFUSAL,
+    });
+    assert.equal(begins.length, 1, 'the refused report opened nothing');
+    releaseCollect.resolve();
+    await settleCollections(h);
+  } finally {
+    releaseCollect.resolve();
+    h.close();
+  }
+
+  const sweepId = '97222222-2222-4222-8222-222222222222';
+  const collecting2 = Promise.withResolvers();
+  const releaseSweep = Promise.withResolvers();
+  const sweepBegins = [];
+  const h2 = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const pathname = new URL(String(url)).pathname;
+    if (init.method === 'POST' && pathname === '/api/ads/ad-campaigns/attempts') {
+      sweepBegins.push(JSON.parse(init.body));
+      return coupangWindowJson(coupangAttemptView(sweepId));
+    }
+    if (pathname === `/api/ads/ad-campaigns/attempts/${sweepId}/control`) return coupangWindowJson(coupangCampaignAttempt(sweepId));
+    return coupangWindowJson({});
+  } });
+  h2.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  h2.context.sweepCollector = {
+    collectCampaigns: async () => {
+      collecting2.resolve();
+      await releaseSweep.promise;
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('adCenterCollectors.local = { collectCampaigns: (input) => sweepCollector.collectCampaigns(input) };', h2.context);
+  try {
+    startResult(await externalRequest(h2.fake, startCollectionMessage('advertising.ad_sync')));
+    await within(collecting2.promise, 2000, 'the campaign sweep never ran');
+
+    const running = startResult(await externalRequest(h2.fake, startCollectionMessage('advertising.ad_sync', manualScope)));
+
+    assert.deepEqual(running, { success: true, outcome: 'running', producer: 'advertising.ad_sync', attemptId: sweepId });
+    assert.equal(sweepBegins.length, 1);
+    releaseSweep.resolve();
+    await settleCollections(h2);
+  } finally {
+    releaseSweep.resolve();
+    h2.close();
+  }
+});
+
+test('a manual report whose account already runs a campaign attempt answers running from the owner conflict', async () => {
+  const runningId = '98111111-1111-4111-8111-111111111111';
+  const begins = [];
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    if (init.method === 'POST' && String(url).endsWith('/api/ads/ad-campaigns/attempts')) {
+      begins.push(JSON.parse(init.body));
+      return coupangWindowJson({ code: 'ATTEMPT_IN_PROGRESS', attemptId: runningId }, 409);
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  try {
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_sync', {
+      captureMode: 'manual_report', period: '7d', startDate: '2026-09-07', endDate: '2026-09-13',
+    })));
+
+    assert.deepEqual(reply, { success: true, outcome: 'running', producer: 'advertising.ad_sync', attemptId: runningId });
+    assert.equal(begins.length, 1);
+    assert.equal(begins[0].captureMode, 'manual_report');
+  } finally {
+    h.close();
+  }
+});
+
+// ── Restart recovery (KID-147) ────────────────────────────────────────────────
+// A restarted worker continues a collection only for the same live attempt, in
+// the window turn a new start would take, and only with a connected KidItem tab.
+
+function storedSession(attemptId, producer) {
+  return {
+    attemptId, environmentId: 'local', producer, attention: null,
+    progress: { current: 0, total: 1, completed: 0, failed: 0, label: null }, updatedAt: Date.now(),
+  };
+}
+
+test('a restarted worker continues its collections only while a connected KidItem tab is confirmed', async () => {
+  const ids = {
+    profitability: '9a111111-1111-4111-8111-111111111111',
+    tracked: '9a222222-2222-4222-8222-222222222222',
+    competitor: '9a333333-3333-4333-8333-333333333333',
+  };
+  for (const presence of ['confirmed', 'unknown']) {
+    const reads = [];
+    const collected = [];
+    const h = bootServiceWorker({
+      storage: {
+        kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } },
+        kiditem_collection_sessions: {
+          [ids.profitability]: storedSession(ids.profitability, 'advertising.profitability_import'),
+          [ids.tracked]: storedSession(ids.tracked, 'advertising.wing_tracked_products'),
+          [ids.competitor]: storedSession(ids.competitor, 'advertising.competitor_catalog'),
+        },
+      },
+      fetch: async (url, init = {}) => {
+        const pathname = new URL(String(url)).pathname;
+        if ((init.method || 'GET') === 'GET') reads.push(pathname);
+        if (pathname === `/api/ads/profitability-imports/${ids.profitability}`) {
+          return coupangWindowJson(coupangProfitabilityPlan(ids.profitability));
+        }
+        if (pathname.startsWith('/api/ads/wing-tracked-products/attempts/') ||
+          pathname.startsWith('/api/ads/competitor-catalogs/attempts/')) {
+          return coupangWindowJson({ message: 'not found' }, 404);
+        }
+        return coupangWindowJson({});
+      },
+    });
+    // A failed tab query is no evidence that a KidItem tab is open.
+    if (presence === 'unknown') h.fake.chrome.tabs.query = async () => { throw new Error('tab query failed'); };
+    h.context.recoveryCollector = {
+      collectProfitabilitySlice: async (input) => {
+        collected.push(input.attemptId);
+        return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+      },
+    };
+    vm.runInContext('adCenterCollectors.local = { collectProfitabilitySlice: (input) => recoveryCollector.collectProfitabilitySlice(input) };', h.context);
+    try {
+      await settleCollections(h);
+      const recoveryReads = [
+        `/api/ads/profitability-imports/${ids.profitability}`,
+        `/api/ads/wing-tracked-products/attempts/${ids.tracked}`,
+        `/api/ads/competitor-catalogs/attempts/${ids.competitor}`,
+      ];
+      if (presence === 'confirmed') {
+        assert.deepEqual(collected, [ids.profitability], 'the running import continues in the window');
+        for (const read of recoveryReads) assert.ok(reads.includes(read), `${read} was read to continue`);
+      } else {
+        assert.deepEqual(collected, [], 'nothing continues without a confirmed KidItem tab');
+        assert.deepEqual(reads.filter((read) => recoveryReads.includes(read)), []);
+      }
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('a restarted profitability import is not continued while another collection protects the window', async () => {
+  const profitabilityId = '9b111111-1111-4111-8111-111111111111';
+  const trafficId = '9b222222-2222-4222-8222-222222222222';
+  const collected = [];
+  const terminals = [];
+  const h = bootServiceWorker({
+    storage: {
+      kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } },
+      kiditem_collection_sessions: {
+        [trafficId]: storedSession(trafficId, 'dashboard.wing_sales'),
+        [profitabilityId]: storedSession(profitabilityId, 'advertising.profitability_import'),
+      },
+    },
+    fetch: async (url, init = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (init.method === 'POST') terminals.push(pathname);
+      if (pathname === `/api/ads/profitability-imports/${profitabilityId}`) {
+        return coupangWindowJson(coupangProfitabilityPlan(profitabilityId));
+      }
+      if (pathname === `/api/ads/traffic/attempts/${trafficId}/control`) {
+        return coupangWindowJson(coupangTrafficAttempt(trafficId, 'RUNNING'));
+      }
+      return coupangWindowJson({});
+    },
+  });
+  h.context.recoveryCollector = {
+    collectProfitabilitySlice: async (input) => {
+      collected.push(input.attemptId);
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('adCenterCollectors.local = { collectProfitabilitySlice: (input) => recoveryCollector.collectProfitabilitySlice(input) };', h.context);
+  try {
+    await settleCollections(h);
+    const sessions = vm.runInContext('collectionSessions', h.context);
+
+    assert.deepEqual(collected, [], 'the import does not take a window another collection protects');
+    assert.deepEqual(terminals, [], 'it stays RUNNING for an operator stop or its lease');
+    assert.ok(await sessions.get(profitabilityId));
+    assert.ok(await sessions.get(trafficId));
+  } finally {
+    h.close();
+  }
+});
+
+test('right after a restart with nothing to continue, a start is admitted', async () => {
+  const attemptId = '9c111111-1111-4111-8111-111111111111';
+  const h = bootServiceWorker({
+    storage: { kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } } },
+    fetch: async (url, init = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (init.method === 'POST' && pathname === '/api/ads/ad-keywords/attempts') {
+        return coupangWindowJson(coupangAttemptView(attemptId));
+      }
+      if (pathname === `/api/ads/ad-keywords/attempts/${attemptId}/control`) {
+        return coupangWindowJson(coupangKeywordAttempt(attemptId));
+      }
+      return coupangWindowJson({});
+    },
+  });
+  h.context.startCollector = {
+    collectKeywords: async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' }),
+  };
+  vm.runInContext('adCenterCollectors.local = { collectKeywords: (input) => startCollector.collectKeywords(input) };', h.context);
+  try {
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId });
+    await settleCollections(h);
+  } finally {
+    h.close();
+  }
+});
+
+test('the retired web and popup starts of window collections and the catalog import start nothing', async () => {
+  const attemptId = '99111111-1111-4111-8111-111111111111';
+  const requests = [];
+  const h = bootServiceWorker({ fetch: async (url) => {
+    requests.push(String(url));
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const windowsCreated = [];
+  h.fake.chrome.windows.create = (properties, callback) => {
+    windowsCreated.push(properties);
+    callback?.({ id: 7, tabs: [{ id: 41, windowId: 7 }] });
+  };
+  try {
+    for (const message of [
+      { action: 'collectAdvertisingCampaigns', attemptId },
+      { action: 'collectAdvertisingKeywords', attemptId },
+      { action: 'collectAdvertisingWingTraffic', attemptId },
+      { action: 'collectAdvertisingWingItemwinner', attemptId },
+      { action: 'collectAdvertisingProfitability', idempotencyKey: randomUUID() },
+      { action: 'cancelAdvertisingCampaigns', attemptId },
+      { action: 'cancelAdvertisingKeywords', attemptId },
+      { action: 'cancelAdvertisingWingTraffic', attemptId },
+      { action: 'cancelAdvertisingWingItemwinner', attemptId },
+      { action: 'startCoupangCatalogImport', permit: catalogPermit },
+      { action: 'getCoupangCatalogImportStatus', attemptId },
+      { action: 'cancelCoupangCatalogImport', attemptId },
+    ]) {
+      assert.equal(externalResponderCount(h.fake, message), 0, message.action);
+      assert.equal(vm.runInContext(`KidItemDomains.forExternalAction(${JSON.stringify(message.action)})`, h.context), null);
+    }
+
+    // The sourcing worker keeps every internal channel open, so a retired popup
+    // action must look exactly like an action nobody owns.
+    const openChannels = (message) => h.fake.internalMessageListeners
+      .filter((listener) => listener(message, {}, () => {}) === true).length;
+    const unowned = openChannels({ action: 'kiditemActionNobodyOwnsForTest' });
+    for (const message of [
+      { action: 'collectAdvertisingWingTrafficFromPopup', environmentId: 'local', url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-05&end_date=2026-09-06' },
+      { action: 'collectAdvertisingWingItemwinnerFromPopup', environmentId: 'local', url: 'https://wing.coupang.com/tenants/seller-price-management' },
+      { action: 'collectAdvertisingCampaignsFromPopup', environmentId: 'local', url: 'https://advertising.coupang.com/marketing/dashboard/sales' },
+      { action: 'monthlyScrape', year: 2026, month: 8, environmentId: 'local' },
+    ]) {
+      assert.equal(openChannels(message), unowned, message.action);
+    }
+    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(requests.filter((url) => url.includes('/api/ads/') || url.includes('/catalog-imports/')), []);
+    assert.deepEqual(windowsCreated, []);
+  } finally {
+    h.close();
+  }
+});
+
+test('a start clears ended sessions that hold no window and is refused by the one that still runs', async () => {
   const ids = {
     campaign: '81111111-1111-4111-8111-111111111111',
     keyword: '82222222-2222-4222-8222-222222222222',
@@ -1465,8 +2031,13 @@ test('a Coupang collection taking the window clears ended sessions that hold no 
     unreadable: '84444444-4444-4444-8444-444444444444',
     itemwinner: '85555555-5555-4555-8555-555555555555',
   };
-  const h = bootServiceWorker({ fetch: async (url) => {
+  const begins = [];
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
     const href = String(url);
+    if (init.method === 'POST' && href.endsWith('/attempts')) {
+      begins.push(href);
+      return coupangWindowJson(coupangAttemptView(ids.itemwinner));
+    }
     if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/control`)) {
       return coupangWindowJson(coupangCampaignAttempt(ids.campaign, 'FAILED'));
     }
@@ -1492,22 +2063,20 @@ test('a Coupang collection taking the window clears ended sessions that hold no 
   await sessions.start({ attemptId: ids.keyword, environmentId: 'local', producer: 'advertising.ad_keyword' });
   await sessions.start({ attemptId: ids.traffic, environmentId: 'local', producer: 'dashboard.wing_sales' });
   await sessions.start({ attemptId: ids.unreadable, environmentId: 'local', producer: 'advertising.ad_sync' });
-  let sessionsAtCollect = null;
-  h.context.itemwinnerCollector = {
-    collectItemwinner: async () => {
-      sessionsAtCollect = [...(await sessions.list('local'))].map((session) => session.attemptId).sort();
-      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
-    },
-  };
-  vm.runInContext('wingReportCollectors.local = { collectItemwinner: (input) => itemwinnerCollector.collectItemwinner(input) };', h.context);
   try {
-    await externalRequest(h.fake, { action: 'collectAdvertisingWingItemwinner', attemptId: ids.itemwinner });
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
 
     assert.deepEqual(
-      sessionsAtCollect,
-      [ids.traffic, ids.unreadable, ids.itemwinner].sort(),
+      [...(await sessions.list('local'))].map((session) => session.attemptId).sort(),
+      [ids.traffic, ids.unreadable].sort(),
       'the failed attention session and the unknown attempt are cleared; running and unreadable ones stay',
     );
+    assert.deepEqual(reply, {
+      success: true, outcome: 'refused', producer: 'dashboard.wing_kpi',
+      holder: { producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', attemptId: ids.traffic },
+      message: '쿠팡 Wing 트래픽 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
+    });
+    assert.deepEqual(begins, [], 'a kept session protects the window, so nothing is opened');
   } finally {
     h.close();
   }
@@ -1625,31 +2194,518 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
   }
 });
 
-test('catalog owner permit reaches the real worker/session and a committed receipt does not recollect', async () => {
+// ── Catalog import through the collection start (KID-147) ───────────────────
+// The Wing catalog import reads Wing through the browser's single Wing login,
+// so one browser environment imports one store account at a time. It starts
+// through the same `startCollection` contract, and another account's import is
+// refused before any attempt opens.
+
+const CATALOG_PRODUCER = 'channels.coupang_catalog';
+const catalogAccount = '71111111-1111-4111-8111-111111111111';
+const otherCatalogAccount = '72222222-2222-4222-8222-222222222222';
+const CATALOG_STATE_KEY = 'kiditem_coupang_catalog_import:local';
+const CATALOG_STAGED_LIST_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=500&page=1';
+const CATALOG_STAGED_DETAIL_URL = 'https://wing.coupang.com/tenants/seller-web/v2/vendor-inventory/seller-product';
+// The attempt's own begin key, as the owner's attempt read reports it.
+const CATALOG_ATTEMPT_KEY = '7e000000-0000-4000-8000-000000000001';
+
+const catalogAttemptsPath = (channelAccountId) =>
+  `/api/channels/accounts/${channelAccountId}/catalog-imports/coupang-wing/attempts`;
+
+function catalogRefusalMessage(holderName) {
+  return `${holderName}이 이 브라우저에서 진행 중입니다. 한 브라우저에서는 쿠팡 계정 하나씩만 상품을 받을 수 있습니다. 끝난 뒤 다시 시작해 주세요.`;
+}
+
+// The basics permit the Channels owner's begin returns.
+function catalogBasicsPermit(attemptId, channelAccountId, overrides = {}) {
+  return {
+    attemptId,
+    attemptToken: '7f000000-0000-4000-8000-000000000001',
+    state: 'RUNNING',
+    expiresAt: '2030-01-02T00:00:00.000Z',
+    plan: {
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'basics',
+      listUrl: CATALOG_STAGED_LIST_URL,
+      detailUrl: CATALOG_STAGED_DETAIL_URL,
+      channelAccountId,
+      vendorId: 'A00000000',
+      publicationRevision: '0',
+      rootAttemptId: attemptId,
+    },
+    ...overrides,
+  };
+}
+
+// The owner's token-free attempt read.
+function catalogAttemptRead(permit, state = 'RUNNING', overrides = {}) {
+  return {
+    attemptId: permit.attemptId,
+    idempotencyKey: CATALOG_ATTEMPT_KEY,
+    channelAccountId: permit.plan.channelAccountId,
+    state,
+    plan: permit.plan,
+    expiresAt: permit.expiresAt,
+    phase: state === 'COMPLETE' ? 'finished' : 'discovery',
+    collectorVersion: permit.plan.collectorVersion,
+    manifest: null,
+    progress: {
+      discoveryPagesStored: 0, discoveredProducts: 0, hydratedProducts: 0, optionCount: 0,
+      mediaCount: 0, storedChunks: 0, publishedProducts: 0, publishedOptionCount: 0,
+      publishedMediaCount: 0, publishedChunks: 0, firstPublishedAt: null, lastPublishedAt: null,
+    },
+    missing: { discoverySequences: [], productIds: [] },
+    snapshotHash: null,
+    error: state === 'FAILED'
+      ? { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.', phase: 'discovery', recoverable: false, notBefore: null }
+      : null,
+    publication: null,
+    createdAt: '2026-09-14T00:00:00.000Z',
+    updatedAt: '2026-09-14T00:00:00.000Z',
+    finishedAt: null,
+    rootAttemptId: permit.plan.rootAttemptId,
+    currentAttemptId: permit.attemptId,
+    currentStage: permit.plan.stage,
+    overallState: state,
+    ...overrides,
+  };
+}
+
+// An import an earlier start stored in this browser.
+function storedCatalogImport(permit, overrides = {}) {
+  return {
+    attemptId: permit.attemptId,
+    rootAttemptId: permit.plan.rootAttemptId,
+    channelAccountId: permit.plan.channelAccountId,
+    permit,
+    stage: permit.plan.stage,
+    currentAttemptId: permit.attemptId,
+    currentStage: permit.plan.stage,
+    status: 'running',
+    phase: 'discovery',
+    currentPage: 0,
+    totalPages: 0,
+    discoveredProducts: 0,
+    hydratedProducts: 0,
+    uploadedChunks: 0,
+    manifest: null,
+    discoveryItems: [],
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    error: null,
+    nextAllowedAt: null,
+    lastDetailRequestAt: 0,
+    ...overrides,
+  };
+}
+
+// Boots a worker whose Channels owner answers from `owner` and records every
+// request under /api/channels. KidItem tab presence stays unknown unless a
+// test confirms it, so startup recovery and closure cleanup leave the stored
+// import alone.
+function bootCatalogHarness({ storage = {}, owner = async () => undefined, presence = 'unknown' } = {}) {
   const requests = [];
-  const { fake } = bootServiceWorker({ fetch: async (url, init) => {
-    // The unrelated legacy bootstrap poll is removed by the aggregate cutover.
-    if (!String(url).includes('/catalog-imports/')) return { ok: true, status: 200, json: async () => ({}) };
-    requests.push({ url: String(url), method: init?.method ?? 'GET' });
-    return { ok: true, status: 200, json: async () => ({
-      attemptId: catalogPermit.attemptId, state: 'COMPLETE',
-      channelAccountId: catalogPermit.plan.channelAccountId,
-      expiresAt: catalogPermit.expiresAt, plan: catalogPermit.plan,
-      phase: 'finished', progress: { hydratedProducts: 0, discoveredProducts: 0 },
-      publication: { sourceImportRunId: catalogPermit.attemptId },
-    }) };
+  const h = bootServiceWorker({
+    storage: { kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } }, ...storage },
+    fetch: async (url, init = {}) => {
+      const { pathname } = new URL(String(url));
+      const method = init.method || 'GET';
+      if (pathname.startsWith('/api/channels/')) {
+        requests.push({
+          method,
+          pathname,
+          key: requestHeader(init, 'Idempotency-Key'),
+          body: init.body ? JSON.parse(init.body) : null,
+        });
+      }
+      return (await owner({ method, pathname })) ?? coupangWindowJson({});
+    },
+  });
+  if (presence === 'unknown') {
+    h.fake.chrome.tabs.query = async () => { throw new Error('tab query failed'); };
+  }
+  return { h, requests };
+}
+
+test('a catalog start on a free browser opens the basics attempt, answers started before the import ends and runs it', async () => {
+  const attemptId = '7a111111-1111-4111-8111-111111111111';
+  const idempotencyKey = randomUUID();
+  const permit = catalogBasicsPermit(attemptId, catalogAccount);
+  const stepRead = Promise.withResolvers();
+  let reads = 0;
+  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
+    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
+    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+      reads += 1;
+      if (reads === 1) return coupangWindowJson(catalogAttemptRead(permit));
+      await stepRead.promise;
+      return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
+    }
+    return undefined;
   } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  const result = await externalRequest(fake, { action: 'startCoupangCatalogImport', permit: catalogPermit });
-  assert.equal(result.success, true, result.error);
-  assert.equal(result.attemptId, catalogPermit.attemptId);
-  assert.equal(result.active, false);
-  assert.equal(requests.length, 1, JSON.stringify(requests));
-  assert.ok(requests[0].url.endsWith(`/attempts/${catalogPermit.attemptId}`));
-  assert.equal(requests[0].method, 'GET');
-  assert.deepEqual(fake.createdTabs, []);
-  const sessions = await externalRequest(fake, { action: 'listCollectionSessions' });
-  assert.ok(!JSON.stringify(sessions).includes(catalogPermit.attemptId));
+  try {
+    const reply = await within(
+      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }, idempotencyKey)),
+      2000,
+      'the start reply waited for the import to end',
+    );
+
+    assert.deepEqual(startResult(reply), { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
+    assert.deepEqual(requests.filter((request) => request.method === 'POST'), [{
+      method: 'POST',
+      pathname: catalogAttemptsPath(catalogAccount),
+      key: idempotencyKey,
+      body: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    }]);
+    await eventually(() => reads === 2, 'the started import never ran a step');
+    const sessions = vm.runInContext('collectionSessions', h.context);
+    assert.equal((await sessions.getOwned(attemptId, 'local'))?.producer, CATALOG_PRODUCER);
+    assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'running');
+    stepRead.resolve();
+    await settleCollections(h);
+    assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'error');
+  } finally {
+    stepRead.resolve();
+    h.close();
+  }
+});
+
+test('a stored import keeps the browser: another account is refused by its account name and the same account answers running', async () => {
+  const holderId = '7b111111-1111-4111-8111-111111111111';
+  const holderPermit = catalogBasicsPermit(holderId, otherCatalogAccount);
+  for (const scenario of [
+    {
+      name: 'named account',
+      accounts: () => coupangWindowJson([{ id: otherCatalogAccount, channel: 'coupang', name: '키드아이템 스토어' }]),
+      holderName: '키드아이템 스토어 계정의 쿠팡 상품 수집',
+    },
+    {
+      name: 'unreadable account list',
+      accounts: () => coupangWindowJson({ message: 'unavailable' }, 503),
+      holderName: '다른 계정의 쿠팡 상품 수집',
+    },
+  ]) {
+    const { h, requests } = bootCatalogHarness({
+      storage: { [CATALOG_STATE_KEY]: storedCatalogImport(holderPermit) },
+      owner: async ({ method, pathname }) => {
+        if (method === 'GET' && pathname === `${catalogAttemptsPath(otherCatalogAccount)}/${holderId}`) {
+          return coupangWindowJson(catalogAttemptRead(holderPermit));
+        }
+        if (method === 'GET' && pathname === '/api/channels/accounts') return scenario.accounts();
+        return undefined;
+      },
+    });
+    try {
+      const refused = startResult(await externalRequest(
+        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+      ));
+      const running = startResult(await externalRequest(
+        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: otherCatalogAccount }),
+      ));
+
+      assert.deepEqual(refused, {
+        success: true, outcome: 'refused', producer: CATALOG_PRODUCER,
+        holder: { producer: CATALOG_PRODUCER, name: scenario.holderName, attemptId: holderId },
+        message: catalogRefusalMessage(scenario.holderName),
+      }, scenario.name);
+      assert.deepEqual(running, { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: holderId }, scenario.name);
+      assert.deepEqual(requests.filter((request) => request.method !== 'GET'), [], `${scenario.name}: nothing was opened`);
+      assert.equal(h.fake.storage[CATALOG_STATE_KEY].attemptId, holderId);
+      await settleCollections(h);
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('catalog starts that arrive together admit one import and answer the rest without opening another attempt', async () => {
+  const attemptId = '7c111111-1111-4111-8111-111111111111';
+  const permit = catalogBasicsPermit(attemptId, catalogAccount);
+  const begin = Promise.withResolvers();
+  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
+    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
+      await begin.promise;
+      return coupangWindowJson(permit, 201);
+    }
+    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+      return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
+    }
+    if (method === 'GET' && pathname === '/api/channels/accounts') {
+      return coupangWindowJson([{ id: catalogAccount, channel: 'coupang', name: '키드아이템 스토어' }]);
+    }
+    return undefined;
+  } });
+  const holderName = '키드아이템 스토어 계정의 쿠팡 상품 수집';
+  try {
+    const first = externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }));
+    const others = await within(Promise.all([
+      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: otherCatalogAccount })),
+      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount })),
+    ]), 2000, 'a start waited for another start');
+    begin.resolve();
+
+    assert.deepEqual(others.map(startResult), [
+      {
+        success: true, outcome: 'refused', producer: CATALOG_PRODUCER,
+        holder: { producer: CATALOG_PRODUCER, name: holderName, attemptId: null },
+        message: catalogRefusalMessage(holderName),
+      },
+      { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: null },
+    ]);
+    assert.deepEqual(startResult(await first), { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
+    assert.equal(requests.filter((request) => request.method === 'POST').length, 1, 'only the admitted start opened an attempt');
+    await settleCollections(h);
+  } finally {
+    begin.resolve();
+    h.close();
+  }
+});
+
+test('a catalog begin the owner answers with ATTEMPT_IN_PROGRESS answers running with that attempt and stores nothing', async () => {
+  const liveAttemptId = '7d111111-1111-4111-8111-111111111111';
+  const { h } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
+    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
+      return coupangWindowJson({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: liveAttemptId,
+        message: '이 계정의 쿠팡 상품 목록 파일을 가져오는 중입니다. 끝난 뒤 다시 수집해 주세요.',
+      }, 409);
+    }
+    return undefined;
+  } });
+  try {
+    const reply = startResult(await externalRequest(
+      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+    ));
+
+    assert.deepEqual(reply, { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: liveAttemptId });
+    assert.equal(h.fake.storage[CATALOG_STATE_KEY], undefined, 'no import was stored');
+    assert.deepEqual([...(await vm.runInContext('collectionSessions', h.context).list('local'))], []);
+    await settleCollections(h);
+  } finally {
+    h.close();
+  }
+});
+
+test('an import an operator stopped on the server frees the browser, its window and session at the next catalog start', async () => {
+  const leftoverId = '7e111111-1111-4111-8111-111111111111';
+  const attemptId = '7e222222-2222-4222-8222-222222222222';
+  const leftoverPermit = catalogBasicsPermit(leftoverId, otherCatalogAccount);
+  const permit = catalogBasicsPermit(attemptId, catalogAccount);
+  const { h, requests } = bootCatalogHarness({
+    storage: {
+      [CATALOG_STATE_KEY]: storedCatalogImport(leftoverPermit),
+      kiditem_collection_sessions: { [leftoverId]: storedSession(leftoverId, CATALOG_PRODUCER) },
+    },
+    owner: async ({ method, pathname }) => {
+      if (method === 'GET' && pathname === `${catalogAttemptsPath(otherCatalogAccount)}/${leftoverId}`) {
+        return coupangWindowJson(catalogAttemptRead(leftoverPermit, 'FAILED'));
+      }
+      if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
+      if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+        return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
+      }
+      return undefined;
+    },
+  });
+  const { removedWindows } = installLeftoverWindow(h, leftoverId, 'CATALOG_COLLECTION_WINDOW_STORAGE_KEY');
+  try {
+    const reply = startResult(await externalRequest(
+      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+    ));
+
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
+    assert.deepEqual(removedWindows, [7], 'the stopped import released its window before the next one opened');
+    assert.equal(await vm.runInContext('collectionSessions', h.context).get(leftoverId), null);
+    assert.equal(requests.filter((request) => request.method === 'POST').length, 1);
+    await settleCollections(h);
+  } finally {
+    h.close();
+  }
+});
+
+test('stopping the stored import in this browser frees the browser for another account', async () => {
+  const holderId = '7f111111-1111-4111-8111-111111111111';
+  const attemptId = '7f222222-2222-4222-8222-222222222222';
+  const holderPermit = catalogBasicsPermit(holderId, otherCatalogAccount);
+  const permit = catalogBasicsPermit(attemptId, catalogAccount);
+  const holderPath = `${catalogAttemptsPath(otherCatalogAccount)}/${holderId}`;
+  let holderState = 'RUNNING';
+  const { h, requests } = bootCatalogHarness({
+    storage: {
+      [CATALOG_STATE_KEY]: storedCatalogImport(holderPermit),
+      kiditem_collection_sessions: { [holderId]: storedSession(holderId, CATALOG_PRODUCER) },
+    },
+    owner: async ({ method, pathname }) => {
+      if (method === 'GET' && pathname === holderPath) return coupangWindowJson(catalogAttemptRead(holderPermit, holderState));
+      if (method === 'POST' && pathname === `${holderPath}/fail`) {
+        holderState = 'FAILED';
+        return coupangWindowJson(catalogAttemptRead(holderPermit, 'FAILED'), 201);
+      }
+      if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
+      if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+        return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
+      }
+      if (method === 'GET' && pathname === '/api/channels/accounts') return coupangWindowJson([]);
+      return undefined;
+    },
+  });
+  try {
+    const refused = startResult(await externalRequest(
+      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+    ));
+    assert.equal(refused.outcome, 'refused');
+
+    const stopped = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId: holderId });
+    assert.equal(stopped.success, true, stopped.error);
+
+    const reply = startResult(await externalRequest(
+      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+    ));
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
+    const failure = requests.find((request) => request.pathname === `${holderPath}/fail`);
+    assert.equal(failure?.body?.code, 'USER_CANCELLED');
+    assert.equal(requests.filter((request) => request.pathname === catalogAttemptsPath(catalogAccount)).length, 1);
+    await settleCollections(h);
+  } finally {
+    h.close();
+  }
+});
+
+test('a restarted worker continues a catalog import only for the same unexpired attempt while a KidItem tab is confirmed', async () => {
+  for (const scenario of [
+    { name: 'confirmed tab', presence: 'confirmed', expiresAt: '2030-01-02T00:00:00.000Z', continues: true },
+    { name: 'unknown tab presence', presence: 'unknown', expiresAt: '2030-01-02T00:00:00.000Z', continues: false },
+    { name: 'lease passed', presence: 'confirmed', expiresAt: '2020-01-02T00:00:00.000Z', continues: false },
+  ]) {
+    const attemptId = randomUUID();
+    const permit = catalogBasicsPermit(attemptId, catalogAccount, { expiresAt: scenario.expiresAt });
+    let reads = 0;
+    const { h } = bootCatalogHarness({
+      presence: scenario.presence,
+      storage: {
+        [CATALOG_STATE_KEY]: storedCatalogImport(permit),
+        kiditem_collection_sessions: { [attemptId]: storedSession(attemptId, CATALOG_PRODUCER) },
+      },
+      owner: async ({ method, pathname }) => {
+        if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+          reads += 1;
+          // Recovery confirms the attempt still runs; the continued step then finds it ended.
+          return coupangWindowJson(catalogAttemptRead(permit, reads === 1 ? 'RUNNING' : 'FAILED'));
+        }
+        return undefined;
+      },
+    });
+    try {
+      await settleCollections(h);
+      // The alarm the earlier worker life scheduled continues nothing by itself.
+      const alarmName = vm.runInContext(
+        'coupangEnvironment.alarmName("kiditem-coupang-catalog-import-step", "local")', h.context,
+      );
+      for (const listener of h.fake.alarmListeners) listener({ name: alarmName });
+      await settleCollections(h);
+
+      if (scenario.continues) {
+        assert.equal(reads, 2, `${scenario.name}: recovery confirmed the attempt and continued its step`);
+        assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'error', scenario.name);
+      } else {
+        assert.equal(reads, 0, `${scenario.name}: nothing was read or continued`);
+        assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'running', scenario.name);
+      }
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('a start for the account whose import waits after a Wing rate limit resumes that attempt only once its wait passed', async () => {
+  const attemptId = '7a333333-3333-4333-8333-333333333333';
+  const permit = catalogBasicsPermit(attemptId, catalogAccount);
+  for (const scenario of [
+    { name: 'wait passed', nextAllowedAt: '2020-01-01T00:00:00.000Z', outcome: 'started' },
+    { name: 'still waiting', nextAllowedAt: '2099-01-01T00:00:00.000Z', outcome: 'running' },
+  ]) {
+    let paused = true;
+    let reads = 0;
+    const { h, requests } = bootCatalogHarness({
+      storage: {
+        [CATALOG_STATE_KEY]: storedCatalogImport(permit, { nextAllowedAt: scenario.nextAllowedAt }),
+        kiditem_collection_sessions: { [attemptId]: storedSession(attemptId, CATALOG_PRODUCER) },
+      },
+      owner: async ({ method, pathname }) => {
+        if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
+          // The same-key begin is the owner's explicit resume of a paused attempt.
+          paused = false;
+          return coupangWindowJson(permit, 201);
+        }
+        if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+          reads += 1;
+          const ended = !paused && reads >= 3;
+          return coupangWindowJson(catalogAttemptRead(permit, ended ? 'FAILED' : 'RUNNING', {
+            error: paused
+              ? { code: 'WING_PROVIDER_RATE_LIMITED', message: 'Wing 요청 한도', phase: 'hydration', recoverable: true, notBefore: '2020-01-01T00:00:00.000Z' }
+              : null,
+          }));
+        }
+        return undefined;
+      },
+    });
+    try {
+      const reply = startResult(await externalRequest(
+        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+      ));
+      await settleCollections(h);
+
+      assert.deepEqual(reply, { success: true, outcome: scenario.outcome, producer: CATALOG_PRODUCER, attemptId }, scenario.name);
+      const begins = requests.filter((request) => request.method === 'POST');
+      if (scenario.outcome === 'started') {
+        assert.deepEqual(begins, [{
+          method: 'POST',
+          pathname: catalogAttemptsPath(catalogAccount),
+          key: CATALOG_ATTEMPT_KEY,
+          body: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+        }], 'the resume replays the attempt\'s own begin, not a new attempt');
+        assert.equal(reads, 3, 'the resumed import ran its step');
+      } else {
+        assert.deepEqual(begins, [], 'nothing resumes before the wait passed');
+        assert.equal(h.fake.storage[CATALOG_STATE_KEY].nextAllowedAt, scenario.nextAllowedAt);
+      }
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test('a catalog start whose begin replays a completed basics import answers started and collects nothing', async () => {
+  const attemptId = '7a444444-4444-4444-8444-444444444444';
+  const permit = catalogBasicsPermit(attemptId, catalogAccount, { state: 'COMPLETE' });
+  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
+    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
+    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
+      return coupangWindowJson(catalogAttemptRead(permit, 'COMPLETE', {
+        publication: { sourceImportRunId: attemptId, duplicate: false, changes: {} },
+      }));
+    }
+    return undefined;
+  } });
+  try {
+    const reply = startResult(await externalRequest(
+      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
+    ));
+    await settleCollections(h);
+
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
+    assert.deepEqual(requests.map(({ method, pathname }) => `${method} ${pathname}`), [
+      `POST ${catalogAttemptsPath(catalogAccount)}`,
+      `GET ${catalogAttemptsPath(catalogAccount)}/${attemptId}`,
+    ]);
+    assert.deepEqual(h.fake.createdTabs, []);
+    assert.deepEqual([...(await vm.runInContext('collectionSessions', h.context).list('local'))], []);
+  } finally {
+    h.close();
+  }
 });
 
 test('catalog generic cancellation reconciles the exact web-failed owner without a legacy session restart', async () => {
@@ -3152,6 +4208,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
     // 쿠팡
+    'collectionStartV1',
     'profitabilityAdvertisingSourceOwnerV1',
     'coupangCatalogSnapshot',
     'wingFormPortV1',
@@ -3218,12 +4275,10 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   );
 });
 
-test('수익성 광고비 수집은 공용 dispatch의 직접 source-owner action으로만 등록된다', () => {
+test('수익성 광고비 수집은 공용 dispatch의 수집 시작 계약으로만 등록된다', () => {
   const { context } = bootServiceWorker();
-  assert.equal(
-    typeof context.KidItemDomains.forExternalAction('collectAdvertisingProfitability')?.handle,
-    'function',
-  );
+  assert.equal(typeof context.KidItemDomains.forExternalAction('startCollection')?.handle, 'function');
+  assert.equal(context.KidItemDomains.forExternalAction('collectAdvertisingProfitability'), null);
   assert.equal(context.KidItemDomains.forExternalAction('advertising.refresh_profitability_spend'), null);
 });
 
@@ -3235,7 +4290,7 @@ test('retired advertising account-day KPI actions, content step and capability a
   const capabilities = context.KidItemDomains.capabilities();
   assert.equal(capabilities.advertisingAccountDailyKpiSourceOwnerV1, undefined);
   assert.equal(capabilities.advertisingCampaignSourceOwnerV1, true);
-  assert.equal(typeof context.KidItemDomains.forExternalAction('collectAdvertisingCampaigns')?.handle, 'function');
+  assert.equal(typeof context.KidItemDomains.forExternalAction('startCollection')?.handle, 'function');
 
   // The sourcing worker's catch-all listener keeps every channel open, so the
   // retired content step must be treated exactly like an action nobody owns:

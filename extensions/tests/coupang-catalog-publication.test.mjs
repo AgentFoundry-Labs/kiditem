@@ -365,6 +365,34 @@ test('keepalive releases after a completed step and after a handled step error',
   });
 });
 
+test('recovery leaves a stored import alone while a start holds the browser turn', async () => {
+  const holderCheck = Promise.withResolvers();
+  let reads = 0;
+  const h = harness({
+    permit: basicsPermit,
+    async read() {
+      reads += 1;
+      // The start's check of the stored import is still waiting for the owner.
+      if (reads === 1) await holderCheck.promise;
+      return ownerResultFor(basicsPermit);
+    },
+  });
+  await h.ready;
+  const admitting = h.runtime.admit({
+    producer: 'channels.coupang_catalog',
+    idempotencyKey: '88888888-8888-4888-8888-888888888888',
+    scope: { channelAccountId },
+  }, h.dependencies);
+
+  await h.runtime.recover(h.dependencies);
+
+  assert.equal(reads, 1, 'recovery read nothing while the start held the turn');
+  assert.deepEqual(h.calls.alarms, [], 'recovery scheduled no step');
+  assert.equal(h.runtime.isContinuing(h.dependencies), false);
+  holderCheck.resolve();
+  assert.deepEqual({ ...await admitting }, { outcome: 'running', attemptId });
+});
+
 test('a legacy local run without an owner permit cannot block a new catalog permit', async () => {
   let reads = 0;
   const h = harness({ storage: { [stateKey]: { runId: otherRunId, status: 'running' } },

@@ -275,7 +275,7 @@
       return sendTabMessage(tabId, message);
     }
 
-    async function begin(config, environmentId, idempotencyKey) {
+    async function begin(config, environmentId, idempotencyKey, expectedAttemptId = null) {
       const plan = planFrom(await requestJson(config, SOURCE_PATH, {
         method: "POST",
         headers: {
@@ -283,6 +283,9 @@
           "Idempotency-Key": requiredText(idempotencyKey, "INVALID_IDEMPOTENCY_KEY"),
         },
       }));
+      if (expectedAttemptId && plan.state === "RUNNING" && !wire.continuesAttempt(plan, expectedAttemptId, now().getTime())) {
+        return { ...plan, continuable: false };
+      }
       if (plan.state === "RUNNING") {
         await persistRequestIdentity(environmentId, plan.attemptId, idempotencyKey);
         try {
@@ -507,7 +510,7 @@
       ) {
         return null;
       }
-      return begin(config, environmentId, correlation.idempotencyKey);
+      return begin(config, environmentId, correlation.idempotencyKey, existing.attemptId);
     }
 
     function launch(environmentId, work) {
@@ -547,6 +550,15 @@
         if (plan.state !== "RUNNING") {
           await clearTerminalAttempt(environmentId, plan.attemptId, null);
           return terminalResult(plan);
+        }
+        if (plan.continuable === false) {
+          return {
+            success: false,
+            attemptId: plan.attemptId,
+            terminalState: "RUNNING",
+            errorCode: "SOURCE_ATTEMPT_NOT_CONTINUED",
+            error: "1688 collection was not continued: the owner did not return the same attempt with a live lease.",
+          };
         }
         active.context = {
           config,

@@ -390,6 +390,60 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     });
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
+    await expect(service.cancelAttempt(OTHER_ORGANIZATION_ID, attempt.attemptId))
+      .rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+    const stopped = await service.cancelAttempt(TEST_ORGANIZATION_ID, attempt.attemptId);
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    await expect(prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } }))
+      .resolves.toBe(0);
+    await expect(service.submitAttempt(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+      completePayload(attempt),
+    )).rejects.toThrow('ATTEMPT_TERMINAL');
+    await expect(service.cancelAttempt(TEST_ORGANIZATION_ID, attempt.attemptId))
+      .resolves.toEqual(stopped);
+    const next = await service.beginAttempt(
+      TEST_ORGANIZATION_ID,
+      '22222222-2222-4222-8222-222222222222',
+    );
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    });
+    await expect(service.cancelAttempt(TEST_ORGANIZATION_ID, expired.attemptId))
+      .resolves.toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.alert.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, status: 'OPEN' },
+    })).resolves.toBe(1);
+
+    const complete = await service.beginAttempt(
+      TEST_ORGANIZATION_ID,
+      '22222222-2222-4222-8222-222222222222',
+    );
+    await service.submitAttempt(TEST_ORGANIZATION_ID, complete.attemptId, completePayload(complete));
+    const view = await service.readAttemptStatus(TEST_ORGANIZATION_ID, complete.attemptId);
+    expect(view.state).toBe('COMPLETE');
+    await expect(service.cancelAttempt(TEST_ORGANIZATION_ID, complete.attemptId))
+      .resolves.toEqual(view);
+  });
+
   it('rejects a stale attempt token for both completion and failure', async () => {
     const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
     const staleToken = '99999999-9999-4999-8999-999999999999';

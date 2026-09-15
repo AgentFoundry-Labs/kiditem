@@ -11,13 +11,12 @@ vi.mock('../hooks/use-wing-catalog-source', () => ({
   useWingCatalogSource: vi.fn((options: Record<string, unknown>) => {
     capturedOptions = options;
     return {
-      attempt: null, isRunning: false, error: null,
+      control: {
+        state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+        start: vi.fn(), stop: vi.fn(),
+      },
+      attempt: null,
       start,
-      cancel: vi.fn(),
-      retryAttention: vi.fn(),
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
     };
   }),
 }));
@@ -38,6 +37,8 @@ vi.mock('../market/lib/trend-collection-api', () => ({
 vi.mock('../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: () => ({ data: undefined, isLoading: false, error: null }),
   useIngestSourcingCoupangObservations: () => ({ mutateAsync: vi.fn() }),
+  useRefreshSourcingRecommendations: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useRefreshSourcingValidation: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }));
 
 function renderPage() {

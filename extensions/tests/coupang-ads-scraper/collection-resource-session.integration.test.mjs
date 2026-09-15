@@ -16,6 +16,10 @@ const sourcePaths = {
     repoRoot,
     'extensions/kiditem-os/background/coupang/collection-window.js',
   ),
+  collectionStart: path.join(
+    repoRoot,
+    'extensions/kiditem-os/background/coupang/collection-start.js',
+  ),
   adCenter: path.join(
     repoRoot,
     'extensions/kiditem-os/background/coupang/ad-center-collector.js',
@@ -623,15 +627,9 @@ function createOwnerServer() {
   };
 }
 
-async function settle(turns = 25) {
-  for (let turn = 0; turn < turns; turn += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
-
 // Wires two Coupang source owners onto one shared collection window, the way
 // the Coupang worker does: each owner takes the window's turn for its whole
-// run and reports whether an earlier attempt has ended.
+// run, never waits for it, and reports whether an earlier attempt has ended.
 function createOwnerRuntime(harness, adCenterOptions = {}) {
   const owners = {};
   const binding = {
@@ -668,26 +666,32 @@ function createOwnerRuntime(harness, adCenterOptions = {}) {
     environmentForTab: async () => 'local',
     ownedTab: async (_environmentId, id) => (await window.reattach(id))?.tabId,
     closeAttempt: (_environmentId, id) => window.close(id),
-    takeWindowTurn: (_environmentId, operation) => window.runExclusive(operation),
   };
+  const collectionStart = context.KidItemCoupangCollectionStart.create({ windowFor: () => window });
+  const windowTurn = (producer) => (environmentId, operation) =>
+    collectionStart.takeTurn(environmentId, producer, operation);
   owners.adCampaign = context.KidItemAdCampaignSourceOwner.create({
     ...ownerOptions,
+    takeWindowTurn: windowTurn('advertising.ad_sync'),
     collect: (input) => adCenter.collectCampaigns(input),
   });
   owners.wingTraffic = context.KidItemWingTrafficSourceOwnerV2.create({
     ...ownerOptions,
+    takeWindowTurn: windowTurn('dashboard.wing_sales'),
     collect: (input) => wingReport.collectTraffic(input),
   });
   return { ...runtime, server, owners };
 }
 
-test('a collection started while another is finishing waits for its outcome and cleanup, then takes the window', async () => {
+test('a collection started while another holds the window is refused and opens nothing, then takes the free window', async () => {
   const harness = createChromeHarness();
   const runtime = createOwnerRuntime(harness);
   const adId = attemptId(31);
   const wingId = attemptId(32);
+  const nextWingId = attemptId(33);
   runtime.server.put(adCampaignControl(adId));
   runtime.server.put(wingTrafficControl(wingId));
+  runtime.server.put(wingTrafficControl(nextWingId));
   harness.responses.push(
     { success: false, error: '광고 캠페인 상세 페이지를 열지 못했습니다.' },
     { success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' },
@@ -697,24 +701,36 @@ test('a collection started while another is finishing waits for its outcome and 
   const adRun = runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId });
   await adReporting.entered;
   // Incident 2026-09-14: Wing traffic started while the ad sweep was still
-  // reporting its failure, and was refused the window.
-  const wingRun = runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId });
-  await settle();
-  assert.equal(harness.calls.messages.length, 1, 'the Wing collection waits while the ad collection reports');
-  assert.equal(harness.calls.windowsCreate.length, 1);
+  // reporting its failure waited behind it. The window refuses it instead.
+  await assert.rejects(
+    within(
+      runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId }),
+      2000,
+      'the Wing collection waited for the window instead of being refused',
+    ),
+    (error) => {
+      assert.equal(error.code, 'collection_window_owner_conflict');
+      assert.equal(error.message, '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.');
+      return true;
+    },
+  );
+  assert.equal(harness.calls.messages.length, 1, 'the refused collection sent nothing to a page');
+  assert.equal(harness.calls.windowsCreate.length, 1, 'and opened no window');
+  assert.equal(await runtime.sessions.get(wingId), null, 'and started no session');
 
   adReporting.release();
-  const [adOutcome, wingOutcome] = await Promise.all([adRun, wingRun]);
+  const adOutcome = await adRun;
+  const wingOutcome = await runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: nextWingId });
 
   assert.equal(adOutcome.terminalState, 'FAILED');
   assert.equal(adOutcome.error, '광고 캠페인 상세 페이지를 열지 못했습니다.');
   assert.equal(wingOutcome.terminalState, 'FAILED');
-  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the Wing collection ran instead of being refused');
+  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the next collection ran in the free window');
   assert.equal(wingOutcome.error, 'Wing 매출분석 표를 읽지 못했습니다.');
   assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['campaign_sweep', 'wing_traffic']);
   assert.deepEqual(harness.calls.windowsRemove, [20, 21], 'the ad window closed before the Wing window opened');
   assert.equal(await runtime.sessions.get(adId), null);
-  assert.equal(await runtime.sessions.get(wingId), null);
+  assert.equal(await runtime.sessions.get(nextWingId), null);
 });
 
 test('another collection clears the attention leftover of an ended ad attempt through its owner read', async () => {
@@ -767,10 +783,12 @@ test('a sweep page held by a native dialog fails its capture and hands the windo
       : executeScript(details);
   harness.responses.push({ success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' });
 
-  const [adOutcome, wingOutcome] = await within(Promise.all([
+  const adOutcome = await within(
     runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId }),
-    runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId }),
-  ]), 3000, 'a page held by a dialog kept the collection window');
+    3000,
+    'a page held by a dialog kept the collection window',
+  );
+  const wingOutcome = await runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId });
 
   assert.equal(adOutcome.terminalState, 'FAILED');
   assert.equal(adOutcome.errorCode, 'AD_PAGE_DIALOG_BLOCKED');

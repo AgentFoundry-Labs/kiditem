@@ -8,13 +8,12 @@ const start = vi.fn(async () => ({ id: '10000000-0000-4000-8000-000000000001' })
 
 vi.mock('../../hooks/use-wing-catalog-source', () => ({
   useWingCatalogSource: vi.fn(() => ({
-    attempt: null, isRunning: false, error: null,
+    control: {
+      state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
+      start: vi.fn(), stop: vi.fn(),
+    },
+    attempt: null,
     start,
-    cancel: vi.fn(),
-    retryAttention: vi.fn(),
-    isStarting: false,
-    isCancelling: false,
-    isRetrying: false,
   })),
 }));
 
@@ -27,6 +26,8 @@ vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useIngestSourcingCoupangObservations: () => ({ mutateAsync: vi.fn() }),
   useSourcingInterestTargets: () => ({ data: [], refetch: vi.fn() }),
   useSaveSourcingInterestTarget: () => ({ mutateAsync: vi.fn() }),
+  useRefreshSourcingRecommendations: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useRefreshSourcingValidation: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }));
 
 function renderPage() {

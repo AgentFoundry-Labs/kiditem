@@ -293,6 +293,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         if (!work.control) {
@@ -302,6 +303,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         if (requested.kind === "complete") {
@@ -351,7 +353,13 @@
       work.terminal ||= terminalRequest;
       if (work.terminalPromise) return work.terminalPromise;
       work.terminalPromise = terminal(environmentId, work)
-        .finally(() => { work.terminalPromise = null; });
+        .finally(() => {
+          work.terminalPromise = null;
+          // An operator stop can settle after both the run and cancel returned.
+          if (!work.promise && !work.terminal && active.get(environmentId) === work) {
+            active.delete(environmentId);
+          }
+        });
       return work.terminalPromise;
     }
 
@@ -470,7 +478,6 @@
       }
 
       work.control = attempt;
-      work.terminal ||= { kind: "complete", body };
       try {
         await options.sessions.progress(attemptId, {
           current: 1,
@@ -480,9 +487,11 @@
           label: "Sellpia profitability capture collected · publishing",
         });
       } catch {
-        // Progress is best-effort UI state; retain and submit the captured body.
+        // Progress is best-effort UI state; still submit the captured body.
       }
-      return requestTerminal(environmentId, work, work.terminal);
+      // Request completion only after progress, so a stop that lands during the
+      // update still reaches the owner.
+      return requestTerminal(environmentId, work, { kind: "complete", body });
     }
 
     function run({ environmentId, attemptId }) {

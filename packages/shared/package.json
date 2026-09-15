@@ -235,6 +235,11 @@
       "import": "./dist/browser-collection-session.js",
       "require": "./dist/browser-collection-session.cjs"
     },
+    "./collection-start": {
+      "types": "./dist/collection-start.d.ts",
+      "import": "./dist/collection-start.js",
+      "require": "./dist/collection-start.cjs"
+    },
     "./source-readiness": {
       "types": "./dist/source-readiness.d.ts",
       "import": "./dist/source-readiness.js",
@@ -379,6 +384,9 @@
       ],
       "browser-collection-session": [
         "dist/browser-collection-session.d.ts"
+      ],
+      "collection-start": [
+        "dist/collection-start.d.ts"
       ],
       "source-readiness": [
         "dist/source-readiness.d.ts"

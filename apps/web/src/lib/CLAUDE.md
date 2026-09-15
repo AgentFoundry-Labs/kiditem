@@ -47,16 +47,17 @@ multiple route groups.
 - `rocket-confirm-file-store.ts` owns the browser-local Rocket workbook history
   shared by the Supply confirmation workspace and the preserved Orders file
   list. It is operator convenience only, never server truth or provider proof.
-- Trend consumers use `src/hooks/use-trend-source-collection.ts` for the shared
-  owner action, retry keys, and source status. Sellpia callers use the route-
-  local source-owner helper instead of a generic operation action.
+- Trend consumers use `src/hooks/use-trend-source-collection.ts`, the shared
+  control over `trend-source-collection.ts`. Sellpia callers use the route-local
+  source-owner helper instead of a generic operation action.
 - Shipment summary callers use `coupang-shipment-summary-action.ts` to begin
   the Inventory attempt and send only its ID to the extension. Read status,
   capture cutoff, and calendar history from the owner; keep provider rows and
   terminal writes out of the page.
-- Rocket PO callers use `rocket-purchase-collection-action.ts` to collect through
-  the Channels attempt before requesting Supply preview by COMPLETE source ID.
-  `use-rocket-po-source.ts` reads owner status; preview errors never fail a source.
+- Rocket PO callers start and stop collection through the account's shared
+  control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
+  by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
+  fail a source.
 
 ## Boundary Rules
 

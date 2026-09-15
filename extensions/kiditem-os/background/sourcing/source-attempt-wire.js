@@ -69,9 +69,16 @@
       }, parse, options);
     }
 
+    // A begin replayed to resume a stored attempt continues only that attempt
+    // while its lease holds. Any other running answer changes nothing local; the
+    // attempt stays for its lease or an operator stop.
+    function continuesAttempt(plan, expectedAttemptId, nowMs = Date.now()) {
+      return plan.attemptId === expectedAttemptId && Date.parse(plan.expiresAt) > nowMs;
+    }
+
     return Object.freeze({
       requestJson, requestJsonWithRetry, terminal, failure, getCorrelation, setCorrelation,
-      clearCorrelation: (key) => setCorrelation(key, null),
+      clearCorrelation: (key) => setCorrelation(key, null), continuesAttempt,
     });
   }
 

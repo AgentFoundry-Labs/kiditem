@@ -29,6 +29,7 @@ import {
 } from 'recharts';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber, formatPercent } from '@/lib/utils';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import {
@@ -46,6 +47,7 @@ import {
 import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import { fetchLiveSnsMarket } from '../lib/live-sns-market';
 
+const NAVER_TREND_SOURCES = ['naver'] as const;
 const categoryOptions: Array<{ value: MarketCategory; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'toy', label: '완구' },
@@ -136,10 +138,7 @@ export function TrendRadarSection() {
     enabled: channelView === 'domestic',
     staleTime: 10 * 60 * 1000,
   });
-  const naverSource = useTrendSourceCollection({
-    input: { sources: ['naver'] },
-    snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-  });
+  const naverSource = useTrendSourceCollection({ sources: NAVER_TREND_SOURCES });
   const liveSnsQuery = useQuery({
     queryKey: ['sourcing', 'live-sns-market'] as const,
     queryFn: fetchLiveSnsMarket,
@@ -261,17 +260,12 @@ export function TrendRadarSection() {
                     저장본 새로고침
                   </button>
                   {liveDomestic && (
-                    <button
-                      type="button"
-                      onClick={() => void naverSource.collect({ sources: ['naver'] })}
-                      disabled={naverSource.isCollecting}
-                      className={cn(
-                        'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-semibold text-white disabled:opacity-50',
-                        pressable,
-                      )}
-                    >
-                      네이버 수집
-                    </button>
+                    <CollectionStartControl
+                      control={naverSource.control}
+                      startLabel="네이버 수집"
+                      onStart={() => naverSource.start()}
+                      onStop={naverSource.control.stop}
+                    />
                   )}
                 </>
               )}

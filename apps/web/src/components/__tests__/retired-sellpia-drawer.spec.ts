@@ -45,11 +45,11 @@ describe('retired shared Sellpia drawer', () => {
       "import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';",
     );
     expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
-    expect(syncAction).toContain('await start()');
+    expect(syncAction).toContain('onStart={() => control.start()}');
     expect(sourceOwner).toContain('collectSellpiaInventory');
     expect(sourceOwner).not.toContain('startSellpiaInventoryRefreshAction');
-    expect(syncAction).toContain('aria-label="셀피아 재고 동기화"');
-    expect(coordinator).toContain('useSellpiaInventorySourceOwner');
+    expect(syncAction).toContain('startLabel="셀피아 재고 동기화"');
+    expect(coordinator).toContain('useSellpiaInventoryCollection');
     expect(coordinator).not.toContain('collectSellpiaInventory');
     expect(coordinator).not.toContain('collectSellpiaProductProfitFromExtension');
   });

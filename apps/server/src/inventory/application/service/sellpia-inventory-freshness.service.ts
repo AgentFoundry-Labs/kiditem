@@ -16,6 +16,7 @@ import {
 import {
   createInitialFreshnessState,
   deriveFreshnessStatus,
+  hasLiveLease,
   isSourceBindingConfirmed,
   planRefreshRequest,
   planSourceBindingConfirmation,
@@ -49,15 +50,12 @@ implements
   ) {}
 
   async getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView> {
-    const state = await this.repository.readState(input.organizationId);
-    if (state) {
-      return toFreshnessView(state, new Date(), input.userId);
-    }
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const initializedState = await transaction.getState();
-      const now = new Date();
-      return toFreshnessView(initializedState, now, input.userId);
-    });
+    const state = await this.repository.readState(input.organizationId)
+      ?? await this.withLockedState(
+        input.organizationId,
+        (transaction) => transaction.getState(),
+      );
+    return this.view(input, state);
   }
 
   async confirmSourceBinding(input: ActorScope & {
@@ -72,17 +70,31 @@ implements
     ) {
       throw new BadRequestException('Invalid Sellpia source binding');
     }
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
-      if (isSourceBindingConfirmed(state)) {
-        return toFreshnessView(state, new Date(), input.userId);
-      }
-      const updated = await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch: planSourceBindingConfirmation(state, randomUUID()),
+    const state = await this.withLockedState(input.organizationId, async (transaction) => {
+      const current = await transaction.getState();
+      if (isSourceBindingConfirmed(current)) return current;
+      return transaction.compareAndSetState({
+        expected: expectation(current),
+        patch: planSourceBindingConfirmation(current, randomUUID()),
       });
-      return toFreshnessView(updated, new Date(), input.userId);
     });
+    return this.view(input, state);
+  }
+
+  // A live lease names the source attempt holding it, so an operator can stop
+  // that attempt by id from any browser.
+  private async view(
+    input: ActorScope,
+    state: SellpiaInventoryFreshnessState,
+  ): Promise<SellpiaInventoryFreshnessView> {
+    const now = new Date();
+    const leaseAttemptId = hasLiveLease(state, now) && state.activeSyncToken
+      ? await this.repository.findLeaseAttemptId({
+        organizationId: input.organizationId,
+        activeSyncToken: state.activeSyncToken,
+      })
+      : null;
+    return toFreshnessView(state, now, input.userId, leaseAttemptId);
   }
 
   async assertFreshAndActive(input: {

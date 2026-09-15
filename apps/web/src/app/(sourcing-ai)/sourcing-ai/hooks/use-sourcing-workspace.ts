@@ -54,11 +54,33 @@ export function useSourcingValidation(input: { limit?: number; cursor?: string }
   });
 }
 
+export function useRefreshSourcingRecommendations() {
+  const organizationId = useSourcingWorkspaceOrganizationId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sourceAttemptId: string) => {
+      const envelope = await sourcingWorkspaceApi.refreshRecommendations(sourceAttemptId);
+      if (!envelope.data?.runId) {
+        throw new Error(envelope.error?.message ?? 'recommendations were not refreshed');
+      }
+      return envelope;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+      }),
+  });
+}
+
 export function useRefreshSourcingValidation() {
   const organizationId = useSourcingWorkspaceOrganizationId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: sourcingWorkspaceApi.refreshValidation,
+    mutationFn: async () => {
+      const envelope = await sourcingWorkspaceApi.refreshValidation();
+      if (!envelope.ready) throw new Error(envelope.error?.message ?? 'validation was not refreshed');
+      return envelope;
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({
         queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),

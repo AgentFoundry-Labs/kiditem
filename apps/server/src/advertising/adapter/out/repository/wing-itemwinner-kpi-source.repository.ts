@@ -15,6 +15,7 @@ import {
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
 import {
@@ -30,6 +31,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   WING_ITEMWINNER_PARSER,
   WING_ITEMWINNER_SOURCE,
+  WING_ITEMWINNER_TARGET_URL,
 } from '../../../application/port/in/wing-itemwinner-kpi-source.port';
 import type {
   WingItemwinnerAttempt,
@@ -46,7 +48,11 @@ import type {
 const SNAPSHOT_SOURCE = 'wing';
 const PAGE_TYPE = 'itemwinner';
 const EXPIRES_IN_MS = 30 * 60_000;
-const SOURCE_ALERT_DEDUPE_KEY = `source:${WING_ITEMWINNER_SOURCE}`;
+// One failure Alert per account, as Wing traffic, campaigns and keywords keep:
+// an account's completion resolves only its own failure.
+function sourceAlertDedupeKey(channelAccountId: string | null): string {
+  return `source:${WING_ITEMWINNER_SOURCE}:${channelAccountId}`;
+}
 const SOURCE_ALERT_TITLE = '쿠팡 Wing 아이템위너 수집 실패';
 
 type Tx = Prisma.TransactionClient;
@@ -123,14 +129,14 @@ export class WingItemwinnerKpiSourceRepository
   async begin(input: {
     organizationId: string;
     idempotencyKey: string;
-    targetUrl: string;
+    channelAccountId?: string;
   }): Promise<WingItemwinnerSourceControl> {
     return this.prisma.$transaction(async (tx) => {
+      // One organization-wide admission lock, as Wing traffic and campaigns
+      // take: the idempotency key is unique per organization and source, so a
+      // per-account lock would let two accounts race on one key.
       await this.lock(tx, input.organizationId);
-      if (!isExplicitWingItemWinnerUrl(input.targetUrl)) {
-        throw new BadRequestException('INVALID_PAGE_TARGET');
-      }
-      const requestFingerprint = hash({ targetUrl: input.targetUrl });
+      const requestFingerprint = hash({ channelAccountId: input.channelAccountId ?? null });
       const replay = await tx.sourceImportRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -153,7 +159,7 @@ export class WingItemwinnerKpiSourceRepository
         return this.controlView(tx, row);
       }
 
-      const account = await this.primaryAccount(tx, input.organizationId);
+      const account = await this.account(tx, input.organizationId, input.channelAccountId);
       if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
       const expectedVendorId = resolveCoupangVendorId(account);
       if (!expectedVendorId) {
@@ -164,6 +170,7 @@ export class WingItemwinnerKpiSourceRepository
         where: {
           organizationId: input.organizationId,
           sourceType: WING_ITEMWINNER_SOURCE,
+          channelAccountId: account.id,
           status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         },
       });
@@ -190,7 +197,7 @@ export class WingItemwinnerKpiSourceRepository
         expectedVendorId,
         businessDate: businessDateKey(businessDate),
         pageType: PAGE_TYPE,
-        targetUrl: input.targetUrl,
+        targetUrl: WING_ITEMWINNER_TARGET_URL,
       };
       const previous = await tx.sourceImportRun.aggregate({
         where: {
@@ -344,7 +351,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'ACCOUNT_CHANGED',
-            'The active primary Coupang account changed during collection.',
+            'The frozen Coupang account changed during collection.',
             checksum,
           );
           return { failure: 'ACCOUNT_CHANGED' as const, row: failed };
@@ -462,7 +469,7 @@ export class WingItemwinnerKpiSourceRepository
         });
         await this.alerts.resolveSourceFailure(tx, {
           organizationId: input.organizationId,
-          dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
+          dedupeKey: sourceAlertDedupeKey(row.channelAccountId),
           attemptId: row.id,
         });
         return { row: completed };
@@ -504,11 +511,33 @@ export class WingItemwinnerKpiSourceRepository
     });
   }
 
+  async cancel(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<WingItemwinnerAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, input.organizationId);
+      const row = await this.find(tx, input.organizationId, input.attemptId);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(tx, row);
+      const failed = expired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing itemwinner collection expired.')
+        : await this.failIn(
+            tx,
+            row,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
+            hash({ code: OPERATOR_CANCEL_CODE, message: OPERATOR_CANCEL_MESSAGE }),
+          );
+      return this.attemptView(tx, failed);
+    });
+  }
+
   async readSourceStatus(input: {
     organizationId: string;
+    channelAccountId?: string;
   }): Promise<WingItemwinnerSourceStatus> {
     return this.prisma.$transaction(
-      (tx) => this.sourceStatusIn(tx, input.organizationId),
+      (tx) => this.sourceStatusIn(tx, input.organizationId, input.channelAccountId),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
@@ -518,7 +547,7 @@ export class WingItemwinnerKpiSourceRepository
   }): Promise<WingItemwinnerPublished | null> {
     return this.prisma.$transaction(
       async (tx) => {
-        const account = await this.primaryAccount(tx, input.organizationId);
+        const account = await this.account(tx, input.organizationId);
         if (!account) return null;
         const row = await tx.sourceImportRun.findFirst({
           where: {
@@ -563,8 +592,10 @@ export class WingItemwinnerKpiSourceRepository
   private async sourceStatusIn(
     tx: Tx,
     organizationId: string,
+    channelAccountId?: string,
   ): Promise<WingItemwinnerSourceStatus> {
-    const account = await this.primaryAccount(tx, organizationId);
+    const account = await this.account(tx, organizationId, channelAccountId);
+    if (!account && channelAccountId) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
     if (!account) {
       return {
         channelAccountId: null,
@@ -699,7 +730,7 @@ export class WingItemwinnerKpiSourceRepository
       organizationId: row.organizationId,
       sourceType: WING_ITEMWINNER_SOURCE,
       attemptId: row.id,
-      dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
+      dedupeKey: sourceAlertDedupeKey(row.channelAccountId),
       title: SOURCE_ALERT_TITLE,
       message: message,
       href: '/ad-ops',
@@ -719,21 +750,27 @@ export class WingItemwinnerKpiSourceRepository
     if (row.attemptToken !== token) throw new ConflictException('ATTEMPT_FENCE_LOST');
   }
 
-  private async primaryAccount(tx: Tx, organizationId: string) {
+  /** The named active Coupang account, or the primary one when none is named. */
+  private async account(tx: Tx, organizationId: string, channelAccountId?: string) {
     return tx.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
+      where: {
+        organizationId,
+        channel: 'coupang',
+        status: 'active',
+        ...(channelAccountId ? { id: channelAccountId } : {}),
+      },
       orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
     });
   }
 
+  /** The frozen account is still active with the vendor identity it was admitted with. */
   private async accountMatches(
     tx: Tx,
     row: SourceRun,
     plan: WingItemwinnerSourcePlan,
   ): Promise<boolean> {
-    const current = await this.primaryAccount(tx, row.organizationId);
-    if (!current || current.id !== plan.channelAccountId) return false;
-    return resolveCoupangVendorId(current) === plan.expectedVendorId;
+    const current = await this.account(tx, row.organizationId, plan.channelAccountId);
+    return !!current && resolveCoupangVendorId(current) === plan.expectedVendorId;
   }
 
   private async listingMap(tx: Tx, organizationId: string, channelAccountId: string): Promise<ListingMap> {

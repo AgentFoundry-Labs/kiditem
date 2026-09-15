@@ -23,6 +23,7 @@ import {
   type CoupangCatalogDetailProductV1,
   type CoupangCatalogManifestV1,
   type CoupangCatalogProductV1,
+  type CoupangCatalogSourceStatus,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { z, type ZodType } from 'zod';
@@ -214,6 +215,34 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       ...(stage !== 'full' ? { stage } : {}),
     });
     return this.getStatus(input);
+  }
+
+  async cancel(
+    input: Parameters<ChannelCatalogCollectionPort['cancel']>[0],
+  ): Promise<CoupangCatalogCollectionRun> {
+    await this.repository.cancel(input);
+    return this.getStatus({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: input.runId,
+    });
+  }
+
+  async readSource(
+    input: Parameters<ChannelCatalogCollectionPort['readSource']>[0],
+  ): Promise<CoupangCatalogSourceStatus> {
+    const root = await this.repository.findLatestRootAttempt(input);
+    if (!root) return { latestAttempt: null, detailsAttempt: null } satisfies CoupangCatalogSourceStatus;
+    const latestAttempt = await this.getStatus({ ...input, runId: root.id });
+    // The root read already linked the details child once the handoff admitted it.
+    const detailsAttemptId =
+      latestAttempt.currentStage === 'details' && latestAttempt.currentAttemptId !== latestAttempt.attemptId
+        ? latestAttempt.currentAttemptId
+        : undefined;
+    const detailsAttempt = detailsAttemptId
+      ? await this.getStatus({ ...input, runId: detailsAttemptId })
+      : null;
+    return { latestAttempt, detailsAttempt } satisfies CoupangCatalogSourceStatus;
   }
 }
 

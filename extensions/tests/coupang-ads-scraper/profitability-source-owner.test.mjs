@@ -608,7 +608,7 @@ test('exposes the direct owner start only through the shared external dispatch',
   );
 
   assert.match(serviceWorker, /"coupang\/profitability-source-owner\.js"/);
-  assert.match(worker, /collectAdvertisingProfitability/);
+  assert.match(worker, /startCollection:/);
   assert.match(worker, /externalActions:/);
   assert.match(
     worker,

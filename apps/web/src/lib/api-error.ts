@@ -1,10 +1,14 @@
 import { ZodError } from 'zod';
 
+/** Machine-readable fields an owner put beside the HTTP error category, such as a live attempt. */
+export type ApiErrorDetails = Readonly<{ code?: string; attemptId?: string }>;
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string | null,
     public readonly detail: string,
+    public readonly details: ApiErrorDetails = {},
   ) {
     super(detail);
     this.name = 'ApiError';

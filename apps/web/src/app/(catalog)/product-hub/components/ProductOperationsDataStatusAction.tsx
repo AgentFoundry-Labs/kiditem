@@ -11,7 +11,7 @@ import {
   ProductOperationsDataStatusDialog,
   type ProductOperationsDataStatusFeedback,
 } from './ProductOperationsDataStatusDialog';
-import { ProductOperationsFullRefreshAction } from './ProductOperationsFullRefreshAction';
+import { ProductOperationsSourceCollections } from './ProductOperationsSourceCollections';
 
 export function ProductOperationsDataStatusAction({
   open,
@@ -42,7 +42,7 @@ export function ProductOperationsDataStatusAction({
 
   return (
     <>
-      <ProductOperationsFullRefreshAction />
+      <ProductOperationsSourceCollections />
       <button type="button" onClick={() => onOpenChange(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 text-[13px] font-bold text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]">
         <CalendarClock size={14} />
         ABC 등급 현황

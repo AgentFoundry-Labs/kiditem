@@ -2,7 +2,6 @@ const ENVIRONMENTS = Object.freeze({
   local: { label: '로컬', webOrigin: 'http://localhost:3000' },
   office: { label: '사무실', webOrigin: 'http://kiditem-office' },
 });
-const WING_ITEMWINNER_PATH = '/tenants/seller-price-management';
 
 let selectedEnvironmentId = null;
 let environmentGeneration = 0;
@@ -34,11 +33,6 @@ const OWNER_STATUS_SOURCES = Object.freeze([
   },
 ]);
 
-let monthlyPollTimer = null;
-let monthlyPollRequest = null;
-let monthlyPollInFlightRequest = null;
-let monthlyAdmissionRequest = null;
-let monthlyAdmissionInFlight = false;
 let ownerStatusRefreshSequence = 0;
 
 function runtimeMessage(message) {
@@ -104,49 +98,6 @@ async function bindActiveTab(request = snapshotEnvironmentRequest()) {
   return tab;
 }
 
-function popupSourceOwnerRoute(value) {
-  if (typeof value !== 'string' || value.length > 2048) {
-    throw new Error('현재 탭 URL을 확인할 수 없습니다.');
-  }
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error('현재 탭 URL이 유효하지 않습니다.');
-  }
-
-  if (
-    url.protocol === 'https:' &&
-    url.hostname.toLowerCase() === 'wing.coupang.com' &&
-    /business-insight\/sales-analysis/i.test(url.pathname)
-  ) {
-    const startDate = url.searchParams.get('start_date') || url.searchParams.get('startDate');
-    const endDate = url.searchParams.get('end_date') || url.searchParams.get('endDate');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate || '') || !/^\d{4}-\d{2}-\d{2}$/.test(endDate || '')) {
-      throw new Error('Wing 매출분석 displayed 날짜 범위를 먼저 선택해주세요.');
-    }
-    return { action: 'collectAdvertisingWingTrafficFromPopup', url: value };
-  }
-
-  if (
-    url.protocol === 'https:' &&
-    url.hostname.toLowerCase() === 'wing.coupang.com' &&
-    url.pathname === WING_ITEMWINNER_PATH
-  ) {
-    return { action: 'collectAdvertisingWingItemwinnerFromPopup', url: value };
-  }
-
-  if (
-    url.protocol === 'https:' &&
-    url.hostname.toLowerCase() === 'advertising.coupang.com' &&
-    /\/marketing\/dashboard\/sales/i.test(url.pathname)
-  ) {
-    return { action: 'collectAdvertisingCampaignsFromPopup', url: value };
-  }
-
-  throw new Error('현재 탭은 source owner 수집 대상 페이지가 아닙니다.');
-}
-
 function setCardValue(id, text, hasDot = false, dotColor = 'dot-gray') {
   const element = document.getElementById(id);
   if (!element) return;
@@ -174,17 +125,9 @@ function clearOwnerStatusCards() {
 }
 
 function clearEnvironmentStatus() {
-  stopMonthlyPoll();
-  cancelMonthlyAdmission();
   setCardValue('serverStatus', '환경을 선택해주세요.');
   setCardValue('approvedActions', '-', true, 'dot-gray');
   clearOwnerStatusCards();
-  const progress = document.getElementById('monthlySyncProgress');
-  if (progress) {
-    progress.textContent = '';
-    progress.style.display = 'none';
-    progress.className = 'sync-progress';
-  }
   const badge = document.getElementById('connBadge');
   if (badge) {
     badge.textContent = '환경 미선택';
@@ -383,117 +326,6 @@ function initEnvironmentStatus(request = snapshotEnvironmentRequest()) {
   void loadApprovedActions(request, sequence);
 }
 
-function stopMonthlyPoll() {
-  if (monthlyPollTimer !== null) {
-    clearInterval(monthlyPollTimer);
-    monthlyPollTimer = null;
-  }
-  monthlyPollRequest = null;
-}
-
-function cancelMonthlyAdmission() {
-  monthlyAdmissionRequest = null;
-  monthlyAdmissionInFlight = false;
-  const button = document.getElementById('btnMonthlySync');
-  if (button) button.disabled = false;
-}
-
-function monthlyProgress(text, state = '') {
-  const progress = document.getElementById('monthlySyncProgress');
-  if (!progress) return;
-  progress.style.display = 'block';
-  progress.textContent = text;
-  progress.className = `sync-progress${state ? ` ${state}` : ''}`;
-}
-
-function monthlyAttemptDays(attempt) {
-  const expectedDates = attempt?.plan?.expectedDates;
-  return Array.isArray(expectedDates) && expectedDates.length > 0 ? expectedDates.length : null;
-}
-
-async function pollMonthlyAttempt(attemptId, request) {
-  if (
-    monthlyPollInFlightRequest === request ||
-    monthlyPollRequest !== request ||
-    !isCurrentEnvironmentRequest(request)
-  ) return;
-  monthlyPollInFlightRequest = request;
-  try {
-    const result = await popupFetch(
-      `/api/ads/traffic/attempts/${encodeURIComponent(attemptId)}`,
-      {},
-      request,
-    );
-    if (
-      monthlyPollRequest !== request ||
-      !isCurrentEnvironmentRequest(request)
-    ) return;
-    if (!result.ok || !result.body || typeof result.body !== 'object') {
-      throw new Error(`HTTP ${result.status || '응답 오류'}`);
-    }
-    const attempt = result.body;
-    if (attempt.attemptId !== attemptId) {
-      throw new Error('owner 상태 응답이 요청한 attempt와 일치하지 않습니다.');
-    }
-    const days = monthlyAttemptDays(attempt);
-    if (attempt.state === 'RUNNING') {
-      monthlyProgress(days ? `📊 ${days}일 범위 owner 수집 중...` : '📊 owner 수집 중...');
-      return;
-    }
-    if (attempt.state === 'COMPLETE') {
-      monthlyProgress(days ? `✅ ${days}일 owner 수집 완료` : '✅ owner 수집 완료', 'done');
-      stopMonthlyPoll();
-      initEnvironmentStatus(request);
-      return;
-    }
-    if (attempt.state === 'FAILED') {
-      const code = typeof attempt.errorCode === 'string' ? attempt.errorCode : '';
-      const message = typeof attempt.errorMessage === 'string' ? attempt.errorMessage : '';
-      monthlyProgress(`❌ ${message || code || 'owner 수집 실패'}`, 'error');
-      stopMonthlyPoll();
-      initEnvironmentStatus(request);
-      return;
-    }
-    throw new Error('owner 상태를 확인할 수 없습니다.');
-  } catch (error) {
-    if (
-      monthlyPollRequest === request &&
-      isCurrentEnvironmentRequest(request)
-    ) {
-      monthlyProgress(`❌ ${error.message || 'owner 상태 조회 실패'}`, 'error');
-      stopMonthlyPoll();
-    }
-  } finally {
-    if (monthlyPollInFlightRequest === request) monthlyPollInFlightRequest = null;
-  }
-}
-
-document.getElementById('btnSync').addEventListener('click', async () => {
-  let request;
-  try {
-    request = snapshotEnvironmentRequest();
-    const tab = await bindActiveTab(request);
-    if (!isCurrentEnvironmentRequest(request)) return;
-    const route = popupSourceOwnerRoute(tab.url);
-    showResult('동기화 중...');
-    const response = await runtimeMessage({
-      ...route,
-      environmentId: request.environmentId,
-    });
-    if (!isCurrentEnvironmentRequest(request)) return;
-    if (!response?.success || response.terminalState !== 'COMPLETE') {
-      throw new Error(response?.error || response?.errorCode || 'source owner 동기화 실패');
-    }
-    showResult(`✅ source owner 동기화 완료 (${response.attemptId || '완료'})`);
-    setTimeout(() => {
-      if (isCurrentEnvironmentRequest(request)) initEnvironmentStatus(request);
-    }, 1000);
-  } catch (error) {
-    if (request && !isCurrentEnvironmentRequest(request)) return;
-    showResult(`❌ ${error.message}`, true);
-  }
-});
-
 document.getElementById('btnRunApproved').addEventListener('click', async () => {
   let request;
   try {
@@ -523,58 +355,6 @@ document.getElementById('btnRunApproved').addEventListener('click', async () => 
   } catch (error) {
     if (request && !isCurrentEnvironmentRequest(request)) return;
     showResult(`❌ ${error.message}`, true);
-  }
-});
-
-const now = new Date();
-try {
-  const monthParts = kstDateParts(now);
-  document.getElementById('monthInput').value = `${monthParts.year}-${monthParts.month}`;
-} catch {
-  document.getElementById('monthInput').value = now.toISOString().slice(0, 7);
-}
-
-document.getElementById('btnMonthlySync').addEventListener('click', async () => {
-  if (monthlyAdmissionInFlight) return;
-  let request;
-  const button = document.getElementById('btnMonthlySync');
-  try {
-    stopMonthlyPoll();
-    request = snapshotEnvironmentRequest();
-    monthlyAdmissionRequest = request;
-    monthlyAdmissionInFlight = true;
-    button.disabled = true;
-    const [year, month] = document.getElementById('monthInput').value.split('-').map(Number);
-    const response = await runtimeMessage({ action: 'monthlyScrape', year, month, environmentId: request.environmentId });
-    if (!isCurrentEnvironmentRequest(request)) return;
-    if (!response?.success) throw new Error(response?.error || '수집 시작 실패');
-    if (
-      typeof response.attemptId !== 'string' ||
-      !response.attemptId ||
-      !['RUNNING', 'COMPLETE', 'FAILED'].includes(response.terminalState)
-    ) {
-      throw new Error('owner 수집 승인 응답이 유효하지 않습니다.');
-    }
-    monthlyPollRequest = request;
-    monthlyProgress(response.terminalState === 'RUNNING' ? '📊 owner 수집 승인됨. 상태 확인 중...' : '📊 owner 상태 확인 중...');
-    await pollMonthlyAttempt(response.attemptId, request);
-    if (
-      monthlyPollRequest === request &&
-      isCurrentEnvironmentRequest(request)
-    ) {
-      monthlyPollTimer = setInterval(() => {
-        void pollMonthlyAttempt(response.attemptId, request);
-      }, 1000);
-    }
-  } catch (error) {
-    if (request && !isCurrentEnvironmentRequest(request)) return;
-    showResult(`❌ ${error.message}`, true);
-  } finally {
-    if (monthlyAdmissionRequest === request) {
-      monthlyAdmissionRequest = null;
-      monthlyAdmissionInFlight = false;
-      if (isCurrentEnvironmentRequest(request)) button.disabled = false;
-    }
   }
 });
 

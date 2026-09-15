@@ -28,6 +28,17 @@ the nearest scoped guide owns route-specific composition.
   `collectionSourceStatusQueryOptions` and gate collection actions through
   `collectionSourceStatusRead`: block only until a first status read, then act
   on the last known status.
+- An attempt that ended with a `*_CANCELLED` code was stopped, not failed. Read
+  it through `stoppedAttempt` and show `COLLECTION_STOPPED_MESSAGE`.
+- Browser collection starts use the shared control: a per-source adapter for
+  `useCollectionSourceControl`, rendered by `CollectionStartControl`. Running
+  state comes from the owner status read, and every mounted copy shares start
+  and stop; do not add a screen-local start, lock, or running flag.
+  Collections that hold a browser resource (the Coupang collection window
+  producers and the Wing catalog import) start through
+  `requestCollectionStart`; the extension opens their attempts. A source whose
+  attempt the page opens starts through `startWebOpenedCollection`, which
+  stops an attempt the extension does not take.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a

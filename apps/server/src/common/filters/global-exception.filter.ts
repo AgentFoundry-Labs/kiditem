@@ -21,6 +21,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let statusCode = 500;
     let error: string = ErrorCodes.COMMON.INTERNAL;
     let message = 'Internal server error';
+    // Machine-readable details an owner put on its exception, such as
+    // `{ code: 'ATTEMPT_IN_PROGRESS', attemptId }`. Callers act on them, so
+    // they reach the wire next to the generic fields instead of being dropped.
+    const details: { code?: string; attemptId?: string } = {};
 
     if (exception instanceof AppException) {
       statusCode = exception.getStatus();
@@ -35,6 +39,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = Array.isArray(obj.message)
           ? obj.message.join(', ')
           : (obj.message as string) ?? exception.message;
+        if (typeof obj.code === 'string' && obj.code.trim()) details.code = obj.code;
+        if (typeof obj.attemptId === 'string' && UUID.test(obj.attemptId)) {
+          details.attemptId = obj.attemptId;
+        }
       } else {
         error = `HTTP_${statusCode}`;
         message = typeof res === 'string' ? res : exception.message;
@@ -83,8 +91,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode,
       error,
       message,
+      ...details,
       timestamp: new Date().toISOString(),
       path: request.url,
     });
   }
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber, sumOrUnavailable } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
-import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
+import {
+  COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE,
+  COLLECTION_STOPPED_MESSAGE,
+  collectionSourceStatusRead,
+  stoppedAttempt,
+} from '@/lib/collection-source-status-query';
 import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
@@ -65,7 +70,6 @@ export interface RocketDecisionWorkspaceContext {
   selectedDate: string | null;
   selectedDateSourceRunCount: number;
   onActivity: (activity: RocketOrderActivityInput) => void;
-  onOrdersChanged: () => void;
   renderOrderExplorer: (options: RocketOrderExplorerRenderOptions) => ReactNode;
 }
 
@@ -481,7 +485,9 @@ export function RocketOrdersWorkspace({
             {rocketSource.data?.latestAttempt?.state === 'RUNNING' && <span> · 수집 진행 중</span>}
             {rocketSourceRead === 'rechecking' && <span> · {COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</span>}
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
-              <span className="text-amber-700"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
+              stoppedAttempt(rocketSource.data.latestAttempt)
+                ? <span> · 수집 중단됨 · {COLLECTION_STOPPED_MESSAGE}</span>
+                : <span className="text-[var(--danger)]"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
             )}
           </>
         )}
@@ -497,7 +503,6 @@ export function RocketOrdersWorkspace({
         selectedDate: selectedDay || null,
         selectedDateSourceRunCount: selectedDaySourceRunCount,
         onActivity: recordActivity,
-        onOrdersChanged: () => { void refetch(); void rocketSource.refetch(); },
         renderOrderExplorer,
       })}
 

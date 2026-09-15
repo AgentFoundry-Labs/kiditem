@@ -86,6 +86,17 @@ export class CompetitorCatalogSourceAttemptService {
     });
   }
 
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<CompetitorCatalogSourceView> {
+    return this.attempts.cancelAttempt({
+      organizationId: requiredText(input.organizationId, 'INVALID_ORGANIZATION'),
+      attemptId: requiredText(input.attemptId, 'INVALID_COMPETITOR_CATALOG_ATTEMPT'),
+    });
+  }
+
   failAttempt(input: {
     organizationId: string;
     attemptId: string;

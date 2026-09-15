@@ -101,6 +101,9 @@ function createHarness(options = {}) {
         headers: { 'content-type': 'application/json' },
       });
     }
+    if (options.control && path === `/api/ads/competitor-catalogs/attempts/${ATTEMPT_ID}` && (init.method ?? 'GET') === 'GET') {
+      return new Response(JSON.stringify(options.control), { status: 200 });
+    }
     if (path.endsWith('/fail')) {
       terminalFailures += 1;
       if (terminalFailures <= (options.failTerminalTimes ?? 0)) {
@@ -124,7 +127,7 @@ function createHarness(options = {}) {
     })),
     closeAttempt: async () => {},
   });
-  return { owner, requests, sessionCalls };
+  return { owner, requests, sessionCalls, sessionsById };
 }
 
 test('begins a server-frozen plan, collects every target, and publishes one fenced terminal batch', async () => {
@@ -215,6 +218,40 @@ test('returns a replayed terminal plan without recollecting a completed or faile
     assert.equal(result.success, state === 'COMPLETE');
     if (state === 'FAILED') assert.equal(result.retryRequired, true);
   }
+});
+
+test('clears a stored session whose attempt an operator stopped on the owner, so it neither resumes nor blocks the next start', async () => {
+  const harness = createHarness({
+    control: { ...plan('FAILED'), errorCode: 'USER_CANCELLED', errorMessage: '운영자가 수집을 중단했습니다.' },
+    plan: { ...plan(), attemptId: '10000000-0000-4000-8000-000000000002' },
+  });
+  harness.sessionsById.set(ATTEMPT_ID, {
+    attemptId: ATTEMPT_ID,
+    environmentId: 'office',
+    producer: 'advertising.competitor_catalog',
+    attention: null,
+  });
+
+  assert.equal(await harness.owner.recover('office'), null);
+  assert.equal(harness.sessionsById.has(ATTEMPT_ID), false);
+
+  harness.sessionsById.set(ATTEMPT_ID, {
+    attemptId: ATTEMPT_ID,
+    environmentId: 'office',
+    producer: 'advertising.competitor_catalog',
+    attention: null,
+  });
+  const result = await harness.owner.run({
+    environmentId: 'office',
+    idempotencyKey: 'after-operator-stop',
+    input: { target: 'all' },
+  });
+  assert.equal(harness.sessionsById.has(ATTEMPT_ID), false);
+  assert.equal(result.attemptId, '10000000-0000-4000-8000-000000000002');
+  assert.equal(
+    harness.requests.filter(({ path }) => path === '/api/ads/competitor-catalogs/attempts').length,
+    1,
+  );
 });
 
 test('registers only the direct allowlisted action and routes cancellation to the owner', () => {

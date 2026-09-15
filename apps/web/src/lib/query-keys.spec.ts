@@ -41,6 +41,18 @@ describe('conversation query keys', () => {
   });
 });
 
+describe('collection control keys', () => {
+  it("keeps every source's shared start and stop under one collection-control family", () => {
+    expect(queryKeys.collectionControl.all).toEqual(['collection-control']);
+    expect(queryKeys.collectionControl.mutation('inventory.sellpia', 'start')).toEqual([
+      'collection-control', 'inventory.sellpia', 'start',
+    ]);
+    expect(queryKeys.collectionControl.mutation('orders.coupang_rocket_po:account-1', 'stop')).toEqual([
+      'collection-control', 'orders.coupang_rocket_po:account-1', 'stop',
+    ]);
+  });
+});
+
 describe('retired inventory route query keys', () => {
   it('removes unshipped and keeps warehouse reference lookup', () => {
     expect(queryKeys).not.toHaveProperty('unshipped');

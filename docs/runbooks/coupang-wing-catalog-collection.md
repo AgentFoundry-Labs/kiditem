@@ -29,30 +29,36 @@ change physical `SellpiaInventorySku` stock or direct
 
 ## Operator Flow
 
-1. Open `/product-pipeline/registered-products` in the same Chrome profile as
-   the authenticated Wing tab.
-2. Select the intended Coupang account.
-3. Confirm the panel does not report an extension or Wing-tab connection
-   error.
-4. Start the **기본 목록** collection, or use **다시 동기화** to refresh it.
-   After basic completion, start **전체 상세** separately.
-5. Keep the managed Wing collection tab available. Basics publishes only after
+1. Open the readiness modal (dashboard, or the registered-products handoff
+   link from a catalog Alert) in the same Chrome profile as the authenticated
+   Wing tab.
+2. Select the intended Coupang account and press **상품 받기**. The extension
+   takes the browser's import turn, opens the basics attempt, and hands off to
+   details inside the same import.
+3. If another account's import runs in this browser, the start is refused and
+   names that account; nothing opens. Start after it ends, or from another
+   Chrome profile.
+4. Keep the managed Wing collection window available. Basics publishes only after
    its complete listing manifest is validated. Details enriches each completely
    captured product while showing capture and publication counts separately;
    uncompleted products retain their existing detail. The rate/ETA estimates
    detail collection, not database transaction latency.
-6. If the browser or page was interrupted, return to the same account and click
-   **수집 재개**. The extension resumes the accepted, unexpired server attempt instead of
-   silently starting a competing publication.
-7. Treat absence only within a completed same-account stage manifest. Basic
+5. After a Wing rate limit, press **이어서 받기** once the wait passed; it resumes
+   the same attempt. A restarted extension continues the same unexpired attempt
+   while a KidItem tab is open. Otherwise press **수집 중단**, which works from
+   any browser, and start again.
+6. Treat absence only within a completed same-account stage manifest. Basic
    completion does not certify full-detail freshness; wait for the detail
    owner's COMPLETE receipt before calling the entire detail traversal complete.
-8. Confirm registered products show one card per listing, its options, provider
+7. Confirm registered products show one card per listing, its options, provider
    thumbnail, and content workspace.
 
 ## Runtime Contract
 
-The page first verifies the extension capability:
+The page starts an import through the extension start contract, gated by
+`collectionStartV1 = true`: it sends `startCollection` with producer
+`channels.coupang_catalog` and scope `{ channelAccountId }`, and the extension
+opens the basics attempt. The extension also advertises:
 
 ```text
 coupangCatalogSnapshot = true
@@ -69,12 +75,22 @@ PUT  /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attem
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/pause
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/fail
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/finalize
+POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/cancel
+GET  /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/source
 ```
+
+`source` returns the account's latest root attempt, whose `overallState` is the
+whole import's state, and its details child once admitted. `cancel` is the
+operator stop without the attempt token: the shared control asks the extension
+session first, then cancels by the root attempt id, which ends the whole import
+with `USER_CANCELLED` and no Alert.
 
 Begin sends a UUID `Idempotency-Key` and `{collectorVersion, stage}`, with
 `stage: "basics"` or `stage: "details"` for the two-stage flow. Reuse that key
-after an uncertain response to recover the original permit; a different key
-while an attempt is active returns `409 ATTEMPT_IN_PROGRESS` and its ID.
+after an uncertain response to recover the original permit. One import runs per
+account: a different key while the account's import (either stage, or a live
+workbook import) runs returns `409 ATTEMPT_IN_PROGRESS` with that import's root
+attempt ID.
 Chunk, pause, fail and finalize requests carry `x-source-attempt-token`. Safe status
 reads never return that token. The permit expires 24 hours after admission;
 expiry is fixed and cannot be renewed. A terminal or expired attempt requires
@@ -169,9 +185,10 @@ unrelated-image fallback.
 |---|---|
 | Extension is not detected | Reload the unpacked extension and the KidItem page, then verify the origin allowlist. |
 | Wing tab is missing or logged out | Open the Wing inventory tab and complete human authentication. Resume only a still-running attempt; a terminal login failure needs a new explicit attempt. |
-| Collection is interrupted | Return to the same account and use **수집 재개** for a still-running attempt. Do not edit attempt/chunk rows. |
+| Collection is interrupted | Keep a KidItem tab open while the extension restarts; it continues the same unexpired attempt. Otherwise use **수집 중단** and start again. Do not edit attempt/chunk rows. |
+| Start is refused by another account's import | Wait for that import or stop it; a browser imports one account at a time through its Wing login. No attempt was opened. |
 | One page/detail fails | Inspect the owner error and correct browser state. Incomplete basics does not publish. Failed details retains already-published complete products and preserves old detail for failed/unobserved products. Terminal retries require a new attempt. |
-| Provider returns HTTP 429 | Stop provider IO and honor owner attention and `notBefore` (including a valid Retry-After). The attempt remains RUNNING but rejects chunks/finalize while paused. Use explicit resume only after the wait and normal owner fences permit it; do not increase request rate or bypass the pause. |
+| Provider returns HTTP 429 | Stop provider IO and honor owner attention and `notBefore` (including a valid Retry-After). The attempt remains RUNNING but rejects chunks/finalize while paused. Press **이어서 받기** only after the wait, which replays that attempt's own begin; do not increase request rate or bypass the pause. |
 | Finalization reports inconsistent counts | Stop and report the attempt ID and counts; do not force publication or mark the attempt complete manually. |
 | Provider image cannot be fetched later | Keep the URL-backed catalog asset unchanged and retry only the requested thumbnail/detail operation. |
 | Latest detail renderer is not detected | Reload extension version 1.2.85 and the KidItem tab; confirm `detailPageClientRasterV1 = true`. |
@@ -184,13 +201,13 @@ unrelated-image fallback.
 Run focused automated checks from the repository root:
 
 ```bash
-rtk proxy npm exec --workspace=packages/shared -- vitest run src/schemas/coupang-catalog-snapshot.spec.ts src/schemas/coupang-catalog-browser.spec.ts
-rtk proxy npm exec --workspace=apps/server -- vitest run src/channels/application/service/__tests__/channel-catalog-collection.service.spec.ts src/channels/adapter/in/http/__tests__/channel-catalog-collection.controller.spec.ts
+rtk proxy npm exec --workspace=packages/shared -- vitest run src/schemas/coupang-catalog-snapshot.spec.ts src/schemas/coupang-catalog-browser.spec.ts src/schemas/collection-start.spec.ts
+rtk proxy npm exec --workspace=apps/server -- vitest run src/channels/application/service/__tests__/channel-catalog-collection.service.spec.ts src/channels/adapter/in/http/__tests__/channel-catalog-collection.controller.spec.ts src/channels/adapter/in/http/__tests__/channel-catalog-source.controller.spec.ts
 rtk proxy npm run test:integration --workspace=apps/server -- src/channels/__tests__/channel-catalog-owner.pg.integration.spec.ts src/channels/__tests__/channel-catalog-staging.pg.integration.spec.ts
-rtk proxy npm exec --workspace=apps/web -- vitest run 'src/app/(product-pipeline)/product-pipeline/registered-products' src/lib/coupang-catalog-extension.spec.ts
+rtk proxy npm exec --workspace=apps/web -- vitest run 'src/app/(product-pipeline)/product-pipeline/registered-products' src/components/readiness
 rtk proxy npm run build --workspace=apps/web
 rtk proxy npm run build --workspace=apps/server
-rtk proxy node --test extensions/tests/*.test.mjs
+rtk proxy node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 rtk proxy node --check extensions/kiditem-os/background/coupang/worker.js
 rtk proxy git diff --check -- extensions/kiditem-os
 ```
@@ -205,9 +222,12 @@ Manual browser acceptance:
    counts. Start details and observe complete-product capture/publication counts
    increasing together. Verify successful product enrichments become visible
    while uncompleted products retain old detail and the full stage stays RUNNING.
-3. Interrupt once, reload, and confirm **수집 재개** continues the same unexpired
-   attempt. For a lost final response, verify the existing receipt is reused
-   without recollection or another publication.
+3. Restart the extension once with a KidItem tab open and confirm the same
+   unexpired attempt continues. Start another account in the same browser and
+   confirm the refusal names the running account without opening an attempt.
+   Stop from another browser and confirm the import ends. For a lost final
+   response, verify the existing receipt is reused without recollection or
+   another publication.
 4. Complete detail finalization and confirm exact full coverage, options,
    provider media associations, and listing detail navigation. Compare sampled
    names, prices, status, images and retained detail across registered products,
@@ -223,7 +243,7 @@ Manual browser acceptance:
 Stop and report when:
 
 - human Wing login, OTP, or account authorization is required;
-- the extension does not advertise both catalog snapshot and source-attempt capabilities;
+- the extension does not advertise `collectionStartV1` and the catalog snapshot and source-attempt capabilities;
 - direct registration lacks `detailPageClientRasterV1 = true` or exact storage
   host permission;
 - the selected account is not an active `channel='coupang'` account;

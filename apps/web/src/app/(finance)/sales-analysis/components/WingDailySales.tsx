@@ -3,11 +3,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
-import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { useReadinessCollection } from '@/components/readiness/useReadinessCollection';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import {
+  sellpiaSalesCollection,
+  sellpiaSalesReadinessRange,
+} from '@/lib/sellpia-sales-source-collection';
+import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 interface DayRevenue {
   date: string;
@@ -63,13 +68,14 @@ export default function WingDailySales() {
   });
   const salesCheck = readinessQuery.data?.checks.find((check) => check.key === 'wing_sales') ?? null;
   const missingSalesDays = salesCheck?.missingDates?.length ?? 0;
-  const { pendingKey, handleCollect } = useReadinessCollection({
-    refetchReadiness: async () => {
-      await readinessQuery.refetch();
-      await refetch();
-    },
-  });
-  const collectingSales = pendingKey === 'wing_sales';
+  // The same Sellpia sales control as the readiness modal; a new complete
+  // collection refreshes readiness and the monthly traffic read.
+  const salesCollection = useCollectionSourceControl(sellpiaSalesCollection);
+  const salesStartBlocked = readinessQuery.isLoading
+    ? '준비 상태를 확인하는 중입니다.'
+    : salesCheck
+      ? null
+      : '일별 매출 준비 상태를 불러오지 못했습니다.';
 
   const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
@@ -90,20 +96,16 @@ export default function WingDailySales() {
               누락 {missingSalesDays}일
             </span>
           )}
-          <button
-            onClick={() => {
-              if (salesCheck) void handleCollect(salesCheck);
+          <CollectionStartControl
+            control={salesCollection}
+            startLabel="매출 받기"
+            startTitle="준비 상태에서 비어 있는 날짜의 셀피아 판매현황을 받습니다."
+            startBlockedReason={salesStartBlocked}
+            onStart={() => {
+              if (salesCheck) salesCollection.start(sellpiaSalesReadinessRange(salesCheck));
             }}
-            disabled={!salesCheck || collectingSales || readinessQuery.isLoading}
-            className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {collectingSales ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            매출 받기
-          </button>
+            onStop={salesCollection.stop}
+          />
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}

@@ -15,19 +15,6 @@ import {
   Trophy,
   XCircle,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect';
-import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
-import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
-import { cn, formatNumber, timeAgo } from '@/lib/utils';
-import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
-import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
-import {
-  buildCoupangCatalogProgress,
-  resolveCoupangCatalogError,
-} from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/coupang-catalog-progress';
-import type { LucideIcon } from 'lucide-react';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { businessDateKey, toBusinessDate } from '@kiditem/shared/common';
 import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 import {
@@ -35,6 +22,23 @@ import {
   sourceReadinessStatus,
   type SourceReadinessStatus,
 } from '@kiditem/shared/source-readiness';
+import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
+import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
+import { wingRankBatchCollection } from '@/app/(advertising)/rank-tracking/lib/wing-rank-batch-collection';
+import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/SellpiaSyncAction';
+import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import {
+  sellpiaSalesCollection,
+  sellpiaSalesReadinessRange,
+} from '@/lib/sellpia-sales-source-collection';
+import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
+import { CatalogReadinessAction, CatalogReadinessStatus } from './CatalogReadinessControl';
+import type { LucideIcon } from 'lucide-react';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import type { CatalogReadinessState } from './useReadinessCollection';
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
@@ -48,62 +52,6 @@ const DISPLAY: Record<string, DisplayMeta> = {
 
 function getDisplay(check: ReadinessCheck): DisplayMeta {
   return DISPLAY[check.key] ?? { title: check.label, hint: check.detail, icon: Database };
-}
-
-function collectLabel(check: ReadinessCheck, catalog?: CatalogReadinessState): string {
-  const overallState = catalog ? catalogOverallState(catalog) : null;
-  if (check.key === 'wing_sales') return '매출 받기';
-  if (check.key === 'coupang_ads') return '광고 받기';
-  if (check.key === 'wing_kpi') return '순위 받기';
-  if (check.key === 'coupang_products' && catalog && catalogWholeFlowPending(catalog)) {
-    return '상태 확인 중';
-  }
-  if (check.key === 'coupang_products' && overallState === 'COMPLETE') return '다시 받기';
-  if (check.key === 'coupang_products' && overallState === 'RUNNING' && !catalog?.browser?.active) {
-    return '이어서 받기';
-  }
-  if (check.key === 'coupang_products') return '상품 받기';
-  return '지금 받기';
-}
-
-function catalogWholeFlowPending(catalog: CatalogReadinessState): boolean {
-  const owner = catalog.owner;
-  const stage = owner?.currentStage ?? owner?.plan.stage;
-  const hasPendingDetailsChild = owner?.plan.detailsIdempotencyKey != null;
-  return Boolean(
-    owner &&
-    catalog.chainOverallState == null &&
-    ((stage === 'details' && owner.currentAttemptId && owner.currentAttemptId !== owner.attemptId) ||
-      (stage === 'basics' && owner.state === 'COMPLETE' && hasPendingDetailsChild)),
-  );
-}
-
-function catalogPendingLabel(catalog: CatalogReadinessState): string {
-  const stage = catalog.owner?.currentStage ?? catalog.owner?.plan.stage;
-  return stage === 'details'
-    ? '상세 상품 받기 상태 확인 중'
-    : '전체 상품 받기 상태 확인 중';
-}
-
-function catalogOverallState(catalog: CatalogReadinessState) {
-  if (catalog.chainOverallState != null) {
-    // A basics owner is a valid saved partial publication, not a whole-flow
-    // receipt. Only trust COMPLETE when the server also projects a terminal
-    // details child onto that root; the child attempt/stage are the durable
-    // chain proof, not the root's individual state.
-    const owner = catalog.owner;
-    const ownerStage = owner?.plan.stage ?? 'full';
-    const hasDetailsReceipt = ownerStage !== 'basics' || (
-      owner?.currentStage === 'details' &&
-      owner.currentAttemptId != null &&
-      owner.currentAttemptId !== owner.attemptId
-    );
-    if (catalog.chainOverallState === 'COMPLETE' && !hasDetailsReceipt) return null;
-    return catalog.chainOverallState;
-  }
-  if (catalogWholeFlowPending(catalog)) return null;
-  if ((catalog.owner?.plan.stage ?? 'full') === 'basics') return null;
-  return catalog.owner?.overallState ?? catalog.owner?.state ?? null;
 }
 
 function readinessStatus(check: ReadinessCheck): SourceReadinessStatus {
@@ -271,213 +219,6 @@ function DailyStatusDisclosure({ check }: { check: ReadinessCheck }) {
   );
 }
 
-function catalogPhaseLabel(catalog: CatalogReadinessState): string | null {
-  const owner = catalog.owner;
-  if (!owner) return null;
-  const savedBasicsPartial =
-    owner.state === 'COMPLETE' &&
-    (owner.plan.stage ?? 'full') === 'basics' &&
-    (owner.currentStage ?? 'basics') === 'basics' &&
-    (owner.currentAttemptId ?? owner.attemptId) === owner.attemptId &&
-    owner.plan.detailsIdempotencyKey == null;
-  if (savedBasicsPartial) return '기본 목록 반영 완료 · 전체 상세 수집 필요';
-  if (catalogWholeFlowPending(catalog)) return catalogPendingLabel(catalog);
-  const overallState = catalogOverallState(catalog);
-  if (overallState === 'COMPLETE') return '전체 상품 반영 완료';
-  if (overallState === 'FAILED') return '수집 실패';
-  if (catalog.browser?.attention) return '확인 필요';
-  const stage = owner.currentStage ?? owner.plan.stage ?? 'full';
-  switch (catalog.browser?.phase ?? owner.phase) {
-    case 'discovery':
-      return stage === 'details' ? '상세 목록 확인 중' : '기본 목록 확인 중';
-    case 'hydration':
-      return stage === 'details' ? '전체 상세 수집 중' : '상품 상세 수집 중';
-    case 'ready_to_finalize':
-      return '전체 상품 반영 준비';
-    default:
-      return '상품 받기 진행 중';
-  }
-}
-
-function CatalogStatusBlock({
-  catalog,
-  pending,
-}: {
-  catalog: CatalogReadinessState;
-  pending: boolean;
-}) {
-  const owner = catalog.owner;
-  const browser = catalog.browser;
-  const childPending = catalogWholeFlowPending(catalog);
-  const overallState = catalogOverallState(catalog);
-  const progress = owner
-    ? buildCoupangCatalogProgress(
-        owner,
-        Date.now(),
-        owner.plan.stage ?? 'full',
-      )
-    : null;
-  const error = owner && overallState !== 'FAILED'
-    ? resolveCoupangCatalogError({
-        browserActive: browser?.active === true,
-        extensionError: browser?.error ?? null,
-        startError: catalog.actionError,
-        serverError: owner.error?.message ?? null,
-      })
-    : null;
-  const isRunning = overallState === 'RUNNING' ||
-    (childPending && (owner?.overallState === 'RUNNING' || owner?.state === 'RUNNING'));
-
-  return (
-    <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="readiness-coupang-account" className="text-[11px] font-semibold text-[var(--text-secondary)]">
-          쿠팡 계정
-        </label>
-        <select
-          id="readiness-coupang-account"
-          aria-label="쿠팡 계정"
-          value={catalog.accountId ?? ''}
-          onChange={(event) => catalog.setAccountId(event.target.value || null)}
-          disabled={catalog.accountLocked || pending || catalog.isCancelling || isRunning || catalog.accountsLoading}
-          className="h-7 min-w-[9rem] rounded-md border border-[var(--border-subtle)] bg-[var(--surface)] px-2 text-[11px] font-medium text-[var(--text-secondary)] disabled:opacity-60"
-        >
-          {catalog.accounts.length === 0 && (
-            <option value="">
-              {catalog.accountsLoading ? '계정 확인 중…' : '쿠팡 계정 없음'}
-            </option>
-          )}
-          {catalog.accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name?.trim() || account.id}
-            </option>
-          ))}
-        </select>
-        {catalog.owner && (
-          <span className="text-[11px] font-semibold text-[var(--text-secondary)]" aria-live="polite">
-            {catalogPhaseLabel(catalog)}
-          </span>
-        )}
-      </div>
-
-      {Boolean(catalog.accountsError) && (
-        <p className="mt-1 text-[11px] text-[var(--danger)]">
-          쿠팡 계정을 확인하지 못했습니다. 상품 받기를 다시 눌러 재시도해주세요.
-        </p>
-      )}
-      {catalog.linkError && (
-        <p className="mt-1 text-[11px] font-medium text-[var(--danger)]">{catalog.linkError}</p>
-      )}
-      {!catalog.accountsLoading && !catalog.accountsError && catalog.accounts.length === 0 && (
-        <p className="mt-1 text-[11px] text-[var(--danger)]">
-          활성 쿠팡 채널 계정이 없습니다. 채널 설정에서 먼저 연결해주세요.
-        </p>
-      )}
-      {catalog.ownerLoading && !catalog.owner && (
-        <p className="mt-1 text-[11px] text-[var(--text-muted)]">기존 상품 받기 상태를 확인하는 중입니다.</p>
-      )}
-      {Boolean(catalog.ownerError) && (
-        <p className="mt-1 text-[11px] text-[var(--danger)]">
-          상품 받기 상태를 확인하지 못했습니다. 잠시 후 다시 확인해주세요.
-        </p>
-      )}
-      {error && (
-        <p className="mt-1 text-[11px] font-medium text-[var(--danger)]">{error}</p>
-      )}
-      {catalog.actionError && !error && (
-        <p className="mt-1 text-[11px] font-medium text-[var(--danger)]">{catalog.actionError}</p>
-      )}
-      {catalog.cancelError && (
-        <p className="mt-1 text-[11px] font-medium text-[var(--danger)]">
-          {catalog.cancelError}
-        </p>
-      )}
-      {childPending && (
-        <p className="mt-1 text-[11px] font-medium text-amber-700">
-          {catalogPendingLabel(catalog)}입니다. 잠시 후 다시 확인해주세요.
-        </p>
-      )}
-      {browser?.error && !browser.attention && (
-        <p className="mt-1 text-[11px] text-[var(--danger)]">{browser.error}</p>
-      )}
-      {browser?.attention && (
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-700">
-          <span>{browser.attention.message}</span>
-          {browser.attention.canOpenTab && (
-            <button
-              type="button"
-              onClick={() => void catalog.openAttention().catch((error) => {
-                toast.error(error instanceof Error ? error.message : '확인 탭을 열지 못했습니다.');
-              })}
-              className="font-semibold underline underline-offset-2"
-            >
-              확인 탭 열기
-            </button>
-          )}
-        </div>
-      )}
-
-      {owner && (
-        <>
-          {progress && (
-            <>
-              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--text-muted)]" aria-live="polite">
-                <span>{progress.discoveredLabel}</span>
-                <span>·</span>
-                <span>{progress.hydratedLabel}</span>
-                <span>·</span>
-                <span className="text-[var(--text-secondary)]">{progress.publishedLabel}</span>
-                <span>·</span>
-                <span>{progress.publicationDetailsLabel}</span>
-                {progress.rateLabel && <span>· {progress.rateLabel}</span>}
-                {progress.etaLabel && <span>· {progress.etaLabel}</span>}
-              </div>
-              <div
-                className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface)]"
-                role="progressbar"
-                aria-label="쿠팡 상품 받기 진행률"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={progress.percent}
-              >
-                <div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${progress.percent}%` }} />
-              </div>
-              {progress.resumeLabel && (
-                <p className="mt-1 text-[11px] text-amber-700">{progress.resumeLabel}</p>
-              )}
-            </>
-          )}
-          {overallState === 'FAILED' && (
-            <p className="mt-1 text-[11px] text-[var(--danger)]">
-              {owner.error?.message ??
-                (owner.overallState === 'FAILED' && owner.state !== 'FAILED'
-                  ? '전체 상품 받기가 완료되지 않았습니다. 서버 상태를 다시 확인해주세요.'
-                  : error ?? '쿠팡 상품 받기에 실패했습니다.')} · 저장된 상품은 유지됩니다.
-            </p>
-          )}
-          {overallState === 'COMPLETE' && owner.publication && (
-            <p className="mt-1 text-[11px] text-emerald-700">
-              {owner.publication.duplicate
-                ? '변경 없이 최신 상품 상태를 확인했습니다.'
-                : '상품·옵션·이미지 반영 결과를 확인했습니다.'}
-            </p>
-          )}
-          {isRunning && (
-            <button
-              type="button"
-              onClick={() => void catalog.cancel().catch(() => undefined)}
-              disabled={catalog.isCancelling}
-              className="mt-2 text-[11px] font-medium text-[var(--text-secondary)] underline underline-offset-2 disabled:opacity-60"
-            >
-              {catalog.isCancelling ? '중단 확인 중…' : '수집 중단'}
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 export function CompactOkRow({ check }: { check: ReadinessCheck }) {
   const meta = getDisplay(check);
   const Icon = meta.icon;
@@ -508,6 +249,40 @@ export function CompactOkRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
+/** The readiness card's Sellpia sales control: the same collection as the sales screens. */
+function SellpiaSalesCardControl({ check }: { check: ReadinessCheck }) {
+  const control = useCollectionSourceControl(sellpiaSalesCollection);
+  return (
+    <CollectionStartControl
+      control={control}
+      startLabel="매출 받기"
+      startTitle="준비 상태에서 비어 있는 날짜의 셀피아 판매현황을 받습니다."
+      onStart={() => control.start(sellpiaSalesReadinessRange(check))}
+      onStop={control.stop}
+      className="self-center"
+    />
+  );
+}
+
+/**
+ * The readiness card's Wing rank control: the same batch as the rank tracking
+ * screen, which alone shows its per-keyword progress, failures and attention tabs.
+ */
+function WingRankCardControl() {
+  const control = useCollectionSourceControl(wingRankBatchCollection);
+  return (
+    <CollectionStartControl
+      control={control}
+      startLabel="순위 받기"
+      startTitle="자사 상품 전체의 Wing 판매순위를 수집합니다."
+      onStart={() => control.start()}
+      onStop={control.stop}
+      runningLink={{ href: '/rank-tracking', label: '진행 보기' }}
+      className="self-center"
+    />
+  );
+}
+
 export function ActionCheckCard({
   check,
   onCollect,
@@ -524,16 +299,14 @@ export function ActionCheckCard({
   const readiness = readinessStatus(check);
   const status = statusMeta(readiness);
   const missingCount = check.missingDates?.length ?? 0;
+  // 상품 받기 is the selected Coupang account's shared collection control.
   const isCatalog = check.key === 'coupang_products';
-  const catalogWholeFlowPendingState = Boolean(catalog && catalogWholeFlowPending(catalog));
-  const catalogState = catalog ? catalogOverallState(catalog) : null;
-  const notBeforeMs = catalog?.owner?.error?.notBefore
-    ? Date.parse(String(catalog.owner.error.notBefore))
-    : Number.NaN;
-  const catalogResumeBlocked = isCatalog && Number.isFinite(notBeforeMs) && notBeforeMs > Date.now();
-  const catalogCanResume = isCatalog && catalogState === 'RUNNING' &&
-    catalog?.browser?.active !== true && !catalogResumeBlocked && !catalogWholeFlowPendingState;
-  const catalogRunningInBrowser = isCatalog && catalogState === 'RUNNING' && catalog?.browser?.active === true;
+  // The campaign sweep keeps one control in this modal, 광고 동기화 below;
+  // the ad readiness card only points to it.
+  const collectsThroughAdSync = check.key === 'coupang_ads';
+  // Sellpia sales keeps one shared control across readiness and the sales screens.
+  const collectsThroughSalesControl = check.key === 'wing_sales';
+  const collectsThroughRankControl = check.key === 'wing_kpi';
 
   const subline = (() => {
     if (missingCount > 0) {
@@ -594,35 +367,44 @@ export function ActionCheckCard({
           </p>
         </div>
 
-        <button
-          onClick={() => onCollect(check)}
-          disabled={(pending && !catalogCanResume) || catalog?.isCancelling ||
-            Boolean(catalogRunningInBrowser) || Boolean(catalogResumeBlocked) || catalogWholeFlowPendingState}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {catalogWholeFlowPendingState ? (
-            <>상태 확인 중</>
-          ) : pending ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              받는 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {catalogResumeBlocked ? '재개 대기' : collectLabel(check, catalog)}
-            </>
-          )}
-        </button>
+        {collectsThroughAdSync ? (
+          <p className="shrink-0 self-center text-[11px] text-[var(--text-muted)]">
+            {'아래 ‘광고 동기화’에서 받아요'}
+          </p>
+        ) : collectsThroughSalesControl ? (
+          <SellpiaSalesCardControl check={check} />
+        ) : collectsThroughRankControl ? (
+          <WingRankCardControl />
+        ) : isCatalog && catalog ? (
+          <CatalogReadinessAction catalog={catalog} />
+        ) : (
+          <button
+            onClick={() => onCollect(check)}
+            disabled={pending}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+              'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+              'disabled:opacity-60',
+            )}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                받는 중…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3.5 w-3.5" />
+                지금 받기
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {isCatalog && catalog && (
         <div className="px-4 pb-3">
-          <CatalogStatusBlock catalog={catalog} pending={pending} />
+          <CatalogReadinessStatus catalog={catalog} />
         </div>
       )}
 
@@ -631,11 +413,15 @@ export function ActionCheckCard({
   );
 }
 
-export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
-  const { source, status, loading, cancelling, run, cancel } = useAdSync({ onComplete });
-  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
-  const isRunning = status?.state === 'RUNNING';
-  const statusRead = collectionSourceStatusRead(source);
+/**
+ * The campaign sweep's one control in the readiness modal. Start, refusal,
+ * running scope and stop come from the shared collection control.
+ */
+export function AdSyncRow() {
+  const control = useCollectionSourceControl(adCampaignSweepCollection);
+  const source = control.status;
+  const readiness = source ? ownerSourceReadiness(source) : null;
+  const attempt = source?.latestAttempt ?? null;
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -653,55 +439,30 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            {source.data?.latestComplete
-              ? `사용 중인 데이터: ${source.data.latestComplete.plan.startDate} ~ ${source.data.latestComplete.plan.endDate}`
+            {source?.latestComplete
+              ? `사용 중인 데이터: ${source.latestComplete.plan.startDate} ~ ${source.latestComplete.plan.endDate}`
               : '완료된 데이터가 없습니다. 전체 순회 완료 후 결과를 표시합니다.'}
           </p>
-          {statusRead === 'unavailable' && (
-            <p className="mt-1 text-xs text-[var(--danger)]">수집 상태를 확인하지 못했습니다.</p>
-          )}
-          {statusRead === 'rechecking' && (
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
-          )}
-          {status && (
+          {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {status.state === 'FAILED'
-                ? (status.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
-                : isRunning
-                  ? `캠페인 ${status.campaignCount}개 수집 중 · 미발행`
-                  : `전체 수집 완료${status.rawOnlyCampaignCount ? ` · ${status.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
+              {attempt.state === 'FAILED'
+                ? (stoppedAttempt(attempt)
+                  ? COLLECTION_STOPPED_MESSAGE
+                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                : attempt.state === 'RUNNING'
+                  ? `캠페인 ${attempt.campaignCount}개 수집 중 · 미발행`
+                  : `전체 수집 완료${attempt.rawOnlyCampaignCount ? ` · ${attempt.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
             </p>
           )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              동기화 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {isRunning ? '진행 확인·이어서 수집' : '광고 동기화'}
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="광고 동기화"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
-      {isRunning && (
-        <button type="button" onClick={() => void cancel()} disabled={cancelling}
-          className="mx-4 mb-4 text-xs text-[var(--text-secondary)] disabled:opacity-60">
-          {cancelling ? '중단 확인 중…' : '수집 중단'}
-        </button>
-      )}
     </div>
   );
 }
@@ -714,11 +475,11 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
  * keyword table of every advertised product. Keyword collection also runs on
  * its own — it does not need the 31-day sweep to finish first.
  */
-export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
-  const { source, status, loading, cancelling, run, cancel } = useAdKeywordCollect({ onComplete });
-  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
-  const canContinue = status?.state === 'RUNNING';
-  const statusRead = collectionSourceStatusRead(source);
+export function AdKeywordRow() {
+  const control = useCollectionSourceControl(adKeywordCollection);
+  const source = control.status;
+  const readiness = source ? ownerSourceReadiness(source) : null;
+  const attempt = source?.latestAttempt ?? null;
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -738,91 +499,44 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             완료본 유지 · 필요하면 명시적으로 다시 실행
           </p>
-          {statusRead === 'unavailable' && (
-            <p className="mt-1 text-xs text-[var(--danger)]">
-              수집 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.
-            </p>
-          )}
-          {statusRead === 'rechecking' && (
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
-          )}
-          {status && (
+          {attempt && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {status.state === 'FAILED'
-                ? (status.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
-                : status.state === 'COMPLETE'
+              {attempt.state === 'FAILED'
+                ? (stoppedAttempt(attempt)
+                  ? COLLECTION_STOPPED_MESSAGE
+                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                : attempt.state === 'COMPLETE'
                   ? '전체 수집 완료'
-                  : `수집 진행 ${status.completedGroupCount}/${status.groupCount} 광고그룹 · 미발행`}
+                  : `수집 진행 ${attempt.completedGroupCount}/${attempt.groupCount} 광고그룹 · 미발행`}
             </p>
           )}
-          {source.data?.latestComplete && (
+          {source?.latestComplete && (
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              사용 중인 데이터: {source.data.latestComplete.plan.startDate} ~{' '}
-              {source.data.latestComplete.plan.endDate}
+              사용 중인 데이터: {source.latestComplete.plan.startDate} ~{' '}
+              {source.latestComplete.plan.endDate}
             </p>
           )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              수집 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {canContinue ? '이어서 수집' : '키워드 수집'}
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="키워드 수집"
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
-      {canContinue && (
-        <button
-          type="button"
-          onClick={() => void cancel()}
-          disabled={cancelling}
-          className="mx-4 mb-4 text-xs text-[var(--text-secondary)] disabled:opacity-60"
-        >
-          {cancelling ? '중단 확인 중…' : '수집 중단'}
-        </button>
-      )}
     </div>
   );
 }
 
 /**
  * 셀피아 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
- * 진행바 분모(N/5)를 바꾸지 않는다. 공유 freshness 상태를 읽고 source-owner attempt 만
- * 시작한다 — TTL 계산이나 브라우저 수집 타이머를 자체 보유하지 않는다.
+ * 진행바 분모(N/5)를 바꾸지 않는다. 시작, 진행 중, 중단은 재고 화면과 같은 공용 수집
+ * 컨트롤이 보여 주고, 행은 freshness 로 준비 상태만 표시한다.
  */
 export function StockSyncRow() {
-  const { state, start, isStarting } = useSellpiaInventorySourceOwner({ enabled: true });
-  const [requesting, setRequesting] = useState(false);
-  // Syncing shows through the busy button and a failure through the owner's
-  // message; the chip only carries the shared readiness words.
-  const busy = requesting || isStarting || state?.status === 'syncing';
+  const { control, state } = useSellpiaInventoryCollection();
   const readiness = state ? sellpiaReadiness(state) : null;
-
-  const run = async () => {
-    setRequesting(true);
-    try {
-      await start();
-      toast.success('셀피아 재고 동기화를 시작했습니다.');
-    } catch {
-      toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
-    } finally {
-      setRequesting(false);
-    }
-  };
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -845,29 +559,18 @@ export function StockSyncRow() {
           {state?.status === 'failed' && state.errorMessage && (
             <p className="mt-1 text-xs text-[var(--danger)]">{state.errorMessage}</p>
           )}
+          {state?.stopped && (
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</p>
+          )}
         </div>
 
-        <button
-          onClick={() => void run()}
-          disabled={busy}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {busy ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              동기화 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              재고 동기화
-            </>
-          )}
-        </button>
+        <CollectionStartControl
+          control={control}
+          startLabel="재고 동기화"
+          startTitle={SELLPIA_INVENTORY_START_TITLE}
+          onStart={() => control.start()}
+          onStop={control.stop}
+        />
       </div>
     </div>
   );

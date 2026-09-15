@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { purchaseOrdersApi } from '../lib/purchase-orders-api';
 import { usePurchaseOrderSubmission } from '../hooks/usePurchaseOrderSubmission';
@@ -20,11 +20,30 @@ vi.mock('../hooks/usePurchaseOrderSubmission', () => ({
   usePurchaseOrderSubmission: vi.fn(),
 }));
 
+const inventoryStart = vi.hoisted(() => vi.fn());
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: 'idle',
+      statusRead: 'current',
+      running: null,
+      canStop: false,
+      notice: null,
+      start: inventoryStart,
+      stop: vi.fn(),
+    },
+    state: null,
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
+  }),
+}));
+
 describe('GeneralPurchaseOrdersWorkspace deep links', () => {
   beforeEach(() => {
     vi.mocked(usePurchaseOrderSubmission).mockReturnValue({
       submit: vi.fn(),
       submittingId: null,
+      inventoryCollectionRequired: false,
     });
     vi.mocked(purchaseOrdersApi.list).mockResolvedValue({
       items: [{
@@ -69,6 +88,24 @@ describe('GeneralPurchaseOrdersWorkspace deep links', () => {
     }));
     expect(row).toHaveAttribute('aria-selected', 'true');
     expect(row).toHaveClass('bg-purple-50');
+  });
+
+  it('asks for Sellpia inventory collection with the shared control when submission needs a fresh generation', async () => {
+    vi.mocked(usePurchaseOrderSubmission).mockReturnValue({
+      submit: vi.fn(),
+      submittingId: null,
+      inventoryCollectionRequired: true,
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <GeneralPurchaseOrdersWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('재고 수집이 필요합니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 수집' }));
+    expect(inventoryStart).toHaveBeenCalledTimes(1);
   });
 
   it('preserves the general purchase-order page heading without a duplicate Rocket preview', async () => {

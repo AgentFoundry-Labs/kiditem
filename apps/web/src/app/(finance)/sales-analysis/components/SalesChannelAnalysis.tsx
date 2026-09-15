@@ -2,14 +2,7 @@
 
 import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import {
-  ChevronRight,
-  Loader2,
-  Package,
-  RefreshCw,
-  Rocket,
-  type LucideIcon,
-} from 'lucide-react';
+import { ChevronRight, Loader2, Package, Rocket, type LucideIcon } from 'lucide-react';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import type { SalesChannelChartPoint } from './SalesChannelTrendChart';
 import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
@@ -59,11 +52,11 @@ interface SalesChannelAnalysisProps {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  onSync: () => void;
-  syncing: boolean;
   selectedChannel: SalesChannelSelection;
   onChannelChange: (channel: SalesChannelSelection) => void;
   periodControl?: ReactNode;
+  /** The shared Sellpia sales collection control, in the header and the empty state. */
+  collectionControl?: ReactNode;
 }
 
 export function SalesChannelAnalysis({
@@ -71,11 +64,10 @@ export function SalesChannelAnalysis({
   isLoading,
   isError,
   onRetry,
-  onSync,
-  syncing,
   selectedChannel,
   onChannelChange,
   periodControl,
+  collectionControl,
 }: SalesChannelAnalysisProps) {
   return (
     <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -95,17 +87,7 @@ export function SalesChannelAnalysis({
         </div>
         <div className="flex items-center gap-2">
           {periodControl}
-          <button
-            type="button"
-            onClick={onSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-700 disabled:opacity-50"
-          >
-            {syncing
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <RefreshCw className="h-3.5 w-3.5" />}
-            {syncing ? '수집 중...' : '지금 수집'}
-          </button>
+          {collectionControl}
         </div>
       </div>
 
@@ -128,17 +110,7 @@ export function SalesChannelAnalysis({
       ) : !summary || !summary.hasData ? (
         <div className="flex h-44 flex-col items-center justify-center gap-2 text-sm text-slate-400">
           <span>선택한 기간에 수집된 몰별 매출이 없습니다.</span>
-          <button
-            type="button"
-            onClick={onSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 text-xs text-purple-600 hover:underline disabled:opacity-50"
-          >
-            {syncing
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <RefreshCw className="h-3.5 w-3.5" />}
-            셀피아 판매현황 지금 수집
-          </button>
+          {collectionControl}
         </div>
       ) : (
         <SalesChannelAnalysisBody

@@ -16,17 +16,20 @@ const inventoryContentPath = path.join(
   'content/coupang/wing-inventory-scraper.js',
 );
 
-test('service worker exposes the resumable Coupang catalog import actions', () => {
+test('service worker starts the Coupang catalog import only through the collection start', () => {
   const worker = fs.readFileSync(workerPath, 'utf8');
   const inventoryContent = fs.readFileSync(inventoryContentPath, 'utf8');
-  for (const action of [
+  // The web app no longer opens the attempt and hands over a permit; the
+  // extension admits the import through `startCollection` instead (KID-147).
+  for (const retiredAction of [
     'startCoupangCatalogImport',
     'getCoupangCatalogImportStatus',
     'cancelCoupangCatalogImport',
-    'registerWingThumbnail',
   ]) {
-    assert.match(worker, new RegExp(`msg\\.action === ["']${action}["']`));
+    assert.doesNotMatch(worker, new RegExp(retiredAction));
   }
+  assert.match(worker, /KidItemCoupangCatalogImport\.admit\(/);
+  assert.match(worker, /msg\.action === ["']registerWingThumbnail["']/);
   assert.match(worker, /coupangCatalogSnapshot:\s*true/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(inventoryContent, /collectCoupangCatalogDiscoveryPage/);

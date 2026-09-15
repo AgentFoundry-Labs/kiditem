@@ -13,13 +13,16 @@ import {
   Globe2,
   Loader2,
   PlaySquare,
-  RefreshCw,
   Search,
   ShoppingBag,
 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import {
+  useTrendSourceCollection,
+  type TrendSourceCollection,
+} from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import {
@@ -41,6 +44,7 @@ import {
 
 const SNAPSHOT_DAYS = 7;
 const NAVER_SNAPSHOT_DAYS = 30;
+const NAVER_TREND_SOURCES = ['naver'] as const;
 
 export function GlobalSourcingOverview() {
   const naverQuery = useQuery({
@@ -48,10 +52,7 @@ export function GlobalSourcingOverview() {
     queryFn: fetchPersistedNaverMarket,
     staleTime: 10 * 60 * 1000,
   });
-  const naverSource = useTrendSourceCollection({
-    input: { sources: ['naver'] },
-    snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-  });
+  const naverSource = useTrendSourceCollection({ sources: NAVER_TREND_SOURCES });
   const chinaQuery = useQuery({
     queryKey: queryKeys.sourcing.trend1688Hot(SNAPSHOT_DAYS),
     queryFn: () => fetch1688HotProducts(SNAPSHOT_DAYS),
@@ -112,8 +113,7 @@ export function GlobalSourcingOverview() {
           loading={naverQuery.isLoading}
           error={naverQuery.isError}
           warnings={naverQuery.data?.warnings ?? []}
-          isCollecting={naverSource.isCollecting}
-          onCollect={() => void naverSource.collect({ sources: ['naver'] })}
+          collection={naverSource}
         />
       </div>
 
@@ -261,16 +261,14 @@ function KoreaSignals({
   loading,
   error,
   warnings,
-  isCollecting,
-  onCollect,
+  collection,
 }: {
   items: Awaited<ReturnType<typeof fetchPersistedNaverMarket>>['opportunities'];
   generatedAt: string | null;
   loading: boolean;
   error: boolean;
   warnings: string[];
-  isCollecting: boolean;
-  onCollect: () => void;
+  collection: TrendSourceCollection;
 }) {
   return (
     <SignalCard icon={ShoppingBag} title="한국 수요" subtitle={warnings.length > 0 ? '저장된 네이버 스냅샷 일부 경고' : '저장된 네이버 검색 수요 스냅샷'} badge={generatedAt ? `저장 ${formatDateTime(generatedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '수집 대기'}>
@@ -297,15 +295,13 @@ function KoreaSignals({
         </>
       )}
       <div className="border-t border-[var(--border-subtle)] px-4 py-3">
-        <button
-          type="button"
-          onClick={onCollect}
-          disabled={isCollecting}
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
-        >
-          {isCollecting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          {isCollecting ? '네이버 수집 중…' : '네이버 스냅샷 수집'}
-        </button>
+        <CollectionStartControl
+          control={collection.control}
+          startLabel="네이버 스냅샷 수집"
+          onStart={() => collection.start()}
+          onStop={collection.control.stop}
+          className="items-start"
+        />
       </div>
     </SignalCard>
   );

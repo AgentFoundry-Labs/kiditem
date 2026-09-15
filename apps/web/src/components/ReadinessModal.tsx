@@ -64,8 +64,7 @@ export default function ReadinessModal({
     refetchOnWindowFocus: false,
   });
   const view = buildReadinessModalViewModel(query.data);
-  const { pendingKey, handleCollect, catalog } = useReadinessCollection({
-    refetchReadiness: () => query.refetch(),
+  const { handleCollect, catalog } = useReadinessCollection({
     catalogEnabled: open,
     catalogLink,
   });
@@ -190,7 +189,7 @@ export default function ReadinessModal({
                       onCollect={(nextCheck) => {
                         void handleCollect(nextCheck);
                       }}
-                      pending={pendingKey === check.key}
+                      pending={false}
                       catalog={check.key === 'coupang_products' ? catalog : undefined}
                     />
                   ))}
@@ -200,7 +199,7 @@ export default function ReadinessModal({
                       onCollect={(nextCheck) => {
                         void handleCollect(nextCheck);
                       }}
-                      pending={pendingKey === catalogOkCheck.key}
+                      pending={false}
                       catalog={catalog}
                     />
                   )}
@@ -235,16 +234,8 @@ export default function ReadinessModal({
                   </p>
                 </div>
                 <div className="space-y-2.5">
-                  <AdSyncRow
-                    onComplete={() => {
-                      void query.refetch();
-                    }}
-                  />
-                  <AdKeywordRow
-                    onComplete={() => {
-                      void query.refetch();
-                    }}
-                  />
+                  <AdSyncRow />
+                  <AdKeywordRow />
                   <StockSyncRow />
                   {additionalCollection}
                 </div>

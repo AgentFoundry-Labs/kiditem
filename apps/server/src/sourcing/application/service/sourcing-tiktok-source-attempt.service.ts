@@ -174,6 +174,15 @@ export class SourcingTiktokSourceAttemptService {
     });
   }
 
+  /** Operator stop without the attempt token; only a TikTok Creative Center attempt of this organization. */
+  async cancelTiktok(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SourcingBrowserSourceAttempt> {
+    await this.requireTiktokAttempt(input.organizationId, input.attemptId);
+    return this.attempts.cancelAttempt(input);
+  }
+
   private async currentTiktokPlan(
     organizationId: string,
     maxItems?: unknown,

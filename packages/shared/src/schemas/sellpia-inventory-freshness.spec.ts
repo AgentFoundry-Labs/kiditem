@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ErrorCodes } from '../errors/codes';
 import {
   deriveSellpiaInventoryFreshness,
+  isSellpiaInventoryLastAttemptStopped,
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
   SELLPIA_INVENTORY_FRESHNESS_STATUSES,
   SELLPIA_INVENTORY_REFRESH_REASONS,
@@ -12,7 +13,7 @@ import {
 } from './sellpia-inventory-freshness';
 
 const VERIFIED_AT = new Date('2026-07-15T00:00:00.000Z');
-const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const ATTEMPT_ID = '00000000-0000-4000-8000-000000000001';
 
 const createFreshnessView = () => ({
   status: 'fresh' as const,
@@ -199,7 +200,7 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       ...createFreshnessView(),
       status: 'syncing',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         scope: 'inventory',
         startedAt: '2026-07-15T00:02:00.000Z',
@@ -214,14 +215,20 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         errorMessage: 'Network request failed',
       },
     });
-    expect(parsed.activeSync?.runId).toBe(RUN_ID);
+    expect(parsed.activeSync?.attemptId).toBe(ATTEMPT_ID);
     expect(parsed.activeSync).not.toHaveProperty('ownerUserId');
+    // A manual upload holds the lease without a source attempt.
+    expect(SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      status: 'syncing',
+      activeSync: { ...parsed.activeSync, attemptId: null },
+    }).activeSync?.attemptId).toBeNull();
   });
 
   it('rejects unknown keys throughout the view', () => {
     expect(() => SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
-      activeRunId: RUN_ID,
+      activeRunId: ATTEMPT_ID,
     })).toThrow();
     expect(() => SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
@@ -234,12 +241,12 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       ...createFreshnessView(),
       status: 'syncing',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         startedAt: '2026-07-15T00:02:00.000Z',
         leaseExpiresAt: '2026-07-15T00:03:30.000Z',
         canControl: true,
-        ownerUserId: RUN_ID,
+        ownerUserId: ATTEMPT_ID,
       },
     })).toThrow();
     // The last attempt publishes its facts; the view carries no outcome word.
@@ -257,6 +264,63 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
   });
 });
 
+describe('isSellpiaInventoryLastAttemptStopped', () => {
+  // createFreshnessView() verified its snapshot at 00:00:01.
+  const lastAttempt = (patch: Record<string, unknown> = {}) => ({
+    attemptedAt: '2026-07-15T00:05:00.000Z',
+    trigger: 'manual_request',
+    scope: 'inventory',
+    errorCode: null,
+    errorMessage: null,
+    ...patch,
+  });
+  const view = (patch: Record<string, unknown>) => SellpiaInventoryFreshnessViewSchema.parse({
+    ...createFreshnessView(),
+    status: 'refresh_required',
+    requestedGeneration: '5',
+    ...patch,
+  });
+
+  it('reads an attempt that ended after the verified snapshot without error facts as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: lastAttempt() }))).toBe(true);
+  });
+
+  it('reads a stop before any verified snapshot as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastVerifiedAt: null,
+      expiresAt: null,
+      verifiedGeneration: '0',
+      lastAttempt: lastAttempt(),
+    }))).toBe(true);
+  });
+
+  it('never reads a completion as stopped, even once its snapshot needs a refresh', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({ attemptedAt: '2026-07-15T00:00:01.000Z' }),
+    }))).toBe(false);
+  });
+
+  it('never reads an attempt with an error fact as stopped', () => {
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'Network request failed',
+      }),
+    }))).toBe(false);
+    expect(isSellpiaInventoryLastAttemptStopped(view({
+      lastAttempt: lastAttempt({ errorMessage: 'Sellpia inventory collection attempt expired.' }),
+    }))).toBe(false);
+  });
+
+  it('reads no stop outside refresh_required or without a last attempt', () => {
+    const stopped = view({ lastAttempt: lastAttempt() });
+    for (const status of ['fresh', 'syncing', 'failed'] as const) {
+      expect(isSellpiaInventoryLastAttemptStopped({ ...stopped, status })).toBe(false);
+    }
+    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: null }))).toBe(false);
+  });
+});
+
 describe('Sellpia freshness mutation contracts', () => {
   it('requires a persisted full or inventory-only scope on visible attempts', () => {
     expect(SellpiaSyncScopeSchema.options).toEqual(['full', 'inventory']);
@@ -264,7 +328,7 @@ describe('Sellpia freshness mutation contracts', () => {
       ...createFreshnessView(),
       requestedSyncScope: 'full',
       activeSync: {
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
         generation: '5',
         scope: 'full',
         startedAt: '2026-07-15T00:02:00.000Z',

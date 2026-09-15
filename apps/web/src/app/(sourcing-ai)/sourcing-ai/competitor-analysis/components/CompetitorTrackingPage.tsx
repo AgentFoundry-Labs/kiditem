@@ -23,16 +23,18 @@ import {
   type CompetitorCollectionStatus,
 } from "@kiditem/shared/advertising";
 import { friendlyError } from "@/lib/api-error";
-import { collectionSourceStatusQueryOptions } from "@/lib/collection-source-status-query";
+import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
+import { useCollectionSourceControl, type CollectionControlView } from "@/hooks/use-collection-source-control";
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 import {
-  fetchCompetitorCatalogSourceStatus,
   fetchCompetitorTrackingOverview,
   type CompetitorCatalogAttemptInput,
   type CompetitorCatalogSourceStatus,
   type CompetitorSeller,
 } from "../lib/competitor-tracking-api";
+import { competitorCatalogCollection } from "../lib/competitor-catalog-collection";
 import {
   collectCompetitorCatalogFromExtension,
   competitorExtensionGateMessage,
@@ -68,13 +70,8 @@ export function CompetitorTrackingPage() {
     // 기간 전환 시 전체화면 스켈레톤으로 되돌아가지 않도록 직전 데이터를 유지한다.
     placeholderData: keepPreviousData,
   });
-  const sourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: COMPETITOR_SOURCE_STATUS_QUERY_KEY,
-    queryFn: fetchCompetitorCatalogSourceStatus,
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === "RUNNING" ? 5_000 : false
-    ),
-  }));
+  // The collection CTAs start it; the shared control shows it running and stops it.
+  const catalogSource = useCollectionSourceControl(competitorCatalogCollection);
   const collectionMutation = useMutation({
     mutationFn: async ({
       input,
@@ -172,8 +169,8 @@ export function CompetitorTrackingPage() {
     gate.status === "checking"
       ? null
       : competitorExtensionGateMessage(gate as CompetitorExtensionGate);
-  const sourceStatus = sourceStatusQuery.data;
-  const collecting = collectionMutation.isPending || sourceStatus?.latestAttempt?.state === "RUNNING";
+  const sourceStatus = catalogSource.status;
+  const collecting = collectionMutation.isPending || catalogSource.running !== null;
   const collectingSellerKey = collecting ? requestedSellerKey : null;
 
   const startCollection = (
@@ -264,6 +261,7 @@ export function CompetitorTrackingPage() {
           gateMessage={gateMessage}
           collecting={collecting}
           sourceStatus={sourceStatus}
+          control={catalogSource}
           unresolvedCount={data.summary.unresolvedSellerProductCount}
         />
       )}
@@ -387,28 +385,42 @@ function CollectionNotice({
   gateMessage,
   collecting,
   sourceStatus,
+  control,
   unresolvedCount,
 }: {
   gateMessage: string | null;
   collecting: boolean;
   sourceStatus: CompetitorCatalogSourceStatus | undefined;
+  control: CollectionControlView & Readonly<{ stop: () => void }>;
   unresolvedCount: number;
 }) {
   const latestAttempt = sourceStatus?.latestAttempt;
   const sourceMessage = collecting
     ? "새 경쟁 판매자 수집 진행 중입니다. 이전 완료 스냅샷은 계속 표시됩니다."
-    : latestAttempt?.state === "FAILED"
-      ? `마지막 수집 실패: ${latestAttempt.errorCode ?? "UNKNOWN"}${latestAttempt.errorMessage ? ` — ${latestAttempt.errorMessage}` : ""}`
-      : sourceStatus?.latestComplete
-        ? `마지막 완료 ${formatDateTime(sourceStatus.latestComplete.capturedAt)} · 기준일 ${sourceStatus.latestComplete.coveredThrough}`
-        : null;
+    : stoppedAttempt(latestAttempt)
+      ? COLLECTION_STOPPED_MESSAGE
+      : latestAttempt?.state === "FAILED"
+        ? `마지막 수집 실패: ${latestAttempt.errorCode ?? "UNKNOWN"}${latestAttempt.errorMessage ? ` — ${latestAttempt.errorMessage}` : ""}`
+        : sourceStatus?.latestComplete
+          ? `마지막 완료 ${formatDateTime(sourceStatus.latestComplete.capturedAt)} · 기준일 ${sourceStatus.latestComplete.coveredThrough}`
+          : null;
   const message = gateMessage
     ?? sourceMessage
     ?? `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.33+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`;
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-      <AlertCircle size={15} className="mt-0.5 shrink-0" />
-      <p>{message}</p>
+    <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+      <div className="flex min-w-0 items-start gap-2">
+        <AlertCircle size={15} className="mt-0.5 shrink-0" />
+        <p>{message}</p>
+      </div>
+      {control.running && (
+        <CollectionStartControl
+          control={control}
+          startLabel="판매자 수집·갱신"
+          onStart={() => undefined}
+          onStop={control.stop}
+        />
+      )}
     </div>
   );
 }

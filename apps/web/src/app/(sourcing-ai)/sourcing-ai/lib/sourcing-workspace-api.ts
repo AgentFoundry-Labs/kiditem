@@ -55,6 +55,13 @@ export const sourcingWorkspaceApi = {
     );
   },
 
+  /** Recalculates today's recommendations from one COMPLETE Wing catalog attempt. */
+  async refreshRecommendations(
+    sourceAttemptId: string,
+  ): Promise<{ data?: { runId: string } | null; error?: { message: string } | null }> {
+    return apiClient.post('/api/sourcing/workspace/recommendations/refresh', { sourceAttemptId });
+  },
+
   async refreshValidation(): Promise<SourcingValidationEnvelope> {
     const raw = await apiClient.post<unknown>('/api/sourcing/workspace/validation/refresh');
     return SourcingValidationEnvelopeSchema.parse(raw);

@@ -202,6 +202,29 @@ describe('apiClient HTTP method envelopes', () => {
     });
   });
 
+  it("keeps a source owner's code and attempt id beside the HTTP error category", async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(409, {
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'Conflict',
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: '11111111-1111-4111-8111-111111111111',
+      }))
+      .mockResolvedValueOnce(jsonResponse(400, { error: 'COMMON_BAD_REQUEST', message: 'Invalid input' }));
+
+    await expect(apiClient.post('/api/owner/attempts', {})).rejects.toMatchObject({
+      status: 409,
+      code: 'Conflict',
+      details: {
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    await expect(apiClient.get('/api/plain')).rejects.toMatchObject({ details: {} });
+  });
+
   it('wraps network/CORS fetch failures with an actionable ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));

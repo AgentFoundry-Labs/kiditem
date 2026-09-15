@@ -80,4 +80,9 @@ export interface CompetitorCatalogSourceAttemptRepositoryPort {
     code: string;
     message: string;
   }): Promise<CompetitorCatalogSourceView>;
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<CompetitorCatalogSourceView>;
 }

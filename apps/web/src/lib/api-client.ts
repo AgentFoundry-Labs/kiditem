@@ -180,7 +180,10 @@ async function consumeResponse<T>(
         : typeof detailRaw === 'string' && detailRaw.trim()
           ? detailRaw.trim()
           : `API error: ${res.status}`;
-    throw new ApiError(res.status, code, detail);
+    throw new ApiError(res.status, code, detail, {
+      ...(typeof record.code === 'string' && record.code.trim() ? { code: record.code } : {}),
+      ...(typeof record.attemptId === 'string' && record.attemptId ? { attemptId: record.attemptId } : {}),
+    });
   }
 
   const text = await raceWithSignal(signal, () => res.text());

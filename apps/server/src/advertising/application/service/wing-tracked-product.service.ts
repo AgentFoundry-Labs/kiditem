@@ -124,6 +124,17 @@ export class WingTrackedProductService {
     });
   }
 
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<WingTrackedProductSourceView> {
+    return this.attempts.cancelAttempt({
+      organizationId: requiredText(input.organizationId, 'INVALID_ORGANIZATION'),
+      attemptId: requiredText(input.attemptId, 'INVALID_ATTEMPT_ID'),
+    });
+  }
+
   async failAttempt(input: {
     organizationId: string;
     attemptId: string;

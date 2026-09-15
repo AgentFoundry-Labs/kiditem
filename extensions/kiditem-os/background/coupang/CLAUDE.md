@@ -29,6 +29,10 @@ supports explicit Wing page automation.
 - Full catalog collection uses the account-scoped server-owned attempt
   contract. The owner API defines start, upload, terminal, and status semantics;
   the extension does not own a canonical run ledger.
+- The catalog import starts only through `startCollection`
+  (`channels.coupang_catalog`): the extension takes the environment's import
+  turn before it opens the basics attempt, and a restarted worker continues an
+  import only through lifetime recovery.
 - Every chunk and terminal request carries the server-issued attempt ID/token
   and uses the owner's deterministic receipt identity. Replays are safe; stale,
   expired, or post-terminal mutations stop the worker and leave the prior

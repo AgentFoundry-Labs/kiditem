@@ -116,6 +116,78 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
       .resolves.toMatchObject({ status: 'running' });
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    await registerTracker('wing-1', 'A Pencil');
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+      keywords: ['A Pencil'],
+    });
+
+    await expect(owner.cancelAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).rejects.toThrow('WING_TRACKED_ATTEMPT_NOT_FOUND');
+    const stopped = await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    });
+    expect(stopped.latestAttempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
+    await expect(owner.submitAttempt(upload(attempt, 10_000))).rejects.toThrow('ATTEMPT_TERMINAL');
+    await expect(owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    })).resolves.toEqual(stopped);
+
+    const next = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: SECOND_KEY,
+      keywords: ['A Pencil'],
+    });
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    await registerTracker('wing-1', 'A Pencil');
+    const expired = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+      keywords: ['A Pencil'],
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+
+    const settled = await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: expired.attemptId,
+    });
+    expect(settled.latestAttempt).toMatchObject({ attemptId: expired.attemptId, state: 'FAILED' });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        dedupeKey: WING_TRACKED_PRODUCTS_ALERT_DEDUPE_KEY,
+        status: 'OPEN',
+      },
+    })).toBe(1);
+
+    const finished = await completeAttempt(SECOND_KEY, ['A Pencil'], 10_000);
+    const before = await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: finished.attemptId } });
+    await owner.cancelAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: finished.attemptId });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: finished.attemptId } }))
+      .resolves.toEqual(before);
+  });
+
   it('keeps the prior complete facts current when an incomplete collection becomes FAILED', async () => {
     await registerTracker('wing-1', 'A Pencil');
     await registerTracker('wing-2', 'Other Pencil');

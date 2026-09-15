@@ -1,8 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export type PurchaseOrderItem = {
   id: string;
@@ -152,80 +150,10 @@ export function createPurchaseOrderSubmissionIdempotencyKey(): string {
   return createSecureRandomUuid();
 }
 
-type FreshnessRecoveryDependencies = {
-  submit: (input: SubmitPurchaseOrderRequest) => Promise<SubmitPurchaseOrderResponse>;
-  requestRefresh: (
-    reason: 'manual_request',
-  ) => Promise<{ requestedGeneration: string }>;
-  waitForFreshGeneration: (generation: string) => Promise<void>;
-};
-
-export type FreshnessRecoveryOptions = {
-  dependencies?: Partial<FreshnessRecoveryDependencies>;
-  onRefreshRequested?: () => void | Promise<void>;
-};
-
-export async function submitPurchaseOrderWithFreshnessRecovery(
-  input: SubmitPurchaseOrderRequest,
-  options: FreshnessRecoveryOptions = {},
-): Promise<SubmitPurchaseOrderResponse> {
-  const submit = options.dependencies?.submit ?? purchaseOrdersApi.submit;
-  const requestRefresh = options.dependencies?.requestRefresh;
-  const waitForFreshGeneration = options.dependencies?.waitForFreshGeneration
-    ?? ((generation: string) => waitForCompletedFreshGeneration(generation));
-  try {
-    return await submit(input);
-  } catch (error) {
-    if (!isApiError(error) || error.code !== 'SELLPIA_SYNC_REQUIRED') throw error;
-  }
-
-  if (!requestRefresh) {
-    throw new Error('셀피아 source-owner 새로고침 경로가 연결되지 않았습니다.');
-  }
-  const requested = await requestRefresh('manual_request');
-  await options.onRefreshRequested?.();
-  await waitForFreshGeneration(requested.requestedGeneration);
-  return submit(input);
-}
-
-export const SELLPIA_GENERATION_POLL_MS = 2_000;
-export const SELLPIA_GENERATION_MAX_POLLS = 60;
-
-export async function waitForCompletedFreshGeneration(
-  generation: string,
-  dependencies: {
-    getState: () => Promise<Pick<
-      SellpiaInventoryFreshnessView,
-      'status' | 'verifiedGeneration' | 'lastAttempt'
-    >>;
-    sleep: () => Promise<void>;
-    maxPolls: number;
-  } = {
-    getState: sellpiaInventoryFreshnessApi.getState,
-    sleep: () => new Promise((resolve) => globalThis.setTimeout(
-      resolve,
-      SELLPIA_GENERATION_POLL_MS,
-    )),
-    maxPolls: SELLPIA_GENERATION_MAX_POLLS,
-  },
-): Promise<void> {
-  const target = BigInt(generation);
-  for (let poll = 0; poll < dependencies.maxPolls; poll += 1) {
-    const state = await dependencies.getState();
-    if (
-      state.status === 'fresh'
-      && BigInt(state.verifiedGeneration) >= target
-    ) {
-      return;
-    }
-    if (state.status === 'failed') {
-      throw new Error(
-        state.lastAttempt?.errorCode
-        ?? state.lastAttempt?.errorMessage
-        ?? 'Sellpia inventory refresh failed.',
-      );
-    }
-    if (poll + 1 < dependencies.maxPolls) await dependencies.sleep();
-  }
-  throw new Error('Timed out waiting for a completed fresh Sellpia generation.');
+/**
+ * Submission refuses a Sellpia generation that is not fresh. The operator
+ * collects inventory and submits again; nothing retries by itself.
+ */
+export function isSellpiaInventoryCollectionRequired(error: unknown): boolean {
+  return isApiError(error) && error.code === 'SELLPIA_SYNC_REQUIRED';
 }

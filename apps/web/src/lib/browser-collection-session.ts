@@ -119,6 +119,27 @@ export async function findBrowserCollectionSession(
   return preferNewestSessions(sessions)[0] ?? null;
 }
 
+/**
+ * The session one extension holds for an attempt, or null when it holds none
+ * or does not answer within the timeout.
+ */
+export async function readBrowserCollectionSession(
+  extensionId: string,
+  attemptId: string,
+  timeoutMs: number,
+): Promise<BrowserCollectionSessionView | null> {
+  const command = BrowserCollectionCommandSchema.parse({
+    action: 'getCollectionSession',
+    attemptId,
+  });
+  try {
+    const session = parseSession(await sendToExtension(extensionId, command, timeoutMs));
+    return session?.attemptId === attemptId ? session : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function sendBrowserCollectionControl(
   attemptId: string,
   action: BrowserCollectionControlAction,

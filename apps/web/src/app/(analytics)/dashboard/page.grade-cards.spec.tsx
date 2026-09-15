@@ -195,6 +195,12 @@ beforeEach(() => {
       return Promise.resolve(inventoryResponse);
     }
     if (path.startsWith('/api/dashboard/trend')) return Promise.resolve([]);
+    if (path === '/api/sourcing/trend/status') {
+      return Promise.resolve({
+        naver: { latestAttempt: null, actualCutoffAt: null },
+        shorts: { latestAttempt: null, actualCutoffAt: null },
+      });
+    }
     return Promise.resolve(null);
   });
 });

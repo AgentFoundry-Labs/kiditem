@@ -1165,6 +1165,50 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     await expect(prisma.alert.count({ where: { organizationId: ORG, sourceType: 'coupang_wing_traffic', attemptId: identityAttempt.attempt.attemptId } })).resolves.toBe(1);
   });
 
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl).post(`${base}/attempts/${attemptId}/cancel`).set('x-test-org', organizationId);
+
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const plan = range();
+    const { attempt } = await begin(plan);
+    await cancel(attempt.attemptId, OTHER_ORG).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    await expect(prisma.alert.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+    await upload(attempt, 0, dailyReceipt(attempt, plan, plan.startDate, 1, 1, [row('1001')])).expect(409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = await begin(plan);
+    expect(next.attempt.attemptId).not.toBe(attempt.attemptId);
+    expect(next.control.state).toBe('RUNNING');
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const { attempt: expired } = await begin();
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.alert.count({
+      where: { organizationId: ORG, sourceType: 'coupang_wing_traffic', attemptId: expired.attemptId, status: 'OPEN' },
+    })).resolves.toBe(1);
+    const completed = await collectOne(range());
+    const view = (await request(httpUrl).get(`${base}/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
+  });
+
   it('fences attempts and reads by organization', async () => {
     await request(httpUrl)
       .post(`${base}/attempts`)

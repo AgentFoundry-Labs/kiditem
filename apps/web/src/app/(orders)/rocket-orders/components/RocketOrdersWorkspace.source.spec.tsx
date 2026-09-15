@@ -67,6 +67,36 @@ it('uses empty COMPLETE identity independently of rows and shows latest failure 
   rendered.unmount(); client.clear();
 });
 
+it('shows a collection a stop cancelled as stopped, not a failure, beside the retained COMPLETE source', async () => {
+  const plan = { channelAccountId: account, from: '2026-07-01', to: '2026-07-31', status: '',
+    dateType: 'WAREHOUSING_PLAN_DATE', requireConfirmation: true,
+    sourceType: 'coupang_rocket_po_catalog', parserVersion: 'rocket-po-v1',
+    vendorExpectations: { rocketVendorId: 'VENDOR', sharedCoupangVendorId: null } };
+  const complete = { attemptId: oldId, channelAccountId: account, state: 'COMPLETE', generation: '1', plan,
+    expiresAt: '2099-01-01T00:00:00Z', actualCutoffAt: '2026-07-31T01:00:00Z', errorCode: null, errorMessage: null };
+  const stopped = { ...complete, attemptId: emptyId, generation: '2', state: 'FAILED', actualCutoffAt: null,
+    errorCode: 'COLLECTION_CANCELLED', errorMessage: 'Rocket PO collection was cancelled.' };
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    const path = new URL(url, 'http://localhost').pathname;
+    const action = init?.body ? JSON.parse(String(init.body)).action : undefined;
+    if (path.endsWith('/source')) {
+      return Response.json({ ready: true, latestAttempt: stopped, latestComplete: complete });
+    }
+    if (action === 'listSavedRocketPos') return Response.json([]);
+    return Response.json({ message: 'unexpected' }, { status: 404 });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rendered = render(<QueryClientProvider client={client}><RocketOrdersWorkspace decisionWorkspace={() => null} /></QueryClientProvider>);
+
+  const status = screen.getByRole('status', { name: '로켓 수집 상태' });
+  await waitFor(() => expect(status).toHaveTextContent('수집 중단됨'));
+  expect(status).toHaveTextContent('수집을 중단했습니다. 저장된 완료본은 유지됩니다.');
+  expect(status).toHaveTextContent('COMPLETE 수집본');
+  expect(status).not.toHaveTextContent('수집 실패');
+  expect(status).not.toHaveTextContent('Rocket PO collection was cancelled.');
+  rendered.unmount(); client.clear();
+});
+
 it('keeps the last known COMPLETE source and its saved list when a later status read fails', async () => {
   const plan = { channelAccountId: account, from: '2026-07-01', to: '2026-07-31', status: '',
     dateType: 'WAREHOUSING_PLAN_DATE', requireConfirmation: true,

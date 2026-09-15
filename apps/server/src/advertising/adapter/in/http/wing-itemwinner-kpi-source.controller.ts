@@ -4,13 +4,16 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { WingItemwinnerSourceStatusSchema } from '@kiditem/shared/advertising';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   WING_ITEMWINNER_KPI_READ_PORT,
@@ -19,9 +22,10 @@ import {
   type WingItemwinnerKpiSourcePort,
 } from '../../../application/port/in/wing-itemwinner-kpi-source.port';
 
+// The owner derives the Wing page; a start names at most the account.
 const BeginSchema = z
   .object({
-    targetUrl: z.string().url().max(2_048),
+    channelAccountId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -68,13 +72,21 @@ export class WingItemwinnerKpiSourceController {
     return this.source.begin({
       organizationId,
       idempotencyKey: headerText(idempotencyKey, 'INVALID_IDEMPOTENCY_KEY'),
-      targetUrl: body.data.targetUrl,
+      channelAccountId: body.data.channelAccountId,
     });
   }
 
   @Get('source')
-  sourceStatus(@CurrentOrganization() organizationId: string) {
-    return this.read.readSourceStatus({ organizationId });
+  async sourceStatus(
+    @CurrentOrganization() organizationId: string,
+    @Query('channelAccountId') channelAccountId?: string,
+  ) {
+    if (channelAccountId && !z.string().uuid().safeParse(channelAccountId).success) {
+      throw new BadRequestException('INVALID_COUPANG_ACCOUNT');
+    }
+    return WingItemwinnerSourceStatusSchema.parse(
+      await this.read.readSourceStatus({ organizationId, channelAccountId }),
+    );
   }
 
   @Get('published')
@@ -124,6 +136,15 @@ export class WingItemwinnerKpiSourceController {
       attemptToken: uuidHeader(attemptToken),
       ...body.data,
     });
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.source.cancel({ organizationId, attemptId });
   }
 }
 

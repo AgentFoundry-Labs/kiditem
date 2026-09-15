@@ -14,6 +14,7 @@ import {
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { currentBusinessDate } from '../../../domain/business-date';
 import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
@@ -274,6 +275,39 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
       });
       if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
       await this.alerts.recordTerminalOutcome(tx, failureAlert(input));
+    }, mutationTransactionOptions());
+    return this.readSourceStatus({ organizationId: input.organizationId });
+  }
+
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<WingTrackedProductSourceView> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockWingTrackedProductsSource(tx, input.organizationId);
+      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
+      if (dbState(attempt.status) !== DB_RUNNING) return;
+      if (hasExpired(attempt, new Date())) {
+        await this.expireAttempt(tx, attempt);
+        return;
+      }
+      const updated = await tx.sourceImportRun.updateMany({
+        where: {
+          id: attempt.id,
+          organizationId: input.organizationId,
+          sourceType: WING_TRACKED_PRODUCTS_SOURCE_TYPE,
+          status: DB_RUNNING,
+        },
+        data: { status: DB_FAILED, errorCode: OPERATOR_CANCEL_CODE, errorMessage: OPERATOR_CANCEL_MESSAGE },
+      });
+      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
+      await this.alerts.recordTerminalOutcome(tx, failureAlert({
+        organizationId: input.organizationId,
+        attemptId: attempt.id,
+        code: OPERATOR_CANCEL_CODE,
+        message: OPERATOR_CANCEL_MESSAGE,
+      }));
     }, mutationTransactionOptions());
     return this.readSourceStatus({ organizationId: input.organizationId });
   }

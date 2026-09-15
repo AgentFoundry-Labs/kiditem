@@ -1,9 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { cn, formatNumber, formatPercent } from '@/lib/utils';
-import { queryKeys } from '@/lib/query-keys';
 import {
   useSourcingRecommendations,
   useSourcingValidation,
@@ -11,6 +10,7 @@ import {
 import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
 import { SourcingReadState } from './SourcingReadState';
+import { WingCatalogCalculationActions } from './WingCatalogCalculationActions';
 import { WingCatalogSourceStatus } from './WingCatalogSourceStatus';
 
 const STATUS_LABELS = {
@@ -46,13 +46,9 @@ export function SellochValidationPage() {
     maxPages: 1,
     purpose: 'recommendation_validation' as const,
   }), [keywords]);
-  const wingSource = useWingCatalogSource({
-    input: operationInput,
-    snapshotQueryKey: queryKeys.sourcing.all,
-  });
-  const isRunning = wingSource.isRunning;
+  const wingSource = useWingCatalogSource({ input: operationInput });
 
-  const refreshValidation = () => {
+  const collectValidationKeywords = () => {
     if (keywords.length === 0) {
       setInputError('검증할 추천 키워드가 없습니다. 오늘의 추천을 먼저 새로고침하세요.');
       return;
@@ -71,19 +67,16 @@ export function SellochValidationPage() {
               서버가 보유한 근거만 표시합니다. 추정할 수 없는 값은 자료 없음으로 남깁니다.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={refreshValidation}
-            disabled={isRunning}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#dbe5f4] bg-white px-4 text-xs font-black text-[#667085] transition hover:border-[#6d5dfc] hover:text-[#5b52e6] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isRunning ? (
-              <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            ) : (
-              <RefreshCw size={15} aria-hidden="true" />
-            )}
-            검증 새로고침
-          </button>
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <CollectionStartControl
+              control={wingSource.control}
+              startLabel="Wing 검증 수집"
+              startTitle="추천 키워드를 Wing 카탈로그로 수집합니다. 추천과 검증은 따로 갱신합니다."
+              onStart={collectValidationKeywords}
+              onStop={wingSource.control.stop}
+            />
+            <WingCatalogCalculationActions attempt={wingSource.attempt} validation />
+          </div>
         </header>
 
         {inputError ? <p className="text-sm font-bold text-rose-700">{inputError}</p> : null}

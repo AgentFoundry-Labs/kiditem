@@ -25,6 +25,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import {
   addDays,
@@ -269,6 +270,8 @@ export class AdCampaignSourceRepository {
             latestAttempt: null,
             latestComplete: null,
             actualCutoffAt: null,
+            activeAttempt: null,
+            latestManualReport: null,
           };
         const where = { ...scope(org), channelAccountId: account.id };
         const rows = await tx.sourceImportRun.findMany({
@@ -277,11 +280,25 @@ export class AdCampaignSourceRepository {
         });
         const latest = rows.find(isCampaignSweepRow) ?? null;
         const complete = rows.find((row) => row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && isCampaignSweepRow(row)) ?? null;
+        // Readiness stays on the sweep. A manual report holds the account while
+        // it runs, so the live attempt is read across capture modes.
+        const active = rows.find((row) => row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !expired(row)) ?? null;
+        const manual = rows.find(isManualReportRow) ?? null;
         const latestAttempt = latest ? await this.viewIn(tx, latest) : null;
         const latestComplete = complete
           ? complete.id === latest?.id
             ? latestAttempt
             : await this.viewIn(tx, complete)
+          : null;
+        const activeAttempt = active
+          ? active.id === latest?.id
+            ? latestAttempt
+            : await this.viewIn(tx, active)
+          : null;
+        const latestManualReport = manual
+          ? manual.id === active?.id
+            ? activeAttempt
+            : await this.viewIn(tx, manual)
           : null;
         const confirmedEnd = complete?.coverageEndDate
           ? businessDateKey(complete.coverageEndDate)
@@ -306,6 +323,8 @@ export class AdCampaignSourceRepository {
           latestAttempt,
           latestComplete,
           actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
+          activeAttempt,
+          latestManualReport,
         } satisfies AdCampaignSourceStatus;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -329,6 +348,25 @@ export class AdCampaignSourceRepository {
       const failed = expired(row)
         ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad campaign collection expired.')
         : await this.failIn(tx, row, code, clean, checksum);
+      return await this.viewIn(tx, failed);
+    });
+  }
+
+  /** Operator stop without the attempt token; a terminal attempt is returned as it is. */
+  async cancel(org: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, org);
+      const row = await this.find(tx, org, id);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return await this.viewIn(tx, row);
+      const failed = expired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad campaign collection expired.')
+        : await this.failIn(
+            tx,
+            row,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
+            hash({ code: OPERATOR_CANCEL_CODE, message: OPERATOR_CANCEL_MESSAGE }),
+          );
       return await this.viewIn(tx, failed);
     });
   }
@@ -902,6 +940,11 @@ function expired(row: Attempt) {
 function isCampaignSweepRow(row: Attempt): boolean {
   const parsed = AdCampaignSourcePlanSchema.safeParse(row.plan);
   return parsed.success && parsed.data.captureMode === 'campaign_sweep';
+}
+
+function isManualReportRow(row: Attempt): boolean {
+  const parsed = AdCampaignSourcePlanSchema.safeParse(row.plan);
+  return parsed.success && parsed.data.captureMode === 'manual_report';
 }
 
 function dateAtUtc(value: string): Date {

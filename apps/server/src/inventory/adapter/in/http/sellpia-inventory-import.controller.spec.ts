@@ -152,5 +152,8 @@ function makePort() {
     failAttempt: vi
       .fn<SellpiaInventoryImportPort['failAttempt']>()
       .mockResolvedValue({} as never),
+    cancelAttempt: vi
+      .fn<SellpiaInventoryImportPort['cancelAttempt']>()
+      .mockResolvedValue({} as never),
   };
 }

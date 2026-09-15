@@ -5,6 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
@@ -13,6 +14,7 @@ import {
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
 import { ChannelCatalogCollectionController } from '../adapter/in/http/channel-catalog-collection.controller';
+import { ChannelCatalogSourceController } from '../adapter/in/http/channel-catalog-source.controller';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
@@ -24,7 +26,6 @@ import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
-import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { countPublishedCatalogListings } from '../read/completed-catalog-run';
@@ -83,7 +84,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       publisher,
     );
     const module = await Test.createTestingModule({
-      controllers: [ChannelCatalogCollectionController],
+      controllers: [ChannelCatalogCollectionController, ChannelCatalogSourceController],
       providers: [{ provide: CHANNEL_CATALOG_COLLECTION_PORT, useValue: owner }],
     }).compile();
     app = module.createNestApplication({ logger: false });
@@ -797,7 +798,11 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   });
   it('carries staged Wing sale age through detail publication and a later basics refresh', async () => {
     const basics = await stageBasics();
-    const details = await startDetails(undefined, basics.manifest);
+    const details = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
     await publishOneDetailChunk(details.permit, {
       saleStartedAt: '2026-04-01T14:41:57',
     });
@@ -856,6 +861,9 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       '2026-09-01',
     )).toBeGreaterThanOrEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays);
 
+    // One import runs per account: the refresh begins once the operator stopped
+    // the partial details import, whose published product detail stays.
+    await fail(details.permit, 'USER_CANCELLED').expect(201);
     await stageBasics();
     await expect(prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId: ACCOUNT, externalId: 'BASIC-P1' },
@@ -876,6 +884,186 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       mappingValid: true,
       saleStartDate: '2026-04-01',
     }]);
+  });
+  // ── Operator stop and the account's source read (KID-147) ──────────────────
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl)
+      .post(`${base}/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+  const readSource = (channelAccountId = ACCOUNT, organizationId = ORG) =>
+    request(httpUrl)
+      .get(`/api/channels/accounts/${channelAccountId}/catalog-imports/coupang-wing/source`)
+      .set('x-test-org', organizationId)
+      .expect(200);
+  it('stops a running import for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const permit: CoupangCatalogCollectionPermit = (
+      await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)
+    ).body;
+    await cancel(permit.attemptId, OTHER_ORGANIZATION_ID).expect(404);
+
+    const stopped = (await cancel(permit.attemptId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: permit.attemptId,
+      state: 'FAILED',
+      overallState: 'FAILED',
+      error: { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.' },
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await alerts.list(ORG)).toEqual([]);
+    // The browser that still holds the token can no longer end it differently.
+    await fail(permit).expect(409);
+    expect((await cancel(permit.attemptId).expect(200)).body).toEqual(stopped);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('stops a whole import from its root while the details child runs', async () => {
+    const basics = await stageBasics();
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    const child = await startDetails(undefined, basics.manifest, childKey);
+
+    const stopped = (await cancel(basics.permit.attemptId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: basics.permit.attemptId,
+      state: 'COMPLETE',
+      currentAttemptId: child.permit.attemptId,
+      currentStage: 'details',
+      overallState: 'FAILED',
+    });
+    await expect(read(child.permit.attemptId)).resolves.toMatchObject({ body: {
+      state: 'FAILED',
+      error: { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.' },
+    } });
+    expect(await alerts.list(ORG)).toEqual([]);
+  });
+  it('ends a pending details handoff by admitting and stopping its child, which the extension replay then reads', async () => {
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    expect((await read(rootId)).body.overallState).toBe('RUNNING');
+
+    const stopped = (await cancel(rootId).expect(200)).body;
+
+    expect(stopped).toMatchObject({
+      attemptId: rootId,
+      state: 'COMPLETE',
+      currentStage: 'details',
+      overallState: 'FAILED',
+    });
+    expect(stopped.currentAttemptId).not.toBe(rootId);
+    // The extension's own admission of the preallocated child finds it ended.
+    const replay = (await start(childKey, 'wing-inventory-v1', 'details', rootId).expect(201)).body;
+    expect(replay).toMatchObject({
+      attemptId: stopped.currentAttemptId,
+      state: 'FAILED',
+      plan: { stage: 'details', rootAttemptId: rootId, basicAttemptId: rootId },
+    });
+    expect(await alerts.list(ORG)).toEqual([]);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('settles a stop after the lease passed as expiry with its Alert and leaves a terminal import unchanged', async () => {
+    const permit: CoupangCatalogCollectionPermit = (
+      await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)
+    ).body;
+    await prisma.sourceImportRun.update({
+      where: { id: permit.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+
+    expect((await cancel(permit.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      error: { code: 'ATTEMPT_EXPIRED' },
+    });
+    expect(await alerts.list(ORG)).toMatchObject([{ attemptId: permit.attemptId, status: 'OPEN' }]);
+
+    const staged = await stage('P-STOP');
+    await finish(staged.permit, staged.hash).expect(201);
+    const completed = (await read(staged.permit.attemptId)).body;
+    expect(completed.state).toBe('COMPLETE');
+    expect((await cancel(staged.permit.attemptId).expect(200)).body).toEqual(completed);
+  });
+  it('reads the account latest import with its details child for every 상품 받기 control', async () => {
+    expect((await readSource()).body).toEqual({ latestAttempt: null, detailsAttempt: null });
+    const basics = await stageBasics();
+    const childKey = basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>;
+    const child = await startDetails(undefined, basics.manifest, childKey);
+
+    const source = (await readSource()).body;
+
+    expect(source.latestAttempt).toMatchObject({
+      attemptId: basics.permit.attemptId,
+      currentAttemptId: child.permit.attemptId,
+      currentStage: 'details',
+      overallState: 'RUNNING',
+    });
+    expect(source.detailsAttempt).toMatchObject({
+      attemptId: child.permit.attemptId,
+      state: 'RUNNING',
+      plan: { stage: 'details' },
+    });
+    expect(JSON.stringify(source)).not.toContain(child.permit.attemptToken);
+    expect(JSON.stringify(source)).not.toContain(basics.permit.attemptToken);
+    expect((await readSource(OTHER_ACCOUNT)).body).toEqual({ latestAttempt: null, detailsAttempt: null });
+    expect((await readSource(ACCOUNT, OTHER_ORGANIZATION_ID)).body).toEqual({
+      latestAttempt: null,
+      detailsAttempt: null,
+    });
+  });
+  it('keeps one live import per account across stages: a new browser import begin names the running root', async () => {
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+    const beginsConflictWithRoot = async () => {
+      for (const stage of ['basics', undefined] as const) {
+        const conflict = await start(randomUUID(), 'wing-inventory-v1', stage).expect(409);
+        expect(conflict.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: rootId });
+      }
+    };
+    // The completed basics root carries the import until its handoff admits the details child.
+    await beginsConflictWithRoot();
+    const child = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
+    await beginsConflictWithRoot();
+    expect(await prisma.sourceImportRun.count({
+      where: { organizationId: ORG, channelAccountId: ACCOUNT, status: 'running' },
+    })).toBe(1);
+    await request(httpUrl)
+      .post(`/api/channels/accounts/${OTHER_ACCOUNT}/catalog-imports/coupang-wing/attempts`)
+      .set('Idempotency-Key', randomUUID())
+      .send({ collectorVersion: 'wing-inventory-v1', stage: 'basics' })
+      .expect(201);
+
+    await fail(child.permit).expect(201);
+    expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
+  });
+  it('refuses a workbook import while the account browser import hands off to or runs its details stage, naming the root', async () => {
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const claim = () => importer.claimCoupangWingImport({
+      organizationId: ORG,
+      userId: USER,
+      channelAccountId: ACCOUNT,
+      fileName: 'catalog.xlsx',
+      fileHash: 'e'.repeat(64),
+      rowCount: 1,
+    });
+    const basics = await stageBasics();
+    const rootId = basics.permit.attemptId;
+
+    expect(await claim()).toEqual({ kind: 'running', attemptId: rootId });
+    const child = await startDetails(
+      undefined,
+      basics.manifest,
+      basics.permit.plan.detailsIdempotencyKey as ReturnType<typeof randomUUID>,
+    );
+    expect(await claim()).toEqual({ kind: 'running', attemptId: rootId });
+    expect(await prisma.sourceImportRun.count({
+      where: { organizationId: ORG, channelAccountId: ACCOUNT, fileHash: 'e'.repeat(64) },
+    })).toBe(0);
+
+    await fail(child.permit).expect(201);
+    expect(await claim()).toMatchObject({ kind: 'started' });
   });
   it('replays the exact frozen permit and exposes safe status without a token', async () => {
     const key = randomUUID();
@@ -1005,17 +1193,33 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await finish(ready.permit, ready.hash).expect(201);
   });
   it('rejects a late browser snapshot after a real file import publishes to the same account', async () => {
-    const ready = await stage();
-    const file = new ChannelCatalogImportService(
-      new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts),
-    );
-    await file.importCoupangWing({
+    // One import runs per account: a browser import begins only once the file
+    // import that claimed the account went stale, and that file import's later
+    // publication still fences the browser snapshot out.
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,
       channelAccountId: ACCOUNT,
       fileName: 'catalog.xlsx',
       fileHash: 'f'.repeat(64),
-      headers: [],
+      rowCount: 1,
+    });
+    if (claim.kind !== 'started') throw new Error('expected the file import to claim the account');
+    expect((await start().expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: claim.runId,
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: claim.runId },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
+    const ready = await stage();
+    await importer.upsertCoupangWingCatalog({
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
       skippedRows: [],
       rows: [
         {
@@ -1039,7 +1243,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     });
     const before = await visible();
     expect(before.items.map((row) => row.externalId)).toEqual(['FILE']);
-    await finish(ready.permit, ready.hash).expect(409);
+    const late = await finish(ready.permit, ready.hash).expect(409);
+    expect(late.body.message).toContain('superseded');
     expect(await visible()).toEqual(before);
   });
   it('checks fixed expiry after waiting for the mapping lock and after media work before terminal CAS', async () => {

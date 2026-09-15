@@ -671,6 +671,53 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .send({ code: 'FAILED', message: 'Too late' })
       .expect(409);
   });
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl)
+      .post(`${base}/attempts/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const a = (await start()).body;
+    await cancel(a.attemptId, randomUUID()).expect(404);
+    const stopped = (await cancel(a.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: a.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+    await finish(a).expect(409);
+    expect((await cancel(a.attemptId).expect(200)).body).toEqual(stopped);
+    const next = (await start()).body;
+    expect(next).toMatchObject({ state: 'RUNNING', generation: '2' });
+  });
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const a = (await start()).body;
+    await prisma.sourceImportRun.update({
+      where: { id: a.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+    expect((await cancel(a.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    expect(
+      (await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: a.attemptId } })).status,
+    ).toBe('failed');
+    expect(
+      await prisma.alert.count({ where: { organizationId: ORG, status: 'OPEN' } }),
+    ).toBe(1);
+    const b = (await start()).body;
+    await finish(b).expect(200);
+    const view = (
+      await request(httpUrl)
+        .get(`${base}/attempts/${b.attemptId}`)
+        .set('x-test-org', ORG)
+        .expect(200)
+    ).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(b.attemptId).expect(200)).body).toEqual(view);
+  });
   it('reads expiry without writes and terminalizes it with Alert only on a new begin', async () => {
     const a = (await start()).body;
     expect(Date.parse(a.expiresAt) - Date.now()).toBeGreaterThan(590_000);

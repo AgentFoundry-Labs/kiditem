@@ -86,6 +86,16 @@ export class ProfitabilityAdImportService implements ProfitabilityAdImportPort {
       message,
     });
   }
+
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdvertisingProfitabilitySourceView> {
+    return this.repository.cancelAttempt({
+      organizationId: requiredText(input.organizationId, 'INVALID_ORGANIZATION'),
+      attemptId: requiredText(input.attemptId, 'INVALID_ATTEMPT_ID'),
+    });
+  }
 }
 
 function normalizeUpload(input: AdvertisingProfitabilitySliceUpload): AdvertisingProfitabilitySliceUpload {

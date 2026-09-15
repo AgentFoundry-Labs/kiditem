@@ -1,14 +1,8 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import {
-  fetchSellpiaSalesSummary,
-  sellpiaSalesErrorMessage,
-} from '@/lib/sellpia-sales-api';
-import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
+import { fetchSellpiaSalesSummary } from '@/lib/sellpia-sales-api';
 import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 import {
   closedMonthRangeFromCutoff,
@@ -56,8 +50,6 @@ export interface SellpiaChannelSales {
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
-  sync: () => Promise<void>;
-  syncing: boolean;
 }
 
 export function useSellpiaKnownThrough(): string | null {
@@ -69,17 +61,15 @@ export function useSellpiaKnownThrough(): string | null {
   return data?.knownThrough ?? null;
 }
 
-// Sellpia 판매현황(몰별 매출) 조회 + 명시적 수동 수집.
-// 홈 월 매출 카드와 매출분석의 몰별 상세가 이 훅 하나를 공유한다(쿼리 dedupe).
-// 조회는 선택 기간(from~to)별로 하고, 수집(스크랩)은 넓은 윈도우로 일별 이력을 누적한다.
+// Sellpia 판매현황(몰별 매출) 조회. 홈 월 매출 카드와 매출분석의 몰별 상세가
+// 이 훅 하나를 공유한다(쿼리 dedupe). 조회는 선택 기간(from~to)별로 하고,
+// 수집은 공유 수집 컨트롤(sellpia-sales-source-collection)이 맡는다.
 export function useSellpiaChannelSales(range: {
   from: string;
   to: string;
 } | null): SellpiaChannelSales {
   const from = range?.from;
   const to = range?.to;
-  const queryClient = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.dashboard.sellpiaSales(from ?? 'pending', to ?? 'pending'),
@@ -88,29 +78,5 @@ export function useSellpiaChannelSales(range: {
     refetchInterval: 60_000,
   });
 
-  // 수집 후 모든 기간(from~to) 조회와 홈 준비 상태를 함께 갱신한다.
-  const invalidate = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() }),
-      queryClient.invalidateQueries({ queryKey: ['readiness'] }),
-    ]);
-  }, [queryClient]);
-
-  const sync = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const result = await collectSellpiaSaleSummaryFromExtension();
-      if (!result.success) {
-        throw new Error(result.errorMessage ?? '셀피아 판매현황 수집에 실패했습니다.');
-      }
-      await invalidate();
-      toast.success(`판매현황 수집 완료 (${result.sellerCount}개 몰, ${result.businessDates.length}일)`);
-    } catch (err) {
-      toast.error(sellpiaSalesErrorMessage(err));
-    } finally {
-      setSyncing(false);
-    }
-  }, [invalidate]);
-
-  return { summary: data, isLoading, isError, refetch, sync, syncing };
+  return { summary: data, isLoading, isError, refetch };
 }

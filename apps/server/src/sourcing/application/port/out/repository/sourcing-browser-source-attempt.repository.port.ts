@@ -145,4 +145,9 @@ export interface SourcingBrowserSourceAttemptRepositoryPort {
   failAttempt(
     input: FailSourcingBrowserSourceAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt>;
+  /** Operator stop without the lease token; a terminal attempt is returned unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SourcingBrowserSourceAttempt>;
 }

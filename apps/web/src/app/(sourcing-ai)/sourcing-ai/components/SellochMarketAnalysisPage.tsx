@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock3, PackageSearch, TrendingUp } from 'lucide-react';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -22,6 +23,7 @@ import {
 import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
 import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
+import { WingCatalogCalculationActions } from './WingCatalogCalculationActions';
 import { WingCatalogSourceStatus } from './WingCatalogSourceStatus';
 
 const MARKET_ANALYSIS_KEYWORD_LIMIT = 12;
@@ -58,11 +60,7 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
     maxPages: MARKET_ANALYSIS_MAX_PAGES,
     purpose: 'market_analysis' as const,
   }), [operationKeywords]);
-  const wingSource = useWingCatalogSource({
-    input: operationInput,
-    snapshotQueryKey: queryKeys.sourcing.all,
-  });
-  const isRunning = wingSource.isRunning;
+  const wingSource = useWingCatalogSource({ input: operationInput });
   const summary = buildRecommendationSummary(rows);
   const opportunities = buildRisingKeywordOpportunities(rows).slice(0, compact ? 4 : 8);
   const topProducts = sortMarketProducts(rows).slice(0, compact ? 8 : 24);
@@ -96,7 +94,6 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
       <EmptyMarketState
         compact={compact}
         inputError={inputError}
-        isRunning={isRunning}
         wingSource={wingSource}
         onRun={runMarketAnalysis}
       />
@@ -120,15 +117,12 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={runMarketAnalysis}
-              disabled={isRunning}
-              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-xs font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isRunning ? <Loader2 size={15} className="animate-spin" /> : <PlayCircle size={15} />}
-              시장분석 다시 실행
-            </button>
+            <CollectionStartControl
+              control={wingSource.control}
+              startLabel="시장분석 다시 실행"
+              onStart={runMarketAnalysis}
+              onStop={wingSource.control.stop}
+            />
             <Link
               href="/sourcing-ai/recommendations"
               className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface-sunken,#f8fafc)] px-4 text-xs font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
@@ -139,6 +133,9 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
         </div>
         {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
         <WingCatalogSourceStatus source={wingSource} />
+        <div className="mt-3">
+          <WingCatalogCalculationActions attempt={wingSource.attempt} />
+        </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric icon={PackageSearch} label="분석 상품" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
@@ -182,13 +179,11 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
 function EmptyMarketState({
   compact,
   inputError,
-  isRunning,
   wingSource,
   onRun,
 }: {
   compact: boolean;
   inputError: string | null;
-  isRunning: boolean;
   wingSource: ReturnType<typeof useWingCatalogSource>;
   onRun: () => void;
 }) {
@@ -203,27 +198,26 @@ function EmptyMarketState({
       </p>
       {!compact && (
         <div className="mt-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={isRunning}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-5 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
+          <CollectionStartControl
+            control={wingSource.control}
+            startLabel="시장분석 시작"
+            onStart={onRun}
+            onStop={wingSource.control.stop}
+            className="items-center"
+          />
+          <Link
+            href="/sourcing-ai/keywords"
+            className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
           >
-            {isRunning ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
-            시장분석 시작
-          </button>
-          {!isRunning ? (
-            <Link
-              href="/sourcing-ai/keywords"
-              className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
-            >
-              키워드 분석 확인
-            </Link>
-          ) : null}
+            키워드 분석 확인
+          </Link>
         </div>
       )}
       {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
       <WingCatalogSourceStatus source={wingSource} />
+      <div className="mt-3 flex justify-center">
+        <WingCatalogCalculationActions attempt={wingSource.attempt} />
+      </div>
     </section>
   );
 }

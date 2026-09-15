@@ -88,8 +88,9 @@ export const queryKeys = {
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
     freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
-    sellpiaSourceAttempt: (organizationId: string, attemptId: string, environmentKey: string) =>
-      [...queryKeys.inventory.all, 'sellpia-source-attempt', organizationId, environmentKey, attemptId] as const,
+    // The collection control's read: the organization's freshness, which names its running attempt.
+    sellpiaSource: (organizationId: string) =>
+      [...queryKeys.inventory.freshness(), 'source', organizationId] as const,
     currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
@@ -98,6 +99,8 @@ export const queryKeys = {
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>
       [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
+    sellpiaProductProfitabilitySource: () =>
+      [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -128,17 +131,21 @@ export const queryKeys = {
     sellpiaSalesAll: () => [...queryKeys.dashboard.all, 'sellpia-sales'] as const,
     sellpiaSales: (from?: string, to?: string) =>
       [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
+    // The Sellpia sales collection control's owner status read.
+    sellpiaSalesSource: () => [...queryKeys.dashboard.all, 'sellpia-sales-source'] as const,
   },
   ads: {
     all: ['ads'] as const,
     keywordSource: () => [...queryKeys.ads.all, 'keyword-source'] as const,
     campaignSource: () => [...queryKeys.ads.all, 'campaign-source'] as const,
     profitabilitySource: () => [...queryKeys.ads.all, 'profitability-source'] as const,
+    itemwinnerSource: () => [...queryKeys.ads.all, 'wing-itemwinner-source'] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
+    manualReportsAll: () => [...queryKeys.ads.all, 'manual-reports'] as const,
     manualReports: (from: string, to: string) =>
-      [...queryKeys.ads.all, 'manual-reports', from, to] as const,
+      [...queryKeys.ads.manualReportsAll(), from, to] as const,
     keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
@@ -151,6 +158,8 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
+    // The organization's newest Wing rank batch, read by its shared collection control.
+    wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
@@ -411,10 +420,9 @@ export const queryKeys = {
   },
   coupangCatalogImports: {
     all: ['coupangCatalogImports'] as const,
-    run: (channelAccountId: string, runId: string) =>
-      [...queryKeys.coupangCatalogImports.all, channelAccountId, runId] as const,
-    extension: (runId: string) =>
-      [...queryKeys.coupangCatalogImports.all, 'extension', runId] as const,
+    /** One store account's latest Wing catalog import, which every 상품 받기 control reads. */
+    source: (channelAccountId: string) =>
+      [...queryKeys.coupangCatalogImports.all, 'source', channelAccountId] as const,
   },
   organizations: {
     all: ['organizations'] as const,
@@ -448,6 +456,13 @@ export const queryKeys = {
     all: ['browser-collection'] as const,
     session: (attemptId: string) =>
       [...queryKeys.browserCollection.all, 'session', attemptId] as const,
+  },
+  // The shared collection control's start and stop mutations. Every mounted
+  // control of a source reads the same pending state and outcome through them.
+  collectionControl: {
+    all: ['collection-control'] as const,
+    mutation: (sourceKey: string, action: 'start' | 'stop') =>
+      [...queryKeys.collectionControl.all, sourceKey, action] as const,
   },
   settlements: {
     all: ['settlements'] as const,

@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Info, RefreshCw } from 'lucide-react';
 import { SalesAnalysisDataSchema } from '@kiditem/shared/finance';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import {
   sellpiaMonthRange,
@@ -16,6 +18,7 @@ import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { sellpiaSalesCollection } from '@/lib/sellpia-sales-source-collection';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
@@ -64,6 +67,7 @@ export default function SalesOverview() {
   const channelSales = useSellpiaChannelSales(
     sellpiaKnownThrough ? sellpiaMonthRange(period, sellpiaKnownThrough) : null,
   );
+  const salesCollection = useCollectionSourceControl(sellpiaSalesCollection);
   const setSelectedChannel = (channel: SalesChannelSelection) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', 'overview');
@@ -114,8 +118,15 @@ export default function SalesOverview() {
         isLoading={channelSales.isLoading}
         isError={channelSales.isError}
         onRetry={channelSales.refetch}
-        onSync={() => void channelSales.sync()}
-        syncing={channelSales.syncing}
+        collectionControl={(
+          <CollectionStartControl
+            control={salesCollection}
+            startLabel="지금 수집"
+            startTitle="셀피아 판매현황(몰별 일매출)을 수집합니다."
+            onStart={() => salesCollection.start()}
+            onStop={salesCollection.stop}
+          />
+        )}
         selectedChannel={selectedChannel}
         onChannelChange={setSelectedChannel}
         periodControl={(

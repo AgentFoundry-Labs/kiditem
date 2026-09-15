@@ -21,6 +21,8 @@ describe('invalidateSellpiaInventory', () => {
       queryKeys.channelSkuMappings.all,
       queryKeys.channelProductMappings.all,
       queryKeys.dashboard.inventory(),
+      // The dashboard's Sellpia cell shows when the snapshot last completed.
+      queryKeys.dashboard.collections(),
       queryKeys.products.all,
       queryKeys.ads.all,
       queryKeys.purchaseOrders.all,

@@ -1,14 +1,24 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sendToExtension } from "@/lib/extension-bridge";
+import { queryKeys } from "@/lib/query-keys";
 import CampaignContent from "./CampaignContent";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
+const mockApiPost = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-client", () => ({
-  apiClient: { get: mockApiGet },
+  apiClient: { get: mockApiGet, post: mockApiPost },
 }));
+vi.mock("@/lib/extension-bridge", () => ({
+  detectExtensionId: vi.fn(async () => "kiditem-extension"),
+  detectBrowserCollectionExtensionIds: vi.fn(async () => []),
+  sendToExtension: vi.fn(),
+}));
+vi.mock("@/lib/extension-auth", () => ({ transferExtensionAuthTo: vi.fn() }));
 
 function wrapper() {
   const queryClient = new QueryClient({
@@ -33,7 +43,76 @@ const unavailableTrends = {
   },
 };
 
+const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
+const MANUAL_ATTEMPT_ID = "66666666-6666-4666-8666-666666666666";
+const NEXT_MANUAL_ATTEMPT_ID = "77777777-7777-4777-8777-777777777777";
+const SWEEP_ATTEMPT_ID = "88888888-8888-4888-8888-888888888888";
+
+function campaignAttempt(
+  state: "RUNNING" | "COMPLETE" | "FAILED",
+  plan: Record<string, unknown>,
+  attemptId = MANUAL_ATTEMPT_ID,
+) {
+  return {
+    attemptId,
+    channelAccountId: ACCOUNT_ID,
+    state,
+    plan: {
+      sourceType: "coupang_ad_campaign",
+      parserVersion: "ad-campaign-v1",
+      channelAccountId: ACCOUNT_ID,
+      expectedAdvertiserId: "advertiser-1",
+      ...plan,
+    },
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    actualCutoffAt: null,
+    manifestChecksum: "a".repeat(64),
+    rowCount: 0,
+    campaignCount: 0,
+    rawOnlyCampaignCount: 0,
+    warningCount: 0,
+    groupCount: 0,
+    completedGroupCount: 0,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+function manualReportPlan(startDate: string, endDate: string, period: "7d" | "1d" = "7d") {
+  return {
+    captureMode: "manual_report",
+    period,
+    startDate,
+    endDate,
+    targetUrl: "https://advertising.coupang.com/campaigns",
+    businessDates: [endDate],
+  };
+}
+
+const sweepPlan = {
+  captureMode: "campaign_sweep",
+  startDate: "2026-08-06",
+  endDate: "2026-09-05",
+  businessDates: Array.from({ length: 31 }, (_, index) =>
+    new Date(Date.UTC(2026, 8, 5 - index)).toISOString().slice(0, 10),
+  ),
+};
+
+const idleCampaignSource = {
+  channelAccountId: ACCOUNT_ID,
+  ready: false,
+  latestAttempt: null,
+  latestComplete: null,
+  actualCutoffAt: null,
+  activeAttempt: null,
+  latestManualReport: null,
+};
+let campaignSource: Record<string, unknown> = idleCampaignSource;
+
 function successfulResponse(url: string) {
+  if (url === "/api/ads/ad-campaigns/source") {
+    return Promise.resolve(campaignSource);
+  }
   if (url === "/api/ads/config") {
     return Promise.resolve({
       roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } },
@@ -586,5 +665,237 @@ describe("CampaignContent", () => {
     expect(within(totals).getAllByText("0원")).toHaveLength(2);
     expect(within(totals).getAllByText("-")).toHaveLength(2);
     expect(totals.querySelector("[class*='text-red']")).toBeNull();
+  });
+});
+
+describe("CampaignContent manual campaign report control", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    campaignSource = idleCampaignSource;
+    mockApiGet.mockImplementation(successfulResponse);
+    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
+      const request = message as {
+        action: string;
+        producer?: string;
+        scope?: { period: "7d" | "1d"; startDate: string; endDate: string };
+      };
+      if (request.action === "ping") {
+        return { success: true, capabilities: { collectionStartV1: true } };
+      }
+      if (request.action === "startCollection") {
+        const attempt = campaignAttempt(
+          "RUNNING",
+          manualReportPlan(request.scope!.startDate, request.scope!.endDate, request.scope!.period),
+        );
+        campaignSource = { ...idleCampaignSource, activeAttempt: attempt, latestManualReport: attempt };
+        return { success: true, outcome: "started", producer: request.producer, attemptId: MANUAL_ATTEMPT_ID };
+      }
+      throw new Error(`unexpected extension action ${request.action}`);
+    });
+  });
+
+  function startMessages() {
+    return vi
+      .mocked(sendToExtension)
+      .mock.calls.map(([, message]) => message as Record<string, unknown>)
+      .filter((message) => message.action === "startCollection");
+  }
+
+  it("starts a manual report for exactly the displayed 7-day range through the shared control", async () => {
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+    const start = await screen.findByRole("button", { name: "원본 보고서 받기" });
+    await waitFor(() => expect(start).toBeEnabled());
+
+    fireEvent.click(start);
+
+    expect(
+      await screen.findByText("수집 중 · 원본 보고서 7일 · 2026-07-17 ~ 2026-07-23"),
+    ).toBeInTheDocument();
+    expect(startMessages()).toEqual([{
+      action: "startCollection",
+      producer: "advertising.ad_sync",
+      idempotencyKey: expect.any(String),
+      scope: {
+        captureMode: "manual_report",
+        period: "7d",
+        startDate: "2026-07-17",
+        endDate: "2026-07-23",
+      },
+    }]);
+  });
+
+  it("starts a 1-day report for the ad data cutoff on any page period and reads that range's reports", async () => {
+    render(<CampaignContent initialCampaign={null} period="14d" />, { wrapper: wrapper() });
+    expect(await screen.findByRole("radio", { name: "7일" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("radio", { name: "1일" }));
+    const start = screen.getByRole("button", { name: "원본 보고서 받기" });
+    await waitFor(() => expect(start).toBeEnabled());
+    fireEvent.click(start);
+
+    expect(
+      await screen.findByText("수집 중 · 원본 보고서 1일 · 2026-07-23 ~ 2026-07-23"),
+    ).toBeInTheDocument();
+    expect(startMessages()).toEqual([{
+      action: "startCollection",
+      producer: "advertising.ad_sync",
+      idempotencyKey: expect.any(String),
+      scope: {
+        captureMode: "manual_report",
+        period: "1d",
+        startDate: "2026-07-23",
+        endDate: "2026-07-23",
+      },
+    }]);
+    await waitFor(() =>
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/api/ads/ad-campaigns/reports?startDate=2026-07-23&endDate=2026-07-23",
+      ));
+  });
+
+  it("moves the report period with the arrow keys as one radio group with one tab stop", async () => {
+    const user = userEvent.setup();
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+    const sevenDays = await screen.findByRole("radio", { name: "7일" });
+    const oneDay = screen.getByRole("radio", { name: "1일" });
+    expect(await screen.findByText("2026-07-17 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.click(sevenDays);
+    await user.keyboard("{ArrowLeft}");
+
+    expect(oneDay).toBeChecked();
+    expect(oneDay).toHaveFocus();
+    expect(sevenDays).not.toBeChecked();
+    expect(screen.getByText("2026-07-23 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowRight}");
+
+    expect(sevenDays).toBeChecked();
+    expect(sevenDays).toHaveFocus();
+    expect(screen.getByText("2026-07-17 ~ 2026-07-23 범위 그대로 받습니다.")).toBeInTheDocument();
+
+    await user.tab({ shift: true });
+
+    expect(oneDay).not.toHaveFocus();
+    expect(sevenDays).not.toHaveFocus();
+  });
+
+  it("shows a running campaign sweep, the account's live attempt, on the manual report control", async () => {
+    campaignSource = { ...idleCampaignSource, activeAttempt: campaignAttempt("RUNNING", sweepPlan) };
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByText("수집 중 · 캠페인 순회 · 2026-08-06 ~ 2026-09-05"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "수집 중단" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "원본 보고서 받기" })).not.toBeInTheDocument();
+  });
+
+  it("rereads the displayed manual reports only when a new manual report completes", async () => {
+    campaignSource = {
+      ...idleCampaignSource,
+      latestManualReport: campaignAttempt("COMPLETE", manualReportPlan("2026-07-17", "2026-07-23")),
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignContent initialCampaign={null} period="7d" />
+      </QueryClientProvider>,
+    );
+    const reportReads = () =>
+      mockApiGet.mock.calls.filter(([url]) => String(url).startsWith("/api/ads/ad-campaigns/reports?")).length;
+    expect(await screen.findByRole("button", { name: "원본 보고서 받기" })).toBeEnabled();
+    await waitFor(() => expect(reportReads()).toBe(1));
+
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+    expect(reportReads()).toBe(1);
+
+    campaignSource = {
+      ...idleCampaignSource,
+      latestManualReport: campaignAttempt(
+        "COMPLETE",
+        manualReportPlan("2026-07-17", "2026-07-23"),
+        NEXT_MANUAL_ATTEMPT_ID,
+      ),
+    };
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+
+    await waitFor(() => expect(reportReads()).toBe(2));
+  });
+
+  function stoppedManualReport() {
+    return {
+      ...campaignAttempt("FAILED", manualReportPlan("2026-07-17", "2026-07-23")),
+      errorCode: "USER_CANCELLED",
+      errorMessage: "운영자가 수집을 중단했습니다.",
+    };
+  }
+
+  it("shows a manual report the operator stopped as stopped on its control", async () => {
+    const running = campaignAttempt("RUNNING", manualReportPlan("2026-07-17", "2026-07-23"));
+    campaignSource = { ...idleCampaignSource, activeAttempt: running, latestManualReport: running };
+    const cancelPath = `/api/ads/ad-campaigns/attempts/${MANUAL_ATTEMPT_ID}/cancel`;
+    mockApiPost.mockImplementation(async (path: string) => {
+      if (path !== cancelPath) throw new Error(`unexpected POST ${path}`);
+      const stopped = stoppedManualReport();
+      campaignSource = { ...idleCampaignSource, latestManualReport: stopped };
+      return stopped;
+    });
+    render(<CampaignContent initialCampaign={null} period="7d" />, { wrapper: wrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+    expect(screen.getByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "원본 보고서 받기" })).toBeEnabled();
+    expect(mockApiPost).toHaveBeenCalledWith(cancelPath);
+  });
+
+  it("keeps a stopped manual report off its control while a newer campaign attempt runs", async () => {
+    campaignSource = { ...idleCampaignSource, latestManualReport: stoppedManualReport() };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignContent initialCampaign={null} period="7d" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+
+    campaignSource = {
+      ...campaignSource,
+      activeAttempt: campaignAttempt("RUNNING", sweepPlan, SWEEP_ATTEMPT_ID),
+    };
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+
+    expect(
+      await screen.findByText("수집 중 · 캠페인 순회 · 2026-08-06 ~ 2026-09-05"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("수집 중단됨")).not.toBeInTheDocument();
+    expect(screen.queryByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).not.toBeInTheDocument();
+  });
+
+  it("drops the stopped state once a newer manual report completes", async () => {
+    campaignSource = { ...idleCampaignSource, latestManualReport: stoppedManualReport() };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignContent initialCampaign={null} period="7d" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("수집 중단됨")).toBeInTheDocument();
+
+    campaignSource = {
+      ...idleCampaignSource,
+      latestManualReport: campaignAttempt(
+        "COMPLETE",
+        manualReportPlan("2026-07-17", "2026-07-23"),
+        NEXT_MANUAL_ATTEMPT_ID,
+      ),
+    };
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
+
+    await waitFor(() => expect(screen.queryByText("수집 중단됨")).not.toBeInTheDocument());
+    expect(screen.queryByText("수집을 중단했습니다. 저장된 완료본은 유지됩니다.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "원본 보고서 받기" })).toBeEnabled();
   });
 });

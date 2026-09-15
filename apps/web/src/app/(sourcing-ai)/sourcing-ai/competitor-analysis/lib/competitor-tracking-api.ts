@@ -168,3 +168,8 @@ export function fetchCompetitorCatalogSourceStatus(): Promise<CompetitorCatalogS
     '/api/ads/competitor-catalogs/attempts/current',
   );
 }
+
+/** The owner's operator stop for a running competitor catalog attempt; it needs no attempt token. */
+export function cancelCompetitorCatalogAttempt(attemptId: string): Promise<unknown> {
+  return apiClient.post(`/api/ads/competitor-catalogs/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}

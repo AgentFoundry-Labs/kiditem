@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -148,6 +149,15 @@ export class SourcingWorkspaceController {
     return this.wingCatalog.fail({ organizationId, attemptId, attemptToken: parseSourceToken(token),
       code: typeof body?.code === 'string' ? body.code : '',
       message: typeof body?.message === 'string' ? body.message : '' }).then(toPublicAttempt);
+  }
+
+  @Post('wing-catalog/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelWingCatalog(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.wingCatalog.cancel({ organizationId, attemptId }).then(toPublicAttempt);
   }
 
   @Get('wing-catalog')

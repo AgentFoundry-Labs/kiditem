@@ -20,6 +20,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 import { sellpiaInventorySourceFailureAlert } from './sellpia-inventory-source-failure-alert';
 import type {
@@ -266,6 +267,42 @@ implements SellpiaImportRunRepositoryPort {
     }, TRANSACTION_OPTIONS);
   }
 
+  /**
+   * Operator stop without the attempt token. The failure goes through the same
+   * terminal path as an extension-reported one, which also releases the
+   * browser lease on the inventory state; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaInventorySourceAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      const run = await findOwnerAttempt(tx, input.organizationId, { id: input.attemptId });
+      if (!run) throw new NotFoundException('SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND');
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return ownerAttemptView(run);
+      const state = await lockedState(tx, input.organizationId);
+      const failed = isExpired(run)
+        ? await failOwnerIn(
+            tx,
+            this.alerts,
+            state,
+            run,
+            'ATTEMPT_EXPIRED',
+            'Sellpia inventory collection expired.',
+          )
+        : await failOwnerIn(
+            tx,
+            this.alerts,
+            state,
+            run,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
+          );
+      return ownerAttemptView(failed);
+    }, TRANSACTION_OPTIONS);
+  }
+
   claimFileRun(input: ClaimInput): Promise<SellpiaFileRunClaim> {
     return this.prisma.$transaction(async (tx) => {
       await lockSellpiaInventoryTransaction(tx, input.organizationId);
@@ -412,10 +449,21 @@ async function failOwnerIn(
     },
   });
   const generation = run.freshnessGeneration;
-  const stateErrorCode = (SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES as readonly string[])
-    .includes(errorCode)
-    ? errorCode
-    : 'sellpia_background_timeout';
+  // A `*_CANCELLED` code is a stop, by an operator or with the extension
+  // session, and never a failure (the rule SourceFailureAlerts follows). The
+  // stop releases the lease without failing the generation or recording error
+  // facts, so freshness shows a stopped attempt while the previous snapshot
+  // stays current.
+  const outcome = errorCode.endsWith('_CANCELLED')
+    ? { lastErrorCode: null, lastErrorMessage: null }
+    : {
+        failedGeneration: generation,
+        lastErrorCode: (SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES as readonly string[])
+          .includes(errorCode)
+          ? errorCode
+          : 'sellpia_background_timeout',
+        lastErrorMessage: cleanMessage,
+      };
   await tx.sellpiaInventoryState.updateMany({
     where: {
       organizationId: run.organizationId,
@@ -432,11 +480,9 @@ async function failOwnerIn(
       activeSyncLeaseExpiresAt: null,
       activeSyncScope: null,
       activeGeneration: null,
-      failedGeneration: generation,
+      ...outcome,
       lastAttemptAt: new Date(),
       lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
-      lastErrorCode: stateErrorCode,
-      lastErrorMessage: cleanMessage,
       freshnessFence: randomUUID(),
     },
   });

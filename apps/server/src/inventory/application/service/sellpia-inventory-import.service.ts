@@ -220,6 +220,10 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
   failAttempt(input: Parameters<SellpiaInventoryImportPort['failAttempt']>[0]) {
     return this.repository.failAttempt(input);
   }
+
+  cancelAttempt(input: Parameters<SellpiaInventoryImportPort['cancelAttempt']>[0]) {
+    return this.repository.cancelAttempt(input);
+  }
 }
 
 function assertAttemptToken(

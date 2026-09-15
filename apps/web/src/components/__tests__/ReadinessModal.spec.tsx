@@ -1,57 +1,43 @@
 import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 import ReadinessModal from '../ReadinessModal';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
-const mockAdSyncRun = vi.hoisted(() => vi.fn());
-const mockAdCampaignSource = vi.hoisted(() => ({
-  data: {
-    ready: false,
-    latestComplete: null as null | { plan: { startDate: string; endDate: string } },
-  },
-}));
 const mockHandleCollect = vi.hoisted(() => vi.fn());
 const mockCatalog = vi.hoisted(() => ({ value: null as unknown }));
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: mockApiGet,
+    // The Wing rank card reads the current batch; none is running.
+    getNullable: vi.fn(async () => null),
     post: vi.fn(),
   },
 }));
 
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
-  useAdSync: () => ({
-    loading: false,
-    run: mockAdSyncRun,
-    source: mockAdCampaignSource,
-    status: null,
-    cancelling: false,
-    cancel: vi.fn(),
-  }),
-}));
-
-vi.mock('@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect', () => ({
-  useAdKeywordCollect: () => ({
-    loading: false, cancelling: false, source: {}, status: null,
-    run: vi.fn(), cancel: vi.fn(),
-  }),
-}));
-
 vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
-  useSellpiaInventorySourceOwner: () => ({
+  useSellpiaInventoryCollection: () => ({
+    control: {
+      state: 'idle',
+      statusRead: 'current',
+      running: null,
+      canStop: false,
+      notice: null,
+      start: vi.fn(),
+      stop: vi.fn(),
+    },
     state: null,
-    start: vi.fn(),
-    isStarting: false,
+    confirmSourceBinding: vi.fn(),
+    isConfirming: false,
   }),
 }));
 
 vi.mock('../readiness/useReadinessCollection', () => ({
   useReadinessCollection: () => ({
-    pendingKey: null,
     handleCollect: mockHandleCollect,
     catalog: mockCatalog.value,
   }),
@@ -68,6 +54,66 @@ vi.mock('sonner', () => ({
 
 const TODAY_DISMISSED_KEY = 'kiditem.readiness.dismissedDate';
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
+const CAMPAIGN_SOURCE_PATH = '/api/ads/ad-campaigns/source';
+const KEYWORD_SOURCE_PATH = '/api/ads/ad-keywords/source';
+const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000011';
+const EMPTY_OWNER_SOURCE = {
+  channelAccountId: null,
+  ready: false,
+  latestAttempt: null,
+  latestComplete: null,
+  actualCutoffAt: null,
+};
+
+function completeCampaignSweep() {
+  return {
+    attemptId: '00000000-0000-4000-8000-000000000012',
+    channelAccountId: AD_ACCOUNT_ID,
+    state: 'COMPLETE',
+    plan: {
+      sourceType: 'coupang_ad_campaign',
+      parserVersion: 'ad-campaign-v1',
+      channelAccountId: AD_ACCOUNT_ID,
+      expectedAdvertiserId: 'advertiser-1',
+      startDate: '2026-08-06',
+      endDate: '2026-09-05',
+      businessDates: Array.from({ length: 31 }, (_, index) =>
+        new Date(Date.UTC(2026, 8, 5 - index)).toISOString().slice(0, 10),
+      ),
+    },
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    actualCutoffAt: '2026-09-06T00:00:00.000Z',
+    manifestChecksum: 'a'.repeat(64),
+    rowCount: 31,
+    campaignCount: 1,
+    rawOnlyCampaignCount: 0,
+    warningCount: 0,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+function campaignSweepSource(ready: boolean) {
+  const complete = completeCampaignSweep();
+  return {
+    channelAccountId: AD_ACCOUNT_ID,
+    ready,
+    latestAttempt: complete,
+    latestComplete: complete,
+    actualCutoffAt: complete.actualCutoffAt,
+  };
+}
+
+let readiness: unknown;
+let campaignSource: unknown;
+
+function setReadiness(response: unknown) {
+  readiness = response;
+}
+
+function readinessReads(): number {
+  return mockApiGet.mock.calls.filter(([path]) => path === '/api/readiness').length;
+}
 
 function makeQueryClient() {
   return new QueryClient({
@@ -147,6 +193,8 @@ const CATALOG_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
 const CATALOG_CHILD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000005';
 const CATALOG_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000003';
 const CATALOG_DETAILS_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000006';
+const CATALOG_SOURCE_PATH = `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/source`;
+let catalogSource: unknown;
 
 function makeCatalogReadinessResponse(): ReadinessResponse {
   const response = makeReadinessResponse();
@@ -225,39 +273,57 @@ function makeCatalogOwner(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeCatalogState(owner: Record<string, unknown>, chainOverallState: string | null) {
+function makeCatalogState() {
   return {
-    accounts: [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true }],
+    accounts: [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', name: '키드아이템 스토어', isPrimary: true }],
     accountsLoading: false,
     accountsError: null,
     accountId: CATALOG_ACCOUNT_ID,
     accountLocked: true,
     setAccountId: vi.fn(),
     linkError: null,
-    chainOverallState,
-    owner,
-    browser: null,
-    ownerLoading: false,
-    ownerError: null,
-    actionError: null,
-    cancelError: null,
-    isCancelling: false,
-    cancel: vi.fn(),
-    openAttention: vi.fn(),
+  };
+}
+
+// The account's import read: a basics root whose details child carries the rest.
+function detailsImport(state: 'RUNNING' | 'COMPLETE', childProgress: Record<string, unknown> = {}) {
+  const basics = makeCatalogOwner();
+  return {
+    latestAttempt: makeCatalogOwner({
+      plan: { ...basics.plan, detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY },
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: state,
+    }),
+    detailsAttempt: makeCatalogOwner({
+      attemptId: CATALOG_CHILD_ATTEMPT_ID,
+      idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
+      state,
+      phase: state === 'COMPLETE' ? 'finished' : 'hydration',
+      plan: { ...basics.plan, stage: 'details', basicAttemptId: CATALOG_ATTEMPT_ID },
+      progress: { ...basics.progress, ...childProgress },
+      finishedAt: state === 'COMPLETE' ? basics.finishedAt : null,
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: state,
+    }),
   };
 }
 
 describe('ReadinessModal', () => {
   beforeEach(() => {
     mockApiGet.mockReset();
-    mockApiGet.mockResolvedValue(makeReadinessResponse());
-    mockAdSyncRun.mockReset();
-    mockAdCampaignSource.data = {
-      ready: false,
-      latestComplete: null,
-    };
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === CAMPAIGN_SOURCE_PATH) return campaignSource;
+      if (path === KEYWORD_SOURCE_PATH) return EMPTY_OWNER_SOURCE;
+      if (path === CATALOG_SOURCE_PATH) return catalogSource;
+      return readiness;
+    });
+    setReadiness(makeReadinessResponse());
+    campaignSource = EMPTY_OWNER_SOURCE;
     mockHandleCollect.mockReset();
     mockCatalog.value = null;
+    catalogSource = { latestAttempt: null, detailsAttempt: null };
     localStorage.clear();
     sessionStorage.clear();
   });
@@ -320,7 +386,7 @@ describe('ReadinessModal', () => {
 
   it('marks only server-confirmed dates green in the daily status strip', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         {
@@ -351,7 +417,7 @@ describe('ReadinessModal', () => {
 
   it('shows server-confirmed daily coverage for a completed ad check', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         response.checks[0],
@@ -380,154 +446,36 @@ describe('ReadinessModal', () => {
     );
   });
 
-  it('keeps a linked details handoff in status-checking state until the child receipt arrives', async () => {
-    const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
-      ...response,
-      checks: [
-        ...response.checks,
-        {
-          key: 'coupang_products',
-          label: '쿠팡 상품',
-          basis: {
-            asOf: null,
-            requiredAsOf: null,
-            observedAt: null,
-            sources: ['wing_catalog'],
-            measured: false,
-            withheldCount: 0,
-          },
-          detail: '쿠팡 상품 데이터 없음',
-          lastSyncedAt: null,
-          count: null,
-          referenceDate: null,
-          expectedDates: [],
-          missingDates: [],
-        },
-      ],
-    });
-    mockCatalog.value = {
-      accounts: [],
-      accountsLoading: false,
-      accountsError: null,
-      accountId: '00000000-0000-4000-8000-000000000001',
-      accountLocked: true,
-      setAccountId: vi.fn(),
-      linkError: null,
-      chainOverallState: null,
-      owner: {
-        attemptId: '00000000-0000-4000-8000-000000000002',
-        idempotencyKey: '00000000-0000-4000-8000-000000000003',
-        channelAccountId: '00000000-0000-4000-8000-000000000001',
-        state: 'COMPLETE',
-        expiresAt: '2030-01-01T00:00:00.000Z',
-        plan: {
-          collectorVersion: 'wing-inventory-v1',
-          stage: 'basics',
-          listUrl: 'https://wing.coupang.com/list',
-          detailUrl: 'https://wing.coupang.com/detail',
-          channelAccountId: '00000000-0000-4000-8000-000000000001',
-          vendorId: 'A001',
-          publicationRevision: '0',
-        },
-        phase: 'finished',
-        collectorVersion: 'wing-inventory-v1',
-        manifest: null,
-        progress: {
-          discoveryPagesStored: 1,
-          discoveredProducts: 10,
-          hydratedProducts: 10,
-          optionCount: 10,
-          mediaCount: 0,
-          storedChunks: 1,
-          publishedProducts: 10,
-          publishedOptionCount: 10,
-          publishedMediaCount: 0,
-          publishedChunks: 1,
-          firstPublishedAt: null,
-          lastPublishedAt: null,
-        },
-        missing: { discoverySequences: [], productIds: [] },
-        snapshotHash: null,
-        error: null,
-        publication: null,
-        createdAt: '2026-09-06T00:00:00.000Z',
-        updatedAt: '2026-09-06T00:00:00.000Z',
-        finishedAt: '2026-09-06T00:01:00.000Z',
-        rootAttemptId: '00000000-0000-4000-8000-000000000002',
-        currentAttemptId: '00000000-0000-4000-8000-000000000005',
-        currentStage: 'details',
-      },
-      browser: null,
-      ownerLoading: false,
-      ownerError: null,
-      actionError: null,
-      cancelError: null,
-      isCancelling: false,
-      cancel: vi.fn(),
-      openAttention: vi.fn(),
-    };
-
-    render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
-
-    expect(await screen.findByRole('button', { name: '상태 확인 중' })).toBeDisabled();
-    expect(screen.getByText('상세 상품 받기 상태 확인 중입니다. 잠시 후 다시 확인해주세요.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '다시 받기' })).not.toBeInTheDocument();
-  });
-
-  it('renders a saved basics receipt as partial coverage and keeps 상품 받기 available', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
-    const owner = makeCatalogOwner({
-      plan: { ...makeCatalogOwner().plan, detailsIdempotencyKey: undefined },
-      currentAttemptId: CATALOG_ATTEMPT_ID,
-      currentStage: 'basics',
-      overallState: 'COMPLETE',
-    });
-    mockCatalog.value = makeCatalogState(owner, 'COMPLETE');
+  it('renders a saved basics receipt as partial coverage and offers the next 상품 받기', async () => {
+    setReadiness(makeCatalogReadinessResponse());
+    catalogSource = { latestAttempt: makeCatalogOwner(), detailsAttempt: null };
+    mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
     expect(await screen.findByText('기본 목록 보강 완료 1,254 / 1,254')).toBeInTheDocument();
     expect(screen.getByText('기본 목록 반영 완료 · 전체 상세 수집 필요')).toBeInTheDocument();
     expect(screen.queryByText('전체 상품 반영 완료')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '상품 받기' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: '다시 받기' })).toBeEnabled();
   });
 
-  it('keeps basic progress labels while the details child is running', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
-    const rootOwner = makeCatalogOwner({
-      plan: {
-        ...makeCatalogOwner().plan,
-        detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      },
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: 'RUNNING',
-    });
-    mockCatalog.value = makeCatalogState(rootOwner, 'RUNNING');
+  it('shows the details child progress and the running account while the import runs', async () => {
+    setReadiness(makeCatalogReadinessResponse());
+    catalogSource = detailsImport('RUNNING', { hydratedProducts: 40, publishedProducts: 12 });
+    mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('기본 목록 수집 1,254 / 1,254')).toBeInTheDocument();
-    expect(screen.queryByText('상세 수집 1,254 / 1,254')).not.toBeInTheDocument();
+    expect(await screen.findByText('상세 수집 40 / 1,254')).toBeInTheDocument();
+    expect(await screen.findByText('수집 중 · 키드아이템 스토어')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
+    expect(screen.queryByText('기본 목록 수집 1,254 / 1,254')).not.toBeInTheDocument();
   });
 
   it('renders the whole-flow completion label for a terminal details receipt', async () => {
-    mockApiGet.mockResolvedValue(makeCatalogReadinessResponse());
-    const owner = makeCatalogOwner({
-      attemptId: CATALOG_CHILD_ATTEMPT_ID,
-      idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      plan: {
-        ...makeCatalogOwner().plan,
-        stage: 'details',
-        detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      },
-      rootAttemptId: CATALOG_ATTEMPT_ID,
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: 'COMPLETE',
-    });
-    mockCatalog.value = makeCatalogState(owner, 'COMPLETE');
+    setReadiness(makeCatalogReadinessResponse());
+    catalogSource = detailsImport('COMPLETE');
+    mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
@@ -536,7 +484,7 @@ describe('ReadinessModal', () => {
 
   it('keeps refresh reachable when the catalog readiness check is already ok', async () => {
     const response = makeCatalogReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: response.checks.map((check) =>
         check.key === 'coupang_products'
@@ -555,71 +503,15 @@ describe('ReadinessModal', () => {
           : check,
       ),
     });
-    const owner = makeCatalogOwner({
-      attemptId: CATALOG_CHILD_ATTEMPT_ID,
-      idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      plan: {
-        ...makeCatalogOwner().plan,
-        stage: 'details',
-        detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      },
-      rootAttemptId: CATALOG_ATTEMPT_ID,
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: 'COMPLETE',
-    });
-    mockCatalog.value = makeCatalogState(owner, 'COMPLETE');
+    catalogSource = detailsImport('COMPLETE');
+    mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    const refresh = await screen.findByRole('button', { name: '다시 받기' });
-    expect(refresh).toBeEnabled();
+    expect(await screen.findByRole('button', { name: '다시 받기' })).toBeEnabled();
     expect(screen.getByText('전체 상품 반영 완료')).toBeInTheDocument();
-    fireEvent.click(refresh);
-    expect(mockHandleCollect).toHaveBeenCalledWith(
-      expect.objectContaining({
-        key: 'coupang_products',
-        basis: expect.objectContaining({ measured: true }),
-      }),
-    );
-  });
-
-  it('keeps pending catalog-child progress visible when readiness is already ok', async () => {
-    const response = makeCatalogReadinessResponse();
-    mockApiGet.mockResolvedValue({
-      ...response,
-      checks: response.checks.map((check) =>
-        check.key === 'coupang_products'
-          ? {
-              ...check,
-              basis: {
-                ...check.basis,
-                asOf: '2026-09-06',
-                requiredAsOf: '2026-09-06',
-                observedAt: '2026-09-06T00:01:00.000Z',
-                measured: true,
-              },
-              detail: '쿠팡 상품 기본 목록 1,254건 반영됨 — 전체 상세 수집 필요',
-            }
-          : check,
-      ),
-    });
-    const owner = makeCatalogOwner({
-      plan: {
-        ...makeCatalogOwner().plan,
-        detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      },
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: 'RUNNING',
-    });
-    mockCatalog.value = makeCatalogState(owner, null);
-
-    render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
-
-    expect(await screen.findByRole('button', { name: '상태 확인 중' })).toBeDisabled();
-    expect(screen.getByText('기본 목록 수집 1,254 / 1,254')).toBeInTheDocument();
-    expect(screen.getByText('상세 상품 받기 상태 확인 중입니다. 잠시 후 다시 확인해주세요.')).toBeInTheDocument();
+    // 상품 받기 starts from its shared control, never through the readiness handler.
+    expect(mockHandleCollect).not.toHaveBeenCalled();
   });
 
   it('renders a route-owned collection trigger inside the optional section', async () => {
@@ -666,20 +558,20 @@ describe('ReadinessModal', () => {
       wrapper: wrapper(queryClient),
     });
 
-    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(readinessReads()).toBe(0);
     view.rerender(<ReadinessModal open onClose={onClose} />);
 
     expect(await screen.findByRole('button', { name: '대시보드로 돌아가기' })).toBeInTheDocument();
-    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(readinessReads()).toBe(1);
 
     view.rerender(<ReadinessModal open={false} onClose={onClose} />);
     view.rerender(<ReadinessModal open onClose={onClose} />);
-    await waitFor(() => expect(mockApiGet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(readinessReads()).toBe(2));
   });
 
   it('does not render the retired Rocket row from a cached readiness response', async () => {
     const response = makeReadinessResponse();
-    mockApiGet.mockResolvedValue({
+    setReadiness({
       ...response,
       checks: [
         {
@@ -707,37 +599,46 @@ describe('ReadinessModal', () => {
     } finally { window.history.replaceState({}, '', '/'); }
   });
 
-  it('does not pass a React click event as the ad-sync run id', async () => {
+  it('keeps one campaign sweep control: the missing ad card points to 광고 동기화', async () => {
+    const response = makeReadinessResponse();
+    setReadiness({
+      ...response,
+      checks: response.checks.map((check) =>
+        check.key === 'coupang_ads'
+          ? {
+              ...check,
+              basis: { ...check.basis, asOf: null, observedAt: null, measured: false },
+              detail: '광고 데이터 없음',
+              lastSyncedAt: null,
+            }
+          : check,
+      ),
+    });
+
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    fireEvent.click(await screen.findByRole('button', { name: '광고 동기화' }));
-
-    expect(mockAdSyncRun).toHaveBeenCalledWith();
+    expect(await screen.findByText('아래 ‘광고 동기화’에서 받아요')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '광고 받기' })).not.toBeInTheDocument();
+    expect(await screen.findAllByRole('button', { name: '광고 동기화' })).toHaveLength(1);
   });
 
   it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
-    mockAdCampaignSource.data = {
-      ready: true,
-      latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
-    };
-
+    campaignSource = campaignSweepSource(true);
+    const queryClient = makeQueryClient();
     const view = render(<ReadinessModal open onClose={vi.fn()} />, {
-      wrapper: wrapper(),
+      wrapper: wrapper(queryClient),
     });
 
     expect(await screen.findByText('최신')).toBeInTheDocument();
     expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
 
-    mockAdCampaignSource.data = {
-      ready: false,
-      latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
-    };
-    view.rerender(<ReadinessModal open onClose={vi.fn()} />);
+    campaignSource = campaignSweepSource(false);
+    await act(() => queryClient.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
 
-    expect(screen.queryByText('최신')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('최신')).not.toBeInTheDocument());
   });
 
-  it('labels the Wing rank action as Wing sales ranking and keeps its handler', async () => {
+  it('labels the Wing rank action as Wing sales ranking and starts it from the shared control', async () => {
     const response = makeReadinessResponse();
     const wingRank: ReadinessResponse['checks'][number] = {
       key: 'wing_kpi',
@@ -757,7 +658,7 @@ describe('ReadinessModal', () => {
       expectedDates: [],
       missingDates: [],
     };
-    mockApiGet.mockResolvedValue({ ...response, checks: [...response.checks, wingRank] });
+    setReadiness({ ...response, checks: [...response.checks, wingRank] });
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
@@ -765,7 +666,7 @@ describe('ReadinessModal', () => {
     expect(screen.getByText('자사 상품 판매순위')).toBeInTheDocument();
     expect(screen.queryByText('아이템위너 순위')).not.toBeInTheDocument();
     expect(screen.queryByText('경쟁 현황')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '순위 받기' }));
-    expect(mockHandleCollect).toHaveBeenCalledWith(wingRank);
+    expect(await screen.findByRole('button', { name: '순위 받기' })).toBeEnabled();
+    expect(mockHandleCollect).not.toHaveBeenCalled();
   });
 });

@@ -20,7 +20,6 @@ function harness(responses = [], options = {}) {
   const calls = { messages: [], navigations: [], created: [], closed: [], bound: [], progress: [] };
   const owned = { runId: 'attempt', windowId: 7, tabId: 41, url: '' };
   const resource = {
-    async runExclusive(operation) { return operation(); },
     async getOrCreate(runId, url) { calls.created.push({ runId, url }); owned.runId = runId; owned.url = url; return { ...owned }; },
     async navigate(runId, url) { calls.navigations.push({ runId, url }); owned.runId = runId; owned.url = url; return { ...owned, url }; },
     async reattach() { return { ...owned }; },

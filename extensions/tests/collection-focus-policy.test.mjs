@@ -29,7 +29,6 @@ const expectedLegacyFiles = [
   'extensions/kiditem-os/background/sourcing/1688-trend-collector.js',
   'extensions/kiditem-os/background/sourcing/live-commerce-collector.js',
   'apps/web/src/components/readiness/useReadinessCollection.ts',
-  'apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
 ];
 const automaticFocusSafeFiles = [
@@ -44,23 +43,6 @@ function countFocusTokens(source) {
   );
 }
 
-const readinessExplicitRankNavigation =
-  /action:\s*\{\s*label:\s*['"]진행 보기['"],\s*onClick:\s*\(\)\s*=>\s*\{\s*window\.open\([^;]+;\s*\},\s*\},/s;
-
-function automaticFocusSource(relativePath, source) {
-  if (relativePath !== 'apps/web/src/components/readiness/useReadinessCollection.ts') {
-    return source;
-  }
-
-  const matches = source.match(readinessExplicitRankNavigation) ?? [];
-  assert.equal(
-    matches.length,
-    1,
-    `${relativePath} must keep exactly one explicit rank-navigation action`,
-  );
-  return source.replace(matches[0], '');
-}
-
 test('focus policy names the approved focus-preserving helper owners', () => {
   const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   assert.deepEqual(policy.focusOwnerFiles, expectedOwnerFiles);
@@ -72,7 +54,7 @@ test('legacy automatic collector focus counts never increase', () => {
 
   for (const relativePath of expectedLegacyFiles) {
     const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
-    const actual = countFocusTokens(automaticFocusSource(relativePath, source));
+    const actual = countFocusTokens(source);
     const limit = policy.legacyFocusCounts[relativePath];
     assert.ok(
       actual <= limit,

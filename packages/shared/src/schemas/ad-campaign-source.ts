@@ -207,9 +207,14 @@ export const AdCampaignSourceControlSchema = AdCampaignSourceAttemptSchema.exten
 export const AdCampaignSourceStatusSchema = z.object({
   channelAccountId: z.string().uuid().nullable(),
   ready: z.boolean(),
+  /** Readiness and these two fields describe the 31-day campaign sweep only. */
   latestAttempt: AdCampaignSourceAttemptSchema.nullable(),
   latestComplete: AdCampaignSourceAttemptSchema.nullable(),
   actualCutoffAt: timestamp.nullable(),
+  /** The account's live attempt of any capture mode: RUNNING with its lease not passed. */
+  activeAttempt: AdCampaignSourceAttemptSchema.nullable().default(null),
+  /** The newest `manual_report` attempt in any state. */
+  latestManualReport: AdCampaignSourceAttemptSchema.nullable().default(null),
 });
 const AdCampaignManualReportPlanSchema = z
   .object({

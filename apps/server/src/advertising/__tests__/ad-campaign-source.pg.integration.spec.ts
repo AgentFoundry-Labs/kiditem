@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import { AdCampaignSourceStatusSchema } from '@kiditem/shared/advertising';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-source.controller';
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
@@ -595,6 +596,56 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     expect((await get(`/attempts/${a.attemptId}`)).body.state).toBe('FAILED');
     expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
   });
+  const cancel = (id: string, organizationId = ORG) =>
+    request(httpUrl).post(`${base}/attempts/${id}/cancel`).set('x-test-org', organizationId);
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const a = (await admit()).body;
+    await cancel(a.attemptId, randomUUID()).expect(404);
+    const keyword = await prisma.sourceImportRun.create({
+      data: { organizationId: ORG, sourceType: 'coupang_ad_keyword', channelAccountId: accountId },
+    });
+    await cancel(keyword.id).expect(404);
+    const stopped = (await cancel(a.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: a.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+    await upload(a, 0, page([])).expect(409);
+    expect((await cancel(a.attemptId).expect(200)).body).toEqual(stopped);
+    const next = (await admit()).body;
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(a.attemptId);
+  });
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves terminal attempts unchanged', async () => {
+    const expired = (await admit()).body;
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(
+      prisma.sourceImportRun.findFirstOrThrow({ where: { id: expired.attemptId, organizationId: ORG } }),
+    ).resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.count({ where: { organizationId: ORG, status: 'OPEN' } })).toBe(1);
+
+    const failed = (await admit()).body;
+    await post(failed, 'fail', { code: 'PROVIDER_ERROR', message: 'No response' }).expect(201);
+    const failedView = (await get(`/attempts/${failed.attemptId}`).expect(200)).body;
+    expect((await cancel(failed.attemptId).expect(200)).body).toEqual(failedView);
+
+    const completed = await full();
+    await finish(completed);
+    const completeView = (await get(`/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(completeView.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(completeView);
+  });
   it('rechecks account identity at final publication and never promotes staged facts after drift', async () => {
     const a = await full();
     await prisma.channelAccount.update({
@@ -875,4 +926,80 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     ]);
     expect((await actionReader.findLatestTargetRows(ORG)).map((row) => row.spend)).toContain(77);
   });
+
+  const manualReportBegin = {
+    captureMode: 'manual_report',
+    period: '7d',
+    startDate: '2026-08-30',
+    endDate: '2026-09-05',
+    targetUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',
+  };
+  const sourceStatus = async () =>
+    AdCampaignSourceStatusSchema.parse((await get('/source').expect(200)).body);
+
+  it('reads the live attempt of any capture mode beside the sweep status', async () => {
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: null,
+      activeAttempt: null,
+      latestManualReport: null,
+    });
+
+    const manual = (await admit(randomUUID(), manualReportBegin)).body;
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: null,
+      latestComplete: null,
+      activeAttempt: {
+        attemptId: manual.attemptId,
+        state: 'RUNNING',
+        plan: { captureMode: 'manual_report' },
+      },
+    });
+    await cancel(manual.attemptId).expect(200);
+    expect((await sourceStatus()).activeAttempt).toBeNull();
+
+    const sweep = (await admit()).body;
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'RUNNING' },
+      activeAttempt: { attemptId: sweep.attemptId, plan: { captureMode: 'campaign_sweep' } },
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: sweep.attemptId, organizationId: ORG },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' },
+      activeAttempt: null,
+    });
+  });
+
+  it('reads the newest manual report in any state beside the sweep status', async () => {
+    const published = (await admit(randomUUID(), manualReportBegin)).body;
+    expect((await sourceStatus()).latestManualReport).toMatchObject({
+      attemptId: published.attemptId,
+      state: 'RUNNING',
+    });
+    await upload(
+      published,
+      0,
+      manualReport('7d', '2026-08-30', '2026-09-05', manualReportBegin.targetUrl),
+    ).expect(200);
+    await finish(published, 201);
+    const failed = (await admit(randomUUID(), manualReportBegin)).body;
+    await post(failed, 'fail', { code: 'NETWORK', message: 'Provider unavailable.' }).expect(201);
+    const sweep = await full();
+    await finish(sweep);
+
+    expect(await sourceStatus()).toMatchObject({
+      latestAttempt: { attemptId: sweep.attemptId, state: 'COMPLETE' },
+      latestComplete: { attemptId: sweep.attemptId },
+      activeAttempt: null,
+      latestManualReport: {
+        attemptId: failed.attemptId,
+        state: 'FAILED',
+        errorCode: 'NETWORK',
+        plan: { captureMode: 'manual_report', period: '7d' },
+      },
+    });
+  });
+
 });

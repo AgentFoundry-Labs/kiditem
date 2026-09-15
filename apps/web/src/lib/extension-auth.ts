@@ -8,6 +8,13 @@ import {
 
 export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 
+// The handoff runs right before a collection starts. Past this deadline the
+// start releases with a reason instead of waiting on the token request; the
+// extension message keeps sendToExtension's own 15-second default.
+const HANDOFF_TOKEN_TIMEOUT_MS = 15_000;
+const HANDOFF_FAILED = '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.';
+const HANGUL = /[가-힣]/;
+
 type ExtensionResponse = { success?: boolean; error?: string };
 type ExtensionAuthSyncStatus =
   | { status: 'synced' }
@@ -40,23 +47,41 @@ async function detect(
 
 async function requestExtensionHandoffToken(): Promise<string> {
   const response = ExtensionAuthHandoffSchema.parse(
-    await apiClient.post<unknown>('/api/auth/extension-handoff'),
+    await apiClient.post<unknown>('/api/auth/extension-handoff', undefined, {
+      timeoutMs: HANDOFF_TOKEN_TIMEOUT_MS,
+    }),
   );
   return response.token;
 }
 
-/** Explicitly transfer cookie-backed auth to one selected extension. */
+function handoffFailure(message: unknown): Error {
+  const text = typeof message === 'string' ? message.trim() : '';
+  return new Error(HANGUL.test(text) ? text : HANDOFF_FAILED);
+}
+
+/**
+ * Explicitly transfer cookie-backed auth to one selected extension. Every
+ * failure, including a deadline passing, rejects with a Korean reason.
+ */
 export async function transferExtensionAuthTo(
   extensionId: string,
 ): Promise<void> {
-  const token = await requestExtensionHandoffToken();
-  const response = await sendToExtension<ExtensionResponse>(extensionId, {
-    action: 'setAuthToken',
-    token,
-  });
-  if (response?.success === false) {
-    throw new Error(response.error ?? '확장프로그램 인증 전달에 실패했습니다.');
+  let token: string;
+  try {
+    token = await requestExtensionHandoffToken();
+  } catch {
+    throw new Error(HANDOFF_FAILED);
   }
+  let response: ExtensionResponse | undefined;
+  try {
+    response = await sendToExtension<ExtensionResponse>(extensionId, {
+      action: 'setAuthToken',
+      token,
+    });
+  } catch (error) {
+    throw handoffFailure(error instanceof Error ? error.message : null);
+  }
+  if (response?.success === false) throw handoffFailure(response.error);
 }
 
 async function sendAuth(

@@ -115,21 +115,37 @@ source-failure alerts do not. Both entrypoints use the same owner interface.
 The dependency direction is:
 
 ```text
-dashboard button ─┐
-                  ├─> source owner begin -> extension -> source owner publication
-domain button ────┘
+dashboard control ─┐                    ┌─> extension start -> resource turn -> source owner begin
+                   ├─> shared control ──┤
+domain control ────┘                    └─> source owner begin -> extension hand-off
+extension run -> source owner publication
 
 approved capability mutation -> CapabilityMutationDispatcher -> owner input port
 
 ABC screen explicit refresh -> Products -> COMPLETE source evidence -> publication
 ```
 
-Trend collection uses `src/hooks/use-trend-source-collection.ts` across Sourcing
-and Dashboard: explicit owner collection, correlated retry keys, source status,
-and snapshot invalidation share one React Query hook. Sellpia stock and profit
-are independent owner collections; full refresh is a convenience that invokes
-both. Profit collection keeps the 401-day interval through yesterday. Collection
-does not refresh ABC. Order and Rocket PO collectors preserve their targets,
+Browser collection starts share one web control: a per-source adapter for
+`src/hooks/use-collection-source-control.ts`, rendered by
+`src/components/collection/CollectionStartControl.tsx`, with starts in
+`src/lib/collection-start.ts`. Running state comes from the owner status read,
+and every mounted copy shares start, stop and notices. Collections that hold a
+browser resource (the five Coupang collection-window producers and the Wing
+catalog import) start through the extension's `startCollection` contract: the
+extension takes the resource's turn and opens the owner attempt, or refuses
+with the holder's name, and nothing is queued
+([ADR-0011](adr/0011-window-sharing-collections-start-through-the-extension.md)).
+Other browser sources open their attempt from the page through
+`startWebOpenedCollection`, which stops an attempt the extension does not take.
+Every start uses a fresh idempotency key; there are no correlated retry keys.
+Stop ends the extension session first, then the owner's organization-scoped
+operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live
+commerce still start from their own screen actions;
+the shared control shows their running collection and stop. Trend collection
+runs on the server through the same control and has no stop. One start collects
+one source: Product Management starts Sellpia inventory and Sellpia product
+profitability from two separate controls. Profit collection keeps the 401-day
+interval through yesterday. Collection does not refresh ABC. Order and Rocket PO collectors preserve their targets,
 pagination and field mapping. Excel conversion runs on the server and returns
 transient downloads; converted files do not acquire a database lifecycle.
 

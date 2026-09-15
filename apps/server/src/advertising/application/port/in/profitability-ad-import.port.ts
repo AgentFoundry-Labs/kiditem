@@ -205,4 +205,9 @@ export interface ProfitabilityAdImportPort {
       message: string;
     },
   ): Promise<AdvertisingProfitabilitySourceView>;
+  /** Operator stop without the attempt token; a terminal attempt is left unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<AdvertisingProfitabilitySourceView>;
 }

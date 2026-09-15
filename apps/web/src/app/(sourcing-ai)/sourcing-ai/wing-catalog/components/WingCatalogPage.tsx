@@ -21,6 +21,7 @@ import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import {
   addWingTrackedProduct,
   listWingTrackedProducts,
@@ -83,10 +84,6 @@ export function WingCatalogPage() {
   const [trackedProductOverrides, setTrackedProductOverrides] = useState<Set<string>>(new Set());
   const [trackingProductId, setTrackingProductId] = useState<string | null>(null);
   const operationKeyword = keyword.trim();
-  const snapshotQueryKey = useMemo(
-    () => wingCatalogSnapshotQueryKey(operationKeyword || snapshotKeyword),
-    [operationKeyword, snapshotKeyword],
-  );
   const operationInput = useMemo(
     () => ({
       keywords: [operationKeyword],
@@ -95,11 +92,7 @@ export function WingCatalogPage() {
     }),
     [maxPages, operationKeyword],
   );
-  const wingSource = useWingCatalogSource({
-    input: operationInput,
-    snapshotQueryKey,
-    initialAttemptId: initialRouteState.attemptId,
-  });
+  const wingSource = useWingCatalogSource({ input: operationInput });
   const snapshotQuery = useQuery({
     queryKey: wingCatalogSnapshotQueryKey(snapshotKeyword),
     queryFn: () => fetchWingCatalogSnapshot(snapshotKeyword),
@@ -228,32 +221,28 @@ export function WingCatalogPage() {
     }
   };
 
-  const runCatalogSearch = async () => {
+  const runCatalogSearch = () => {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) {
       setError('검색 키워드를 입력하세요.');
       return;
     }
     setError(null);
-    try {
-      setSnapshotKeyword(normalizedKeyword);
-      const run = await wingSource.start();
-      const params = new URLSearchParams(window.location.search);
-      params.set('keyword', normalizedKeyword);
-      if (run) params.set('sourceAttempt', run.attemptId);
-      window.history.replaceState(
-        {},
-        '',
-        `${window.location.pathname}?${params.toString()}`,
-      );
-    } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : String(searchError));
-    }
+    setSnapshotKeyword(normalizedKeyword);
+    wingSource.start();
+    const params = new URLSearchParams(window.location.search);
+    params.set('keyword', normalizedKeyword);
+    params.delete('sourceAttempt');
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}?${params.toString()}`,
+    );
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await runCatalogSearch();
+    runCatalogSearch();
   };
 
   const handleLoadRelatedKeywords = async () => {
@@ -309,14 +298,12 @@ export function WingCatalogPage() {
                 </option>
               ))}
             </select>
-            <button
-              type="submit"
-              disabled={wingSource.isStarting}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {wingSource.isStarting ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
-              분석
-            </button>
+            <CollectionStartControl
+              control={wingSource.control}
+              startLabel="분석"
+              onStart={runCatalogSearch}
+              onStop={wingSource.control.stop}
+            />
           </form>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-[var(--text-tertiary)]">
             <span>Wing 카탈로그 매칭 API</span>
@@ -1027,22 +1014,11 @@ function toWingCatalogProduct(
   };
 }
 
-function readWingCatalogRouteState(): {
-  keyword: string;
-  attemptId: string | null;
-} {
+function readWingCatalogRouteState(): { keyword: string } {
   if (typeof window === 'undefined') {
-    return { keyword: '슬라임', attemptId: null };
+    return { keyword: '슬라임' };
   }
   const params = new URLSearchParams(window.location.search);
   const keyword = params.get('keyword')?.normalize('NFKC').trim() || '슬라임';
-  const runId = params.get('sourceAttempt');
-  return {
-    keyword: keyword.slice(0, 100),
-    attemptId:
-      runId !== null && SOURCE_ATTEMPT_ID_PATTERN.test(runId) ? runId : null,
-  };
+  return { keyword: keyword.slice(0, 100) };
 }
-
-const SOURCE_ATTEMPT_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

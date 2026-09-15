@@ -1,5 +1,4 @@
 import { apiClient } from '@/lib/api-client';
-import { collectTrendSources, type TrendSourceCollectionResult } from '@/lib/source-trend-api';
 
 export interface TrendSeed {
   id: string;
@@ -44,10 +43,6 @@ export interface PopularKeywordBoardView {
   boardLabel: string | null;
   latest: Array<{ rank: number; keyword: string }>;
   risers: Array<{ keyword: string; rankDelta: number | null }>;
-}
-
-export function collectNaverTrend(): Promise<TrendSourceCollectionResult> {
-  return collectTrendSources(['naver']);
 }
 
 export async function fetchTrendSeeds(): Promise<TrendSeed[]> {

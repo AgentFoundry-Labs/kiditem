@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -78,5 +79,14 @@ export class SourcingBrowserSourceAttemptController {
       code: typeof body?.code === 'string' ? body.code : '',
       message: typeof body?.message === 'string' ? body.message : '',
     }).then(toPublicAttempt);
+  }
+
+  @Post('1688-trends/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel1688(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourceAttempts.cancel1688({ organizationId, attemptId }).then(toPublicAttempt);
   }
 }

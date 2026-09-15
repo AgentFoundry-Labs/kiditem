@@ -181,6 +181,15 @@ export class SourcingBrowserSourceAttemptService {
     });
   }
 
+  /** Operator stop without the attempt token; only a 1688 hot-product attempt of this organization. */
+  async cancel1688(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SourcingBrowserSourceAttempt> {
+    await this.require1688Attempt(input.organizationId, input.attemptId);
+    return this.attempts.cancelAttempt(input);
+  }
+
   private async require1688Attempt(
     organizationId: string,
     attemptId: string,

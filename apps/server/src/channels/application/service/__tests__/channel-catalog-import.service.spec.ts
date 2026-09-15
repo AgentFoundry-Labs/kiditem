@@ -104,12 +104,17 @@ describe('ChannelCatalogImportService', () => {
     expect(repository.upsertCoupangWingCatalog).not.toHaveBeenCalled();
   });
 
-  it('rejects a fresh running import with HTTP 409', async () => {
+  it('rejects a claim while the account has a live Wing catalog attempt with HTTP 409 naming it', async () => {
     const repository = makeRepository();
-    repository.claimCoupangWingImport.mockResolvedValue({ kind: 'running' });
+    repository.claimCoupangWingImport.mockResolvedValue({ kind: 'running', attemptId: runId });
     const service = new ChannelCatalogImportService(repository);
 
-    await expect(service.importCoupangWing(input)).rejects.toBeInstanceOf(ConflictException);
+    const conflict = await service.importCoupangWing(input).catch((error: unknown) => error);
+    expect(conflict).toBeInstanceOf(ConflictException);
+    expect((conflict as ConflictException).getResponse()).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: runId,
+    });
     expect(repository.upsertCoupangWingCatalog).not.toHaveBeenCalled();
   });
 

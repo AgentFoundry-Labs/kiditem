@@ -359,7 +359,7 @@
     }
 
 
-    async function begin(config, environmentId, input) {
+    async function begin(config, environmentId, input, expectedAttemptId = null) {
       const body = {};
       if (input.maxItems !== undefined) body.maxItems = input.maxItems;
       if (input.region !== undefined) body.region = input.region;
@@ -371,6 +371,9 @@
         },
         body: JSON.stringify(body),
       }));
+      if (expectedAttemptId && plan.state === "RUNNING" && !wire.continuesAttempt(plan, expectedAttemptId)) {
+        return { ...plan, continuable: false };
+      }
       if (plan.state === "RUNNING") {
         await persistRequestIdentity(environmentId, plan.attemptId, input);
         try {
@@ -563,7 +566,7 @@
       ) {
         return null;
       }
-      return begin(config, environmentId, correlation);
+      return begin(config, environmentId, correlation, existing.attemptId);
     }
 
     function launch(environmentId, work) {
@@ -607,6 +610,15 @@
         if (plan.state !== "RUNNING") {
           await clearTerminalAttempt(environmentId, plan.attemptId, null);
           return terminalResult(plan);
+        }
+        if (plan.continuable === false) {
+          return {
+            success: false,
+            attemptId: plan.attemptId,
+            terminalState: "RUNNING",
+            errorCode: "SOURCE_ATTEMPT_NOT_CONTINUED",
+            error: "TikTok collection was not continued: the owner did not return the same attempt with a live lease.",
+          };
         }
         const collectorRun = {
           config,

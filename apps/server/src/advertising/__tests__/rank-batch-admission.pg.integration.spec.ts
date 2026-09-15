@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
+import { WingRankCurrentBatchSchema } from '@kiditem/shared/advertising';
 import {
   afterAll,
   beforeAll,
@@ -391,6 +392,42 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
     expect((await read('serp', key).expect(200)).body).toEqual(response);
   });
 
+  it('reads the current Wing batch without its key: a batch with a running member before a newer settled one', async () => {
+    const current = (org = ORG) =>
+      request(httpUrl)
+        .get('/api/ads/keyword-rank/wing/batch-attempts/current')
+        .set('x-test-org', org)
+        .expect(200);
+    expect((await current()).text).toBe('');
+
+    const olderKey = randomUUID();
+    const older = (await begin('wing', olderKey).expect(201)).body;
+    expect(older.attempts).toHaveLength(2);
+    expect(WingRankCurrentBatchSchema.parse((await current()).body)).toEqual({
+      batchKey: olderKey,
+      ...older,
+    });
+    expect((await current(OTHER_ORG)).text).toBe('');
+
+    await cancel('wing', olderKey).expect(201);
+    const newerKey = randomUUID();
+    await begin('wing', newerKey).expect(201);
+    expect((await current()).body).toMatchObject({ batchKey: newerKey });
+    const settled = (await cancel('wing', newerKey).expect(201)).body;
+    expect(WingRankCurrentBatchSchema.parse((await current()).body)).toEqual({
+      batchKey: newerKey,
+      ...settled,
+    });
+
+    await prisma.sourceImportRun.update({
+      where: { id: older.attempts[1].attemptId },
+      data: { status: 'running', errorCode: null, errorMessage: null },
+    });
+    const running = WingRankCurrentBatchSchema.parse((await current()).body);
+    expect(running.batchKey).toBe(olderKey);
+    expect(running.attempts.map((attempt) => attempt.state)).toEqual(['FAILED', 'RUNNING']);
+  });
+
   it('freezes the exact Wing pending selection and assignments once, preserving counts, order and replay after drift', async () => {
     const targets = (
       await request(httpUrl)
@@ -663,7 +700,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
   );
 
   it.each(['serp', 'wing'])(
-    '%s cancels more than 120 members in bounded replays with expiry alerts and exact fences',
+    '%s stops every member of a batch over 120 in one operator stop, with expiry alerts, no stop alert and exact fences',
     async (source) => {
       await seedLargeBatch(source);
       const key = randomUUID();
@@ -688,17 +725,30 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       expect(other.attempts).toHaveLength(1);
       await cancel(source, key, OTHER_ORG).expect(404);
 
-      const first = (await cancel(source, key).expect(201)).body;
-      expect(first.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(69);
-      expect(first.attempts[0].state).toBe('COMPLETE');
-      expect(first.attempts[1]).toMatchObject({ state: 'FAILED', errorCode: 'PROVIDER_FAILED' });
-      expect(first.attempts[2]).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+      const stopped = (await cancel(source, key).expect(201)).body;
+      expect(stopped.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(0);
+      expect(stopped.attempts[0].state).toBe('COMPLETE');
+      expect(stopped.attempts[1]).toMatchObject({ state: 'FAILED', errorCode: 'PROVIDER_FAILED' });
+      expect(stopped.attempts[2]).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+      const stoppedMembers = stopped.attempts.slice(3) as Array<{ attemptId: string; state: string; errorCode: string }>;
+      expect(stoppedMembers).toHaveLength(118);
+      for (const member of stoppedMembers) {
+        expect(member).toMatchObject({ state: 'FAILED', errorCode: 'COLLECTION_CANCELLED' });
+      }
+      expect((await cancel(source, key).expect(201)).body).toEqual(stopped);
 
-      const second = (await cancel(source, key).expect(201)).body;
-      expect(second.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(19);
-      const third = (await cancel(source, key).expect(201)).body;
-      expect(third.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(0);
-      expect((await cancel(source, key).expect(201)).body).toEqual(third);
+      // The browser running the batch then fails the keywords it has not run as
+      // interrupted. Every member is already stopped, so nothing changes and no
+      // Alert is raised for any stopped member.
+      const interrupted = await request(httpUrl)
+        .post(`/api/ads/keyword-rank/${source}/attempts/${lateAttempt.attemptId}/fail`)
+        .set('x-test-org', ORG)
+        .set('x-source-attempt-token', lateControl.attemptToken)
+        .send({ code: 'COLLECTION_INTERRUPTED', message: '앞선 키워드 수집이 중단되어 실행하지 못했습니다.' });
+      expect(interrupted.status).toBe(409);
+      expect(await prisma.alert.count({
+        where: { organizationId: ORG, attemptId: { in: stoppedMembers.map((member) => member.attemptId) } },
+      })).toBe(0);
 
       const expiredAlert = await prisma.alert.findFirstOrThrow({
         where: { organizationId: ORG, attemptId: expiredAttempt.attemptId },

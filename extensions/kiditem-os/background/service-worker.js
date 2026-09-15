@@ -28,6 +28,7 @@ importScripts(
   "coupang/environment-runtime.js",
   "coupang/ad-collector-delay.js",
   "coupang/collection-window.js",
+  "coupang/collection-start.js",
   "coupang/ad-center-collector.js",
   "coupang/wing-report-collector.js",
   "coupang/collection-runs.js",

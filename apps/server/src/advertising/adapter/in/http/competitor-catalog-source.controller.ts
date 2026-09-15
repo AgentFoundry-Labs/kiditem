@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -93,6 +94,15 @@ export class CompetitorCatalogSourceController {
       attemptToken: attemptToken(rawAttemptToken),
       ...body.data,
     });
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancelAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.cancelAttempt({ organizationId, attemptId });
   }
 }
 

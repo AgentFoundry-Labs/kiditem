@@ -1,14 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import StatusContent, { CampaignSummary, wingKpiCount } from "./StatusContent";
 import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
-import { CampaignSummary, wingKpiCount } from "./StatusContent";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-client", () => ({
   apiClient: { get: mockApiGet },
 }));
+// The status tab's chart, side panel and profitability card read their own
+// sources; the itemwinner card is the surface under test.
+vi.mock("./AdCollectionDailyChart", () => ({ default: () => null }));
+vi.mock("./AdSidePanel", () => ({ default: () => null }));
+vi.mock("./AdvertisingProfitabilityRefresh", () => ({ default: () => null }));
 
 function wrapper(children: React.ReactNode) {
   return (
@@ -58,6 +63,42 @@ describe("wingKpiCount", () => {
     expect(wingKpiCount({ value: "3건", numValue: 3 })).toBe(3);
     expect(wingKpiCount({ value: "5건" })).toBe(5);
     expect(wingKpiCount({ value: "-" })).toBeNull();
+  });
+});
+
+describe("StatusContent", () => {
+  it("keeps the itemwinner collection on the status tab before any KPI is collected", async () => {
+    mockApiGet.mockImplementation(async (path: string) =>
+      path === "/api/ads/wing-itemwinner/source"
+        ? {
+            channelAccountId: null,
+            ready: false,
+            latestAttempt: null,
+            latestComplete: null,
+            actualCutoffAt: null,
+          }
+        : { roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } } },
+    );
+
+    render(
+      wrapper(
+        <StatusContent
+          rules={[]}
+          strategy={null}
+          trends={null}
+          wingKpis={{}}
+          campaigns={[]}
+          onGoToCampaign={vi.fn()}
+          period="14d"
+          onPeriodChange={vi.fn()}
+          extensionStatus={null}
+        />,
+      ),
+    );
+
+    expect(screen.getByRole("heading", { name: "아이템위너 · 노출 현재 상태" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "아이템위너 수집" })).toBeEnabled();
+    expect(screen.getByText("아직 수집한 아이템위너 현황이 없습니다.")).toBeInTheDocument();
   });
 });
 

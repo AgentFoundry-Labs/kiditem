@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -87,5 +88,13 @@ export class RocketPoSourceController {
       code: body.code,
       message: body.message,
     });
+  }
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.catalog.cancel({ organizationId, attemptId });
   }
 }

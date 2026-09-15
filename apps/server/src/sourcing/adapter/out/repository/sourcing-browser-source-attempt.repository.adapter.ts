@@ -3,6 +3,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
 import { canonicalJson } from '../../../domain/sourcing-stable-json';
@@ -428,6 +429,31 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         return toAttempt(attempt, now);
       }
       return toAttempt(await failAttempt(tx, attempt, now, input, this.alerts), now);
+    });
+  }
+
+  /**
+   * Operator stop without the lease token. A live attempt fails through the
+   * same terminal path as an extension-reported failure; a passed lease settles
+   * as expiry, and a terminal attempt is returned as it is.
+   */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SourcingBrowserSourceAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      const initialAttempt = await findAttempt(tx, input.organizationId, input.attemptId);
+      await lockScope(tx, initialAttempt);
+      const now = await databaseClock(tx);
+      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
+      if (attempt.status !== 'RUNNING') return toAttempt(attempt, now);
+      if (effectiveState(attempt, now) === 'FAILED') {
+        return toAttempt(await expireAttempt(tx, attempt, now, this.alerts), now);
+      }
+      return toAttempt(await failAttempt(tx, attempt, now, {
+        code: OPERATOR_CANCEL_CODE,
+        message: OPERATOR_CANCEL_MESSAGE,
+      }, this.alerts), now);
     });
   }
 }

@@ -83,7 +83,12 @@ const SellpiaInventorySourceBindingViewSchema = z.discriminatedUnion(
 
 const SellpiaInventoryActiveSyncViewSchema = z
   .object({
-    runId: z.string().uuid(),
+    /**
+     * The browser source attempt holding the lease, which an operator stops by
+     * id from any browser. A manual upload holds the lease without one. The
+     * lease token is the attempt's write fence and is never part of the view.
+     */
+    attemptId: z.string().uuid().nullable(),
     generation: SellpiaInventoryGenerationSchema,
     scope: SellpiaSyncScopeSchema,
     startedAt: IsoDateTimeStringSchema,
@@ -179,4 +184,23 @@ export function deriveSellpiaInventoryFreshness(
   return input.now.getTime() - input.lastVerifiedAt.getTime() < 10 * 60_000
     ? 'fresh'
     : 'refresh_required';
+}
+
+/**
+ * Whether the view's last attempt was stopped, derived from the facts the
+ * owner publishes. Owner rule: an attempt that ends with neither a verified
+ * snapshot nor an error fact is a stop. A completion verifies at the
+ * attempt's own instant and a failure keeps an error code or message, so only
+ * a stop leaves a last attempt after the verified snapshot without either;
+ * the previous snapshot stays in use. A syncing or failed view is never
+ * stopped.
+ */
+export function isSellpiaInventoryLastAttemptStopped(
+  view: Pick<SellpiaInventoryFreshnessView, 'status' | 'lastVerifiedAt' | 'lastAttempt'>,
+): boolean {
+  const attempt = view.lastAttempt;
+  if (view.status !== 'refresh_required' || attempt === null) return false;
+  if (attempt.errorCode !== null || attempt.errorMessage !== null) return false;
+  return view.lastVerifiedAt === null
+    || Date.parse(attempt.attemptedAt) > Date.parse(view.lastVerifiedAt);
 }

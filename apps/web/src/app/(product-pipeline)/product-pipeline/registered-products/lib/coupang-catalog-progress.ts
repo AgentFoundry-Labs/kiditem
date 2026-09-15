@@ -4,8 +4,6 @@ import type {
   CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 
-const EXTENSION_RESPONSE_TIMEOUT = '익스텐션 응답 시간이 초과되었습니다.';
-
 export type CoupangCatalogProgressView = {
   discoveredLabel: string;
   hydratedLabel: string;
@@ -70,20 +68,6 @@ export function buildCoupangCatalogProgress(
       ? `재개 가능 시각 ${formatResumeAt(run.error.notBefore)}`
       : null,
   };
-}
-
-export function resolveCoupangCatalogError(input: {
-  browserActive: boolean;
-  extensionError: string | null;
-  startError: string | null;
-  serverError: string | null;
-}): string | null {
-  if (input.serverError) return input.serverError;
-  if (input.startError && !(
-    input.browserActive && input.startError === EXTENSION_RESPONSE_TIMEOUT
-  )) return input.startError;
-  if (input.browserActive) return null;
-  return input.extensionError || input.serverError;
 }
 
 function formatEta(minutes: number): string {

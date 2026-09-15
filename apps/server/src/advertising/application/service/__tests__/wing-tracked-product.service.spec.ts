@@ -43,6 +43,7 @@ function makeAttemptRepository() {
     readSourceStatus: vi.fn(),
     submitAttempt: vi.fn(),
     failAttempt: vi.fn(),
+    cancelAttempt: vi.fn(),
   } satisfies Record<keyof WingTrackedProductSourceAttemptRepositoryPort, ReturnType<typeof vi.fn>>;
 }
 

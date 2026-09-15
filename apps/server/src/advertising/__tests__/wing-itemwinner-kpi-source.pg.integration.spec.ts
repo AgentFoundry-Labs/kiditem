@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import { WingItemwinnerSourceStatusSchema } from '@kiditem/shared/advertising';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
 import { WingItemwinnerKpiSourceController } from '../adapter/in/http/wing-itemwinner-kpi-source.controller';
@@ -26,7 +27,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
 const base = '/api/ads/wing-itemwinner';
-const CURRENT_ITEMWINNER_URL = 'https://wing.coupang.com/item-winner/list';
+const WING_ITEMWINNER_TARGET_URL = 'https://wing.coupang.com/tenants/seller-price-management';
 
 describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => {
   let prisma: PrismaClient;
@@ -128,7 +129,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
 
   const begin = (
     key = randomUUID(),
-    body: Record<string, unknown> = { targetUrl: CURRENT_ITEMWINNER_URL },
+    body: Record<string, unknown> = {},
   ) =>
     request(httpUrl)
       .post(`${base}/attempts`)
@@ -157,7 +158,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       },
     ],
     kpis: { itemWinnerCount: '1', visibleCard: 'confirmed' },
-    url: CURRENT_ITEMWINNER_URL,
+    url: WING_ITEMWINNER_TARGET_URL,
     title: '아이템위너',
     timestamp: `${attempt.plan.businessDate}T01:00:00.000Z`,
     ...overrides,
@@ -172,17 +173,133 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       .set('X-Source-Attempt-Token', attempt.attemptToken)
       .send(body);
 
-  it('requires the observed current itemwinner page URL before admission', async () => {
-    await request(httpUrl)
+  const admission = (body: Record<string, unknown>) =>
+    request(httpUrl)
       .post(`${base}/attempts`)
       .set('Idempotency-Key', randomUUID())
-      .send({})
-      .expect(400);
-    await request(httpUrl)
-      .post(`${base}/attempts`)
-      .set('Idempotency-Key', randomUUID())
-      .send({ targetUrl: 'https://wing.coupang.com/ads/dashboard' })
-      .expect(400);
+      .send(body);
+
+  it('derives the Wing item-winner page on admission and accepts only an optional account', async () => {
+    const attempt = (await begin()).body as WingItemwinnerSourceControl;
+    expect(attempt).toMatchObject({ state: 'RUNNING', channelAccountId: accountId });
+    expect(attempt.plan).toMatchObject({
+      channelAccountId: accountId,
+      expectedVendorId: 'VENDOR-A',
+      targetUrl: WING_ITEMWINNER_TARGET_URL,
+    });
+    await admission({ targetUrl: WING_ITEMWINNER_TARGET_URL }).expect(400);
+    await admission({ channelAccountId: 'not-a-uuid' }).expect(400);
+    await admission({ channelAccountId: randomUUID() }).expect(404);
+  });
+
+  it('admits, reads and publishes one running attempt per account', async () => {
+    const second = await prisma.channelAccount.create({
+      data: {
+        organizationId: ORG,
+        channel: 'coupang',
+        name: 'Second Wing',
+        vendorId: 'VENDOR-B',
+      },
+    });
+    const primary = (await begin()).body as WingItemwinnerSourceControl;
+    const other = (await begin(randomUUID(), { channelAccountId: second.id }))
+      .body as WingItemwinnerSourceControl;
+    expect(other).toMatchObject({ state: 'RUNNING', channelAccountId: second.id });
+    expect(other.plan).toMatchObject({
+      channelAccountId: second.id,
+      expectedVendorId: 'VENDOR-B',
+      targetUrl: WING_ITEMWINNER_TARGET_URL,
+    });
+    expect((await admission({ channelAccountId: second.id }).expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: other.attemptId,
+    });
+    expect((await admission({}).expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: primary.attemptId,
+    });
+
+    const sourceOf = (channelAccountId: string) =>
+      request(httpUrl).get(`${base}/source`).query({ channelAccountId });
+    expect(WingItemwinnerSourceStatusSchema.parse((await source()).body)).toMatchObject({
+      channelAccountId: accountId,
+      latestAttempt: { attemptId: primary.attemptId, state: 'RUNNING' },
+    });
+    expect(
+      WingItemwinnerSourceStatusSchema.parse((await sourceOf(second.id).expect(200)).body),
+    ).toMatchObject({
+      channelAccountId: second.id,
+      latestAttempt: {
+        attemptId: other.attemptId,
+        state: 'RUNNING',
+        plan: { channelAccountId: second.id, targetUrl: WING_ITEMWINNER_TARGET_URL },
+      },
+      latestComplete: null,
+    });
+    await sourceOf(randomUUID()).expect(404);
+    await sourceOf('not-a-uuid').expect(400);
+
+    const secondObservedAt = `${other.plan.businessDate}T02:00:00.000Z`;
+    await complete(other, captureFor(other, {
+      providerVendorId: 'VENDOR-B',
+      data: [],
+      kpis: { visibleCard: 'second-account' },
+      observedAt: secondObservedAt,
+      timestamp: secondObservedAt,
+    })).expect(201);
+    expect(
+      WingItemwinnerSourceStatusSchema.parse((await sourceOf(second.id).expect(200)).body),
+    ).toMatchObject({
+      ready: true,
+      latestAttempt: { attemptId: other.attemptId, state: 'COMPLETE' },
+      latestComplete: { attemptId: other.attemptId, observedAt: secondObservedAt },
+      actualCutoffAt: secondObservedAt,
+    });
+    expect((await source()).body).toMatchObject({
+      latestAttempt: { attemptId: primary.attemptId, state: 'RUNNING' },
+      latestComplete: null,
+    });
+  });
+
+  it("keys the failure Alert per account, so one account's collection neither replaces nor clears another's", async () => {
+    const second = await prisma.channelAccount.create({
+      data: {
+        organizationId: ORG,
+        channel: 'coupang',
+        name: 'Second Wing',
+        vendorId: 'VENDOR-B',
+      },
+    });
+    const alerts = () =>
+      prisma.alert.findMany({
+        where: { organizationId: ORG, sourceType: 'coupang_wing_itemwinner' },
+        select: { dedupeKey: true, status: true, attemptId: true },
+        orderBy: { dedupeKey: 'asc' },
+      });
+    const failWithoutVendor = async (attempt: WingItemwinnerSourceControl) => {
+      await complete(attempt, captureFor(attempt, { providerVendorId: undefined })).expect(409);
+    };
+
+    const secondFailed = (await begin(randomUUID(), { channelAccountId: second.id }))
+      .body as WingItemwinnerSourceControl;
+    await failWithoutVendor(secondFailed);
+    const primaryFailed = (await begin()).body as WingItemwinnerSourceControl;
+    await failWithoutVendor(primaryFailed);
+    expect(await alerts()).toEqual(
+      [
+        { dedupeKey: `source:coupang_wing_itemwinner:${accountId}`, status: 'OPEN', attemptId: primaryFailed.attemptId },
+        { dedupeKey: `source:coupang_wing_itemwinner:${second.id}`, status: 'OPEN', attemptId: secondFailed.attemptId },
+      ].sort((left, right) => left.dedupeKey.localeCompare(right.dedupeKey)),
+    );
+
+    const primaryDone = (await begin()).body as WingItemwinnerSourceControl;
+    await complete(primaryDone, captureFor(primaryDone)).expect(201);
+    expect(await alerts()).toEqual(
+      [
+        { dedupeKey: `source:coupang_wing_itemwinner:${accountId}`, status: 'RESOLVED', attemptId: primaryDone.attemptId },
+        { dedupeKey: `source:coupang_wing_itemwinner:${second.id}`, status: 'OPEN', attemptId: secondFailed.attemptId },
+      ].sort((left, right) => left.dedupeKey.localeCompare(right.dedupeKey)),
+    );
   });
 
   it('publishes raw current-page KPI plus winner listing/option facts atomically', async () => {
@@ -517,6 +634,57 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
         where: { organizationId: ORG, sourceType: 'coupang_wing_itemwinner' },
       }),
     ).toBe(1);
+  });
+
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl)
+      .post(`${base}/attempts/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+
+  it('stops a running attempt for an operator without its token or an Alert, then admits the next begin at once', async () => {
+    const attempt = (await begin()).body as WingItemwinnerSourceControl;
+    await cancel(attempt.attemptId, randomUUID()).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(stopped).not.toHaveProperty('attemptToken');
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+    await complete(attempt, captureFor(attempt)).expect(409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = (await begin()).body as WingItemwinnerSourceControl;
+    expect(next).toMatchObject({ state: 'RUNNING' });
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = (await begin()).body as WingItemwinnerSourceControl;
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(
+      await prisma.alert.count({
+        where: { organizationId: ORG, sourceType: 'coupang_wing_itemwinner', status: 'OPEN' },
+      }),
+    ).toBe(1);
+
+    const completed = (await begin()).body as WingItemwinnerSourceControl;
+    await complete(completed, captureFor(completed)).expect(201);
+    const { attemptToken: _token, ...view } = (
+      await request(httpUrl).get(`${base}/attempts/${completed.attemptId}`).expect(200)
+    ).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
   });
 
   it('does not turn an empty page with no provider cards into a confirmed zero', async () => {

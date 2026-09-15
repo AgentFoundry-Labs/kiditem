@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
   useDepartmentQuickActions,
+  type DashboardCollectionControl,
   type DepartmentQuickAction,
 } from '../hooks/use-department-quick-actions';
 import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
@@ -111,6 +112,64 @@ const COLLECTIONS: ReadonlyArray<{
   },
 ];
 
+type CellView = Readonly<{
+  busy: boolean;
+  disabled: boolean;
+  /** What the state line says instead of the last completion; null keeps it. */
+  line: string | null;
+  tone: 'active' | 'warning' | 'error' | null;
+}>;
+
+const CELL_TONE_CLASS: Record<NonNullable<CellView['tone']>, string> = {
+  active: 'font-medium text-violet-700',
+  warning: 'font-medium text-amber-700',
+  error: 'font-medium text-red-700',
+};
+
+/** A collection with a shared control shows what its source reports, as every other screen does. */
+function sharedCell(control: DashboardCollectionControl): CellView {
+  const notice = control.notice
+    ? {
+      line: control.notice.message,
+      tone: control.notice.tone === 'error' ? 'error' as const
+        : control.notice.tone === 'refused' ? 'warning' as const
+        : null,
+    }
+    : null;
+  switch (control.state) {
+    case 'loading':
+      return { busy: false, disabled: true, line: '상태 확인 중', tone: null };
+    case 'unavailable':
+      return { busy: false, disabled: true, line: '상태 확인 필요', tone: 'error' };
+    case 'starting':
+      return { busy: true, disabled: true, line: '시작 요청 중…', tone: 'active' };
+    case 'stopping':
+      return { busy: true, disabled: true, line: '중단 요청 중…', tone: 'active' };
+    case 'running':
+      return {
+        busy: true,
+        disabled: true,
+        line: notice?.line
+          ?? (control.running?.scopeLabel ? `수집 중 · ${control.running.scopeLabel}` : '수집 중'),
+        tone: notice?.tone ?? 'active',
+      };
+    default:
+      return { busy: false, disabled: false, line: notice?.line ?? null, tone: notice?.tone ?? null };
+  }
+}
+
+/** A collection without a shared control waits only on its own start. */
+function localCell(action: DepartmentQuickAction, pending: boolean): CellView {
+  if (!pending) return { busy: false, disabled: false, line: null, tone: null };
+  return {
+    busy: true,
+    disabled: true,
+    // 재고 분석 re-reads collected data; it never collects.
+    line: action === 'refreshInventory' ? '다시 불러오는 중…' : '수집 중…',
+    tone: 'active',
+  };
+}
+
 export function DashboardChartPanel({
   dailyTrend,
   industryBenchmark,
@@ -137,19 +196,27 @@ export function DashboardChartPanel({
 
   const quickActions = useDepartmentQuickActions();
   const freshnessOf = useCollectionFreshness();
-  const [runningAction, setRunningAction] = useState<string | null>(null);
+  // Cells without a shared control wait only on their own start. A shared
+  // control's state comes from its source, so no cell waits on another.
+  const pendingActions = useRef(new Set<DepartmentQuickAction>());
+  const [pendingCells, setPendingCells] = useState<ReadonlySet<DepartmentQuickAction>>(() => new Set());
 
-  const runAction = async (deptKey: string, action: DepartmentQuickAction) => {
-    const id = `${deptKey}:${action}`;
-    if (runningAction) return;
-    setRunningAction(id);
-    const label = ACTION_LABEL[action];
+  const runAction = async (action: DepartmentQuickAction) => {
+    const shared = Boolean(quickActions.controls[action]);
+    if (!shared) {
+      if (pendingActions.current.has(action)) return;
+      pendingActions.current.add(action);
+      setPendingCells(new Set(pendingActions.current));
+    }
     try {
       await quickActions.start(action);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : `${label} 실패`);
+      toast.error(error instanceof Error ? error.message : `${ACTION_LABEL[action]} 실패`);
     } finally {
-      setRunningAction(null);
+      if (!shared) {
+        pendingActions.current.delete(action);
+        setPendingCells(new Set(pendingActions.current));
+      }
     }
   };
 
@@ -230,34 +297,47 @@ export function DashboardChartPanel({
         </div>
         <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
           {COLLECTIONS.map(collection => {
-            const running = runningAction === `${collection.key}:${collection.action}`;
-            const state = freshnessOf(collection.action);
+            const control = quickActions.controls[collection.action];
+            const cell = control
+              ? sharedCell(control)
+              : localCell(collection.action, pendingCells.has(collection.action));
+            const freshness = freshnessOf(collection.action);
             return (
-              <button
-                key={collection.key}
-                type="button"
-                onClick={() => void runAction(collection.key, collection.action)}
-                disabled={runningAction !== null}
-                title={collection.hint}
-                className="flex flex-col items-start gap-0.5 bg-white px-4 py-2.5 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
-              >
-                <span className="flex w-full items-center gap-1.5">
-                  {running
-                    ? <Loader2 size={13} className="shrink-0 animate-spin text-violet-600" />
-                    : <Play size={13} className="shrink-0 text-slate-400" />}
-                  <span className="truncate text-[13px] font-semibold text-slate-900">{collection.label}</span>
-                </span>
-                {/* Never a blank: a collection that publishes no run says that,
-                    rather than looking like one that has never run. */}
-                <span className={cn(
-                  'truncate text-[11px]',
-                  running ? 'font-medium text-violet-700'
-                    : state?.label === '미수집' ? 'font-medium text-amber-700'
-                    : 'text-slate-500',
-                )}>
-                  {running ? '수집 중…' : state?.label ?? collection.standing}
-                </span>
-              </button>
+              <div key={collection.key} className="flex items-center bg-white">
+                <button
+                  type="button"
+                  onClick={() => void runAction(collection.action)}
+                  disabled={cell.disabled}
+                  title={collection.hint}
+                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
+                >
+                  <span className="flex w-full items-center gap-1.5">
+                    {cell.busy
+                      ? <Loader2 size={13} className="shrink-0 animate-spin text-violet-600" />
+                      : <Play size={13} className="shrink-0 text-slate-400" />}
+                    <span className="truncate text-[13px] font-semibold text-slate-900">{collection.label}</span>
+                  </span>
+                  {/* Never a blank: a collection that publishes no run says that,
+                      rather than looking like one that has never run. */}
+                  <span className={cn(
+                    'truncate text-[11px]',
+                    cell.tone ? CELL_TONE_CLASS[cell.tone]
+                      : !cell.line && freshness?.label === '미수집' ? 'font-medium text-amber-700'
+                      : 'text-slate-500',
+                  )}>
+                    {cell.line ?? freshness?.label ?? collection.standing}
+                  </span>
+                </button>
+                {control?.canStop && control.state === 'running' && (
+                  <button
+                    type="button"
+                    onClick={control.stop}
+                    className="mr-2 shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    수집 중단
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

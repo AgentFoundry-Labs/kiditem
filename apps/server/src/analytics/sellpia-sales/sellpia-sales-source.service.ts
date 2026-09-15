@@ -7,6 +7,12 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type {
+  SellpiaSalesSourceLatestAttempt,
+  SellpiaSalesSourceLatestComplete,
+  SellpiaSalesSourcePlan as SellpiaSalesSourceStatusPlan,
+  SellpiaSalesSourceStatus,
+} from '@kiditem/shared/dashboard';
 import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   SOURCE_IMPORT_RUN_FAILED_STATUS,
@@ -14,6 +20,7 @@ import {
 } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../common/operator-cancel';
 import {
   addDays,
   businessDateKey,
@@ -323,6 +330,18 @@ function hasExplicitEmptyProvenance(body: SellpiaSalesIngestBodyDto): boolean {
   );
 }
 
+function sharedPlan(plan: SellpiaSalesSourcePlan): SellpiaSalesSourceStatusPlan {
+  return {
+    sourceType: plan.sourceType,
+    parserVersion: plan.parserVersion,
+    sourceOrigin: plan.sourceOrigin,
+    sourcePath: plan.sourcePath,
+    sourceAccountKey: plan.sourceAccountKey,
+    range: { from: plan.range.from, to: plan.range.to },
+    businessDates: [...plan.businessDates],
+  } satisfies SellpiaSalesSourceStatusPlan;
+}
+
 function sellerCountFromQuality(value: unknown): number {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
   const count = (value as Record<string, unknown>).sellerCount;
@@ -543,6 +562,44 @@ export class SellpiaSalesSourceService {
     }, { timeout: TRANSACTION_TIMEOUT_MS });
   }
 
+  /** Operator stop without the attempt token; a terminal attempt is returned as it is. */
+  async cancelAttempt(organizationId: string, attemptId: string): Promise<SellpiaSalesSourceAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, organizationId);
+      const row = await this.findAttempt(tx, organizationId, attemptId);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(row);
+      const failed = isExpired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.')
+        : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
+      return this.attemptView(failed);
+    }, { timeout: TRANSACTION_TIMEOUT_MS });
+  }
+
+  /** The organization's latest attempt and latest COMPLETE collection, read from one snapshot. */
+  async readSourceStatus(organizationId: string): Promise<SellpiaSalesSourceStatus> {
+    return this.prisma.$transaction(async (tx) => {
+      const [latest, complete] = await Promise.all([
+        tx.sourceImportRun.findFirst({
+          where: { organizationId, sourceType: SELLPIA_SALES_SOURCE_TYPE },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+        tx.sourceImportRun.findFirst({
+          where: {
+            organizationId,
+            sourceType: SELLPIA_SALES_SOURCE_TYPE,
+            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+            publicationSequence: { not: null },
+          },
+          orderBy: { publicationSequence: 'desc' },
+        }),
+      ]);
+      return {
+        latestAttempt: latest ? this.latestAttemptView(latest) : null,
+        latestComplete: complete ? this.latestCompleteView(complete) : null,
+      } satisfies SellpiaSalesSourceStatus;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
   private async findAttempt(tx: Tx, organizationId: string, attemptId: string): Promise<SourceRun> {
     const row = await tx.sourceImportRun.findFirst({
       where: { id: attemptId, organizationId, sourceType: SELLPIA_SALES_SOURCE_TYPE },
@@ -583,6 +640,31 @@ export class SellpiaSalesSourceService {
       href: '/stock-ops',
     });
     return failed;
+  }
+
+  private latestAttemptView(row: SourceRun): SellpiaSalesSourceLatestAttempt {
+    const view = this.attemptView(row);
+    return {
+      attemptId: view.attemptId,
+      state: view.state,
+      plan: sharedPlan(view.plan),
+      expiresAt: view.expiresAt,
+      errorCode: view.errorCode,
+      errorMessage: view.errorMessage,
+    } satisfies SellpiaSalesSourceLatestAttempt;
+  }
+
+  private latestCompleteView(row: SourceRun): SellpiaSalesSourceLatestComplete {
+    const view = this.attemptView(row);
+    return {
+      attemptId: view.attemptId,
+      plan: sharedPlan(view.plan),
+      completedAt: (row.importedAt ?? row.updatedAt).toISOString(),
+      actualCutoffAt: dateAtUtc(view.plan.range.to).toISOString(),
+      businessDates: [...view.businessDates],
+      rowCount: view.rowCount,
+      sellerCount: view.sellerCount,
+    } satisfies SellpiaSalesSourceLatestComplete;
   }
 
   private attemptView(row: SourceRun): SellpiaSalesSourceAttempt {

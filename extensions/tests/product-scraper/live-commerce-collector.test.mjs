@@ -309,12 +309,14 @@ test('replays the original owner plan after an interrupted terminal delivery wit
       { ok: true, source: 'douyin', pageUrl, broadcast: { broadcastId: 'broadcast-123', title: '방송' }, products: [] },
     ],
     requestHandler: ({ url, init }) => {
+      // The replay resumes the same attempt while its lease is still live.
+      const liveLease = new Date(Date.now() + 60 * 60 * 1000).toISOString();
       if (url === SOURCE_PATH && init.method === 'POST') {
         beginCalls += 1;
-        return response(sourceAttempt({ pageUrl }));
+        return response({ ...sourceAttempt({ pageUrl }), expiresAt: liveLease });
       }
       if (url === `${SOURCE_PATH}/${ATTEMPT_ID}` && init.method === 'GET') {
-        return response(sourceAttempt({ pageUrl, includeToken: false }));
+        return response({ ...sourceAttempt({ pageUrl, includeToken: false }), expiresAt: liveLease });
       }
       if (url === `${SOURCE_PATH}/${ATTEMPT_ID}` && init.method === 'PUT') {
         terminalCalls += 1;
@@ -371,4 +373,59 @@ test('cancels an attention session through the source-owner fail endpoint before
   assert.equal(calls.requests.at(-1).init.headers['x-source-attempt-token'], ATTEMPT_TOKEN);
   assert.equal(await sessions.get(ATTEMPT_ID), null);
   assert.deepEqual(calls.remove, [1]);
+});
+
+// KID-147: a restarted worker continues a collection only for the same attempt
+// whose lease has not passed; a replay that differs leaves it for its lease or
+// an operator stop.
+test('a replayed attempt continues only while it is the same attempt with a live lease', async () => {
+  const pageUrl = 'https://live.douyin.com/123';
+  const otherAttemptId = '00000000-0000-4000-8000-000000000802';
+  const liveLease = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const scenario of ['expired lease', 'another attempt', 'live lease']) {
+    let phase = 'first';
+    const recoveryMethods = [];
+    const extraction = {
+      ok: true, source: 'douyin', pageUrl, broadcast: { broadcastId: 'broadcast-123', title: '방송' }, products: [],
+    };
+    const { calls, collector, sessions } = createHarness({
+      pageUrl,
+      extractions: [extraction, extraction],
+      requestHandler: ({ url, init }) => {
+        if (phase === 'recovery') recoveryMethods.push(init.method);
+        const live = { ...sourceAttempt({ pageUrl }), expiresAt: liveLease };
+        if (url === SOURCE_PATH && init.method === 'POST') {
+          if (phase === 'first') return response(live);
+          if (scenario === 'expired lease') return response({ ...live, expiresAt: '2026-01-01T00:00:00.000Z' });
+          if (scenario === 'another attempt') return response({ ...live, attemptId: otherAttemptId });
+          return response(live);
+        }
+        if (url === `${SOURCE_PATH}/${ATTEMPT_ID}` && init.method === 'GET') {
+          return response({ ...sourceAttempt({ pageUrl, includeToken: false }), expiresAt: liveLease });
+        }
+        if (phase === 'recovery' && url === `${SOURCE_PATH}/${ATTEMPT_ID}` && init.method === 'PUT') {
+          return response(sourceAttempt({ pageUrl, state: 'COMPLETE', includeToken: false }));
+        }
+        return response({ message: 'temporary' }, { ok: false, status: 503 });
+      },
+    });
+
+    const first = await collector.run({ environmentId: 'local', idempotencyKey: `live-replay-${scenario}`, url: pageUrl });
+    assert.equal(first.terminalState, 'RUNNING', scenario);
+    const tabsBefore = calls.create.length;
+    phase = 'recovery';
+
+    const [recovered] = await collector.recover('local');
+
+    if (scenario === 'live lease') {
+      assert.equal(recovered.terminalState, 'COMPLETE', scenario);
+      assert.equal(calls.create.length, tabsBefore + 1, 'the same live attempt continues');
+    } else {
+      assert.equal(recovered.errorCode, 'SOURCE_ATTEMPT_NOT_CONTINUED', scenario);
+      assert.equal(recovered.terminalState, 'RUNNING', scenario);
+      assert.equal(calls.create.length, tabsBefore, `${scenario}: nothing is collected`);
+      assert.deepEqual(recoveryMethods, ['GET', 'POST'], `${scenario}: only the attempt read and begin were replayed`);
+      assert.ok(await sessions.get(ATTEMPT_ID), `${scenario}: the running attempt keeps its session`);
+    }
+  }
 });
