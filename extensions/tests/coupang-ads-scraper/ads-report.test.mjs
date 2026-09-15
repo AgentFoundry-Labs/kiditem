@@ -3630,6 +3630,8 @@ const WRITE_DEADLINE_MS = 10 * 60 * 1000;
 const WRITE_DEADLINE_FAILURE = "실행 기한(10분)이 지나 광고센터에 쓰지 않았습니다.";
 const CONFIRM_DEADLINE_FAILURE =
   "실행 기한(10분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.";
+const CONFIRM_STOP_WARNING =
+  "승인 액션 1개는 확인 단계에서 실행 기한(10분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.";
 const CAMPAIGN_ROSTER_UNREAD_FAILURE =
   "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
 const CAMPAIGN_NAME_MISSING_FAILURE =
@@ -3848,6 +3850,14 @@ test("an approved action listed without an execution attempt id is skipped befor
       targetLabel: label,
       payload: { keyword: label },
     },
+    // An id made only of spaces names no attempt either.
+    {
+      id: "action-blank-attempt-id",
+      executionTaskId: "   ",
+      actionType: "pause_keyword",
+      targetLabel: label,
+      payload: { keyword: label },
+    },
   ]);
 
   // Nothing is claimed or read: a report that names no attempt cannot be fenced to one.
@@ -3857,9 +3867,9 @@ test("an approved action listed without an execution attempt id is skipped befor
   assert.deepEqual({ ...response }, {
     success: true,
     executed: 0,
-    skipped: 2,
+    skipped: 3,
     warning:
-      "실행 시도 id가 없는 승인 액션 2개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.",
+      "실행 시도 id가 없는 승인 액션 3개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.",
   });
 });
 
@@ -4374,10 +4384,14 @@ async function runKeywordPauseStalledBeforeConfirmation(stalledForMs) {
     querySelectorAll: (selector) => (selector.includes("button") ? [confirmButton] : []),
   };
   const server = recordingReportServer(reports);
+  const badges = [];
   let stalled = false;
   const tab = loadContract({
     exposeRuntime: true,
-    globals: { Date: clock.Date },
+    globals: {
+      Date: clock.Date,
+      showBadge: (text, color) => badges.push({ text, color }),
+    },
     document: {
       body: { querySelector: () => null, querySelectorAll: () => [] },
       title: "광고센터",
@@ -4407,7 +4421,7 @@ async function runKeywordPauseStalledBeforeConfirmation(stalledForMs) {
       payload: { keyword: label },
     },
   ]);
-  return { reports, clicks, response };
+  return { reports, clicks, badges, response };
 }
 
 test("a keyword pause is confirmed within 10 minutes of its claim, and past that it stops at the confirmation saying the pause may have applied", async () => {
@@ -4422,7 +4436,16 @@ test("a keyword pause is confirmed within 10 minutes of its claim, and past that
     late.reports.map((report) => [report.action, report.errorMessage]),
     [["markRunning", undefined], ["markFailed", CONFIRM_DEADLINE_FAILURE]],
   );
-  assert.deepEqual({ ...late.response }, { success: true, executed: 0, skipped: 1 });
+  // Coupang may have changed, so the run warns instead of counting a plain skip,
+  // and the ad-center badge takes its warning form.
+  assert.deepEqual({ ...late.response }, {
+    success: true,
+    executed: 0,
+    skipped: 1,
+    warning: CONFIRM_STOP_WARNING,
+  });
+  assert.deepEqual(late.badges.at(-1), { text: `⚠️ ${CONFIRM_STOP_WARNING}`, color: "#f59e0b" });
+  assert.deepEqual(onTime.badges.at(-1), { text: "✅ 승인 액션 1개 실행 완료", color: "#22c55e" });
 });
 
 // create_campaign is the one action a retry could duplicate: an attempt left
@@ -4711,7 +4734,13 @@ test("create_campaign confirms the registration within 10 minutes of its claim, 
     "roster:isDeleted=false",
     "markFailed:task-create-campaign",
   ]);
-  // 완료 may already have registered the campaign, so the failure says so.
+  // 완료 may already have registered the campaign, so the failure says so and
+  // the run warns.
   assert.equal(late.reports.at(-1).errorMessage, CONFIRM_DEADLINE_FAILURE);
-  assert.deepEqual({ ...lateResponse }, { success: true, executed: 0, skipped: 1 });
+  assert.deepEqual({ ...lateResponse }, {
+    success: true,
+    executed: 0,
+    skipped: 1,
+    warning: CONFIRM_STOP_WARNING,
+  });
 });

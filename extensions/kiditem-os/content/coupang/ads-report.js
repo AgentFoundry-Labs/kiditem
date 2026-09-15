@@ -2699,7 +2699,7 @@
     if (dialog) {
       const confirmButton = findClickableByText(["등록", "확인", "완료"], dialog);
       if (confirmButton) {
-        assertWithinWriteDeadline(claim, ACTION_CONFIRM_DEADLINE_MESSAGE);
+        assertWithinWriteDeadline(claim, { confirmationStep: true });
         confirmButton.click();
         await sleep(1500);
       }
@@ -2738,7 +2738,7 @@
     await sleep(600);
     const dialog = findDialog();
     if (dialog) {
-      assertWithinWriteDeadline(claim, ACTION_CONFIRM_DEADLINE_MESSAGE);
+      assertWithinWriteDeadline(claim, { confirmationStep: true });
       clickBestButton(dialog, ["확인", "저장", "적용"]);
       await sleep(1200);
     }
@@ -2800,12 +2800,17 @@
   /**
    * Checked immediately before each click that can write to Coupang, with
    * nothing awaited in between; the thrown failure becomes the action's
-   * reported outcome.
+   * reported outcome. A stop at a confirmation click follows a click that may
+   * already have written, so its error carries `executionMayHaveApplied` and
+   * the run warns about it.
    */
-  function assertWithinWriteDeadline(claim, message = ACTION_WRITE_DEADLINE_MESSAGE) {
-    if (Date.now() - claim.claimedAt > ACTION_WRITE_DEADLINE_MS) {
-      throw new Error(message);
-    }
+  function assertWithinWriteDeadline(claim, { confirmationStep = false } = {}) {
+    if (Date.now() - claim.claimedAt <= ACTION_WRITE_DEADLINE_MS) return;
+    const error = new Error(
+      confirmationStep ? ACTION_CONFIRM_DEADLINE_MESSAGE : ACTION_WRITE_DEADLINE_MESSAGE,
+    );
+    error.executionMayHaveApplied = confirmationStep;
+    throw error;
   }
 
   async function executeClaimedAction(action, claim) {
@@ -2850,6 +2855,8 @@
     // Reports that did not land. The operator sees each kind as a warning.
     let claimRefused = 0;
     let claimUnreported = 0;
+    // Actions stopped at a confirmation click, after which Coupang may already have changed.
+    let confirmationStopped = 0;
     let doneRefused = 0;
     let doneUnreported = 0;
 
@@ -2885,6 +2892,7 @@
       } catch (error) {
         // The action failed while it was being worked on Coupang.
         skipped++;
+        if (error?.executionMayHaveApplied) confirmationStopped++;
         await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
@@ -2918,6 +2926,9 @@
     }
     if (claimUnreported > 0) {
       warnings.push(`시작 보고 전달에 실패한 승인 액션 ${claimUnreported}개는 광고센터에 쓰지 않고 건너뛰었습니다. 서버에 실행 중으로 남았다면 실행 기한(30분)이 지나 실패로 바뀐 뒤 다시 승인할 수 있습니다.`);
+    }
+    if (confirmationStopped > 0) {
+      warnings.push(`승인 액션 ${confirmationStopped}개는 확인 단계에서 실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.`);
     }
     if (doneRefused > 0) {
       warnings.push(`승인 액션 ${doneRefused}개는 광고센터에 반영됐을 수 있지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.`);

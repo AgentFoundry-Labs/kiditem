@@ -345,29 +345,48 @@ test('a Run whose done report was lost warns to check the ad center instead of s
   assert.equal(result.className, 'sync-result success');
 });
 
-test('a Run with an action refused at its claim shows the warning instead of a plain 보류 count', async () => {
-  const warning = '실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.';
-  const harness = createPopupHarness({
-    connected: ['local'],
-    runApprovedResponse: { success: true, executed: 1, skipped: 1, warning },
-  });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus()),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
+test('a Run with an action refused at its claim or stopped at a confirmation shows the warning instead of a plain 보류 count', async () => {
+  const runs = [
+    {
+      runApprovedResponse: {
+        success: true,
+        executed: 1,
+        skipped: 1,
+        warning: '실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.',
+      },
+      shown: '⚠️ 1개 실행, 1개 보류. 실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.',
+    },
+    {
+      // Stopped at a confirmation click, after which Coupang may already have changed.
+      runApprovedResponse: {
+        success: true,
+        executed: 0,
+        skipped: 1,
+        warning: '승인 액션 1개는 확인 단계에서 실행 기한(10분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.',
+      },
+      shown: '⚠️ 0개 실행, 1개 보류. 승인 액션 1개는 확인 단계에서 실행 기한(10분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.',
+    },
+  ];
+  for (const { runApprovedResponse, shown } of runs) {
+    const harness = createPopupHarness({ connected: ['local'], runApprovedResponse });
+    await completeStatusLoad(harness, 'local', {
+      '/api/ads/traffic/source': response(ownerStatus()),
+      '/api/ads/wing-itemwinner/source': response(ownerStatus()),
+      '/api/ads/ad-campaigns/source': response(ownerStatus()),
+    });
 
-  harness.document.getElementById('btnRunApproved').click();
-  const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
-  await harness.reply(queued, response({
-    items: [
-      { id: 'action-1', executionTaskId: 'task-1' },
-      { id: 'action-2', executionTaskId: 'task-2' },
-    ],
-  }));
-  await harness.flush();
+    harness.document.getElementById('btnRunApproved').click();
+    const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
+    await harness.reply(queued, response({
+      items: [
+        { id: 'action-1', executionTaskId: 'task-1' },
+        { id: 'action-2', executionTaskId: 'task-2' },
+      ],
+    }));
+    await harness.flush();
 
-  const result = harness.document.getElementById('syncResult');
-  assert.equal(result.textContent, `⚠️ 1개 실행, 1개 보류. ${warning}`);
-  assert.equal(result.className, 'sync-result success');
+    const result = harness.document.getElementById('syncResult');
+    assert.equal(result.textContent, shown);
+    assert.equal(result.className, 'sync-result success');
+  }
 });
