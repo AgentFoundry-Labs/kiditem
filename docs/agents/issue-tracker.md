@@ -13,21 +13,22 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
   decides what leaves the train.
 - A milestone is one feature the train updates. Name it with the feature
   only and put scope in its description. Do not assign milestone owners ahead
-  of time: ownership follows the assignees and delegates of the issues inside
-  it while the work happens.
+  of time: ownership follows the assignees of the issues inside it while the
+  work happens.
 - Every issue in the project carries a milestone, including new Triage
   issues.
 - The first line of an issue's `## 현재 상태` section reads
-  `마일스톤 <feature> · <human assignee> · <Dev Leader>`.
+  `마일스톤 <feature> · <human assignee> · <session driving it, if any>`.
 
 ## Issue Relationships And Evidence
 
-- Use the assignee for the accountable human, the delegate for the Dev Leader
-  orchestrating the issue, and native priority for urgency. An issue an agent
-  creates is assigned to the person running the session; set the delegate
-  only when a Dev Leader claims it.
-- `HITL` marks a decision or action only a person can take. The delegate
-  session asks and batches its questions before its next PR. When another
+- Use the assignee for the accountable human and native priority for
+  urgency. The delegate is optional: when the workspace gives a session its
+  own Linear identity, set it on claim to name the session driving the issue,
+  and clear it on release. An issue an agent creates is assigned to the person
+  running the session.
+- `HITL` marks a decision or action only a person can take. The session
+  driving the issue asks and batches its questions before its next PR. When another
   decision already settles a `HITL` item, record that source on the issue and
   remove the label instead of asking again.
 - Link sub-issues to their parent spec or `wayfinder:map` issue, and record
@@ -71,12 +72,20 @@ the issue. Backlog and Todo stay empty.
 - Open an issue only for work worth tracking on its own: a defect an
   operator meets, a rule or contract change, a decision someone must make, or
   work another person will own. Create it in Triage when found during a task
-  or reported from outside; `/to-spec` and `/to-tickets` publish to Ready.
-  Findings that share one cause share one issue.
+  or reported from outside; issues cut from an approved spec go straight to
+  Ready. Findings that share one cause share one issue.
+- Write every issue in one shape so any session or contributor produces the
+  same record: the title is `<symptom> — <cause or direction>` in one line;
+  the body has `## 발견` (what was seen, where, when), `## 할 일`, `## 관련`,
+  and `## 파생` when derived findings exist. `## 현재 상태` (see Orchestration)
+  is added only once the issue is claimed.
 - Everything else found during a task goes into a `## 파생` checklist on the
   issue that found it (one `- [ ]` line each) and rides along in that issue's
   PR or in one cleanup issue per milestone; promote a line to an issue only
-  when it meets the rule above.
+  when it meets the rule above. To fold an existing issue the same way, add
+  its line as `- [ ] … (원 KID-nnn)` to the target's `## 파생`, then mark it a
+  duplicate of the target (the relation moves it to Duplicate; a bare state
+  change without the relation is refused).
 - Keep an issue's record readable: one comment thread per topic (QA, review,
   decision) with replies under it instead of a flat list. Code-review
   findings live on the PR's Linear review as diff threads and are resolved
@@ -92,7 +101,8 @@ the issue. Backlog and Todo stay empty.
   those exact names; and the `PR` group. Each label's description is its rule;
   read them with `list_issue_labels`.
 - When a PR opens, create its `PR` child label `#<number> <short title>` with
-  the PR URL and its Dev Leader as the description, and apply it to every
+  the PR URL and who drives it (person or session) as the description, and
+  apply it to every
   issue that PR completes: one PR label per issue.
 
 ## Orchestration
@@ -100,23 +110,22 @@ the issue. Backlog and Todo stay empty.
 Linear is the durable memory of an orchestrating session: another session must
 be able to resume the work from Linear alone.
 
-Each orchestrating session acts as one **Dev Leader** and drives one PR. A Dev
-Leader is a Linear agent app user (`Dev Leader 1`, `Dev Leader 2`, …; list them
-with `list_users`) that a workspace admin installs. Before claiming, take a
-leader that no open issue delegates to.
+One session drives one PR at a time. Every contributor's own agent session
+follows these same rules, and Linear comments are the only channel between
+sessions.
 
 1. **Frontier.** From Ready issues, keep those without `HITL`,
    `wayfinder:grilling`, or `wayfinder:prototype`, without open sub-issues, and
    whose blocked-by issues are all Done. Read each blocker's status: resolved
    blockers stay listed. The frontier is complete when every Ready issue is
    either on it or excluded by one of these rules.
-2. **Claim.** Move the issue to In Progress, set its delegate to your leader
-   while the human stays assignee, and record the branch, worktree, and agent
-   in the live state. Release it by moving it back to Ready with the delegate
-   cleared and a comment.
+2. **Claim.** Move the issue to In Progress, keep the human as assignee (set
+   the delegate only if the session has a Linear identity), and record the
+   branch, worktree, and agent in the live state. Release it by moving it back
+   to Ready with the delegate cleared and a comment.
 3. **Live state.** Keep a `## 현재 상태` section at the top of the description
    of the spec, map, or lead issue of the PR, and keep it to four lines:
-   milestone · human assignee · Dev Leader; branch · worktree · PR; next step;
+   milestone · human assignee · session; branch · worktree · PR; next step;
    last update (KST, trigger). State, PR links, and field changes live in
    Linear's own fields and activity, not in prose. History goes to one comment
    thread titled `진행`: one reply per trigger — claim, agent start, agent
@@ -147,3 +156,5 @@ Use the connected Linear tools and their current schemas:
 - Create issues in team `Kiditem`; use `parentId` for sub-issues.
 - Prefer patch updates and label additions/removals to replacing full content
   or label sets. Preserve unrelated fields.
+- Every timestamp written into an issue is KST read from the clock
+  (`TZ=Asia/Seoul date`), never estimated.
