@@ -71,12 +71,20 @@ the issue. Backlog and Todo stay empty.
 - Open an issue only for work worth tracking on its own: a defect an
   operator meets, a rule or contract change, a decision someone must make, or
   work another person will own. Create it in Triage when found during a task
-  or reported from outside; `/to-spec` and `/to-tickets` publish to Ready.
-  Findings that share one cause share one issue.
+  or reported from outside; issues cut from an approved spec go straight to
+  Ready. Findings that share one cause share one issue.
+- Write every issue in one shape so any session or contributor produces the
+  same record: the title is `<symptom> — <cause or direction>` in one line;
+  the body has `## 발견` (what was seen, where, when), `## 할 일`, `## 관련`,
+  and `## 파생` when derived findings exist. `## 현재 상태` (see Orchestration)
+  is added only once the issue is claimed.
 - Everything else found during a task goes into a `## 파생` checklist on the
   issue that found it (one `- [ ]` line each) and rides along in that issue's
   PR or in one cleanup issue per milestone; promote a line to an issue only
-  when it meets the rule above.
+  when it meets the rule above. To fold an existing issue the same way, add
+  its line as `- [ ] … (원 KID-nnn)` to the target's `## 파생`, then mark it a
+  duplicate of the target (the relation moves it to Duplicate; a bare state
+  change without the relation is refused).
 - Keep an issue's record readable: one comment thread per topic (QA, review,
   decision) with replies under it instead of a flat list. Code-review
   findings live on the PR's Linear review as diff threads and are resolved
@@ -103,7 +111,10 @@ be able to resume the work from Linear alone.
 Each orchestrating session acts as one **Dev Leader** and drives one PR. A Dev
 Leader is a Linear agent app user (`Dev Leader 1`, `Dev Leader 2`, …; list them
 with `list_users`) that a workspace admin installs. Before claiming, take a
-leader that no open issue delegates to.
+leader that no open issue delegates to. A contributor working through their
+own agent follows these same rules: their issues keep them as assignee with no
+delegate, and Linear comments are the only channel between them and other
+sessions.
 
 1. **Frontier.** From Ready issues, keep those without `HITL`,
    `wayfinder:grilling`, or `wayfinder:prototype`, without open sub-issues, and
@@ -147,3 +158,5 @@ Use the connected Linear tools and their current schemas:
 - Create issues in team `Kiditem`; use `parentId` for sub-issues.
 - Prefer patch updates and label additions/removals to replacing full content
   or label sets. Preserve unrelated fields.
+- Every timestamp written into an issue is KST read from the clock
+  (`TZ=Asia/Seoul date`), never estimated.
