@@ -323,6 +323,29 @@ export function useRunKeywordAgent(period: string) {
   });
 }
 
+/** How many distinct proposals of the organization the request named. */
+export type AdActionReviewResult = { updated: number };
+
+/**
+ * Approve or reject keyword pause proposals through the ad action command.
+ * Approval queues an attempt the browser extension runs, and approving a failed
+ * proposal queues a new one; rejection cancels an attempt that has not started.
+ * The keyword list is read again afterwards, after a refusal too: a refusal
+ * means a proposal changed state since the list was read.
+ */
+export function useReviewKeywordProposals(period: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { action: 'approve' | 'reject'; ids: string[] }) =>
+      apiClient.post<AdActionReviewResult>('/api/ads/actions', {
+        action: input.action,
+        ids: input.ids,
+      }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywords(period) }),
+  });
+}
+
 export function useRegisterCampaign() {
   const queryClient = useQueryClient();
   return useMutation({
