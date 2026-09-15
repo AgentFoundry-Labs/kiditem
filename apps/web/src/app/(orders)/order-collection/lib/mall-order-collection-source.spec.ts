@@ -7,6 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   mallOrderCollectionSource,
   readMallOrderCollectionSources,
+  refusedAsNotConfigured,
 } from './mall-order-collection-source';
 import {
   readActiveOrderCollectionAttempt,
@@ -216,6 +217,55 @@ describe('mallOrderCollectionSource', () => {
       },
     }))).toBe(COMPLETE_ATTEMPT_ID);
     expect(source.readCompleteId(sources())).toBeNull();
+  });
+
+  /**
+   * 이 조직에 이 몰의 order_collection 계정 행이 없으면 owner 는 시작을 받지 못한다.
+   * 상태를 읽지 못한 것이 아니라 아직 설정되지 않은 것이므로, 서버도 확장도 부르지
+   * 않고 무엇을 하면 되는지만 말한다(KID-170 D1).
+   */
+  it('refuses the start of a mall this organization has not set up, asking nobody', async () => {
+    const { handOff, source } = adapter();
+
+    const outcome = await source.start!({}, { status: sources({ channelAccountId: null }) });
+
+    expect(outcome).toEqual({
+      outcome: 'refused',
+      message: '설정에서 사용을 켜고 저장한 뒤 수집할 수 있습니다.',
+    });
+    expect(refusedAsNotConfigured(outcome)).toBe(true);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();
+    expect(handOff).not.toHaveBeenCalled();
+  });
+
+  /** 계정 행이 있으면 저장된 자격 증명이 없어도 확장 세션으로 수집한다. */
+  it('starts a mall that has an account row even with no stored credentials', async () => {
+    const { handOff, source } = adapter();
+    vi.mocked(apiClient.post).mockResolvedValue(openedAttempt());
+
+    const outcome = await source.start!({}, {
+      status: sources({ channelAccountId: CHANNEL_ACCOUNT_ID }),
+    });
+
+    expect(outcome).toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
+    expect(handOff).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 전체 수집은 마운트된 카드 밖에서 시작하므로 목록을 아직 읽지 않았을 수 있다.
+   * 그때는 owner 가 모르는 몰이라고 답하며, 그것도 같은 설정 안내다.
+   */
+  it('reads the owner`s unknown-mall answer as the same setup refusal', async () => {
+    const { handOff, source } = adapter();
+    vi.mocked(apiClient.post).mockRejectedValue(
+      new ApiError(404, 'Not Found', 'ORDER_COLLECTION_MALL_NOT_FOUND', {}),
+    );
+
+    const outcome = await source.start!({}, { status: undefined });
+
+    expect(refusedAsNotConfigured(outcome)).toBe(true);
+    expect(handOff).not.toHaveBeenCalled();
   });
 
   it('stops the running attempt through the owner cancel route, without an attempt token', async () => {

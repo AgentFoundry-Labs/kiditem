@@ -194,8 +194,51 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
       batch = await result.current.collectAll();
     });
 
-    expect(batch).toEqual({ successCount: 0, failedCount: 0, inProgressCount: 1 });
+    expect(batch).toEqual({
+      successCount: 0,
+      failedCount: 0,
+      inProgressCount: 1,
+      unconfiguredCount: 0,
+    });
     expect(mocks.fail).not.toHaveBeenCalled();
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  /**
+   * KID-170 D1. 이 조직에 계정 행이 없는 몰은 owner 가 시작을 받지 못한다. 그것을
+   * 실패로 세면 전체 수집이 "1개 성공, 10개 실패"로 끝나 운영자가 고장으로 읽는다.
+   */
+  it('⭐ 설정되지 않은 몰은 실패가 아니라 미설정으로 센다', async () => {
+    const logActivity = vi.fn();
+    const missing = mall('kidsnote', '키즈노트');
+    const ready = mall('onch', '온채널');
+    mocks.begin.mockImplementation(async (_key: string, input: { mallKey: string }) => {
+      if (input.mallKey === missing.key) {
+        throw new ApiError(404, 'Not Found', 'ORDER_COLLECTION_MALL_NOT_FOUND', {});
+      }
+      return { ...attemptFor(input.mallKey, 1), attemptToken: '33333333-3333-4333-8333-333333333333' };
+    });
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [missing, ready],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toEqual({
+      successCount: 1,
+      failedCount: 0,
+      inProgressCount: 0,
+      unconfiguredCount: 1,
+    });
     expect(logActivity).not.toHaveBeenCalled();
   });
 

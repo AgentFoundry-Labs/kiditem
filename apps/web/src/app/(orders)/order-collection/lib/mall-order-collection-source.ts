@@ -6,7 +6,10 @@ import {
 } from '@kiditem/shared/order-collection-source';
 import type { QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import type {
+  CollectionSourceAdapter,
+  CollectionStartOutcome,
+} from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
@@ -75,6 +78,27 @@ export function findMallSource(
   mallKey: string,
 ): OrderCollectionSourceStatus | null {
   return sources.find((source) => source.mallKey === mallKey) ?? null;
+}
+
+/**
+ * 이 조직에 이 몰의 order_collection 계정 행이 없어 아직 수집할 수 없다. 상태를 읽지
+ * 못한 것도, 수집이 실패한 것도 아니므로 운영자에게 다음 할 일을 말한다(KID-170 D1).
+ */
+const NOT_CONFIGURED = {
+  outcome: 'refused',
+  message: '설정에서 사용을 켜고 저장한 뒤 수집할 수 있습니다.',
+} as const;
+
+/** 설정되지 않은 몰이라 거절된 시작인가. 전체 수집은 이것을 실패와 따로 센다. */
+export function refusedAsNotConfigured(outcome: CollectionStartOutcome): boolean {
+  return outcome.outcome === 'refused' && outcome.message === NOT_CONFIGURED.message;
+}
+
+/** owner 가 이 조직에서 모르는 몰이라고 답했다. begin 이 404 를 내는 유일한 이유다. */
+function mallNotSetUp(error: unknown): boolean {
+  return isApiError(error)
+    && error.status === 404
+    && error.detail === 'ORDER_COLLECTION_MALL_NOT_FOUND';
 }
 
 /** The owner's operator stop. Organization-scoped, so any tab can end the attempt. */
@@ -216,7 +240,13 @@ export function mallOrderCollectionSource({
       const running = findMallSource(sources, account.key)?.running;
       return running ? { attemptId: running.attemptId, scopeLabel: account.name } : null;
     },
-    start: (input) => {
+    start: (input, { status }) => {
+      // 이 조직에 이 몰의 계정 행이 없으면 owner 는 시작을 받지 못한다. 상태를 읽지
+      // 못한 것이 아니라 아직 설정되지 않은 것이므로, 아무도 부르지 않고 무엇을 하면
+      // 되는지만 말한다(KID-170 D1).
+      if (status && findMallSource(status, account.key)?.channelAccountId === null) {
+        return Promise.resolve(NOT_CONFIGURED);
+      }
       let opened: OrderCollectionSourceAttemptControl | null = null;
       return startWebOpenedCollection({
         detectExtension: detectMallCollectionExtension,
@@ -244,12 +274,20 @@ export function mallOrderCollectionSource({
             ? unanswered.idempotencyKey
             : null;
           let beginKey = replayKey ?? idempotencyKey;
-          let started = await openMallAttempt(organizationId, beginKey, request);
-          if (replayKey && started.state !== 'RUNNING') {
-            // 재생한 키의 시도는 이미 끝났다(다른 탭의 중단, 임대 만료). 이어받을
-            // 것이 없으므로 그 키를 버리고 새 키로 다시 열어야 핸드오프가 일어난다.
-            beginKey = idempotencyKey;
+          let started: OrderCollectionSourceAttemptControl;
+          try {
             started = await openMallAttempt(organizationId, beginKey, request);
+            if (replayKey && started.state !== 'RUNNING') {
+              // 재생한 키의 시도는 이미 끝났다(다른 탭의 중단, 임대 만료). 이어받을
+              // 것이 없으므로 그 키를 버리고 새 키로 다시 열어야 핸드오프가 일어난다.
+              beginKey = idempotencyKey;
+              started = await openMallAttempt(organizationId, beginKey, request);
+            }
+          } catch (error) {
+            // 마운트된 카드 밖에서 시작하면(전체 수집) 목록을 아직 읽지 않았을 수 있다.
+            // 그때는 owner 가 모르는 몰이라고 답하며, 그것도 같은 설정 안내다.
+            if (!mallNotSetUp(error)) throw error;
+            return NOT_CONFIGURED;
           }
           opened = started;
           if (organizationId) {

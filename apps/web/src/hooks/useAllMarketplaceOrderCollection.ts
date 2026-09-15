@@ -21,6 +21,7 @@ import {
 } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
 import {
   mallOrderCollectionSource,
+  refusedAsNotConfigured,
   type MallOrderCollectionHandoff,
   type MallOrderCollectionSourceList,
   type MallOrderCollectionStartInput,
@@ -73,6 +74,8 @@ export type MarketplaceOrderCollectionBatchResult = {
   failedCount: number;
   /** Malls the owner was already collecting, so this batch opened nothing for them. */
   inProgressCount: number;
+  /** Malls this organization has not set up yet, which cannot be started at all. */
+  unconfiguredCount: number;
 };
 
 type UseAllMarketplaceOrderCollectionOptions = {
@@ -343,12 +346,13 @@ export function useAllMarketplaceOrderCollection({
     accounts: OrderCollectionMallAccount[],
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
-      return { successCount: 0, failedCount: 0, inProgressCount: 0 };
+      return { successCount: 0, failedCount: 0, inProgressCount: 0, unconfiguredCount: 0 };
     }
 
     let successCount = 0;
     let failedCount = 0;
     let inProgressCount = 0;
+    let unconfiguredCount = 0;
     await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
       let started: Awaited<ReturnType<typeof startMall>>;
       try {
@@ -366,7 +370,10 @@ export function useAllMarketplaceOrderCollection({
         return;
       }
       if (started.outcome.outcome === 'refused') {
-        failedCount += 1;
+        // 아직 설정되지 않은 몰은 시작 자체가 없었던 것이지 수집이 실패한 것이
+        // 아니다. 실패로 세면 전체 수집이 고장처럼 읽힌다(KID-170 D1).
+        if (refusedAsNotConfigured(started.outcome)) unconfiguredCount += 1;
+        else failedCount += 1;
         return;
       }
       try {
@@ -376,7 +383,7 @@ export function useAllMarketplaceOrderCollection({
         failedCount += 1;
       }
     });
-    return { successCount, failedCount, inProgressCount };
+    return { successCount, failedCount, inProgressCount, unconfiguredCount };
   }, [startMall]);
 
   const collectAll = useCallback((

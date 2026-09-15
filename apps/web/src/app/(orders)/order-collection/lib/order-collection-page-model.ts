@@ -258,19 +258,22 @@ export type OrderCollectionBatchNotice = Readonly<{
 
 /**
  * 전체 수집 한 번을 운영자 문장 하나로 요약한다. 이미 수집 중이던 몰은 두 번째 시도를 열지
- * 않았을 뿐 실패한 것이 아니므로, 실패와 따로 센다(KID-106 Q6).
+ * 않았을 뿐 실패한 것이 아니고(KID-106 Q6), 아직 설정되지 않은 몰은 시작 자체가 없었던
+ * 것이므로(KID-170 D1), 둘 다 실패와 따로 센다.
  */
 export function orderCollectionBatchNotice(result: {
   successCount: number;
   failedCount: number;
   inProgressCount: number;
+  unconfiguredCount: number;
 }): OrderCollectionBatchNotice {
-  if (result.failedCount === 0 && result.inProgressCount === 0) {
-    return { tone: 'success', message: '전체 수집 완료' };
-  }
   const parts = [`${formatNumber(result.successCount)}개 성공`];
   if (result.failedCount > 0) parts.push(`${formatNumber(result.failedCount)}개 실패`);
+  if (result.unconfiguredCount > 0) {
+    parts.push(`${formatNumber(result.unconfiguredCount)}개 미설정`);
+  }
   if (result.inProgressCount > 0) parts.push(`${formatNumber(result.inProgressCount)}개 진행 중`);
+  if (parts.length === 1) return { tone: 'success', message: '전체 수집 완료' };
   return { tone: 'warning', message: `전체 수집 ${parts.join(', ')}` };
 }
 

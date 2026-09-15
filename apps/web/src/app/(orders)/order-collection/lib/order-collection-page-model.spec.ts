@@ -194,20 +194,43 @@ describe('login / auth classification', () => {
 });
 
 describe('orderCollectionBatchNotice', () => {
+  const batch = (patch: Partial<Parameters<typeof orderCollectionBatchNotice>[0]> = {}) => ({
+    successCount: 0,
+    failedCount: 0,
+    inProgressCount: 0,
+    unconfiguredCount: 0,
+    ...patch,
+  });
+
   /** KID-106 Q6. 진행 중이던 몰은 새로 열지 않았을 뿐이므로 실패 수에 섞지 않는다. */
   it('⭐ tells malls already collecting apart from malls that failed', () => {
-    expect(orderCollectionBatchNotice({ successCount: 3, failedCount: 0, inProgressCount: 2 })).toEqual({
+    expect(orderCollectionBatchNotice(batch({ successCount: 3, inProgressCount: 2 }))).toEqual({
       tone: 'warning',
       message: '전체 수집 3개 성공, 2개 진행 중',
     });
-    expect(orderCollectionBatchNotice({ successCount: 3, failedCount: 1, inProgressCount: 2 })).toEqual({
+    expect(orderCollectionBatchNotice(batch({
+      successCount: 3, failedCount: 1, inProgressCount: 2,
+    }))).toEqual({
       tone: 'warning',
       message: '전체 수집 3개 성공, 1개 실패, 2개 진행 중',
     });
   });
 
+  /**
+   * KID-170 D1. 이 조직에 계정 행이 없는 몰은 수집이 실패한 것이 아니라 아직 설정되지
+   * 않은 것이다. 실패로 세면 "1개 성공, 10개 실패"가 되어 운영자가 고장으로 읽는다.
+   */
+  it('⭐ tells malls that are not set up yet apart from malls that failed', () => {
+    expect(orderCollectionBatchNotice(batch({
+      successCount: 1, unconfiguredCount: 10, inProgressCount: 3,
+    }))).toEqual({
+      tone: 'warning',
+      message: '전체 수집 1개 성공, 10개 미설정, 3개 진행 중',
+    });
+  });
+
   it('keeps the plain success sentence when nothing failed and nothing was already running', () => {
-    expect(orderCollectionBatchNotice({ successCount: 5, failedCount: 0, inProgressCount: 0 })).toEqual({
+    expect(orderCollectionBatchNotice(batch({ successCount: 5 }))).toEqual({
       tone: 'success',
       message: '전체 수집 완료',
     });
