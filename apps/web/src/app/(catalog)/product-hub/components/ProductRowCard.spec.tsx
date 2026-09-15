@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
@@ -211,6 +212,12 @@ function product(): MasterProductOperationsListItem {
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
+        basis: buildPeriodBasis({
+          from: '2026-07-01',
+          to: '2026-07-31',
+          includedDates: enumerateDashboardDates('2026-07-01', '2026-07-31'),
+          sources: ['wing_traffic'],
+        }),
       },
       advertising: {
         ready: true,

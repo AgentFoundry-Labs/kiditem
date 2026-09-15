@@ -9,6 +9,7 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
+import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kiditem/shared/dashboard';
 import {
   advertisingApplies,
   readAdEvidenceCutoff,
@@ -181,19 +182,31 @@ implements ProductOperationsRepositoryPort {
         return { sellingMasterProductIds, sellingChannelProducts, rows, adByListing, traffic, adCoverage, orders, orderLines };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
+    // The reader also returns rows on refused dates; only covered days count.
+    const trafficDates = new Set(traffic.coverage.includedDates);
     const trafficByListing = new Map<string, ListingTrafficDailyFact[]>();
     for (const fact of traffic.rows) {
+      if (!trafficDates.has(fact.businessDate)) continue;
       const facts = trafficByListing.get(fact.listingId) ?? [];
       facts.push(fact);
       trafficByListing.set(fact.listingId, facts);
     }
     const adFactsByListing = new Map(adByListing.map((facts) => [facts.listingId, facts]));
+    const trafficBasis = buildPeriodBasis({
+      from: businessDateKey(periodStart),
+      to: businessDateKey(cutoff),
+      includedDates: traffic.coverage.includedDates,
+      invalidDates: traffic.coverage.invalidDates,
+      sources: [WING_TRAFFIC_SOURCE],
+    });
+    // Views and cart adds are measured over the days Wing traffic covered; the
+    // basis carries how many of the window's days that is.
     const trafficCoverage = {
-      ready: traffic.coverage.includedDates.length === query.periodDays
-        && traffic.coverage.invalidDates.length === 0 && traffic.coverage.missingDates.length === 0,
+      ready: trafficBasis.includedDates.length > 0,
       coverageStartDate: businessDateKey(periodStart),
       coverageEndDate: businessDateKey(cutoff),
       capturedAt: traffic.latestObservedAt,
+      basis: trafficBasis,
     };
     const orderCoverage = {
       ready: orders.orderCount !== null,
@@ -410,23 +423,24 @@ function toListItem(
   const csvTrafficFacts = trafficFacts.filter(
     (fact) => fact.source === 'csv_upload',
   );
-  const trafficMeasured = trafficCoverage.ready && row.channelListings.some(
+  const listedOnWing = row.channelListings.some(
     (listing) => listing.isActive
       && listing.channelAccount.channel === 'coupang'
       && listing.channelAccount.status === 'active',
   );
   // Wing listing projections carry option/page visitors, not account UV.
   // Product Hub may retain explicitly uploaded listing visitors, but never
-  // presents a sum of Wing option projections as unique visitors.
-  const visitorCount = trafficMeasured
+  // presents a sum of Wing option projections as unique visitors. Visitors
+  // stay a whole-window value, summed only when every day is covered.
+  const visitorCount = listedOnWing && periodBasisStatus(trafficCoverage.basis) === 'complete'
     ? nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.visitors)
     : null;
-  // A covered window measures a listing only through its rows; a product with
-  // none has unmeasured traffic, not zero.
-  const viewCount = trafficMeasured
+  // Views and cart adds sum the covered days. A covered day measures a listing
+  // only through its row; a product with none has unmeasured traffic, not zero.
+  const viewCount = listedOnWing && trafficCoverage.ready
     ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.views)
     : null;
-  const cartAddCount = trafficMeasured
+  const cartAddCount = listedOnWing && trafficCoverage.ready
     ? nullableTrafficMetricSum(trafficFacts, (fact) => fact.cartAdds)
     : null;
   const optionIds = new Set(row.channelListings.flatMap((listing) => listing.options.map(({ id }) => id)));

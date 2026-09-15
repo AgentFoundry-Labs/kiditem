@@ -17,6 +17,7 @@ import {
   ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
 } from './product-operations';
+import { buildPeriodBasis } from './dashboard-basis';
 
 const productId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
@@ -136,6 +137,48 @@ function dataStatusSource(ready: boolean) {
   };
 }
 
+const uncoveredTrafficBasis = buildPeriodBasis({
+  from: '2026-07-10',
+  to: '2026-07-16',
+  sources: ['wing_traffic'],
+});
+
+function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
+  return {
+    ...metadataFixture,
+    imageUrls: [],
+    displayImageUrls: [],
+    isSelling: true,
+    updatedAt: '2026-09-15T00:00:00.000Z',
+    depletion: {
+      coverage: 'no_direct_sales',
+      needsReorder: false,
+      reorderSkuCount: 0,
+      minMonthsOfAvailableStockLeft: null,
+    },
+    channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
+    inventoryUnits: 0,
+    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    channelCount: 1,
+    channelStatus: 'listed',
+    activeChannels: [],
+    traffic: null,
+    visitorCount: null,
+    viewCount: 91,
+    cartAddCount: 26,
+    orderCount: null,
+    salesQuantity: null,
+    salesAmount: null,
+    adSpend: null,
+    adSpendRate: null,
+    metricsFreshness: {
+      orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      traffic,
+      advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+    },
+  };
+}
+
 describe('product operations contracts', () => {
   it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
     expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
@@ -224,7 +267,7 @@ describe('product operations contracts', () => {
         adSpendRate: null,
         metricsFreshness: {
           orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-          traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null, basis: uncoveredTrafficBasis },
           advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         },
       }),
@@ -232,6 +275,28 @@ describe('product operations contracts', () => {
     };
 
     expect(MasterProductOperationsListItemSchema.safeParse(legacy).success).toBe(false);
+  });
+
+  it('carries the period basis Wing views and cart adds were summed over', () => {
+    const basis = buildPeriodBasis({
+      from: '2026-09-01',
+      to: '2026-09-14',
+      includedDates: Array.from({ length: 13 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`),
+      sources: ['wing_traffic'],
+    });
+    const traffic = {
+      ready: true,
+      coverageStartDate: '2026-09-01',
+      coverageEndDate: '2026-09-14',
+      capturedAt: '2026-09-15T00:00:00.000Z',
+      basis,
+    };
+
+    expect(MasterProductOperationsListItemSchema.parse(listItemWithTrafficFreshness(traffic))
+      .metricsFreshness.traffic.basis).toEqual(basis);
+    const { basis: _basis, ...withoutBasis } = traffic;
+    expect(MasterProductOperationsListItemSchema.safeParse(listItemWithTrafficFreshness(withoutBasis)).success)
+      .toBe(false);
   });
 
   it('requires raw and calculated display image URLs separately', () => {
@@ -423,7 +488,7 @@ describe('product operations contracts', () => {
       adSpendRate: null,
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null, basis: uncoveredTrafficBasis },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     });

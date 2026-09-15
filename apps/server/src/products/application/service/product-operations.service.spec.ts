@@ -1,5 +1,6 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductOperationsService } from './product-operations.service';
 import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
@@ -754,6 +755,12 @@ function rawListProduct(id: string) {
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
+        basis: buildPeriodBasis({
+          from: '2026-07-01',
+          to: '2026-07-31',
+          includedDates: enumerateDashboardDates('2026-07-01', '2026-07-31'),
+          sources: ['wing_traffic'],
+        }),
       },
       advertising: {
         ready: true,

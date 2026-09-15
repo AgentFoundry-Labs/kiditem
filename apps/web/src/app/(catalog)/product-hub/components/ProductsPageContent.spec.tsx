@@ -80,7 +80,21 @@ const state = vi.hoisted(() => ({
       adSpendRate: null,
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: {
+          ready: false,
+          coverageStartDate: null,
+          coverageEndDate: null,
+          capturedAt: null,
+          basis: {
+            kind: 'period' as const,
+            from: '2026-07-10',
+            to: '2026-07-16',
+            targetDays: 7,
+            includedDates: [],
+            invalidDates: [],
+            sources: ['wing_traffic'],
+          },
+        },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     }],

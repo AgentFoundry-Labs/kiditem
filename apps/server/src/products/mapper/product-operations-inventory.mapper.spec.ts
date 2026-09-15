@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import { mapProductOperationsListItem } from './product-operations-inventory.mapper';
 import type {
   ProductOperationsRepositoryListItem,
@@ -119,6 +120,7 @@ function rawListItem(): ProductOperationsRepositoryListItem {
         coverageStartDate: null,
         coverageEndDate: null,
         capturedAt: null,
+        basis: buildPeriodBasis({ from: '2026-07-11', to: '2026-07-17', sources: ['wing_traffic'] }),
       },
       advertising: {
         ready: false,

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SourceReadinessSchema } from '../source-readiness.js';
 import { zIsoDate } from './common.js';
+import { DashboardPeriodBasisSchema } from './dashboard.js';
 import {
   ProductAbcContributionOverviewSchema,
   ProductAbcContributionProductSchema,
@@ -191,6 +192,17 @@ const ProductOperationsMetricFreshnessSchema = z.object({
   capturedAt: zIsoDate.nullable(),
 }).strict();
 
+/**
+ * Views and cart adds sum only the window's days Wing traffic covered, so
+ * their freshness carries the period basis behind those sums: `ready` means
+ * at least one day is covered, and visitors are published only on a complete
+ * basis. Read the status word through `periodBasisStatus(basis)` from
+ * `@kiditem/shared/dashboard`.
+ */
+const ProductOperationsTrafficFreshnessSchema = ProductOperationsMetricFreshnessSchema.extend({
+  basis: DashboardPeriodBasisSchema,
+});
+
 export const ProductOperationsDataSourceStatusSchema = SourceReadinessSchema;
 export type ProductOperationsDataSourceStatus = z.infer<
   typeof ProductOperationsDataSourceStatusSchema
@@ -249,7 +261,7 @@ export const MasterProductOperationsListItemSchema =
     adSpend: z.number().int().nonnegative().nullable(),
     adSpendRate: z.number().finite().nonnegative().nullable(),
     metricsFreshness: z.object({
-      traffic: ProductOperationsMetricFreshnessSchema,
+      traffic: ProductOperationsTrafficFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
       orders: ProductOperationsMetricFreshnessSchema,
     }).strict(),
