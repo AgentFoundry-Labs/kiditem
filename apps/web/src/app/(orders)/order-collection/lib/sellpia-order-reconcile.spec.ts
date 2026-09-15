@@ -74,3 +74,37 @@ describe('reconcileCollectedOrdersWithSellpia', () => {
     expect(result.missingCountByMallKey.get('kidkids')).toBe(0);
   });
 });
+
+/**
+ * KID-163. 셀피아 화면을 일부만 읽었으면 "안 올라간 주문"과 "못 본 주문"을 가를 수 없다.
+ * 그 상태의 숫자를 근거로 운영자가 다시 전송하면 중복 주문이 된다.
+ */
+describe('부분 조회', () => {
+  it('⭐ 부분 조회에서는 누락 숫자를 내지 않는다 — 미확인으로 남긴다', () => {
+    const result = reconcileCollectedOrdersWithSellpia({
+      history: [file({ mallKey: 'kidkids', mallName: '키드키즈', orderNumbers: ['A-1', 'A-2'] })],
+      // 2페이지를 못 읽어 A-2 가 안 보인다. 안 올라간 것인지 못 본 것인지 알 수 없다.
+      sellpiaRows: [{ orderNo: '66_A-1', receiver: '이민정(키드키즈)', provider: '키드키즈(외부몰)' }],
+      collectionDate: '2026-07-30',
+      partial: true,
+      checkedAt: 1,
+    });
+
+    expect(result.partial).toBe(true);
+    expect(result.missingTotal).toBeNull();
+    expect(result.missingCountByMallKey.size).toBe(0);
+  });
+
+  it('완전 조회일 때만 숫자를 낸다', () => {
+    const result = reconcileCollectedOrdersWithSellpia({
+      history: [file({ mallKey: 'kidkids', mallName: '키드키즈', orderNumbers: ['A-1', 'A-2'] })],
+      sellpiaRows: [{ orderNo: '66_A-1', receiver: '이민정(키드키즈)', provider: '키드키즈(외부몰)' }],
+      collectionDate: '2026-07-30',
+      checkedAt: 1,
+    });
+
+    expect(result.partial).toBe(false);
+    expect(result.missingTotal).toBe(1);
+    expect(result.missingCountByMallKey.get('kidkids')).toBe(1);
+  });
+});

@@ -10,22 +10,21 @@ import {
   beginOrderCollectionSourceAttempt,
   failOrderCollectionSourceAttempt,
   getOrderCollectionEnvironmentKey,
-  isOrderCollectionAttemptNotFound,
   newOrderCollectionIdempotencyKey,
   readActiveOrderCollectionAttempt,
   readOrderCollectionSourceAttempt,
-  readOrderCollectionSourceAttemptControl,
   rememberActiveOrderCollectionAttempt,
   type ActiveOrderCollectionAttempt,
-  type OrderCollectionSourceAttempt,
   type OrderCollectionSourceAttemptControl,
 } from '../lib/order-collection-source-owner';
+import { cancelMallOrderCollectionAttempt } from '../lib/mall-order-collection-source';
+import { cancelCoupangDirectshipAttempt } from '../lib/coupang-directship-collection-source';
 import {
   detectOrderCollectionSessionExtensionStatus,
+  OrderCollectionExtensionUnavailableError,
   orderCollectionExtensionUnavailableMessage,
   type OrderCollectionExtensionRun,
 } from '../lib/order-collection-extension';
-import { todayYmd } from '../lib/order-collection-page-model';
 import {
   beginCoupangDirectAttempt,
   failCoupangDirectAttempt,
@@ -53,15 +52,6 @@ type ActiveRun = {
   abortController: AbortController;
 };
 
-type OrderCollectionMode = 'browser' | 'manual-upload';
-
-type OrderCollectionRunOptions = {
-  selectionMode?: 'manual' | 'automatic';
-  seenRowKeys?: string[];
-  /** Browser provider reads are admitted against this exact calendar date. */
-  collectionDate?: string;
-};
-
 function attemptQueryKey(
   organizationId: string,
   environmentKey: string,
@@ -77,9 +67,14 @@ function attemptQueryKey(
 }
 
 /**
- * Order collection owns the source attempt. Reloads only read the public owner
- * projection; extension detection and provider work happen after an explicit
- * prepareRun call has admitted (or replayed) an owner attempt.
+ * The mall-specific procedure around an owner attempt: turning an admitted
+ * attempt into an extension run, conversion and upload fences, the terminal
+ * submissions, and the reloaded screen's resume hint.
+ *
+ * Admission itself is not here. Starting a mall, refusing a second start of
+ * the same mall and the operator stop belong to the shared collection control
+ * (KID-147, KID-189); the owner's organization-scoped status read is what
+ * every browser sees as running.
  */
 export function useOrderCollectionSessionControls(
   mallAccounts: OrderCollectionMallAccount[],
@@ -90,11 +85,7 @@ export function useOrderCollectionSessionControls(
   const organizationId = user?.organizationId ?? null;
   const environmentKey = getOrderCollectionEnvironmentKey();
   const [activeScope, setActiveScope] = useState<ActiveScope | null>(null);
-  const [cancellingKeys, setCancellingKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
   const activeRunsRef = useRef(new Map<string, ActiveRun>());
-  const startingRef = useRef(false);
 
   useEffect(() => {
     if (!organizationId) {
@@ -131,56 +122,50 @@ export function useOrderCollectionSessionControls(
       : null;
   }, [attempt?.plan.mallKey, mallAccounts]);
 
-  const setScopedAttempt = useCallback((next: ActiveOrderCollectionAttempt) => {
+  /**
+   * An attempt is remembered as the latest one, which a reloaded screen offers to
+   * resume, and under its mall. It is a hint only: whether a mall is collecting
+   * is the owner's status read, never this record.
+   */
+  const setScopedAttempt = useCallback((next: ActiveOrderCollectionAttempt, mallKey?: string) => {
     if (!organizationId) return;
     rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey);
+    if (mallKey) {
+      rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey, mallKey);
+    }
     setActiveScope({ organizationId, environmentKey, attempt: next });
   }, [environmentKey, organizationId]);
 
-  const activateAttempt = useCallback(async (
+  /**
+   * Turns an attempt the owner already admitted into this browser's run. The
+   * fence token comes from the admission, so no second control read is needed,
+   * and a manual upload runs without an extension.
+   */
+  const activateOwnerRun = useCallback((
     account: OrderCollectionMallAccount,
-    owner: OrderCollectionSourceAttempt,
-    collectionMode: OrderCollectionMode,
-    knownExtensionStatus?: ExtensionRuntimeStatus,
-    admittedToken?: string,
-    options: OrderCollectionRunOptions = {},
-  ): Promise<OrderCollectionExtensionRun> => {
-    if (owner.state !== 'RUNNING') {
-      throw new Error(owner.errorMessage ?? `${account.name} 주문 수집 시도가 이미 종료되었습니다.`);
-    }
-    // The public read is safe on reload. The control projection is only read
-    // after the user explicitly resumes this running attempt because it exposes
-    // the provider fence token needed by conversion endpoints.
-    const control = admittedToken
-      ? { ...owner, attemptToken: admittedToken }
-      : await readOrderCollectionSourceAttemptControl(owner.attemptId);
-    let extensionId: string | undefined;
-    if (collectionMode === 'browser') {
-      const extensionStatus = knownExtensionStatus
-        ?? await detectOrderCollectionSessionExtensionStatus();
-      if (extensionStatus.status !== 'ready') {
-        await failOrderCollectionSourceAttempt(control, {
-          code: 'EXTENSION_UNAVAILABLE',
-          message: orderCollectionExtensionUnavailableMessage(extensionStatus),
-        }).catch(() => undefined);
-        throw new Error(orderCollectionExtensionUnavailableMessage(extensionStatus));
-      }
-      extensionId = extensionStatus.extensionId;
-    }
+    admitted: OrderCollectionSourceAttemptControl,
+    extensionId?: string,
+  ): OrderCollectionExtensionRun => {
     const abortController = new AbortController();
     const run: OrderCollectionExtensionRun = {
-      attemptId: control.attemptId,
-      attemptToken: control.attemptToken,
+      attemptId: admitted.attemptId,
+      attemptToken: admitted.attemptToken,
       ...(extensionId ? { extensionId } : {}),
-      date: owner.plan.collectionDate,
+      date: admitted.plan.collectionDate,
       signal: abortController.signal,
-      ...(collectionMode === 'browser' ? { serverOwned: true } : {}),
-      ...(owner.plan.selectionMode ? { selectionMode: owner.plan.selectionMode } : {}),
-      ...(owner.plan.seenRowKeys ? { seenRowKeys: [...owner.plan.seenRowKeys] } : {}),
+      ...(admitted.plan.collectionMode === 'browser' ? { serverOwned: true } : {}),
+      ...(admitted.plan.selectionMode ? { selectionMode: admitted.plan.selectionMode } : {}),
+      ...(admitted.plan.seenRowKeys ? { seenRowKeys: [...admitted.plan.seenRowKeys] } : {}),
     };
     activeRunsRef.current.set(account.key, { run, abortController });
+    if (organizationId) {
+      queryClient.setQueryData(
+        attemptQueryKey(organizationId, environmentKey, admitted.attemptId),
+        admitted,
+      );
+    }
     return run;
-  }, []);
+  }, [environmentKey, organizationId, queryClient]);
 
   const activateDirectAttempt = useCallback(async (
     account: OrderCollectionMallAccount,
@@ -204,7 +189,9 @@ export function useOrderCollectionSessionControls(
           code: 'EXTENSION_UNAVAILABLE',
           message: orderCollectionExtensionUnavailableMessage(extensionStatus),
         }).catch(() => undefined);
-        throw new Error(orderCollectionExtensionUnavailableMessage(extensionStatus));
+        throw new OrderCollectionExtensionUnavailableError(
+          orderCollectionExtensionUnavailableMessage(extensionStatus),
+        );
       }
       extensionId = extensionStatus.extensionId;
     }
@@ -221,6 +208,29 @@ export function useOrderCollectionSessionControls(
     return run;
   }, []);
 
+  /** Turns a directship attempt the shared control admitted into this browser's run. */
+  const activateDirectOwnerRun = useCallback((
+    account: OrderCollectionMallAccount,
+    admitted: CoupangDirectOwnerAttemptControl,
+    extensionId: string,
+  ): OrderCollectionExtensionRun => {
+    const abortController = new AbortController();
+    const run: OrderCollectionExtensionRun = {
+      attemptId: admitted.attemptId,
+      attemptToken: admitted.attemptToken,
+      extensionId,
+      date: null,
+      signal: abortController.signal,
+      sourceOwner: 'coupang_directship',
+    };
+    activeRunsRef.current.set(account.key, { run, abortController });
+    return run;
+  }, []);
+
+  /**
+   * The directship purchase-order calendar opens its own attempt before the
+   * operator picks arrival dates, then collects against that same attempt.
+   */
   const prepareDirectRun = useCallback(async (
     account: OrderCollectionMallAccount,
     existingAttemptId?: string,
@@ -312,131 +322,30 @@ export function useOrderCollectionSessionControls(
     );
   }, [activateDirectAttempt, environmentKey, organizationId, rocketChannelAccountId]);
 
-  const prepareOwnerRun = useCallback(async (
+  /**
+   * Manual uploads are source-owner attempts too. They need no extension
+   * admission, but their conversion carries the same fence so the server can
+   * terminalize the exact attempt that owns the file.
+   */
+  const prepareManualUploadRun = useCallback(async (
     account: OrderCollectionMallAccount,
-    collectionMode: OrderCollectionMode,
-    existingAttemptId?: string,
-    knownExtensionStatus?: ExtensionRuntimeStatus,
-    options: OrderCollectionRunOptions = {},
   ): Promise<OrderCollectionExtensionRun> => {
     if (!organizationId) {
       throw new Error('주문 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
     }
-    if (startingRef.current) {
-      throw new Error('주문 수집이 이미 시작되었습니다.');
-    }
-    startingRef.current = true;
-    try {
-      let persisted = readActiveOrderCollectionAttempt(organizationId, environmentKey);
-      if (existingAttemptId && persisted?.attemptId !== existingAttemptId) {
-        persisted = { attemptId: existingAttemptId, idempotencyKey: null };
-      }
-
-      if (persisted?.attemptId) {
-        try {
-          const current = await readOrderCollectionSourceAttempt(persisted.attemptId);
-          queryClient.setQueryData(
-            attemptQueryKey(organizationId, environmentKey, current.attemptId),
-            current,
-          );
-          if (
-            current.state === 'RUNNING'
-            && current.plan.mallKey === account.key
-            && current.plan.collectionMode === collectionMode
-          ) {
-            setScopedAttempt({
-              attemptId: current.attemptId,
-              idempotencyKey: persisted.idempotencyKey,
-            });
-            return activateAttempt(account, current, collectionMode, knownExtensionStatus, undefined, options);
-          }
-          // Terminal attempts never get provider work replayed. An explicit
-          // click starts a fresh owner attempt with a fresh idempotency key.
-          persisted = { attemptId: null, idempotencyKey: null };
-          setScopedAttempt(persisted);
-        } catch (error) {
-          if (!isOrderCollectionAttemptNotFound(error)) throw error;
-          // A persisted attempt can belong to a previous organization/session
-          // or an expired server record. Only this explicit start clears it;
-          // passive mount reads remain side-effect free.
-          persisted = { attemptId: null, idempotencyKey: null };
-          setScopedAttempt(persisted);
-        }
-      }
-
-      const idempotencyKey = persisted?.idempotencyKey ?? newOrderCollectionIdempotencyKey();
-      const collectionDate = collectionMode === 'browser'
-        ? persisted?.collectionDate ?? options.collectionDate ?? todayYmd()
-        : null;
-      const selectionMode = collectionMode === 'browser'
-        ? persisted?.selectionMode ?? options.selectionMode ?? 'manual'
-        : undefined;
-      const seenRowKeys = selectionMode === 'automatic'
-        ? [...(persisted?.seenRowKeys ?? options.seenRowKeys ?? [])]
-        : undefined;
-      // Store the uncertain admission key before the request. A lost response
-      // replays the exact begin request instead of creating a second attempt.
-      setScopedAttempt({
-        attemptId: null,
-        idempotencyKey,
-        ...(collectionMode === 'browser' ? { collectionDate } : {}),
-        ...(selectionMode ? { selectionMode } : {}),
-        ...(seenRowKeys ? { seenRowKeys } : {}),
-      });
-      let started: OrderCollectionSourceAttemptControl;
-      try {
-        started = await beginOrderCollectionSourceAttempt(idempotencyKey, {
-          mallKey: account.key,
-          collectionDate,
-          collectionMode,
-          ...(selectionMode ? { selectionMode } : {}),
-          ...(seenRowKeys ? { seenRowKeys } : {}),
-        });
-      } catch (error) {
-        if (isApiError(error) && error.status >= 400 && error.status < 500) {
-          setScopedAttempt({ attemptId: null, idempotencyKey: null });
-        }
-        throw error;
-      }
-      setScopedAttempt({ attemptId: started.attemptId, idempotencyKey });
-      queryClient.setQueryData(
-        attemptQueryKey(organizationId, environmentKey, started.attemptId),
-        started,
-      );
-      return activateAttempt(
-        account,
-        started,
-        collectionMode,
-        knownExtensionStatus,
-        started.attemptToken,
-        options,
-      );
-    } finally {
-      startingRef.current = false;
-    }
-  }, [
-    activateAttempt,
-    environmentKey,
-    organizationId,
-    queryClient,
-    setScopedAttempt,
-  ]);
-
-  const prepareRun = useCallback(async (
-    account: OrderCollectionMallAccount,
-    existingAttemptId?: string,
-    knownExtensionStatus?: ExtensionRuntimeStatus,
-    options: OrderCollectionRunOptions = {},
-  ) => account.key === 'coupang-direct'
-    ? prepareDirectRun(account, existingAttemptId, knownExtensionStatus)
-    : prepareOwnerRun(account, 'browser', existingAttemptId, knownExtensionStatus, options), [
-    prepareDirectRun,
-    prepareOwnerRun,
-  ]);
-
-  const prepareManualUploadRun = useCallback(async (
-    account: OrderCollectionMallAccount,
-  ) => prepareOwnerRun(account, 'manual-upload'), [prepareOwnerRun]);
+    const idempotencyKey = newOrderCollectionIdempotencyKey();
+    const started = await beginOrderCollectionSourceAttempt(idempotencyKey, {
+      mallKey: account.key,
+      collectionDate: null,
+      collectionMode: 'manual-upload',
+    });
+    setScopedAttempt({
+      attemptId: started.attemptId,
+      idempotencyKey,
+      mallKey: account.key,
+    }, account.key);
+    return activateOwnerRun(account, started);
+  }, [activateOwnerRun, organizationId, setScopedAttempt]);
 
   const syncRun = useCallback(async (attemptId: string) => {
     const active = [...activeRunsRef.current.values()]
@@ -485,10 +394,15 @@ export function useOrderCollectionSessionControls(
     return result;
   }, [environmentKey, organizationId, queryClient]);
 
+  /**
+   * Ends the attempt this browser opened outside the shared control — the
+   * directship calendar's, or a manual upload's. The owner stop carries no
+   * fence token, and a stop the owner refused is reported instead of being
+   * swallowed (KID-191).
+   */
   const cancelRun = useCallback(async (account: OrderCollectionMallAccount) => {
     const active = activeRunsRef.current.get(account.key);
     if (!active) return false;
-    setCancellingKeys((current) => new Set(current).add(account.key));
     active.abortController.abort();
     try {
       if (active.run.extensionId) {
@@ -497,48 +411,71 @@ export function useOrderCollectionSessionControls(
           { action: 'cancelCollectionSession', attemptId: active.run.attemptId },
         ).catch(() => undefined);
       }
-      await failRun(active.run, 'USER_CANCELLED', '주문 수집을 중단했습니다.').catch(
-        () => undefined,
-      );
+      await (active.run.sourceOwner === 'coupang_directship'
+        ? cancelCoupangDirectshipAttempt(active.run.attemptId)
+        : cancelMallOrderCollectionAttempt(active.run.attemptId));
       await syncRun(active.run.attemptId).catch(() => undefined);
       return true;
     } finally {
       if (activeRunsRef.current.get(account.key)?.run.attemptId === active.run.attemptId) {
         activeRunsRef.current.delete(account.key);
       }
-      if (account.key === 'coupang-direct' && organizationId) {
+      if (active.run.sourceOwner === 'coupang_directship' && organizationId) {
         rememberActiveCoupangDirectAttempt(organizationId, {
           attemptId: null,
           idempotencyKey: null,
           channelAccountId: null,
         }, environmentKey);
       }
-      setCancellingKeys((current) => {
-        const next = new Set(current);
-        next.delete(account.key);
-        return next;
-      });
     }
-  }, [environmentKey, failRun, organizationId, syncRun]);
+  }, [environmentKey, organizationId, syncRun]);
+
+  /**
+   * Closes a failure of this browser's own procedure — the directship calendar's
+   * purchase-order read, a manual upload's conversion. An operator stop already
+   * ended this run, and then the terminal is the owner cancel's: writing a
+   * failure here would beat it and leave a failure alert the `*_CANCELLED`
+   * suppression never sees (KID-159). Answers whether the terminal was written,
+   * so the screen can tell a stop from a failure.
+   */
+  const failRunUnlessStopped = useCallback(async (
+    run: OrderCollectionExtensionRun,
+    code: string,
+    message: string,
+  ): Promise<boolean> => {
+    if (run.signal?.aborted) return false;
+    await failRun(run, code, message).catch(() => undefined);
+    return true;
+  }, [failRun]);
+
+  /**
+   * Ends this browser's procedure for an attempt the shared control is
+   * stopping, so the page stops driving a collection the owner already ended.
+   */
+  const abortLocalRun = useCallback((attemptId: string) => {
+    for (const [mallKey, active] of activeRunsRef.current) {
+      if (active.run.attemptId !== attemptId) continue;
+      active.abortController.abort();
+      activeRunsRef.current.delete(mallKey);
+    }
+  }, []);
 
   const releaseRun = useCallback((mallKey: string, expectedAttemptId?: string) => {
     const current = activeRunsRef.current.get(mallKey);
     if (!expectedAttemptId || current?.run.attemptId === expectedAttemptId) {
       activeRunsRef.current.delete(mallKey);
-      setCancellingKeys((keys) => {
-        const next = new Set(keys);
-        next.delete(mallKey);
-        return next;
-      });
     }
   }, []);
 
   return {
+    abortLocalRun,
     attempt,
+    activateOwnerRun,
+    activateDirectOwnerRun,
     cancelRun,
-    cancellingKeys,
     failRun,
-    prepareRun,
+    failRunUnlessStopped,
+    prepareDirectRun,
     prepareManualUploadRun,
     releaseRun,
     restartAccount,

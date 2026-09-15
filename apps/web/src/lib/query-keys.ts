@@ -173,7 +173,7 @@ export const queryKeys = {
   orders: {
     all: ['orders'] as const,
     stats: () => [...queryKeys.orders.all, 'stats'] as const,
-    pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
+    pipeline: (params?: Record<string, string>) => [...queryKeys.orders.pipelines(), params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
     rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
@@ -183,9 +183,22 @@ export const queryKeys = {
       to: string;
       status: string;
     }) => [...queryKeys.orders.rocketSavedPoLists(), params] as const,
+    pipelines: () => [...queryKeys.orders.all, 'pipeline'] as const,
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,
+    /**
+     * Every mall's order-collection owner status in one read, shared by all the
+     * screen's mall cards so 20 start controls poll the owner once (KID-170 D2).
+     */
+    collectionSources: (organizationId: string) =>
+      [...queryKeys.orders.all, 'collection', 'sources', organizationId] as const,
+    /** The organization's Sellpia shipment-tracking collection owner status. */
+    sellpiaShipmentTrackingSource: () =>
+      [...queryKeys.orders.all, 'sellpia-shipment-tracking-source'] as const,
+    /** One Rocket account's directship order-collection owner status. */
+    coupangDirectshipSource: (channelAccountId: string) =>
+      [...queryKeys.orders.all, 'collection', 'coupang-directship-source', channelAccountId] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
@@ -248,6 +261,9 @@ export const queryKeys = {
         channelSkuId,
         params,
       ] as const,
+    /** The Sellpia manual-match collection control's owner status read. */
+    sellpiaManualMatchSource: () =>
+      [...queryKeys.channelSkuMappings.all, 'sellpia-manual-match-source'] as const,
   },
   channelProductMappings: {
     all: ['channelProductMappings'] as const,

@@ -90,7 +90,9 @@ describe('CoupangDirectOrderCollectionRequestSchema', () => {
     request.pos[0]!.edd = '';
 
     const parsed = CoupangDirectOrderCollectionRequestSchema.parse(request);
-    expect(parsed.centers.덕평센터).toEqual({});
+    // 빈 칸은 키째 빠진다. `undefined` 로 남으면 서버의 정규 JSON 해시가 캡처 전체를 거절한다.
+    expect(parsed.centers.덕평센터).toStrictEqual({});
+    expect(JSON.parse(JSON.stringify(parsed))).toStrictEqual(parsed);
     expect(parsed.pos[0]!.edd).toBe('');
     // 식별자·수량·품목은 그대로 유지된다.
     expect(parsed.pos[0]!.items).toHaveLength(1);

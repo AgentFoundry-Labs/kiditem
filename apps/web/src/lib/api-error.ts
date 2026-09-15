@@ -1,7 +1,12 @@
 import { ZodError } from 'zod';
 
 /** Machine-readable fields an owner put beside the HTTP error category, such as a live attempt. */
-export type ApiErrorDetails = Readonly<{ code?: string; attemptId?: string }>;
+export type ApiErrorDetails = Readonly<{
+  code?: string;
+  attemptId?: string;
+  /** How long the response said to wait before asking again, from its `Retry-After`. */
+  retryAfterMs?: number;
+}>;
 
 export class ApiError extends Error {
   constructor(

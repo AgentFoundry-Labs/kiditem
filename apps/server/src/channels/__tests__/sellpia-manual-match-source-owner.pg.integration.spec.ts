@@ -16,7 +16,10 @@ import { ChannelProductMatchingController } from '../adapter/in/http/channel-pro
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
-import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
+import {
+  SellpiaManualMatchSourceStatusSchema,
+  type SellpiaManualMatchSnapshot,
+} from '@kiditem/shared/sellpia-manual-match';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { INestApplication } from '@nestjs/common';
@@ -308,6 +311,126 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
         },
       },
     })).resolves.toMatchObject({ status: 'OPEN', attemptId: first.attemptId });
+  });
+
+  it('stops a running attempt for an operator without its token or an Alert, and admits the next begin at once', async () => {
+    const base = '/api/channels/product-mappings/sellpia-manual-match';
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: 'operator-stop',
+    });
+
+    await request(httpUrl)
+      .post(`${base}/attempts/${attempt.attemptId}/cancel`)
+      .set('x-test-org', OTHER_ORGANIZATION_ID)
+      .expect(404);
+
+    const stopped = await request(httpUrl)
+      .post(`${base}/attempts/${attempt.attemptId}/cancel`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(stopped.body).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.findFirst({
+      where: { organizationId: TEST_ORGANIZATION_ID, dedupeKey: ALERT_DEDUPE_KEY },
+    })).toBeNull();
+    // 같은 중단을 다시 눌러도 끝난 시도를 그대로 돌려준다.
+    expect((await request(httpUrl)
+      .post(`${base}/attempts/${attempt.attemptId}/cancel`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200)).body).toMatchObject({ state: 'FAILED', errorCode: 'USER_CANCELLED' });
+
+    const next = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: 'after-operator-stop',
+    });
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expiring = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: 'operator-expired',
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: expiring.attemptId },
+      data: { expiresAt: new Date('2026-01-01T00:00:00.000Z') },
+    });
+
+    expect(await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: expiring.attemptId,
+    })).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.alert.findUniqueOrThrow({
+      where: {
+        organizationId_dedupeKey: {
+          organizationId: TEST_ORGANIZATION_ID,
+          dedupeKey: ALERT_DEDUPE_KEY,
+        },
+      },
+    })).resolves.toMatchObject({ status: 'OPEN', attemptId: expiring.attemptId });
+
+    const completed = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: 'operator-complete',
+    });
+    const published = await owner.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: completed.attemptId,
+      attemptToken: completed.attemptToken,
+      snapshot: snapshot(),
+    });
+    const { attemptToken: _published, ...publishedPublic } = published;
+    expect(await owner.cancelAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: completed.attemptId,
+    })).toEqual(publishedPublic);
+  });
+
+  it('keeps the fence token out of the status read and the operator stop while the control read still carries it', async () => {
+    const base = '/api/channels/product-mappings/sellpia-manual-match';
+    const begin = await request(httpUrl)
+      .post(`${base}/attempts`)
+      .set('Idempotency-Key', 'token-scope')
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .send({})
+      .expect(201);
+    const control = begin.body as { attemptId: string; attemptToken: string };
+    expect(control.attemptToken).toEqual(expect.any(String));
+
+    const current = await request(httpUrl)
+      .get(`${base}/attempts/current`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(SellpiaManualMatchSourceStatusSchema.parse(current.body).latestAttempt)
+      .toMatchObject({ attemptId: control.attemptId, state: 'RUNNING' });
+    expect(current.body.latestAttempt).not.toHaveProperty('attemptToken');
+    expect(JSON.stringify(current.body)).not.toContain(control.attemptToken);
+
+    // 확장이 부르는 제어 읽기에는 fence 토큰이 그대로 나간다.
+    const attempt = await request(httpUrl)
+      .get(`${base}/attempts/${control.attemptId}`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(attempt.body.attemptToken).toBe(control.attemptToken);
+
+    // 운영자 중단은 페이지가 부르는 공개 라우트다. fence 토큰은 돌려주지 않는다(KID-190).
+    const cancelled = await request(httpUrl)
+      .post(`${base}/attempts/${control.attemptId}/cancel`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(cancelled.body).toMatchObject({
+      attemptId: control.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+    expect(cancelled.body).not.toHaveProperty('attemptToken');
+    expect(JSON.stringify(cancelled.body)).not.toContain(control.attemptToken);
   });
 
   it('publishes and replays through HTTP, rejects changed terminal payloads, and retires the old import route', async () => {

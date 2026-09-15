@@ -19,6 +19,7 @@ import {
 } from '../application/port/in/sellpia-shipment-tracking-source.port';
 import { SellpiaShipmentTrackingSourceRepository } from '../adapter/out/repository/sellpia-shipment-tracking-source.repository';
 import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 
 const BASE = '/api/orders/sellpia-shipment-tracking';
 const DATE = '2026-09-07';
@@ -249,6 +250,55 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     })).resolves.toBe(0);
   });
 
+  const cancel = (organizationId: string, attemptId: string) =>
+    request(httpUrl)
+      .post(`${BASE}/attempts/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+
+  it('stops a running attempt for an operator without its token or an Alert, and admits the next begin at once', async () => {
+    const attempt = (await begin().expect(201)).body;
+    await cancel(OTHER_ORG, attempt.attemptId).expect(404);
+
+    const stopped = (await cancel(ORG, attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.findFirst({
+      where: { sourceType: 'sellpia_shipment_tracking', attemptId: attempt.attemptId },
+    })).toBeNull();
+    // 같은 중단을 다시 눌러도 끝난 시도를 그대로 돌려준다.
+    expect((await cancel(ORG, attempt.attemptId).expect(200)).body)
+      .toMatchObject({ state: 'FAILED', errorCode: 'USER_CANCELLED' });
+
+    const next = (await begin().expect(201)).body;
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+    expect(next.state).toBe('RUNNING');
+  });
+
+  it('settles an operator stop after the lease passed as expiry and leaves a COMPLETE attempt unchanged', async () => {
+    const expiring = (await begin().expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: expiring.attemptId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    expect((await cancel(ORG, expiring.attemptId).expect(200)).body)
+      .toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.findFirstOrThrow({
+      where: { sourceType: 'sellpia_shipment_tracking', attemptId: expiring.attemptId },
+    })).toMatchObject({ status: 'OPEN' });
+
+    const completed = (await begin().expect(201)).body;
+    const scopedControl = (await control(ORG, completed.attemptId).expect(200)).body;
+    await complete(ORG, scopedControl).expect(201);
+    expect((await cancel(ORG, completed.attemptId).expect(200)).body)
+      .toMatchObject({ state: 'COMPLETE', errorCode: null });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: completed.attemptId } }))
+      .resolves.toMatchObject({ status: 'completed', errorCode: null });
+  });
+
   it('reports expiry without read-time mutation and terminalizes only same-org attempts on begin', async () => {
     const started = (await begin().expect(201)).body;
     const foreign = (await begin(OTHER_ORG).expect(201)).body;
@@ -276,6 +326,79 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     expect(nextForeign.attemptId).not.toBe(foreign.attemptId);
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: foreign.attemptId } }))
       .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+  });
+
+  const readSource = (organizationId = ORG) =>
+    request(httpUrl).get(`${BASE}/source`).set('x-test-org', organizationId);
+
+  it('answers the shipment tracking source with its running, last complete and last attempt slots', async () => {
+    const idle = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(idle).toEqual({
+      mallKey: null,
+      channelAccountId: null,
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    const started = (await begin().expect(201)).body;
+    const runningView = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(runningView.running).toMatchObject({
+      attemptId: started.attemptId,
+      collectionMode: null,
+      expiresAt: started.expiresAt,
+    });
+    expect(runningView.lastAttempt).toMatchObject({ attemptId: started.attemptId, state: 'RUNNING' });
+    // 상태 읽기는 토큰을 담지 않는다(strict 스키마가 여분 키를 거른다).
+    expect(JSON.stringify(runningView)).not.toContain(started.attemptToken);
+    // 다른 조직은 이 조직의 수집을 보지 못한다.
+    expect(OrderCollectionSourceStatusSchema.parse((await readSource(OTHER_ORG).expect(200)).body))
+      .toMatchObject({ running: null, lastAttempt: null });
+
+    const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;
+    await complete(ORG, scopedControl).expect(201);
+    const completed = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(completed.running).toBeNull();
+    expect(completed.lastComplete).toMatchObject({
+      attemptId: started.attemptId,
+      publicationSequence: null,
+    });
+    expect(completed.lastComplete?.completedAt).toEqual(expect.any(String));
+    expect(completed.lastAttempt).toMatchObject({ attemptId: started.attemptId, state: 'COMPLETE' });
+
+    // 뒤이어 중단한 시도는 lastAttempt만 바꾸고 마지막 완료분은 그대로 둔다.
+    const stopped = (await begin().expect(201)).body;
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${stopped.attemptId}/cancel`)
+      .set('x-test-org', ORG)
+      .expect(200);
+    const afterStop = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(afterStop.running).toBeNull();
+    expect(afterStop.lastComplete?.attemptId).toBe(started.attemptId);
+    expect(afterStop.lastAttempt).toMatchObject({
+      attemptId: stopped.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+    expect(afterStop.lastAttempt?.endedAt).toEqual(expect.any(String));
+  });
+
+  it('reads an expired shipment tracking lease as no longer running without writing the attempt', async () => {
+    const started = (await begin().expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: started.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    const view = OrderCollectionSourceStatusSchema.parse((await readSource().expect(200)).body);
+    expect(view.running).toBeNull();
+    expect(view.lastAttempt).toMatchObject({
+      attemptId: started.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
   });
 
   it('serves the persisted raw artifact through the owner source read', async () => {

@@ -221,52 +221,59 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY);
   });
 
-  it('action=markRunning → action.markRunning(id, beforeJson, organizationId)', () => {
+  it('action=markRunning → action.markRunning(id, executionTaskId, beforeJson, organizationId)', () => {
     ctrl.handleActionCommand(
-      { action: 'markRunning', id: 'x', beforeJson: { before: 1 } } as any,
+      { action: 'markRunning', id: 'x', executionTaskId: 'task-x', beforeJson: { before: 1 } } as any,
       COMPANY,
     );
-    expect(svcs.action.markRunning).toHaveBeenCalledWith('x', { before: 1 }, COMPANY);
+    expect(svcs.action.markRunning).toHaveBeenCalledWith('x', 'task-x', { before: 1 }, COMPANY);
   });
 
-  it('action=markRunning (id 없음) → BadRequestException', () => {
-    expect(() =>
-      ctrl.handleActionCommand({ action: 'markRunning' } as any, COMPANY),
-    ).toThrow(BadRequestException);
-  });
-
-  it('action=markDone → action.markDone(id, afterJson, organizationId)', () => {
+  it('action=markDone → action.markDone(id, executionTaskId, afterJson, organizationId)', () => {
     ctrl.handleActionCommand(
-      { action: 'markDone', id: 'x', afterJson: { after: 1 } } as any,
+      { action: 'markDone', id: 'x', executionTaskId: 'task-x', afterJson: { after: 1 } } as any,
       COMPANY,
     );
-    expect(svcs.action.markDone).toHaveBeenCalledWith('x', { after: 1 }, COMPANY);
+    expect(svcs.action.markDone).toHaveBeenCalledWith('x', 'task-x', { after: 1 }, COMPANY);
   });
 
-  it('action=markDone (id 없음) → BadRequestException', () => {
-    expect(() =>
-      ctrl.handleActionCommand({ action: 'markDone' } as any, COMPANY),
-    ).toThrow(BadRequestException);
-  });
-
-  it('action=markFailed → action.markFailed(id, errorMessage, afterJson, organizationId)', () => {
+  it('action=markFailed → action.markFailed(id, executionTaskId, errorMessage, afterJson, organizationId)', () => {
     ctrl.handleActionCommand(
       {
         action: 'markFailed',
         id: 'x',
+        executionTaskId: 'task-x',
         errorMessage: 'oops',
         afterJson: { after: 1 },
       } as any,
       COMPANY,
     );
-    expect(svcs.action.markFailed).toHaveBeenCalledWith('x', 'oops', { after: 1 }, COMPANY);
+    expect(svcs.action.markFailed).toHaveBeenCalledWith(
+      'x',
+      'task-x',
+      'oops',
+      { after: 1 },
+      COMPANY,
+    );
   });
 
-  it('action=markFailed (id 없음) → BadRequestException', () => {
-    expect(() =>
-      ctrl.handleActionCommand({ action: 'markFailed' } as any, COMPANY),
-    ).toThrow(BadRequestException);
-  });
+  // Every execution report names the attempt it reports for, so a report for
+  // an older attempt can never move a newer one (KID-160).
+  it.each(['markRunning', 'markDone', 'markFailed'] as const)(
+    'action=%s without id or executionTaskId → BadRequestException',
+    (action) => {
+      for (const body of [
+        { action },
+        { action, executionTaskId: 'task-x' },
+        { action, id: 'x' },
+      ]) {
+        expect(() => ctrl.handleActionCommand(body as any, COMPANY)).toThrow(
+          BadRequestException,
+        );
+      }
+      expect(svcs.action[action]).not.toHaveBeenCalled();
+    },
+  );
 
   it('action=resetFailed is retired → BadRequestException', () => {
     // Approving a failed action queues a new attempt instead.

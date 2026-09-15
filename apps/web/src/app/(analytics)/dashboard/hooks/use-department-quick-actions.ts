@@ -56,8 +56,22 @@ export function useDepartmentQuickActions() {
   });
   const sellpia = useSellpiaInventoryCollection();
 
+  // 몰 주문수집과 쿠팡 쉽먼트 칸은 공용 컨트롤 없이 실행만 한다. 두 칸의 "마지막 수집 시각"은
+  // 이 조회가 들고 있으므로, 수집이 끝나면 다시 읽는다(KID-185).
+  const rereadCollectionTimes = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.collections() }),
+    [queryClient],
+  );
+
+  const collectAllOrdersAndReread = useCallback(async () => {
+    await collectAllOrders();
+    await rereadCollectionTimes();
+  }, [collectAllOrders, rereadCollectionTimes]);
+
   const collectShipmentSummary = useCallback(async () => {
     const result = await collectAndPersistCoupangShipmentSummary();
+    // 빈 조회도 시도가 끝난 것이라 마지막 수집 시각이 바뀐다.
+    await rereadCollectionTimes();
     if (result.status === 'empty') {
       toast.info('새로 조회된 쉽먼트가 없습니다.');
       return;
@@ -65,7 +79,7 @@ export function useDepartmentQuickActions() {
     toast.success(
       `발송일 ${formatNumber(result.items.length)}일 · 최신 ${result.latest.date} (${formatNumber(result.latest.count)}건)`,
     );
-  }, []);
+  }, [rereadCollectionTimes]);
 
   const collectRocketPurchaseOrders = useCallback(async () => {
     if (!rocketAccountId) {
@@ -88,7 +102,7 @@ export function useDepartmentQuickActions() {
   }, [queryClient]);
 
   const start = useCallback(async (action: DepartmentQuickAction): Promise<void> => {
-    if (action === 'collectAllOrders') return collectAllOrders();
+    if (action === 'collectAllOrders') return collectAllOrdersAndReread();
     if (action === 'collectCoupangShipmentSummary') return collectShipmentSummary();
     if (action === 'collectCoupangRocketPurchaseOrders') {
       return collectRocketPurchaseOrders();
@@ -103,7 +117,7 @@ export function useDepartmentQuickActions() {
     // The same control as the stock screens: running state, refusal and stop are shared.
     sellpia.control.start();
   }, [
-    collectAllOrders,
+    collectAllOrdersAndReread,
     collectRocketPurchaseOrders,
     collectShipmentSummary,
     rereadInventoryAnalysis,

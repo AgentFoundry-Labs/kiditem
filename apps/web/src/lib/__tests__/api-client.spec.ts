@@ -225,6 +225,36 @@ describe('apiClient HTTP method envelopes', () => {
     await expect(apiClient.get('/api/plain')).rejects.toMatchObject({ details: {} });
   });
 
+  /**
+   * 전역 throttler 는 429 와 함께 언제 다시 물어도 되는지 알려 준다. 그 시간을 오류에
+   * 실어야 상태 읽기가 짐작한 간격으로 다시 두드리지 않는다(KID-170 D2).
+   */
+  it("carries the throttler's Retry-After wait, in seconds or as an HTTP date", async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    const throttled = (retryAfter?: string) => Response.json(
+      { message: '요청이 너무 많습니다.' },
+      { status: 429, ...(retryAfter ? { headers: { 'Retry-After': retryAfter } } : {}) },
+    );
+    fetchMock
+      .mockResolvedValueOnce(throttled('37'))
+      .mockResolvedValueOnce(throttled(new Date(Date.now() + 25_000).toUTCString()))
+      .mockResolvedValueOnce(throttled(new Date(Date.now() - 60_000).toUTCString()))
+      .mockResolvedValueOnce(throttled('whenever'))
+      .mockResolvedValueOnce(throttled());
+
+    await expect(apiClient.get('/api/seconds')).rejects.toMatchObject({
+      status: 429,
+      details: { retryAfterMs: 37_000 },
+    });
+    const httpDate = await apiClient.get('/api/http-date').catch((error: unknown) => error);
+    expect((httpDate as ApiError).details.retryAfterMs).toBeGreaterThan(23_000);
+    expect((httpDate as ApiError).details.retryAfterMs).toBeLessThanOrEqual(25_000);
+    // 이미 지난 시각은 기다릴 것이 없다는 뜻이다.
+    await expect(apiClient.get('/api/past')).rejects.toMatchObject({ details: { retryAfterMs: 0 } });
+    await expect(apiClient.get('/api/unreadable')).rejects.toMatchObject({ details: {} });
+    await expect(apiClient.get('/api/no-header')).rejects.toMatchObject({ details: {} });
+  });
+
   it('wraps network/CORS fetch failures with an actionable ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));

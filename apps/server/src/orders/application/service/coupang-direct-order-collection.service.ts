@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable } from '@nes
 import {
   CoupangDirectOrderCollectionRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type {
   CoupangDirectCapture,
   CoupangDirectOrderCollectionPort,
@@ -99,6 +100,18 @@ implements CoupangDirectOrderCollectionPort {
     input: Parameters<CoupangDirectOrderCollectionPort['failAttempt']>[0],
   ): Promise<CoupangDirectOwnerAttempt> {
     return this.transactions.failAttempt(input);
+  }
+
+  cancelAttempt(
+    input: Parameters<CoupangDirectOrderCollectionPort['cancelAttempt']>[0],
+  ): Promise<CoupangDirectOwnerAttempt> {
+    return this.transactions.cancelAttempt(input);
+  }
+
+  readSourceStatus(
+    input: Parameters<CoupangDirectOrderCollectionPort['readSourceStatus']>[0],
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.transactions.readSourceStatus(input);
   }
 
   readCaptured(

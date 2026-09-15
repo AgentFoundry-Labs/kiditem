@@ -5,14 +5,17 @@ import {
   Get,
   Header,
   Headers,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
   Post,
   NotFoundException,
+  Query,
   Res,
   StreamableFile,
 } from '@nestjs/common';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import {
@@ -61,6 +64,32 @@ export class OrderCollectionSourceController {
       idempotencyKey: requireHeader(idempotencyKey, 'INVALID_IDEMPOTENCY_KEY'),
       ...body,
     });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 몰별 현재 상태. 시도 토큰은 담지 않는다 — fence
+   * 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('source')
+  async readSourceStatus(
+    @Query('mallKey') mallKey: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    const key = optionalText(mallKey);
+    if (!key) throw new BadRequestException('INVALID_ORDER_COLLECTION_SCOPE');
+    return this.source.readSourceStatus({ organizationId, mallKey: key });
+  }
+
+  /**
+   * 몰 카드 20장을 띄우는 화면이 폴링 한 번으로 읽는 조직 범위 목록. 카드마다 읽으면
+   * 폴링만으로 전역 throttler를 넘겨 화면 전체가 429를 받는다(KID-170 D2). 몰 하나짜리
+   * 읽기와 마찬가지로 시도 토큰은 담지 않는다.
+   */
+  @Get('sources')
+  async readSourceStatuses(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<{ malls: OrderCollectionSourceStatus[] }> {
+    return { malls: await this.source.readSourceStatuses({ organizationId }) };
   }
 
   @Get('attempts/:attemptId')
@@ -127,6 +156,16 @@ export class OrderCollectionSourceController {
       attemptToken: requireUuidHeader(attemptToken),
       ...body,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  async cancelAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
   @Post('attempts/:attemptId/complete-empty')

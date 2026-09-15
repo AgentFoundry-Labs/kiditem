@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -21,6 +22,7 @@ import {
   SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
   type SellpiaShipmentTrackingSourcePort,
 } from '../application/port/in/sellpia-shipment-tracking-source.port';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type { Response } from 'express';
 import type { AuthUser } from '../../auth/auth.types';
 
@@ -54,6 +56,17 @@ export class SellpiaShipmentTrackingSourceController {
       idempotencyKey,
       ...input,
     });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 조직 범위 현재 상태. 시도 토큰은 담지 않는다 —
+   * fence 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('source')
+  readSourceStatus(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.source.readSourceStatus({ organizationId });
   }
 
   @Get('attempts/:attemptId')
@@ -123,6 +136,16 @@ export class SellpiaShipmentTrackingSourceController {
       attemptToken,
       ...input,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
   @Get('attempts/:attemptId/source')

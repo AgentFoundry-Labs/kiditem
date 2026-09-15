@@ -21,7 +21,7 @@ import {
 import type { MallCollectionStat } from "../lib/order-collection-stats";
 import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
 import type { FailedMallReason } from "../hooks/use-order-activity-events";
-import { MallAccountGroups } from "./MallAccountGroups";
+import { MallAccountGroups, type MallCardCollection } from "./MallAccountGroups";
 
 interface MallAccountSectionProps {
   collectionControls?: ReactNode;
@@ -29,8 +29,6 @@ interface MallAccountSectionProps {
   mallLoading: boolean;
   mallSaving: boolean;
   browserCollecting: boolean;
-  collectingKeys: Set<string>;
-  cancellingKeys: Set<string>;
   mallError: string | null;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   mallDraft: MallAccountDraft;
@@ -57,10 +55,16 @@ interface MallAccountSectionProps {
   onRetryFailedMalls: () => void;
   onRefresh: () => void;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /**
+   * 몰마다 자기 시작·중단 컨트롤을 하나 그리고, 그 컨트롤이 읽은 owner 진행 중과
+   * 함께 카드를 그려 준다(KID-189).
+   */
+  renderCollectionControl: (
+    account: OrderCollectionMallAccount,
+    renderCard: (collection: MallCardCollection) => ReactNode,
+  ) => ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
-  onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
   onToggleAutoDetect: () => void;
   onAutoIntervalChange: (minutes: number) => void;
@@ -81,8 +85,6 @@ export function MallAccountSection({
   mallLoading,
   mallSaving,
   browserCollecting,
-  collectingKeys,
-  cancellingKeys,
   mallError,
   selectedMall,
   mallDraft,
@@ -108,9 +110,8 @@ export function MallAccountSection({
   onRetryFailedMalls,
   onRefresh,
   onOpenSettings,
-  onCollectMall,
+  renderCollectionControl,
   onOpenCalendar,
-  onCancelMall,
   onUploadTracking,
   onToggleAutoDetect,
   onAutoIntervalChange,
@@ -180,7 +181,7 @@ export function MallAccountSection({
               <button
                 type="button"
                 onClick={onRetryFailedMalls}
-                disabled={browserCollecting || collectingKeys.size > 0}
+                disabled={browserCollecting}
                 className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
               >
                 <AlertCircle size={15} />
@@ -213,7 +214,6 @@ export function MallAccountSection({
               disabled={
                 mallLoading ||
                 browserCollecting ||
-                collectingKeys.size > 0 ||
                 conversionState === "converting" ||
                 enabledMallCount === 0
               }
@@ -260,15 +260,12 @@ export function MallAccountSection({
               failedMallReasonByKey={failedMallReasonByKey}
               selectedMall={selectedMall}
               settingsOpen={mallSettingsOpen}
-              collectingKeys={collectingKeys}
-              cancellingKeys={cancellingKeys}
               autoDetect={autoDetect}
               autoNextRunAt={autoNextRunAt}
               autoRunning={autoRunning}
               onOpenSettings={onOpenSettings}
-              onCollectMall={onCollectMall}
-        onOpenCalendar={onOpenCalendar}
-              onCancelMall={onCancelMall}
+              renderCollectionControl={renderCollectionControl}
+              onOpenCalendar={onOpenCalendar}
               onUploadTracking={onUploadTracking}
             />
           )}

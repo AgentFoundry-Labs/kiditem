@@ -6,6 +6,11 @@ import {
 } from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
+  OPERATOR_CANCEL_CODE,
+  OPERATOR_CANCEL_MESSAGE,
+} from '../../../../common/operator-cancel';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -168,6 +173,59 @@ implements CoupangDirectOrderCollectionTransactionPort {
       });
       if (!row) return null;
       return this.controlView(tx, row);
+    }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 계정별 현재 상태. 진행 중 판정은 begin이 409를 내는
+   * 판정과 같은 규칙이고, 임대가 지난 RUNNING 행은 여기서 끝내지 않고 마지막 시도
+   * 자리에 만료로만 비친다. 끝내는 일은 owner의 쓰기 경로가 한다.
+   */
+  async readSourceStatus(
+    input: Parameters<CoupangDirectOrderCollectionTransactionPort['readSourceStatus']>[0],
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.prisma.$transaction(async (tx) => {
+      await assertRocketAccount(tx, input.organizationId, input.channelAccountId);
+      const scope = {
+        organizationId: input.organizationId,
+        sourceType: DIRECT_SOURCE_TYPE,
+        channelAccountId: input.channelAccountId,
+      } as const;
+      const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
+
+      const running = (await tx.sourceImportRun.findMany({
+        where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+        orderBy: [...order],
+      })).find((row) => !expired(row)) ?? null;
+      const lastComplete = await tx.sourceImportRun.findFirst({
+        where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+        orderBy: [{ importedAt: 'desc' }, ...order],
+      });
+      const lastRow = await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...order] });
+      const lastAttempt = lastRow ? await this.attemptView(tx, lastRow) : null;
+
+      return {
+        mallKey: null,
+        channelAccountId: input.channelAccountId,
+        running: running ? {
+          attemptId: running.id,
+          collectionMode: readPlan(running.plan).captureMode,
+          startedAt: running.createdAt.toISOString(),
+          expiresAt: running.expiresAt?.toISOString() ?? null,
+        } : null,
+        lastComplete: lastComplete ? {
+          attemptId: lastComplete.id,
+          completedAt: lastComplete.importedAt?.toISOString() ?? null,
+          publicationSequence: lastComplete.publicationSequence?.toString() ?? null,
+        } : null,
+        lastAttempt: lastRow && lastAttempt ? {
+          attemptId: lastAttempt.attemptId,
+          state: lastAttempt.state,
+          errorCode: lastAttempt.errorCode,
+          errorMessage: lastAttempt.errorMessage,
+          endedAt: endedAt(lastRow, lastAttempt.state),
+        } : null,
+      } satisfies OrderCollectionSourceStatus;
     }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
@@ -375,6 +433,32 @@ implements CoupangDirectOrderCollectionTransactionPort {
           'Coupang direct order capture expired.',
         )
         : await this.failIn(tx, row, input.code, message);
+      return this.attemptView(tx, failed);
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Operator stop without the attempt token. It fails through the same terminal
+   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
+   * the alert rule; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(
+    input: Parameters<CoupangDirectOrderCollectionTransactionPort['cancelAttempt']>[0],
+  ): Promise<CoupangDirectOwnerAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockOwner(tx, input.organizationId);
+      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        return this.attemptView(tx, row);
+      }
+      const failed = expired(row)
+        ? await this.failIn(
+          tx,
+          row,
+          'ATTEMPT_EXPIRED',
+          'Coupang direct order capture expired.',
+        )
+        : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
     }, TRANSACTION_OPTIONS);
   }
@@ -1061,6 +1145,19 @@ function json(value: unknown): Prisma.InputJsonValue {
 
 function expired(row: Pick<Prisma.SourceImportRunGetPayload<{}>, 'status' | 'expiresAt'>): boolean {
   return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+}
+
+/**
+ * 시도가 끝난 시각. 완료분은 발행 시각, 실패는 마지막 기록 시각이고, 아직 RUNNING인
+ * 채로 임대만 지난 행은 그 임대가 끝난 시각이다.
+ */
+function endedAt(
+  row: Prisma.SourceImportRunGetPayload<{}>,
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED',
+): string | null {
+  if (state === 'RUNNING') return null;
+  if (row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) return row.expiresAt?.toISOString() ?? null;
+  return (row.importedAt ?? row.updatedAt).toISOString();
 }
 
 

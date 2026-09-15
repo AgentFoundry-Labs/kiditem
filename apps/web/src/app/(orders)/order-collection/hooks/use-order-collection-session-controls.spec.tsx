@@ -1,16 +1,15 @@
 import type { ReactNode } from 'react';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '@/lib/api-error';
 
 const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
   detectExtensionStatus: vi.fn(),
   fail: vi.fn(),
+  post: vi.fn(),
   readActive: vi.fn(),
   readAttempt: vi.fn(),
-  readControl: vi.fn(),
   sendToExtension: vi.fn(),
   remember: vi.fn(),
 }));
@@ -21,6 +20,9 @@ vi.mock('@/hooks/useAuth', () => ({
 vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: mocks.sendToExtension,
 }));
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: vi.fn(), getParsed: vi.fn(), post: mocks.post },
+}));
 vi.mock('../lib/order-collection-source-owner', async () => {
   const actual = await vi.importActual('../lib/order-collection-source-owner');
   return {
@@ -29,11 +31,13 @@ vi.mock('../lib/order-collection-source-owner', async () => {
     failOrderCollectionSourceAttempt: mocks.fail,
     readActiveOrderCollectionAttempt: mocks.readActive,
     readOrderCollectionSourceAttempt: mocks.readAttempt,
-    readOrderCollectionSourceAttemptControl: mocks.readControl,
     rememberActiveOrderCollectionAttempt: mocks.remember,
   };
 });
-vi.mock('../lib/order-collection-extension', () => ({
+vi.mock('../lib/order-collection-extension', async (importOriginal) => ({
+  OrderCollectionExtensionUnavailableError: (
+    await importOriginal<typeof import('../lib/order-collection-extension')>()
+  ).OrderCollectionExtensionUnavailableError,
   detectOrderCollectionSessionExtensionStatus: mocks.detectExtensionStatus,
   orderCollectionExtensionUnavailableMessage: (status: { status: string }) =>
     status.status === 'incompatible'
@@ -46,7 +50,6 @@ import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
 const ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 const TOKEN = '33333333-3333-4333-8333-333333333333';
-const IDEMPOTENCY_KEY = '44444444-4444-4444-8444-444444444444';
 const account: OrderCollectionMallAccount = {
   key: 'kidsnote',
   name: '키즈노트',
@@ -98,6 +101,11 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Admission, the refusal of a second start and the operator stop belong to the
+ * shared collection control (KID-189). What stays here is the mall procedure
+ * around an attempt the owner already admitted.
+ */
 describe('useOrderCollectionSessionControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,7 +113,7 @@ describe('useOrderCollectionSessionControls', () => {
     mocks.readActive.mockReturnValue({ attemptId: null, idempotencyKey: null });
     mocks.begin.mockResolvedValue(control());
     mocks.readAttempt.mockResolvedValue(attempt());
-    mocks.readControl.mockResolvedValue(control());
+    mocks.post.mockResolvedValue({});
     mocks.detectExtensionStatus.mockResolvedValue({
       status: 'ready', extensionId: 'order-extension', version: '0.1.90',
     });
@@ -113,178 +121,174 @@ describe('useOrderCollectionSessionControls', () => {
     mocks.sendToExtension.mockResolvedValue({ ok: true });
   });
 
-  it('persists idempotency before begin and forwards the owner permit to extension', async () => {
+  it('turns an admitted attempt into a run carrying the owner permit, without reading it again', () => {
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
     );
 
-    let run;
-    await act(async () => {
-      run = await result.current.prepareRun(account);
-    });
+    const run = result.current.activateOwnerRun(account, control(), 'order-extension');
 
-    expect(mocks.remember).toHaveBeenCalledWith(
-      'org-1',
-      expect.objectContaining({ attemptId: null, idempotencyKey: expect.any(String) }),
-      expect.any(String),
-    );
-    expect(mocks.begin).toHaveBeenCalledWith(
-      expect.any(String),
-      {
-        mallKey: 'kidsnote',
-        collectionDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-        collectionMode: 'browser',
-        selectionMode: 'manual',
-      },
-    );
     expect(run).toMatchObject({
       attemptId: ATTEMPT_ID,
       attemptToken: TOKEN,
       extensionId: 'order-extension',
+      date: '2026-09-10',
+      serverOwned: true,
     });
   });
 
   it('starts manual-upload owner attempts without extension admission', async () => {
     mocks.begin.mockResolvedValue({
       ...control(),
-      plan: { ...plan, collectionDate: null, collectionMode: 'manual-upload', selectionMode: undefined },
+      plan: { ...plan, collectionMode: 'manual-upload', collectionDate: null },
     });
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
     );
 
-    let run;
+    let run: Awaited<ReturnType<typeof result.current.prepareManualUploadRun>> | undefined;
     await act(async () => {
       run = await result.current.prepareManualUploadRun(account);
     });
 
     expect(mocks.begin).toHaveBeenCalledWith(
       expect.any(String),
-      { mallKey: 'kidsnote', collectionDate: null, collectionMode: 'manual-upload' },
+      expect.objectContaining({ mallKey: account.key, collectionMode: 'manual-upload' }),
     );
     expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
     expect(run).toMatchObject({ attemptId: ATTEMPT_ID, attemptToken: TOKEN });
-    expect(run).not.toHaveProperty('extensionId');
+    expect(run?.extensionId).toBeUndefined();
+    expect(run?.serverOwned).toBeUndefined();
   });
 
-  it('replays a persisted idempotency key after a lost begin response', async () => {
-    const admitted = {
-      collectionDate: '2026-09-09',
-      selectionMode: 'automatic' as const,
-      seenRowKeys: ['frozen-row'],
-    };
-    mocks.readActive
-      .mockReturnValueOnce({ attemptId: null, idempotencyKey: IDEMPOTENCY_KEY })
-      .mockReturnValue({ attemptId: null, idempotencyKey: IDEMPOTENCY_KEY, ...admitted });
-    mocks.begin
-      .mockRejectedValueOnce(new ApiError(0, 'network_error', 'network lost'))
-      .mockResolvedValueOnce(control());
+  it('reads only the public owner projection on reload, never the fence token', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: null });
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
     );
 
-    await expect(act(async () => result.current.prepareRun(account, undefined, undefined, {
-      collectionDate: '2026-09-10',
-      selectionMode: 'automatic',
-      seenRowKeys: ['new-row'],
-    }))).rejects.toThrow('network lost');
-    await act(async () => {
-      await result.current.prepareRun(account, undefined, undefined, {
-        collectionDate: '2026-09-10',
-        selectionMode: 'automatic',
-        seenRowKeys: ['new-row'],
-      });
-    });
-
-    expect(mocks.begin.mock.calls[0][0]).toBe(IDEMPOTENCY_KEY);
-    expect(mocks.begin.mock.calls[1][0]).toBe(IDEMPOTENCY_KEY);
-    expect(mocks.begin.mock.calls[1][1]).toMatchObject({
-      collectionDate: admitted.collectionDate,
-      selectionMode: admitted.selectionMode,
-      seenRowKeys: admitted.seenRowKeys,
-    });
-  });
-
-  it('reads public owner state on reload and only gets the permit on explicit resume', async () => {
-    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    // Mount/reload performs only the public owner read; no extension/provider IO.
-    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
-    await act(async () => {
-      await result.current.prepareRun(account);
-    });
-
+    await waitFor(() => expect(result.current.restartAccount).toEqual(account));
     expect(mocks.readAttempt).toHaveBeenCalledWith(ATTEMPT_ID);
-    expect(mocks.readControl).toHaveBeenCalledWith(ATTEMPT_ID);
-    expect(mocks.begin).not.toHaveBeenCalled();
-    expect(mocks.detectExtensionStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('clears a stale foreign attempt only on explicit start and creates a new owner attempt', async () => {
-    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
-    mocks.readAttempt.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'missing'));
-    await act(async () => {
-      renderHook(() => useOrderCollectionSessionControls([account]), { wrapper });
-    });
-    expect(mocks.begin).not.toHaveBeenCalled();
-
+  it('stops an attempt this browser opened through the owner cancel route, not a fenced fail', async () => {
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
     );
-    await act(async () => {
-      await result.current.prepareRun(account);
+    act(() => {
+      result.current.activateOwnerRun(account, control(), 'order-extension');
     });
-    expect(mocks.begin).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ mallKey: 'kidsnote' }),
-    );
-    expect(mocks.remember).toHaveBeenCalledWith(
-      'org-1',
-      { attemptId: null, idempotencyKey: null },
-      expect.any(String),
-    );
-  });
 
-  it('starts a fresh attempt after a failed previous owner state', async () => {
-    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
-    mocks.readAttempt.mockResolvedValue(attempt('FAILED'));
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
+    let stopped: boolean | undefined;
     await act(async () => {
-      await result.current.prepareRun(account);
+      stopped = await result.current.cancelRun(account);
     });
-    expect(mocks.begin).toHaveBeenCalledTimes(1);
-    expect(mocks.begin.mock.calls[0][0]).not.toBe(IDEMPOTENCY_KEY);
-  });
 
-  it('cancels extension progress and fences the owner failure with attemptId/token', async () => {
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-    await act(async () => {
-      await result.current.prepareRun(account);
-    });
-    await act(async () => {
-      await result.current.cancelRun(account);
-    });
+    expect(stopped).toBe(true);
     expect(mocks.sendToExtension).toHaveBeenCalledWith(
       'order-extension',
       { action: 'cancelCollectionSession', attemptId: ATTEMPT_ID },
     );
+    expect(mocks.post).toHaveBeenCalledWith(
+      `/api/orders/collection/attempts/${ATTEMPT_ID}/cancel`,
+    );
+    expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  /** KID-191. 서버가 중단을 받지 못했으면 중단됐다고 답하지 않는다. */
+  it('reports a stop the owner refused instead of answering that it stopped', async () => {
+    mocks.post.mockRejectedValue(new Error('owner unreachable'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    act(() => {
+      result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    await act(async () => {
+      await expect(result.current.cancelRun(account)).rejects.toThrow('owner unreachable');
+    });
+  });
+
+  /**
+   * KID-159. 화면이 자기 절차(달력 발주 조회·수동 업로드 변환)에서 실패를 닫을 때,
+   * 그 시도를 이미 운영자가 중단했다면 terminal 은 owner 취소의 몫이다. 여기서
+   * 실패를 먼저 보내면 `*_CANCELLED` 억제를 비껴간 실패 알림이 남는다.
+   */
+  it('leaves a stopped run terminal to the owner cancel instead of failing it', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    let run: ReturnType<typeof result.current.activateOwnerRun> | undefined;
+    act(() => {
+      run = result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+    act(() => {
+      result.current.abortLocalRun(ATTEMPT_ID);
+    });
+
+    let failed: boolean | undefined;
+    await act(async () => {
+      failed = await result.current.failRunUnlessStopped(
+        run!,
+        'COLLECTION_FAILED',
+        '키즈노트 발주 조회에 실패했습니다.',
+      );
+    });
+
+    expect(failed).toBe(false);
+    expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  it('closes a genuine failure of this browser procedure with its terminal', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    let run: ReturnType<typeof result.current.activateOwnerRun> | undefined;
+    act(() => {
+      run = result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    let failed: boolean | undefined;
+    await act(async () => {
+      failed = await result.current.failRunUnlessStopped(
+        run!,
+        'CONVERSION_FAILED',
+        '키즈노트 파일 변환에 실패했습니다.',
+      );
+    });
+
+    expect(failed).toBe(true);
     expect(mocks.fail).toHaveBeenCalledWith(
       expect.objectContaining({ attemptId: ATTEMPT_ID, attemptToken: TOKEN }),
-      expect.objectContaining({ code: 'USER_CANCELLED' }),
+      expect.objectContaining({
+        code: 'CONVERSION_FAILED',
+        message: '키즈노트 파일 변환에 실패했습니다.',
+      }),
     );
+  });
+
+  it('ends this browser procedure when the shared control stops the attempt', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    let run: ReturnType<typeof result.current.activateOwnerRun> | undefined;
+    act(() => {
+      run = result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    act(() => {
+      result.current.abortLocalRun(ATTEMPT_ID);
+    });
+
+    expect(run?.signal?.aborted).toBe(true);
   });
 });

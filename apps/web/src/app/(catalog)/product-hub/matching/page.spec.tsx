@@ -1,6 +1,19 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MatchingPage from './page';
+
+/** 화면이 셀피아 수동상품매칭 owner 상태를 읽으므로 쿼리 클라이언트가 필요하다. */
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <MatchingPage />
+    </QueryClientProvider>,
+  );
+}
 
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), replace: vi.fn() }));
 const table = vi.hoisted(() => vi.fn());
@@ -118,7 +131,7 @@ describe('/product-hub/matching', () => {
   });
 
   it('uses selling products as the default visible scope', () => {
-    render(<MatchingPage />);
+    renderPage();
 
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).toBeChecked();
     expect(screen.getByText('external-3333')).toBeInTheDocument();
@@ -133,7 +146,7 @@ describe('/product-hub/matching', () => {
 
   it('restores an explicit all-sale-status view from the URL', () => {
     navigation.params = new URLSearchParams('activeOnly=false');
-    render(<MatchingPage />);
+    renderPage();
 
     expect(screen.getByRole('checkbox', { name: '판매중 상품만' })).not.toBeChecked();
     expect(screen.getByText('external-3333')).toBeInTheDocument();
@@ -156,7 +169,7 @@ describe('/product-hub/matching', () => {
       ],
     };
 
-    render(<MatchingPage />);
+    renderPage();
 
     expect(screen.getByRole('radio', { name: '매칭 확인 필요' })).toBeChecked();
     expect(screen.getByText('external-3333')).toBeInTheDocument();
@@ -165,7 +178,7 @@ describe('/product-hub/matching', () => {
   });
 
   it('runs automatic matching for all selected channel accounts', () => {
-    render(<MatchingPage />);
+    renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: '자동 매칭' }));
 
@@ -175,14 +188,14 @@ describe('/product-hub/matching', () => {
   });
 
   it('offers one product-file upload command regardless of the current channel checklist', () => {
-    render(<MatchingPage />);
+    renderPage();
 
     expect(screen.getAllByRole('button', { name: '상품 파일 가져오기' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: /쿠팡 Wing 상품 엑셀 가져오기/ })).not.toBeInTheDocument();
   });
 
   it('renders every supported account as an always-visible checklist', () => {
-    render(<MatchingPage />);
+    renderPage();
 
     expect(screen.getByRole('checkbox', { name: '채널 계정 쿠팡 본계정' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: '채널 계정 로켓 본계정' })).toBeChecked();

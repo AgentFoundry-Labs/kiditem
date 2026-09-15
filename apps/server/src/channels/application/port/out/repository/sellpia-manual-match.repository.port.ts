@@ -1,5 +1,6 @@
 import type {
   SellpiaManualMatchAttempt,
+  SellpiaManualMatchPublicAttempt,
   SellpiaManualMatchSnapshot,
   SellpiaManualMatchSnapshotStatus,
   SellpiaManualMatchSourceStatus,
@@ -52,4 +53,12 @@ export interface SellpiaManualMatchRepositoryPort {
     errorCode: string;
     errorMessage: string;
   }): Promise<SellpiaManualMatchAttempt>;
+  /**
+   * 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며, 끝난 시도는 그대로
+   * 돌려준다. 페이지가 부르는 라우트라 fence 토큰은 빼고 돌려준다(KID-190).
+   */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaManualMatchPublicAttempt>;
 }
