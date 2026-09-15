@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const UPSERT_BATCH_SIZE = 500;
 
@@ -1165,7 +1166,7 @@ export async function upsertChannelCatalogIdentities(
         manufacturer = COALESCE(EXCLUDED.manufacturer, channel_listings.manufacturer),
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
-        raw_json = EXCLUDED.raw_json,
+        raw_json = ${listingRawJsonReplacementSql},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listings.last_import_run_id

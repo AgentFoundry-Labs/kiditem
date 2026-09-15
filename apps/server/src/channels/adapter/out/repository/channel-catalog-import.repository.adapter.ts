@@ -28,6 +28,7 @@ import {
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
+import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
@@ -287,7 +288,7 @@ implements ChannelCatalogImportRepositoryPort {
             manufacturer = EXCLUDED.manufacturer,
             brand = EXCLUDED.brand,
             status = EXCLUDED.status,
-            raw_json = EXCLUDED.raw_json,
+            raw_json = ${listingRawJsonReplacementSql},
             last_import_run_id = EXCLUDED.last_import_run_id,
             is_active = TRUE,
             updated_at = NOW()
