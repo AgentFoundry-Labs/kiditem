@@ -58,10 +58,22 @@ type ArtifactRow = Prisma.OrderCollectionArtifactGetPayload<{ select: typeof ART
 
 /** 상태 한 칸을 짓는 데 필요한 행들. 몰 하나짜리 읽기와 화면 목록이 같은 것을 고른다. */
 type StatusRuns = {
-  running: SourceRun | null;
+  running: Pick<SourceRun, 'id' | 'plan' | 'createdAt' | 'expiresAt'> | null;
   lastComplete: SourceRun | null;
   lastRow: SourceRun | null;
 };
+
+/**
+ * 진행 중 칸을 짓는 데 필요한 열만. `plan` JSONB 는 한 수집의 seenRowKeys 수천 개를
+ * 담을 수 있어, 나머지 열까지 함께 읽으면 2초 폴링이 그만큼을 매번 실어 나른다.
+ */
+const RUNNING_SELECT = {
+  id: true,
+  channelAccountId: true,
+  plan: true,
+  createdAt: true,
+  expiresAt: true,
+} as const;
 
 const NO_STATUS_RUNS: StatusRuns = { running: null, lastComplete: null, lastRow: null };
 const LATEST_FIRST = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
@@ -302,13 +314,21 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       return current;
     };
 
+    // 임대가 지난 RUNNING 행은 아무도 돌리고 있지 않다(`expired`와 같은 규칙: 임대가
+    // 없는 행도 지난 것으로 읽는다). 계정마다 살아 있는 가장 나중 시도 한 행만 읽어,
+    // 끝나지 않은 채 쌓인 행을 2초 폴링마다 통째로 끌어오지 않는다.
     for (const row of await tx.sourceImportRun.findMany({
-      where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
-      orderBy: [...LATEST_FIRST],
+      where: {
+        ...scope,
+        status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: [...perAccount, ...LATEST_FIRST],
+      distinct: ['channelAccountId'],
+      select: RUNNING_SELECT,
     })) {
       const current = runs(row.channelAccountId);
-      // 임대가 지난 RUNNING 행은 아무도 돌리고 있지 않다. 몰 하나짜리 읽기와 같은 규칙.
-      if (current && !current.running && !expired(row)) current.running = row;
+      if (current) current.running = row;
     }
     for (const row of await tx.sourceImportRun.findMany({
       where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },

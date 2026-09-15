@@ -616,6 +616,54 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     expect(JSON.stringify(malls)).not.toContain(complete.attemptToken);
   });
 
+  /**
+   * 같은 몰에 임대가 지난 RUNNING 행이 더 나중 것으로 남아 있어도, 진행 중인 것은
+   * 살아 있는 시도다. 목록을 좁힐 때 만료 규칙이 빠지면 여기서 드러난다(KID-170).
+   */
+  it('answers the live attempt when a newer RUNNING row on the same mall has expired', async () => {
+    const live = (await begin('art09').expect(201)).body;
+    const account = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId: ORG, channel: 'order_collection', externalAccountId: 'art09' },
+    });
+    // begin 은 임대가 지난 RUNNING 행을 만나면 끝내 버리므로, 더 나중에 만들어진
+    // 만료 행은 owner 밖에서 남긴다(열어 둔 채 사라진 다른 브라우저의 시도).
+    const stale = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: ORG,
+        sourceType: 'order_collection_mall',
+        channelAccountId: account.id,
+        status: 'running',
+        expiresAt: new Date(0),
+        parserVersion: 'order-collection-v1',
+        plan: {
+          sourceType: 'order_collection_mall',
+          parserVersion: 'order-collection-v1',
+          mallKey: 'art09',
+          mallName: '아트공구',
+          channelAccountId: account.id,
+          collectionDate: null,
+          collectionMode: 'browser',
+        },
+      },
+    });
+
+    const malls: OrderCollectionSourceStatus[] = (await readSources().expect(200)).body
+      .malls.map((mall: unknown) => OrderCollectionSourceStatusSchema.parse(mall));
+    const art09 = malls.find((mall) => mall.mallKey === 'art09');
+
+    expect(art09?.running).toMatchObject({ attemptId: live.attemptId, collectionMode: 'browser' });
+    // 마지막 시도 자리에는 가장 나중 행인 만료 행이 비친다.
+    expect(art09?.lastAttempt).toMatchObject({
+      attemptId: stale.id,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    // 몰 하나짜리 읽기와 같은 답이어야 한다.
+    expect(art09).toEqual(
+      OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body),
+    );
+  });
+
   it('shows another organization its own empty mall registry', async () => {
     const mine = (await begin('art09').expect(201)).body;
 
