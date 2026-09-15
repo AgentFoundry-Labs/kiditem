@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
@@ -115,6 +115,36 @@ describe('Toy category board comparison quick filters', () => {
     fireEvent.click(screen.getByRole('button', { name: '검색' }));
 
     await waitFor(() => expect(metricValue('조건 결과')).toBe('1개'));
+    client.clear();
+  });
+
+  it('drops an applied new entry filter when a refetch leaves the toy board without an earlier day', async () => {
+    const ranked = [{ rank: 1, keyword: '말랑이' }, { rank: 2, keyword: '블록 장난감' }];
+    boards = [{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구/인형',
+      latest: ranked,
+      comparedFrom: '2026-09-08',
+      risers: [{ keyword: '말랑이', rankDelta: null }],
+    }];
+    const { client } = renderPage();
+    await waitFor(() => expect(metricValue('조건 결과')).toBe('2개'));
+    fireEvent.click(screen.getByRole('button', { name: /^신규 진입/ }));
+    fireEvent.click(screen.getByRole('button', { name: '검색' }));
+    await waitFor(() => expect(metricValue('조건 결과')).toBe('1개'));
+
+    // The earlier board day left the 7-day window before the next read.
+    boards = [{ boardKey: 'toys_dolls', boardLabel: '완구/인형', latest: ranked, comparedFrom: null, risers: [] }];
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^신규 진입/ })).toBeDisabled());
+    expect(screen.getByRole('button', { name: /^신규 진입/ })).toHaveAttribute('aria-pressed', 'false');
+    // The filter can no longer tell keywords apart, so the search keeps every keyword
+    // instead of reporting none.
+    expect(metricValue('조건 결과')).toBe('2개');
+    expect(screen.queryByText('검색 조건에 맞는 완구 키워드가 없습니다.')).not.toBeInTheDocument();
     client.clear();
   });
 });

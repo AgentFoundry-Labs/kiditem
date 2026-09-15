@@ -171,6 +171,33 @@ describe('Sourcing home rank board counts', () => {
     client.clear();
   });
 
+  it('shows new keywords as - while any covered board has no earlier day to compare', async () => {
+    status = { ...idle, naver: complete('naver-done') };
+    // One board was compared and found a new entry; the other has no earlier day,
+    // so the count of new keywords across boards is unknown.
+    boards = [
+      {
+        boardKey: 'toys_dolls',
+        boardLabel: '완구',
+        latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+        comparedFrom: '2026-09-08',
+        risers: [{ keyword: '슬라임', rankDelta: null }],
+      },
+      {
+        boardKey: 'stationery_office',
+        boardLabel: '문구',
+        latest: [{ rank: 1, keyword: '볼펜' }],
+        comparedFrom: null,
+        risers: [],
+      },
+    ];
+    const { client } = renderHero();
+    await settle(client);
+
+    expect(['신규 키워드', '인기 키워드'].map(columnCount)).toEqual(['-', '3개']);
+    client.clear();
+  });
+
   it('counts the SNS card from a Shorts snapshot while Naver never collected', async () => {
     status = { ...idle, shorts: complete('shorts-done') };
     shorts = {

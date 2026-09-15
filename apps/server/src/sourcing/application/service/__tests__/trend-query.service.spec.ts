@@ -363,6 +363,27 @@ describe('TrendQueryService popular board coverage', () => {
     }]);
   });
 
+  it('publishes no comparison start when the earlier covered day ranked no keyword', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
+      rows: [boardRow(BUSINESS_DATE, 1, '레고'), boardRow(BUSINESS_DATE, 2, '슬라임')],
+      coverage: [
+        { boardKey: 'toys_dolls', businessDate: EARLIER_DATE },
+        { boardKey: 'toys_dolls', businessDate: BUSINESS_DATE },
+      ],
+    });
+
+    // An empty earlier board is no comparison base: against it every latest keyword
+    // would read as a new entry.
+    expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards).toEqual([{
+      boardKey: 'toys_dolls',
+      boardLabel: '완구',
+      latest: [{ rank: 1, keyword: '레고' }, { rank: 2, keyword: '슬라임' }],
+      comparedFrom: null,
+      risers: [],
+    }]);
+  });
+
   it('compares the latest board with its oldest ranked day in the window', async () => {
     const repository = repositoryStub();
     vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
