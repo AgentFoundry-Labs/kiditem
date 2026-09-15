@@ -863,6 +863,71 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       await expect(listingDays(imported.id)).resolves.toEqual([]);
     });
 
+    /** The listing-state row the item-winner source writes: state, no metadata, no traffic. */
+    function itemWinnerRow(listing: { id: string; externalId: string }, businessDate: string) {
+      return prisma.channelListingDailySnapshot.create({
+        data: {
+          organizationId: ORG,
+          listingId: listing.id,
+          channel: 'coupang',
+          externalId: listing.externalId,
+          businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+          isOfferWinner: true,
+          saleStatus: '판매중',
+          lastObservedAt: new Date(`${businessDate}T05:00:00.000Z`),
+        },
+      });
+    }
+
+    it('leaves the item-winner day of a listing without a Wing registration date unmeasured', async () => {
+      const plan = range();
+      const workbookOnly = await catalogListing(
+        'EXT-WORKBOOK-ITEMWINNER',
+        { 등록상품ID: 'EXT-WORKBOOK-ITEMWINNER' },
+      );
+      const registeredListing = await catalogListing('EXT-REGISTERED-ITEMWINNER', registered());
+      await itemWinnerRow(workbookOnly, plan.startDate);
+      await itemWinnerRow(registeredListing, plan.startDate);
+
+      await collectOne(plan);
+
+      await expect(listingDays(workbookOnly.id)).resolves.toMatchObject([{
+        trafficObservedAt: null,
+        metaJson: null,
+        isOfferWinner: true,
+        saleStatus: '판매중',
+      }]);
+      await expect(listingDays(registeredListing.id)).resolves.toMatchObject([{
+        trafficViews: 0,
+        trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+        isOfferWinner: true,
+        saleStatus: '판매중',
+      }]);
+    });
+
+    it('leaves the item-winner day of a listing the catalog imported while the collection ran unmeasured', async () => {
+      const plan = range();
+      const started = await begin(plan);
+      const run = await prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: started.attempt.attemptId },
+      });
+      const imported = await catalogListing(
+        'EXT-IMPORTED-ITEMWINNER',
+        registered(),
+        new Date(run.createdAt.getTime() + 1_000),
+      );
+      await itemWinnerRow(imported, plan.startDate);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001')])).expect(200);
+      await upload(started.attempt, 100, periodReceipt(started.attempt, plan)).expect(200);
+      await complete(started.attempt, 201);
+
+      await expect(listingDays(imported.id)).resolves.toMatchObject([{
+        trafficObservedAt: null,
+        metaJson: null,
+        isOfferWinner: true,
+      }]);
+    });
+
     it('publishes zero traffic only from the KST day Wing registered the listing', async () => {
       const plan = range(3);
       const registrationDate = dateShift(plan.startDate, 1);

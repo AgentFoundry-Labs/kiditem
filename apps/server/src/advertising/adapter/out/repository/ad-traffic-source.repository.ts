@@ -1367,7 +1367,14 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         organizationId: row.organizationId,
         businessDate: { in: plan.expectedDates.map(dateAtUtc) },
       },
-      select: { id: true, listingId: true, externalId: true, businessDate: true, metaJson: true },
+      select: {
+        id: true,
+        listingId: true,
+        externalId: true,
+        businessDate: true,
+        metaJson: true,
+        trafficObservedAt: true,
+      },
     });
     const pageOneByDate = new Map(
       entries
@@ -1419,8 +1426,12 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const currentSource = meta['traffic.currentSource'];
       const wingIsCurrent = currentSource === 'wing.traffic'
         || (currentSource === undefined && hasWingMeta && !hasCsvMeta);
+      // A row without metadata is Wing's to reset only when it already carries
+      // a traffic observation. A bare listing-state row, such as the one the
+      // item-winner source writes, has none; the catalog rule below decides
+      // whether its listing measured zero that day.
       const wasWingOwned = currentListingIds.has(candidate.listingId)
-        && (!Object.keys(meta).length || wingIsCurrent)
+        && ((!Object.keys(meta).length && candidate.trafficObservedAt !== null) || wingIsCurrent)
         || (typeof previousAttemptId === 'string' && accountRunIds.has(previousAttemptId) && wingIsCurrent);
       // A CSV-only fact is an independent source and must not be erased by a
       // Wing recollection. A pre-marker row with the CSV namespace is ambiguous
