@@ -45,7 +45,13 @@ export class AdTrafficSourceController {
     @CurrentOrganization() organizationId: string,
   ) {
     const body = AdTrafficSourceBeginSchema.safeParse(rawBody ?? {});
-    if (!body.success) throw new BadRequestException('INVALID_TRAFFIC_SCOPE');
+    if (!body.success) {
+      // The schema's only custom rule is the 92-day cap, and it runs only once
+      // every field is valid, so a failure made of that rule alone is a range
+      // that is too long, the code the owner gives a range with a defaulted date.
+      const tooLong = body.error.issues.every((issue) => issue.code === 'custom');
+      throw new BadRequestException(tooLong ? 'TRAFFIC_RANGE_TOO_LONG' : 'INVALID_TRAFFIC_SCOPE');
+    }
     return this.source.beginAttempt({
       organizationId,
       idempotencyKey: headerText(idempotencyKey, 'INVALID_IDEMPOTENCY_KEY'),

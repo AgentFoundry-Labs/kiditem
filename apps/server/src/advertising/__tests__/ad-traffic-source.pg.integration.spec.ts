@@ -636,12 +636,29 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
   });
 
   it('refuses to start a collection longer than 92 days and starts a 92-day one', async () => {
-    await request(httpUrl)
+    const explicit = await request(httpUrl)
       .post(`${base}/attempts`)
       .set('Idempotency-Key', randomUUID())
       .set('x-test-org', ORG)
       .send({ channelAccountId: accountId, ...range(93) })
       .expect(400);
+    expect(explicit.body.message).toBe('TRAFFIC_RANGE_TOO_LONG');
+    // The end date defaults to the closed day.
+    const defaultedEnd = await request(httpUrl)
+      .post(`${base}/attempts`)
+      .set('Idempotency-Key', randomUUID())
+      .set('x-test-org', ORG)
+      .send({ channelAccountId: accountId, startDate: dateShift(closedDate(), -92) })
+      .expect(400);
+    expect(defaultedEnd.body.message).toBe('TRAFFIC_RANGE_TOO_LONG');
+    // A malformed scope keeps the generic code.
+    const malformed = await request(httpUrl)
+      .post(`${base}/attempts`)
+      .set('Idempotency-Key', randomUUID())
+      .set('x-test-org', ORG)
+      .send({ channelAccountId: accountId, startDate: '2026-13-01', endDate: closedDate() })
+      .expect(400);
+    expect(malformed.body.message).toBe('INVALID_TRAFFIC_SCOPE');
     await expect(prisma.sourceImportRun.count({
       where: { organizationId: ORG, sourceType: 'coupang_wing_traffic' },
     })).resolves.toBe(0);
