@@ -77,6 +77,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       beforeJson?: Prisma.InputJsonValue;
       afterJson?: Prisma.InputJsonValue;
       errorMessage?: string;
+      startedAt?: Date;
       finishedAt?: Date;
     },
   ): Promise<string> {
@@ -89,6 +90,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
         beforeJson: task.beforeJson,
         afterJson: task.afterJson,
         errorMessage: task.errorMessage,
+        startedAt: task.startedAt,
         finishedAt: task.finishedAt,
       },
       select: { id: true },
@@ -106,6 +108,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     const runningAttempt = await seedTask(running, {
       status: 'running',
       createdAt: at(1),
+      startedAt: new Date(Date.now() - 60 * 1000),
       beforeJson: { bid: 700 },
     });
     const done = await seedAction('done');
@@ -218,10 +221,87 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     expect(extensionQueue.items.map((item) => item.id)).toEqual([retried]);
   });
 
-  it('keeps a proposal open for dedupe only while its latest task is queued or running', async () => {
+  it('reads a running attempt past its 30-minute deadline as failed in the listing, its filters and its counts', async () => {
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000);
+    const inDeadline = await seedAction('in-deadline');
+    const inDeadlineAttempt = await seedTask(inDeadline, {
+      status: 'running',
+      createdAt: at(1),
+      startedAt: minutesAgo(29),
+      beforeJson: { bid: 700 },
+    });
+    const expired = await seedAction('expired');
+    const expiredAttempt = await seedTask(expired, {
+      status: 'running',
+      createdAt: at(1),
+      startedAt: minutesAgo(31),
+      beforeJson: { bid: 700 },
+    });
+    // A running attempt with no start time has no executor that could still report.
+    const unstarted = await seedAction('running-without-start');
+    const unstartedAttempt = await seedTask(unstarted, { status: 'running', createdAt: at(1) });
+
+    const review = await repository.findAdActionsForReview({ limit: 200 }, TEST_ORGANIZATION_ID);
+
+    expect(Object.fromEntries(review.items.map((item) => [item.id, {
+      executionTaskId: item.executionTaskId,
+      executeStatus: item.executeStatus,
+      errorMessage: item.errorMessage,
+      beforeJson: item.beforeJson,
+      executedAt: item.executedAt,
+    }]))).toEqual({
+      [inDeadline]: {
+        executionTaskId: inDeadlineAttempt,
+        executeStatus: 'running',
+        errorMessage: null,
+        beforeJson: { bid: 700 },
+        executedAt: null,
+      },
+      [expired]: {
+        executionTaskId: expiredAttempt,
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+        beforeJson: { bid: 700 },
+        executedAt: null,
+      },
+      [unstarted]: {
+        executionTaskId: unstartedAttempt,
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+        beforeJson: null,
+        executedAt: null,
+      },
+    });
+    expect(review.summary).toMatchObject({ running: 1, failed: 2 });
+    for (const [word, ids] of Object.entries({
+      running: [inDeadline],
+      failed: [expired, unstarted],
+    })) {
+      const filtered = await repository.findAdActionsForReview(
+        { executeStatus: word, limit: 200 },
+        TEST_ORGANIZATION_ID,
+      );
+      expect(filtered.items.map((item) => item.id).sort()).toEqual([...ids].sort());
+    }
+    // Reading writes nothing: the expired attempt is still stored running.
+    expect(
+      await prisma.executionTask.findUniqueOrThrow({ where: { id: expiredAttempt } }),
+    ).toMatchObject({ status: 'running', finishedAt: null, errorMessage: null });
+  });
+
+  it('keeps a proposal open for dedupe only while its latest task is queued or running within its deadline', async () => {
     await seedAction('pending', { approvalStatus: 'pending_review' });
     await seedTask(await seedAction('queued'), { status: 'queued', createdAt: at(1) });
-    await seedTask(await seedAction('running'), { status: 'running', createdAt: at(1) });
+    await seedTask(await seedAction('running'), {
+      status: 'running',
+      createdAt: at(1),
+      startedAt: new Date(Date.now() - 60 * 1000),
+    });
+    await seedTask(await seedAction('running-expired'), {
+      status: 'running',
+      createdAt: at(1),
+      startedAt: new Date(Date.now() - 31 * 60 * 1000),
+    });
     await seedTask(await seedAction('done'), { status: 'done', createdAt: at(1) });
     await seedTask(await seedAction('failed'), { status: 'failed', createdAt: at(1) });
     const retried = await seedAction('retried');
@@ -263,7 +343,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     });
     await seedTask(
       await seedAction('타요', { ...pauseKeyword, externalId: 'VID-2', reason: '중지 중' }),
-      { status: 'running', createdAt: at(1) },
+      { status: 'running', createdAt: at(1), startedAt: new Date(Date.now() - 60 * 1000) },
     );
     await seedTask(
       await seedAction('뽀로로', { ...pauseKeyword, externalId: 'VID-3', reason: '중지함' }),
@@ -287,13 +367,23 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     ]);
   });
 
-  it('treats a create_campaign name as taken while its latest task is queued, running or done', async () => {
+  it('treats a create_campaign name as taken while its latest task is queued, running within its deadline, or done', async () => {
     const campaign = { actionType: 'create_campaign', targetType: 'campaign' };
     const ids: Record<string, string> = {};
+    const recently = new Date(Date.now() - 60 * 1000);
     for (const status of ['queued', 'running', 'done', 'failed']) {
       ids[status] = await seedAction('Camp ' + status, campaign);
-      await seedTask(ids[status], { status, createdAt: at(1) });
+      await seedTask(ids[status], {
+        status,
+        createdAt: at(1),
+        ...(status === 'queued' ? {} : { startedAt: recently }),
+      });
     }
+    await seedTask(await seedAction('Camp expired', campaign), {
+      status: 'running',
+      createdAt: at(1),
+      startedAt: new Date(Date.now() - 31 * 60 * 1000),
+    });
 
     for (const status of ['queued', 'running', 'done']) {
       await expect(
@@ -302,6 +392,11 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     }
     await expect(
       repository.findOpenCreateCampaignAction(TEST_ORGANIZATION_ID, 'Camp failed'),
+    ).resolves.toBeNull();
+    // Registering the name again is allowed; the extension skips creating a
+    // campaign the ad center already has.
+    await expect(
+      repository.findOpenCreateCampaignAction(TEST_ORGANIZATION_ID, 'Camp expired'),
     ).resolves.toBeNull();
     await expect(
       repository.findOpenCreateCampaignAction(OTHER_ORGANIZATION_ID, 'Camp done'),

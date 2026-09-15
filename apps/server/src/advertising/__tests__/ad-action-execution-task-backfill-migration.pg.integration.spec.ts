@@ -199,10 +199,11 @@ describe('v0.1.31:011 backfill ad action execution tasks (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       actionIds: Object.values(actions),
     });
+    const now = new Date();
     const derived = Object.fromEntries(
       Object.entries(actions).map(([name, id]) => [
         name,
-        deriveAdActionExecution(latestTasks.get(id) ?? null),
+        deriveAdActionExecution(latestTasks.get(id) ?? null, now),
       ]),
     );
     expect(Object.fromEntries(
@@ -210,7 +211,10 @@ describe('v0.1.31:011 backfill ad action execution tasks (PostgreSQL)', () => {
     )).toEqual({
       executed: 'done',
       failed: 'failed',
-      runningAfterLease: 'running',
+      // A running task the migration left without a start time has no
+      // executor that could still report for it, so it reads past its
+      // execution deadline (KID-160). Its stored status is checked below.
+      runningAfterLease: 'failed',
       retried: 'done',
       executedAfterReject: 'done',
       reportedWithoutTask: 'failed',
@@ -219,8 +223,10 @@ describe('v0.1.31:011 backfill ad action execution tasks (PostgreSQL)', () => {
       pending: 'queued',
       reportRouteDone: 'done',
       // A stored queued word never rewrites a task that ran.
-      taskRanAfterStoredQueued: 'running',
+      taskRanAfterStoredQueued: 'failed',
     });
+    expect(await taskStatuses(runningAfterLease)).toEqual(['running']);
+    expect(await taskStatuses(taskRanAfterStoredQueued)).toEqual(['running']);
     expect(derived.executed).toEqual({
       executionTaskId: latestTasks.get(executed)?.id,
       executeStatus: 'done',

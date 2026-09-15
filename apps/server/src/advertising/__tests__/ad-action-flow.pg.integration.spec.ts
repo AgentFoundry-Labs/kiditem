@@ -335,6 +335,14 @@ describe('AdAction flow (PG integration)', () => {
     return items.map((item) => item.id);
   }
 
+  /** Moves an attempt's start into the past, as if its executor reported running that long ago. */
+  async function backdateStart(taskId: string, minutes: number, extraMs = 0) {
+    await prisma.executionTask.update({
+      where: { id: taskId },
+      data: { startedAt: new Date(Date.now() - minutes * 60 * 1000 - extraMs) },
+    });
+  }
+
   function tasksOf(actionId: string) {
     return prisma.executionTask.findMany({
       where: { actionId },
@@ -743,34 +751,112 @@ describe('AdAction flow (PG integration)', () => {
       });
     });
 
-    it('#10c approving again leaves a running attempt untouched, even after 30 minutes without a report', async () => {
+    it('#10c approving again within the execution deadline leaves the running attempt untouched', async () => {
       const action = await approvedAction('CAMP-STILL-RUNNING');
       const attempt = await attemptOf(action.id);
       await adActionService.markRunning(action.id, attempt, { rowText: 'first executor' }, TEST_ORGANIZATION_ID);
 
-      // A slow executor and a stopped one look the same, and Coupang may
-      // already have changed. Only the executor's own report can say, so
-      // approval adds no attempt while one is open, however old it is.
-      const [running] = await tasksOf(action.id);
-      await prisma.executionTask.update({
-        where: { id: running.id },
-        data: { startedAt: new Date(Date.now() - 30 * 60 * 1000 - 1_000) },
-      });
+      // An executor within its deadline may still be changing Coupang, so
+      // approval adds no attempt while this one is open.
+      await backdateStart(attempt, 29);
       await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
 
       expect(await tasksOf(action.id)).toEqual([
         expect.objectContaining({
-          id: running.id,
+          id: attempt,
           status: 'running',
           finishedAt: null,
           errorMessage: null,
         }),
       ]);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'running',
+        executionTaskId: attempt,
+      });
       expect(await extensionQueueIds()).toEqual([]);
 
       // The executor that started the attempt still records its outcome.
       await adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['done']);
+    });
+
+    it('#10e approving after the execution deadline closes the stopped attempt as failed and queues a retry its executor cannot move (#515 re-review scenarios 1-4)', async () => {
+      const action = await approvedAction('CAMP-STOPPED-EXECUTOR');
+      const stopped = await attemptOf(action.id);
+      // Executor 1 reports running, then its PC sleeps past the deadline.
+      await adActionService.markRunning(action.id, stopped, { rowText: 'executor 1' }, TEST_ORGANIZATION_ID);
+      await backdateStart(stopped, 30, 1_000);
+
+      // Reads show the attempt failed; reading writes nothing.
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+        executionTaskId: stopped,
+      });
+      expect(await tasksOf(action.id)).toEqual([
+        expect.objectContaining({ id: stopped, status: 'running', finishedAt: null }),
+      ]);
+
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+
+      const retry = await attemptOf(action.id);
+      expect(await tasksOf(action.id)).toEqual([
+        expect.objectContaining({
+          id: stopped,
+          status: 'failed',
+          errorMessage: '실행 기한 초과',
+          finishedAt: expect.any(Date),
+        }),
+        expect.objectContaining({ id: retry, status: 'queued', startedAt: null }),
+      ]);
+      expect(await extensionQueueIds()).toEqual([action.id]);
+
+      // Executor 2 runs the retry; executor 1 wakes and reports done late.
+      await adActionService.markRunning(action.id, retry, { rowText: 'executor 2' }, TEST_ORGANIZATION_ID);
+      expect(await refusal(
+        adActionService.markDone(action.id, stopped, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_TASK_NOT_LATEST' });
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'running',
+        executionTaskId: retry,
+        beforeJson: { rowText: 'executor 2' },
+      });
+
+      await adActionService.markDone(action.id, retry, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'done']);
+    });
+
+    it('#10f a report after the execution deadline is refused and closes the attempt as failed', async () => {
+      const action = await approvedAction('CAMP-LATE-DONE');
+      const attempt = await attemptOf(action.id);
+      await adActionService.markRunning(action.id, attempt, { rowText: 'before' }, TEST_ORGANIZATION_ID);
+      await backdateStart(attempt, 30, 1_000);
+
+      // The executor wakes after the deadline and reports that Coupang changed.
+      expect(await refusal(
+        adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_TASK_EXPIRED' });
+
+      const [closed] = await tasksOf(action.id);
+      expect(closed).toMatchObject({
+        id: attempt,
+        status: 'failed',
+        errorMessage: '실행 기한 초과',
+        beforeJson: { rowText: 'before' },
+        afterJson: null,
+      });
+      expect(closed.finishedAt).toBeInstanceOf(Date);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+      });
+      expect(await refusal(
+        adActionService.markDone(action.id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      )).toMatchObject({ code: 'EXECUTION_REPORT_INVALID_TRANSITION' });
+
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'queued']);
+      expect(await extensionQueueIds()).toEqual([action.id]);
     });
 
     it('#10d a report for an older attempt is refused and leaves the newer attempt untouched (#515 re-review scenarios 4, 5)', async () => {

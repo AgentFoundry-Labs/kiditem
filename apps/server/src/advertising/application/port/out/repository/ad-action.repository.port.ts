@@ -177,7 +177,9 @@ export interface AdActionRepositoryPort {
 
   /**
    * Approve and, in the same $transaction, queue a new ExecutionTask for each
-   * action whose latest task is not open (queued or running).
+   * action whose latest task is not open (queued, or running within its
+   * execution deadline). A running task past its deadline is closed as failed
+   * first.
    */
   approveAdActions(ids: string[], organizationId: string): Promise<void>;
 
@@ -188,7 +190,8 @@ export interface AdActionRepositoryPort {
    * Move the attempt a browser execution report names. Throws
    * NotFoundException for an action outside the organization and
    * ConflictException, with a `code` saying why, when the named attempt is not
-   * the action's latest or cannot take the report; repeating the recorded
+   * the action's latest, is running past its execution deadline (it is then
+   * closed as failed), or cannot take the report; repeating the recorded
    * status changes nothing.
    */
   reportActionExecution(

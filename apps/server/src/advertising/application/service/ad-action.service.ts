@@ -33,7 +33,8 @@ const ACTION_DEDUP_HOURS = 24;
  * extension's markRunning / markDone / markFailed reports name the attempt
  * they report for and move only that task while it is the latest; a second
  * markRunning for a running task is another executor and is refused.
- * Approving a failed action queues a new one.
+ * Approving a failed action queues a new one. A running attempt past its
+ * execution deadline reads failed; approving again or a late report closes it.
  */
 @Injectable()
 export class AdActionService {
