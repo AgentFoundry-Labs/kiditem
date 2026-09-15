@@ -16,12 +16,15 @@ import {
   collectionSourceStatusQueryOptions,
   collectionSourceStatusRead,
 } from "@/lib/collection-source-status-query";
+import { CollectionStopOnlyControl } from "@/components/collection/CollectionStopOnlyControl";
+import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
 import { formatNumber } from "@/lib/utils";
 import { createSecureRandomUuid } from "@/lib/secure-random-uuid";
 import {
   collectAndPersistCoupangShipmentSummary,
+  coupangShipmentSummaryCollectionSource,
   loadCoupangShipmentSummarySource,
   CoupangShipmentExtensionError,
 } from "@/lib/coupang-shipment-summary-action";
@@ -397,6 +400,7 @@ export default function CoupangShipmentsPage() {
       {/* 좌: 발송일 달력(3/4) · 우: 일별 결과 알림 패널(1/4) — 쿠팡 로켓 페이지와 동일 구조 */}
       <div className="grid items-start gap-4 xl:grid-cols-4">
         <div className="min-w-0 xl:col-span-3">
+          <ShipmentSummaryCollectionControl startInFlight={summaryLoading} />
           <div role="status" className="mb-2 text-sm text-slate-600">
             <p>
               {collectionSourceStatusRead(source) === "unavailable"
@@ -615,4 +619,26 @@ function formatFileSize(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes}B`;
   if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)}KB`;
   return `${(sizeBytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+/**
+ * 발송일 조회의 진행 중 표시와 운영자 중단. 시작은 이 화면의 "발송일 조회"가 그대로
+ * 하고(조회한 날짜를 부른 쪽이 받아 간다), 컨트롤은 owner가 말하는 진행 중과 중단만
+ * 맡는다(KID-159). 그 조회가 도는 동안에는 owner를 진행 중 주기로 읽어, 짧은 조회도
+ * 중단할 틈을 준다(KID-170 D3).
+ */
+function ShipmentSummaryCollectionControl({ startInFlight }: { startInFlight: boolean }) {
+  const adapter = useMemo(
+    () => coupangShipmentSummaryCollectionSource({ localStartInFlight: startInFlight }),
+    [startInFlight],
+  );
+  const control = useCollectionSourceControl(adapter);
+
+  return (
+    <CollectionStopOnlyControl
+      control={control}
+      label="쿠팡 쉽먼트 발송일 조회"
+      className="mb-2"
+    />
+  );
 }

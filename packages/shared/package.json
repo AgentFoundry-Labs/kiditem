@@ -240,6 +240,11 @@
       "import": "./dist/collection-start.js",
       "require": "./dist/collection-start.cjs"
     },
+    "./order-collection-source": {
+      "types": "./dist/order-collection-source.d.ts",
+      "import": "./dist/order-collection-source.js",
+      "require": "./dist/order-collection-source.cjs"
+    },
     "./source-readiness": {
       "types": "./dist/source-readiness.d.ts",
       "import": "./dist/source-readiness.js",
@@ -387,6 +392,9 @@
       ],
       "collection-start": [
         "dist/collection-start.d.ts"
+      ],
+      "order-collection-source": [
+        "dist/order-collection-source.d.ts"
       ],
       "source-readiness": [
         "dist/source-readiness.d.ts"

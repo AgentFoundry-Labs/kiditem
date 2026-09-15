@@ -12,6 +12,7 @@ function makeDateSummaryRepo(): CoupangShipmentDateSummaryRepositoryPort {
     readSummaryAttempt: vi.fn(),
     completeSummary: vi.fn(),
     failSummary: vi.fn(),
+    cancelSummary: vi.fn(),
   };
 }
 

@@ -17,6 +17,8 @@ export interface MallAccountDraft {
 
 export const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 export const ICECREAM_MALL_KEY = 'icecream-mall';
+/** The one mall card whose collection belongs to the Coupang directship owner. */
+export const COUPANG_DIRECT_MALL_KEY = 'coupang-direct';
 export const MAX_HISTORY_ITEMS = 1000;
 export const MALL_ACCOUNT_GRID_CLASS =
   'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';
@@ -223,6 +225,21 @@ export function classifyOrderCollectionFailure(
 }
 
 /**
+ * 로그인·인증이 풀린 것은 실패가 아니라 운영자가 할 일이다. 몰 카드·활동 기록과 같은
+ * 말로 알려, 원천이 무엇이든 같은 문장을 보게 한다(KID-163).
+ */
+export function collectionAttentionNotice(
+  sourceName: string,
+  value: unknown,
+  message: string,
+): Readonly<{ tone: 'warning' | 'error'; message: string }> {
+  const kind = classifyOrderCollectionFailure(value, message);
+  if (kind === 'login') return { tone: 'warning', message: `로그인 필요 · ${sourceName} · ${message}` };
+  if (kind === 'auth') return { tone: 'warning', message: `인증 필요 · ${sourceName} · ${message}` };
+  return { tone: 'error', message };
+}
+
+/**
  * 사용자에게 그대로 보여주면 원인도 조치도 알 수 없는 raw 오류를 안내 문구로 바꾼다.
  * 그 외 메시지는 몰이 알려준 내용이 더 정확하므로 손대지 않는다.
  */
@@ -232,6 +249,32 @@ export function mallCollectionFailureMessage(
 ): string {
   if (!isNetworkFailureMessage(message)) return message;
   return `${mallName} 연결이 끊겼습니다. 로그인 상태(또는 네트워크)를 확인한 뒤 다시 수집해주세요.`;
+}
+
+export type OrderCollectionBatchNotice = Readonly<{
+  tone: 'success' | 'warning';
+  message: string;
+}>;
+
+/**
+ * 전체 수집 한 번을 운영자 문장 하나로 요약한다. 이미 수집 중이던 몰은 두 번째 시도를 열지
+ * 않았을 뿐 실패한 것이 아니고(KID-106 Q6), 아직 설정되지 않은 몰은 시작 자체가 없었던
+ * 것이므로(KID-170 D1), 둘 다 실패와 따로 센다.
+ */
+export function orderCollectionBatchNotice(result: {
+  successCount: number;
+  failedCount: number;
+  inProgressCount: number;
+  unconfiguredCount: number;
+}): OrderCollectionBatchNotice {
+  const parts = [`${formatNumber(result.successCount)}개 성공`];
+  if (result.failedCount > 0) parts.push(`${formatNumber(result.failedCount)}개 실패`);
+  if (result.unconfiguredCount > 0) {
+    parts.push(`${formatNumber(result.unconfiguredCount)}개 미설정`);
+  }
+  if (result.inProgressCount > 0) parts.push(`${formatNumber(result.inProgressCount)}개 진행 중`);
+  if (parts.length === 1) return { tone: 'success', message: '전체 수집 완료' };
+  return { tone: 'warning', message: `전체 수집 ${parts.join(', ')}` };
 }
 
 export function dayKey(timestamp: number): string {

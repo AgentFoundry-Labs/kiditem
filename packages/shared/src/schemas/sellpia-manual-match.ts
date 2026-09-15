@@ -161,8 +161,18 @@ export const SellpiaManualMatchAttemptSchema = z.object({
 }).strict();
 export type SellpiaManualMatchAttempt = z.infer<typeof SellpiaManualMatchAttemptSchema>;
 
+/**
+ * 상태 읽기가 내보내는 시도. fence 토큰은 확장이 부르는 제어 읽기
+ * (`…/attempts/:id`)에만 나가야 하므로 여기서는 벗긴다.
+ */
+export const SellpiaManualMatchPublicAttemptSchema = SellpiaManualMatchAttemptSchema
+  .omit({ attemptToken: true });
+export type SellpiaManualMatchPublicAttempt = z.infer<
+  typeof SellpiaManualMatchPublicAttemptSchema
+>;
+
 export const SellpiaManualMatchSourceStatusSchema = z.object({
-  latestAttempt: SellpiaManualMatchAttemptSchema.nullable(),
+  latestAttempt: SellpiaManualMatchPublicAttemptSchema.nullable(),
   currentSnapshot: SellpiaManualMatchSnapshotStatusSchema.nullable(),
 }).strict();
 export type SellpiaManualMatchSourceStatus = z.infer<

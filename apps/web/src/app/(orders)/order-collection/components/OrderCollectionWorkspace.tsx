@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
+import { COLLECTION_ALREADY_RUNNING_MESSAGE } from '@/hooks/use-collection-source-control';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { useAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useAuth } from '@/hooks/useAuth';
@@ -31,15 +33,23 @@ import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-ship
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
+import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
+import { invalidateMallOrderCollectionSources } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
+import { MallCollectionControl } from './MallCollectionControl';
+import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
 import {
+  collectionAttentionNotice,
+  COUPANG_DIRECT_MALL_KEY,
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
   draftFromMallAccount,
   isBrowserCollectableMall,
   hasSellpiaTransmissionRequest,
+  mallCollectionFailureMessage,
+  orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -104,7 +114,6 @@ export function OrderCollectionWorkspace() {
   const [history, setHistory] = useState<ConversionHistoryItem[]>([]);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [browserCollecting, setBrowserCollecting] = useState(false);
-  const [collectingKeys, setCollectingKeys] = useState<Set<string>>(() => new Set());
   const [selectedMallKey, setSelectedMallKey] = useState<string | null>(ICECREAM_MALL_KEY);
   const [mallDraft, setMallDraft] = useState<MallAccountDraft>(EMPTY_MALL_DRAFT);
   const [mallSettingsOpen, setMallSettingsOpen] = useState(false);
@@ -169,6 +178,9 @@ export function OrderCollectionWorkspace() {
           current?.map((account) => (account.key === saved.key ? saved : account)) ?? [saved],
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
+      // 저장이 이 몰의 ChannelAccount 행을 만든다. 원천 목록을 그대로 두면 그 칸이
+      // 아직 채워지지 않아, 카드가 방금 저장한 운영자의 시작을 계속 거절한다(KID-170).
+      void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
       setMallDraft((current) => ({ ...current, password: '' }));
       setMallSettingsOpen(false);
       toast.success(`${saved.name} 계정 저장 완료`);
@@ -219,9 +231,11 @@ export function OrderCollectionWorkspace() {
     if (reconciling) return;
     setReconciling(true);
     try {
-      const { collectSellpiaOrderSnapshot, reconcileCollectedOrdersWithSellpia } = await import(
-        '../lib/sellpia-order-reconcile'
-      );
+      const {
+        collectSellpiaOrderSnapshot,
+        reconcileCollectedOrdersWithSellpia,
+        SELLPIA_RECONCILE_PARTIAL_MESSAGE,
+      } = await import('../lib/sellpia-order-reconcile');
       const { rows, partial } = await collectSellpiaOrderSnapshot();
       const result = reconcileCollectedOrdersWithSellpia({
         history: historyRef.current,
@@ -231,8 +245,11 @@ export function OrderCollectionWorkspace() {
         checkedAt: Date.now(),
       });
       setSellpiaReconcile(result);
-      const missing = [...result.missingCountByMallKey.values()].reduce((sum, n) => sum + n, 0);
-      if (missing > 0) {
+      const missing = result.missingTotal;
+      // 부분 조회는 숫자를 낼 수 없다. 조용히 넘기지 않고 미확인이라고 말한다(KID-163).
+      if (missing === null) {
+        toast.warning(SELLPIA_RECONCILE_PARTIAL_MESSAGE);
+      } else if (missing > 0) {
         toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(missing)}건`);
       } else if (!silentWhenClean) {
         // 전체 수집 뒤 자동 대조는 문제가 없으면 조용히 지나간다(수집 완료 토스트와 중복 방지).
@@ -241,7 +258,14 @@ export function OrderCollectionWorkspace() {
         );
       }
     } catch (error) {
-      toast.error(friendlyError(error) ?? '셀피아 대조에 실패했습니다.');
+      // 로그인·인증이 풀린 것은 몰 카드와 같은 말로 알린다(KID-163).
+      const notice = collectionAttentionNotice(
+        '셀피아',
+        error,
+        friendlyError(error) ?? '셀피아 대조에 실패했습니다.',
+      );
+      if (notice.tone === 'warning') toast.warning(notice.message);
+      else toast.error(notice.message);
     } finally {
       setReconciling(false);
     }
@@ -267,15 +291,6 @@ export function OrderCollectionWorkspace() {
   const sellpiaTransmission = useSellpiaOrderTransmission({
     onTransmissionRequested: handleTransmissionRequested,
   });
-
-  const markCollecting = useCallback((mallKey: string, collecting: boolean) => {
-    setCollectingKeys((current) => {
-      const next = new Set(current);
-      if (collecting) next.add(mallKey);
-      else next.delete(mallKey);
-      return next;
-    });
-  }, []);
 
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     if (
@@ -304,19 +319,21 @@ export function OrderCollectionWorkspace() {
     collectAccount,
     collectAccounts,
     collectAll,
+    collectionAdapter,
+    startMall,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
     mallAccounts,
     rocketChannelAccountId: selectedRocketAccount?.id ?? null,
     addGeneratedFile,
     setPreviewId,
-    markCollecting,
     clearMallErrorActivity,
     logActivity,
   });
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
-  }, [queryClient]);
+    void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
+  }, [queryClient, user?.organizationId]);
 
   useEffect(() => {
     historyRef.current = history;
@@ -359,11 +376,7 @@ export function OrderCollectionWorkspace() {
 
   const autoDetect = useOrderAutoDetect({
     mallAccounts,
-    collectAccount,
-    prepareRun: sessionControls.prepareRun,
-    failRun: sessionControls.failRun,
-    releaseRun: sessionControls.releaseRun,
-    markCollecting,
+    startMall,
     logActivity,
   });
 
@@ -378,16 +391,12 @@ export function OrderCollectionWorkspace() {
 
     setBrowserCollecting(true);
     setState('converting');
-    const { successCount, failedCount } = await collectAll();
+    const batch = await collectAll();
     setBrowserCollecting(false);
-    setState(failedCount > 0 ? 'error' : 'success');
-    if (failedCount > 0) {
-      toast.warning(
-        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패`,
-      );
-    } else {
-      toast.success('전체 수집 완료');
-    }
+    setState(batch.failedCount > 0 ? 'error' : 'success');
+    const notice = orderCollectionBatchNotice(batch);
+    if (notice.tone === 'warning') toast.warning(notice.message);
+    else toast.success(notice.message);
     // 수집이 끝나면 셀피아와 대조해 "신규"를 아직 안 올라간 주문으로 맞춘다.
     await handleReconcileWithSellpia({ silentWhenClean: true });
   };
@@ -397,6 +406,23 @@ export function OrderCollectionWorkspace() {
     setBrowserCollecting(true);
     await collectAccounts(failedMallAccounts);
     setBrowserCollecting(false);
+  };
+
+  /**
+   * 달력이 아직 자기 손으로 여는 직배송 시작이 owner 에게 409 를 받았을 때.
+   * 진행 중은 실패가 아니므로(KID-106 Q6) 몰 카드와 같은 안내만 내고 owner
+   * 상태를 다시 읽어 카드의 공용 컨트롤이 그 수집을 그리게 한다.
+   */
+  const directshipAlreadyRunning = (error: unknown): boolean => {
+    if (!coupangDirectshipStartAlreadyRunning(
+      queryClient,
+      selectedRocketAccount?.id ?? null,
+      error,
+    )) {
+      return false;
+    }
+    toast.info(COLLECTION_ALREADY_RUNNING_MESSAGE);
+    return true;
   };
 
   // 카드 영역 클릭 전용. 쿠팡직배송만 입고예정일 달력을 연다.
@@ -428,7 +454,7 @@ export function OrderCollectionWorkspace() {
     }
     let run: OrderCollectionExtensionRun | null = null;
     try {
-      run = await sessionControls.prepareRun(account);
+      run = await sessionControls.prepareDirectRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
       setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
       const { collectCoupangDirectFromExtension } = await import(
@@ -447,40 +473,43 @@ export function OrderCollectionWorkspace() {
         loading: false,
       } : cur));
     } catch (err) {
-      if (run) {
-        await sessionControls.failRun(
+      // 운영자 중단이 이 조회를 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
+      const stopped = run
+        ? !(await sessionControls.failRunUnlessStopped(
           run,
           'COLLECTION_FAILED',
           `${account.name} 발주 조회에 실패했습니다: ${friendlyError(err) ?? '조회 실패'}`,
-        ).catch(() => undefined);
-        sessionControls.releaseRun(account.key, run.attemptId);
-      }
+        ))
+        : false;
+      if (run) sessionControls.releaseRun(account.key, run.attemptId);
       const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
       // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
       setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
+      if (stopped) {
+        toast.info(COLLECTION_STOPPED_MESSAGE);
+        return;
+      }
+      // 이미 수집 중인 직배송은 실패가 아니다. 카드의 공용 컨트롤이 그 수집을 그린다.
+      if (directshipAlreadyRunning(err)) return;
       toast.error(message);
     }
   };
 
-  const handleBrowserCollectMall = async (
+  /**
+   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 이미 연 시도를
+   * 그대로 이어받고, 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
+   */
+  const handleCollectDirectship = async (
     account: OrderCollectionMallAccount,
     existingAttemptId?: string,
     directship?: { eddDates: string[]; data?: CoupangDirectData },
   ) => {
-    if (!account.enabled) {
-      toast.error(`${account.name} 계정이 중지되어 있습니다.`);
-      return;
-    }
-    if (!isBrowserCollectableMall(account)) {
-      toast.error(`${account.name} 자동 수집은 준비 중입니다.`);
-      return;
-    }
     setState('converting');
     let run: OrderCollectionExtensionRun | null = null;
     try {
-      run = await sessionControls.prepareRun(account, existingAttemptId);
+      run = await sessionControls.prepareDirectRun(account, existingAttemptId);
       const collected = await collectAccount(account, run, directship);
-      if (account.key === 'coupang-direct' && directship?.data && directshipCacheScope && run) {
+      if (directship?.data && directshipCacheScope && run) {
         await saveCoupangDirectSnapshot(
           directshipCacheScope.channelAccountId,
           directship.data.pos,
@@ -493,23 +522,29 @@ export function OrderCollectionWorkspace() {
     } catch (err) {
       if (run?.signal?.aborted) {
         setState('idle');
-        toast.info(`${account.name} 수집을 중단했습니다.`);
-      } else {
-        setState('error');
-        toast.error(friendlyError(err) ?? '브라우저 수집 실패');
+        toast.info(COLLECTION_STOPPED_MESSAGE);
+        return;
       }
+      if (directshipAlreadyRunning(err)) {
+        setState('idle');
+        return;
+      }
+      setState('error');
+      toast.error(mallCollectionFailureMessage(
+        account.name,
+        friendlyError(err) ?? '브라우저 수집 실패',
+      ));
     }
   };
 
-  const handleCancelMall = async (account: OrderCollectionMallAccount) => {
-    try {
-      const requested = await sessionControls.cancelRun(account);
-      if (!requested) {
-        toast.warning(`${account.name}에서 중단할 수집을 찾지 못했습니다.`);
-      }
-    } catch (err) {
-      toast.error(friendlyError(err) ?? `${account.name} 수집 중단에 실패했습니다.`);
-    }
+  /** 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. */
+  const mallStartBlockedReason = (account: OrderCollectionMallAccount): string | null => {
+    if (!account.enabled) return '중지된 계정입니다.';
+    if (!isBrowserCollectableMall(account)) return '자동 수집 준비 중';
+    // 직배송은 로켓 계정 범위로 수집한다. 계정이 없으면 시작 자체가 없다.
+    return account.key === COUPANG_DIRECT_MALL_KEY && !selectedRocketAccount
+      ? '쿠팡 로켓 계정을 먼저 선택해 주세요.'
+      : null;
   };
 
   const handleModalUpload = async ({
@@ -545,12 +580,13 @@ export function OrderCollectionWorkspace() {
       setState('success');
       toast.success(`${mall.name} 변환 완료`);
     } catch (err) {
+      // 운영자 중단이 이 변환을 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
       if (run) {
-        await sessionControls.failRun(
+        await sessionControls.failRunUnlessStopped(
           run,
           'CONVERSION_FAILED',
           `${mall.name} 파일 변환에 실패했습니다: ${friendlyError(err) ?? '변환 실패'}`,
-        ).catch(() => undefined);
+        );
       }
       setState('error');
       throw err;
@@ -855,6 +891,7 @@ export function OrderCollectionWorkspace() {
       </div>
 
       <MallAccountSection
+        collectionControls={<SellpiaShipmentTrackingControl />}
         autoDetect={autoDetect.enabled}
         autoIntervalMin={autoDetect.intervalMin}
         autoIntervalOptions={AUTO_INTERVAL_OPTIONS_MIN}
@@ -862,8 +899,6 @@ export function OrderCollectionWorkspace() {
         autoNextRunAt={autoDetect.nextRunAt}
         autoRunning={autoDetect.running}
         browserCollecting={browserCollecting}
-        cancellingKeys={sessionControls.cancellingKeys}
-        collectingKeys={collectingKeys}
         configuredMallCount={configuredMallCount}
         conversionState={state}
         enabledMallCount={enabledMallCount}
@@ -884,8 +919,15 @@ export function OrderCollectionWorkspace() {
         selectedMall={selectedMall}
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
-        onCancelMall={(account) => void handleCancelMall(account)}
-        onCollectMall={(account) => void handleBrowserCollectMall(account)}
+        renderCollectionControl={(account, renderCard) => (
+          <MallCollectionControl
+            account={account}
+            buildAdapter={collectionAdapter}
+            startBlockedReason={mallStartBlockedReason(account)}
+          >
+            {renderCard}
+          </MallCollectionControl>
+        )}
         onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
@@ -945,13 +987,15 @@ export function OrderCollectionWorkspace() {
             const pending = directshipModal;
             setDirectshipModal(null);
             if (pending.run) {
-              void sessionControls.cancelRun(pending.account);
+              void sessionControls.cancelRun(pending.account).catch((error: unknown) => {
+                toast.error(friendlyError(error) ?? `${pending.account.name} 수집 중단에 실패했습니다.`);
+              });
             }
           }}
           onCollect={(eddDates) => {
             const { account, run } = directshipModal;
             setDirectshipModal(null);
-            void handleBrowserCollectMall(account, run?.attemptId, {
+            void handleCollectDirectship(account, run?.attemptId, {
               eddDates,
               data: directshipModal.data ?? undefined,
             });

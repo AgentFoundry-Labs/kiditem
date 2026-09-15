@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { OrderCollectionSourceController } from './order-collection-source.controller';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -223,5 +224,94 @@ describe('OrderCollectionSourceController', () => {
     )).rejects.toThrow('ATTEMPT_FENCE_LOST');
     expect(source.readSourceDownload).not.toHaveBeenCalled();
     expect(service.convertKidsnoteOrders).not.toHaveBeenCalled();
+  });
+
+  it('reads one mall source with organization scope and answers the shared status shape without a token', async () => {
+    const status = {
+      mallKey: 'art09',
+      channelAccountId: '66666666-6666-4666-8666-666666666666',
+      running: {
+        attemptId: ATTEMPT,
+        collectionMode: 'browser',
+        startedAt: '2026-09-15T00:00:00.000Z',
+        expiresAt: '2026-09-15T00:30:00.000Z',
+      },
+      lastComplete: null,
+      lastAttempt: {
+        attemptId: ATTEMPT,
+        state: 'RUNNING',
+        errorCode: null,
+        errorMessage: null,
+        endedAt: null,
+      },
+    };
+    const source = { readSourceStatus: vi.fn().mockResolvedValue(status) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    const view = await controller.readSourceStatus('art09', ORG);
+
+    expect(source.readSourceStatus).toHaveBeenCalledWith({ organizationId: ORG, mallKey: 'art09' });
+    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
+    expect(OrderCollectionSourceStatusSchema.parse(view)).toEqual(status);
+  });
+
+  /**
+   * 주문 수집 화면은 몰 카드 20장을 한 번에 띄운다. 카드마다 한 번씩 읽으면 폴링만으로
+   * 전역 throttler(60초 120회)를 넘겨 화면 전체가 429를 받는다(KID-170 D2).
+   */
+  it('answers every mall of the screen in one organization-scoped source list', async () => {
+    const malls = [
+      {
+        mallKey: 'one-polaris',
+        channelAccountId: null,
+        running: null,
+        lastComplete: null,
+        lastAttempt: null,
+      },
+      {
+        mallKey: 'art09',
+        channelAccountId: '66666666-6666-4666-8666-666666666666',
+        running: null,
+        lastComplete: null,
+        lastAttempt: {
+          attemptId: ATTEMPT,
+          state: 'COMPLETE',
+          errorCode: null,
+          errorMessage: null,
+          endedAt: '2026-09-15T00:10:00.000Z',
+        },
+      },
+    ];
+    const source = { readSourceStatuses: vi.fn().mockResolvedValue(malls) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    const view = await controller.readSourceStatuses(ORG);
+
+    expect(source.readSourceStatuses).toHaveBeenCalledWith({ organizationId: ORG });
+    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
+    expect(view.malls.map((mall) => OrderCollectionSourceStatusSchema.parse(mall))).toEqual(malls);
+  });
+
+  it('refuses a mall source read with no mall key', async () => {
+    const source = { readSourceStatus: vi.fn() };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    await expect(controller.readSourceStatus(undefined, ORG))
+      .rejects.toThrow('INVALID_ORDER_COLLECTION_SCOPE');
+    await expect(controller.readSourceStatus('   ', ORG))
+      .rejects.toThrow('INVALID_ORDER_COLLECTION_SCOPE');
+    expect(source.readSourceStatus).not.toHaveBeenCalled();
+  });
+
+  it('stops a running mall attempt with organization scope only, never the attempt token', async () => {
+    const stopped = { attemptId: ATTEMPT, state: 'FAILED', errorCode: 'USER_CANCELLED' };
+    const source = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    await expect(controller.cancelAttempt(ATTEMPT, ORG)).resolves.toEqual(stopped);
+    expect(source.cancelAttempt).toHaveBeenCalledWith({
+      organizationId: ORG,
+      attemptId: ATTEMPT,
+    });
   });
 });

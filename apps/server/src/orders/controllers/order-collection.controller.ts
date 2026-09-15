@@ -7,6 +7,7 @@ import {
   Get,
   Header,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -43,6 +44,7 @@ import {
   SaveCoupangDirectPoSnapshotRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/auth.types';
@@ -172,6 +174,31 @@ export class OrderCollectionController {
       attemptToken: requiredDirectAttemptToken(attemptToken),
       code: failure.code,
       message: failure.message,
+    });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('coupang-directship/attempts/:attemptId/cancel')
+  @HttpCode(200)
+  async cancelCoupangDirectAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.coupangDirectOrderCollection.cancelAttempt({ organizationId, attemptId });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 직배송 계정별 현재 상태. 시도 토큰은 담지 않는다 —
+   * fence 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('coupang-directship/source')
+  async readCoupangDirectSourceStatus(
+    @Query('channelAccountId') channelAccountId: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.coupangDirectOrderCollection.readSourceStatus({
+      organizationId,
+      channelAccountId: requiredDirectChannelAccountId(channelAccountId),
     });
   }
 
@@ -1102,6 +1129,15 @@ function requiredDirectAttemptToken(value: string | undefined): string {
   if (!token) throw new BadRequestException('ORDER_COLLECTION_ATTEMPT_HEADERS_REQUIRED');
   if (!isUuid(token)) throw new BadRequestException('INVALID_SOURCE_ATTEMPT_TOKEN');
   return token;
+}
+
+/** 공용 컨트롤의 상태 읽기 범위. 계정 없이는 어느 수집을 묻는지 정해지지 않는다. */
+function requiredDirectChannelAccountId(value: string | undefined): string {
+  const channelAccountId = value?.trim();
+  if (!channelAccountId || !isUuid(channelAccountId)) {
+    throw new BadRequestException('INVALID_COUPANG_DIRECT_SCOPE');
+  }
+  return channelAccountId;
 }
 
 function requiredDirectIdempotencyKey(value: string | undefined): string {

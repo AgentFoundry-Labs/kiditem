@@ -6,6 +6,8 @@ import vm from "node:vm";
 
 const attemptId = "11111111-1111-4111-8111-111111111111";
 const attemptToken = "22222222-2222-4222-8222-222222222222";
+const restartAttemptId = "44444444-4444-4444-8444-444444444444";
+const restartAttemptToken = "55555555-5555-4555-8555-555555555555";
 const sourcePath = "/api/orders/sellpia-shipment-tracking/attempts";
 const ownerSource = readFileSync(
   new URL("../kiditem-os/background/orders/sellpia-shipment-tracking-source-owner.js", import.meta.url),
@@ -74,7 +76,22 @@ function response(body, status = 200) {
   };
 }
 
-function createFixture({ lostCompletion = false, collected = { success: true, ...payload } } = {}) {
+function deferred() {
+  let resolve;
+  const promise = new Promise((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
+
+function createFixture({
+  lostCompletion = false,
+  collected = { success: true, ...payload },
+  collectUntilStopped = false,
+  holdFailure = false,
+  parkBeforeCompletion = false,
+  holdCompletion = false,
+  unresolvedCompletion = false,
+  failReadsAfterCompletion = 0,
+} = {}) {
   const context = vm.createContext({
     Blob,
     Date,
@@ -98,6 +115,7 @@ function createFixture({ lostCompletion = false, collected = { success: true, ..
   const storage = {};
   const calls = [];
   const uploads = [];
+  const ownerWrites = [];
   const chrome = {
     storage: {
       local: {
@@ -112,41 +130,124 @@ function createFixture({ lostCompletion = false, collected = { success: true, ..
     storageKey: "sessions",
     webUrlPatterns: [],
   });
-  const sessionApi = sessions;
-  let current = control();
+  const collectStarted = deferred();
+  const failureRelease = deferred();
+  const completionParked = deferred();
+  const completionRelease = deferred();
+  const completionHeld = deferred();
+  const completionHoldRelease = deferred();
+  // The owner reports progress immediately before it submits completion.
+  const sessionApi = parkBeforeCompletion
+    ? {
+        ...sessions,
+        progress: async (...args) => {
+          completionParked.resolve();
+          await completionRelease.promise;
+          return sessions.progress(...args);
+        },
+      }
+    : sessions;
+  const attempts = new Map([
+    [attemptId, control()],
+    [restartAttemptId, control("RUNNING", { attemptId: restartAttemptId, attemptToken: restartAttemptToken, sourceImportRunId: restartAttemptId })],
+  ]);
   let completeCalls = 0;
+  let readsAfterCompletion = 0;
+
   const owner = context.KidItemSellpiaShipmentTrackingSourceOwner.create({
     chrome,
     sessions: sessionApi,
     request: async (environmentId, path, init = {}) => {
       calls.push({ environmentId, path, method: init.method || "GET", headers: init.headers, body: init.body });
       const method = init.method || "GET";
-      if (method === "GET") return response(current);
+      const id = decodeURIComponent(path.slice(`${sourcePath}/`.length).split("/")[0]);
+      const current = attempts.get(id);
+      if (method === "GET") {
+        if (completeCalls > 0 && readsAfterCompletion < failReadsAfterCompletion) {
+          readsAfterCompletion += 1;
+          throw new Error("owner read temporarily unavailable");
+        }
+        return response(current);
+      }
+      ownerWrites.push({ attemptId: id, route: path.split("/").at(-1), afterEnd: current.state !== "RUNNING" });
       if (path.endsWith("/complete")) {
         completeCalls += 1;
         const file = init.body?.get("file");
         const bytes = new Uint8Array(await file.arrayBuffer());
         uploads.push(bytes);
-        current = control("COMPLETE", {
+        if (holdCompletion && completeCalls === 1) {
+          completionHeld.resolve();
+          await completionHoldRelease.promise;
+          return response({ message: "owner completion is unavailable" }, 503);
+        }
+        if (unresolvedCompletion && id === attemptId) throw new Error("completion transport failed");
+        attempts.set(id, control("COMPLETE", {
+          attemptId: id,
+          attemptToken: current.attemptToken,
+          sourceImportRunId: id,
           contentChecksum: checksum(bytes),
           sourceByteCount: bytes.byteLength,
-        });
+        }));
         if (lostCompletion) throw new Error("completion reply lost");
-        return response(current);
+        return response(attempts.get(id));
       }
       if (path.endsWith("/fail")) {
         const body = JSON.parse(init.body);
-        current = control("FAILED", {
+        if (holdFailure) await failureRelease.promise;
+        attempts.set(id, control("FAILED", {
+          attemptId: id,
+          attemptToken: current.attemptToken,
+          sourceImportRunId: id,
           errorCode: body.errorCode,
           errorMessage: body.errorMessage,
-        });
-        return response(current);
+        }));
+        return response(attempts.get(id));
       }
       return response({ message: "unexpected owner route" }, 404);
     },
-    collect: async () => collected,
+    collect: async (collection) => {
+      if (!collectUntilStopped || collection.attemptId !== attemptId) return collected;
+      // Like the Sellpia collector after a stop closes its tab: it sees the fence and returns.
+      collectStarted.resolve();
+      while (await collection.isActive()) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      return { success: false, errorCode: "sellpia_network_failed", error: "Sellpia tab was closed." };
+    },
   });
-  return { owner, sessions: sessionApi, calls, uploads, get completeCalls() { return completeCalls; } };
+  return {
+    owner,
+    sessions: sessionApi,
+    calls,
+    uploads,
+    ownerWrites,
+    attempt: (id) => attempts.get(id),
+    collectStarted: collectStarted.promise,
+    releaseFailure: failureRelease.resolve,
+    completionParked: completionParked.promise,
+    releaseCompletion: completionRelease.resolve,
+    completionHeld: completionHeld.promise,
+    releaseHeldCompletion: completionHoldRelease.resolve,
+    // cancelOrdersCollectionSession fences the local session, then cancels through the owner.
+    operatorStop: async (target) => {
+      await sessionApi.requestCancellation(target.attemptId, target.environmentId);
+      return owner.cancel(target);
+    },
+    get completeCalls() { return completeCalls; },
+  };
+}
+
+// An operator stop must leave exactly one owner /fail on the stopped attempt and
+// must release the environment so the next collection is admitted.
+function assertStoppedThenRestarted(fixture, restart) {
+  const stopped = fixture.attempt(attemptId);
+  assert.equal(stopped.state, "FAILED");
+  assert.equal(stopped.errorCode, "COLLECTION_CANCELLED");
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, "COMPLETE");
+  const stoppedWrites = fixture.ownerWrites.filter((write) => write.attemptId === attemptId);
+  assert.deepEqual(stoppedWrites.filter((write) => write.route === "fail").length, 1);
+  assert.deepEqual(stoppedWrites.filter((write) => write.afterEnd), []);
 }
 
 test("requires the server-issued attempt ID and rejects caller-owned dates", () => {
@@ -223,4 +324,85 @@ test("records provider login failure as owner FAILED and retains attention", asy
   assert.equal(result.errorCode, "sellpia_login_required");
   assert.equal((await fixture.sessions.get(attemptId))?.attention?.reason, "marketplace_login");
   assert.equal(fixture.calls.filter((call) => call.path.endsWith("/complete")).length, 0);
+});
+
+test("an operator stop during collection releases the environment for the next attempt", async () => {
+  const fixture = createFixture({ collectUntilStopped: true, holdFailure: true });
+  const running = fixture.owner.run({ environmentId: "office", attemptId });
+  await fixture.collectStarted;
+
+  const stopping = fixture.operatorStop({ environmentId: "office", attemptId });
+  // The collector sees the stop, so the run returns before the owner acknowledges it.
+  await running;
+  fixture.releaseFailure();
+  await stopping;
+
+  const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+});
+
+test("an operator stop that overlaps the completion's first fence check releases the environment", async () => {
+  const fixture = createFixture({ parkBeforeCompletion: true });
+  const running = fixture.owner.run({ environmentId: "office", attemptId });
+  await fixture.completionParked;
+
+  await fixture.operatorStop({ environmentId: "office", attemptId });
+  fixture.releaseCompletion();
+  await running;
+
+  const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+  // The stop reached the owner before the parked completion resumed, so the
+  // stopped attempt never received a completion body.
+  assert.deepEqual(
+    fixture.ownerWrites.filter((write) => write.attemptId === attemptId).map((write) => write.route),
+    ["fail"],
+  );
+});
+
+test("an operator stop during the completion retry loop still ends the attempt with one /fail", async () => {
+  const fixture = createFixture({ holdCompletion: true });
+  const running = fixture.owner.run({ environmentId: "office", attemptId });
+  await fixture.completionHeld;
+
+  // Fence first, exactly as the web stop does, then join the in-flight completion.
+  await fixture.sessions.requestCancellation(attemptId, "office");
+  const stopping = fixture.owner.cancel({ environmentId: "office", attemptId });
+  fixture.releaseHeldCompletion();
+  await running;
+  await stopping;
+
+  const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+});
+
+test("an operator stop after an unresolved completion ends the still-RUNNING attempt", async () => {
+  const fixture = createFixture({ unresolvedCompletion: true });
+  const unresolved = await fixture.owner.run({ environmentId: "office", attemptId });
+  assert.equal(unresolved.errorCode, "SOURCE_OWNER_UNAVAILABLE");
+  assert.equal(fixture.attempt(attemptId).state, "RUNNING");
+
+  await fixture.operatorStop({ environmentId: "office", attemptId });
+
+  const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });
+  assertStoppedThenRestarted(fixture, restart);
+});
+
+test("an operator stop after an unresolved completion releases a COMPLETE attempt for the next collection", async () => {
+  const fixture = createFixture({ lostCompletion: true, failReadsAfterCompletion: 3 });
+  const unresolved = await fixture.owner.run({ environmentId: "office", attemptId });
+  assert.equal(unresolved.errorCode, "SOURCE_OWNER_UNAVAILABLE");
+  assert.equal(fixture.attempt(attemptId).state, "COMPLETE");
+
+  const stopped = await fixture.operatorStop({ environmentId: "office", attemptId });
+  assert.equal(stopped.terminalState, "COMPLETE");
+
+  const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, "COMPLETE");
+  // The stop must not turn an owner completion into a failure.
+  assert.deepEqual(
+    fixture.ownerWrites.filter((write) => write.attemptId === attemptId && write.route === "fail"),
+    [],
+  );
 });

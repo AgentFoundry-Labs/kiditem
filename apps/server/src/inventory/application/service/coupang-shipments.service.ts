@@ -82,4 +82,7 @@ export class CoupangShipmentsService implements CoupangShipmentsPort {
       message,
     );
   }
+  cancelSummary(organizationId: string, attemptId: string) {
+    return this.dateSummary.cancelSummary(organizationId, attemptId);
+  }
 }

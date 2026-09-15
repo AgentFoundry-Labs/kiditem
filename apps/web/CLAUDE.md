@@ -38,7 +38,11 @@ the nearest scoped guide owns route-specific composition.
   producers and the Wing catalog import) start through
   `requestCollectionStart`; the extension opens their attempts. A source whose
   attempt the page opens starts through `startWebOpenedCollection`, which
-  stops an attempt the extension does not take.
+  stops an attempt the extension does not take. A screen that starts a source
+  from outside a mounted control (collect-all, the auto-detect loop) calls
+  `startCollectionSource`, which runs that source's own start mutation, so
+  every mounted control shows the start and a source already collecting
+  answers as running.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a

@@ -16,6 +16,7 @@ export interface CoupangShipmentDateSummaryRepositoryPort extends Pick<
   | "readSummaryAttempt"
   | "completeSummary"
   | "failSummary"
+  | "cancelSummary"
 > {
   listDateSummary(
     organizationId: string,

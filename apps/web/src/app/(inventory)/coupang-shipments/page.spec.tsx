@@ -1,7 +1,15 @@
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CoupangShipmentsPage from "./page";
+
+/** 화면이 직접 부르는 조회. 원천 읽기와 컨트롤은 그대로 진짜 코드를 쓴다. */
+const collectSummary = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/coupang-shipment-summary-action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/coupang-shipment-summary-action")>()),
+  collectAndPersistCoupangShipmentSummary: collectSummary,
+}));
 
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -53,6 +61,7 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     navigation.params = new URLSearchParams();
     replaceMock.mockReset();
     calls.length = 0;
+    collectSummary.mockReset();
     source = {
       ready: true,
       latestAttempt: attempt,
@@ -167,6 +176,35 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
+  /**
+   * KID-170 D3. 조회는 이 화면이 시작하고, 끝나야 원천을 다시 읽었다. 그 사이 원천은
+   * 60초에 한 번만 읽혀 11초짜리 조회가 통째로 지나갔고, 운영자는 "수집 중단"을 한
+   * 번도 보지 못했다.
+   */
+  it("shows the operator stop while the screen's own summary query is still running", async () => {
+    const user = userEvent.setup();
+    let finishQuery = () => undefined as void;
+    collectSummary.mockImplementation(
+      () => new Promise((resolve) => {
+        finishQuery = () => resolve({ status: "empty", items: [] });
+      }),
+    );
+    mount();
+    await screen.findByText(/최근 조회 결과 1일/);
+
+    await user.click(screen.getByRole("button", { name: /다시 조회/ }));
+    // owner 가 이 조회의 시도를 받아 진행 중이라고 말하기 시작한다.
+    source = {
+      ...source,
+      latestAttempt: { ...attempt, state: "RUNNING", actualCutoffAt: null },
+    };
+
+    expect(
+      await screen.findByRole("button", { name: "수집 중단" }, { timeout: 2500 }),
+    ).toBeInTheDocument();
+    finishQuery();
+  });
+
   it("keeps the last known shipment status beside a light hint when a later owner read fails", async () => {
     mount();
     expect(await screen.findByText(/최근 조회 결과 1일/)).toBeInTheDocument();

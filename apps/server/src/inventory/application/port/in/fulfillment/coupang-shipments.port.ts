@@ -126,4 +126,12 @@ export interface CoupangShipmentsPort {
     code: string,
     message: string,
   ): Promise<ShipmentSummaryAttempt>;
+  /**
+   * Operator stop without the attempt token; a terminal attempt is returned
+   * unchanged. The page calls it, so the answer carries no fence token.
+   */
+  cancelSummary(
+    organizationId: string,
+    attemptId: string,
+  ): Promise<Omit<ShipmentSummaryAttempt, "attemptToken">>;
 }
