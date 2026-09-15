@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey } from '../../common/kst';
 import { currentRowTieBreakSql } from '../../common/current-row';
+import { wingListingRegistrationDate } from '../domain/wing-listing-registration';
 import {
   dailyTrafficFactSource,
   type DailyTrafficFactSource,
@@ -184,6 +185,49 @@ export async function readListingTrafficWindowFacts(
     ({ channelAccountId: _, sourceAttemptId: __, ...fact }) => fact,
   );
   const dates = readDates(input, observedFacts, selectedAttempts);
+  // An attempt matched Wing's rows to the catalog it saw while it ran, so a
+  // listing the catalog imported after the attempt started may be missing from
+  // its report. A selected account-date is refused while such a listing is
+  // active and was already registered on Wing by the date, or has no readable
+  // registration date.
+  const selected = [...selectedAttempts.entries()];
+  const earliestAttemptStart = selected.reduce<Date | null>(
+    (earliest, [, attempt]) => (!earliest || attempt.createdAt < earliest ? attempt.createdAt : earliest),
+    null,
+  );
+  const lateListings = earliestAttemptStart
+    ? (await prisma.channelListing.findMany({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: {
+            in: [...new Set(selected.flatMap(([, attempt]) =>
+              attempt.channelAccountId ? [attempt.channelAccountId] : []))],
+          },
+          isActive: true,
+          createdAt: { gte: earliestAttemptStart },
+        },
+        select: { channelAccountId: true, createdAt: true, rawJson: true },
+      })).map((listing) => {
+        const raw = listing.rawJson;
+        const createdOn = raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>).createdOn
+          : undefined;
+        return {
+          channelAccountId: listing.channelAccountId,
+          createdAt: listing.createdAt,
+          registeredOn: wingListingRegistrationDate(typeof createdOn === 'string' ? createdOn : null),
+        };
+      })
+    : [];
+  const lateListingDates = new Set(selected.flatMap(([key, attempt]) => {
+    const date = key.slice(key.lastIndexOf(':') + 1);
+    return lateListings.some((listing) =>
+      listing.channelAccountId === attempt.channelAccountId
+      && listing.createdAt >= attempt.createdAt
+      && (listing.registeredOn === null || listing.registeredOn <= date))
+      ? [key]
+      : [];
+  }));
   const coverage = coverageFor(
     dates,
     population,
@@ -191,6 +235,7 @@ export async function readListingTrafficWindowFacts(
     observedFacts,
     facts,
     selectedAttempts,
+    lateListingDates,
   );
   const ownerObservedAt = [...selectedAttempts.values()].reduce<Date | null>(
     (latest, attempt) => latestDate(
@@ -435,6 +480,7 @@ function coverageFor(
   observedFacts: readonly ObservedTrafficFact[],
   facts: readonly ObservedTrafficFact[],
   selectedAttempts: ReadonlyMap<string, CompletedTrafficAttempt>,
+  lateListingDates: ReadonlySet<string>,
 ): ListingTrafficWindowFacts['coverage'] {
   const includedDates: string[] = [];
   const invalidDates: string[] = [];
@@ -464,8 +510,14 @@ function coverageFor(
     // its listings: the traffic owner published a zero row for a listing Wing
     // left out, and a listing without a row stays unmeasured. An account
     // without an attempt (a CSV upload) still needs a row for every listing.
+    // A listing the catalog imported after the attempt started, and already
+    // registered on Wing by the date, may be missing from the report, so the
+    // date is not collected for its account.
     const complete = population.length > 0
-      ? !staleWingDates.has(date) && population.every((listing) =>
+      ? !staleWingDates.has(date)
+        && ![...attempts.keys()].some((accountId) =>
+          lateListingDates.has(accountDateKey(accountId, date)))
+        && population.every((listing) =>
           attempts.has(listing.channelAccountId)
           || factKeys.has(listingDateKey(listing.id, date)))
       : fallbackAccountIds.length > 0

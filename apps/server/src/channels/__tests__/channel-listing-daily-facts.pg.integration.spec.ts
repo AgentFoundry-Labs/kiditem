@@ -16,6 +16,13 @@ import {
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
+/**
+ * When seeded catalog listings entered the catalog: before every attempt this
+ * spec seeds. A listing created in the same millisecond as an attempt would
+ * count as imported after the attempt started.
+ */
+const CATALOG_SEEDED_AT = new Date('2026-08-01T00:00:00.000Z');
+
 describe('listing daily facts reader (PG integration)', () => {
   let prisma: PrismaClient;
 
@@ -172,6 +179,8 @@ describe('listing daily facts reader (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: first.accountId,
         externalId: 'LISTING-PARTIAL-2',
+        // The catalog held it before the attempt started.
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const attempt = await seedTrafficAttempt({
@@ -577,6 +586,164 @@ describe('listing daily facts reader (PG integration)', () => {
     }]);
   });
 
+  /**
+   * A Wing attempt matches report rows to the catalog it saw while it ran, so a
+   * listing the catalog imported after the attempt started may be missing from
+   * a date it was already registered for. Such a date is not collected.
+   */
+  describe('listings the catalog imported after the Wing attempt started', () => {
+    const attemptStartedAt = new Date('2026-09-04T02:00:00.000Z');
+    const afterStart = new Date('2026-09-04T03:00:00.000Z');
+    const confirmedDates = ['2026-09-01', '2026-09-02', '2026-09-03'];
+
+    async function collectedAccount(suffix: string) {
+      const { listingId, accountId } = await seedListingWithAccount(TEST_ORGANIZATION_ID, suffix);
+      await prisma.channelListing.update({
+        where: { id: listingId },
+        data: { createdAt: new Date('2026-08-01T00:00:00.000Z') },
+      });
+      const attempt = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: accountId,
+          sourceType: 'coupang_wing_traffic',
+          status: 'completed',
+          freshnessGeneration: 1n,
+          providerBackedEmptyProof: false,
+          qualityReport: { confirmedDates },
+          createdAt: attemptStartedAt,
+          importedAt: new Date('2026-09-04T02:30:00.000Z'),
+        },
+      });
+      await prisma.channelListingDailySnapshot.createMany({
+        data: confirmedDates.map((date) => trafficRow({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId,
+          date,
+          observedAt: new Date(`${date}T05:00:00.000Z`),
+          visitors: 1,
+          views: 2,
+          orders: 0,
+          revenue: 0,
+          source: 'wing',
+          sourceAttemptId: attempt.id,
+        })),
+      });
+      return { listingId, accountId };
+    }
+
+    function catalogListing(
+      accountId: string,
+      externalId: string,
+      input: { createdAt: Date; createdOn?: string; isActive?: boolean },
+    ) {
+      return prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: accountId,
+          externalId,
+          createdAt: input.createdAt,
+          isActive: input.isActive ?? true,
+          rawJson: input.createdOn
+            ? { source: 'coupang_catalog_basics', createdOn: input.createdOn }
+            : { source: 'coupang_catalog_basics' },
+        },
+      });
+    }
+
+    function readWindow(listingIds?: string[]) {
+      return readListingTrafficWindowFacts(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        ...(listingIds ? { listingIds } : {}),
+        from: new Date('2026-09-01T00:00:00.000Z'),
+        to: new Date('2026-09-04T00:00:00.000Z'),
+      });
+    }
+
+    it('refuses the dates a late listing was already registered for and keeps the earlier ones, account-wide', async () => {
+      const { listingId, accountId } = await collectedAccount('LATE-REGISTERED');
+      await catalogListing(accountId, 'LATE-REGISTERED-0902', {
+        createdAt: afterStart,
+        createdOn: '2026-09-02 10:00:00',
+      });
+
+      // The read is filtered to the observed listing; the late one is elsewhere in the account.
+      const result = await readWindow([listingId]);
+
+      expect(result.coverage).toEqual({
+        includedDates: ['2026-09-01'],
+        invalidDates: ['2026-09-02', '2026-09-03'],
+        missingDates: [],
+      });
+    });
+
+    it('refuses every confirmed date while a late listing has no readable Wing registration date', async () => {
+      const { accountId } = await collectedAccount('LATE-UNREGISTERED');
+      await catalogListing(accountId, 'LATE-WORKBOOK-ONLY', { createdAt: afterStart });
+
+      const result = await readWindow();
+
+      expect(result.coverage).toEqual({
+        includedDates: [],
+        invalidDates: confirmedDates,
+        missingDates: [],
+      });
+    });
+
+    it('ignores a listing the catalog held before the attempt and an inactive late listing', async () => {
+      const { accountId } = await collectedAccount('NOT-LATE');
+      await catalogListing(accountId, 'HELD-BEFORE-ATTEMPT', {
+        createdAt: new Date('2026-09-04T01:00:00.000Z'),
+      });
+      await catalogListing(accountId, 'LATE-INACTIVE', {
+        createdAt: afterStart,
+        createdOn: '2026-08-01 09:00:00',
+        isActive: false,
+      });
+
+      const result = await readWindow();
+
+      expect(result.coverage).toEqual({
+        includedDates: confirmedDates,
+        invalidDates: [],
+        missingDates: [],
+      });
+    });
+
+    it('counts the dates again once a newer attempt started after the late import', async () => {
+      const { listingId, accountId } = await collectedAccount('RECOLLECTED');
+      await catalogListing(accountId, 'LATE-THEN-RECOLLECTED', {
+        createdAt: afterStart,
+        createdOn: '2026-09-02 10:00:00',
+      });
+      const newer = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: accountId,
+          sourceType: 'coupang_wing_traffic',
+          status: 'completed',
+          freshnessGeneration: 2n,
+          providerBackedEmptyProof: false,
+          qualityReport: { confirmedDates },
+          createdAt: new Date('2026-09-04T04:00:00.000Z'),
+          importedAt: new Date('2026-09-04T04:30:00.000Z'),
+        },
+      });
+      await prisma.channelListingDailySnapshot.updateMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, listingId },
+        data: { metaJson: wingMetadata(newer.id) },
+      });
+
+      const result = await readWindow();
+
+      expect(result.coverage).toEqual({
+        includedDates: confirmedDates,
+        invalidDates: [],
+        missingDates: [],
+      });
+    });
+  });
+
   async function seedListing(organizationId: string, suffix: string): Promise<string> {
     return (await seedListingWithAccount(organizationId, suffix)).listingId;
   }
@@ -595,6 +762,7 @@ describe('listing daily facts reader (PG integration)', () => {
         organizationId,
         channelAccountId: account.id,
         externalId: `LISTING-${suffix}`,
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     return { listingId: listing.id, accountId: account.id };

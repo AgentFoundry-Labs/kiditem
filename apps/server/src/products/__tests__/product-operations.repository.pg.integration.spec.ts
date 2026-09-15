@@ -44,6 +44,9 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
+/** Seeded catalog listings predate every Wing traffic attempt a case creates. */
+const CATALOG_SEEDED_AT = new Date('2026-08-01T00:00:00.000Z');
+
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ProductOperationsService;
@@ -1226,6 +1229,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId,
         masterProductId: withFacts.id,
         externalId: 'P-001',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const now = new Date();
@@ -1384,6 +1388,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-PARTIAL-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1467,6 +1472,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1536,6 +1542,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-ZERO-WINDOW',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1727,6 +1734,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-1',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
@@ -1820,6 +1828,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         channelAccountId: account.id,
         masterProductId: product.id,
         externalId: 'TRAFFIC-MIXED-1',
+        createdAt: CATALOG_SEEDED_AT,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());
