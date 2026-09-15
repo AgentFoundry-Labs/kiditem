@@ -1,5 +1,6 @@
 import { Controller, Get, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { Roles } from '../../../../auth/decorators/roles.decorator';
 import { SourcingConfirmReportService } from '../../../application/service/sourcing-confirm-report.service';
 
 /**
@@ -14,7 +15,9 @@ export class SourcingConfirmReportController {
     return this.reports.status(organizationId);
   }
 
+  // 사장님 채팅으로 실제 메시지가 나간다. 보내기는 owner · admin 만 한다.
   @Post('telegram')
+  @Roles('owner', 'admin')
   sendTelegram(@CurrentOrganization() organizationId: string) {
     return this.reports.sendReport(organizationId);
   }

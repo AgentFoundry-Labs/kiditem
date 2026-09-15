@@ -70,7 +70,7 @@ belong to Supply; supplier payments belong to Finance.
 
 - Routes: `GET /api/sourcing/workspace/confirm-report/status` and
   `POST /api/sourcing/workspace/confirm-report/telegram`.
-- The report sends only when a person asks. Telegram answers write the existing
+- The report sends only when an owner or admin asks. Telegram answers write the existing
   `final` review selection through `SourcingReviewService` with its version
   check, re-resolved against the latest recommendation run on every press.
   Button values carry no state and are signed by the messenger adapter. The bot
