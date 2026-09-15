@@ -266,7 +266,7 @@ export function ToyCategorySourcingPage() {
             caption={`${formatNumber(measuredKeywords.length)}개 합계`}
             tone="sky"
           />
-          <MetricCard icon={TrendingUp} label="상승 신호" value={risingCount === null ? '—' : `${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
+          <MetricCard icon={TrendingUp} label="상승 신호" value={isLoading ? '…' : risingCount === null ? '—' : `${formatNumber(risingCount)}개`} caption="신규·순위·지수" tone="green" />
           <MetricCard icon={Database} label="활성 네이버 시드" value={`${formatNumber(activeNaverSeedCount)}개`} caption="검색량 수집 대상" tone="orange" />
         </div>
 

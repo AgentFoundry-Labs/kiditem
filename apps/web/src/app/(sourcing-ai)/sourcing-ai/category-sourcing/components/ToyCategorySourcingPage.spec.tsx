@@ -76,6 +76,18 @@ describe('Toy category rise signal count', () => {
     expect(metricValue('상승 신호')).toBe('1개');
     client.clear();
   });
+
+  it('shows the loading mark, not unknown, on rise signals while the toy board is still loading', async () => {
+    boardsPending = true;
+    const { client } = renderPage();
+    // The keyword and seed reads land; only the board read is still pending.
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/sourcing/trend/seeds'));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(metricValue('조건 결과')).toBe('…');
+    expect(metricValue('상승 신호')).toBe('…');
+    client.clear();
+  });
 });
 
 describe('Toy category board comparison quick filters', () => {
