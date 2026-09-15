@@ -417,6 +417,12 @@ function zeroTrafficSql(
                  END AS meta
           FROM channel_listing_daily_snapshots AS daily
           JOIN confirmed_day ON confirmed_day.business_date = daily.business_date
+          -- Only this account's listings, active or not, carry its attempts'
+          -- rows or take its zeros.
+          JOIN channel_listings AS account_listing
+            ON account_listing.id = daily.listing_id
+           AND account_listing.organization_id = ${organizationId}::uuid
+           AND account_listing.channel_account_id = ${zero.channelAccountId}::uuid
           WHERE daily.organization_id = ${organizationId}::uuid
         ) AS fact
       ),

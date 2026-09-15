@@ -195,33 +195,29 @@ export async function readListingTrafficWindowFacts(
     (earliest, [, attempt]) => (!earliest || attempt.createdAt < earliest ? attempt.createdAt : earliest),
     null,
   );
+  const selectedAccountIds = [...new Set(selected.flatMap(([, attempt]) =>
+    attempt.channelAccountId ? [attempt.channelAccountId] : []))];
   const lateListings = earliestAttemptStart
-    ? (await prisma.channelListing.findMany({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: {
-            in: [...new Set(selected.flatMap(([, attempt]) =>
-              attempt.channelAccountId ? [attempt.channelAccountId] : []))],
-          },
-          isActive: true,
-          createdAt: { gte: earliestAttemptStart },
-        },
-        select: { channelAccountId: true, createdAt: true, sourceCandidateId: true, rawJson: true },
-      })).map((listing) => {
-        const raw = listing.rawJson;
-        const createdOn = raw && typeof raw === 'object' && !Array.isArray(raw)
-          ? (raw as Record<string, unknown>).createdOn
-          : undefined;
-        return {
-          channelAccountId: listing.channelAccountId,
-          createdAt: listing.createdAt,
-          registeredOn: wingListingRegistrationDate({
-            createdOn: typeof createdOn === 'string' ? createdOn : null,
-            sourceCandidateId: listing.sourceCandidateId,
-            createdAt: listing.createdAt,
-          }),
-        };
-      })
+    ? (await prisma.$queryRaw<Array<{
+        channelAccountId: string;
+        createdAt: Date;
+        createdOn: string | null;
+        sourceCandidateId: string | null;
+      }>>`
+        SELECT channel_account_id AS "channelAccountId",
+               created_at AS "createdAt",
+               raw_json ->> 'createdOn' AS "createdOn",
+               source_candidate_id AS "sourceCandidateId"
+        FROM channel_listings
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND channel_account_id = ANY(${selectedAccountIds}::uuid[])
+          AND is_active = TRUE
+          AND created_at >= ${earliestAttemptStart.toISOString()}::timestamptz
+      `).map((listing) => ({
+        channelAccountId: listing.channelAccountId,
+        createdAt: listing.createdAt,
+        registeredOn: wingListingRegistrationDate(listing),
+      }))
     : [];
   const lateListingDates = new Set(selected.flatMap(([key, attempt]) => {
     const date = key.slice(key.lastIndexOf(':') + 1);
