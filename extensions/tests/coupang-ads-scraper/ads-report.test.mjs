@@ -3627,6 +3627,8 @@ const DONE_REFUSED_WARNING =
   "승인 액션 1개는 광고센터에 반영했지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.";
 const WRITE_DEADLINE_MS = 10 * 60 * 1000;
 const WRITE_DEADLINE_FAILURE = "실행 기한(10분)이 지나 광고센터에 쓰지 않았습니다.";
+const CONFIRM_DEADLINE_FAILURE =
+  "실행 기한(10분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.";
 const CAMPAIGN_ROSTER_UNREAD_FAILURE =
   "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
 
@@ -4240,20 +4242,26 @@ test("a keyword pause is written within 10 minutes of its claim, and past that i
   assert.deepEqual({ ...late.response }, { success: true, executed: 0, skipped: 1 });
 });
 
-async function runBidChangeStalledAfterClaim(stalledForMs) {
+async function runBidChangeStalled({ at, stalledForMs }) {
   const clock = controllableClock();
   const reports = [];
-  const saves = { count: 0 };
+  const clicks = { edit: 0, save: 0 };
   const label = "기한 입찰가 키워드";
-  // The tab stalls while it opens the editor; the save click is the Coupang write.
-  const editButton = { innerText: "수정", click: () => clock.advance(stalledForMs) };
+  const editButton = { innerText: "수정", click: () => { clicks.edit += 1; } };
   const row = { innerText: label, querySelectorAll: () => [editButton], click: () => {} };
   const bidInput = { value: "" };
-  const saveButton = { innerText: "저장", click: () => { saves.count += 1; } };
+  const saveButton = { innerText: "저장", click: () => { clicks.save += 1; } };
   const dialog = {
     offsetParent: {},
     querySelector: () => bidInput,
     querySelectorAll: (selector) => (selector.includes("button") ? [saveButton] : []),
+  };
+  const server = recordingReportServer(reports);
+  let stalled = false;
+  const stall = () => {
+    if (stalled) return;
+    stalled = true;
+    clock.advance(stalledForMs);
   };
   const tab = loadContract({
     exposeRuntime: true,
@@ -4263,12 +4271,22 @@ async function runBidChangeStalledAfterClaim(stalledForMs) {
       title: "광고센터",
       querySelector: () => null,
       querySelectorAll: (selector) => {
-        if (selector === "table tbody tr") return [row];
+        if (selector === "table tbody tr") {
+          // The tab stalls after its claim, while it looks for the keyword row.
+          if (at === "rowLookup") stall();
+          return [row];
+        }
         if (selector.includes("[role='dialog']")) return [dialog];
         return [];
       },
     },
-    sendMessage: recordingReportServer(reports),
+    sendMessage: async (message, callback) => {
+      // The tab stalls in the last wait before the save click, once the bid is typed.
+      if (at === "beforeSave" && message?.action === "waitForAdCollectorDelay" && bidInput.value !== "") {
+        stall();
+      }
+      return server(message, callback);
+    },
   });
   const response = await dispatchExecuteApprovedAdActions(tab, [
     {
@@ -4280,20 +4298,93 @@ async function runBidChangeStalledAfterClaim(stalledForMs) {
       proposedValue: 600,
     },
   ]);
-  return { reports, saves, bidInput, response };
+  return { reports, clicks, bidInput, response };
 }
 
-test("a bid change is saved within 10 minutes of its claim, and past that it is reported failed without saving", async () => {
-  const onTime = await runBidChangeStalledAfterClaim(WRITE_DEADLINE_MS);
+test("a bid change is saved within 10 minutes of its claim, and past that it neither saves nor opens the editor", async () => {
+  const onTime = await runBidChangeStalled({ at: "beforeSave", stalledForMs: WRITE_DEADLINE_MS });
   assert.equal(onTime.bidInput.value, "600");
-  assert.equal(onTime.saves.count, 1);
+  assert.deepEqual(onTime.clicks, { edit: 1, save: 1 });
   assert.deepEqual(onTime.reports.map((report) => report.action), ["markRunning", "markDone"]);
 
-  const late = await runBidChangeStalledAfterClaim(WRITE_DEADLINE_MS + 1);
-  assert.equal(late.saves.count, 0, "a bid change past its write deadline must not be saved");
+  // A stall in the last wait before the save click is caught at that click.
+  const lateAtSave = await runBidChangeStalled({ at: "beforeSave", stalledForMs: WRITE_DEADLINE_MS + 1 });
+  assert.deepEqual(lateAtSave.clicks, { edit: 1, save: 0 }, "a bid change past its write deadline must not be saved");
+  assert.deepEqual(
+    lateAtSave.reports.map((report) => [report.action, report.errorMessage]),
+    [["markRunning", undefined], ["markFailed", WRITE_DEADLINE_FAILURE]],
+  );
+  assert.deepEqual({ ...lateAtSave.response }, { success: true, executed: 0, skipped: 1 });
+
+  // A tab already past its deadline when it finds the row does not open the editor.
+  const lateAtRow = await runBidChangeStalled({ at: "rowLookup", stalledForMs: WRITE_DEADLINE_MS + 1 });
+  assert.deepEqual(lateAtRow.clicks, { edit: 0, save: 0 }, "a bid change past its write deadline must not open the editor");
+  assert.deepEqual(
+    lateAtRow.reports.map((report) => [report.action, report.errorMessage]),
+    [["markRunning", undefined], ["markFailed", WRITE_DEADLINE_FAILURE]],
+  );
+});
+
+async function runKeywordPauseStalledBeforeConfirmation(stalledForMs) {
+  const clock = controllableClock();
+  const reports = [];
+  const clicks = { pause: 0, confirm: 0 };
+  const label = "확인창 키워드";
+  const pauseButton = { innerText: "중지", click: () => { clicks.pause += 1; } };
+  const row = { innerText: label, querySelectorAll: () => [pauseButton], click: () => {} };
+  const confirmButton = { innerText: "확인", click: () => { clicks.confirm += 1; } };
+  const confirmation = {
+    offsetParent: {},
+    querySelectorAll: (selector) => (selector.includes("button") ? [confirmButton] : []),
+  };
+  const server = recordingReportServer(reports);
+  let stalled = false;
+  const tab = loadContract({
+    exposeRuntime: true,
+    globals: { Date: clock.Date },
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => {
+        if (selector === "table tbody tr") return [row];
+        // The pause click asks for confirmation.
+        if (selector.includes("[role='dialog']")) return clicks.pause > 0 ? [confirmation] : [];
+        return [];
+      },
+    },
+    sendMessage: async (message, callback) => {
+      // The tab stalls in the wait between the pause click and the confirmation click.
+      if (message?.action === "waitForAdCollectorDelay" && clicks.pause === 1 && !stalled) {
+        stalled = true;
+        clock.advance(stalledForMs);
+      }
+      return server(message, callback);
+    },
+  });
+  const response = await dispatchExecuteApprovedAdActions(tab, [
+    {
+      id: "action-confirm-pause",
+      executionTaskId: "task-confirm-pause",
+      actionType: "pause_keyword",
+      targetLabel: label,
+      payload: { keyword: label },
+    },
+  ]);
+  return { reports, clicks, response };
+}
+
+test("a keyword pause is confirmed within 10 minutes of its claim, and past that it stops at the confirmation saying the pause may have applied", async () => {
+  const onTime = await runKeywordPauseStalledBeforeConfirmation(WRITE_DEADLINE_MS);
+  assert.deepEqual(onTime.clicks, { pause: 1, confirm: 1 });
+  assert.deepEqual(onTime.reports.map((report) => report.action), ["markRunning", "markDone"]);
+
+  const late = await runKeywordPauseStalledBeforeConfirmation(WRITE_DEADLINE_MS + 1);
+  assert.deepEqual(late.clicks, { pause: 1, confirm: 0 }, "a confirmation past its write deadline must not be clicked");
+  // The pause click may already have applied, so the failure says so.
   assert.deepEqual(
     late.reports.map((report) => [report.action, report.errorMessage]),
-    [["markRunning", undefined], ["markFailed", WRITE_DEADLINE_FAILURE]],
+    [["markRunning", undefined], ["markFailed", CONFIRM_DEADLINE_FAILURE]],
   );
   assert.deepEqual({ ...late.response }, { success: true, executed: 0, skipped: 1 });
 });
@@ -4324,11 +4415,24 @@ function campaignRosterResponse(campaigns) {
   };
 }
 
-function openCampaignRegistrationTab({ roster, stalledOnProductSelectMs = 0 }) {
+function openCampaignRegistrationTab({
+  roster,
+  stalledOnProductSelectMs = 0,
+  confirmation = false,
+  stalledAfterCompleteMs = 0,
+}) {
   const clock = controllableClock();
   const events = [];
   const reports = [];
-  const clicks = { complete: 0 };
+  const clicks = { complete: 0, confirm: 0 };
+  // 완료 may ask for confirmation before it registers the campaign.
+  const registerButton = { innerText: "등록", click: () => { clicks.confirm += 1; } };
+  const confirmationDialog = {
+    offsetParent: {},
+    querySelectorAll: (selector) =>
+      (selector === "button, a, [role='button'], [role='tab']" ? [registerButton] : []),
+  };
+  let stalledAfterComplete = false;
   const field = (placeholder) => ({
     value: "",
     getAttribute: (name) => (name === "placeholder" ? placeholder : null),
@@ -4384,11 +4488,19 @@ function openCampaignRegistrationTab({ roster, stalledOnProductSelectMs = 0 }) {
         if (selector === "input") return [nameInput, searchInput, adGroupInput, budgetInput];
         if (selector === 'li[data-bigfoot-component="vendor_item"]') return [productRow];
         if (selector === "button, a, [role='button'], [role='tab']") return [completeButton];
+        if (confirmation && clicks.complete > 0 && selector.includes("[role='dialog']")) {
+          return [confirmationDialog];
+        }
         return [];
       },
     },
     sendMessage: async (message, callback) => {
       if (message?.action === "waitForAdCollectorDelay") {
+        // The tab stalls in the wait between the 완료 click and the confirmation click.
+        if (stalledAfterCompleteMs > 0 && clicks.complete === 1 && !stalledAfterComplete) {
+          stalledAfterComplete = true;
+          clock.advance(stalledAfterCompleteMs);
+        }
         callback?.();
         return undefined;
       }
@@ -4477,5 +4589,41 @@ test("create_campaign completes a new campaign within 10 minutes of its claim, a
     "markFailed:task-create-campaign",
   ]);
   assert.equal(late.reports.at(-1).errorMessage, WRITE_DEADLINE_FAILURE);
+  assert.deepEqual({ ...lateResponse }, { success: true, executed: 0, skipped: 1 });
+});
+
+test("create_campaign confirms the registration within 10 minutes of its claim, and past that it stops at the confirmation saying the campaign may exist", async () => {
+  const roster = () => campaignRosterResponse([
+    { id: 104640375, name: "쿠팡윙 집중광고", isActive: true, groupList: [] },
+  ]);
+
+  const onTime = openCampaignRegistrationTab({
+    roster: roster(),
+    confirmation: true,
+    stalledAfterCompleteMs: WRITE_DEADLINE_MS,
+  });
+  const onTimeResponse = await dispatchExecuteApprovedAdActions(onTime.tab, [CREATE_CAMPAIGN_ACTION]);
+  assert.deepEqual(onTime.clicks, { complete: 1, confirm: 1 });
+  assert.deepEqual(onTime.events, [
+    "markRunning:task-create-campaign",
+    "roster:isDeleted=false",
+    "markDone:task-create-campaign",
+  ]);
+  assert.deepEqual({ ...onTimeResponse }, { success: true, executed: 1, skipped: 0 });
+
+  const late = openCampaignRegistrationTab({
+    roster: roster(),
+    confirmation: true,
+    stalledAfterCompleteMs: WRITE_DEADLINE_MS + 1,
+  });
+  const lateResponse = await dispatchExecuteApprovedAdActions(late.tab, [CREATE_CAMPAIGN_ACTION]);
+  assert.deepEqual(late.clicks, { complete: 1, confirm: 0 }, "a confirmation past its write deadline must not be clicked");
+  assert.deepEqual(late.events, [
+    "markRunning:task-create-campaign",
+    "roster:isDeleted=false",
+    "markFailed:task-create-campaign",
+  ]);
+  // 완료 may already have registered the campaign, so the failure says so.
+  assert.equal(late.reports.at(-1).errorMessage, CONFIRM_DEADLINE_FAILURE);
   assert.deepEqual({ ...lateResponse }, { success: true, executed: 0, skipped: 1 });
 });

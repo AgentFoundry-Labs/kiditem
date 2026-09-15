@@ -2695,6 +2695,7 @@
     if (dialog) {
       const confirmButton = findClickableByText(["등록", "확인", "완료"], dialog);
       if (confirmButton) {
+        assertWithinWriteDeadline(claim, ACTION_CONFIRM_DEADLINE_MESSAGE);
         confirmButton.click();
         await sleep(1500);
       }
@@ -2733,6 +2734,7 @@
     await sleep(600);
     const dialog = findDialog();
     if (dialog) {
+      assertWithinWriteDeadline(claim, ACTION_CONFIRM_DEADLINE_MESSAGE);
       clickBestButton(dialog, ["확인", "저장", "적용"]);
       await sleep(1200);
     }
@@ -2740,6 +2742,9 @@
   }
 
   async function executeNumericChange(action, row, labelHints, claim) {
+    // The row's edit control is matched by its label only, so a tab already
+    // past its deadline does not click it at all.
+    assertWithinWriteDeadline(claim);
     await openEditor(row);
     const dialog = findDialog() || document.body;
     const input = findInputInDialog(dialog, labelHints);
@@ -2779,13 +2784,21 @@
   const ACTION_WRITE_DEADLINE_MS = 10 * 60 * 1000;
   const ACTION_WRITE_DEADLINE_MESSAGE =
     `실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 광고센터에 쓰지 않았습니다.`;
+  // A stop at a confirmation click follows a click that may already have
+  // written, so its failure does not claim that nothing changed.
+  const ACTION_CONFIRM_DEADLINE_MESSAGE =
+    `실행 기한(${ACTION_WRITE_DEADLINE_MS / 60000}분)이 지나 확인 단계에서 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 확인해 주세요.`;
   const CAMPAIGN_ROSTER_UNREAD_MESSAGE =
     "광고센터 캠페인 목록을 끝까지 읽지 못해 같은 이름의 캠페인이 있는지 확인하지 못했습니다. 캠페인을 만들지 않았습니다.";
 
-  /** Checked right before each Coupang write; the failure becomes the action's reported outcome. */
-  function assertWithinWriteDeadline(claim) {
+  /**
+   * Checked immediately before each click that can write to Coupang, with
+   * nothing awaited in between; the thrown failure becomes the action's
+   * reported outcome.
+   */
+  function assertWithinWriteDeadline(claim, message = ACTION_WRITE_DEADLINE_MESSAGE) {
     if (Date.now() - claim.claimedAt > ACTION_WRITE_DEADLINE_MS) {
-      throw new Error(ACTION_WRITE_DEADLINE_MESSAGE);
+      throw new Error(message);
     }
   }
 
