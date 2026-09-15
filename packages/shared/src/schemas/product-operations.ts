@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SourceReadinessSchema } from '../source-readiness.js';
 import { zIsoDate } from './common.js';
+import { DashboardPeriodBasisSchema } from './dashboard.js';
 import {
   ProductAbcContributionOverviewSchema,
   ProductAbcContributionProductSchema,
@@ -191,6 +192,18 @@ const ProductOperationsMetricFreshnessSchema = z.object({
   capturedAt: zIsoDate.nullable(),
 }).strict();
 
+/**
+ * Wing traffic freshness is the capture time and the period basis the views
+ * and cart adds were summed over. Nothing derived from the basis travels
+ * beside it (ADR-0006): views and cart adds are measured unless
+ * `periodBasisStatus(basis)` is `empty`, and visitors only when it is
+ * `complete`.
+ */
+const ProductOperationsTrafficFreshnessSchema = z.object({
+  capturedAt: zIsoDate.nullable(),
+  basis: DashboardPeriodBasisSchema,
+}).strict();
+
 export const ProductOperationsDataSourceStatusSchema = SourceReadinessSchema;
 export type ProductOperationsDataSourceStatus = z.infer<
   typeof ProductOperationsDataSourceStatusSchema
@@ -249,7 +262,7 @@ export const MasterProductOperationsListItemSchema =
     adSpend: z.number().int().nonnegative().nullable(),
     adSpendRate: z.number().finite().nonnegative().nullable(),
     metricsFreshness: z.object({
-      traffic: ProductOperationsMetricFreshnessSchema,
+      traffic: ProductOperationsTrafficFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
       orders: ProductOperationsMetricFreshnessSchema,
     }).strict(),
