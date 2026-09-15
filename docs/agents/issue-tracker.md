@@ -115,11 +115,15 @@ leader that no open issue delegates to.
    in the live state. Release it by moving it back to Ready with the delegate
    cleared and a comment.
 3. **Live state.** Keep a `## 현재 상태` section at the top of the description
-   of the spec, map, or lead issue of the PR (first line: milestone, human
-   assignee, Dev Leader; then PR; done; running, with agent and worktree;
-   next). Update it, and only it, at each of these eight
-   triggers: claim, agent start, agent finish, review result, PR open, CI
-   result, merge, user decision. Everything else is an append-only comment.
+   of the spec, map, or lead issue of the PR, and keep it to four lines:
+   milestone · human assignee · Dev Leader; branch · worktree · PR; next step;
+   last update (KST, trigger). State, PR links, and field changes live in
+   Linear's own fields and activity, not in prose. History goes to one comment
+   thread titled `진행`: one reply per trigger — claim, agent start, agent
+   finish, review result, PR open, CI result, merge, user decision — and
+   nothing in that thread is rewritten. Long-lived context that outlives one
+   issue (a handover, a design brief) is a project document linked from the
+   issue.
 4. **Found work** goes to Triage with a relation to the issue that found it.
 5. **PR.** Branch from the latest `develop` as `kid-<number>-<short-description>`
    with no tool or account prefix; every contributor pulls `develop` and
