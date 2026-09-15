@@ -22,6 +22,7 @@ import {
 } from '../lib/order-collection-source-owner';
 import {
   detectOrderCollectionSessionExtensionStatus,
+  OrderCollectionExtensionUnavailableError,
   orderCollectionExtensionUnavailableMessage,
   type OrderCollectionExtensionRun,
 } from '../lib/order-collection-extension';
@@ -94,7 +95,10 @@ export function useOrderCollectionSessionControls(
     () => new Set(),
   );
   const activeRunsRef = useRef(new Map<string, ActiveRun>());
-  const startingRef = useRef(false);
+  /** Malls whose owner admission is queued or in flight. */
+  const startingKeysRef = useRef(new Set<string>());
+  /** Admissions share one persisted replay slot, so they take turns. */
+  const admissionTurnRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!organizationId) {
@@ -131,9 +135,18 @@ export function useOrderCollectionSessionControls(
       : null;
   }, [attempt?.plan.mallKey, mallAccounts]);
 
-  const setScopedAttempt = useCallback((next: ActiveOrderCollectionAttempt) => {
+  /**
+   * An attempt is remembered as the latest one, which a reloaded screen offers to
+   * resume, and under its mall. Collect-all starts several malls, so a mall left
+   * waiting for a login must still find its own running attempt afterwards;
+   * starting it again instead is refused while that attempt runs.
+   */
+  const setScopedAttempt = useCallback((next: ActiveOrderCollectionAttempt, mallKey?: string) => {
     if (!organizationId) return;
     rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey);
+    if (mallKey) {
+      rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey, mallKey);
+    }
     setActiveScope({ organizationId, environmentKey, attempt: next });
   }, [environmentKey, organizationId]);
 
@@ -163,7 +176,9 @@ export function useOrderCollectionSessionControls(
           code: 'EXTENSION_UNAVAILABLE',
           message: orderCollectionExtensionUnavailableMessage(extensionStatus),
         }).catch(() => undefined);
-        throw new Error(orderCollectionExtensionUnavailableMessage(extensionStatus));
+        throw new OrderCollectionExtensionUnavailableError(
+          orderCollectionExtensionUnavailableMessage(extensionStatus),
+        );
       }
       extensionId = extensionStatus.extensionId;
     }
@@ -204,7 +219,9 @@ export function useOrderCollectionSessionControls(
           code: 'EXTENSION_UNAVAILABLE',
           message: orderCollectionExtensionUnavailableMessage(extensionStatus),
         }).catch(() => undefined);
-        throw new Error(orderCollectionExtensionUnavailableMessage(extensionStatus));
+        throw new OrderCollectionExtensionUnavailableError(
+          orderCollectionExtensionUnavailableMessage(extensionStatus),
+        );
       }
       extensionId = extensionStatus.extensionId;
     }
@@ -322,12 +339,20 @@ export function useOrderCollectionSessionControls(
     if (!organizationId) {
       throw new Error('주문 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
     }
-    if (startingRef.current) {
+    // The owner admits one running attempt per mall, so different malls collect
+    // together (collect-all starts several at once); a second start of the same
+    // mall is still refused. Only admission takes turns, because the latest
+    // attempt slot is shared by every mall.
+    if (startingKeysRef.current.has(account.key)) {
       throw new Error('주문 수집이 이미 시작되었습니다.');
     }
-    startingRef.current = true;
-    try {
-      let persisted = readActiveOrderCollectionAttempt(organizationId, environmentKey);
+    startingKeysRef.current.add(account.key);
+    const admit = async (): Promise<() => Promise<OrderCollectionExtensionRun>> => {
+      const own = readActiveOrderCollectionAttempt(organizationId, environmentKey, account.key);
+      const latest = own ? null : readActiveOrderCollectionAttempt(organizationId, environmentKey);
+      // The latest slot counts only when it is not another mall's. Replaying
+      // another mall's key reaches the owner as a reused key and is refused.
+      let persisted = own ?? (latest && (!latest.mallKey || latest.mallKey === account.key) ? latest : null);
       if (existingAttemptId && persisted?.attemptId !== existingAttemptId) {
         persisted = { attemptId: existingAttemptId, idempotencyKey: null };
       }
@@ -347,20 +372,21 @@ export function useOrderCollectionSessionControls(
             setScopedAttempt({
               attemptId: current.attemptId,
               idempotencyKey: persisted.idempotencyKey,
-            });
-            return activateAttempt(account, current, collectionMode, knownExtensionStatus, undefined, options);
+              mallKey: account.key,
+            }, account.key);
+            return () => activateAttempt(account, current, collectionMode, knownExtensionStatus, undefined, options);
           }
           // Terminal attempts never get provider work replayed. An explicit
           // click starts a fresh owner attempt with a fresh idempotency key.
           persisted = { attemptId: null, idempotencyKey: null };
-          setScopedAttempt(persisted);
+          setScopedAttempt(persisted, account.key);
         } catch (error) {
           if (!isOrderCollectionAttemptNotFound(error)) throw error;
           // A persisted attempt can belong to a previous organization/session
           // or an expired server record. Only this explicit start clears it;
           // passive mount reads remain side-effect free.
           persisted = { attemptId: null, idempotencyKey: null };
-          setScopedAttempt(persisted);
+          setScopedAttempt(persisted, account.key);
         }
       }
 
@@ -379,10 +405,11 @@ export function useOrderCollectionSessionControls(
       setScopedAttempt({
         attemptId: null,
         idempotencyKey,
+        mallKey: account.key,
         ...(collectionMode === 'browser' ? { collectionDate } : {}),
         ...(selectionMode ? { selectionMode } : {}),
         ...(seenRowKeys ? { seenRowKeys } : {}),
-      });
+      }, account.key);
       let started: OrderCollectionSourceAttemptControl;
       try {
         started = await beginOrderCollectionSourceAttempt(idempotencyKey, {
@@ -394,16 +421,16 @@ export function useOrderCollectionSessionControls(
         });
       } catch (error) {
         if (isApiError(error) && error.status >= 400 && error.status < 500) {
-          setScopedAttempt({ attemptId: null, idempotencyKey: null });
+          setScopedAttempt({ attemptId: null, idempotencyKey: null }, account.key);
         }
         throw error;
       }
-      setScopedAttempt({ attemptId: started.attemptId, idempotencyKey });
+      setScopedAttempt({ attemptId: started.attemptId, idempotencyKey, mallKey: account.key }, account.key);
       queryClient.setQueryData(
         attemptQueryKey(organizationId, environmentKey, started.attemptId),
         started,
       );
-      return activateAttempt(
+      return () => activateAttempt(
         account,
         started,
         collectionMode,
@@ -411,8 +438,15 @@ export function useOrderCollectionSessionControls(
         started.attemptToken,
         options,
       );
+    };
+    const turn = admissionTurnRef.current.then(admit);
+    admissionTurnRef.current = turn.then(() => undefined, () => undefined);
+    try {
+      // Extension detection runs after this mall's turn, alongside other malls.
+      const activate = await turn;
+      return await activate();
     } finally {
-      startingRef.current = false;
+      startingKeysRef.current.delete(account.key);
     }
   }, [
     activateAttempt,

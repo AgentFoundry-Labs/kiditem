@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
+import { ApiError, isApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 export const ORDER_COLLECTION_SOURCE_PATH = '/api/orders/collection';
+export const ORDER_COLLECTION_IN_PROGRESS_MESSAGE =
+  '이 몰의 앞선 수집이 아직 끝나지 않았습니다. 끝나거나 30분이 지나 자동으로 정리된 뒤 다시 눌러주세요.';
 export const ORDER_COLLECTION_SOURCE_ATTEMPT_STORAGE_PREFIX =
   'kiditem:orders:collection-source-attempt';
 
@@ -51,6 +53,8 @@ export type OrderCollectionAttemptContext = {
 export type ActiveOrderCollectionAttempt = {
   attemptId: string | null;
   idempotencyKey: string | null;
+  /** The mall an unfinished admission key was issued for. */
+  mallKey?: string;
   collectionDate?: string | null;
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
@@ -59,6 +63,7 @@ export type ActiveOrderCollectionAttempt = {
 const ActiveOrderCollectionAttemptSchema = z.object({
   attemptId: z.string().uuid().nullable(),
   idempotencyKey: z.string().uuid().nullable(),
+  mallKey: z.string().min(1).max(80).optional(),
   collectionDate: z.string().nullable().optional(),
   selectionMode: z.enum(['manual', 'automatic']).optional(),
   seenRowKeys: z.array(z.string().max(2_000)).max(8_000).optional(),
@@ -73,25 +78,29 @@ export function getOrderCollectionEnvironmentKey(): string {
     : `${window.location.protocol}//${window.location.host}`;
 }
 
+/** Without `mallKey` this is the latest attempt of any mall; with it, that mall's own. */
 export function orderCollectionSourceAttemptStorageKey(
   organizationId: string,
   environmentKey = getOrderCollectionEnvironmentKey(),
+  mallKey?: string,
 ): string {
   return [
     ORDER_COLLECTION_SOURCE_ATTEMPT_STORAGE_PREFIX,
     encodeURIComponent(organizationId),
     encodeURIComponent(environmentKey),
+    ...(mallKey ? [encodeURIComponent(mallKey)] : []),
   ].join(':');
 }
 
 export function readActiveOrderCollectionAttempt(
   organizationId: string,
   environmentKey = getOrderCollectionEnvironmentKey(),
+  mallKey?: string,
 ): ActiveOrderCollectionAttempt | null {
   if (!organizationId) return null;
   const raw = safeStorageGet(
     'local',
-    orderCollectionSourceAttemptStorageKey(organizationId, environmentKey),
+    orderCollectionSourceAttemptStorageKey(organizationId, environmentKey, mallKey),
   );
   if (!raw) return null;
   try {
@@ -106,11 +115,12 @@ export function rememberActiveOrderCollectionAttempt(
   organizationId: string,
   attempt: ActiveOrderCollectionAttempt,
   environmentKey = getOrderCollectionEnvironmentKey(),
+  mallKey?: string,
 ): void {
   if (!organizationId) return;
   safeStorageSet(
     'local',
-    orderCollectionSourceAttemptStorageKey(organizationId, environmentKey),
+    orderCollectionSourceAttemptStorageKey(organizationId, environmentKey, mallKey),
     JSON.stringify(attempt),
   );
 }
@@ -167,7 +177,16 @@ export function beginOrderCollectionSourceAttempt(
       },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     )
-    .then((response) => OrderCollectionSourceAttemptControlSchema.parse(response));
+    .then((response) => OrderCollectionSourceAttemptControlSchema.parse(response))
+    .catch((error: unknown) => {
+      // The owner admits one running attempt per mall. This browser did not
+      // start that attempt (another browser, or cleared storage), so it cannot
+      // resume it; say so instead of the bare conflict code.
+      if (isApiError(error) && error.status === 409 && error.detail === 'ATTEMPT_IN_PROGRESS') {
+        throw new ApiError(409, error.code, ORDER_COLLECTION_IN_PROGRESS_MESSAGE);
+      }
+      throw error;
+    });
 }
 
 export function failOrderCollectionSourceAttempt(
