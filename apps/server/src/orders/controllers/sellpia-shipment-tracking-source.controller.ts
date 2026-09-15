@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -123,6 +124,16 @@ export class SellpiaShipmentTrackingSourceController {
       attemptToken,
       ...input,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
   @Get('attempts/:attemptId/source')

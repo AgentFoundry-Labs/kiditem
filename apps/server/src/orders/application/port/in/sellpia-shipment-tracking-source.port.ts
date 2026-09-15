@@ -99,6 +99,12 @@ export interface SellpiaShipmentTrackingSourcePort {
     errorMessage: string;
   }): Promise<SellpiaShipmentTrackingAttempt>;
 
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며, 끝난 시도는 그대로 돌려준다. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaShipmentTrackingAttempt>;
+
   readSourceDownload(input: {
     organizationId: string;
     attemptId: string;

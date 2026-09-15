@@ -85,4 +85,17 @@ describe('SellpiaShipmentTrackingSourceController', () => {
     });
     expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
   });
+
+  it('stops a running attempt with organization scope only, never the attempt token', async () => {
+    const stopped = { attemptId: ATTEMPT, state: 'FAILED', errorCode: 'USER_CANCELLED' };
+    const source = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
+    const controller = new SellpiaShipmentTrackingSourceController(source as never);
+
+    await expect(controller.cancel(ORG, ATTEMPT)).resolves.toEqual(stopped);
+    expect(source.cancelAttempt).toHaveBeenCalledWith({
+      organizationId: ORG,
+      attemptId: ATTEMPT,
+    });
+  });
+
 });
