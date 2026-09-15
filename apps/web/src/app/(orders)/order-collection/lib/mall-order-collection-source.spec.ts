@@ -5,6 +5,10 @@ import { ApiError } from '@/lib/api-error';
 import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { mallOrderCollectionSource } from './mall-order-collection-source';
+import {
+  readActiveOrderCollectionAttempt,
+  rememberActiveOrderCollectionAttempt,
+} from './order-collection-source-owner';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -21,6 +25,8 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const RUNNING_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 const COMPLETE_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_TOKEN = '44444444-4444-4444-8444-444444444444';
+const STORED_KEY = '55555555-5555-4555-8555-555555555555';
+const BROWSER_KEY = '66666666-6666-4666-8666-666666666666';
 
 const ACCOUNT = {
   key: 'icecream-mall',
@@ -63,12 +69,34 @@ function openedAttempt() {
   };
 }
 
+/** 다른 탭이 중단했거나 임대가 만료돼 이미 끝난 시도. owner 는 재생 키에 이것을 돌려준다. */
+function endedAttempt() {
+  return {
+    ...openedAttempt(),
+    attemptId: RUNNING_ATTEMPT_ID,
+    sourceImportRunId: RUNNING_ATTEMPT_ID,
+    state: 'FAILED',
+    expiresAt: null,
+    errorCode: 'USER_CANCELLED',
+    errorMessage: '운영자가 수집을 중단했습니다.',
+  };
+}
+
 /** 이 화면이 owner 에게 보낸 시작 요청들의 멱등 키. */
 function beginKeys(): (string | undefined)[] {
   return vi.mocked(apiClient.post).mock.calls
     .filter(([path]) => path === '/api/orders/collection/attempts')
     .map(([, , options]) => (options as { headers?: Record<string, string> } | undefined)
       ?.headers?.['Idempotency-Key']);
+}
+
+function manualUploadSource(handOff = vi.fn().mockResolvedValue(undefined)) {
+  return mallOrderCollectionSource({
+    organizationId: ORGANIZATION_ID,
+    account: ACCOUNT,
+    collectionMode: 'manual-upload',
+    handOff,
+  });
 }
 
 function adapter(handOff = vi.fn().mockResolvedValue(undefined)) {
@@ -247,5 +275,83 @@ describe('mallOrderCollectionSource', () => {
     const keys = beginKeys();
     expect(keys).toHaveLength(2);
     expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  /**
+   * owner 는 `collectionMode` 까지 넣어 요청 지문을 만든다
+   * (`order-collection-source.repository.ts:91-98`). 힌트가 모드를 적어 두지 않으면
+   * 다음 시작은 모드가 다른 키를 재생해 `SOURCE_IDEMPOTENCY_KEY_REUSED` 로 거절당한다.
+   */
+  it('replays an unanswered key only for the collection mode it was sent under', async () => {
+    const { source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(0, 'network_error', '수집 서버에 연결하지 못했습니다.', {}));
+
+    await expect(source.start!({}, { status: undefined })).rejects.toThrow();
+
+    // 브라우저 수집이 남긴 키는 그 모드로 적힌다.
+    expect(readActiveOrderCollectionAttempt(ORGANIZATION_ID, undefined, ACCOUNT.key))
+      .toMatchObject({ idempotencyKey: beginKeys()[0], collectionMode: 'browser' });
+
+    // 모드를 적지 않은 옛 키는 나머지 필드가 같아도 수동 업로드 시작이 재생하지 않는다.
+    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, {
+      attemptId: null,
+      idempotencyKey: STORED_KEY,
+      mallKey: ACCOUNT.key,
+      collectionDate: null,
+    }, undefined, ACCOUNT.key);
+    vi.mocked(apiClient.post).mockResolvedValue(openedAttempt());
+    await manualUploadSource().start!({}, { status: undefined });
+
+    expect(beginKeys()[1]).not.toBe(STORED_KEY);
+
+    // 브라우저 모드로 적힌 키도 마찬가지다.
+    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, {
+      attemptId: null,
+      idempotencyKey: BROWSER_KEY,
+      mallKey: ACCOUNT.key,
+      collectionDate: null,
+      collectionMode: 'browser',
+    }, undefined, ACCOUNT.key);
+    await manualUploadSource().start!({}, { status: undefined });
+
+    expect(beginKeys()[2]).not.toBe(BROWSER_KEY);
+  });
+
+  /**
+   * ACK 를 잃은 뒤 다른 탭이 그 시도를 끝내면 owner 는 재생 키에 종료된 시도를 돌려준다.
+   * 이어받을 것이 없으니 그 키를 버리고 새 키로 다시 열어야 핸드오프가 일어난다.
+   */
+  it('begins again with a new key when the replayed attempt already ended', async () => {
+    const { handOff, source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(0, 'network_error', '수집 서버에 연결하지 못했습니다.', {}))
+      .mockResolvedValueOnce(endedAttempt())
+      .mockResolvedValueOnce(openedAttempt());
+
+    await expect(source.start!({}, { status: undefined })).rejects.toThrow();
+    const outcome = await source.start!({}, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(3);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(outcome).toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
+    expect(handOff).toHaveBeenCalledTimes(1);
+  });
+
+  /** 429 는 owner 가 시작을 결정하지 못한 답이다. 네트워크 오류처럼 키를 남긴다. */
+  it('keeps the unanswered key when the owner answered without deciding', async () => {
+    const { source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(429, 'too_many_requests', '잠시 후 다시 시도해 주세요.', {}))
+      .mockResolvedValueOnce(openedAttempt());
+
+    await expect(source.start!({}, { status: undefined })).rejects.toThrow();
+    await source.start!({}, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
   });
 });

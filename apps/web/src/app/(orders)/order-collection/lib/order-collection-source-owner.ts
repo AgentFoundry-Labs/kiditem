@@ -56,6 +56,8 @@ export type ActiveOrderCollectionAttempt = {
   /** The mall an unfinished admission key was issued for. */
   mallKey?: string;
   collectionDate?: string | null;
+  /** The mode the key was sent under; the owner fingerprints the begin with it. */
+  collectionMode?: 'browser' | 'manual-upload';
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
 };
@@ -65,6 +67,7 @@ const ActiveOrderCollectionAttemptSchema = z.object({
   idempotencyKey: z.string().uuid().nullable(),
   mallKey: z.string().min(1).max(80).optional(),
   collectionDate: z.string().nullable().optional(),
+  collectionMode: z.enum(['browser', 'manual-upload']).optional(),
   selectionMode: z.enum(['manual', 'automatic']).optional(),
   seenRowKeys: z.array(z.string().max(2_000)).max(8_000).optional(),
 }).strict();

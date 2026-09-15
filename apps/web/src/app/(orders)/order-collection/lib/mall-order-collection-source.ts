@@ -77,15 +77,70 @@ type MallBeginRequest = Readonly<{
 /**
  * The owner replays an admission key only for the same request; a key sent with
  * anything else is refused as reused. A start that asks for something new
- * therefore drops the unanswered key instead of replaying it.
+ * therefore drops the unanswered key instead of replaying it. This compares
+ * every field the owner's request fingerprint carries: the per-mall storage key
+ * already stands for the mall and its channel account.
  */
 function sameBeginRequest(
   remembered: ActiveOrderCollectionAttempt,
   request: MallBeginRequest,
 ): boolean {
   return (remembered.collectionDate ?? null) === request.collectionDate
+    && (remembered.collectionMode ?? null) === request.collectionMode
     && (remembered.selectionMode ?? null) === (request.selectionMode ?? null)
     && (remembered.seenRowKeys ?? []).join('\u0000') === (request.seenRowKeys ?? []).join('\u0000');
+}
+
+/**
+ * Statuses the owner answers without having decided this begin. The start may
+ * still have opened an attempt, so its key stays for the next start to replay,
+ * as it does when the answer never arrived. Any other 4xx is a decision, and a
+ * decided key has nothing left to replay.
+ */
+const UNDECIDED_BEGIN_STATUSES: readonly number[] = [408, 425, 429];
+
+function ownerDecidedBegin(error: unknown): boolean {
+  return isApiError(error)
+    && error.status >= 400
+    && error.status < 500
+    && !UNDECIDED_BEGIN_STATUSES.includes(error.status);
+}
+
+/**
+ * Sends one begin under `idempotencyKey`, having written the key and its request
+ * down first, so an answer this browser never sees still leaves the key for the
+ * next start (KID-189).
+ */
+async function openMallAttempt(
+  organizationId: string | null,
+  idempotencyKey: string,
+  request: MallBeginRequest,
+): Promise<OrderCollectionSourceAttemptControl> {
+  if (organizationId) {
+    rememberActiveOrderCollectionAttempt(organizationId, {
+      attemptId: null,
+      idempotencyKey,
+      mallKey: request.mallKey,
+      collectionDate: request.collectionDate,
+      collectionMode: request.collectionMode,
+      ...(request.selectionMode ? { selectionMode: request.selectionMode } : {}),
+      ...(request.seenRowKeys ? { seenRowKeys: request.seenRowKeys } : {}),
+    }, undefined, request.mallKey);
+  }
+  try {
+    return await beginOrderCollectionSourceAttempt(idempotencyKey, request);
+  } catch (error) {
+    // owner 가 거절로 답한 키는 다시 보낼 이유가 없다. 결정에 이르지 못한
+    // 답(네트워크·타임아웃·408·425·429)일 때만 남겨 다음 시작이 replay 한다.
+    if (organizationId && ownerDecidedBegin(error)) {
+      rememberActiveOrderCollectionAttempt(organizationId, {
+        attemptId: null,
+        idempotencyKey: null,
+        mallKey: request.mallKey,
+      }, undefined, request.mallKey);
+    }
+    throw error;
+  }
 }
 
 async function detectMallCollectionExtension(): Promise<string> {
@@ -163,36 +218,18 @@ export function mallOrderCollectionSource({
           const unanswered = organizationId
             ? readActiveOrderCollectionAttempt(organizationId, undefined, account.key)
             : null;
-          const beginKey = unanswered?.attemptId === null
+          const replayKey = unanswered?.attemptId === null
             && unanswered.idempotencyKey
             && sameBeginRequest(unanswered, request)
             ? unanswered.idempotencyKey
-            : idempotencyKey;
-          if (organizationId) {
-            // 답을 받기 전에 먼저 적어 둔다. 응답이 유실돼도 키가 남는다.
-            rememberActiveOrderCollectionAttempt(organizationId, {
-              attemptId: null,
-              idempotencyKey: beginKey,
-              mallKey: account.key,
-              collectionDate: request.collectionDate,
-              ...(request.selectionMode ? { selectionMode: request.selectionMode } : {}),
-              ...(request.seenRowKeys ? { seenRowKeys: request.seenRowKeys } : {}),
-            }, undefined, account.key);
-          }
-          let started: OrderCollectionSourceAttemptControl;
-          try {
-            started = await beginOrderCollectionSourceAttempt(beginKey, request);
-          } catch (error) {
-            // owner 가 거절로 답한 키는 다시 보낼 이유가 없다. 답 자체를 못 받은
-            // 경우(네트워크·타임아웃)에만 남겨 다음 시작이 replay 한다.
-            if (organizationId && isApiError(error) && error.status >= 400 && error.status < 500) {
-              rememberActiveOrderCollectionAttempt(organizationId, {
-                attemptId: null,
-                idempotencyKey: null,
-                mallKey: account.key,
-              }, undefined, account.key);
-            }
-            throw error;
+            : null;
+          let beginKey = replayKey ?? idempotencyKey;
+          let started = await openMallAttempt(organizationId, beginKey, request);
+          if (replayKey && started.state !== 'RUNNING') {
+            // 재생한 키의 시도는 이미 끝났다(다른 탭의 중단, 임대 만료). 이어받을
+            // 것이 없으므로 그 키를 버리고 새 키로 다시 열어야 핸드오프가 일어난다.
+            beginKey = idempotencyKey;
+            started = await openMallAttempt(organizationId, beginKey, request);
           }
           opened = started;
           if (organizationId) {
