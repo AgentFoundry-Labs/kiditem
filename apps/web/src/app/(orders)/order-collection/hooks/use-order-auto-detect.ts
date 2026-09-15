@@ -13,6 +13,7 @@ import {
   classifyOrderCollectionFailure,
   isAutoDetectableMall,
 } from '../lib/order-collection-page-model';
+import { isOrderCollectionInProgress } from '../lib/order-collection-start-outcome';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import type { BrowserMallCollectionResult } from '../lib/browser-mall-collection';
@@ -97,6 +98,9 @@ export function useOrderAutoDetect({
             if (collected.rowCount === 0) logActivity('empty', account.name);
           }
         } catch (err) {
+          // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
+          // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
+          if (isOrderCollectionInProgress(err)) continue;
           const message = err instanceof Error ? err.message : '자동 감지 실패';
           const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
           const ownerReconciliationRequired = err instanceof Error &&

@@ -17,11 +17,13 @@ import {
   OrderCollectionExtensionUnavailableError,
   type OrderCollectionExtensionRun,
 } from '@/app/(orders)/order-collection/lib/order-collection-extension';
+import { isOrderCollectionInProgress } from '@/app/(orders)/order-collection/lib/order-collection-start-outcome';
 import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
   classifyOrderCollectionFailure,
   isBrowserCollectableMall,
   mallCollectionFailureMessage,
+  orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
 } from '@/app/(orders)/order-collection/lib/order-collection-page-model';
@@ -55,6 +57,8 @@ export type MarketplaceOrderCollectionActivityKind =
 export type MarketplaceOrderCollectionBatchResult = {
   successCount: number;
   failedCount: number;
+  /** Malls the owner was already collecting, so this batch opened nothing for them. */
+  inProgressCount: number;
 };
 
 type UseAllMarketplaceOrderCollectionOptions = {
@@ -152,6 +156,10 @@ export function useAllMarketplaceOrderCollection({
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
       } catch (error) {
+        // The owner already runs this mall's collection, so nothing was opened
+        // and nothing failed. Leave the running attempt alone: no terminal
+        // failure, no failure activity (KID-106 Q6).
+        if (isOrderCollectionInProgress(error)) throw error;
         const message = mallCollectionFailureMessage(
           account.name,
           friendlyError(error) ?? '브라우저 수집 실패',
@@ -220,11 +228,12 @@ export function useAllMarketplaceOrderCollection({
     accounts: OrderCollectionMallAccount[],
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
-      return { successCount: 0, failedCount: 0 };
+      return { successCount: 0, failedCount: 0, inProgressCount: 0 };
     }
 
     let successCount = 0;
     let failedCount = 0;
+    let inProgressCount = 0;
     await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
       try {
         // Each account is admitted by the source owner before extension
@@ -232,11 +241,14 @@ export function useAllMarketplaceOrderCollection({
         // browser run, is the batch's execution authority.
         await collectAccount(account);
         successCount += 1;
-      } catch {
-        failedCount += 1;
+      } catch (error) {
+        // A mall the owner is already collecting keeps that collection; it is
+        // neither a new success nor a failure of this batch.
+        if (isOrderCollectionInProgress(error)) inProgressCount += 1;
+        else failedCount += 1;
       }
     });
-    return { successCount, failedCount };
+    return { successCount, failedCount, inProgressCount };
   }, [collectAccount]);
 
   const collectAll = useCallback((
@@ -314,15 +326,11 @@ export function usePersistedAllMarketplaceOrderCollection({
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const { successCount, failedCount } = await collectAll(latestAccounts);
+    const batch = await collectAll(latestAccounts);
     await generatedFileWriteQueueRef.current;
-    if (failedCount > 0) {
-      toast.warning(
-        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패`,
-      );
-    } else {
-      toast.success('전체 수집 완료');
-    }
+    const notice = orderCollectionBatchNotice(batch);
+    if (notice.tone === 'warning') toast.warning(notice.message);
+    else toast.success(notice.message);
 
     try {
       const [history, snapshot] = await Promise.all([

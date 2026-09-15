@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-error';
+import { OrderCollectionAlreadyRunningError } from '../lib/order-collection-start-outcome';
 
 const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -409,9 +410,9 @@ describe('useOrderCollectionSessionControls', () => {
     });
 
     expect(settled.map((entry) => entry.status)).toEqual(['fulfilled', 'rejected']);
-    expect((settled[1] as PromiseRejectedResult).reason).toEqual(
-      new Error('주문 수집이 이미 시작되었습니다.'),
-    );
+    // 같은 몰을 두 번 시작한 것은 실패가 아니라 이미 진행 중이라는 뜻이다(KID-106 Q6).
+    expect((settled[1] as PromiseRejectedResult).reason)
+      .toBeInstanceOf(OrderCollectionAlreadyRunningError);
     expect(mocks.begin).toHaveBeenCalledTimes(1);
   });
 

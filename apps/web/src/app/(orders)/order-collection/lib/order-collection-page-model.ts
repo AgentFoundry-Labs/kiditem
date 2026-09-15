@@ -234,6 +234,29 @@ export function mallCollectionFailureMessage(
   return `${mallName} 연결이 끊겼습니다. 로그인 상태(또는 네트워크)를 확인한 뒤 다시 수집해주세요.`;
 }
 
+export type OrderCollectionBatchNotice = Readonly<{
+  tone: 'success' | 'warning';
+  message: string;
+}>;
+
+/**
+ * 전체 수집 한 번을 운영자 문장 하나로 요약한다. 이미 수집 중이던 몰은 두 번째 시도를 열지
+ * 않았을 뿐 실패한 것이 아니므로, 실패와 따로 센다(KID-106 Q6).
+ */
+export function orderCollectionBatchNotice(result: {
+  successCount: number;
+  failedCount: number;
+  inProgressCount: number;
+}): OrderCollectionBatchNotice {
+  if (result.failedCount === 0 && result.inProgressCount === 0) {
+    return { tone: 'success', message: '전체 수집 완료' };
+  }
+  const parts = [`${formatNumber(result.successCount)}개 성공`];
+  if (result.failedCount > 0) parts.push(`${formatNumber(result.failedCount)}개 실패`);
+  if (result.inProgressCount > 0) parts.push(`${formatNumber(result.inProgressCount)}개 진행 중`);
+  return { tone: 'warning', message: `전체 수집 ${parts.join(', ')}` };
+}
+
 export function dayKey(timestamp: number): string {
   const now = new Date(timestamp);
   const year = now.getFullYear();

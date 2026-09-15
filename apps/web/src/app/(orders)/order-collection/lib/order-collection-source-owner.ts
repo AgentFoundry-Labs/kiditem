@@ -181,9 +181,18 @@ export function beginOrderCollectionSourceAttempt(
     .catch((error: unknown) => {
       // The owner admits one running attempt per mall. This browser did not
       // start that attempt (another browser, or cleared storage), so it cannot
-      // resume it; say so instead of the bare conflict code.
-      if (isApiError(error) && error.status === 409 && error.detail === 'ATTEMPT_IN_PROGRESS') {
-        throw new ApiError(409, error.code, ORDER_COLLECTION_IN_PROGRESS_MESSAGE);
+      // resume it; say so instead of the bare conflict code. The machine-readable
+      // refusal travels with the sentence, so the screen can show the running
+      // collection rather than record a failed start (KID-106 Q6).
+      if (
+        isApiError(error)
+        && error.status === 409
+        && (error.details.code === 'ATTEMPT_IN_PROGRESS' || error.detail === 'ATTEMPT_IN_PROGRESS')
+      ) {
+        throw new ApiError(409, error.code, ORDER_COLLECTION_IN_PROGRESS_MESSAGE, {
+          ...error.details,
+          code: 'ATTEMPT_IN_PROGRESS',
+        });
       }
       throw error;
     });

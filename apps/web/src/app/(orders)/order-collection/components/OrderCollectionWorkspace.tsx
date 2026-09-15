@@ -33,6 +33,7 @@ import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
+import { classifyOrderCollectionStart } from '../lib/order-collection-start-outcome';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
@@ -40,6 +41,7 @@ import {
   draftFromMallAccount,
   isBrowserCollectableMall,
   hasSellpiaTransmissionRequest,
+  orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -378,16 +380,12 @@ export function OrderCollectionWorkspace() {
 
     setBrowserCollecting(true);
     setState('converting');
-    const { successCount, failedCount } = await collectAll();
+    const batch = await collectAll();
     setBrowserCollecting(false);
-    setState(failedCount > 0 ? 'error' : 'success');
-    if (failedCount > 0) {
-      toast.warning(
-        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패`,
-      );
-    } else {
-      toast.success('전체 수집 완료');
-    }
+    setState(batch.failedCount > 0 ? 'error' : 'success');
+    const notice = orderCollectionBatchNotice(batch);
+    if (notice.tone === 'warning') toast.warning(notice.message);
+    else toast.success(notice.message);
     // 수집이 끝나면 셀피아와 대조해 "신규"를 아직 안 올라간 주문으로 맞춘다.
     await handleReconcileWithSellpia({ silentWhenClean: true });
   };
@@ -494,10 +492,17 @@ export function OrderCollectionWorkspace() {
       if (run?.signal?.aborted) {
         setState('idle');
         toast.info(`${account.name} 수집을 중단했습니다.`);
-      } else {
-        setState('error');
-        toast.error(friendlyError(err) ?? '브라우저 수집 실패');
+        return;
       }
+      const outcome = classifyOrderCollectionStart(err, account.name);
+      // 같은 몰이 이미 수집 중이면 두 번째 시도를 열지 않고 진행 중인 수집을 보여 준다(KID-106 Q6).
+      if (outcome.outcome === 'in_progress') {
+        setState('idle');
+        toast.info(`${account.name} ${outcome.message}`);
+        return;
+      }
+      setState('error');
+      toast.error(outcome.message);
     }
   };
 

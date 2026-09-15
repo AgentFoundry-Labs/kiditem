@@ -32,6 +32,8 @@ vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
 }));
 
 import { useAllMarketplaceOrderCollection } from './useAllMarketplaceOrderCollection';
+import { ApiError } from '@/lib/api-error';
+import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
 import type { OrderCollectionMallAccount } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
 
 const mall = (key: string, name: string): OrderCollectionMallAccount => ({
@@ -158,6 +160,39 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
 
     expect(batch).toMatchObject({ successCount: 1, failedCount: 0 });
     expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  /**
+   * KID-106 Q6. 새로고침·다른 탭에서 같은 몰을 다시 시작하면 owner 가 409 로 거절한다. 그 몰은
+   * 이미 수집하는 중이지 실패한 것이 아니므로, 실패 수에도 활동 기록에도 남기지 않는다.
+   */
+  it('⭐ 이미 진행 중인 몰은 실패가 아니라 진행 중으로 센다 — 실패 기록을 남기지 않는다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    const logActivity = vi.fn();
+    mocks.begin.mockRejectedValue(new ApiError(
+      409,
+      'HTTP_409',
+      ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
+      { code: 'ATTEMPT_IN_PROGRESS', attemptId: attemptFor('kidsnote', 9).attemptId },
+    ));
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toEqual({ successCount: 0, failedCount: 0, inProgressCount: 1 });
+    expect(mocks.fail).not.toHaveBeenCalled();
+    expect(logActivity).not.toHaveBeenCalled();
   });
 
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {

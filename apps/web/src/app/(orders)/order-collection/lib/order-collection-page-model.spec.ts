@@ -10,6 +10,7 @@ import {
   isBrowserCollectableMall,
   isLoginRequiredMessage,
   isNoNewOrdersMessage,
+  orderCollectionBatchNotice,
   todayYmd,
 } from './order-collection-page-model';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
@@ -188,5 +189,26 @@ describe('login / auth classification', () => {
     expect(isLoginRequiredMessage('출고 전 티쳐몰 신규 주문이 없습니다.')).toBe(false);
     expect(isAuthRequiredMessage(null)).toBe(false);
     expect(isLoginRequiredMessage(null)).toBe(false);
+  });
+});
+
+describe('orderCollectionBatchNotice', () => {
+  /** KID-106 Q6. 진행 중이던 몰은 새로 열지 않았을 뿐이므로 실패 수에 섞지 않는다. */
+  it('⭐ tells malls already collecting apart from malls that failed', () => {
+    expect(orderCollectionBatchNotice({ successCount: 3, failedCount: 0, inProgressCount: 2 })).toEqual({
+      tone: 'warning',
+      message: '전체 수집 3개 성공, 2개 진행 중',
+    });
+    expect(orderCollectionBatchNotice({ successCount: 3, failedCount: 1, inProgressCount: 2 })).toEqual({
+      tone: 'warning',
+      message: '전체 수집 3개 성공, 1개 실패, 2개 진행 중',
+    });
+  });
+
+  it('keeps the plain success sentence when nothing failed and nothing was already running', () => {
+    expect(orderCollectionBatchNotice({ successCount: 5, failedCount: 0, inProgressCount: 0 })).toEqual({
+      tone: 'success',
+      message: '전체 수집 완료',
+    });
   });
 });

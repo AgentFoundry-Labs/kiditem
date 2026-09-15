@@ -26,6 +26,7 @@ import {
   orderCollectionExtensionUnavailableMessage,
   type OrderCollectionExtensionRun,
 } from '../lib/order-collection-extension';
+import { OrderCollectionAlreadyRunningError } from '../lib/order-collection-start-outcome';
 import { todayYmd } from '../lib/order-collection-page-model';
 import {
   beginCoupangDirectAttempt,
@@ -344,7 +345,7 @@ export function useOrderCollectionSessionControls(
     // mall is still refused. Only admission takes turns, because the latest
     // attempt slot is shared by every mall.
     if (startingKeysRef.current.has(account.key)) {
-      throw new Error('주문 수집이 이미 시작되었습니다.');
+      throw new OrderCollectionAlreadyRunningError('주문 수집이 이미 시작되었습니다.');
     }
     startingKeysRef.current.add(account.key);
     const admit = async (): Promise<() => Promise<OrderCollectionExtensionRun>> => {

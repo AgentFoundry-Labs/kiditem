@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/lib/api-error';
 import { useOrderAutoDetect } from './use-order-auto-detect';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
@@ -71,6 +72,36 @@ describe('useOrderAutoDetect', () => {
       ACCOUNT.key,
       '11111111-1111-4111-8111-111111111111',
     );
+    expect(markCollecting).toHaveBeenLastCalledWith(ACCOUNT.key, false);
+  });
+
+  /** KID-106 Q6. 앞선 tick 의 수집이 아직 돌고 있으면 owner 가 409 로 거절한다. 실패가 아니다. */
+  it('⭐ leaves a mall that is still collecting alone — no failure, no activity record', async () => {
+    const prepareRun = vi.fn().mockRejectedValue(new ApiError(
+      409,
+      'HTTP_409',
+      '이 몰의 앞선 수집이 아직 끝나지 않았습니다.',
+      { code: 'ATTEMPT_IN_PROGRESS', attemptId: '11111111-1111-4111-8111-111111111111' },
+    ));
+    const failRun = vi.fn();
+    const logActivity = vi.fn();
+    const markCollecting = vi.fn();
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      collectAccount: vi.fn(),
+      prepareRun,
+      failRun,
+      releaseRun: vi.fn(),
+      markCollecting,
+      logActivity,
+    }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(failRun).not.toHaveBeenCalled();
+    expect(logActivity).not.toHaveBeenCalled();
     expect(markCollecting).toHaveBeenLastCalledWith(ACCOUNT.key, false);
   });
 });

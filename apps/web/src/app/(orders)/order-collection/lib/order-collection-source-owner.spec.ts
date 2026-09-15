@@ -28,6 +28,23 @@ describe('beginOrderCollectionSourceAttempt', () => {
     await expect(started).rejects.toMatchObject({ status: 409, message: ORDER_COLLECTION_IN_PROGRESS_MESSAGE });
   });
 
+  /** 진행 중이라는 사실은 기계가 읽는 자리에 남아야 화면이 실패가 아니라 진행 중으로 보여 준다. */
+  it('⭐ keeps the running attempt readable so the screen shows it instead of a failed start', async () => {
+    mockPost.mockRejectedValueOnce(new ApiError(409, 'HTTP_409', 'ATTEMPT_IN_PROGRESS', {
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: '22222222-2222-4222-8222-222222222222',
+    }));
+
+    await expect(beginOrderCollectionSourceAttempt('11111111-1111-4111-8111-111111111111', {
+      mallKey: 'kidsnote',
+      collectionDate: '2026-09-14',
+    })).rejects.toMatchObject({
+      status: 409,
+      message: ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
+      details: { code: 'ATTEMPT_IN_PROGRESS', attemptId: '22222222-2222-4222-8222-222222222222' },
+    });
+  });
+
   it('passes other conflicts through unchanged', async () => {
     const reused = new ApiError(409, 'HTTP_409', 'SOURCE_IDEMPOTENCY_KEY_REUSED');
     mockPost.mockRejectedValueOnce(reused);
