@@ -24,22 +24,34 @@ export class AdvertisingActionsController {
         return this.adActionService.approveActions(body.ids ?? [], organizationId);
       case 'reject':
         return this.adActionService.rejectActions(body.ids ?? [], organizationId);
-      case 'markRunning':
-        if (!body.id) throw new BadRequestException('id is required for markRunning');
-        return this.adActionService.markRunning(body.id, body.beforeJson, organizationId);
-      case 'markDone':
-        if (!body.id) throw new BadRequestException('id is required for markDone');
-        return this.adActionService.markDone(body.id, body.afterJson, organizationId);
-      case 'markFailed':
-        if (!body.id) throw new BadRequestException('id is required for markFailed');
+      case 'markRunning': {
+        const { id, executionTaskId } = executionReportTarget(body);
+        return this.adActionService.markRunning(id, executionTaskId, body.beforeJson, organizationId);
+      }
+      case 'markDone': {
+        const { id, executionTaskId } = executionReportTarget(body);
+        return this.adActionService.markDone(id, executionTaskId, body.afterJson, organizationId);
+      }
+      case 'markFailed': {
+        const { id, executionTaskId } = executionReportTarget(body);
         return this.adActionService.markFailed(
-          body.id,
+          id,
+          executionTaskId,
           body.errorMessage,
           body.afterJson,
           organizationId,
         );
+      }
       default:
         throw new BadRequestException(`Unknown action: ${body.action}`);
     }
   }
+}
+
+/** An execution report names the action and the attempt it reports for (KID-160). */
+function executionReportTarget(body: AdActionCommandDto): { id: string; executionTaskId: string } {
+  if (!body.id || !body.executionTaskId) {
+    throw new BadRequestException(`id and executionTaskId are required for ${body.action}`);
+  }
+  return { id: body.id, executionTaskId: body.executionTaskId };
 }

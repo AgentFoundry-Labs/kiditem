@@ -49,6 +49,11 @@ export class AdActionCommandDto {
   @IsString()
   id?: string;
 
+  /** The attempt an execution report is for: the action listing's `executionTaskId`. */
+  @IsOptional()
+  @IsUUID()
+  executionTaskId?: string;
+
   @IsOptional()
   beforeJson?: Record<string, unknown>;
 

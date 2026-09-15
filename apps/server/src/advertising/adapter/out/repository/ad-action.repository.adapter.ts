@@ -26,8 +26,11 @@ import { readPublishedProductAbcGrades } from '../../../../products/read/product
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
-  isOpenExecutionTaskStatus,
+  EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
+  isExpiredRunningExecutionTask,
+  isOpenExecutionTask,
   resolveExecutionReport,
+  type ExecutionReportDecision,
 } from '../../../domain/execution-task-lifecycle';
 import type {
   AdActionExecution,
@@ -96,12 +99,14 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     organizationId: string,
   ): Promise<AdActionReviewResult> {
     const limit = Math.min(query.limit || 50, 200);
+    // One instant for the execution deadline across the page, its filters and its counts.
+    const now = new Date();
 
     const filters: Prisma.Sql[] = [];
     if (query.approvalStatus && query.approvalStatus !== 'all')
       filters.push(Prisma.sql`AND action.approval_status = ${query.approvalStatus}`);
     if (query.executeStatus && query.executeStatus !== 'all')
-      filters.push(Prisma.sql`AND ${derivedExecuteStatusIn([query.executeStatus])}`);
+      filters.push(Prisma.sql`AND ${derivedExecuteStatusIn([query.executeStatus], now)}`);
     if (query.listingId)
       filters.push(Prisma.sql`AND action.listing_id = ${query.listingId}::uuid`);
     if (query.targetType && query.targetType !== 'all')
@@ -124,11 +129,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           COUNT(*) FILTER (WHERE action.approval_status = 'pending_review')::int AS "pendingReview",
           COUNT(*) FILTER (
             WHERE action.approval_status = 'approved'
-              AND ${derivedExecuteStatusIn(['queued'])}
+              AND ${derivedExecuteStatusIn(['queued'], now)}
           )::int AS "approvedQueued",
-          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['running'])})::int AS "running",
-          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['done'])})::int AS "done",
-          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['failed'])})::int AS "failed"
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['running'], now)})::int AS "running",
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['done'], now)})::int AS "done",
+          COUNT(*) FILTER (WHERE ${derivedExecuteStatusIn(['failed'], now)})::int AS "failed"
         FROM ad_actions action
         ${LATEST_EXECUTION_TASK_JOIN}
         WHERE action.organization_id = ${organizationId}::uuid
@@ -155,7 +160,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     const actions: AdActionRecord[] = page.flatMap((entry) => {
       const row = rowById.get(entry.id);
       return row
-        ? [{ ...row, ...deriveAdActionExecution(latestExecutionTaskOf(entry)) }]
+        ? [{ ...row, ...deriveAdActionExecution(latestExecutionTaskOf(entry), now) }]
         : [];
     });
 
@@ -343,7 +348,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.created_at >= ${sinceCreatedAt}::timestamptz
         AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
     `);
   }
 
@@ -360,7 +365,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.action_type = 'pause_keyword'
         AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
       ORDER BY action.created_at DESC, action.id DESC
     `);
   }
@@ -371,6 +376,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   ): Promise<AdActionRecord[]> {
     if (candidates.length === 0) return [];
     return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
       const pauseKeywordCandidates = candidates.filter((candidate) =>
         pauseKeywordActionKey(candidate) !== null);
 
@@ -397,7 +403,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             AND action.action_type = 'pause_keyword'
             AND action.target_type = 'keyword'
             AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-            AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES)}
+            AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
             AND (${Prisma.join(
               pauseKeywordCandidates.map((candidate) => Prisma.sql`(
                 action.external_id IS NOT DISTINCT FROM ${candidate.externalId}::text
@@ -441,7 +447,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           select: AD_ACTION_ROW_SELECT,
         });
         // A new proposal has no ExecutionTask until it is approved.
-        created.push({ ...row, ...deriveAdActionExecution(null) });
+        created.push({ ...row, ...deriveAdActionExecution(null, now) });
       }
 
       return created;
@@ -473,13 +479,32 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
       // Approval queues a new attempt unless the latest one is still open. A
       // failed or done attempt stays as evidence and the new queued task
-      // becomes the latest, so a failed action reads queued again.
+      // becomes the latest, so a failed action reads queued again. A running
+      // attempt past its execution deadline is closed as failed first: its
+      // executor stopped, and the extension never writes to Coupang that late.
+      const now = new Date();
       const latestTasks = await readLatestExecutionTasks(tx, {
         organizationId,
         actionIds: scopedIds,
       });
+      const expiredTaskIds = scopedIds.flatMap((id) => {
+        const latest = latestTasks.get(id);
+        return latest && isExpiredRunningExecutionTask(latest, now) ? [latest.id] : [];
+      });
+      if (expiredTaskIds.length > 0) {
+        // Still-running only: an outcome report that lands first keeps its
+        // outcome. Either way the attempt is no longer open.
+        await tx.executionTask.updateMany({
+          where: {
+            id: { in: expiredTaskIds },
+            actionId: { in: scopedIds },
+            status: 'running',
+          },
+          data: expiredAttemptClosure(now),
+        });
+      }
       const toCreate = scopedIds
-        .filter((id) => !isOpenExecutionTaskStatus(latestTasks.get(id)?.status))
+        .filter((id) => !isOpenExecutionTask(latestTasks.get(id) ?? null, now))
         .map((id) => ({ actionId: id, status: 'queued' }));
 
       if (toCreate.length > 0) {
@@ -526,6 +551,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     organizationId: string,
     campaignName: string,
   ): Promise<{ id: string; executeStatus: string } | null> {
+    const now = new Date();
     const [row] = await this.prisma.$queryRaw<
       Array<{ id: string } & LatestExecutionTaskColumns>
     >(Prisma.sql`
@@ -535,14 +561,14 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.action_type = 'create_campaign'
         AND action.target_label = ${campaignName}
-        AND ${derivedExecuteStatusIn(['queued', 'running', 'done'])}
+        AND ${derivedExecuteStatusIn(['queued', 'running', 'done'], now)}
       ORDER BY action.created_at DESC, action.id DESC
       LIMIT 1
     `);
     if (!row) return null;
     return {
       id: row.id,
-      executeStatus: deriveAdActionExecution(latestExecutionTaskOf(row)).executeStatus,
+      executeStatus: deriveAdActionExecution(latestExecutionTaskOf(row), now).executeStatus,
     };
   }
 
@@ -577,7 +603,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     organizationId: string,
     report: AdActionExecutionReport,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const refusal = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
       const action = await tx.adAction.findFirst({
         where: { id, organizationId },
         select: { id: true },
@@ -589,15 +616,24 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         actionIds: [action.id],
       });
       const latest = latestTasks.get(action.id) ?? null;
-      const decision = resolveExecutionReport(latest?.status ?? null, report.status);
-      if (decision === 'replay') return;
-      if (decision === 'conflict' || !latest) {
-        throw new ConflictException(
-          `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
-        );
+      // A report moves only the attempt it names, and only while that attempt
+      // is the action's latest: an older attempt's late report never moves a
+      // retry queued or running after it.
+      const decision = resolveExecutionReport(latest, report, now);
+      if (decision === 'replay') return null;
+      if (decision === 'expired' && latest) {
+        // The executor reports after its attempt's deadline. The attempt is
+        // closed as failed here and the report refused once that commits.
+        await tx.executionTask.updateMany({
+          where: { id: latest.id, actionId: action.id, status: 'running' },
+          data: expiredAttemptClosure(now),
+        });
+        return executionReportConflict(decision, latest, report);
+      }
+      if (decision !== 'apply' || !latest) {
+        throw executionReportConflict(decision, latest, report);
       }
 
-      const now = new Date();
       const data: Prisma.ExecutionTaskUpdateManyMutationInput =
         report.status === 'running'
           ? {
@@ -627,11 +663,14 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         data,
       });
       if (updated.count !== 1) {
-        throw new ConflictException(
-          '실행 작업 상태가 동시에 바뀌었습니다. 다시 시도해 주세요.',
-        );
+        throw new ConflictException({
+          code: EXECUTION_REPORT_INVALID_TRANSITION,
+          message: '실행 보고를 반영할 수 없습니다. 실행 작업 상태가 동시에 바뀌었습니다.',
+        });
       }
+      return null;
     });
+    if (refusal) throw refusal;
   }
 
   private async hydrateActionRelations(
@@ -680,6 +719,45 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       };
     });
   }
+}
+
+// 409 codes of a refused execution report, so the executor and an operator can
+// tell a report for a replaced attempt, one for an attempt past its deadline,
+// and one the attempt cannot take apart.
+const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
+const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
+const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
+
+/** How a running attempt past its execution deadline is closed. */
+function expiredAttemptClosure(now: Date): Prisma.ExecutionTaskUpdateManyMutationInput {
+  return {
+    status: 'failed',
+    finishedAt: now,
+    errorMessage: EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
+  };
+}
+
+function executionReportConflict(
+  decision: ExecutionReportDecision,
+  latest: { status: string } | null,
+  report: AdActionExecutionReport,
+): ConflictException {
+  if (decision === 'not_latest_attempt') {
+    return new ConflictException({
+      code: EXECUTION_TASK_NOT_LATEST,
+      message: '실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.',
+    });
+  }
+  if (decision === 'expired') {
+    return new ConflictException({
+      code: EXECUTION_TASK_EXPIRED,
+      message: '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.',
+    });
+  }
+  return new ConflictException({
+    code: EXECUTION_REPORT_INVALID_TRANSITION,
+    message: `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
+  });
 }
 
 function pauseKeywordActionKey(input: {
