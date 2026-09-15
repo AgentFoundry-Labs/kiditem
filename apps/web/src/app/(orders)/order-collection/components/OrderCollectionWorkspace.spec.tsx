@@ -26,6 +26,8 @@ describe('OrderCollectionWorkspace', () => {
     expect(source).not.toContain('onDownload={downloadOrderCollectionFile}');
     expect(source).not.toContain('sellpiaSendLockRef');
     expect(source).not.toContain('<OrderCollectionRecovery');
+    // 달력이 여는 직배송 시작 두 곳은 409 를 오류가 아니라 진행 중으로 읽는다(KID-106 Q6).
+    expect(source.split('directshipAlreadyRunning(err)')).toHaveLength(3);
     expect(pipeline).toBeLessThan(daily);
     expect(daily).toBeLessThan(activity);
     expect(activity).toBeLessThan(malls);

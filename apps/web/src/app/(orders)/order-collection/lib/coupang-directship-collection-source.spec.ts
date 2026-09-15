@@ -1,9 +1,14 @@
+import type { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
-import { coupangDirectshipCollectionSource } from './coupang-directship-collection-source';
+import { queryKeys } from '@/lib/query-keys';
+import {
+  coupangDirectshipCollectionSource,
+  coupangDirectshipStartAlreadyRunning,
+} from './coupang-directship-collection-source';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
@@ -143,6 +148,44 @@ describe('coupangDirectshipCollectionSource', () => {
       extensionId: 'order-extension',
       attempt: expect.objectContaining({ attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN }),
     }));
+  });
+
+  /**
+   * KID-106 Q6. 입고예정일 달력은 아직 자기 시작을 들고 있다. 그 시작이 409 를
+   * 받으면 실패가 아니라 진행 중이며, 카드의 공용 컨트롤이 그 수집을 그리도록
+   * owner 상태를 다시 읽어야 한다.
+   */
+  it('reads the calendar start conflict as the account already collecting and re-reads the owner', () => {
+    const queryClient = { invalidateQueries: vi.fn() } as unknown as QueryClient;
+
+    expect(coupangDirectshipStartAlreadyRunning(
+      queryClient,
+      CHANNEL_ACCOUNT_ID,
+      new ApiError(409, 'conflict', '이미 진행 중입니다.', {
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: RUNNING_ATTEMPT_ID,
+      }),
+    )).toBe(true);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.orders.coupangDirectshipSource(CHANNEL_ACCOUNT_ID),
+      exact: true,
+    });
+  });
+
+  it('leaves every other start failure a failure', () => {
+    const queryClient = { invalidateQueries: vi.fn() } as unknown as QueryClient;
+
+    expect(coupangDirectshipStartAlreadyRunning(
+      queryClient,
+      CHANNEL_ACCOUNT_ID,
+      new ApiError(500, 'server_error', '서버 오류', {}),
+    )).toBe(false);
+    expect(coupangDirectshipStartAlreadyRunning(
+      queryClient,
+      CHANNEL_ACCOUNT_ID,
+      new Error('주문수집 확장프로그램을 찾을 수 없습니다.'),
+    )).toBe(false);
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
   });
 
   it('offers no start until a Rocket account is chosen', () => {

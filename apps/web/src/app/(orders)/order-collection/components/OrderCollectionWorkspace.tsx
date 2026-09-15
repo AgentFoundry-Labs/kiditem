@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
+import { COLLECTION_ALREADY_RUNNING_MESSAGE } from '@/hooks/use-collection-source-control';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { useAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useAuth } from '@/hooks/useAuth';
@@ -32,6 +33,7 @@ import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-ship
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
+import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
@@ -401,6 +403,23 @@ export function OrderCollectionWorkspace() {
     setBrowserCollecting(false);
   };
 
+  /**
+   * 달력이 아직 자기 손으로 여는 직배송 시작이 owner 에게 409 를 받았을 때.
+   * 진행 중은 실패가 아니므로(KID-106 Q6) 몰 카드와 같은 안내만 내고 owner
+   * 상태를 다시 읽어 카드의 공용 컨트롤이 그 수집을 그리게 한다.
+   */
+  const directshipAlreadyRunning = (error: unknown): boolean => {
+    if (!coupangDirectshipStartAlreadyRunning(
+      queryClient,
+      selectedRocketAccount?.id ?? null,
+      error,
+    )) {
+      return false;
+    }
+    toast.info(COLLECTION_ALREADY_RUNNING_MESSAGE);
+    return true;
+  };
+
   // 카드 영역 클릭 전용. 쿠팡직배송만 입고예정일 달력을 연다.
   // 수집 버튼은 이 경로를 타지 않고 곧바로 수집한다.
   const handleOpenDirectshipCalendar = async (account: OrderCollectionMallAccount) => {
@@ -460,6 +479,8 @@ export function OrderCollectionWorkspace() {
       const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
       // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
       setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
+      // 이미 수집 중인 직배송은 실패가 아니다. 카드의 공용 컨트롤이 그 수집을 그린다.
+      if (directshipAlreadyRunning(err)) return;
       toast.error(message);
     }
   };
@@ -492,6 +513,10 @@ export function OrderCollectionWorkspace() {
       if (run?.signal?.aborted) {
         setState('idle');
         toast.info(COLLECTION_STOPPED_MESSAGE);
+        return;
+      }
+      if (directshipAlreadyRunning(err)) {
+        setState('idle');
         return;
       }
       setState('error');

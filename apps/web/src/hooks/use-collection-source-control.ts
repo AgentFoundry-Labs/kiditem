@@ -109,7 +109,8 @@ export type CollectionSourceControl<TStatus, TInput = void> = CollectionControlV
 
 const START_FAILED = '수집을 시작하지 못했습니다.';
 const STOP_FAILED = '수집을 중단하지 못했습니다. 잠시 후 다시 시도해 주세요.';
-const ALREADY_RUNNING = '이미 진행 중인 수집이 있습니다.';
+/** 같은 원천을 다시 시작했을 때의 안내. 컨트롤 밖에서 시작하는 화면도 같은 문장을 쓴다. */
+export const COLLECTION_ALREADY_RUNNING_MESSAGE = '이미 진행 중인 수집이 있습니다.';
 const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
@@ -278,7 +279,9 @@ function startNotice<TStatus, TInput>(
     return { tone: 'error', message: operatorMessage(latest.error, START_FAILED) };
   }
   if (latest.data?.outcome === 'refused') return { tone: 'refused', message: latest.data.message };
-  if (latest.data?.outcome === 'running') return { tone: 'info', message: ALREADY_RUNNING };
+  if (latest.data?.outcome === 'running') {
+    return { tone: 'info', message: COLLECTION_ALREADY_RUNNING_MESSAGE };
+  }
   return null;
 }
 
