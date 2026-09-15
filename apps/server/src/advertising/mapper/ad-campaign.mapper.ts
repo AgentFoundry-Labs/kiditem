@@ -191,10 +191,13 @@ export function keywordMetrics(
 
 function readTargetMetaString(metaJson: unknown, key: string): string | null {
   if (!isRecord(metaJson)) return null;
+  // Older rows nest descriptors under their namespace. Since #493 ingest
+  // writes `{ source, data }`, which the ledger reader reads as well.
   for (const source of [
     'advertising.raw.target',
     'advertising.campaign.target',
     'advertising.keyword.target',
+    'data',
   ]) {
     const data = metaJson[source];
     if (!isRecord(data)) continue;
