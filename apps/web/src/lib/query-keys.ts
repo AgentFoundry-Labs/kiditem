@@ -258,6 +258,9 @@ export const queryKeys = {
         channelSkuId,
         params,
       ] as const,
+    /** The Sellpia manual-match collection control's owner status read. */
+    sellpiaManualMatchSource: () =>
+      [...queryKeys.channelSkuMappings.all, 'sellpia-manual-match-source'] as const,
   },
   channelProductMappings: {
     all: ['channelProductMappings'] as const,
