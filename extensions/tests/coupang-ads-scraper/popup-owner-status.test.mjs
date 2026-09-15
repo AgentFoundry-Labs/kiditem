@@ -344,3 +344,30 @@ test('a Run whose done report was lost warns to check the ad center instead of s
   // Executed but not recorded is never shown as a failure.
   assert.equal(result.className, 'sync-result success');
 });
+
+test('a Run with an action refused at its claim shows the warning instead of a plain 보류 count', async () => {
+  const warning = '실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.';
+  const harness = createPopupHarness({
+    connected: ['local'],
+    runApprovedResponse: { success: true, executed: 1, skipped: 1, warning },
+  });
+  await completeStatusLoad(harness, 'local', {
+    '/api/ads/traffic/source': response(ownerStatus()),
+    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
+    '/api/ads/ad-campaigns/source': response(ownerStatus()),
+  });
+
+  harness.document.getElementById('btnRunApproved').click();
+  const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
+  await harness.reply(queued, response({
+    items: [
+      { id: 'action-1', executionTaskId: 'task-1' },
+      { id: 'action-2', executionTaskId: 'task-2' },
+    ],
+  }));
+  await harness.flush();
+
+  const result = harness.document.getElementById('syncResult');
+  assert.equal(result.textContent, `⚠️ 1개 실행, 1개 보류. ${warning}`);
+  assert.equal(result.className, 'sync-result success');
+});
