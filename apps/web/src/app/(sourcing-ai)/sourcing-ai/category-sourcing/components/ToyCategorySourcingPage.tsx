@@ -20,6 +20,7 @@ import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import {
+  BOARD_COMPARISON_QUICK_FILTERS,
   buildToyKeywordCsv,
   clusterToyKeywords,
   filterToyKeywords,
@@ -82,13 +83,19 @@ export function ToyCategorySourcingPage() {
   });
 
   const toyBoard = popularQuery.data?.boards.find((board) => board.boardKey === 'toys_dolls');
+  // New entries and rank rises exist only against an earlier toy board day. Without
+  // one, their filters stay off instead of matching nothing.
+  const boardCompared = toyBoard?.comparedFrom != null;
   const allKeywords = useMemo(
     () => mergeToyKeywordSignals(toyBoard, keywordQuery.data?.keywords ?? []),
     [toyBoard, keywordQuery.data?.keywords],
   );
   const visibleKeywords = useMemo(
-    () => filterToyKeywords(allKeywords, appliedFilters),
-    [allKeywords, appliedFilters],
+    () => filterToyKeywords(allKeywords, boardCompared ? appliedFilters : {
+      ...appliedFilters,
+      quickFilters: appliedFilters.quickFilters.filter((filter) => !BOARD_COMPARISON_QUICK_FILTERS.includes(filter)),
+    }),
+    [allKeywords, appliedFilters, boardCompared],
   );
   const clusters = useMemo(() => clusterToyKeywords(visibleKeywords), [visibleKeywords]);
   const selectedKeywords = useMemo(
@@ -104,9 +111,9 @@ export function ToyCategorySourcingPage() {
     (sum, keyword) => sum + (keyword.monthlyTotalSearchCount ?? 0),
     0,
   );
-  // New entries and rank rises exist only against an earlier toy board day, so
-  // without one the combined rise signal count is unknown, not a smaller number.
-  const risingCount = toyBoard?.comparedFrom != null
+  // Without an earlier toy board day the combined rise signal count is unknown,
+  // not a smaller number.
+  const risingCount = boardCompared
     ? visibleKeywords.filter(
       (keyword) => keyword.rankDelta === null
         || (typeof keyword.rankDelta === 'number' && keyword.rankDelta > 0)
@@ -261,6 +268,7 @@ export function ToyCategorySourcingPage() {
           filters={draftFilters}
           resultCount={visibleKeywords.length}
           activeNaverSeedCount={activeNaverSeedCount}
+          boardCompared={boardCompared}
           isDirty={filtersDirty}
           onFiltersChange={setDraftFilters}
           onSearch={applySearch}
