@@ -974,6 +974,59 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       expect(days.map((day) => [day.trafficViews, day.trafficObservedAt !== null])).toEqual([[0, true], [0, true]]);
     });
 
+    it('leaves the rows of another account on the same dates untouched', async () => {
+      const plan = range();
+      const otherAccount = await prisma.channelAccount.create({
+        data: { organizationId: ORG, channel: 'coupang', name: 'Second Wing', vendorId: 'VENDOR-B' },
+      });
+      const otherRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: ORG,
+          channelAccountId: otherAccount.id,
+          sourceType: 'coupang_wing_traffic',
+          status: 'completed',
+          freshnessGeneration: 1n,
+          qualityReport: { confirmedDates: [plan.startDate] },
+        },
+      });
+      const [reported, omitted] = await Promise.all(['EXT-OTHER-REPORTED', 'EXT-OTHER-OMITTED'].map((externalId) =>
+        prisma.channelListing.create({
+          data: {
+            organizationId: ORG,
+            channelAccountId: otherAccount.id,
+            externalId,
+            createdAt: new Date(Date.now() - DAY_MS),
+            rawJson: registered(),
+          },
+        })));
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          organizationId: ORG,
+          listingId: reported!.id,
+          channel: 'coupang',
+          externalId: 'EXT-OTHER-REPORTED',
+          businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+          trafficViews: 7,
+          trafficRevenue: 70,
+          trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
+          metaJson: {
+            'traffic.currentSource': 'wing.traffic',
+            'wing.traffic': { sourceAttemptId: otherRun.id },
+          },
+        },
+      });
+
+      await collectOne(plan);
+
+      await expect(listingDays(reported!.id)).resolves.toMatchObject([{
+        trafficViews: 7,
+        trafficRevenue: 70,
+        trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
+        metaJson: { 'wing.traffic': { sourceAttemptId: otherRun.id } },
+      }]);
+      await expect(listingDays(omitted!.id)).resolves.toEqual([]);
+    });
+
     it('publishes nothing on a date the collection did not confirm', async () => {
       const plan = range(2);
       const listing = await catalogListing('EXT-UNCONFIRMED-DAY', registered());

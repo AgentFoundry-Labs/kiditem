@@ -740,6 +740,63 @@ describe('listing daily facts reader (PG integration)', () => {
       });
     });
 
+    it('refuses nothing in a read of one account when another account has a late listing', async () => {
+      const { listingId } = await collectedAccount('READ-ACCOUNT');
+      const { accountId: otherAccountId } = await collectedAccount('LATE-OTHER-ACCOUNT');
+      await catalogListing(otherAccountId, 'LATE-OTHER-UNREGISTERED', { createdAt: afterStart });
+
+      const result = await readWindow([listingId]);
+
+      expect(result.coverage).toEqual({
+        includedDates: confirmedDates,
+        invalidDates: [],
+        missingDates: [],
+      });
+    });
+
+    it('keeps the every-listing rule for a CSV-only account whatever its listings entered the catalog', async () => {
+      await collectedAccount('WING-BESIDE-CSV');
+      const csv = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'CSV-ONLY');
+      const lateCsvListing = await catalogListing(csv.accountId, 'CSV-ONLY-LATE-LISTING', {
+        createdAt: afterStart,
+      });
+      await prisma.channelListingDailySnapshot.createMany({
+        data: [csv.listingId, lateCsvListing.id].flatMap((listingId) => confirmedDates.map((date) =>
+          trafficRow({
+            organizationId: TEST_ORGANIZATION_ID,
+            listingId,
+            date,
+            observedAt: new Date(`${date}T05:00:00.000Z`),
+            visitors: 1,
+            views: 2,
+            orders: 0,
+            revenue: 0,
+            source: 'csv_upload',
+          }))),
+      });
+
+      const uploaded = await readWindow();
+      expect(uploaded.coverage).toEqual({
+        includedDates: confirmedDates,
+        invalidDates: [],
+        missingDates: [],
+      });
+
+      await prisma.channelListingDailySnapshot.deleteMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: lateCsvListing.id,
+          businessDate: new Date('2026-09-02T00:00:00.000Z'),
+        },
+      });
+      const withoutOneRow = await readWindow();
+      expect(withoutOneRow.coverage).toEqual({
+        includedDates: ['2026-09-01', '2026-09-03'],
+        invalidDates: ['2026-09-02'],
+        missingDates: [],
+      });
+    });
+
     it('counts the dates again once a newer attempt started after the late import', async () => {
       const { listingId, accountId } = await collectedAccount('RECOLLECTED');
       await catalogListing(accountId, 'LATE-THEN-RECOLLECTED', {
