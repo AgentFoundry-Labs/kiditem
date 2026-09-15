@@ -532,19 +532,42 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const scopedIds = scopedActions.map((a) => a.id);
       if (scopedIds.length === 0) return 0;
 
-      // An attempt the extension has not started is cancelled; one already
-      // running keeps reporting the outcome that happened on Coupang.
-      await tx.executionTask.updateMany({
-        where: {
-          actionId: { in: scopedIds },
-          status: 'queued',
-        },
-        data: {
-          status: 'cancelled',
-          finishedAt: new Date(),
-          errorMessage: '사용자 보류 처리',
-        },
+      // An attempt running within its deadline may already be writing to
+      // Coupang, so the rejection is refused and this transaction rolls back.
+      // An attempt the extension has not started is cancelled; a failed, done
+      // or expired attempt stays as it is and only the approval changes.
+      const now = new Date();
+      const latestTasks = await readLatestExecutionTasks(tx, {
+        organizationId,
+        actionIds: scopedIds,
       });
+      const queuedAttemptIds: string[] = [];
+      for (const latest of latestTasks.values()) {
+        if (!latest) continue;
+        if (latest.status === 'running' && !isExpiredRunningExecutionTask(latest, now)) {
+          throw rejectRunningConflict();
+        }
+        if (latest.status === 'queued') queuedAttemptIds.push(latest.id);
+      }
+      if (queuedAttemptIds.length > 0) {
+        // Only an action's latest attempt can be queued. Compare-and-set on the
+        // queued status just read: the executor claims a queued attempt with its
+        // running report, so a claim that commits first leaves its attempt
+        // running and uncancelled, and the rejection is refused.
+        const cancelled = await tx.executionTask.updateMany({
+          where: {
+            id: { in: queuedAttemptIds },
+            actionId: { in: scopedIds },
+            status: 'queued',
+          },
+          data: {
+            status: 'cancelled',
+            finishedAt: now,
+            errorMessage: '사용자 보류 처리',
+          },
+        });
+        if (cancelled.count !== queuedAttemptIds.length) throw rejectRunningConflict();
+      }
       return scopedIds.length;
     });
   }
@@ -731,6 +754,16 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
 const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
 const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
+// 409 code of a rejection refused because an attempt is running within its deadline.
+const EXECUTION_TASK_RUNNING = 'EXECUTION_TASK_RUNNING';
+
+function rejectRunningConflict(): ConflictException {
+  return new ConflictException({
+    code: EXECUTION_TASK_RUNNING,
+    message:
+      '실행 중인 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영 중일 수 있으니 실행이 끝난 뒤 다시 확인해 주세요.',
+  });
+}
 
 /** How a running attempt past its execution deadline is closed. */
 function expiredAttemptClosure(now: Date): Prisma.ExecutionTaskUpdateManyMutationInput {

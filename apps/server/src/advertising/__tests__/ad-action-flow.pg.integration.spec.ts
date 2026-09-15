@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdvertisingModule } from '../advertising.module';
+import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
+import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -916,6 +918,81 @@ describe('AdAction flow (PG integration)', () => {
         adActionService.markRunning(action.id, attempt, undefined, TEST_ORGANIZATION_ID),
       )).toMatchObject({ code: 'EXECUTION_REPORT_INVALID_TRANSITION' });
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['cancelled']);
+    });
+
+    it('#11b reject refuses an attempt running within its deadline; a failed or expired attempt is just rejected (KID-138)', async () => {
+      const running = await approvedAction('CAMP-REJECT-RUNNING');
+      const runningAttempt = await attemptOf(running.id);
+      await adActionService.markRunning(running.id, runningAttempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+
+      // The executor may already be writing to Coupang, so a rejection cannot stop it.
+      expect(await refusal(adActionService.rejectActions([running.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_RUNNING' });
+      expect(await reviewItem(running.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'running',
+        executionTaskId: runningAttempt,
+      });
+      await adActionService.markDone(running.id, runningAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(running.id)).map((task) => task.status)).toEqual(['done']);
+
+      const failed = await approvedAction('CAMP-REJECT-FAILED');
+      const failedAttempt = await attemptOf(failed.id);
+      await adActionService.markRunning(failed.id, failedAttempt, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(failed.id, failedAttempt, 'row not found', undefined, TEST_ORGANIZATION_ID);
+      const expired = await approvedAction('CAMP-REJECT-EXPIRED');
+      const expiredAttempt = await attemptOf(expired.id);
+      await adActionService.markRunning(expired.id, expiredAttempt, undefined, TEST_ORGANIZATION_ID);
+      await backdateStart(expiredAttempt, 30, 1_000);
+
+      await expect(adActionService.rejectActions([failed.id, expired.id], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      expect(await reviewItem(failed.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: 'row not found',
+      });
+      expect(await reviewItem(expired.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+      });
+      expect((await tasksOf(failed.id)).map((task) => task.status)).toEqual(['failed']);
+    });
+
+    it('#11c reject is refused when the executor starts the attempt while the rejection is deciding (KID-138)', async () => {
+      const action = await approvedAction('CAMP-REJECT-RACE');
+      const attempt = await attemptOf(action.id);
+      let claimed = false;
+      // The executor's running report commits right after the rejection read
+      // the attempt as queued, before the rejection cancels it.
+      const racing = prisma.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result = await query(args);
+            const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
+            if (!claimed && sql.includes('execution_tasks')) {
+              claimed = true;
+              await adActionService.markRunning(action.id, attempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+            }
+            return result;
+          },
+        },
+      });
+      const rejecting = new AdActionRepositoryAdapter(
+        racing as never,
+        new AdListingRepositoryAdapter(prisma as never),
+      );
+
+      expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_RUNNING' });
+      expect(claimed).toBe(true);
+      expect(await reviewItem(action.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'running',
+        executionTaskId: attempt,
+      });
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['running']);
     });
 
     it('#12 an action awaiting review has no attempt to report against', async () => {

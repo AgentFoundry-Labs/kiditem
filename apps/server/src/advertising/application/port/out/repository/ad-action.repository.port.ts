@@ -186,7 +186,8 @@ export interface AdActionRepositoryPort {
   /**
    * Reject + cancel not-yet-started execution tasks inside a single
    * $transaction. Returns how many distinct actions of the organization the ids
-   * name.
+   * name. Throws ConflictException (`EXECUTION_TASK_RUNNING`) and rejects none
+   * when one of them has an attempt running within its execution deadline.
    */
   rejectAdActions(ids: string[], organizationId: string): Promise<number>;
 
