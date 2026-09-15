@@ -38,6 +38,7 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { isNewerAttempt } from '../../../../common/current-row';
+import { lockListingTraffic } from '../../../../common/listing-traffic-lock';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import {
   addDays,
@@ -641,7 +642,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     request: AdTrafficSourceBegin;
   }): Promise<AdTrafficSourceAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, input.organizationId);
+      await lockListingTraffic(tx, input.organizationId);
       const requestFingerprint = hash(input.request);
       const replay = await tx.sourceImportRun.findFirst({
         where: {
@@ -855,7 +856,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     receipt: AdTrafficSourceReceiptInput;
   }): Promise<AdTrafficSourceReceipt> {
     const result = await this.prisma.$transaction<AdTrafficSourceReceipt | UploadFailure>(async (tx) => {
-      await this.lock(tx, input.organizationId);
+      await lockListingTraffic(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
@@ -1144,7 +1145,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     manifestChecksum: string;
   }): Promise<AdTrafficSourceStatus> {
     return this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, input.organizationId);
+      await lockListingTraffic(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
@@ -1275,7 +1276,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       .replace(/(api[_-]?key|authorization|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
       .slice(0, 300);
     return this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, input.organizationId);
+      await lockListingTraffic(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.attemptToken !== input.attemptToken) {
         throw new ConflictException('ATTEMPT_FENCE_LOST');
@@ -1300,7 +1301,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     attemptId: string;
   }): Promise<AdTrafficSourceAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, input.organizationId);
+      await lockListingTraffic(tx, input.organizationId);
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(tx, row);
       const failed = expired(row)
@@ -1806,11 +1807,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       href: '/ad-ops',
     });
     return failed;
-  }
-
-  private async lock(tx: Tx, organizationId: string) {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${organizationId}:${SOURCE_TYPE}`}, 0))::text AS lock
-      FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant WHERE organization_id = ${organizationId}::uuid`;
   }
 }
 

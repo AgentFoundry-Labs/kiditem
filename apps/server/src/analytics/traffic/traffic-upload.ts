@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 
 import type { MulterFile } from '../../common/types';
 import { businessDateKey, currentBusinessDate } from '../../common/kst';
+import { lockListingTraffic } from '../../common/listing-traffic-lock';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   parseTrafficUploadFile,
@@ -131,6 +132,9 @@ export async function uploadTrafficStats({
       const dataArr = [...aggregated.values()];
       try {
         await prisma.$transaction(async (tx) => {
+          // Wing traffic publication resets and zero-fills listing-days from
+          // what it read under this lock; an upload must not commit in between.
+          await lockListingTraffic(tx, organizationId);
           for (const d of dataArr) {
             const businessDate = new Date(d.date);
             // Daily-fact upsert — overwrite-on-replay metric semantics so a
