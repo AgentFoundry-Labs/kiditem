@@ -206,7 +206,7 @@ export async function readListingTrafficWindowFacts(
           isActive: true,
           createdAt: { gte: earliestAttemptStart },
         },
-        select: { channelAccountId: true, createdAt: true, rawJson: true },
+        select: { channelAccountId: true, createdAt: true, sourceCandidateId: true, rawJson: true },
       })).map((listing) => {
         const raw = listing.rawJson;
         const createdOn = raw && typeof raw === 'object' && !Array.isArray(raw)
@@ -215,7 +215,11 @@ export async function readListingTrafficWindowFacts(
         return {
           channelAccountId: listing.channelAccountId,
           createdAt: listing.createdAt,
-          registeredOn: wingListingRegistrationDate(typeof createdOn === 'string' ? createdOn : null),
+          registeredOn: wingListingRegistrationDate({
+            createdOn: typeof createdOn === 'string' ? createdOn : null,
+            sourceCandidateId: listing.sourceCandidateId,
+            createdAt: listing.createdAt,
+          }),
         };
       })
     : [];

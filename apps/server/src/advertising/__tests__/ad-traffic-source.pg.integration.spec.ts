@@ -944,6 +944,36 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       expect(days.map((day) => [day.trafficViews, day.trafficObservedAt !== null])).toEqual([[0, true], [0, true]]);
     });
 
+    it('publishes zero traffic for a listing KidItem registered from its registration day', async () => {
+      const plan = range(3);
+      const registrationDate = dateShift(plan.startDate, 1);
+      const candidate = await prisma.sourcingCandidate.create({
+        data: {
+          organizationId: ORG,
+          sourceUrl: 'https://example.com/kiditem-registered',
+          sourcePlatform: 'test',
+          name: 'KidItem registered',
+        },
+      });
+      // KidItem's registration creates the listing without Wing's createdOn.
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: ORG,
+          channelAccountId: accountId,
+          sourceCandidateId: candidate.id,
+          externalId: 'EXT-KIDITEM-REGISTERED',
+          // Noon KST on the registration day, before the collection starts.
+          createdAt: new Date(`${registrationDate}T03:00:00.000Z`),
+        },
+      });
+
+      await collectRange(plan);
+
+      const days = await listingDays(listing.id);
+      expect(days.map((day) => dateText(day.businessDate))).toEqual([registrationDate, plan.endDate]);
+      expect(days.map((day) => [day.trafficViews, day.trafficObservedAt !== null])).toEqual([[0, true], [0, true]]);
+    });
+
     it('publishes nothing on a date the collection did not confirm', async () => {
       const plan = range(2);
       const listing = await catalogListing('EXT-UNCONFIRMED-DAY', registered());

@@ -690,6 +690,36 @@ describe('listing daily facts reader (PG integration)', () => {
       });
     });
 
+    it('keeps the dates before the registration day of a listing KidItem registered after the attempt', async () => {
+      const { accountId } = await collectedAccount('KIDITEM-REGISTERED');
+      const candidate = await prisma.sourcingCandidate.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceUrl: 'https://example.com/kiditem-registered-late',
+          sourcePlatform: 'test',
+          name: 'KidItem registered late',
+        },
+      });
+      // KidItem's registration creates the listing without Wing's createdOn.
+      await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: accountId,
+          sourceCandidateId: candidate.id,
+          externalId: 'KIDITEM-REGISTERED-LATE',
+          createdAt: afterStart,
+        },
+      });
+
+      const result = await readWindow();
+
+      expect(result.coverage).toEqual({
+        includedDates: confirmedDates,
+        invalidDates: [],
+        missingDates: [],
+      });
+    });
+
     it('ignores a listing the catalog held before the attempt and an inactive late listing', async () => {
       const { accountId } = await collectedAccount('NOT-LATE');
       await catalogListing(accountId, 'HELD-BEFORE-ATTEMPT', {

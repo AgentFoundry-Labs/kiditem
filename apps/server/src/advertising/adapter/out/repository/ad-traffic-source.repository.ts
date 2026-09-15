@@ -1571,11 +1571,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       externalId: string;
       createdAt: Date;
       createdOn: string | null;
+      sourceCandidateId: string | null;
     }>>`
       SELECT id,
              external_id AS "externalId",
              created_at AS "createdAt",
-             raw_json ->> 'createdOn' AS "createdOn"
+             raw_json ->> 'createdOn' AS "createdOn",
+             source_candidate_id AS "sourceCandidateId"
       FROM channel_listings
       WHERE organization_id = ${row.organizationId}::uuid
         AND channel_account_id = ${row.channelAccountId}::uuid
@@ -1655,8 +1657,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         listingId: listing.id,
         externalId: listing.externalId,
         firstZeroDate: omittedListingFirstZeroTrafficDate({
-          listingCreatedAt: listing.createdAt,
-          wingCreatedOn: listing.createdOn,
+          listing,
           collectionStartedAt: row.createdAt,
         }),
       })),

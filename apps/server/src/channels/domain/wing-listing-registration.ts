@@ -4,14 +4,27 @@ import { parseProductAbcDateToKstCalendarDate } from '@kiditem/shared/product-ab
 const WING_CREATED_ON = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/;
 
 /**
- * The KST calendar date Wing registered a listing, read from the `createdOn`
- * the catalog's inventory-list stage stores in the listing's raw JSON, or
- * `null` when there is none or it does not parse. Wing writes a KST timestamp
- * without a zone.
+ * The KST calendar date a listing was registered on Wing, or `null` when
+ * nothing records it.
+ *
+ * Wing's own `createdOn`, which the catalog's inventory-list stage stores in
+ * the listing's raw JSON as a KST timestamp without a zone, wins. A listing
+ * KidItem registered carries its registration provenance in
+ * `sourceCandidateId`, and KidItem creates its catalog row once Wing confirms
+ * the registration, so without a readable `createdOn` its `createdAt` gives
+ * the date. A registration that claims a row a catalog import created earlier
+ * keeps that import's `createdAt`, which is still no earlier than the listing
+ * existed on Wing.
  */
-export function wingListingRegistrationDate(createdOn: string | null): string | null {
-  return parseProductAbcDateToKstCalendarDate(
-    createdOn?.replace(WING_CREATED_ON, '$1T$2') ?? null,
+export function wingListingRegistrationDate(listing: Readonly<{
+  createdOn: string | null;
+  sourceCandidateId: string | null;
+  createdAt: Date;
+}>): string | null {
+  const observed = parseProductAbcDateToKstCalendarDate(
+    listing.createdOn?.replace(WING_CREATED_ON, '$1T$2') ?? null,
     { allowNaiveKstTimestamp: true },
   );
+  if (observed || !listing.sourceCandidateId) return observed;
+  return parseProductAbcDateToKstCalendarDate(listing.createdAt.toISOString());
 }
