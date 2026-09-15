@@ -6,6 +6,11 @@ import {
 } from '@kiditem/shared/source-import';
 import { redact } from '../../../../common/redact';
 import {
+  OPERATOR_CANCEL_CODE,
+  OPERATOR_CANCEL_MESSAGE,
+} from '../../../../common/operator-cancel';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -70,18 +75,8 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
   }): Promise<OrderCollectionAttempt & { attemptToken: string }> {
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, input.organizationId);
-      const account = await tx.channelAccount.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          channel: 'order_collection',
-          externalAccountId: input.mallKey,
-        },
-        select: { id: true, externalAccountId: true },
-      });
-      if (!account || !account.externalAccountId) {
-        throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
-      }
-      const mall = mallByKey(account.externalAccountId);
+      const account = await this.findMallAccount(tx, input.organizationId, input.mallKey);
+      const mall = { key: account.mallKey, name: account.mallName };
       const plan: OrderCollectionPlan = {
         sourceType: SOURCE_TYPE,
         parserVersion: PARSER_VERSION,
@@ -198,6 +193,60 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         },
       });
       return row ? this.controlView(tx, row) : null;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 몰별 현재 상태. 진행 중 판정은 begin이 409를 내는
+   * 판정과 같은 규칙이고, 임대가 지난 RUNNING 행은 여기서 끝내지 않고 마지막 시도
+   * 자리에 만료로만 비친다. 끝내는 일은 owner의 쓰기 경로가 한다.
+   */
+  async readSourceStatus(input: {
+    organizationId: string;
+    mallKey: string;
+  }): Promise<OrderCollectionSourceStatus> {
+    return this.prisma.$transaction(async (tx) => {
+      const account = await this.findMallAccount(tx, input.organizationId, input.mallKey);
+      const scope = {
+        organizationId: input.organizationId,
+        sourceType: SOURCE_TYPE,
+        channelAccountId: account.id,
+      } as const;
+      const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
+
+      const running = (await tx.sourceImportRun.findMany({
+        where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+        orderBy: [...order],
+      })).find((row) => !expired(row)) ?? null;
+      const lastComplete = await tx.sourceImportRun.findFirst({
+        where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+        orderBy: [{ importedAt: 'desc' }, ...order],
+      });
+      const lastRow = await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...order] });
+      const lastAttempt = lastRow ? await this.attemptView(tx, lastRow) : null;
+
+      return {
+        mallKey: account.mallKey,
+        channelAccountId: account.id,
+        running: running ? {
+          attemptId: running.id,
+          collectionMode: readPlan(running.plan).collectionMode,
+          startedAt: running.createdAt.toISOString(),
+          expiresAt: running.expiresAt?.toISOString() ?? null,
+        } : null,
+        lastComplete: lastComplete ? {
+          attemptId: lastComplete.id,
+          completedAt: lastComplete.importedAt?.toISOString() ?? null,
+          publicationSequence: lastComplete.publicationSequence?.toString() ?? null,
+        } : null,
+        lastAttempt: lastRow && lastAttempt ? {
+          attemptId: lastAttempt.attemptId,
+          state: lastAttempt.state,
+          errorCode: lastAttempt.errorCode,
+          errorMessage: lastAttempt.errorMessage,
+          endedAt: endedAt(lastRow, lastAttempt.state),
+        } : null,
+      } satisfies OrderCollectionSourceStatus;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
@@ -348,6 +397,28 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     });
   }
 
+  /**
+   * Operator stop without the attempt token. It fails through the same terminal
+   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
+   * the alert rule; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<OrderCollectionAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, input.organizationId);
+      const row = await this.findRun(tx, input.organizationId, input.attemptId);
+      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        return this.attemptView(tx, row);
+      }
+      const failed = expired(row)
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Order collection expired.')
+        : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
+      return this.attemptView(tx, failed);
+    });
+  }
+
   async readSourceDownload(input: {
     organizationId: string;
     artifactId: string;
@@ -370,6 +441,23 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       fileName: row.sourceFileName,
       contentType: row.sourceContentType,
     };
+  }
+
+  /** 몰 계정 식별. 시작 경로와 같은 조회라 모르는 몰은 같은 오류로 끝난다. */
+  private async findMallAccount(tx: Tx, organizationId: string, mallKey: string): Promise<{
+    id: string;
+    mallKey: OrderCollectionMallKey;
+    mallName: string;
+  }> {
+    const account = await tx.channelAccount.findFirst({
+      where: { organizationId, channel: 'order_collection', externalAccountId: mallKey },
+      select: { id: true, externalAccountId: true },
+    });
+    if (!account || !account.externalAccountId) {
+      throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
+    }
+    const mall = mallByKey(account.externalAccountId);
+    return { id: account.id, mallKey: mall.key, mallName: mall.name };
   }
 
   private async findRun(tx: Tx, organizationId: string, attemptId: string): Promise<SourceRun> {
@@ -519,6 +607,16 @@ function dateOnly(value: string): Date {
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
   return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
+}
+
+/**
+ * 시도가 끝난 시각. 완료분은 발행 시각, 실패는 마지막 기록 시각이고, 아직 RUNNING인
+ * 채로 임대만 지난 행은 그 임대가 끝난 시각이다.
+ */
+function endedAt(row: SourceRun, state: 'RUNNING' | 'COMPLETE' | 'FAILED'): string | null {
+  if (state === 'RUNNING') return null;
+  if (row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) return row.expiresAt?.toISOString() ?? null;
+  return (row.importedAt ?? row.updatedAt).toISOString();
 }
 
 function alertDedupeKey(row: SourceRun): string {

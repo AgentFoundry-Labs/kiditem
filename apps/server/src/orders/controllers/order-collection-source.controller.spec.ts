@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { OrderCollectionSourceController } from './order-collection-source.controller';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -223,5 +224,57 @@ describe('OrderCollectionSourceController', () => {
     )).rejects.toThrow('ATTEMPT_FENCE_LOST');
     expect(source.readSourceDownload).not.toHaveBeenCalled();
     expect(service.convertKidsnoteOrders).not.toHaveBeenCalled();
+  });
+
+  it('reads one mall source with organization scope and answers the shared status shape without a token', async () => {
+    const status = {
+      mallKey: 'art09',
+      channelAccountId: '66666666-6666-4666-8666-666666666666',
+      running: {
+        attemptId: ATTEMPT,
+        collectionMode: 'browser',
+        startedAt: '2026-09-15T00:00:00.000Z',
+        expiresAt: '2026-09-15T00:30:00.000Z',
+      },
+      lastComplete: null,
+      lastAttempt: {
+        attemptId: ATTEMPT,
+        state: 'RUNNING',
+        errorCode: null,
+        errorMessage: null,
+        endedAt: null,
+      },
+    };
+    const source = { readSourceStatus: vi.fn().mockResolvedValue(status) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    const view = await controller.readSourceStatus('art09', ORG);
+
+    expect(source.readSourceStatus).toHaveBeenCalledWith({ organizationId: ORG, mallKey: 'art09' });
+    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
+    expect(OrderCollectionSourceStatusSchema.parse(view)).toEqual(status);
+  });
+
+  it('refuses a mall source read with no mall key', async () => {
+    const source = { readSourceStatus: vi.fn() };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    await expect(controller.readSourceStatus(undefined, ORG))
+      .rejects.toThrow('INVALID_ORDER_COLLECTION_SCOPE');
+    await expect(controller.readSourceStatus('   ', ORG))
+      .rejects.toThrow('INVALID_ORDER_COLLECTION_SCOPE');
+    expect(source.readSourceStatus).not.toHaveBeenCalled();
+  });
+
+  it('stops a running mall attempt with organization scope only, never the attempt token', async () => {
+    const stopped = { attemptId: ATTEMPT, state: 'FAILED', errorCode: 'USER_CANCELLED' };
+    const source = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
+    const controller = new OrderCollectionSourceController(source as never, {} as never);
+
+    await expect(controller.cancelAttempt(ATTEMPT, ORG)).resolves.toEqual(stopped);
+    expect(source.cancelAttempt).toHaveBeenCalledWith({
+      organizationId: ORG,
+      attemptId: ATTEMPT,
+    });
   });
 });

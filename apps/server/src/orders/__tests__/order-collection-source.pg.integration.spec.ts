@@ -5,11 +5,13 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID as OTHER_ORG,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
@@ -436,6 +438,142 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     await expect(prisma.alert.count({
       where: { organizationId: ORG, sourceType: 'order_collection_mall', attemptId: attempt.attemptId },
     })).resolves.toBe(0);
+  });
+
+  const readSource = (mallKey?: string, organizationId = ORG) => {
+    const query = mallKey === undefined ? '' : `?mallKey=${encodeURIComponent(mallKey)}`;
+    return request(httpUrl).get(`${BASE}/source${query}`).set('x-test-org', organizationId);
+  };
+
+  const cancel = (attemptId: string, organizationId = ORG) =>
+    request(httpUrl)
+      .post(`${BASE}/attempts/${attemptId}/cancel`)
+      .set('x-test-org', organizationId);
+
+  it('answers the mall source with its running, last complete and last attempt slots', async () => {
+    await readSource().expect(400);
+    await readSource('not-a-mall').expect(404);
+
+    const idle = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
+    const account = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId: ORG, channel: 'order_collection', externalAccountId: 'art09' },
+    });
+    expect(idle).toEqual({
+      mallKey: 'art09',
+      channelAccountId: account.id,
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    const first = (await begin('art09').expect(201)).body;
+    const started = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
+    expect(started.running).toMatchObject({
+      attemptId: first.attemptId,
+      collectionMode: 'browser',
+      expiresAt: first.expiresAt,
+    });
+    expect(started.lastAttempt).toMatchObject({ attemptId: first.attemptId, state: 'RUNNING', endedAt: null });
+    expect(started.lastComplete).toBeNull();
+    // 상태 읽기는 토큰을 절대 담지 않는다(strict 스키마가 여분 키를 거른다).
+    expect(JSON.stringify(started)).not.toContain(first.attemptToken);
+
+    await convertArt09(first).expect(201);
+    const completed = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
+    expect(completed.running).toBeNull();
+    expect(completed.lastComplete).toMatchObject({
+      attemptId: first.attemptId,
+      publicationSequence: null,
+    });
+    expect(completed.lastComplete?.completedAt).toEqual(expect.any(String));
+    expect(completed.lastAttempt).toMatchObject({ attemptId: first.attemptId, state: 'COMPLETE' });
+
+    // 뒤이어 실패한 시도는 lastAttempt만 바꾸고 마지막 완료분은 그대로 둔다.
+    const second = (await begin('art09').expect(201)).body;
+    await cancel(second.attemptId).expect(200);
+    const afterFailure = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
+    expect(afterFailure.running).toBeNull();
+    expect(afterFailure.lastComplete?.attemptId).toBe(first.attemptId);
+    expect(afterFailure.lastAttempt).toMatchObject({
+      attemptId: second.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+    expect(afterFailure.lastAttempt?.endedAt).toEqual(expect.any(String));
+  });
+
+  it('keeps each mall and each organization in its own source read', async () => {
+    const art09 = (await begin('art09').expect(201)).body;
+
+    const other = OrderCollectionSourceStatusSchema.parse((await readSource('kakao').expect(200)).body);
+    expect(other.running).toBeNull();
+    expect(other.lastAttempt).toBeNull();
+    expect(other.mallKey).toBe('kakao');
+    expect(other.channelAccountId).not.toBe(
+      OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body).channelAccountId,
+    );
+    expect((await readSource('art09').expect(200)).body.running.attemptId).toBe(art09.attemptId);
+
+    // 다른 조직에는 이 조직의 몰 계정 자체가 없다.
+    await readSource('art09', OTHER_ORG).expect(404);
+  });
+
+  it('reads an expired lease as no longer running without writing the attempt', async () => {
+    const attempt = (await begin('art09').expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    const view = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
+    expect(view.running).toBeNull();
+    expect(view.lastAttempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    // 읽기는 행을 끝내지 않는다. 만료 처리는 owner의 쓰기 경로가 한다.
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
+  });
+
+  it('stops a running mall attempt for an operator without its token or an Alert', async () => {
+    const attempt = (await begin('art09').expect(201)).body;
+
+    await cancel(attempt.attemptId, OTHER_ORG).expect(404);
+
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await prisma.alert.count({
+      where: { organizationId: ORG, sourceType: 'order_collection_mall' },
+    })).toBe(0);
+
+    // 같은 중단을 다시 눌러도 끝난 시도를 그대로 돌려준다.
+    expect((await cancel(attempt.attemptId).expect(200)).body)
+      .toMatchObject({ state: 'FAILED', errorCode: 'USER_CANCELLED' });
+
+    const next = (await begin('art09').expect(201)).body;
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+    expect(next.state).toBe('RUNNING');
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert', async () => {
+    const attempt = (await begin('art09').expect(201)).body;
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    expect((await cancel(attempt.attemptId).expect(200)).body)
+      .toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.findFirstOrThrow({
+      where: { organizationId: ORG, sourceType: 'order_collection_mall', attemptId: attempt.attemptId },
+    })).toMatchObject({ status: 'OPEN' });
   });
 
   it('rejects unfenced conversion and the retired direct COMPLETE route', async () => {

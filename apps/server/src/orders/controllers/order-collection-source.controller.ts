@@ -5,14 +5,17 @@ import {
   Get,
   Header,
   Headers,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
   Post,
   NotFoundException,
+  Query,
   Res,
   StreamableFile,
 } from '@nestjs/common';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import {
@@ -61,6 +64,20 @@ export class OrderCollectionSourceController {
       idempotencyKey: requireHeader(idempotencyKey, 'INVALID_IDEMPOTENCY_KEY'),
       ...body,
     });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 몰별 현재 상태. 시도 토큰은 담지 않는다 — fence
+   * 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('source')
+  async readSourceStatus(
+    @Query('mallKey') mallKey: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    const key = optionalText(mallKey);
+    if (!key) throw new BadRequestException('INVALID_ORDER_COLLECTION_SCOPE');
+    return this.source.readSourceStatus({ organizationId, mallKey: key });
   }
 
   @Get('attempts/:attemptId')
@@ -127,6 +144,16 @@ export class OrderCollectionSourceController {
       attemptToken: requireUuidHeader(attemptToken),
       ...body,
     });
+  }
+
+  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  async cancelAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
   @Post('attempts/:attemptId/complete-empty')
