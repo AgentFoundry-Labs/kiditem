@@ -34,8 +34,8 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
   });
 
   it('reads no ABC official cutoff before Products publishes', async () => {
-    await expect(new AdListingRepositoryAdapter(prisma as never).findAbcOfficialCutoffDate(ORG))
-      .resolves.toBeNull();
+    await expect(new AdListingRepositoryAdapter(prisma as never).findScopedAdListingsWithAbcCutoff(ORG, []))
+      .resolves.toEqual({ listings: new Map(), abcOfficialCutoffDate: null });
   });
 
   it('hydrates every advertising grade consumer from the retained Products publication', async () => {
@@ -182,7 +182,12 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');
-    await expect(listingReader.findAbcOfficialCutoffDate(ORG)).resolves.toBe('2026-08-31');
+    const snapshot = await listingReader.findScopedAdListingsWithAbcCutoff(ORG, [listing.id]);
+    expect(snapshot.listings.get(listing.id)?.masterProduct.abcGrade).toBe('A');
+    expect(snapshot.abcOfficialCutoffDate).toBe('2026-08-31');
+    // Without an advertised listing the snapshot still carries the cutoff.
+    await expect(listingReader.findScopedAdListingsWithAbcCutoff(ORG, []))
+      .resolves.toMatchObject({ abcOfficialCutoffDate: '2026-08-31' });
     expect((await keywordReader.listOwnVendorItems(ORG))[0]).toMatchObject({
       vendorItemId: option.externalOptionId,
       productName: 'Wing product',

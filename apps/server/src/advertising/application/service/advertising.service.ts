@@ -31,10 +31,8 @@ export class AdvertisingService implements AdvertisingHubReadPort {
 
   async getHubData(organizationId: string): Promise<AdsHubData> {
     await this.adConfigService.getConfig(organizationId);
-    const [products, abcOfficialCutoffDate] = await Promise.all([
-      this.buildListingItems(organizationId),
-      this.listingRepo.findAbcOfficialCutoffDate(organizationId),
-    ]);
+    const { products, abcOfficialCutoffDate } =
+      await this.buildListingItems(organizationId);
     const summary = this.computeSummary(products);
     return { products, summary, abcOfficialCutoffDate } satisfies AdsHubData;
   }
@@ -45,7 +43,7 @@ export class AdvertisingService implements AdvertisingHubReadPort {
   ): Promise<FindAllAdsResponse> {
     await this.adConfigService.getConfig(organizationId);
     const { page, limit, skip } = paginationParams(query);
-    const all = await this.buildListingItems(organizationId);
+    const { products: all } = await this.buildListingItems(organizationId);
     const items = all.slice(skip, skip + limit);
     return {
       items,
@@ -57,19 +55,20 @@ export class AdvertisingService implements AdvertisingHubReadPort {
 
   private async buildListingItems(
     organizationId: string,
-  ): Promise<AdsListItem[]> {
+  ): Promise<{ products: AdsListItem[]; abcOfficialCutoffDate: string | null }> {
     // Reuses the 30-day per-listing aggregate from the benchmark repository
     // — the hub list and the diagnosis share the exact same source rows.
     const aggregates =
       await this.benchmarkRepo.findBenchmarkAggregates(organizationId);
-    if (aggregates.perListing.length === 0) return [];
+    // Grades and the ABC cutoff come from one snapshot, so the cutoff always
+    // belongs to the publication the grades were read from.
+    const { listings: listingMap, abcOfficialCutoffDate } =
+      await this.listingRepo.findScopedAdListingsWithAbcCutoff(
+        organizationId,
+        aggregates.perListing.map((r) => r.listingId),
+      );
 
-    const listingMap = await this.listingRepo.findScopedAdListings(
-      organizationId,
-      aggregates.perListing.map((r) => r.listingId),
-    );
-
-    return aggregates.perListing.flatMap((row) => {
+    const products = aggregates.perListing.flatMap((row) => {
       const listing = listingMap.get(row.listingId);
       if (!listing) return [];
       const master = listing.masterProduct;
@@ -91,6 +90,7 @@ export class AdvertisingService implements AdvertisingHubReadPort {
         } satisfies AdsListItem,
       ];
     });
+    return { products, abcOfficialCutoffDate };
   }
 
   private computeSummary(products: AdsListItem[]): AdsHubSummary {

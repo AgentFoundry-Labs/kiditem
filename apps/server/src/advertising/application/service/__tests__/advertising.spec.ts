@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdvertisingService } from '../advertising.service';
 import type { AdBenchmarkRepositoryPort } from '../../port/out/repository/ad-benchmark.repository.port';
-import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
+import type {
+  AdListingRepositoryPort,
+  ScopedAdListingSnapshot,
+} from '../../port/out/repository/ad-listing.repository.port';
 import {
   buildMockAdBenchmarkRepo,
   buildMockAdListingRepo,
@@ -14,6 +17,14 @@ describe('AdvertisingService', () => {
   let benchmarkRepo: MockAdBenchmarkRepo;
   let listingRepo: MockAdListingRepo;
   let adConfig: any;
+
+  /** The hub reads its listings and the ABC cutoff in one snapshot. */
+  function mockListingSnapshot(listings: ScopedAdListingSnapshot['listings']) {
+    listingRepo.findScopedAdListingsWithAbcCutoff.mockResolvedValue({
+      listings,
+      abcOfficialCutoffDate: '2026-07-31',
+    });
+  }
 
   const baseConfig = {
     roas: { thresholds: { excellent: 500, warning: 200, poor: 100 } },
@@ -35,7 +46,7 @@ describe('AdvertisingService', () => {
   beforeEach(() => {
     benchmarkRepo = buildMockAdBenchmarkRepo();
     listingRepo = buildMockAdListingRepo();
-    // Defaults: empty aggregates + empty listing map.
+    // Defaults: empty aggregates, no listing and no ABC publication.
     benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
       totals: {
         spend: 0,
@@ -46,7 +57,10 @@ describe('AdvertisingService', () => {
       },
       perListing: [],
     });
-    listingRepo.findScopedAdListings.mockResolvedValue(new Map());
+    listingRepo.findScopedAdListingsWithAbcCutoff.mockResolvedValue({
+      listings: new Map(),
+      abcOfficialCutoffDate: null,
+    });
     adConfig = { getConfig: vi.fn().mockResolvedValue(baseConfig) };
     service = new AdvertisingService(
       benchmarkRepo as unknown as AdBenchmarkRepositoryPort,
@@ -87,7 +101,7 @@ describe('AdvertisingService', () => {
         },
       ],
     });
-    listingRepo.findScopedAdListings.mockResolvedValue(
+    mockListingSnapshot(
       new Map([
         [
           'L1',
@@ -158,7 +172,7 @@ describe('AdvertisingService', () => {
         },
       ],
     });
-    listingRepo.findScopedAdListings.mockResolvedValue(
+    mockListingSnapshot(
       new Map([
         [
           'L1',
@@ -197,17 +211,46 @@ describe('AdvertisingService', () => {
     expect(result.summary.totalRoas).toBeNull();
   });
 
-  it('getHubData carries the ABC official cutoff, null before Products publishes', async () => {
-    listingRepo.findAbcOfficialCutoffDate.mockResolvedValueOnce(null);
+  it('getHubData takes the grades and the ABC cutoff from one snapshot read', async () => {
+    benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+      totals: { spend: 1000, impressions: 100, clicks: 5, conversions: 1, revenue: 3000 },
+      perListing: [
+        { listingId: 'L1', sums: { spend: 1000, impressions: 100, clicks: 5, conversions: 1, revenue: 3000 } },
+      ],
+    });
+    // Read apart, a first publication committing between the two reads would
+    // pair its cutoff with grades read before it.
+    listingRepo.findScopedAdListingsWithAbcCutoff.mockResolvedValue({
+      listings: new Map([
+        ['L1', {
+          id: 'L1',
+          externalId: 'COUPANG-1',
+          channelName: '쿠팡',
+          masterProduct: { id: 'M1', code: 'M-1', name: '상품1', abcGrade: 'B' },
+        }],
+      ]),
+      abcOfficialCutoffDate: '2026-07-31',
+    });
+
+    const result = await service.getHubData('organization-1');
+
+    expect(result.abcOfficialCutoffDate).toBe('2026-07-31');
+    expect(result.products.map(({ listingId, grade }) => ({ listingId, grade })))
+      .toEqual([{ listingId: 'L1', grade: 'B' }]);
+  });
+
+  it('getHubData carries the ABC cutoff without advertised listings, null before Products publishes', async () => {
     const unpublished = await service.getHubData('organization-1');
 
-    expect(unpublished.abcOfficialCutoffDate).toBeNull();
+    expect(unpublished).toMatchObject({ products: [], abcOfficialCutoffDate: null });
 
-    listingRepo.findAbcOfficialCutoffDate.mockResolvedValueOnce('2026-07-31');
+    listingRepo.findScopedAdListingsWithAbcCutoff.mockResolvedValueOnce({
+      listings: new Map(),
+      abcOfficialCutoffDate: '2026-07-31',
+    });
     const published = await service.getHubData('organization-1');
 
-    expect(published.abcOfficialCutoffDate).toBe('2026-07-31');
-    expect(listingRepo.findAbcOfficialCutoffDate).toHaveBeenCalledWith('organization-1');
+    expect(published).toMatchObject({ products: [], abcOfficialCutoffDate: '2026-07-31' });
   });
 
   it('recomputes ROAS from sums (not averaged per-row provider ratio)', async () => {
@@ -232,7 +275,7 @@ describe('AdvertisingService', () => {
         },
       ],
     });
-    listingRepo.findScopedAdListings.mockResolvedValue(
+    mockListingSnapshot(
       new Map([
         [
           'L1',

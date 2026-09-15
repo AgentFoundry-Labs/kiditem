@@ -18,6 +18,16 @@ export interface ScopedAdListingReadModel {
   };
 }
 
+export interface ScopedAdListingSnapshot {
+  listings: Map<string, ScopedAdListingReadModel>;
+  /**
+   * Official cutoff of the Products ABC publication the listing grades were
+   * read from, or `null` when Products has never published and no grade
+   * membership is measured.
+   */
+  abcOfficialCutoffDate: string | null;
+}
+
 export interface ScopedAdListingSummary extends AdListingSummary {
   masterProduct: AdListingSummary['masterProduct'] & {
     abcGrade: string | null;
@@ -36,10 +46,14 @@ export interface AdListingRepositoryPort {
   ): Promise<Map<string, ScopedAdListingReadModel>>;
 
   /**
-   * Official cutoff of the retained Products ABC publication, or `null` when
-   * Products has never published and no grade membership is measured.
+   * The same listings with the ABC cutoff, read in one snapshot so a
+   * publication committing between two reads cannot pair its cutoff with
+   * grades read before it. The cutoff is read even without listing ids.
    */
-  findAbcOfficialCutoffDate(organizationId: string): Promise<string | null>;
+  findScopedAdListingsWithAbcCutoff(
+    organizationId: string,
+    listingIds: Array<string | null | undefined>,
+  ): Promise<ScopedAdListingSnapshot>;
 
   /**
    * IDOR guard helper — confirm a listing id belongs to the organization and
