@@ -37,21 +37,25 @@ export function pauseProposalState(proposal: AdKeywordPauseProposal): PausePropo
 }
 
 /**
- * Action ids of these keywords' proposals that a product-wide request covers.
- * Approving covers only proposals awaiting review: running a failure again
- * changes Coupang again, so that stays a per-keyword decision. Rejecting covers
- * every proposal that offers it.
+ * Distinct action ids of these keywords' proposals that a product-wide request
+ * covers. A keyword served in several ad groups shows a chip per group for one
+ * proposal, which counts once. Approving covers only proposals awaiting review:
+ * running a failure again changes Coupang again, so that stays a per-keyword
+ * decision. Rejecting covers every proposal that offers it.
  */
 export function proposalIdsFor(
   keywords: readonly AdKeywordSnapshot[],
   review: 'approve' | 'reject',
 ): string[] {
-  return keywords.flatMap(({ pauseProposal }) => {
-    if (!pauseProposal) return [];
+  const ids = new Set<string>();
+  for (const { pauseProposal } of keywords) {
+    if (!pauseProposal) continue;
     const state = pauseProposalState(pauseProposal);
-    const covered = review === 'approve' ? state.approve === 'approve' : state.reject;
-    return covered ? [pauseProposal.actionId] : [];
-  });
+    if (review === 'approve' ? state.approve === 'approve' : state.reject) {
+      ids.add(pauseProposal.actionId);
+    }
+  }
+  return [...ids];
 }
 
 /** The status message after the server counted `updated` proposals. */

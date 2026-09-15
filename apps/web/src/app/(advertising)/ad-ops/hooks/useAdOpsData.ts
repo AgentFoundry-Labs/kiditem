@@ -326,21 +326,36 @@ export function useRunKeywordAgent(period: string) {
 /** How many distinct proposals of the organization the request named. */
 export type AdActionReviewResult = { updated: number };
 
+/** The most ids one approve or reject command takes, the action listing's page size. */
+const AD_ACTION_REVIEW_MAX_IDS = 200;
+
 /**
  * Approve or reject keyword pause proposals through the ad action command.
  * Approval queues an attempt the browser extension runs, and approving a failed
  * proposal queues a new one; rejection cancels an attempt that has not started.
- * The keyword list is read again afterwards, after a refusal too: a refusal
- * means a proposal changed state since the list was read.
+ *
+ * The distinct ids go in commands of at most 200, one after another, and
+ * `updated` sums what the server counted. A refused command ends the review
+ * with its error, and the commands after it are not sent. The keyword list is
+ * read again afterwards, after a refusal too: a refusal means a proposal
+ * changed state since the list was read.
  */
 export function useReviewKeywordProposals(period: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { action: 'approve' | 'reject'; ids: string[] }) =>
-      apiClient.post<AdActionReviewResult>('/api/ads/actions', {
-        action: input.action,
-        ids: input.ids,
-      }),
+    mutationFn: async (input: { action: 'approve' | 'reject'; ids: readonly string[] }) => {
+      const ids = [...new Set(input.ids)];
+      let updated = 0;
+      for (let start = 0; start < ids.length; start += AD_ACTION_REVIEW_MAX_IDS) {
+        // A refusal throws here, before the next command is sent.
+        const result = await apiClient.post<AdActionReviewResult>('/api/ads/actions', {
+          action: input.action,
+          ids: ids.slice(start, start + AD_ACTION_REVIEW_MAX_IDS),
+        });
+        updated += result.updated;
+      }
+      return { updated } satisfies AdActionReviewResult;
+    },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywords(period) }),
   });

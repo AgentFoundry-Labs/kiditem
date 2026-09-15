@@ -114,6 +114,32 @@ function keywordReads() {
   return vi.mocked(apiClient.get).mock.calls.filter(([path]) => path === KEYWORDS_PATH).length;
 }
 
+/** `count` keywords of the product, each with its own proposal awaiting review. */
+function pendingKeywords(count: number): AdKeywordSnapshot[] {
+  return Array.from({ length: count }, (_, index) =>
+    keyword(
+      `키워드${index}`,
+      proposal(`00000000-0000-4000-8000-${String(100 + index).padStart(12, '0')}`, 'pending_review', 'queued'),
+    ),
+  );
+}
+
+/** The keyword read answers with these keywords for the product. */
+function serveKeywords(keywords: AdKeywordSnapshot[]) {
+  vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+    if (path === KEYWORDS_PATH) return { ...keywordsData(), keywords };
+    throw new Error(`unexpected GET ${path}`);
+  });
+}
+
+/** The 409 body the server sends when a rejection names an action that already ran. */
+const ALREADY_RAN_REFUSAL = new ApiError(
+  409,
+  'HTTP_409',
+  '이미 실행된 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영됐습니다.',
+  { code: 'EXECUTION_TASK_DONE' },
+);
+
 async function renderExpandedProduct() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -201,13 +227,18 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     ]);
   });
 
-  it('approves every proposal of the expanded product awaiting review and rejects every one it can still reject', async () => {
+  it('approves every proposal of the expanded product awaiting review and rejects every one it can still reject, counting them whatever the filter shows', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 2 });
     await renderExpandedProduct();
+    // The filter hides every chip; the product-wide buttons still count and send all of its proposals.
+    fireEvent.click(screen.getByRole('button', { name: '노출 0' }));
+    expect(screen.getByText('조건에 맞는 키워드가 없습니다.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 모두 승인' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '모두 거절' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: '모두 거절' }));
+    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 승인' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '이 상품 제안 4개 모두 거절' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 4개 모두 거절' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
     expect(actionRequests()).toEqual([
@@ -220,16 +251,56 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     ]);
   });
 
-  it("shows the server's reason when a rejection is refused", async () => {
-    vi.mocked(apiClient.post).mockRejectedValue(
-      new ApiError(409, 'EXECUTION_TASK_RUNNING', '실행 중인 광고 액션은 거절할 수 없습니다.'),
-    );
+  it('sends a product-wide request above 200 proposals as requests of at most 200 distinct ids and reports their summed count once', async () => {
+    const pending = pendingKeywords(201);
+    // The first keyword also serves a second ad group: a second chip for the same proposal.
+    serveKeywords([...pending, { ...pending[0], adGroup: 'group-2' }]);
+    vi.mocked(apiClient.post).mockImplementation(async (_path: string, body: unknown) => ({
+      updated: (body as { ids: string[] }).ids.length,
+    }));
     await renderExpandedProduct();
 
+    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 201개 모두 거절' }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    expect(toast.success).toHaveBeenCalledWith('제안 201개를 거절했습니다.');
+    const requests = vi.mocked(apiClient.post).mock.calls.map(([path, body]) => ({
+      path,
+      ...(body as { action: string; ids: string[] }),
+    }));
+    expect(requests.map(({ path, action, ids }) => [path, action, ids.length])).toEqual([
+      [ACTIONS_PATH, 'reject', 200],
+      [ACTIONS_PATH, 'reject', 1],
+    ]);
+    expect(new Set(requests.flatMap(({ ids }) => ids)).size).toBe(201);
+  });
+
+  it('stops a product-wide request at the first refused command, shows its reason and reads the keywords again', async () => {
+    serveKeywords(pendingKeywords(201));
+    vi.mocked(apiClient.post).mockRejectedValue(ALREADY_RAN_REFUSAL);
+    await renderExpandedProduct();
+
+    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 201개 모두 거절' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.detail));
+    // The command after the refused one is never sent.
+    expect(
+      vi.mocked(apiClient.post).mock.calls.map(([, body]) => (body as { ids: string[] }).ids.length),
+    ).toEqual([200]);
+    expect(toast.success).not.toHaveBeenCalled();
+    await waitFor(() => expect(keywordReads()).toBe(2));
+  });
+
+  it("shows the server's reason and reads the keywords again when a rejection is refused", async () => {
+    vi.mocked(apiClient.post).mockRejectedValue(ALREADY_RAN_REFUSAL);
+    await renderExpandedProduct();
+    expect(keywordReads()).toBe(1);
+
+    // A stale "실행 대기" chip: the extension finished the pause after the list was read.
     fireEvent.click(chip('타요').getByRole('button', { name: '거절' }));
 
-    await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('실행 중인 광고 액션은 거절할 수 없습니다.'),
-    );
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.detail));
+    expect(toast.success).not.toHaveBeenCalled();
+    await waitFor(() => expect(keywordReads()).toBe(2));
   });
 });

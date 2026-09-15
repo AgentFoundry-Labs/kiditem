@@ -435,9 +435,9 @@ function KeywordList({
             onClick={() => onReview('approve', approvableIds)}
             disabled={reviewing}
             className="btn-primary btn-sm disabled:opacity-50"
-            title={`승인 대기 중인 제안 ${formatNumber(approvableIds.length)}개를 승인합니다`}
+            title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 승인합니다"
           >
-            이 상품 제안 모두 승인
+            이 상품 제안 {formatNumber(approvableIds.length)}개 모두 승인
           </button>
         )}
         {rejectableIds.length > 0 && (
@@ -446,9 +446,9 @@ function KeywordList({
             onClick={() => onReview('reject', rejectableIds)}
             disabled={reviewing}
             className="btn-secondary btn-sm disabled:opacity-50"
-            title={`실행 전이거나 실패한 제안 ${formatNumber(rejectableIds.length)}개를 거절합니다`}
+            title="필터나 검색과 관계없이 이 상품에서 실행 전이거나 실패한 제안을 모두 거절합니다"
           >
-            모두 거절
+            이 상품 제안 {formatNumber(rejectableIds.length)}개 모두 거절
           </button>
         )}
       </div>
