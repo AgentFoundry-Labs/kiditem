@@ -307,6 +307,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         work.control = await read(environmentId, work.attemptId);
@@ -326,6 +327,7 @@
           !(await isLocallyActive(options.sessions, work.attemptId, environmentId)) &&
           !cancellationOnly
         ) {
+          work.terminal = null;
           return cancelled(work.attemptId);
         }
         if (requested.kind === "complete") {
@@ -354,6 +356,13 @@
       } catch (error) {
         return unavailable(work.attemptId, directError || error);
       }
+      // A stop that interrupted this request is the same lost local fence the
+      // pre-checks handle: the attempt is still the operator's to end, so the
+      // stored request must not survive for that stop to join.
+      if (directError?.code === "COLLECTION_CANCELLED" && observed.state === "RUNNING") {
+        work.terminal = null;
+        return cancelled(work.attemptId);
+      }
       if (requested.kind === "complete") {
         if (
           observed.state === "COMPLETE" &&
@@ -379,7 +388,13 @@
       work.terminal ||= terminalRequest;
       if (work.terminalPromise) return work.terminalPromise;
       work.terminalPromise = terminal(environmentId, work)
-        .finally(() => { work.terminalPromise = null; });
+        .finally(() => {
+          work.terminalPromise = null;
+          // An operator stop can settle after both the run and cancel returned.
+          if (!work.promise && !work.terminal && active.get(environmentId) === work) {
+            active.delete(environmentId);
+          }
+        });
       return work.terminalPromise;
     }
 
@@ -526,8 +541,20 @@
       const work = current || { attemptId, terminal: null, control: null };
       active.set(environmentId, work);
       try {
+        // Join a terminal request that is already in flight. A completion that
+        // wins the race ends the attempt and leaves this stop nothing to send.
+        if (work.terminalPromise) await work.terminalPromise.catch(() => null);
         const attempt = await read(environmentId, attemptId);
-        if (attempt.state !== "RUNNING") return finish(environmentId, attempt);
+        if (attempt.state !== "RUNNING") {
+          // A request an unresolved terminal left behind can never reach a
+          // terminal owner. Dropping it releases the local lock with this stop
+          // instead of at the next service-worker boot.
+          work.terminal = null;
+          return finish(environmentId, attempt);
+        }
+        // The joined request left the attempt RUNNING, so this stop owns the
+        // single /fail; replace the stored request rather than join it again.
+        work.terminal = null;
         return requestTerminal(environmentId, work, {
           kind: "failure",
           body: {
