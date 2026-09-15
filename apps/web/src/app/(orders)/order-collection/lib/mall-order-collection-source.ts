@@ -7,6 +7,7 @@ import {
 import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
 import { startWebOpenedCollection } from '@/lib/collection-start';
@@ -19,7 +20,9 @@ import { todayYmd } from './order-collection-page-model';
 import {
   beginOrderCollectionSourceAttempt,
   ORDER_COLLECTION_SOURCE_PATH,
+  readActiveOrderCollectionAttempt,
   rememberActiveOrderCollectionAttempt,
+  type ActiveOrderCollectionAttempt,
   type OrderCollectionSourceAttemptControl,
 } from './order-collection-source-owner';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
@@ -63,6 +66,28 @@ export function cancelMallOrderCollectionAttempt(attemptId: string) {
   );
 }
 
+type MallBeginRequest = Readonly<{
+  mallKey: string;
+  collectionDate: string | null;
+  collectionMode: OrderCollectionMode;
+  selectionMode?: 'manual' | 'automatic';
+  seenRowKeys?: string[];
+}>;
+
+/**
+ * The owner replays an admission key only for the same request; a key sent with
+ * anything else is refused as reused. A start that asks for something new
+ * therefore drops the unanswered key instead of replaying it.
+ */
+function sameBeginRequest(
+  remembered: ActiveOrderCollectionAttempt,
+  request: MallBeginRequest,
+): boolean {
+  return (remembered.collectionDate ?? null) === request.collectionDate
+    && (remembered.selectionMode ?? null) === (request.selectionMode ?? null)
+    && (remembered.seenRowKeys ?? []).join('\u0000') === (request.seenRowKeys ?? []).join('\u0000');
+}
+
 async function detectMallCollectionExtension(): Promise<string> {
   const status = await detectOrderCollectionSessionExtensionStatus();
   if (status.status !== 'ready') {
@@ -78,8 +103,10 @@ async function detectMallCollectionExtension(): Promise<string> {
  * second tab shows and stops the same collection.
  *
  * The browser-local attempt memory stays a resume hint for the reloaded screen
- * only. It is written after the owner admits the attempt and is never read to
- * decide whether the mall is collecting.
+ * only. It names the attempt the owner admitted, and before that the admission
+ * key this browser sent, so a begin whose answer was lost is replayed instead
+ * of leaving a RUNNING attempt the extension never received. It is never read
+ * to decide whether the mall is collecting.
  */
 export function mallOrderCollectionSource({
   organizationId,
@@ -119,7 +146,7 @@ export function mallOrderCollectionSource({
       return startWebOpenedCollection({
         detectExtension: detectMallCollectionExtension,
         begin: async (idempotencyKey) => {
-          const started = await beginOrderCollectionSourceAttempt(idempotencyKey, {
+          const request: MallBeginRequest = {
             mallKey: account.key,
             collectionDate: collectionMode === 'browser'
               ? input.collectionDate ?? todayYmd()
@@ -129,12 +156,49 @@ export function mallOrderCollectionSource({
               ? { selectionMode: input.selectionMode ?? 'manual' }
               : {}),
             ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
-          });
+          };
+          // 앞선 시작이 begin 의 답을 못 받았으면 그 키와 요청을 그대로 다시 보낸다.
+          // begin 은 키로 멱등이라 owner 가 같은 시도를 돌려주고, 확장이 받지 못했던
+          // 그 시도를 이 시작이 이어받는다(KID-189).
+          const unanswered = organizationId
+            ? readActiveOrderCollectionAttempt(organizationId, undefined, account.key)
+            : null;
+          const beginKey = unanswered?.attemptId === null
+            && unanswered.idempotencyKey
+            && sameBeginRequest(unanswered, request)
+            ? unanswered.idempotencyKey
+            : idempotencyKey;
+          if (organizationId) {
+            // 답을 받기 전에 먼저 적어 둔다. 응답이 유실돼도 키가 남는다.
+            rememberActiveOrderCollectionAttempt(organizationId, {
+              attemptId: null,
+              idempotencyKey: beginKey,
+              mallKey: account.key,
+              collectionDate: request.collectionDate,
+              ...(request.selectionMode ? { selectionMode: request.selectionMode } : {}),
+              ...(request.seenRowKeys ? { seenRowKeys: request.seenRowKeys } : {}),
+            }, undefined, account.key);
+          }
+          let started: OrderCollectionSourceAttemptControl;
+          try {
+            started = await beginOrderCollectionSourceAttempt(beginKey, request);
+          } catch (error) {
+            // owner 가 거절로 답한 키는 다시 보낼 이유가 없다. 답 자체를 못 받은
+            // 경우(네트워크·타임아웃)에만 남겨 다음 시작이 replay 한다.
+            if (organizationId && isApiError(error) && error.status >= 400 && error.status < 500) {
+              rememberActiveOrderCollectionAttempt(organizationId, {
+                attemptId: null,
+                idempotencyKey: null,
+                mallKey: account.key,
+              }, undefined, account.key);
+            }
+            throw error;
+          }
           opened = started;
           if (organizationId) {
             const hint = {
               attemptId: started.attemptId,
-              idempotencyKey,
+              idempotencyKey: beginKey,
               mallKey: account.key,
             };
             rememberActiveOrderCollectionAttempt(organizationId, hint);

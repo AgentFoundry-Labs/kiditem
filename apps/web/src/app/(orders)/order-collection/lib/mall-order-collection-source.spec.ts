@@ -39,6 +39,38 @@ function status(patch: Partial<OrderCollectionSourceStatus> = {}): OrderCollecti
   };
 }
 
+function openedAttempt() {
+  return {
+    attemptId: ATTEMPT_ID,
+    sourceImportRunId: ATTEMPT_ID,
+    state: 'RUNNING',
+    attemptToken: ATTEMPT_TOKEN,
+    plan: {
+      sourceType: 'order_collection_mall',
+      parserVersion: 'icecream-v1',
+      mallKey: ACCOUNT.key,
+      mallName: ACCOUNT.name,
+      channelAccountId: ORGANIZATION_ID,
+      collectionDate: '2026-09-15',
+      collectionMode: 'browser',
+    },
+    expiresAt: '2026-09-15T01:30:00.000Z',
+    artifactId: null,
+    coverageStartDate: null,
+    coverageEndDate: null,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+/** 이 화면이 owner 에게 보낸 시작 요청들의 멱등 키. */
+function beginKeys(): (string | undefined)[] {
+  return vi.mocked(apiClient.post).mock.calls
+    .filter(([path]) => path === '/api/orders/collection/attempts')
+    .map(([, , options]) => (options as { headers?: Record<string, string> } | undefined)
+      ?.headers?.['Idempotency-Key']);
+}
+
 function adapter(handOff = vi.fn().mockResolvedValue(undefined)) {
   return {
     handOff,
@@ -124,27 +156,7 @@ describe('mallOrderCollectionSource', () => {
 
   it('hands the opened attempt to the extension run', async () => {
     const { handOff, source } = adapter();
-    vi.mocked(apiClient.post).mockResolvedValue({
-      attemptId: ATTEMPT_ID,
-      sourceImportRunId: ATTEMPT_ID,
-      state: 'RUNNING',
-      attemptToken: ATTEMPT_TOKEN,
-      plan: {
-        sourceType: 'order_collection_mall',
-        parserVersion: 'icecream-v1',
-        mallKey: ACCOUNT.key,
-        mallName: ACCOUNT.name,
-        channelAccountId: ORGANIZATION_ID,
-        collectionDate: '2026-09-15',
-        collectionMode: 'browser',
-      },
-      expiresAt: '2026-09-15T01:30:00.000Z',
-      artifactId: null,
-      coverageStartDate: null,
-      coverageEndDate: null,
-      errorCode: null,
-      errorMessage: null,
-    });
+    vi.mocked(apiClient.post).mockResolvedValue(openedAttempt());
 
     const outcome = await source.start!({}, { status: undefined });
 
@@ -168,5 +180,72 @@ describe('mallOrderCollectionSource', () => {
 
     expect(outcome).toEqual({ outcome: 'running', attemptId: RUNNING_ATTEMPT_ID });
     expect(handOff).not.toHaveBeenCalled();
+  });
+
+  /**
+   * begin 응답이 유실되면(네트워크 오류) owner 에는 RUNNING 시도가 남는데 확장은
+   * 그것을 받지 못한다. 다음 시작이 새 멱등 키를 쓰면 owner 가 409 로 "진행 중"만
+   * 알려 줄 뿐 아무도 그 시도를 이어받지 못한다. 답을 못 받은 키는 남겨 두었다가
+   * 다시 써야 owner 가 같은 시도를 그대로 돌려주고 핸드오프가 이어진다.
+   */
+  it('replays the unanswered begin key so a lost ACK still reaches the extension', async () => {
+    const { handOff, source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(0, 'network_error', '수집 서버에 연결하지 못했습니다.', {}))
+      .mockResolvedValueOnce(openedAttempt());
+
+    await expect(source.start!({}, { status: undefined })).rejects.toThrow();
+    const outcome = await source.start!({}, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    expect(outcome).toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
+    expect(handOff).toHaveBeenCalledTimes(1);
+  });
+
+  /** owner 는 같은 키에 다른 요청이 오면 재사용으로 거절한다. 그러면 새 키로 시작한다. */
+  it('drops the unanswered key when the next start asks for another day', async () => {
+    const { source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(0, 'network_error', '수집 서버에 연결하지 못했습니다.', {}))
+      .mockResolvedValueOnce(openedAttempt());
+
+    await expect(source.start!({ collectionDate: '2026-09-15' }, { status: undefined }))
+      .rejects.toThrow();
+    await source.start!({ collectionDate: '2026-09-14' }, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it('starts fresh once the owner answered the last begin', async () => {
+    const { source } = adapter();
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce(new ApiError(409, 'conflict', '이미 진행 중입니다.', {
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: RUNNING_ATTEMPT_ID,
+      }))
+      .mockResolvedValueOnce(openedAttempt());
+
+    await source.start!({}, { status: undefined });
+    await source.start!({}, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it('starts fresh again once the replayed attempt was handed off', async () => {
+    const { source } = adapter();
+    vi.mocked(apiClient.post).mockResolvedValue(openedAttempt());
+
+    await source.start!({}, { status: undefined });
+    await source.start!({}, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
   });
 });
