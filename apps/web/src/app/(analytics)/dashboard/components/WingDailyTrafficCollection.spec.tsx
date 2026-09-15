@@ -154,6 +154,21 @@ describe('WingDailyTrafficCollection', () => {
     expect(sendToExtension).not.toHaveBeenCalled();
   });
 
+  it('blocks a custom range longer than 92 days and asks the operator to split it', async () => {
+    // 2026-06-06 through 2026-09-06 is 93 days.
+    const view = renderControl({ selectedFrom: '2026-06-06', selectedTo: '2026-09-06' });
+
+    expect(await screen.findByRole('button', { name: START_LABEL })).toBeDisabled();
+    expect(screen.getByText('한 번에 최대 92일까지 수집할 수 있습니다. 기간을 나눠 주세요.')).toBeInTheDocument();
+    expect(sendToExtension).not.toHaveBeenCalled();
+
+    // 2026-06-07 through 2026-09-06 is 92 days.
+    view.rerenderWith({ selectedFrom: '2026-06-07', selectedTo: '2026-09-06' });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: START_LABEL })).toBeEnabled());
+    expect(screen.queryByText(/최대 92일/)).not.toBeInTheDocument();
+  });
+
   it('uses a closed KST range ending yesterday when no custom dates are selected', () => {
     expect(resolveWingTrafficCollectionRange({
       period: 'week',

@@ -635,6 +635,64 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     });
   });
 
+  it('refuses to start a collection longer than 92 days and starts a 92-day one', async () => {
+    await request(httpUrl)
+      .post(`${base}/attempts`)
+      .set('Idempotency-Key', randomUUID())
+      .set('x-test-org', ORG)
+      .send({ channelAccountId: accountId, ...range(93) })
+      .expect(400);
+    await expect(prisma.sourceImportRun.count({
+      where: { organizationId: ORG, sourceType: 'coupang_wing_traffic' },
+    })).resolves.toBe(0);
+
+    const started = await begin(range(92));
+    expect(started.control.plan).toMatchObject({ periodDays: 92 });
+  });
+
+  it('finalizes an attempt an earlier release admitted for more than 92 days', async () => {
+    const started = await begin(range(1));
+    const plan = range(93);
+    const expectedDates = Array.from({ length: 93 }, (_, index) => dateShift(plan.startDate, index));
+    const admitted = await prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: started.attempt.attemptId },
+    });
+    // The plan a release without the cap froze for a 93-day range.
+    await prisma.sourceImportRun.update({
+      where: { id: started.attempt.attemptId },
+      data: {
+        plan: {
+          ...(admitted.plan as Record<string, unknown>),
+          startDate: plan.startDate,
+          endDate: plan.endDate,
+          businessDate: plan.endDate,
+          periodDays: 93,
+          expectedDates,
+          targetUrl: plan.url,
+        },
+        coverageStartDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+        coverageEndDate: new Date(`${plan.endDate}T00:00:00.000Z`),
+      },
+    });
+    for (const [index, businessDate] of expectedDates.entries()) {
+      await upload(
+        started.attempt,
+        index * 100,
+        dailyReceipt(started.attempt, plan, businessDate, 1, 1, [row('1001')]),
+      ).expect(200);
+    }
+    await upload(started.attempt, 93 * 100, periodReceipt(started.attempt, plan)).expect(200);
+
+    await complete(started.attempt, 201);
+
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: started.attempt.attemptId },
+    })).resolves.toMatchObject({
+      status: 'completed',
+      qualityReport: expect.objectContaining({ confirmedDates: expectedDates }),
+    });
+  }, 60_000);
+
   it('rejects a missing-date terminal attempt, then resumes the same staged run', async () => {
     const plan = range(2);
     const started = await begin(plan);

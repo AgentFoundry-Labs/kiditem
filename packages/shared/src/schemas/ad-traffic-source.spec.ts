@@ -1,12 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdTrafficSourceBeginSchema,
   AdTrafficSourceDailyPlanSchema,
   AdTrafficSourcePeriodReceiptInputSchema,
   AdTrafficSourceReceiptInputSchema,
   AdTrafficSourceReceiptSchema,
+  WING_TRAFFIC_MAX_COLLECTION_DAYS,
   adTrafficReconciliationStatus,
   dailyTrafficFactSource,
 } from './ad-traffic-source';
+
+describe('Wing traffic collection start', () => {
+  it('admits a collection of up to 92 days and refuses a longer one', () => {
+    expect(WING_TRAFFIC_MAX_COLLECTION_DAYS).toBe(92);
+    expect(AdTrafficSourceBeginSchema.safeParse({
+      startDate: '2026-06-01',
+      endDate: '2026-08-31',
+    }).success).toBe(true);
+    expect(AdTrafficSourceBeginSchema.safeParse({
+      startDate: '2026-05-31',
+      endDate: '2026-08-31',
+    }).success).toBe(false);
+  });
+
+  it('keeps reading a longer plan an earlier release admitted', () => {
+    const expectedDates = Array.from({ length: 93 }, (_, index) =>
+      new Date(Date.UTC(2026, 4, 31 + index)).toISOString().slice(0, 10));
+    expect(AdTrafficSourceDailyPlanSchema.safeParse({
+      sourceType: 'coupang_wing_traffic',
+      parserVersion: 'wing-traffic-daily-v2',
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      expectedAdvertiserId: 'A',
+      providerVendorId: 'A',
+      startDate: '2026-05-31',
+      endDate: '2026-08-31',
+      businessDate: '2026-08-31',
+      periodDays: 93,
+      expectedDates,
+      filterScope: 'ALL_NORMAL_RFM',
+      targetUrl: null,
+    }).success).toBe(true);
+  });
+});
 
 describe('adTrafficReconciliationStatus', () => {
   it('derives the word from the two measured totals only', () => {

@@ -13,6 +13,7 @@ import {
   AdTrafficSourcePublishedSchema,
   AdTrafficSourceReceiptSchema,
   AdTrafficSourceStatusSchema,
+  WING_TRAFFIC_MAX_COLLECTION_DAYS,
   type AdTrafficSourceAttempt,
   type AdTrafficSourceBegin,
   type AdTrafficSourceControl,
@@ -1327,6 +1328,12 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const periodDays = datesInRange(start, end);
     if (periodDays < 1 || periodDays > MAX_RANGE_DAYS) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
+    }
+    // A new collection is capped for the operator, including a range one of
+    // whose dates defaults. A longer plan an earlier release admitted still
+    // uploads and finalizes within MAX_RANGE_DAYS.
+    if (periodDays > WING_TRAFFIC_MAX_COLLECTION_DAYS) {
+      throw new BadRequestException('TRAFFIC_RANGE_TOO_LONG');
     }
     if (end.getTime() > closedEnd.getTime()) {
       throw new BadRequestException('TRAFFIC_RANGE_IN_FUTURE');
