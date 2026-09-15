@@ -113,6 +113,13 @@ export class SellpiaManualMatchService {
     });
   }
 
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaManualMatchAttempt> {
+    return this.repository.cancelAttempt(input);
+  }
+
   findByNormalizedAliases(
     organizationId: string,
     normalizedAliases: string[],

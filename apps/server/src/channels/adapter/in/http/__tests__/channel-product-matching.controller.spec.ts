@@ -20,6 +20,7 @@ describe('ChannelProductMatchingController', () => {
       ['sellpiaManualMatchAttempt', 'sellpia-manual-match/attempts/:attemptId', RequestMethod.GET],
       ['completeSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/complete', RequestMethod.POST],
       ['failSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/fail', RequestMethod.POST],
+      ['cancelSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/cancel', RequestMethod.POST],
       ['productCandidates', ':channelListingId/candidates', RequestMethod.GET],
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
     ] as const;
@@ -46,6 +47,7 @@ describe('ChannelProductMatchingController', () => {
       readAttempt: vi.fn(),
       completeAttempt: vi.fn(),
       failAttempt: vi.fn(),
+      cancelAttempt: vi.fn(),
     };
     const controller = new ChannelProductMatchingController(
       matching as never,
@@ -72,6 +74,8 @@ describe('ChannelProductMatchingController', () => {
       '00000000-0000-4000-8000-000000000003',
       { errorCode: 'FAILED', errorMessage: 'failure' },
     );
+    // 운영자 중단은 시도 토큰 없이 조직 범위로만 끝낸다.
+    await controller.cancelSellpiaManualMatch(organizationId, listingId);
 
     expect(matching.list).toHaveBeenCalledWith(organizationId, {});
     expect(matching.autoMatch).toHaveBeenCalledWith(
@@ -90,6 +94,10 @@ describe('ChannelProductMatchingController', () => {
       idempotencyKey: 'retry-key',
     });
     expect(manualMatches.readCurrent).toHaveBeenCalledWith(organizationId);
+    expect(manualMatches.cancelAttempt).toHaveBeenCalledWith({
+      organizationId,
+      attemptId: listingId,
+    });
     expect(manualMatches.readAttempt).toHaveBeenCalledWith({
       organizationId,
       attemptId: listingId,

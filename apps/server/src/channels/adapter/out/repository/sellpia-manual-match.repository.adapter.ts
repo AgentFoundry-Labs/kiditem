@@ -25,6 +25,10 @@ import {
   SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import {
+  OPERATOR_CANCEL_CODE,
+  OPERATOR_CANCEL_MESSAGE,
+} from '../../../../common/operator-cancel';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   completedCatalogRunWhere,
@@ -347,6 +351,47 @@ implements SellpiaManualMatchRepositoryPort {
         attemptId: input.attemptId,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
+      }));
+      return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Operator stop without the attempt token. It fails through the same terminal
+   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
+   * the alert rule; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaManualMatchAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSellpiaInventorySource(tx, input.organizationId);
+      await lockManualMatchSource(tx, input.organizationId);
+      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
+      if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
+      if (effectiveState(attempt, new Date()) === 'FAILED') {
+        return publicAttempt(await this.expireAttempt(tx, attempt));
+      }
+      const updated = await tx.sourceImportRun.updateMany({
+        where: {
+          id: input.attemptId,
+          organizationId: input.organizationId,
+          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
+          status: DB_RUNNING,
+        },
+        data: {
+          status: DB_FAILED,
+          errorCode: OPERATOR_CANCEL_CODE,
+          errorMessage: OPERATOR_CANCEL_MESSAGE,
+        },
+      });
+      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
+      await this.alerts.recordTerminalOutcome(tx, failureAlert({
+        organizationId: input.organizationId,
+        attemptId: input.attemptId,
+        errorCode: OPERATOR_CANCEL_CODE,
+        errorMessage: OPERATOR_CANCEL_MESSAGE,
       }));
       return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
     }, TRANSACTION_OPTIONS);
