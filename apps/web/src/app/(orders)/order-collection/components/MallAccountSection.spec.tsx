@@ -1,12 +1,47 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { OrderCollectionSourceStatus } from "@kiditem/shared/order-collection-source";
+import { apiClient } from "@/lib/api-client";
 import { MallAccountSection } from "./MallAccountSection";
+import { MallCollectionControl } from "./MallCollectionControl";
+import { mallOrderCollectionSource } from "../lib/mall-order-collection-source";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
 import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
+
+vi.mock("@/lib/api-client", () => ({
+  apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
+}));
+vi.mock("@/lib/browser-collection-session", () => ({
+  sendBrowserCollectionControl: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/lib/extension-bridge", () => ({
+  detectOrderCollectionExtensionRuntime: vi.fn(),
+  sendToExtension: vi.fn(),
+}));
+vi.mock("@/lib/extension-auth", () => ({ transferExtensionAuthTo: vi.fn() }));
+
+const ORGANIZATION_ID = "99999999-9999-4999-8999-999999999999";
+const RUNNING_ATTEMPT_ID = "22222222-2222-4222-8222-222222222222";
+
+function runningOwnerStatus(mallKey: string): OrderCollectionSourceStatus {
+  return {
+    mallKey,
+    channelAccountId: null,
+    running: {
+      attemptId: RUNNING_ATTEMPT_ID,
+      collectionMode: "browser",
+      startedAt: "2026-09-15T01:00:00.000Z",
+      expiresAt: "2026-09-15T01:30:00.000Z",
+    },
+    lastComplete: null,
+    lastAttempt: null,
+  };
+}
 
 function mallAccount(
   key: string,
@@ -26,12 +61,18 @@ function mallAccount(
   };
 }
 
+/**
+ * 진행 중은 몰 카드가 마운트한 공용 컨트롤이 owner에게서 읽는다(KID-189). 구조만
+ * 보는 테스트는 그 자리에 버튼 하나를 놓고, 게이트를 보는 테스트는
+ * `ownerControl`로 진짜 컨트롤을 놓는다.
+ */
 function renderSection(
   accounts: OrderCollectionMallAccount[],
   stats = new Map<string, MallCollectionStat>(),
   collectionControls?: ReactNode,
-  runState: {
-    collectingKeys?: Set<string>;
+  options: {
+    ownerControl?: boolean;
+    onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   } = {},
 ) {
   const callbacks = {
@@ -49,19 +90,39 @@ function renderSection(
     onAutoIntervalChange: vi.fn(),
     onUploadTracking: vi.fn(),
   };
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
 
   render(
+    <QueryClientProvider client={client}>
     <MallAccountSection
       mallAccounts={accounts}
       mallLoading={false}
       mallSaving={false}
       browserCollecting={false}
-      collectingKeys={runState.collectingKeys ?? new Set()}
-      renderCollectionControl={(account) => (
-        <button type="button" onClick={() => callbacks.onCollectMall(account)}>
-          {account.name} 수집
-        </button>
-      )}
+      onOpenCalendar={options.onOpenCalendar}
+      renderCollectionControl={options.ownerControl
+        ? (account, renderCard) => (
+          <MallCollectionControl
+            account={account}
+            buildAdapter={(target) => mallOrderCollectionSource({
+              organizationId: ORGANIZATION_ID,
+              account: target,
+              handOff: vi.fn().mockResolvedValue(undefined),
+            })}
+          >
+            {renderCard}
+          </MallCollectionControl>
+        )
+        : (account, renderCard) => renderCard({
+          control: (
+            <button type="button" onClick={() => callbacks.onCollectMall(account)}>
+              {account.name} 수집
+            </button>
+          ),
+          running: false,
+        })}
       mallError={null}
       selectedMall={accounts[0]}
       mallDraft={{
@@ -90,11 +151,17 @@ function renderSection(
       failedMallCount={0}
       collectionControls={collectionControls}
       {...callbacks}
-    />,
+    />
+    </QueryClientProvider>,
   );
 
   return callbacks;
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(apiClient.post).mockResolvedValue({});
+});
 
 describe("MallAccountSection", () => {
   it("preserves the c9 account cards with today and new-order stats", () => {
@@ -208,16 +275,41 @@ describe("MallAccountSection", () => {
     ).not.toBe(0);
   });
 
-  it("keeps the tracking upload out of the way while this browser is collecting", async () => {
+  /**
+   * 진행 중은 owner가 말한다(KID-189). 다른 탭이 시작한 수집이어도 이 카드의
+   * 보조 동작(송장 업로드·입고예정일 달력)은 함께 닫힌다.
+   */
+  it("closes the card's own actions while the owner reports this mall collecting", async () => {
+    const user = userEvent.setup();
     const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
-    renderSection(
-      [account],
-      new Map(),
-      undefined,
-      { collectingKeys: new Set([account.key]) },
+    const onOpenCalendar = vi.fn();
+    vi.mocked(apiClient.getParsed).mockImplementation(
+      async () => runningOwnerStatus(account.key),
     );
 
+    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
+
+    expect(await screen.findByText("수집 중 · 쿠팡직배송")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeDisabled();
+    await user.click(screen.getByRole("article", { name: "쿠팡직배송 계정 카드" }));
+    expect(onOpenCalendar).not.toHaveBeenCalled();
+  });
+
+  it("keeps the card's own actions open while the owner reports no collection", async () => {
+    const user = userEvent.setup();
+    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
+    const onOpenCalendar = vi.fn();
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
+      ...runningOwnerStatus(account.key),
+      running: null,
+    }));
+
+    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
+
+    expect(await screen.findByRole("button", { name: "쿠팡직배송 수집" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeEnabled();
+    await user.click(screen.getByRole("article", { name: "쿠팡직배송 계정 카드" }));
+    expect(onOpenCalendar).toHaveBeenCalledWith(account);
   });
 
   it("wires source-owner recovery and explicit cancel through the order route", () => {

@@ -11,19 +11,32 @@ import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
+/** 한 몰 카드가 자기 수집 컨트롤에서 받아 쓰는 것. */
+export interface MallCardCollection {
+  /** 이 몰의 공용 시작·중단 컨트롤. */
+  control: ReactNode;
+  /** owner가 알려 준 진행 중. 다른 탭이 시작한 수집도 여기서 보인다(KID-189). */
+  running: boolean;
+}
+
 interface MallAccountGroupsProps {
   accounts: OrderCollectionMallAccount[];
   stats: Map<string, MallCollectionStat>;
   failedMallReasonByKey?: Map<string, FailedMallReason>;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   settingsOpen: boolean;
-  collectingKeys: Set<string>;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  /** 몰마다 자기 시작·중단 컨트롤을 하나 그린다(KID-189). */
-  renderCollectionControl: (account: OrderCollectionMallAccount) => ReactNode;
+  /**
+   * 몰마다 자기 시작·중단 컨트롤을 하나 그리고, 그 컨트롤이 읽은 owner 진행 중과
+   * 함께 카드를 그려 준다(KID-189).
+   */
+  renderCollectionControl: (
+    account: OrderCollectionMallAccount,
+    renderCard: (collection: MallCardCollection) => ReactNode,
+  ) => ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
@@ -35,7 +48,6 @@ export function MallAccountGroups({
   failedMallReasonByKey,
   selectedMall,
   settingsOpen,
-  collectingKeys,
   autoDetect,
   autoNextRunAt,
   autoRunning,
@@ -57,12 +69,11 @@ export function MallAccountGroups({
             collectionStat={stats.get(account.key)}
             failedReason={failedMallReasonByKey?.get(account.key)}
             isOpen={settingsOpen && selectedMall?.key === account.key}
-            isCollecting={collectingKeys.has(account.key)}
             autoDetect={autoDetect}
             autoNextRunAt={autoNextRunAt}
             autoRunning={autoRunning}
             onOpenSettings={onOpenSettings}
-            collectionControl={renderCollectionControl(account)}
+            renderCollectionControl={renderCollectionControl}
             onOpenCalendar={onOpenCalendar}
             onUploadTracking={onUploadTracking}
           />
@@ -77,13 +88,12 @@ interface MallAccountCardProps {
   collectionStat: MallCollectionStat | undefined;
   failedReason: FailedMallReason | undefined;
   isOpen: boolean;
-  isCollecting: boolean;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  /** 이 몰의 공용 시작 컨트롤. */
-  collectionControl: ReactNode;
+  /** 이 몰의 공용 시작 컨트롤과 그 컨트롤이 읽은 owner 진행 중. */
+  renderCollectionControl: MallAccountGroupsProps['renderCollectionControl'];
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
@@ -94,12 +104,11 @@ function MallAccountCard({
   collectionStat,
   failedReason,
   isOpen,
-  isCollecting,
   autoDetect,
   autoNextRunAt,
   autoRunning,
   onOpenSettings,
-  collectionControl,
+  renderCollectionControl,
   onOpenCalendar,
   onUploadTracking,
 }: MallAccountCardProps) {
@@ -118,10 +127,11 @@ function MallAccountCard({
   // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
   const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
 
-  return (
+  // 진행 중 판정은 이 카드가 마운트한 공용 컨트롤이 owner에게서 읽어 준다(KID-189).
+  return renderCollectionControl(account, ({ control, running }) => (
     <article
       aria-label={`${account.name} 계정 카드`}
-      onClick={cardOpensCalendar && !isCollecting
+      onClick={cardOpensCalendar && !running
         ? (event) => {
             // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
             if ((event.target as HTMLElement).closest('button')) return;
@@ -219,14 +229,14 @@ function MallAccountCard({
         )}
       </div>
 
-      <div className="mt-2.5">{collectionControl}</div>
+      <div className="mt-2.5">{control}</div>
 
       <div className="mt-2.5 flex gap-1.5">
         {trackingSupported ? (
           <button
             type="button"
             onClick={() => onUploadTracking(account)}
-            disabled={isCollecting}
+            disabled={running}
             aria-label={`${account.name} 송장 업로드`}
             title={`${account.name} 송장 업로드`}
             className="inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-purple-200 bg-purple-50 py-1.5 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-50"
@@ -247,7 +257,7 @@ function MallAccountCard({
         )}
       </div>
     </article>
-  );
+  ));
 }
 
 function AutoDetectCountdown({

@@ -55,7 +55,6 @@ import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coup
 
 const COLLECT_ALL_CONCURRENCY = 4;
 const NOOP = () => undefined;
-const NOOP_COLLECTING = (_mallKey: string, _collecting: boolean) => undefined;
 const NOOP_ACTIVITY = (
   _kind: MarketplaceOrderCollectionActivityKind,
   _mallName: string,
@@ -81,7 +80,6 @@ type UseAllMarketplaceOrderCollectionOptions = {
   rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId?: (id: string) => void;
-  markCollecting?: (mallKey: string, collecting: boolean) => void;
   clearMallErrorActivity?: (mallName: string) => void;
   logActivity?: (
     kind: MarketplaceOrderCollectionActivityKind,
@@ -100,7 +98,6 @@ export function useAllMarketplaceOrderCollection({
   rocketChannelAccountId,
   addGeneratedFile,
   setPreviewId = NOOP,
-  markCollecting = NOOP_COLLECTING,
   clearMallErrorActivity = NOOP,
   logActivity = NOOP_ACTIVITY,
 }: UseAllMarketplaceOrderCollectionOptions) {
@@ -137,7 +134,6 @@ export function useAllMarketplaceOrderCollection({
       run: OrderCollectionExtensionRun,
       directship?: { eddDates: string[]; data?: CoupangDirectData },
     ) => {
-      markCollecting(account.key, true);
       const activeRun = run;
       try {
         const collected = await collectBrowserMall(account, activeRun, { directship });
@@ -220,7 +216,6 @@ export function useAllMarketplaceOrderCollection({
         throw error;
       } finally {
         if (activeRun) releaseRun(account.key, activeRun.attemptId);
-        markCollecting(account.key, false);
       }
     },
     [
@@ -228,7 +223,6 @@ export function useAllMarketplaceOrderCollection({
       collectBrowserMall,
       failRun,
       logActivity,
-      markCollecting,
       releaseRun,
       syncRun,
     ],

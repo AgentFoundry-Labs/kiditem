@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { MallAccountGroups } from './MallAccountGroups';
+import { MallAccountGroups, type MallCardCollection } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
@@ -25,15 +26,24 @@ function account(
 }
 
 /**
- * 시작·중단은 몰마다 자기 공용 컨트롤이 그린다(KID-189). 이 카드는 그 컨트롤을
- * 받아 자리에 놓을 뿐이라, 여기서는 자리에 놓였는지만 본다.
+ * 시작·중단은 몰마다 자기 공용 컨트롤이 그린다(KID-189). 카드는 그 컨트롤에게서
+ * 컨트롤 자리와 owner 진행 중을 함께 받는다. 여기서는 그 배선만 본다.
  */
-function collectButton(onCollect: (account: OrderCollectionMallAccount) => void) {
-  return (account: OrderCollectionMallAccount) => (
-    <button type="button" onClick={() => onCollect(account)}>
-      {account.name} 수집
-    </button>
-  );
+function collectButton(
+  onCollect: (account: OrderCollectionMallAccount) => void,
+  running = false,
+) {
+  return (
+    account: OrderCollectionMallAccount,
+    renderCard: (collection: MallCardCollection) => ReactNode,
+  ) => renderCard({
+    control: (
+      <button type="button" onClick={() => onCollect(account)}>
+        {account.name} 수집
+      </button>
+    ),
+    running,
+  });
 }
 
 describe('MallAccountGroups', () => {
@@ -61,7 +71,6 @@ describe('MallAccountGroups', () => {
         stats={stats}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
@@ -95,7 +104,6 @@ describe('MallAccountGroups', () => {
         stats={new Map()}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
@@ -127,7 +135,6 @@ describe('MallAccountGroups', () => {
         stats={new Map()}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set(['kidsnote'])}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}
@@ -158,7 +165,6 @@ describe('MallAccountGroups', () => {
         ])}
         selectedMall={null}
         settingsOpen={false}
-        collectingKeys={new Set()}
         autoDetect={false}
         autoNextRunAt={null}
         autoRunning={false}

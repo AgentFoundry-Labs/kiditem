@@ -111,7 +111,6 @@ export function OrderCollectionWorkspace() {
   const [history, setHistory] = useState<ConversionHistoryItem[]>([]);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [browserCollecting, setBrowserCollecting] = useState(false);
-  const [collectingKeys, setCollectingKeys] = useState<Set<string>>(() => new Set());
   const [selectedMallKey, setSelectedMallKey] = useState<string | null>(ICECREAM_MALL_KEY);
   const [mallDraft, setMallDraft] = useState<MallAccountDraft>(EMPTY_MALL_DRAFT);
   const [mallSettingsOpen, setMallSettingsOpen] = useState(false);
@@ -287,15 +286,6 @@ export function OrderCollectionWorkspace() {
     onTransmissionRequested: handleTransmissionRequested,
   });
 
-  const markCollecting = useCallback((mallKey: string, collecting: boolean) => {
-    setCollectingKeys((current) => {
-      const next = new Set(current);
-      if (collecting) next.add(mallKey);
-      else next.delete(mallKey);
-      return next;
-    });
-  }, []);
-
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     if (
       historyItem.collectionMode === 'browser' &&
@@ -331,7 +321,6 @@ export function OrderCollectionWorkspace() {
     rocketChannelAccountId: selectedRocketAccount?.id ?? null,
     addGeneratedFile,
     setPreviewId,
-    markCollecting,
     clearMallErrorActivity,
     logActivity,
   });
@@ -874,7 +863,6 @@ export function OrderCollectionWorkspace() {
         autoNextRunAt={autoDetect.nextRunAt}
         autoRunning={autoDetect.running}
         browserCollecting={browserCollecting}
-        collectingKeys={collectingKeys}
         configuredMallCount={configuredMallCount}
         conversionState={state}
         enabledMallCount={enabledMallCount}
@@ -895,12 +883,14 @@ export function OrderCollectionWorkspace() {
         selectedMall={selectedMall}
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
-        renderCollectionControl={(account) => (
+        renderCollectionControl={(account, renderCard) => (
           <MallCollectionControl
             account={account}
             buildAdapter={collectionAdapter}
             startBlockedReason={mallStartBlockedReason(account)}
-          />
+          >
+            {renderCard}
+          </MallCollectionControl>
         )}
         onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
