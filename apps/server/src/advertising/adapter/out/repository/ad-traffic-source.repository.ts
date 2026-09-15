@@ -52,7 +52,7 @@ import {
   pickStringField,
   type ListingMap,
 } from '../../../domain/listing-match';
-import { omittedListingZeroTrafficDates } from '../../../domain/wing-traffic-omission';
+import { omittedListingFirstZeroTrafficDate } from '../../../domain/wing-traffic-omission';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,
@@ -314,14 +314,190 @@ function trafficMetrics(row: TrafficRow) {
   };
 }
 
+/**
+ * The zero traffic a daily publication writes for its confirmed days.
+ *
+ * A zero resets a listing-day Wing owned before and fills a listing-day of a
+ * catalog listing the report left out, from that listing's first zero date
+ * (`omittedListingFirstZeroTrafficDate`). SQL builds the listing x day product
+ * and applies the ownership rules, so a long window never materialises its
+ * rows in the application.
+ */
+type ZeroTrafficPublication = {
+  channelAccountId: string;
+  /** Confirmed days with the capture time of their first page. */
+  days: ReadonlyArray<Readonly<{ businessDate: string; observedAt: Date }>>;
+  /** The account's active listings; a null first zero date means leaving the listing out measures nothing. */
+  catalog: ReadonlyArray<Readonly<{ listingId: string; externalId: string; firstZeroDate: string | null }>>;
+  /** The `wing.traffic` metadata of every zero row, without its business date. */
+  wingMeta: Record<string, unknown>;
+};
+
+/**
+ * CTEs ending in `wing_zero`, the listing-days a publication zeroes. A
+ * listing-day Wing reports keeps its real values, and a day another writer
+ * may own is never zeroed:
+ * - A row Wing owned before is reset: an account listing whose row carries
+ *   Wing's marker or pre-marker Wing metadata, or no metadata but a traffic
+ *   observation (a bare item-winner state row has none), or a row an earlier
+ *   attempt of this account published.
+ * - A catalog listing without a row, or with a row no writer owns, gets a zero
+ *   on every confirmed day from its first zero date.
+ * - Another writer may own a row with a marker other than Wing's, or with
+ *   pre-marker CSV metadata.
+ */
+function zeroTrafficSql(
+  organizationId: string,
+  reported: readonly DailyFactPublication[],
+  zero: ZeroTrafficPublication,
+): Prisma.Sql {
+  const days = JSON.stringify(zero.days.map((day) => ({
+    business_date: day.businessDate,
+    observed_at: day.observedAt.toISOString(),
+  })));
+  const catalog = JSON.stringify(zero.catalog.map((listing) => ({
+    listing_id: listing.listingId,
+    external_id: listing.externalId,
+    first_zero_date: listing.firstZeroDate,
+  })));
+  const reportedKeys = JSON.stringify(reported.map((fact) => ({
+    listing_id: fact.listingId,
+    business_date: fact.businessDate,
+  })));
+  return Prisma.sql`,
+      confirmed_day AS (
+        SELECT day.business_date::date AS business_date,
+               day.business_date AS business_key,
+               day.observed_at
+        FROM jsonb_to_recordset(${days}::jsonb) AS day(business_date text, observed_at timestamptz)
+      ),
+      catalog_listing AS (
+        SELECT listing.listing_id, listing.external_id, listing.first_zero_date
+        FROM jsonb_to_recordset(${catalog}::jsonb)
+          AS listing(listing_id uuid, external_id text, first_zero_date date)
+      ),
+      reported_fact AS (
+        SELECT fact.listing_id, fact.business_date
+        FROM jsonb_to_recordset(${reportedKeys}::jsonb) AS fact(listing_id uuid, business_date date)
+      ),
+      account_run AS (
+        SELECT run.id::text AS id
+        FROM source_import_runs AS run
+        WHERE run.organization_id = ${organizationId}::uuid
+          AND run.channel_account_id = ${zero.channelAccountId}::uuid
+          AND run.source_type = ${SOURCE_TYPE}
+      ),
+      classified_fact AS (
+        SELECT fact.listing_id,
+               fact.external_id,
+               fact.business_date,
+               CASE WHEN fact.meta ? 'traffic.currentSource'
+                 THEN (fact.meta -> 'traffic.currentSource') IS DISTINCT FROM '"wing.traffic"'::jsonb
+                 ELSE fact.meta ? 'traffic.csv_upload'
+               END AS another_writer_may_own,
+               (fact.meta -> 'traffic.currentSource') IS NOT DISTINCT FROM '"wing.traffic"'::jsonb
+                 OR (
+                   NOT (fact.meta ? 'traffic.currentSource')
+                   AND (fact.meta ? 'wing.traffic')
+                   AND NOT (fact.meta ? 'traffic.csv_upload')
+                 ) AS wing_is_current,
+               (fact.meta = '{}'::jsonb AND fact.traffic_observed_at IS NOT NULL) AS observed_without_metadata,
+               CASE WHEN jsonb_typeof(fact.meta -> 'wing.traffic' -> 'sourceAttemptId') = 'string'
+                 THEN fact.meta -> 'wing.traffic' ->> 'sourceAttemptId'
+               END AS previous_attempt_id
+        FROM (
+          SELECT daily.listing_id,
+                 daily.external_id,
+                 daily.business_date,
+                 daily.traffic_observed_at,
+                 CASE WHEN jsonb_typeof(daily.meta_json) = 'object'
+                   THEN daily.meta_json
+                   ELSE '{}'::jsonb
+                 END AS meta
+          FROM channel_listing_daily_snapshots AS daily
+          JOIN confirmed_day ON confirmed_day.business_date = daily.business_date
+          WHERE daily.organization_id = ${organizationId}::uuid
+        ) AS fact
+      ),
+      reset_fact AS (
+        SELECT classified_fact.listing_id, classified_fact.external_id, classified_fact.business_date
+        FROM classified_fact
+        WHERE NOT classified_fact.another_writer_may_own
+          AND (
+            (
+              classified_fact.listing_id IN (SELECT catalog_listing.listing_id FROM catalog_listing)
+              AND (classified_fact.observed_without_metadata OR classified_fact.wing_is_current)
+            )
+            OR (
+              classified_fact.wing_is_current
+              AND classified_fact.previous_attempt_id IN (SELECT account_run.id FROM account_run)
+            )
+          )
+      ),
+      omitted_fact AS (
+        SELECT catalog_listing.listing_id, catalog_listing.external_id, confirmed_day.business_date
+        FROM catalog_listing
+        JOIN confirmed_day ON confirmed_day.business_date >= catalog_listing.first_zero_date
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM classified_fact
+          WHERE classified_fact.listing_id = catalog_listing.listing_id
+            AND classified_fact.business_date = confirmed_day.business_date
+            AND classified_fact.another_writer_may_own
+        )
+      ),
+      wing_zero AS (
+        SELECT zero_fact.listing_id,
+               zero_fact.external_id,
+               confirmed_day.business_date,
+               confirmed_day.observed_at,
+               jsonb_build_object(
+                 'wing.traffic',
+                 ${JSON.stringify(zero.wingMeta)}::jsonb
+                   || jsonb_build_object('businessDate', confirmed_day.business_key),
+                 'traffic.currentSource',
+                 'wing.traffic'
+               ) AS meta_json
+        FROM (
+          SELECT reset_fact.listing_id, reset_fact.external_id, reset_fact.business_date
+          FROM reset_fact
+          UNION ALL
+          SELECT omitted_fact.listing_id, omitted_fact.external_id, omitted_fact.business_date
+          FROM omitted_fact
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM reset_fact
+            WHERE reset_fact.listing_id = omitted_fact.listing_id
+              AND reset_fact.business_date = omitted_fact.business_date
+          )
+        ) AS zero_fact
+        JOIN confirmed_day ON confirmed_day.business_date = zero_fact.business_date
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM reported_fact
+          WHERE reported_fact.listing_id = zero_fact.listing_id
+            AND reported_fact.business_date = zero_fact.business_date
+        )
+      )`;
+}
+
 async function upsertDailyFactPublication(
   tx: Tx,
   organizationId: string,
   rows: readonly DailyFactPublication[],
   publishedAt: Date,
+  zeroTraffic?: ZeroTrafficPublication,
 ): Promise<void> {
-  for (let offset = 0; offset < rows.length; offset += DAILY_PUBLICATION_BATCH_SIZE) {
+  // The zero rows ride with the first batch: the facts still land in bounded
+  // INSERT statements, and no statement writes one listing-day twice.
+  const statementCount = Math.max(
+    zeroTraffic ? 1 : 0,
+    Math.ceil(rows.length / DAILY_PUBLICATION_BATCH_SIZE),
+  );
+  for (let index = 0; index < statementCount; index += 1) {
+    const offset = index * DAILY_PUBLICATION_BATCH_SIZE;
     const batch = rows.slice(offset, offset + DAILY_PUBLICATION_BATCH_SIZE);
+    const zero = index === 0 ? zeroTraffic : undefined;
     const payload = JSON.stringify(batch.map((row) => ({
       id: row.id,
       listing_id: row.listingId,
@@ -340,6 +516,26 @@ async function upsertDailyFactPublication(
       published_at: publishedAt.toISOString(),
     })));
     await tx.$executeRaw(Prisma.sql`
+      WITH incoming AS (
+        SELECT *
+        FROM jsonb_to_recordset(${payload}::jsonb) AS record(
+          id uuid,
+          listing_id uuid,
+          external_id text,
+          business_date date,
+          observed_at timestamptz,
+          raw_snapshot_id uuid,
+          meta_json jsonb,
+          traffic_visitors integer,
+          traffic_views integer,
+          traffic_cart_adds integer,
+          traffic_orders integer,
+          traffic_sales_qty integer,
+          traffic_revenue integer,
+          traffic_observed_at timestamptz,
+          published_at timestamptz
+        )
+      )${zero ? zeroTrafficSql(organizationId, rows, zero) : Prisma.empty}
       INSERT INTO channel_listing_daily_snapshots AS daily (
         id,
         organization_id,
@@ -383,23 +579,30 @@ async function upsertDailyFactPublication(
         incoming.traffic_observed_at,
         incoming.published_at,
         incoming.published_at
-      FROM jsonb_to_recordset(${payload}::jsonb) AS incoming(
-        id uuid,
-        listing_id uuid,
-        external_id text,
-        business_date date,
-        observed_at timestamptz,
-        raw_snapshot_id uuid,
-        meta_json jsonb,
-        traffic_visitors integer,
-        traffic_views integer,
-        traffic_cart_adds integer,
-        traffic_orders integer,
-        traffic_sales_qty integer,
-        traffic_revenue integer,
-        traffic_observed_at timestamptz,
-        published_at timestamptz
-      )
+      FROM incoming
+      ${zero ? Prisma.sql`UNION ALL
+      SELECT
+        gen_random_uuid(),
+        ${organizationId}::uuid,
+        wing_zero.listing_id,
+        'coupang',
+        wing_zero.external_id,
+        wing_zero.business_date,
+        1,
+        wing_zero.observed_at,
+        wing_zero.observed_at,
+        NULL,
+        wing_zero.meta_json,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        wing_zero.observed_at,
+        ${publishedAt.toISOString()}::timestamptz,
+        ${publishedAt.toISOString()}::timestamptz
+      FROM wing_zero` : Prisma.empty}
       ON CONFLICT (organization_id, listing_id, business_date)
       DO UPDATE SET
         sample_count = EXCLUDED.sample_count,
@@ -1348,34 +1551,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         revenue: number;
       };
     };
-    const listingMap = await this.listingMap(tx, row);
-    const currentListingIds = new Set<string>([
-      ...[...listingMap.externalOptionIdMap.values()].map((value) => value.listingId),
-      ...[...listingMap.externalIdMap.values()].map((value) => value.listingId),
-    ]);
-    const accountRuns = await tx.sourceImportRun.findMany({
-      where: {
-        organizationId: row.organizationId,
-        sourceType: SOURCE_TYPE,
-        channelAccountId: row.channelAccountId,
-      },
-      select: { id: true },
-    });
-    const accountRunIds = new Set(accountRuns.map((candidate) => candidate.id));
-    const resetCandidates = await tx.channelListingDailySnapshot.findMany({
-      where: {
-        organizationId: row.organizationId,
-        businessDate: { in: plan.expectedDates.map(dateAtUtc) },
-      },
-      select: {
-        id: true,
-        listingId: true,
-        externalId: true,
-        businessDate: true,
-        metaJson: true,
-        trafficObservedAt: true,
-      },
-    });
     const pageOneByDate = new Map(
       entries
         .filter(
@@ -1384,77 +1559,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         )
         .map((entry) => [entry.input.businessDate, entry.input] as const),
     );
-    const finalFacts = new Map<string, DailyFactPublication>();
-    const zeroFact = (
-      fact: Pick<DailyFactPublication, 'id' | 'listingId' | 'externalId' | 'businessDate' | 'observedAt'>,
-    ): DailyFactPublication => ({
-      ...fact,
-      rawSnapshotId: null,
-      metaJson: {
-        'wing.traffic': {
-          grain: 'listing_option_sum',
-          scope: 'matched_listings',
-          periodDays: 1,
-          businessDate: fact.businessDate,
-          sourceAttemptId: row.id,
-          providerVendorId: plan.providerVendorId,
-          filterScope: plan.filterScope,
-          targetUrl: plan.targetUrl,
-        },
-        'traffic.currentSource': 'wing.traffic',
-      },
-      metrics: {
-        visitors: 0,
-        views: 0,
-        cartAdds: 0,
-        orders: 0,
-        salesQty: 0,
-        revenue: 0,
-      },
-    });
-    const otherWriterFactKeys = new Set<string>();
-    for (const candidate of resetCandidates) {
-      const businessDate = businessDateKey(candidate.businessDate);
+    // A finalize admits pages only inside the confirmed window, so every
+    // confirmed date carries its first page and the time Wing's day was captured.
+    const days = confirmedDatesOf(plan, entries).flatMap((businessDate) => {
       const pageOne = pageOneByDate.get(businessDate);
-      if (!pageOne) continue;
-      const key = `${candidate.listingId}:${businessDate}`;
-      const meta = asRecord(candidate.metaJson);
-      const wingMeta = asRecord(meta['wing.traffic']);
-      const previousAttemptId = wingMeta.sourceAttemptId;
-      const hasWingMeta = Object.prototype.hasOwnProperty.call(meta, 'wing.traffic');
-      const hasCsvMeta = Object.prototype.hasOwnProperty.call(meta, 'traffic.csv_upload');
-      const currentSource = meta['traffic.currentSource'];
-      const wingIsCurrent = currentSource === 'wing.traffic'
-        || (currentSource === undefined && hasWingMeta && !hasCsvMeta);
-      // A row without metadata is Wing's to reset only when it already carries
-      // a traffic observation. A bare listing-state row, such as the one the
-      // item-winner source writes, has none; the catalog rule below decides
-      // whether its listing measured zero that day.
-      const wasWingOwned = currentListingIds.has(candidate.listingId)
-        && ((!Object.keys(meta).length && candidate.trafficObservedAt !== null) || wingIsCurrent)
-        || (typeof previousAttemptId === 'string' && accountRunIds.has(previousAttemptId) && wingIsCurrent);
-      // A CSV-only fact is an independent source and must not be erased by a
-      // Wing recollection. A pre-marker row with the CSV namespace is ambiguous
-      // and therefore fails closed, as does a marker this owner does not know;
-      // the marker resolves newer rows.
-      const anotherWriterMayOwn = currentSource === undefined
-        ? hasCsvMeta
-        : currentSource !== 'wing.traffic';
-      if (anotherWriterMayOwn) otherWriterFactKeys.add(key);
-      if (!wasWingOwned || anotherWriterMayOwn) {
-        continue;
-      }
-      finalFacts.set(key, zeroFact({
-        id: candidate.id,
-        listingId: candidate.listingId,
-        externalId: candidate.externalId,
-        businessDate,
-        observedAt: new Date(pageOne.capturedAt),
-      }));
-    }
-    // A listing the report left out of a confirmed date had no traffic that day
-    // when the catalog already held it: the owner publishes that zero too.
-    const confirmedDates = confirmedDatesOf(plan, entries);
+      return pageOne ? [{ businessDate, observedAt: new Date(pageOne.capturedAt) }] : [];
+    });
+    // The account's active listings: the catalog Wing may reset and zero.
     const catalogListings = await tx.$queryRaw<Array<{
       id: string;
       externalId: string;
@@ -1470,26 +1581,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         AND channel_account_id = ${row.channelAccountId}::uuid
         AND is_active = TRUE
     `;
-    for (const listing of catalogListings) {
-      const zeroDates = omittedListingZeroTrafficDates({
-        listingCreatedAt: listing.createdAt,
-        wingCreatedOn: listing.createdOn,
-        collectionStartedAt: row.createdAt,
-        confirmedDates,
-      });
-      for (const businessDate of zeroDates) {
-        const key = `${listing.id}:${businessDate}`;
-        const pageOne = pageOneByDate.get(businessDate);
-        if (!pageOne || finalFacts.has(key) || otherWriterFactKeys.has(key)) continue;
-        finalFacts.set(key, zeroFact({
-          id: randomUUID(),
-          listingId: listing.id,
-          externalId: listing.externalId,
-          businessDate,
-          observedAt: new Date(pageOne.capturedAt),
-        }));
-      }
-    }
     const aggregates = new Map<string, ListingAggregate>();
     let matchedCount = 0;
     let unmatchedCount = 0;
@@ -1527,11 +1618,14 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }
     }
 
-    for (const aggregate of aggregates.values()) {
-      const derivedConversionRate = aggregate.metrics.views !== 0
-        ? Math.round((aggregate.metrics.orders / aggregate.metrics.views) * 10000) / 100
-        : null;
-      const metaJson = {
+    const reportedFacts = [...aggregates.values()].map((aggregate): DailyFactPublication => ({
+      id: randomUUID(),
+      listingId: aggregate.listingId,
+      externalId: aggregate.externalId,
+      businessDate: businessDateKey(aggregate.businessDate),
+      observedAt: aggregate.observedAt,
+      rawSnapshotId: aggregate.rawSnapshotId,
+      metaJson: {
         'wing.traffic': {
           grain: 'listing_option_sum',
           scope: 'matched_listings',
@@ -1541,26 +1635,41 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           providerVendorId: plan.providerVendorId,
           filterScope: plan.filterScope,
           targetUrl: plan.targetUrl,
-          derivedConversionRate,
+          derivedConversionRate: aggregate.metrics.views !== 0
+            ? Math.round((aggregate.metrics.orders / aggregate.metrics.views) * 10000) / 100
+            : null,
         },
         'traffic.currentSource': 'wing.traffic',
-      } as const;
-      const key = `${aggregate.listingId}:${businessDateKey(aggregate.businessDate)}`;
-      const existing = finalFacts.get(key);
-      finalFacts.set(key, {
-        id: existing?.id ?? randomUUID(),
-        listingId: aggregate.listingId,
-        externalId: aggregate.externalId,
-        businessDate: businessDateKey(aggregate.businessDate),
-        observedAt: aggregate.observedAt,
-        rawSnapshotId: aggregate.rawSnapshotId,
-        metaJson,
-        metrics: aggregate.metrics,
-      });
-    }
+      },
+      metrics: aggregate.metrics,
+    }));
 
     const publishedAt = new Date();
-    await upsertDailyFactPublication(tx, row.organizationId, [...finalFacts.values()], publishedAt);
+    // Reported listing-days take their real values. The zero write resets the
+    // listing-days Wing owned before and fills the catalog listings the report
+    // left out, from each listing's first zero date.
+    await upsertDailyFactPublication(tx, row.organizationId, reportedFacts, publishedAt, {
+      channelAccountId: row.channelAccountId!,
+      days,
+      catalog: catalogListings.map((listing) => ({
+        listingId: listing.id,
+        externalId: listing.externalId,
+        firstZeroDate: omittedListingFirstZeroTrafficDate({
+          listingCreatedAt: listing.createdAt,
+          wingCreatedOn: listing.createdOn,
+          collectionStartedAt: row.createdAt,
+        }),
+      })),
+      wingMeta: {
+        grain: 'listing_option_sum',
+        scope: 'matched_listings',
+        periodDays: 1,
+        sourceAttemptId: row.id,
+        providerVendorId: plan.providerVendorId,
+        filterScope: plan.filterScope,
+        targetUrl: plan.targetUrl,
+      },
+    });
 
     return { matchedCount, unmatchedCount };
   }

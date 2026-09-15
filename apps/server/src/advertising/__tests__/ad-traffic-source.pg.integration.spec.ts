@@ -1016,6 +1016,88 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       await expect(listingDays(listing.id)).resolves.toEqual([]);
     });
 
+    it('leaves a day another writer may own alone: pre-marker CSV metadata, an unknown marker or a null marker', async () => {
+      const plan = range();
+      const seeded = [
+        {
+          externalId: 'EXT-PRE-MARKER-CSV-ONLY',
+          metaJson: { 'traffic.csv_upload': { source: 'traffic_csv_upload' } },
+        },
+        {
+          externalId: 'EXT-PRE-MARKER-AMBIGUOUS',
+          metaJson: {
+            'wing.traffic': { sourceAttemptId: 'earlier-attempt' },
+            'traffic.csv_upload': { source: 'traffic_csv_upload' },
+          },
+        },
+        {
+          externalId: 'EXT-UNKNOWN-MARKER',
+          metaJson: { 'traffic.currentSource': 'traffic.future_source' },
+        },
+        {
+          externalId: 'EXT-NULL-MARKER',
+          metaJson: { 'traffic.currentSource': null },
+        },
+      ];
+      const listings = [];
+      for (const { externalId, metaJson } of seeded) {
+        const listing = await catalogListing(externalId, registered());
+        await prisma.channelListingDailySnapshot.create({
+          data: {
+            organizationId: ORG,
+            listingId: listing.id,
+            channel: 'coupang',
+            externalId,
+            businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
+            trafficViews: 7,
+            trafficRevenue: 70,
+            trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
+            metaJson,
+          },
+        });
+        listings.push(listing);
+      }
+
+      await collectOne(plan);
+
+      for (const listing of listings) {
+        await expect(listingDays(listing.id), listing.externalId).resolves.toMatchObject([{
+          trafficViews: 7,
+          trafficRevenue: 70,
+          trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
+        }]);
+      }
+    });
+
+    it('resets a day an earlier attempt published for a listing that has since left the active catalog', async () => {
+      const plan = range();
+      const listing = await catalogListing('EXT-DEACTIVATED', registered());
+      await prisma.channelListingOption.create({
+        data: { organizationId: ORG, listingId: listing.id, externalOptionId: '3001', isActive: true },
+      });
+      await collectOne(
+        plan,
+        summary({ visitors: 15, views: 29, cartAdds: 4, orders: 3, salesQty: 5, revenue: 390 }),
+        [
+          row('1001'),
+          row('3001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
+        ],
+      );
+      await prisma.channelListing.update({ where: { id: listing.id }, data: { isActive: false } });
+
+      const recollection = await collectOne(plan);
+
+      await expect(listingDays(listing.id)).resolves.toMatchObject([{
+        trafficViews: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': { sourceAttemptId: recollection.attemptId },
+        },
+      }]);
+    });
+
     it('publishes and re-publishes 13 days of zero traffic for 1,228 catalog listings in bounded statements', async () => {
       const listings = 1_228;
       const plan = range(13);
