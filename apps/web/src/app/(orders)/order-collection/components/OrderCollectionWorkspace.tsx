@@ -36,6 +36,7 @@ import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
 import {
+  collectionAttentionNotice,
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
@@ -250,7 +251,14 @@ export function OrderCollectionWorkspace() {
         );
       }
     } catch (error) {
-      toast.error(friendlyError(error) ?? '셀피아 대조에 실패했습니다.');
+      // 로그인·인증이 풀린 것은 몰 카드와 같은 말로 알린다(KID-163).
+      const notice = collectionAttentionNotice(
+        '셀피아',
+        error,
+        friendlyError(error) ?? '셀피아 대조에 실패했습니다.',
+      );
+      if (notice.tone === 'warning') toast.warning(notice.message);
+      else toast.error(notice.message);
     } finally {
       setReconciling(false);
     }

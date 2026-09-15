@@ -225,6 +225,21 @@ export function classifyOrderCollectionFailure(
 }
 
 /**
+ * 로그인·인증이 풀린 것은 실패가 아니라 운영자가 할 일이다. 몰 카드·활동 기록과 같은
+ * 말로 알려, 원천이 무엇이든 같은 문장을 보게 한다(KID-163).
+ */
+export function collectionAttentionNotice(
+  sourceName: string,
+  value: unknown,
+  message: string,
+): Readonly<{ tone: 'warning' | 'error'; message: string }> {
+  const kind = classifyOrderCollectionFailure(value, message);
+  if (kind === 'login') return { tone: 'warning', message: `로그인 필요 · ${sourceName} · ${message}` };
+  if (kind === 'auth') return { tone: 'warning', message: `인증 필요 · ${sourceName} · ${message}` };
+  return { tone: 'error', message };
+}
+
+/**
  * 사용자에게 그대로 보여주면 원인도 조치도 알 수 없는 raw 오류를 안내 문구로 바꾼다.
  * 그 외 메시지는 몰이 알려준 내용이 더 정확하므로 손대지 않는다.
  */

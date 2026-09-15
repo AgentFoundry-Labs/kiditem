@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   classifyOrderCollectionFailure,
+  collectionAttentionNotice,
   draftFromMallAccount,
   getOrderCount,
   getOrderCollectionFailureCode,
@@ -210,5 +211,30 @@ describe('orderCollectionBatchNotice', () => {
       tone: 'success',
       message: '전체 수집 완료',
     });
+  });
+});
+
+/**
+ * 셀피아 주문 대사도 몰 수집과 같은 확장 결과를 받는다. 로그인이 풀린 것을 raw 오류로
+ * 보여 주면 운영자가 무엇을 해야 하는지 알 수 없다(KID-163).
+ */
+describe('collectionAttentionNotice', () => {
+  it('로그인이 풀린 실패는 몰 카드와 같은 "로그인 필요" 문구로 알린다', () => {
+    expect(collectionAttentionNotice('셀피아', new Error('로그인이 필요합니다.'), '로그인이 필요합니다.'))
+      .toEqual({ tone: 'warning', message: '로그인 필요 · 셀피아 · 로그인이 필요합니다.' });
+  });
+
+  it('확장이 조치를 요구한 실패는 "인증 필요"로 알린다', () => {
+    const error = Object.assign(new Error('캡차를 풀어주세요.'), {
+      errorCode: 'operator_action_required',
+    });
+
+    expect(collectionAttentionNotice('셀피아', error, '캡차를 풀어주세요.'))
+      .toEqual({ tone: 'warning', message: '인증 필요 · 셀피아 · 캡차를 풀어주세요.' });
+  });
+
+  it('그 밖의 실패는 원래 문장을 그대로 오류로 알린다', () => {
+    expect(collectionAttentionNotice('셀피아', new Error('서버 오류'), '셀피아 대조에 실패했습니다.'))
+      .toEqual({ tone: 'error', message: '셀피아 대조에 실패했습니다.' });
   });
 });
