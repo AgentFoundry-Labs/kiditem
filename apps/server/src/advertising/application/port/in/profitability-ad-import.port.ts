@@ -81,26 +81,51 @@ export type AdvertisingProfitabilityFrozenRecipePolicy = Readonly<{
   adSourcePolicyHash: string;
 }>;
 
+/**
+ * Quality counts of a completed profitability import. An import that holds its
+ * closed day as unreported publishes only through `coveredThrough`, so each
+ * count names its basis: the plan, the upload (every receipt, the held day
+ * included) or the publication (the held day left out). The run's
+ * `providerBackedEmptyProof` is on the published basis too.
+ */
 export type AdvertisingProfitabilityQualitySummary = Readonly<{
   contract: string | null;
   parserVersion: string | null;
+  /** Plan: the accounts the attempt requested. */
   plannedAccountCount: number;
+  /** Plan: the slices the attempt requested. */
   plannedSliceCount: number;
+  /** Upload: the receipts, one per planned slice. */
   receiptCount: number;
+  /** Published: the target rows through `coveredThrough`, matched or not. */
   targetFactCount: number;
+  /** Published: the target rows matched to a listing. */
   matchedTargetCount: number;
+  /** Published: the target rows matched to no listing. */
   unmatchedTargetCount: number;
+  /** Published: the matched target rows a monthly fact covers. */
   allocatableTargetCount: number;
+  /** Published: the matched target rows no monthly fact covers. */
   unallocatableTargetCount: number;
+  /** Published: the monthly allocation facts. */
   monthlyAllocationFactCount: number;
+  /** Upload: the provider report ids, one per receipt. */
   reportIdCount: number;
+  /** Upload: the campaigns in the receipts' reports. */
   campaignCount: number;
+  /** Upload: the rows the receipts' reports declared. */
   expectedRowCount: number;
+  /** Upload: the rows the receipts collected. */
   collectedRowCount: number;
+  /** Upload: the receipts' response bytes. */
   responseBytes: number;
+  /** Published: the spend on the published target rows. */
   providerSpendKrw: number;
+  /** Published: the spend allocated to the monthly facts. */
   allocatedSpendKrw: number;
+  /** Published: the spend on unmatched target rows. */
   unmatchedSpendKrw: number;
+  /** Published: the spend on unallocatable target rows. */
   unallocatableSpendKrw: number;
 }>;
 
