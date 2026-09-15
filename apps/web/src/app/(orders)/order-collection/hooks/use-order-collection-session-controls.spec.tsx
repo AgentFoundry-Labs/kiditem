@@ -215,6 +215,66 @@ describe('useOrderCollectionSessionControls', () => {
     });
   });
 
+  /**
+   * KID-159. 화면이 자기 절차(달력 발주 조회·수동 업로드 변환)에서 실패를 닫을 때,
+   * 그 시도를 이미 운영자가 중단했다면 terminal 은 owner 취소의 몫이다. 여기서
+   * 실패를 먼저 보내면 `*_CANCELLED` 억제를 비껴간 실패 알림이 남는다.
+   */
+  it('leaves a stopped run terminal to the owner cancel instead of failing it', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    let run: ReturnType<typeof result.current.activateOwnerRun> | undefined;
+    act(() => {
+      run = result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+    act(() => {
+      result.current.abortLocalRun(ATTEMPT_ID);
+    });
+
+    let failed: boolean | undefined;
+    await act(async () => {
+      failed = await result.current.failRunUnlessStopped(
+        run!,
+        'COLLECTION_FAILED',
+        '키즈노트 발주 조회에 실패했습니다.',
+      );
+    });
+
+    expect(failed).toBe(false);
+    expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  it('closes a genuine failure of this browser procedure with its terminal', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    let run: ReturnType<typeof result.current.activateOwnerRun> | undefined;
+    act(() => {
+      run = result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    let failed: boolean | undefined;
+    await act(async () => {
+      failed = await result.current.failRunUnlessStopped(
+        run!,
+        'CONVERSION_FAILED',
+        '키즈노트 파일 변환에 실패했습니다.',
+      );
+    });
+
+    expect(failed).toBe(true);
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: ATTEMPT_ID, attemptToken: TOKEN }),
+      expect.objectContaining({
+        code: 'CONVERSION_FAILED',
+        message: '키즈노트 파일 변환에 실패했습니다.',
+      }),
+    );
+  });
+
   it('ends this browser procedure when the shared control stops the attempt', async () => {
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),

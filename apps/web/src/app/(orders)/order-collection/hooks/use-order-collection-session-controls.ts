@@ -431,6 +431,24 @@ export function useOrderCollectionSessionControls(
   }, [environmentKey, organizationId, syncRun]);
 
   /**
+   * Closes a failure of this browser's own procedure — the directship calendar's
+   * purchase-order read, a manual upload's conversion. An operator stop already
+   * ended this run, and then the terminal is the owner cancel's: writing a
+   * failure here would beat it and leave a failure alert the `*_CANCELLED`
+   * suppression never sees (KID-159). Answers whether the terminal was written,
+   * so the screen can tell a stop from a failure.
+   */
+  const failRunUnlessStopped = useCallback(async (
+    run: OrderCollectionExtensionRun,
+    code: string,
+    message: string,
+  ): Promise<boolean> => {
+    if (run.signal?.aborted) return false;
+    await failRun(run, code, message).catch(() => undefined);
+    return true;
+  }, [failRun]);
+
+  /**
    * Ends this browser's procedure for an attempt the shared control is
    * stopping, so the page stops driving a collection the owner already ended.
    */
@@ -456,6 +474,7 @@ export function useOrderCollectionSessionControls(
     activateDirectOwnerRun,
     cancelRun,
     failRun,
+    failRunUnlessStopped,
     prepareDirectRun,
     prepareManualUploadRun,
     releaseRun,

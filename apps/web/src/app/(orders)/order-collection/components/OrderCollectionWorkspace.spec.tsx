@@ -28,6 +28,9 @@ describe('OrderCollectionWorkspace', () => {
     expect(source).not.toContain('<OrderCollectionRecovery');
     // 달력이 여는 직배송 시작 두 곳은 409 를 오류가 아니라 진행 중으로 읽는다(KID-106 Q6).
     expect(source.split('directshipAlreadyRunning(err)')).toHaveLength(3);
+    // 화면이 자기 절차에서 닫는 실패 두 곳은 중단된 시도를 실패로 닫지 않는다(KID-159).
+    expect(source.split('sessionControls.failRunUnlessStopped(')).toHaveLength(3);
+    expect(source).not.toContain('sessionControls.failRun(');
     expect(pipeline).toBeLessThan(daily);
     expect(daily).toBeLessThan(activity);
     expect(activity).toBeLessThan(malls);

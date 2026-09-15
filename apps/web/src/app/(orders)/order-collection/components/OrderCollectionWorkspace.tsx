@@ -468,17 +468,22 @@ export function OrderCollectionWorkspace() {
         loading: false,
       } : cur));
     } catch (err) {
-      if (run) {
-        await sessionControls.failRun(
+      // 운영자 중단이 이 조회를 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
+      const stopped = run
+        ? !(await sessionControls.failRunUnlessStopped(
           run,
           'COLLECTION_FAILED',
           `${account.name} 발주 조회에 실패했습니다: ${friendlyError(err) ?? '조회 실패'}`,
-        ).catch(() => undefined);
-        sessionControls.releaseRun(account.key, run.attemptId);
-      }
+        ))
+        : false;
+      if (run) sessionControls.releaseRun(account.key, run.attemptId);
       const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
       // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
       setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
+      if (stopped) {
+        toast.info(COLLECTION_STOPPED_MESSAGE);
+        return;
+      }
       // 이미 수집 중인 직배송은 실패가 아니다. 카드의 공용 컨트롤이 그 수집을 그린다.
       if (directshipAlreadyRunning(err)) return;
       toast.error(message);
@@ -570,12 +575,13 @@ export function OrderCollectionWorkspace() {
       setState('success');
       toast.success(`${mall.name} 변환 완료`);
     } catch (err) {
+      // 운영자 중단이 이 변환을 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
       if (run) {
-        await sessionControls.failRun(
+        await sessionControls.failRunUnlessStopped(
           run,
           'CONVERSION_FAILED',
           `${mall.name} 파일 변환에 실패했습니다: ${friendlyError(err) ?? '변환 실패'}`,
-        ).catch(() => undefined);
+        );
       }
       setState('error');
       throw err;
