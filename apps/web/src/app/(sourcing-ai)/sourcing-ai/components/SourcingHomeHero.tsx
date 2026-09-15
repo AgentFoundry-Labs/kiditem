@@ -143,12 +143,15 @@ export function SourcingHomeHero() {
 
   const lastUpdated = risingQuery.dataUpdatedAt || undefined;
 
-  // A trend card counts only what its source measured. Until Naver (keyword
-  // boards) or Shorts completes a collection, or while no rising snapshot
-  // exists, the count is unknown rather than 0.
-  const trendStatus = trend.control.status;
-  const naverComplete = trendStatus?.naver?.latestComplete != null;
-  const shortsComplete = trendStatus?.shorts?.latestComplete != null;
+  // A trend card counts only what its read measured; otherwise the count is
+  // unknown, not 0. Rising counts once a snapshot exists. The 7-day board read
+  // returns each board a completed Naver collection covered, empty ones too.
+  // The 30-day Shorts read names a business date only when it holds a
+  // snapshot, so a Shorts collection that stored no video stays unknown. A
+  // source that last completed before its window measured nothing in it,
+  // whatever the trend status says.
+  const boardsCovered = (boardsData?.boards?.length ?? 0) > 0;
+  const shortsCovered = shortsData?.businessDate != null;
 
   const columns: RankColumn[] = [
     {
@@ -167,7 +170,7 @@ export function SourcingHomeHero() {
     },
     {
       label: '신규 키워드',
-      count: naverComplete ? newKeywords.length : null,
+      count: boardsCovered ? newKeywords.length : null,
       accent: '#7c3aed',
       icon: Sparkles,
       href: '/sourcing-ai/keywords',
@@ -181,7 +184,7 @@ export function SourcingHomeHero() {
     },
     {
       label: 'SNS 소셜 인기',
-      count: shortsComplete ? snsKeywords.length : null,
+      count: shortsCovered ? snsKeywords.length : null,
       accent: '#db2777',
       icon: Share2,
       href: '/sourcing-ai/market',
@@ -208,7 +211,7 @@ export function SourcingHomeHero() {
     },
     {
       label: '인기 키워드',
-      count: naverComplete ? popularTotal : null,
+      count: boardsCovered ? popularTotal : null,
       accent: '#059669',
       icon: Star,
       href: '/sourcing-ai/keywords',
