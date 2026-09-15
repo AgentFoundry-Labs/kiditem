@@ -258,6 +258,20 @@ same-origin `/api/*` routing.
 | `SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS` | LinkFox shadow is armed | Market shadow signal service | Comma-separated organization UUID allowlist. An empty list disables all paid calls even when the feature flag is `1`. |
 | `LINKFOX_AGENT_API_KEY` | An allowlisted organization runs the LinkFox treatment | LinkFox EchoTik adapter | Server-only paid API key sent as the raw `Authorization` header. Never expose it to the web, logs, snapshot payloads, or Agent OS prompts. |
 
+### Owner Confirm Report (Telegram)
+
+| Variable | Required when | Consumed by | Notes |
+|---|---:|---|---|
+| `SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN` | The owner confirms final sourcing candidates from Telegram | Sourcing Telegram confirm messenger adapter | Server-only bot token from @BotFather. Use a dedicated bot per environment; a bot token read by two processes (Local and Office, or the Claude Code bridge bot) makes Telegram cut one reader off with 409. Never expose it to the web, logs, or Agent OS prompts. Button values are signed with a key derived from this token. |
+| `SOURCING_CONFIRM_TELEGRAM_CHAT_ID` | The confirm report is sent | Sourcing Telegram confirm messenger adapter | Numeric chat ID that receives reports. Leave empty, send `/start` to the bot, and the bot replies with the chat ID (the Agent Org Telegram box also shows it). |
+| `SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS` | A group chat receives reports | Sourcing Telegram confirm messenger adapter | Optional comma-separated Telegram user IDs allowed to press approve/reject. When empty, only the owner of a 1:1 chat (chat ID = user ID) may decide. |
+| `SOURCING_CONFIRM_TELEGRAM_POLLING` | A process must not read button answers | Sourcing confirm listener | Optional; `0` stops this API process from long-polling Telegram. Office has no public HTTPS endpoint, so answers use long polling instead of a webhook. |
+
+Reports are sent only when a person presses "지금 보고 보내기" in Agent Org.
+Approve/reject/undo write the existing `final` review selection
+(`selected`/`removed`/`neutral`) with the same optimistic version check as the
+final-selection screen.
+
 Google Trends shadow collection uses the fixed official KR RSS feed and needs
 no credential. Both Google and LinkFox results are stored under
 `market_shadow_signals` with `decisionImpact=disabled`; promotion into sourcing
