@@ -31,6 +31,12 @@ const MAX_TRANSIENT_RETRIES = 3;
 const MAX_DOUBLED_DELAY_MS = 30_000;
 /** However long a throttler asks for, a status this stale is worth re-reading. */
 const MAX_RETRY_AFTER_MS = 60_000;
+/**
+ * A `Retry-After` moment already past reads as a zero wait, and React Query
+ * takes `refetchInterval: 0` for no interval at all, which would leave a failed
+ * status read never asking again. A throttled read waits at least this long.
+ */
+const MIN_RETRY_AFTER_MS = 1_000;
 
 /**
  * Only failures that can clear by themselves are retried: no response, a
@@ -45,10 +51,11 @@ function isTransientStatusReadFailure(error: unknown): boolean {
   return error.status === 429 || error.status >= 500;
 }
 
-/** The wait the failing response itself named, when it named one this side of a minute. */
+/** The wait the failing response itself named, held between a second and a minute. */
 function namedWait(error: unknown): number | null {
   const wait = isApiError(error) ? error.details.retryAfterMs : undefined;
-  return wait === undefined ? null : Math.min(wait, MAX_RETRY_AFTER_MS);
+  if (wait === undefined) return null;
+  return Math.min(Math.max(wait, MIN_RETRY_AFTER_MS), MAX_RETRY_AFTER_MS);
 }
 
 /**

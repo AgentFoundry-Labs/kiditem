@@ -123,6 +123,34 @@ describe('collection source-status query rule', () => {
     expect(state()?.status).toBe('error');
   });
 
+  /**
+   * 이미 지난 시각을 가리키는 Retry-After 는 0 밀리초로 읽힌다. 그대로 쓰면 React
+   * Query 가 refetchInterval: 0 을 "간격 없음"으로 읽어, 오류가 난 상태 읽기가 다시는
+   * 스스로 회복하지 못한다(KID-170).
+   */
+  it('still re-reads on a clock when the throttled response`s Retry-After has already passed', async () => {
+    const queryFn = vi.fn<() => Promise<Status>>().mockRejectedValue(
+      new ApiError(429, 'Too Many Requests', '요청이 너무 많습니다.', { retryAfterMs: 0 }),
+    );
+    const state = observeStatusQuery(queryFn);
+
+    await advance(0);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await advance(999);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(3);
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(4);
+    expect(state()?.status).toBe('error');
+
+    // 오류 뒤의 다시 읽기도 멈추지 않는다.
+    await advance(1_000);
+    expect(queryFn).toHaveBeenCalledTimes(5);
+  });
+
   it('waits at most a minute even when the throttled response asks for longer', async () => {
     const queryFn = vi.fn<() => Promise<Status>>().mockRejectedValue(
       new ApiError(429, 'Too Many Requests', '요청이 너무 많습니다.', { retryAfterMs: 600_000 }),
