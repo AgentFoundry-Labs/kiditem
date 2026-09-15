@@ -35,6 +35,7 @@ import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
+import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
 import {
   collectionAttentionNotice,
   ICECREAM_MALL_KEY,
@@ -860,6 +861,7 @@ export function OrderCollectionWorkspace() {
       </div>
 
       <MallAccountSection
+        collectionControls={<SellpiaShipmentTrackingControl />}
         autoDetect={autoDetect.enabled}
         autoIntervalMin={autoDetect.intervalMin}
         autoIntervalOptions={AUTO_INTERVAL_OPTIONS_MIN}
