@@ -30,7 +30,6 @@ interface MallAccountSectionProps {
   mallSaving: boolean;
   browserCollecting: boolean;
   collectingKeys: Set<string>;
-  cancellingKeys: Set<string>;
   mallError: string | null;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   mallDraft: MallAccountDraft;
@@ -57,10 +56,10 @@ interface MallAccountSectionProps {
   onRetryFailedMalls: () => void;
   onRefresh: () => void;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 몰마다 자기 시작·중단 컨트롤을 하나 그린다(KID-189). */
+  renderCollectionControl: (account: OrderCollectionMallAccount) => ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
-  onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
   onToggleAutoDetect: () => void;
   onAutoIntervalChange: (minutes: number) => void;
@@ -82,7 +81,6 @@ export function MallAccountSection({
   mallSaving,
   browserCollecting,
   collectingKeys,
-  cancellingKeys,
   mallError,
   selectedMall,
   mallDraft,
@@ -108,9 +106,8 @@ export function MallAccountSection({
   onRetryFailedMalls,
   onRefresh,
   onOpenSettings,
-  onCollectMall,
+  renderCollectionControl,
   onOpenCalendar,
-  onCancelMall,
   onUploadTracking,
   onToggleAutoDetect,
   onAutoIntervalChange,
@@ -261,14 +258,12 @@ export function MallAccountSection({
               selectedMall={selectedMall}
               settingsOpen={mallSettingsOpen}
               collectingKeys={collectingKeys}
-              cancellingKeys={cancellingKeys}
               autoDetect={autoDetect}
               autoNextRunAt={autoNextRunAt}
               autoRunning={autoRunning}
               onOpenSettings={onOpenSettings}
-              onCollectMall={onCollectMall}
-        onOpenCalendar={onOpenCalendar}
-              onCancelMall={onCancelMall}
+              renderCollectionControl={renderCollectionControl}
+              onOpenCalendar={onOpenCalendar}
               onUploadTracking={onUploadTracking}
             />
           )}

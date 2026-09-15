@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Loader2, Truck, Upload } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Truck, Upload } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
 import {
@@ -18,15 +18,14 @@ interface MallAccountGroupsProps {
   selectedMall: OrderCollectionMallAccount | null | undefined;
   settingsOpen: boolean;
   collectingKeys: Set<string>;
-  cancellingKeys: Set<string>;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 몰마다 자기 시작·중단 컨트롤을 하나 그린다(KID-189). */
+  renderCollectionControl: (account: OrderCollectionMallAccount) => ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
-  onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -37,14 +36,12 @@ export function MallAccountGroups({
   selectedMall,
   settingsOpen,
   collectingKeys,
-  cancellingKeys,
   autoDetect,
   autoNextRunAt,
   autoRunning,
   onOpenSettings,
-  onCollectMall,
+  renderCollectionControl,
   onOpenCalendar,
-  onCancelMall,
   onUploadTracking,
 }: MallAccountGroupsProps) {
   return (
@@ -61,14 +58,12 @@ export function MallAccountGroups({
             failedReason={failedMallReasonByKey?.get(account.key)}
             isOpen={settingsOpen && selectedMall?.key === account.key}
             isCollecting={collectingKeys.has(account.key)}
-            isCancelling={cancellingKeys.has(account.key)}
             autoDetect={autoDetect}
             autoNextRunAt={autoNextRunAt}
             autoRunning={autoRunning}
             onOpenSettings={onOpenSettings}
-            onCollectMall={onCollectMall}
+            collectionControl={renderCollectionControl(account)}
             onOpenCalendar={onOpenCalendar}
-            onCancelMall={onCancelMall}
             onUploadTracking={onUploadTracking}
           />
         ))}
@@ -83,15 +78,14 @@ interface MallAccountCardProps {
   failedReason: FailedMallReason | undefined;
   isOpen: boolean;
   isCollecting: boolean;
-  isCancelling: boolean;
   autoDetect: boolean;
   autoNextRunAt: number | null;
   autoRunning: boolean;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
-  onCollectMall: (account: OrderCollectionMallAccount) => void;
+  /** 이 몰의 공용 시작 컨트롤. */
+  collectionControl: ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
   onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
-  onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -101,14 +95,12 @@ function MallAccountCard({
   failedReason,
   isOpen,
   isCollecting,
-  isCancelling,
   autoDetect,
   autoNextRunAt,
   autoRunning,
   onOpenSettings,
-  onCollectMall,
+  collectionControl,
   onOpenCalendar,
-  onCancelMall,
   onUploadTracking,
 }: MallAccountCardProps) {
   const collectable = account.enabled && isBrowserCollectableMall(account);
@@ -227,37 +219,9 @@ function MallAccountCard({
         )}
       </div>
 
+      <div className="mt-2.5">{collectionControl}</div>
+
       <div className="mt-2.5 flex gap-1.5">
-        <button
-          type="button"
-          onClick={() => isCollecting ? onCancelMall(account) : onCollectMall(account)}
-          aria-label={`${account.name} ${
-            isCollecting ? (isCancelling ? '중단 중' : '중단') : '수집'
-          }`}
-          disabled={isCollecting
-            ? isCancelling
-            : !collectable}
-          title={isCollecting
-            ? `${account.name} 수집 중단`
-            : !account.enabled
-              ? '중지된 계정입니다.'
-              : collectable
-                ? `${account.name} 개별 수집`
-                : '자동 수집 준비 중'}
-          className={cn(
-            'inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-md py-1.5 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400',
-            isCollecting
-              ? 'bg-red-500 hover:bg-red-600'
-              : 'bg-purple-600 hover:bg-purple-700',
-          )}
-        >
-          {isCollecting ? (
-            <>
-              <Loader2 size={13} className="animate-spin" />
-              {isCancelling ? '중단 중…' : '중단'}
-            </>
-          ) : '수집'}
-        </button>
         {trackingSupported ? (
           <button
             type="button"

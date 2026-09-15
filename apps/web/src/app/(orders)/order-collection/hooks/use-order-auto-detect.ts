@@ -4,19 +4,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import {
-  type OrderCollectionExtensionRun,
-} from '../lib/order-collection-extension';
-import {
   loadSeenOrderKeys,
 } from '../lib/order-detect';
 import {
   classifyOrderCollectionFailure,
   isAutoDetectableMall,
 } from '../lib/order-collection-page-model';
-import { isOrderCollectionInProgress } from '../lib/order-collection-start-outcome';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
-import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
+import type { CollectionStartOutcome } from '@/hooks/use-collection-source-control';
 import type { BrowserMallCollectionResult } from '../lib/browser-mall-collection';
+import type { MallOrderCollectionStartInput } from '../lib/mall-order-collection-source';
 import type { OrderActivityEvent } from '../components/OrderActivityFeed';
 
 const DEFAULT_AUTO_INTERVAL_MIN = 30;
@@ -29,33 +26,23 @@ export const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60] as const;
 
 interface UseOrderAutoDetectOptions {
   mallAccounts: OrderCollectionMallAccount[];
-  collectAccount: (
+  /**
+   * Starts one mall through its shared collection control and names the
+   * collection that start left running, so a tick can wait for it.
+   */
+  startMall: (
     account: OrderCollectionMallAccount,
-    run?: OrderCollectionExtensionRun,
-  ) => Promise<BrowserMallCollectionResult>;
-  prepareRun: (
-    account: OrderCollectionMallAccount,
-    existingAttemptId?: string,
-    knownExtensionStatus?: ExtensionRuntimeStatus,
-    options?: { selectionMode?: 'manual' | 'automatic'; seenRowKeys?: string[] },
-  ) => Promise<OrderCollectionExtensionRun>;
-  failRun: (
-    run: OrderCollectionExtensionRun,
-    code: string,
-    message: string,
-  ) => Promise<unknown>;
-  releaseRun: (mallKey: string, expectedAttemptId?: string) => void;
-  markCollecting: (mallKey: string, collecting: boolean) => void;
+    input?: MallOrderCollectionStartInput,
+  ) => Promise<Readonly<{
+    outcome: CollectionStartOutcome;
+    collection: Promise<BrowserMallCollectionResult> | null;
+  }>>;
   logActivity: (kind: OrderActivityEvent['kind'], mallName: string, message?: string) => void;
 }
 
 export function useOrderAutoDetect({
   mallAccounts,
-  collectAccount,
-  prepareRun,
-  failRun,
-  releaseRun,
-  markCollecting,
+  startMall,
   logActivity,
 }: UseOrderAutoDetectOptions) {
   const [enabled, setEnabled] = useState(false);
@@ -76,48 +63,27 @@ export function useOrderAutoDetect({
     setRunning(true);
     try {
       for (const account of targets) {
-        markCollecting(account.key, true);
-        let activeRun: OrderCollectionExtensionRun | null = null;
         try {
-          if (isAutoDetectableMall(account)) {
-            activeRun = await prepareRun(account, undefined, undefined, {
-              selectionMode: 'automatic',
-              // Freeze the exact trimmed-cell/row-separator criterion before
-              // provider capture. The extension/server owner retains this
-              // alongside the full original capture.
-              seenRowKeys: [...loadSeenOrderKeys(account.key)],
-            });
-            const collected = await collectAccount(account, activeRun);
-            if (collected.rowCount === 0) {
-              logActivity('empty', account.name);
-            } else {
-              toast.success(`${account.name} 새 주문 ${formatNumber(collected.rowCount)}건 감지`);
-            }
-          } else {
-            const collected = await collectAccount(account);
-            if (collected.rowCount === 0) logActivity('empty', account.name);
-          }
-        } catch (err) {
+          const started = await startMall(account, {
+            selectionMode: 'automatic',
+            // Freeze the exact trimmed-cell/row-separator criterion before
+            // provider capture. The extension/server owner retains this
+            // alongside the full original capture.
+            seenRowKeys: [...loadSeenOrderKeys(account.key)],
+          });
           // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
           // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
-          if (isOrderCollectionInProgress(err)) continue;
+          if (started.outcome.outcome !== 'started' || !started.collection) continue;
+          const collected = await started.collection;
+          if (collected.rowCount > 0) {
+            toast.success(`${account.name} 새 주문 ${formatNumber(collected.rowCount)}건 감지`);
+          }
+        } catch (err) {
+          // 시도의 종료 처리는 수집 절차가 이미 한다. 여기서는 왜 못 돌았는지만 남긴다.
           const message = err instanceof Error ? err.message : '자동 감지 실패';
           const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
-          const ownerReconciliationRequired = err instanceof Error &&
-            'ownerReconciliationRequired' in err &&
-            (err as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
-          if (activeRun && !ownerReconciliationRequired) {
-            await failRun(
-              activeRun,
-              'COLLECTION_FAILED',
-              `${account.name} 자동 감지 실패: ${message}`,
-            ).catch(() => undefined);
-          }
           logActivity(kind, account.name, kind === 'empty' ? undefined : message);
           console.warn('[order-auto-detect]', account.key, err);
-        } finally {
-          if (activeRun) releaseRun(account.key, activeRun.attemptId);
-          markCollecting(account.key, false);
         }
       }
       setLastRunAt(Date.now());
@@ -125,15 +91,7 @@ export function useOrderAutoDetect({
       busyRef.current = false;
       setRunning(false);
     }
-  }, [
-    collectAccount,
-    failRun,
-    logActivity,
-    mallAccounts,
-    markCollecting,
-    prepareRun,
-    releaseRun,
-  ]);
+  }, [logActivity, mallAccounts, startMall]);
 
   useEffect(() => {
     const savedInterval = Number(window.localStorage.getItem(AUTO_INTERVAL_KEY));

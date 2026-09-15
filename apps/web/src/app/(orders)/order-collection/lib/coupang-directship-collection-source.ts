@@ -8,6 +8,7 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
 import { startWebOpenedCollection } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -58,10 +59,13 @@ async function detectDirectshipExtension(): Promise<string> {
 export function coupangDirectshipCollectionSource({
   channelAccountId,
   handOff,
+  abortLocalRun,
 }: Readonly<{
   channelAccountId: string | null;
   /** The directship extension procedure, which runs the capture to the end. */
   handOff: (handoff: CoupangDirectshipHandoff) => Promise<void>;
+  /** Ends this browser's procedure for the attempt the operator is stopping. */
+  abortLocalRun?: (attemptId: string) => void;
 }>): CollectionSourceAdapter<OrderCollectionSourceStatus> {
   return {
     sourceKey: `orders.coupang_directship:${channelAccountId ?? ''}`,
@@ -107,6 +111,11 @@ export function coupangDirectshipCollectionSource({
         },
       }
       : {}),
+    cancelInExtension: (attemptId) => {
+      // 이 브라우저가 돌리던 절차부터 끊는다. 서버 취소만으로는 페이지 루프가 계속 돈다.
+      abortLocalRun?.(attemptId);
+      return sendBrowserCollectionControl(attemptId, 'cancelCollectionSession');
+    },
     cancelOnServer: cancelCoupangDirectshipAttempt,
     readCompleteId: (status) => status.lastComplete?.attemptId ?? null,
     onNewComplete: (queryClient) => {

@@ -8,6 +8,7 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
 import { startWebOpenedCollection } from '@/lib/collection-start';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -85,12 +86,15 @@ export function mallOrderCollectionSource({
   account,
   collectionMode = 'browser',
   handOff,
+  abortLocalRun,
 }: Readonly<{
   organizationId: string | null;
   account: OrderCollectionMallAccount;
   collectionMode?: OrderCollectionMode;
   /** The mall's own extension hand-off, which runs its collection to the end. */
   handOff: (handoff: MallOrderCollectionHandoff) => Promise<void>;
+  /** Ends this browser's procedure for the attempt the operator is stopping. */
+  abortLocalRun?: (attemptId: string) => void;
 }>): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> {
   return {
     sourceKey: `orders.mall:${account.key}`,
@@ -148,6 +152,11 @@ export function mallOrderCollectionSource({
         },
         cancel: ({ attemptId }) => cancelMallOrderCollectionAttempt(attemptId),
       });
+    },
+    cancelInExtension: (attemptId) => {
+      // 이 브라우저가 돌리던 절차부터 끊는다. 서버 취소만으로는 페이지 루프가 계속 돈다.
+      abortLocalRun?.(attemptId);
+      return sendBrowserCollectionControl(attemptId, 'cancelCollectionSession');
     },
     cancelOnServer: cancelMallOrderCollectionAttempt,
     // Order owners assign no publication number, so the completed attempt is

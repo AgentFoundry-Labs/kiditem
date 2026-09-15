@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
 import { useAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,7 +34,7 @@ import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
-import { classifyOrderCollectionStart } from '../lib/order-collection-start-outcome';
+import { MallCollectionControl } from './MallCollectionControl';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
@@ -41,6 +42,7 @@ import {
   draftFromMallAccount,
   isBrowserCollectableMall,
   hasSellpiaTransmissionRequest,
+  mallCollectionFailureMessage,
   orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
@@ -311,6 +313,8 @@ export function OrderCollectionWorkspace() {
     collectAccount,
     collectAccounts,
     collectAll,
+    collectionAdapter,
+    startMall,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
     mallAccounts,
@@ -366,11 +370,7 @@ export function OrderCollectionWorkspace() {
 
   const autoDetect = useOrderAutoDetect({
     mallAccounts,
-    collectAccount,
-    prepareRun: sessionControls.prepareRun,
-    failRun: sessionControls.failRun,
-    releaseRun: sessionControls.releaseRun,
-    markCollecting,
+    startMall,
     logActivity,
   });
 
@@ -431,7 +431,7 @@ export function OrderCollectionWorkspace() {
     }
     let run: OrderCollectionExtensionRun | null = null;
     try {
-      run = await sessionControls.prepareRun(account);
+      run = await sessionControls.prepareDirectRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
       setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
       const { collectCoupangDirectFromExtension } = await import(
@@ -465,25 +465,21 @@ export function OrderCollectionWorkspace() {
     }
   };
 
-  const handleBrowserCollectMall = async (
+  /**
+   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 이미 연 시도를
+   * 그대로 이어받고, 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
+   */
+  const handleCollectDirectship = async (
     account: OrderCollectionMallAccount,
     existingAttemptId?: string,
     directship?: { eddDates: string[]; data?: CoupangDirectData },
   ) => {
-    if (!account.enabled) {
-      toast.error(`${account.name} 계정이 중지되어 있습니다.`);
-      return;
-    }
-    if (!isBrowserCollectableMall(account)) {
-      toast.error(`${account.name} 자동 수집은 준비 중입니다.`);
-      return;
-    }
     setState('converting');
     let run: OrderCollectionExtensionRun | null = null;
     try {
-      run = await sessionControls.prepareRun(account, existingAttemptId);
+      run = await sessionControls.prepareDirectRun(account, existingAttemptId);
       const collected = await collectAccount(account, run, directship);
-      if (account.key === 'coupang-direct' && directship?.data && directshipCacheScope && run) {
+      if (directship?.data && directshipCacheScope && run) {
         await saveCoupangDirectSnapshot(
           directshipCacheScope.channelAccountId,
           directship.data.pos,
@@ -496,30 +492,21 @@ export function OrderCollectionWorkspace() {
     } catch (err) {
       if (run?.signal?.aborted) {
         setState('idle');
-        toast.info(`${account.name} 수집을 중단했습니다.`);
-        return;
-      }
-      const outcome = classifyOrderCollectionStart(err, account.name);
-      // 같은 몰이 이미 수집 중이면 두 번째 시도를 열지 않고 진행 중인 수집을 보여 준다(KID-106 Q6).
-      if (outcome.outcome === 'in_progress') {
-        setState('idle');
-        toast.info(`${account.name} ${outcome.message}`);
+        toast.info(COLLECTION_STOPPED_MESSAGE);
         return;
       }
       setState('error');
-      toast.error(outcome.message);
+      toast.error(mallCollectionFailureMessage(
+        account.name,
+        friendlyError(err) ?? '브라우저 수집 실패',
+      ));
     }
   };
 
-  const handleCancelMall = async (account: OrderCollectionMallAccount) => {
-    try {
-      const requested = await sessionControls.cancelRun(account);
-      if (!requested) {
-        toast.warning(`${account.name}에서 중단할 수집을 찾지 못했습니다.`);
-      }
-    } catch (err) {
-      toast.error(friendlyError(err) ?? `${account.name} 수집 중단에 실패했습니다.`);
-    }
+  /** 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. */
+  const mallStartBlockedReason = (account: OrderCollectionMallAccount): string | null => {
+    if (!account.enabled) return '중지된 계정입니다.';
+    return isBrowserCollectableMall(account) ? null : '자동 수집 준비 중';
   };
 
   const handleModalUpload = async ({
@@ -872,7 +859,6 @@ export function OrderCollectionWorkspace() {
         autoNextRunAt={autoDetect.nextRunAt}
         autoRunning={autoDetect.running}
         browserCollecting={browserCollecting}
-        cancellingKeys={sessionControls.cancellingKeys}
         collectingKeys={collectingKeys}
         configuredMallCount={configuredMallCount}
         conversionState={state}
@@ -894,8 +880,13 @@ export function OrderCollectionWorkspace() {
         selectedMall={selectedMall}
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
-        onCancelMall={(account) => void handleCancelMall(account)}
-        onCollectMall={(account) => void handleBrowserCollectMall(account)}
+        renderCollectionControl={(account) => (
+          <MallCollectionControl
+            account={account}
+            buildAdapter={collectionAdapter}
+            startBlockedReason={mallStartBlockedReason(account)}
+          />
+        )}
         onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
@@ -955,13 +946,15 @@ export function OrderCollectionWorkspace() {
             const pending = directshipModal;
             setDirectshipModal(null);
             if (pending.run) {
-              void sessionControls.cancelRun(pending.account);
+              void sessionControls.cancelRun(pending.account).catch((error: unknown) => {
+                toast.error(friendlyError(error) ?? `${pending.account.name} 수집 중단에 실패했습니다.`);
+              });
             }
           }}
           onCollect={(eddDates) => {
             const { account, run } = directshipModal;
             setDirectshipModal(null);
-            void handleBrowserCollectMall(account, run?.attemptId, {
+            void handleCollectDirectship(account, run?.attemptId, {
               eddDates,
               data: directshipModal.data ?? undefined,
             });

@@ -32,13 +32,11 @@ function renderSection(
   collectionControls?: ReactNode,
   runState: {
     collectingKeys?: Set<string>;
-    cancellingKeys?: Set<string>;
   } = {},
 ) {
   const callbacks = {
-    onCollectAll: vi.fn(),
     onCollectMall: vi.fn(),
-    onCancelMall: vi.fn(),
+    onCollectAll: vi.fn(),
     onRetryFailedMalls: vi.fn(),
     onDraftChange: vi.fn(),
     onOpenMall: vi.fn(),
@@ -59,7 +57,11 @@ function renderSection(
       mallSaving={false}
       browserCollecting={false}
       collectingKeys={runState.collectingKeys ?? new Set()}
-      cancellingKeys={runState.cancellingKeys ?? new Set()}
+      renderCollectionControl={(account) => (
+        <button type="button" onClick={() => callbacks.onCollectMall(account)}>
+          {account.name} 수집
+        </button>
+      )}
       mallError={null}
       selectedMall={accounts[0]}
       mallDraft={{
@@ -160,20 +162,6 @@ describe("MallAccountSection", () => {
     }
   });
 
-  it("never enables collection for a disabled extension-session mall", async () => {
-    const user = userEvent.setup();
-    const account = mallAccount("kidsnote", {
-      name: "키즈노트",
-      enabled: false,
-    });
-    const callbacks = renderSection([account]);
-    const collectButton = screen.getByRole("button", { name: "키즈노트 수집" });
-
-    expect(collectButton).toBeDisabled();
-    await user.click(collectButton);
-    expect(callbacks.onCollectMall).not.toHaveBeenCalled();
-  });
-
   it("enables supported tracking and delegates the action", async () => {
     const user = userEvent.setup();
     const account = mallAccount("domeggook", { name: "도매꾹" });
@@ -220,37 +208,16 @@ describe("MallAccountSection", () => {
     ).not.toBe(0);
   });
 
-  it("turns the existing collect button into a stop action while collecting", async () => {
-    const user = userEvent.setup();
+  it("keeps the tracking upload out of the way while this browser is collecting", async () => {
     const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
-    const callbacks = renderSection(
+    renderSection(
       [account],
       new Map(),
       undefined,
       { collectingKeys: new Set([account.key]) },
     );
 
-    expect(screen.queryByRole("button", { name: "쿠팡직배송 수집" })).not.toBeInTheDocument();
-    const stopButton = screen.getByRole("button", { name: "쿠팡직배송 중단" });
-    await user.click(stopButton);
-
-    expect(callbacks.onCancelMall).toHaveBeenCalledWith(account);
     expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeDisabled();
-  });
-
-  it("disables the stop action while cancellation is being applied", () => {
-    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
-    renderSection(
-      [account],
-      new Map(),
-      undefined,
-      {
-        collectingKeys: new Set([account.key]),
-        cancellingKeys: new Set([account.key]),
-      },
-    );
-
-    expect(screen.getByRole("button", { name: "쿠팡직배송 중단 중" })).toBeDisabled();
   });
 
   it("wires source-owner recovery and explicit cancel through the order route", () => {
@@ -277,9 +244,9 @@ describe("MallAccountSection", () => {
     expect(sessionHook).toContain("getOrderCollectionEnvironmentKey");
     expect(sessionHook).not.toContain("issueBrowserCollectionRunId");
     expect(sessionHook).not.toContain("finalizeOrderCollectionSession");
-    // 실행 취소/재시도는 몰 카드의 중단·수집 버튼이 담당한다.
-    expect(workspace).toContain('handleCancelMall');
-    expect(workspace).toContain('handleBrowserCollectMall');
+    // 시작·중단은 몰 카드가 그리는 공용 컨트롤이 담당한다(KID-189).
+    expect(workspace).toContain('MallCollectionControl');
+    expect(workspace).toContain('renderCollectionControl');
     expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
     expect(collector).not.toContain("runId");
     expect(collector).toContain("attemptId");

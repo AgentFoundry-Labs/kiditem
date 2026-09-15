@@ -30,6 +30,10 @@ vi.mock('@/app/(orders)/order-collection/lib/order-collection-extension', async 
 vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   createBrowserMallCollector: () => mocks.collectMall,
 }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: vi.fn(), getParsed: vi.fn().mockRejectedValue(new Error('no status read in this spec')), post: vi.fn() },
+}));
 
 import { useAllMarketplaceOrderCollection } from './useAllMarketplaceOrderCollection';
 import { ApiError } from '@/lib/api-error';
