@@ -138,6 +138,9 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       errorCode: "USER_CANCELLED",
       errorMessage: "운영자가 수집을 중단했습니다.",
     });
+    // 중단은 페이지가 부르는 공개 라우트다. fence 토큰은 돌려주지 않는다(KID-190).
+    expect(stopped).not.toHaveProperty("attemptToken");
+    expect(JSON.stringify(stopped)).not.toContain(attempt.attemptToken);
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
     await complete(attempt, [row("2026-09-07", 1)]).expect(409);
     expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
@@ -164,11 +167,13 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     await complete(completed, [row("2026-09-08", 2)]).expect(200);
     expect((await get(`/attempts/${completed.attemptId}`).expect(200)).body.state)
       .toBe("COMPLETE");
-    expect((await cancel(completed.attemptId).expect(200)).body).toMatchObject({
+    const terminal = (await cancel(completed.attemptId).expect(200)).body;
+    expect(terminal).toMatchObject({
       attemptId: completed.attemptId,
       state: "COMPLETE",
       errorCode: null,
     });
+    expect(terminal).not.toHaveProperty("attemptToken");
     expect(
       await prisma.sourceImportRun.findUniqueOrThrow({
         where: { id: completed.attemptId },

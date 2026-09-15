@@ -385,13 +385,14 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       attemptToken: completed.attemptToken,
       snapshot: snapshot(),
     });
+    const { attemptToken: _published, ...publishedPublic } = published;
     expect(await owner.cancelAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       attemptId: completed.attemptId,
-    })).toEqual(published);
+    })).toEqual(publishedPublic);
   });
 
-  it('keeps the fence token out of the status read while the control read still carries it', async () => {
+  it('keeps the fence token out of the status read and the operator stop while the control read still carries it', async () => {
     const base = '/api/channels/product-mappings/sellpia-manual-match';
     const begin = await request(httpUrl)
       .post(`${base}/attempts`)
@@ -417,6 +418,19 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       .set('x-test-org', TEST_ORGANIZATION_ID)
       .expect(200);
     expect(attempt.body.attemptToken).toBe(control.attemptToken);
+
+    // 운영자 중단은 페이지가 부르는 공개 라우트다. fence 토큰은 돌려주지 않는다(KID-190).
+    const cancelled = await request(httpUrl)
+      .post(`${base}/attempts/${control.attemptId}/cancel`)
+      .set('x-test-org', TEST_ORGANIZATION_ID)
+      .expect(200);
+    expect(cancelled.body).toMatchObject({
+      attemptId: control.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+    });
+    expect(cancelled.body).not.toHaveProperty('attemptToken');
+    expect(JSON.stringify(cancelled.body)).not.toContain(control.attemptToken);
   });
 
   it('publishes and replays through HTTP, rejects changed terminal payloads, and retires the old import route', async () => {

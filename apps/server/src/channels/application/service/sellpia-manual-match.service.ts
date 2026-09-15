@@ -9,6 +9,7 @@ import {
   SellpiaManualMatchSnapshotSchema,
   SellpiaManualMatchTargetsResponseSchema,
   type SellpiaManualMatchAttempt,
+  type SellpiaManualMatchPublicAttempt,
   type SellpiaManualMatchSourceStatus,
 } from '@kiditem/shared/sellpia-manual-match';
 import {
@@ -113,10 +114,11 @@ export class SellpiaManualMatchService {
     });
   }
 
+  /** 화면의 중단 버튼. 페이지가 부르는 라우트라 fence 토큰 없는 shape 이다(KID-190). */
   cancelAttempt(input: {
     organizationId: string;
     attemptId: string;
-  }): Promise<SellpiaManualMatchAttempt> {
+  }): Promise<SellpiaManualMatchPublicAttempt> {
     return this.repository.cancelAttempt(input);
   }
 

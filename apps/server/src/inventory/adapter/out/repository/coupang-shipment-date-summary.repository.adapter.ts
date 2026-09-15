@@ -27,6 +27,7 @@ import {
   COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE,
   readCoupangShipmentSummaryAttempt,
   readCoupangShipmentSummarySource,
+  publicShipmentSummaryAttempt,
   shipmentSummaryAttempt,
 } from "../../../read/coupang-shipment-date-summary.reader";
 
@@ -239,8 +240,10 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
     return this.prisma.$transaction(async (tx) => {
       await lock(tx, organizationId);
       const run = await find(tx, organizationId, attemptId);
-      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return control(run);
-      return control(
+      if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
+        return publicShipmentSummaryAttempt(run);
+      }
+      return publicShipmentSummaryAttempt(
         expired(run)
           ? await this.fail(
               tx,

@@ -365,14 +365,14 @@ implements SellpiaManualMatchRepositoryPort {
   async cancelAttempt(input: {
     organizationId: string;
     attemptId: string;
-  }): Promise<SellpiaManualMatchAttempt> {
+  }): Promise<SellpiaManualMatchPublicAttempt> {
     return this.prisma.$transaction(async (tx) => {
       await lockSellpiaInventorySource(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      if (attempt.status !== DB_RUNNING) return controlAttempt(attempt);
+      if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
       if (effectiveState(attempt, new Date()) === 'FAILED') {
-        return controlAttempt(await this.expireAttempt(tx, attempt));
+        return publicAttempt(await this.expireAttempt(tx, attempt));
       }
       const updated = await tx.sourceImportRun.updateMany({
         where: {
@@ -394,7 +394,7 @@ implements SellpiaManualMatchRepositoryPort {
         errorCode: OPERATOR_CANCEL_CODE,
         errorMessage: OPERATOR_CANCEL_MESSAGE,
       }));
-      return controlAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
+      return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
     }, TRANSACTION_OPTIONS);
   }
 
