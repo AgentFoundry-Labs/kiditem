@@ -173,7 +173,7 @@ export const queryKeys = {
   orders: {
     all: ['orders'] as const,
     stats: () => [...queryKeys.orders.all, 'stats'] as const,
-    pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
+    pipeline: (params?: Record<string, string>) => [...queryKeys.orders.pipelines(), params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
     rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
@@ -183,9 +183,13 @@ export const queryKeys = {
       to: string;
       status: string;
     }) => [...queryKeys.orders.rocketSavedPoLists(), params] as const,
+    pipelines: () => [...queryKeys.orders.all, 'pipeline'] as const,
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,
+    /** One mall's order-collection owner status, for the shared start control. */
+    collectionSource: (organizationId: string, mallKey: string) =>
+      [...queryKeys.orders.all, 'collection', 'source', organizationId, mallKey] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
