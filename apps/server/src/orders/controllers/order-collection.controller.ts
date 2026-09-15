@@ -44,6 +44,7 @@ import {
   SaveCoupangDirectPoSnapshotRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/auth.types';
@@ -184,6 +185,21 @@ export class OrderCollectionController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.coupangDirectOrderCollection.cancelAttempt({ organizationId, attemptId });
+  }
+
+  /**
+   * 공용 시작 컨트롤이 폴링하는 직배송 계정별 현재 상태. 시도 토큰은 담지 않는다 —
+   * fence 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
+   */
+  @Get('coupang-directship/source')
+  async readCoupangDirectSourceStatus(
+    @Query('channelAccountId') channelAccountId: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionSourceStatus> {
+    return this.coupangDirectOrderCollection.readSourceStatus({
+      organizationId,
+      channelAccountId: requiredDirectChannelAccountId(channelAccountId),
+    });
   }
 
   // 입고예정일 달력이 즉시 뜨도록 마지막 수집분을 계정 범위로 보관/조회한다.
@@ -1113,6 +1129,15 @@ function requiredDirectAttemptToken(value: string | undefined): string {
   if (!token) throw new BadRequestException('ORDER_COLLECTION_ATTEMPT_HEADERS_REQUIRED');
   if (!isUuid(token)) throw new BadRequestException('INVALID_SOURCE_ATTEMPT_TOKEN');
   return token;
+}
+
+/** 공용 컨트롤의 상태 읽기 범위. 계정 없이는 어느 수집을 묻는지 정해지지 않는다. */
+function requiredDirectChannelAccountId(value: string | undefined): string {
+  const channelAccountId = value?.trim();
+  if (!channelAccountId || !isUuid(channelAccountId)) {
+    throw new BadRequestException('INVALID_COUPANG_DIRECT_SCOPE');
+  }
+  return channelAccountId;
 }
 
 function requiredDirectIdempotencyKey(value: string | undefined): string {

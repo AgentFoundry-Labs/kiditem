@@ -3,6 +3,7 @@ import type {
   CoupangDirectOrderCollectionRequest,
   CoupangDirectPurchaseOrder,
 } from '@kiditem/shared/coupang-direct-order';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 export const COUPANG_DIRECT_SOURCE_TYPE = 'coupang_direct_order_capture' as const;
 export const COUPANG_DIRECT_PARSER_VERSION = 'coupang-direct-order-v1' as const;
@@ -82,6 +83,15 @@ export interface CoupangDirectOrderCollectionPort {
     organizationId: string;
     attemptId: string;
   }): Promise<CoupangDirectOwnerAttemptControl | null>;
+
+  /**
+   * 공용 시작 컨트롤이 읽는 로켓 계정별 현재 상태. 진행 중 시도·마지막 완료분·
+   * 마지막 시도를 한 번에 돌려주며 시도 토큰은 담지 않는다.
+   */
+  readSourceStatus(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<OrderCollectionSourceStatus>;
 
   completeAttempt(input: {
     organizationId: string;

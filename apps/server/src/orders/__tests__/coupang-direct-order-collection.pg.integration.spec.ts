@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import {
   makeTestPrisma,
   resetDb,
@@ -825,6 +826,82 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     });
     expect(next.attemptId).not.toBe(attempt.attemptId);
     expect(next.state).toBe('RUNNING');
+  });
+
+  it('answers the directship source with its running, last complete and last attempt slots', async () => {
+    const readSource = (channelAccountId = CHANNEL_ACCOUNT_ID, organizationId = TEST_ORGANIZATION_ID) =>
+      service.readSourceStatus({ organizationId, channelAccountId })
+        .then((view) => OrderCollectionSourceStatusSchema.parse(view));
+
+    expect(await readSource()).toEqual({
+      mallKey: null,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      running: null,
+      lastComplete: null,
+      lastAttempt: null,
+    });
+
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    const started = await readSource();
+    expect(started.running).toMatchObject({
+      attemptId: attempt.attemptId,
+      collectionMode: 'browser',
+      expiresAt: attempt.expiresAt,
+    });
+    expect(started.lastAttempt).toMatchObject({ attemptId: attempt.attemptId, state: 'RUNNING' });
+    // 상태 읽기는 토큰을 담지 않는다(strict 스키마가 여분 키를 거른다).
+    expect(JSON.stringify(started)).not.toContain(attempt.attemptToken);
+
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: mixedCollectionRequest(),
+    });
+    const completed = await readSource();
+    expect(completed.running).toBeNull();
+    expect(completed.lastComplete).toMatchObject({
+      attemptId: attempt.attemptId,
+      publicationSequence: null,
+    });
+    expect(completed.lastComplete?.completedAt).toEqual(expect.any(String));
+    expect(completed.lastAttempt).toMatchObject({ attemptId: attempt.attemptId, state: 'COMPLETE' });
+
+    // 다른 조직은 이 계정의 수집을 보지 못한다.
+    await expect(readSource(CHANNEL_ACCOUNT_ID, OTHER_ORGANIZATION_ID))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('reads an expired directship lease as no longer running without writing the attempt', async () => {
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+
+    const view = await service.readSourceStatus({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+    });
+    expect(view.running).toBeNull();
+    expect(view.lastAttempt).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
   });
 
   it('settles an operator stop after the lease passed as expiry with its Alert', async () => {

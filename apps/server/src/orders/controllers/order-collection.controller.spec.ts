@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { OrderCollectionController } from './order-collection.controller';
 
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_ID = '44444444-4444-4444-8444-444444444444';
 const ATTEMPT_TOKEN = '55555555-5555-4555-8555-555555555555';
+const CHANNEL_ACCOUNT_ID = '66666666-6666-4666-8666-666666666666';
 
 describe('OrderCollectionController Coupang direct convert', () => {
   it('converts Art09 on the server while retaining only the submitted source', async () => {
@@ -423,6 +425,61 @@ describe('OrderCollectionController Coupang direct convert', () => {
       organizationId: ORGANIZATION_ID,
       attemptId: ATTEMPT_ID,
     });
+  });
+
+  it('reads one directship source by channel account and answers the shared status shape without a token', async () => {
+    const status = {
+      mallKey: null,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      running: {
+        attemptId: ATTEMPT_ID,
+        collectionMode: 'browser',
+        startedAt: '2026-09-15T00:00:00.000Z',
+        expiresAt: '2026-09-15T00:30:00.000Z',
+      },
+      lastComplete: null,
+      lastAttempt: {
+        attemptId: ATTEMPT_ID,
+        state: 'RUNNING',
+        errorCode: null,
+        errorMessage: null,
+        endedAt: null,
+      },
+    };
+    const owner = { readSourceStatus: vi.fn().mockResolvedValue(status) };
+    const controller = new OrderCollectionController(
+      {} as never,
+      {} as never,
+      owner as never,
+      {} as never,
+      {} as never,
+    );
+
+    const view = await controller.readCoupangDirectSourceStatus(CHANNEL_ACCOUNT_ID, ORGANIZATION_ID);
+
+    expect(owner.readSourceStatus).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+    });
+    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
+    expect(OrderCollectionSourceStatusSchema.parse(view)).toEqual(status);
+  });
+
+  it('refuses a directship source read with no channel account', async () => {
+    const owner = { readSourceStatus: vi.fn() };
+    const controller = new OrderCollectionController(
+      {} as never,
+      {} as never,
+      owner as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(controller.readCoupangDirectSourceStatus(undefined, ORGANIZATION_ID))
+      .rejects.toThrow('INVALID_COUPANG_DIRECT_SCOPE');
+    await expect(controller.readCoupangDirectSourceStatus('not-a-uuid', ORGANIZATION_ID))
+      .rejects.toThrow('INVALID_COUPANG_DIRECT_SCOPE');
+    expect(owner.readSourceStatus).not.toHaveBeenCalled();
   });
 
 });
