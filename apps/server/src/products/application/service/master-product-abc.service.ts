@@ -191,12 +191,14 @@ function isEligibleEvidence(
  *
  * The profitability owner selects the newest cutoff every source verifiably
  * reaches; ABC publishes at that actual cutoff even when it stops short of the
- * desired one. Freshness signals — `sources[x].status`, a newer RUNNING or
+ * desired one. Freshness signals — `sources[x].ready`, a newer RUNNING or
  * FAILED attempt over a source that already published a complete generation —
  * are reported to the caller and displayed, never an admission gate. Only real
- * incompatibility refuses: no compatible pair at all, sources that no longer
- * agree with the organization's mapping generation, or a selected manifest
- * whose coverage does not reach its own cutoff.
+ * incompatibility refuses here: no compatible pair at all, or a selected
+ * manifest whose coverage does not reach its own cutoff. A pair on a mapping
+ * generation other than the one this calculation read is an input change that
+ * `recalculate` already refused as `INPUT_CHANGED`; the mapping comparisons
+ * below only keep a malformed snapshot out.
  */
 function hasCompatibleCompleteEvidence(
   snapshot: ProfitabilityEvidenceSnapshot,

@@ -174,9 +174,16 @@ calculation, and one publication CAS attempt:
 
 1. `ProfitabilityEvidence.load` reads the target KST cutoff and compatible
    complete owner snapshots.
-2. If a required source is `MISSING` or `STALE` for that target, the command
-   returns `SOURCE_NOT_READY` with source status and actual cutoff and writes
-   no FormulaState, Evaluation, grade cache, history, or pending state.
+2. If no complete Sellpia and Advertising pair on the current mapping
+   generation ends on the same day (or the earlier one on a month's last day),
+   the command returns `SOURCE_NOT_READY` with each source's readiness and
+   `actualCutoff: null`, and writes nothing. It adds `pairing` when a source
+   reads ready and both sources' newest generations on that mapping end on
+   different days. A stale source that still pairs publishes at the pair's
+   cutoff. If the mapping moved after the formula-state read and the sources
+   already pair on the new generation, the command returns
+   `409 INPUT_CHANGED`; without that pair it is `SOURCE_NOT_READY` as above.
+   A move after the evidence load is refused by the publication fence in step 4.
 3. Otherwise Products captures the formula/publication revisions, source
    vector, complete target set, selling predicates, and mapping evidence.
 4. The publication transaction verifies the evaluated source pair against its
