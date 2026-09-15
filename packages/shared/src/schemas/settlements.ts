@@ -29,13 +29,15 @@ export type SettlementListItem = z.infer<typeof SettlementListItemSchema>;
 /**
  * The settlement card totals, summed on the server over the listed rows: the
  * expected amount of every row, and the deposit and difference of the
- * confirmed rows only — an unconfirmed deposit is not a deposit of zero.
+ * confirmed rows only — an unconfirmed deposit is not a deposit of zero. A
+ * total no listed row contributes to is `null`, as is the pending count of an
+ * empty list: nothing was measured.
  */
 export const SettlementListSummarySchema = z.object({
-  totalExpected: z.number().int(),
-  totalConfirmedActual: z.number().int(),
-  totalConfirmedDifference: z.number().int(),
-  pendingCount: z.number().int().nonnegative(),
+  totalExpected: z.number().int().nullable(),
+  totalConfirmedActual: z.number().int().nullable(),
+  totalConfirmedDifference: z.number().int().nullable(),
+  pendingCount: z.number().int().nonnegative().nullable(),
 }).strict();
 export type SettlementListSummary = z.infer<typeof SettlementListSummarySchema>;
 

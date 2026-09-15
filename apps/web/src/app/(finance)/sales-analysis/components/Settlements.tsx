@@ -142,7 +142,7 @@ export default function Settlements() {
         <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(summary?.totalExpected)}</div></div>
         <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(summary?.totalConfirmedActual)}</div></div>
         <div className="card"><div className="card-label">확인된 차이 합계</div><div className={cn('card-value', totalDiff === null || totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff === null ? '-' : `${totalDiff >= 0 ? '+' : ''}${formatKRW(totalDiff)}`}</div></div>
-        <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{summary === null ? '-' : `${summary.pendingCount}건`}</div></div>
+        <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{summary === null || summary.pendingCount === null ? '-' : `${summary.pendingCount}건`}</div></div>
       </div>
 
       {/* 정산 테이블 */}

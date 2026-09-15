@@ -30,6 +30,11 @@ function toListItem(row: SettlementFact): SettlementListItem {
   } satisfies SettlementListItem;
 }
 
+/** A total no row contributes to measured nothing, so it is null rather than 0. */
+function sumOrNull(values: readonly number[]): number | null {
+  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0);
+}
+
 @Injectable()
 export class SettlementsService {
   constructor(
@@ -39,7 +44,7 @@ export class SettlementsService {
   /**
    * The listed settlements and the card totals over them. Deposits and
    * differences are summed over confirmed rows only; an unconfirmed deposit is
-   * not a deposit of zero.
+   * not a deposit of zero, and a total no listed row contributes to is null.
    */
   async findAll(organizationId: string, period?: string): Promise<SettlementListResponse> {
     const rows = await this.prisma.$transaction((tx) => readSettlements(tx, {
@@ -51,10 +56,12 @@ export class SettlementsService {
     return {
       items,
       summary: {
-        totalExpected: items.reduce((sum, item) => sum + item.expectedAmount, 0),
-        totalConfirmedActual: confirmed.reduce((sum, item) => sum + item.actualAmount!, 0),
-        totalConfirmedDifference: confirmed.reduce((sum, item) => sum + item.difference!, 0),
-        pendingCount: items.filter((item) => item.status === 'pending').length,
+        totalExpected: sumOrNull(items.map((item) => item.expectedAmount)),
+        totalConfirmedActual: sumOrNull(confirmed.map((item) => item.actualAmount!)),
+        totalConfirmedDifference: sumOrNull(confirmed.map((item) => item.difference!)),
+        pendingCount: items.length === 0
+          ? null
+          : items.filter((item) => item.status === 'pending').length,
       },
     } satisfies SettlementListResponse;
   }

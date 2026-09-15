@@ -169,6 +169,27 @@ describe('Settlements flow (PG integration)', () => {
     });
   });
 
+  it('publishes a total no settlement row contributes to as null, not 0', async () => {
+    // No settlement source exists yet (KID-115); an empty ledger measured nothing.
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.summary)).resolves.toEqual({
+      totalExpected: null,
+      totalConfirmedActual: null,
+      totalConfirmedDifference: null,
+      pendingCount: null,
+    });
+
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 0, shippingFee: 0, orderCount: 0, returnCount: 0,
+    });
+    // A pending row contributes its expected amount and its count, but no deposit.
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.summary)).resolves.toEqual({
+      totalExpected: 1_000,
+      totalConfirmedActual: null,
+      totalConfirmedDifference: null,
+      pendingCount: 1,
+    });
+  });
+
   it('publishes no actual amount or difference for a settlement nobody confirmed', async () => {
     const created = await service.create(TEST_ORGANIZATION_ID, {
       period: '2026-03', expectedAmount: 1_000, commission: 100,
