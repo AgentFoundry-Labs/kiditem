@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { moveMallKey, reorderMallKeys } from './mall-order';
+import { hasMallAccountRow, moveMallKey, reorderMallKeys } from './mall-order';
 
 const KEYS = ['icecream-mall', 'kidsnote', 'onch', 'domeggook'];
+
+describe('hasMallAccountRow', () => {
+  it('only a mall with an account row can keep a display order', () => {
+    expect(hasMallAccountRow({ updatedAt: '2026-09-16T00:00:00.000Z' })).toBe(true);
+    expect(hasMallAccountRow({ updatedAt: null })).toBe(false);
+  });
+});
 
 describe('moveMallKey', () => {
   it('moves a mall one slot toward the front', () => {

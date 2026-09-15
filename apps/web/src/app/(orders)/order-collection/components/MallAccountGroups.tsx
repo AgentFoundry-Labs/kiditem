@@ -8,6 +8,7 @@ import {
 } from '@/lib/mall-login-block';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
+import { hasMallAccountRow } from '../lib/mall-order';
 import {
   formatMallCollectionTime,
   isAutoDetectableMall,
@@ -166,8 +167,9 @@ function MallAccountCard({
   const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
 
   // 카드 아무 데나 잡아 끌리면 수집·설정 클릭과 헷갈린다. 손잡이를 누른 동안만
-  // draggable 을 켜서 손잡이로만 순서가 바뀌게 한다.
-  const reorderable = Boolean(onDropMall);
+  // draggable 을 켜서 손잡이로만 순서가 바뀌게 한다. 계정 행이 없는 몰은 순서를 저장하지
+  // 않으므로 손잡이도 두지 않는다.
+  const reorderable = Boolean(onDropMall) && hasMallAccountRow(account);
   const [dragArmed, setDragArmed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 

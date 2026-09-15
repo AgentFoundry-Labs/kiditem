@@ -92,6 +92,10 @@ export class OrderCollectionMallAccountService {
    * 보내온 키는 0..n-1 순번을 받고, 빠진 키는 순번을 비워 카탈로그 기본 순서로
    * 되돌아간다. 카탈로그에 몰이 새로 늘어도 예전 화면이 보낸 목록이 거부되지
    * 않도록 부분 목록을 허용한다.
+   *
+   * 순서는 이미 있는 계정 행에만 담는다. 행이 없는 몰은 미설정이고(ADR-0012), 순서를
+   * 담으려고 행을 만들면 그 몰이 설정된 몰로 보여 수집 대상 · 연결된 몰 수에 들어간다.
+   * 그런 몰은 카탈로그 순서로 뒤에 선다.
    */
   async reorder(
     organizationId: string,
@@ -113,11 +117,10 @@ export class OrderCollectionMallAccountService {
     const nextSortOrderByKey = new Map(orderedKeys.map((key, index) => [key, index]));
 
     const writes = ORDER_COLLECTION_MALLS.flatMap((mall) => {
+      const existing = byKey.get(mall.key);
+      if (!existing) return [];
       const nextSortOrder = nextSortOrderByKey.get(mall.key) ?? null;
-      const existing = byKey.get(mall.key) ?? null;
-      // 공유 마켓 행(쿠팡직배송 → rocket)이 없으면 순서만 담으려고 마켓 행을 지어내지 않는다.
-      if (!existing && orderCollectionMallAccountIdentity(mall).kind === 'shared') return [];
-      const existingConfig = toJsonRecord(existing?.config);
+      const existingConfig = toJsonRecord(existing.config);
       const existingOrderConfig = readOrderCollectionConfig(existingConfig);
       if (readNumber(existingOrderConfig.sortOrder) === nextSortOrder) return [];
       const nextConfig = {
@@ -127,28 +130,16 @@ export class OrderCollectionMallAccountService {
           sortOrder: nextSortOrder,
         },
       } satisfies Prisma.InputJsonObject;
-      return [{ mall, existing, nextConfig }];
+      return [{ existing, nextConfig }];
     });
     if (writes.length === 0) return this.list(organizationId);
 
     await this.prisma.$transaction(
-      writes.map(({ mall, existing, nextConfig }) =>
-        existing
-          ? this.prisma.channelAccount.update({
-              where: { id_organizationId: { id: existing.id, organizationId } },
-              data: { config: nextConfig },
-            })
-          : this.prisma.channelAccount.create({
-              data: {
-                organizationId,
-                ...orderCollectionMallAccountFilter(mall),
-                name: mall.name,
-                // 순서만 담은 행이다. enabled 기본값(true)과 같은 뜻으로 맞춘다.
-                status: 'configured',
-                isPrimary: false,
-                config: nextConfig,
-              },
-            })),
+      writes.map(({ existing, nextConfig }) =>
+        this.prisma.channelAccount.update({
+          where: { id_organizationId: { id: existing.id, organizationId } },
+          data: { config: nextConfig },
+        })),
     );
     return this.list(organizationId);
   }

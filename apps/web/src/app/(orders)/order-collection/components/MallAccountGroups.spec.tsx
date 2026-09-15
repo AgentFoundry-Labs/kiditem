@@ -264,12 +264,37 @@ describe('MallAccountGroups', () => {
       expect(screen.queryByRole('button', { name: /끌어서 옮기기/ })).toBeNull();
     });
 
+    it('⭐ 계정 행이 없는 몰에는 손잡이가 없다 — 순서를 담을 행이 없다', () => {
+      render(
+        <MallAccountGroups
+          accounts={[
+            account('art09', { name: '아트공구', updatedAt: '2026-09-16T00:00:00.000Z' }),
+            account('kakao', { name: '카카오' }),
+          ]}
+          stats={new Map()}
+          selectedMall={null}
+          settingsOpen={false}
+          autoDetect={false}
+          autoNextRunAt={null}
+          autoRunning={false}
+          onOpenSettings={vi.fn()}
+          renderCollectionControl={collectButton(vi.fn())}
+          onUploadTracking={vi.fn()}
+          onMoveMall={vi.fn()}
+          onDropMall={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole('button', { name: '아트공구 순서 1번 — 끌어서 옮기기' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /카카오 순서/ })).toBeNull();
+    });
+
     it('방향키로 옆 카드와 자리를 바꾼다', async () => {
       const user = userEvent.setup();
       const onMoveMall = vi.fn();
+      const updatedAt = '2026-09-16T00:00:00.000Z';
       render(
         <MallAccountGroups
-          accounts={[account('art09', { name: '아트공구' }), account('kakao', { name: '카카오' })]}
+          accounts={[account('art09', { name: '아트공구', updatedAt }), account('kakao', { name: '카카오', updatedAt })]}
           stats={new Map()}
           selectedMall={null}
           settingsOpen={false}

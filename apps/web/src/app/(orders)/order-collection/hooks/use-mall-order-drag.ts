@@ -49,7 +49,10 @@ export function useMallOrderDrag({ mallAccounts, onSaved }: UseMallOrderDragOpti
       setPendingKeys(nextKeys);
       setSaving(true);
       try {
-        await orderMallAccountApi.reorder(nextKeys);
+        const saved = await orderMallAccountApi.reorder(nextKeys);
+        // 계정 행이 없는 몰은 순서가 저장되지 않아 서버 순서가 끈 순서와 다를 수 있다.
+        // 서버가 돌려준 순서로 자리를 잡아야 새로고침 전후 화면이 같다.
+        setPendingKeys(saved.map((account) => account.key));
         onSaved();
       } catch (error) {
         setPendingKeys(null);

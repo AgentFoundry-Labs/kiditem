@@ -98,21 +98,38 @@ describe('OrderCollectionMallAccountService', () => {
   it('assigns display order from the submitted mall list', async () => {
     const prisma = makePrisma();
     const service = new OrderCollectionMallAccountService(prisma as never);
-    prisma.channelAccount.findMany.mockResolvedValue([]);
+    prisma.channelAccount.findMany.mockResolvedValue([mallRow('kakao', {}), mallRow('onch', {})]);
 
     await service.reorder(ORGANIZATION_ID, ['kakao', 'onch']);
 
-    expect(prisma.channelAccount.create).toHaveBeenCalledTimes(2);
-    const created = prisma.channelAccount.create.mock.calls.map(
-      ([args]: [{ data: { externalAccountId: string; config: Record<string, { sortOrder: number }> } }]) => ({
-        key: args.data.externalAccountId,
+    expect(prisma.channelAccount.update).toHaveBeenCalledTimes(2);
+    const updated = prisma.channelAccount.update.mock.calls.map(
+      ([args]: [{ where: { id_organizationId: { id: string } }; data: { config: Record<string, { sortOrder: number }> } }]) => ({
+        id: args.where.id_organizationId.id,
         sortOrder: args.data.config.orderCollection.sortOrder,
       }),
     );
-    expect(created).toEqual([
-      { key: 'onch', sortOrder: 1 },
-      { key: 'kakao', sortOrder: 0 },
+    expect(updated).toEqual([
+      { id: 'row-onch', sortOrder: 1 },
+      { id: 'row-kakao', sortOrder: 0 },
     ]);
+  });
+
+  it('⭐ saves the display order without creating rows for malls that have no account (ADR-0012)', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    // 계정이 있는 몰은 카카오 하나다. 화면은 보이는 몰 전부를 보낸다.
+    prisma.channelAccount.findMany.mockResolvedValue([mallRow('kakao', { sortOrder: 5 })]);
+
+    await service.reorder(ORGANIZATION_ID, ['kidkids', 'toss', 'kakao', 'coupang-direct']);
+
+    expect(prisma.channelAccount.create).not.toHaveBeenCalled();
+    expect(prisma.channelAccount.update).toHaveBeenCalledTimes(1);
+    const [args] = prisma.channelAccount.update.mock.calls[0] as [
+      { where: { id_organizationId: { id: string } }; data: { config: Record<string, { sortOrder: number | null }> } },
+    ];
+    expect(args.where.id_organizationId.id).toBe('row-kakao');
+    expect(args.data.config.orderCollection.sortOrder).toBe(2);
   });
 
   it('clears the display order of malls that are left out', async () => {
