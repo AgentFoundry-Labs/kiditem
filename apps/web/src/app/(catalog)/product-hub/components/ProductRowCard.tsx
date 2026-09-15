@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
-import { periodBasisStatus, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
 import {
   deriveProductAdvertisingStatus,
   deriveProductInventoryStatus,
@@ -45,8 +44,6 @@ export function ProductRowCard({
     : isOutOfStock
       ? 'border-rose-200 bg-rose-50/40'
       : 'border-[var(--border-subtle)] bg-[var(--card-bg)]';
-  // Views and cart adds may sum only the window's collected days.
-  const trafficNote = partialPeriodNote(product.metricsFreshness.traffic.basis);
   return (
     <article className={`relative overflow-hidden rounded-2xl border px-6 py-5 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md ${alertStyle}`}>
       {isWarning || isOutOfStock ? (
@@ -116,8 +113,8 @@ export function ProductRowCard({
 
         <Metric value={product.inventoryUnits} label="재고" />
         <Metric value={product.visitorCount} label="방문" />
-        <Metric value={product.viewCount} label="조회" note={trafficNote} />
-        <Metric value={product.cartAddCount} label="장바구니" note={trafficNote} />
+        <Metric value={product.viewCount} label="조회" />
+        <Metric value={product.cartAddCount} label="장바구니" />
         <Metric value={product.orderCount} label="주문" />
         <Metric value={product.salesQuantity} label="판매" />
         <Metric value={product.salesAmount} label="매출" currency />
@@ -150,16 +147,14 @@ export function ProductRowCard({
   );
 }
 
-function Metric({ value, label, currency, suffix, note }: {
+function Metric({ value, label, currency, suffix }: {
   value: number | null;
   label: string;
   currency?: boolean;
   suffix?: string;
-  /** Qualifies a measured value, such as the days a period sum covers. */
-  note?: string | null;
 }) {
   return (
-    <div className="relative text-right">
+    <div className="text-right">
       <p className={`font-black leading-none tabular-nums ${value === null ? 'text-[12px] text-[var(--text-muted)]' : 'text-[22px] text-[var(--text-primary)]'}`}>
         {value === null
           ? '—'
@@ -168,25 +163,8 @@ function Metric({ value, label, currency, suffix, note }: {
             : `${formatNumber(value)}${suffix ?? ''}`}
       </p>
       <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">{label}</p>
-      {/* Out of flow, so a qualified column keeps its value level with the
-          other columns; the row is taller than any metric column. */}
-      {note && value !== null ? (
-        <p className="absolute right-0 top-full mt-1 whitespace-nowrap text-[10px] font-semibold leading-none tabular-nums text-amber-700">
-          {note}
-        </p>
-      ) : null}
     </div>
   );
-}
-
-/**
- * The dashboard's words for a period basis that covers only some of its days,
- * "부분 N/M일". Whether it is partial comes only from `periodBasisStatus`.
- */
-function partialPeriodNote(basis: DashboardPeriodBasis): string | null {
-  return periodBasisStatus(basis) === 'partial'
-    ? `부분 ${basis.includedDates.length}/${basis.targetDays}일`
-    : null;
 }
 
 function categoryLabelForList(category: string | null): string | null {

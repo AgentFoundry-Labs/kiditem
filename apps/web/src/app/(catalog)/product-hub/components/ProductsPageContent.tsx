@@ -9,6 +9,7 @@ import {
   type ProductInventoryStatus,
   type ProductOperationsInventoryFocus,
 } from '@kiditem/shared/product-operations';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
@@ -28,6 +29,16 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
     ? `focus:${state.inventoryFocus}`
     : state.inventoryStatus;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
+  // The server reads Wing traffic once per list query and gives every row that
+  // query's basis, so the first loaded row speaks for the whole list. Rows kept
+  // from an earlier query while a new one loads, or shown beside a load error,
+  // may not match the selected period, so they say nothing.
+  const trafficBasis = state.isPlaceholderData || state.errorMessage
+    ? undefined
+    : data?.items[0]?.metricsFreshness.traffic.basis;
+  const partialTrafficCaption = trafficBasis && periodBasisStatus(trafficBasis) === 'partial'
+    ? `조회·장바구니 부분 ${trafficBasis.includedDates.length}/${trafficBasis.targetDays}일`
+    : null;
 
   if (state.isLoading && !data) return <PageSkeleton variant="table" />;
 
@@ -60,7 +71,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <div
-            className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
+            className="relative flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
             title="선택한 기간의 주문·매출과 방문·조회 데이터를 각각 표시합니다. 수집 범위가 부족한 지표는 미수집으로 표시됩니다."
           >
             {PERIOD_OPTIONS.map((item) => (
@@ -81,6 +92,12 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
                 {item.label}
               </button>
             ))}
+            {/* Out of flow, so the caption appearing never moves the period controls. */}
+            {partialTrafficCaption ? (
+              <p className="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap text-[11px] font-semibold leading-none text-amber-700">
+                {partialTrafficCaption}
+              </p>
+            ) : null}
           </div>
           <ProductOperationsDataStatusAction
             open={state.dataStatusOpen}

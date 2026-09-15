@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
@@ -131,7 +131,7 @@ describe('ProductRowCard', () => {
     expect(screen.queryByText('품절')).not.toBeInTheDocument();
   });
 
-  it('marks views and cart adds summed over part of the window with the collected day count', () => {
+  it('leaves the partial-period caption to the product list', () => {
     render(<ProductRowCard product={{
       ...product(),
       viewCount: 91,
@@ -150,45 +150,9 @@ describe('ProductRowCard', () => {
       },
     }} />);
 
-    expect(within(metricCell('조회')).getByText('91')).toBeInTheDocument();
-    expect(within(metricCell('조회')).getByText('부분 13/14일')).toBeInTheDocument();
-    expect(within(metricCell('장바구니')).getByText('26')).toBeInTheDocument();
-    expect(within(metricCell('장바구니')).getByText('부분 13/14일')).toBeInTheDocument();
-    expect(within(metricCell('방문')).queryByText(/부분/)).not.toBeInTheDocument();
-    expect(within(metricCell('주문')).queryByText(/부분/)).not.toBeInTheDocument();
-  });
-
-  it('shows a dash without a day count when no day of the window is covered', () => {
-    render(<ProductRowCard product={{
-      ...product(),
-      visitorCount: null,
-      viewCount: null,
-      cartAddCount: null,
-      metricsFreshness: {
-        ...product().metricsFreshness,
-        traffic: {
-          capturedAt: null,
-          basis: buildPeriodBasis({ from: '2026-09-01', to: '2026-09-14', sources: ['wing_traffic'] }),
-        },
-      },
-    }} />);
-
-    expect(within(metricCell('조회')).getByText('—')).toBeInTheDocument();
-    expect(within(metricCell('장바구니')).getByText('—')).toBeInTheDocument();
-    expect(screen.queryByText(/부분/)).not.toBeInTheDocument();
-  });
-
-  it('adds no day count when every day of the window is covered', () => {
-    render(<ProductRowCard product={product()} />);
-
     expect(screen.queryByText(/부분/)).not.toBeInTheDocument();
   });
 });
-
-/** The metric column captioned `label`. */
-function metricCell(label: string): HTMLElement {
-  return screen.getByText(label).parentElement!;
-}
 
 function product(): MasterProductOperationsListItem {
   const evaluation = productAbcEvaluation();
