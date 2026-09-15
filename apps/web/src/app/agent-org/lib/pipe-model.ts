@@ -14,14 +14,14 @@ import { pipeStateRank, worstPipeState, type PipeState } from './pipe-states';
  * Agent Org 판정 — 지금 있는 기록만으로 단계마다 "어떤 상태인가"를 정한다.
  *
  * 읽는 것: 원천 실패 알림(`/api/alerts` — 원천 소유자가 끝내 실패한 수집에 열고 다음 성공이
- * 닫는다), 몰 작업 기억(MallOperationOutcome), 셀피아 재고 신선도, 사장님 컨펌, 자동 로그인
+ * 닫는다), 관찰 기록(MallOperationOutcome), 셀피아 재고 신선도, 사장님 컨펌, 자동 로그인
  * 멈춤. 새 숫자를 지어내지 않는다 — 셀 곳이 없는 단계는 `noSourceReason` 을 그대로 들고
  * '모름'으로 선다.
  *
  * 세 가지 원칙을 코드로 지킨다.
  * 1. **같은 대상은 최신 것만 상태가 된다.** 어제 실패한 수집이 오늘 성공했으면 빨강이 아니다.
  *    지난 실패는 예외 레인의 숫자로만 남는다.
- * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료가 몰 기억 · 자동 멈춤에 따로 남아도
+ * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료가 관찰 기록 · 자동 멈춤에 따로 남아도
  *    인박스에는 `login:gs-shop` 한 장으로 선다.
  * 3. **답을 못 들은 것은 고장이 아니다.** 확장 응답 시간 초과는 재시도 중이지 실패가 아니다.
  */
@@ -125,6 +125,11 @@ export interface PipeInboxItem {
   stageIds: PipeStageId[];
   lastAt: number;
   href: string;
+  /**
+   * 이 브라우저에만 있는 값(자동 로그인 차단)으로만 선 카드. 목록에는 보이지만 머리 숫자에는
+   * 넣지 않는다 — 다른 사람 · 다른 브라우저가 같은 숫자를 볼 수 없다.
+   */
+  browserOnly?: true;
 }
 
 export interface PipeMallConnector {
@@ -144,7 +149,7 @@ export interface PipeConnectors {
   malls: PipeMallConnector[];
 }
 
-/** 이번 판정에 쓴 기록의 양. 기억 박스가 보여 준다. 못 받았으면 `null`. */
+/** 이번 판정에 쓴 기록의 양. 관찰 기록 · 알림 박스가 보여 준다. 못 받았으면 `null`. */
 export interface PipeSourceCounts {
   /** 받은 알림 수(열림 · 닫힘). */
   alerts: number | null;
@@ -588,6 +593,7 @@ function buildInbox(current: readonly PipeSignal[]): PipeInboxItem[] {
         stageIds,
         lastAt: newest.at,
         href: hrefOf.get(stageIds[0]!) ?? '/',
+        ...(signals.every((signal) => signal.source === 'block') ? { browserOnly: true as const } : {}),
       };
     })
     .sort((a, b) => pipeStateRank(a.state) - pipeStateRank(b.state) || b.lastAt - a.lastAt);
@@ -603,32 +609,38 @@ function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => stri
   const needsLoginNames: string[] = [];
   const malls: PipeMallConnector[] = [];
   for (const account of accounts) {
-    // 가장 최근 증거가 이긴다 — 로그인 확인 성공이 차단보다 늦게 왔으면 차단은 낡은 것이다.
-    const evidence: { at: number; signedIn: boolean }[] = [];
+    const recorded: { at: number; signedIn: boolean }[] = [];
     for (const row of rows) {
       if (row.mallKey !== account.key) continue;
       const item = row.latest;
       const at = time(item.occurredAt);
       if (item.operation === 'login_check' || item.operation === 'login_test') {
-        if (item.outcome === 'succeeded') evidence.push({ at, signedIn: true });
-        else if (item.outcome === 'attention') evidence.push({ at, signedIn: false });
+        if (item.outcome === 'succeeded') recorded.push({ at, signedIn: true });
+        else if (item.outcome === 'attention') recorded.push({ at, signedIn: false });
       }
     }
-    for (const block of inputs.loginBlocks) {
-      if (block.mallKey === account.key) evidence.push({ at: block.at, signedIn: false });
-    }
-    const latest = evidence.sort((a, b) => b.at - a.at)[0];
+    const latestRecorded = recorded.sort((a, b) => b.at - a.at)[0] ?? null;
+    const blockedAt = Math.max(
+      Number.NEGATIVE_INFINITY,
+      ...inputs.loginBlocks.filter((block) => block.mallKey === account.key).map((block) => block.at),
+    );
     const name = mallName(account.key);
-    if (!latest) {
-      unknown += 1;
-      malls.push({ key: account.key, name, state: 'unknown' });
-    } else if (latest.signedIn) {
-      signedIn += 1;
-      malls.push({ key: account.key, name, state: 'signed_in' });
-    } else {
-      needsLoginNames.push(name);
-      malls.push({ key: account.key, name, state: 'needs_login' });
-    }
+
+    // 몰 표시는 가장 최근 증거가 이긴다 — 로그인 확인 성공이 차단보다 늦게 왔으면 차단은 낡은 것이다.
+    const shownBlocked = blockedAt > (latestRecorded?.at ?? Number.NEGATIVE_INFINITY);
+    malls.push({
+      key: account.key,
+      name,
+      state: shownBlocked || latestRecorded?.signedIn === false
+        ? 'needs_login'
+        : latestRecorded ? 'signed_in' : 'unknown',
+    });
+
+    // 숫자는 서버에 남은 관찰 기록만 센다. 자동 로그인 차단은 이 브라우저에만 있는 값이라 몰
+    // 표시에는 보이지만 숫자에 섞지 않는다 — 다른 사람 · 다른 브라우저가 같은 숫자를 볼 수 없다.
+    if (!latestRecorded) unknown += 1;
+    else if (latestRecorded.signedIn) signedIn += 1;
+    else needsLoginNames.push(name);
   }
   return { total: accounts.length, signedIn, needsLogin: needsLoginNames.length, unknown, needsLoginNames, malls };
 }
@@ -671,7 +683,7 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
     },
     header: {
       running: counted('running'),
-      attention: inbox.length,
+      attention: inbox.filter((item) => !item.browserOnly).length,
       failed: counted('failed'),
       stale: counted('stale'),
     },

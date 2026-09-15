@@ -230,6 +230,17 @@ describe('원인이 같으면 한 장이다', () => {
     expect(login[0]?.stageIds).toEqual(expect.arrayContaining(['malls', 'orders']));
     expect(snapshot.header.attention).toBe(1);
   });
+
+  /** 자동 로그인 차단은 이 브라우저에만 있다. 목록에는 서되 다른 사람이 볼 수 없는 숫자를 만들지 않는다. */
+  it('⭐ 자동 로그인 차단만으로 선 카드는 인박스에 보이지만 머리 "확인 필요" 숫자에는 들어가지 않는다', () => {
+    const snapshot = buildPipeSnapshot(
+      inputs({ loginBlocks: [{ mallKey: 'onch', kind: 'login', reason: '비밀번호가 맞지 않습니다.', at: NOW - 10 * 60_000 }] }),
+    );
+    expect(snapshot.inbox).toEqual([
+      expect.objectContaining({ key: 'login:onch', state: 'blocked_external', browserOnly: true }),
+    ]);
+    expect(snapshot.header.attention).toBe(0);
+  });
 });
 
 describe('신선도', () => {
@@ -284,6 +295,27 @@ describe('몰 연결', () => {
       { key: 'gs-shop', name: 'GS샵', state: 'signed_in' },
       { key: 'haebub-mall', name: '해법몰', state: 'needs_login' },
       { key: 'onch', name: '온채널', state: 'unknown' },
+    ]);
+  });
+
+  it('⭐ 몰 연결 숫자는 관찰 기록만 센다 — 더 늦은 자동 로그인 차단은 몰 표시에만 보인다', () => {
+    const { connectors } = buildPipeSnapshot(
+      inputs({
+        outcomes: {
+          data: [outcome('gs-shop', 'login_check', { outcome: 'succeeded', occurredAt: ago(90) })],
+          failed: false,
+        },
+        loginBlocks: [
+          { mallKey: 'gs-shop', kind: 'login', reason: '실패', at: NOW - 30 * 60_000 },
+          { mallKey: 'onch', kind: 'login', reason: '실패', at: NOW - 30 * 60_000 },
+        ],
+      }),
+    );
+    expect(connectors).toMatchObject({ total: 3, signedIn: 1, needsLogin: 0, unknown: 2, needsLoginNames: [] });
+    expect(connectors.malls).toEqual([
+      { key: 'gs-shop', name: 'GS샵', state: 'needs_login' },
+      { key: 'haebub-mall', name: '해법몰', state: 'unknown' },
+      { key: 'onch', name: '온채널', state: 'needs_login' },
     ]);
   });
 

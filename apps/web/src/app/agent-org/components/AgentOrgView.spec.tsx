@@ -98,9 +98,9 @@ describe('AgentOrgView', () => {
     }
   });
 
-  it('바깥 시스템(쇼핑몰 · 셀피아 · 텔레그램)과 사람 확인 · 기억 박스가 선다', () => {
+  it('바깥 시스템(쇼핑몰 · 셀피아 · 텔레그램)과 사람 확인 · 관찰 기록 박스가 선다', () => {
     render(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} />);
-    for (const name of ['쇼핑몰 연결 상태 열기', '셀피아 재고 열기', '확인 필요 목록으로', '기억 · 기록 열기']) {
+    for (const name of ['쇼핑몰 연결 상태 열기', '셀피아 재고 열기', '확인 필요 목록으로', '관찰 기록 · 알림 열기']) {
       expect(screen.getByRole('link', { name })).toBeInTheDocument();
     }
     expect(screen.getByRole('region', { name: '텔레그램 컨펌 보고' })).toBeInTheDocument();

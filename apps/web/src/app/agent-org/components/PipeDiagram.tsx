@@ -488,11 +488,11 @@ function MemoryNode({ node, snapshot, connection }: { node: DiagramPanelNode; sn
   const { sources } = snapshot;
   const rows = [
     { label: '열린 알림', value: sources.openAlerts },
-    { label: '몰 작업 기억', value: sources.outcomes },
+    { label: '관찰 기록', value: sources.outcomes },
     { label: '알림 기록', value: sources.alerts },
   ];
   return (
-    <ExternalFrame node={node} label="기억 · 기록 열기">
+    <ExternalFrame node={node} label="관찰 기록 · 알림 열기">
       <div className="flex items-center gap-2">
         <NotebookTabs className="h-4 w-4 text-slate-300" aria-hidden />
         <span className="text-[12px] text-slate-400">모든 단계가 여기에 남습니다</span>

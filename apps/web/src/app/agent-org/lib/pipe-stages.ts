@@ -49,7 +49,7 @@ export interface PipeStageDef {
    * 성공이 닫으므로, 알림으로 그 원천의 실패 · 회복을 본다.
    */
   alertSourceTypes: readonly string[];
-  /** 이 단계의 몰 작업 기억 종류. */
+  /** 이 단계의 관찰 기록 종류. */
   mallOperations: readonly MallOperationKind[];
   /** 이 간격 안에 성공이 한 번은 있어야 '최신'이다. 신호 단계만 가진다. */
   expectedEveryMs: number | null;
