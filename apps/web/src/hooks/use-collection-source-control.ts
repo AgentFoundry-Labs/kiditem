@@ -133,6 +133,49 @@ type StartState<TStatus, TInput> = MutationState<
   unknown
 >;
 
+async function runStart<TStatus, TInput>(
+  queryClient: QueryClient,
+  adapter: CollectionSourceAdapter<TStatus, TInput>,
+  { input, statusAtStart }: StartVariables<TStatus, TInput>,
+): Promise<CollectionStartOutcome> {
+  if (!adapter.start) throw new Error(`${adapter.label} starts from its own screen action`);
+  const outcome = await adapter.start(input, { status: statusAtStart });
+  // Running state is the owner's to report; read it before settling.
+  if (outcome.outcome !== 'refused') {
+    await queryClient.invalidateQueries({ queryKey: adapter.statusQuery.queryKey, exact: true });
+  }
+  return outcome;
+}
+
+/**
+ * Starts one source from outside a mounted control, for a screen that fans a
+ * start out over sources no hook can loop over (the order screen collects
+ * every mall at once). It runs through the source's own keyed start mutation,
+ * so every mounted control of that source shows the same starting state and
+ * outcome, and a source whose start is already in flight answers as running
+ * instead of opening a second collection.
+ */
+export function startCollectionSource<TStatus, TInput>(
+  queryClient: QueryClient,
+  adapter: CollectionSourceAdapter<TStatus, TInput>,
+  input: TInput,
+): Promise<CollectionStartOutcome> {
+  const mutationKey = queryKeys.collectionControl.mutation(adapter.sourceKey, 'start');
+  if (queryClient.isMutating({ mutationKey }) > 0) {
+    return Promise.resolve({ outcome: 'running', attemptId: null });
+  }
+  return queryClient
+    .getMutationCache()
+    .build<CollectionStartOutcome, Error, StartVariables<TStatus, TInput>, unknown>(queryClient, {
+      mutationKey,
+      mutationFn: (variables) => runStart(queryClient, adapter, variables),
+    })
+    .execute({
+      input,
+      statusAtStart: queryClient.getQueryData<TStatus>(adapter.statusQuery.queryKey),
+    });
+}
+
 type StopVariables<TStatus> = Readonly<{
   attemptId: string;
   /** The status this stop was decided against. */
@@ -268,15 +311,8 @@ export function useCollectionSourceControl<TStatus, TInput = void>(
 
   const startMutation = useMutation({
     mutationKey: startKey,
-    mutationFn: async ({ input, statusAtStart }: StartVariables<TStatus, TInput>) => {
-      if (!adapter.start) throw new Error(`${adapter.label} starts from its own screen action`);
-      const outcome = await adapter.start(input, { status: statusAtStart });
-      // Running state is the owner's to report; read it before settling.
-      if (outcome.outcome !== 'refused') {
-        await queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true });
-      }
-      return outcome;
-    },
+    mutationFn: (variables: StartVariables<TStatus, TInput>) =>
+      runStart(queryClient, adapter, variables),
   });
   const starting = useIsMutating({ mutationKey: startKey }) > 0;
   const latestStart = latestSubmitted(
