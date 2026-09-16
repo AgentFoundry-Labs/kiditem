@@ -2,7 +2,12 @@
 
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
-import { blockMallAutoLogin, clearMallAutoLoginBlock } from '@/lib/mall-login-block';
+import {
+  blockMallAutoLogin,
+  clearMallAutoLoginAttempt,
+  clearMallAutoLoginBlock,
+  isCredentialFailureReason,
+} from '@/lib/mall-login-block';
 import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { testMallLoginViaExtension } from '../../order-collection/lib/order-collection-extension';
 import { orderMallAccountApi } from '../../order-collection/lib/order-mall-account-api';
@@ -112,12 +117,22 @@ export function useMallLoginTest() {
       });
       // success 만 보면 안 된다. 로그인 폼을 못 만나 아무것도 입력하지 않은 경우도
       // success 로 돌아오므로, 실제로 제출한 경우만 검증된 것으로 센다.
+      // 눌렀지만 로그인 화면이 남아 확인하지 못한 경우. 몰마다 로그인 뒤 화면이 달라 이것만으로
+      // 비밀번호가 틀렸다고 단정하지 않는다 — 차단하지 않고 사람에게 확인만 청한다.
+      if (result.success && result.submitted && result.verified === false) {
+        const detail = '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭에서 확인해 주세요.';
+        record(mallKey, { outcome: 'unverified', detail, at: Date.now() });
+        remember(mallKey, 'attention', 'login_form_remains', detail);
+        toast.warning(`${mallName} 확인 못 함`, { description: detail });
+        return;
+      }
       if (result.success && result.submitted) {
         const method = result.method ? LOGIN_METHOD_LABEL[result.method] ?? result.method : null;
         record(mallKey, { outcome: 'verified', detail: method, at: Date.now() });
         remember(mallKey, 'succeeded', 'form_submitted', '로그인 폼 제출 뒤 로그인 화면이 사라짐');
         // 사람이 직접 눌러 로그인이 됐다 — 막아 뒀던 자동 로그인을 다시 연다.
         clearMallAutoLoginBlock(mallKey);
+        clearMallAutoLoginAttempt(mallKey);
         // 로그인 화면이 사라진 것까지 봤다. 어드민이 실제로 열리는지는 몰에서 확인한다.
         toast.success(`${mallName} 로그인됨`, {
           description: '아이디·비밀번호를 넣고 로그인 버튼을 누른 뒤 로그인 화면이 사라졌습니다. 어드민이 열리는지 한 번 확인하세요.',
@@ -148,8 +163,14 @@ export function useMallLoginTest() {
       remember(mallKey, 'failed', toLoginTestReasonCode(result.errorCode, 'login_failed'), result.error ?? null);
       // 실패한 몰은 더 시도하지 않는다 — 다시 두드리면 계정이 잠긴다. 본인확인 · OTP · 캡차는
       // 자격증명 문제가 아니라 사람이 인증만 하면 되는 상태라 따로 적는다.
+      // 우리 쪽이 답하지 못한 실패(요청 한도 초과 등)는 자격증명 문제가 아니라 막지 않는다.
+      const failure = result.error ?? '자동 로그인 실패';
+      if (!result.pendingLogin && !isCredentialFailureReason(failure)) {
+        toast.error(`${mallName} 로그인 테스트를 마치지 못했습니다`, { description: failure });
+        return;
+      }
       const blockKind = result.pendingLogin ? 'verification' : 'login';
-      blockMallAutoLogin(mallKey, result.error ?? '자동 로그인 실패', blockKind);
+      blockMallAutoLogin(mallKey, failure, blockKind);
       toast.error(
         `${mallName} ${blockKind === 'verification' ? '인증 필요 — 몰에서 직접 인증해 주세요' : '로그인 실패 — 직접 로그인해 주세요'}`,
         {

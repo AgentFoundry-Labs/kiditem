@@ -1,6 +1,9 @@
 import { toast } from 'sonner';
 import {
   blockMallAutoLogin,
+  isCredentialFailureReason,
+  mallAutoLoginRetryAt,
+  markMallAutoLoginAttempt,
   clearMallAutoLoginBlock,
   mallAutoLoginBlock,
 } from '@/lib/mall-login-block';
@@ -134,22 +137,40 @@ export function createBrowserMallCollector({
       });
       return;
     }
+    // 성공했는지 확인하지 못한 자동 로그인은 한 시간에 한 번만 다시 넣는다. 로그인 뒤 화면은
+    // 몰마다 달라 '됐다/안 됐다'를 화면만으로 단정할 수 없어서, 판정 대신 횟수로 계정 잠금을 막는다.
+    const retryAt = mallAutoLoginRetryAt(mallKey);
+    if (retryAt) {
+      toast.info(`${mallName} 자동 로그인은 조금 전에 시도했습니다`, {
+        description: '한 시간에 한 번만 넣습니다. 지금 로그인이 필요하면 몰에 직접 로그인해 주세요.',
+      });
+      return;
+    }
     const credentials = await tryLoadMallCredentials(mallKey);
     if (!credentials) return;
+    markMallAutoLoginAttempt(mallKey);
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
     if (result.success) {
+      // 확장이 로그인 화면이 사라진 것까지 봤을 때만 '됐다'로 친다. 확인하지 못했으면 차단을
+      // 풀지 않고 그대로 둔다 — 다음 시도는 위 간격이 막는다.
+      if (result.submitted && result.verified === false) {
+        toast.warning(`${mallName} 로그인했는지 확인하지 못했습니다`, {
+          description: '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭을 확인해 주세요.',
+        });
+        return;
+      }
       clearMallAutoLoginBlock(mallKey);
       return;
     }
     // 사람이 몰 화면에서 인증(본인확인 · OTP · 캡차)만 하면 되는 상태는 자격증명 문제가
     // 아니므로 막지 않는다. 그 밖의 실패(비밀번호 거부 · 폼 제출 실패)만 다음부터 건너뛴다.
     //
-    // 확장이 제 시간에 답하지 않은 것도 막지 않는다 — 비밀번호가 틀린 게 아니라 우리가 못
-    // 들은 것이다. 이걸로 막으면 멀쩡히 로그인된 몰이 '직접 로그인 필요'로 굳어, 사장님은
-    // 로그인돼 있는데 로그인하라는 화면을 보게 된다.
+    // 우리 쪽이 답하지 못한 것(확장 시간 초과 · 서버 요청 한도 초과 · 확장 없음)도 막지 않는다 —
+    // 비밀번호가 틀린 게 아니라 우리가 못 들은 것이다. 이걸로 막으면 멀쩡히 로그인된 몰이
+    // '직접 로그인 필요'로 굳어, 사장님은 로그인돼 있는데 로그인하라는 화면을 보게 된다.
     const reason = result.error ?? '자동 로그인을 완료하지 못했습니다.';
     const timedOut = reason === EXTENSION_TIMEOUT_MESSAGE;
-    if (!result.pendingLogin && !timedOut) {
+    if (!result.pendingLogin && !timedOut && isCredentialFailureReason(reason)) {
       blockMallAutoLogin(mallKey, reason);
       toast.error(`${mallName} 자동 로그인 실패 — 직접 로그인해 주세요`, {
         description: '다음부터는 자동 로그인을 시도하지 않습니다. 몰에 직접 로그인한 뒤 수집해 주세요.',

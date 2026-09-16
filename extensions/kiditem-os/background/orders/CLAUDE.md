@@ -25,12 +25,14 @@ registration, and Coupang cookie-overflow recovery.
   URL, body, or header in the answer. `signed_in` needs a positive admin marker
   and `signed_out` a login signal; anything else is `unknown`. Never add export,
   audit-logging, or mutating URLs, and never reuse `ensureMallLogin` for checks.
-- Stored-credential login (`ensureMallLogin`) reports success only when the
-  login form is gone after the submit; a form that stays or a page that stops
-  answering (a dialog) is a failure, so the web keeps auto-login blocked instead
-  of resubmitting the same password. The account screen's login test uses
-  `testMallLogin`, which runs outside a collection attempt and sends nothing to
-  KidItem. Registration form fill logs in only when the form is absent
+- Stored-credential login (`ensureMallLogin`) reports what it did, not a verdict:
+  `submitted` for the click and `verified` for whether the login form was gone
+  afterwards. A form that stays, or a page that stops answering (a dialog), is
+  `verified: false` — not a wrong password, because mall screens after a login
+  differ too much to judge from the page. The web decides what to do with that
+  and limits how often the same mall is tried. The account screen's login test
+  uses `testMallLogin`, which runs outside a collection attempt and sends nothing
+  to KidItem. Registration form fill logs in only when the form is absent
   (`noForm`); a form that fails to fill is never a login prompt.
 
 ## Collection Contract

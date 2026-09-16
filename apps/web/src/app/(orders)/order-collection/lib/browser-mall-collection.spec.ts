@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
     warning: vi.fn(),
     success: vi.fn(),
+    info: vi.fn(),
   }),
 }));
 
@@ -727,6 +728,31 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await expect(collect()).rejects.toThrow();
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+  });
+
+  /** 12:29 라이브: 전체수집이 서버 요청 한도(분당 120)를 넘겨 몰 20곳이 한꺼번에 차단됐다. */
+  it('⭐ 우리 서버가 요청 한도로 막은 실패로는 차단하지 않는다 — 비밀번호 문제가 아니다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: false,
+      error: 'ThrottlerException: Too Many Requests',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  /** 로그인 뒤 화면은 몰마다 다르다. 확인하지 못한 것을 실패로 굳히지 않고, 대신 자주 넣지 않는다. */
+  it('⭐ 로그인했는지 확인하지 못하면 차단하지 않고, 한 시간 안에는 다시 넣지 않는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true, submitted: true, verified: false });
+
+    await collect();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
+
+    await collect();
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
   });
 
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { GripVertical, Truck, Upload } from 'lucide-react';
 import {
+  clearMallAutoLoginAttempt,
   clearMallAutoLoginBlock,
   getMallLoginBlocks,
   getMallLoginBlocksServerSnapshot,
@@ -319,7 +320,11 @@ function MallAccountCard({
           // 자동은 멈췄다. 다시 켜는 건 사장님 몫이다 — 누르면 그때부터 다시 자동으로 돈다.
           <button
             type="button"
-            onClick={() => clearMallAutoLoginBlock(account.key)}
+            onClick={() => {
+              // 사람이 직접 눌렀다 — 차단도 풀고, 한 시간 간격도 기다리지 않는다.
+              clearMallAutoLoginBlock(account.key);
+              clearMallAutoLoginAttempt(account.key);
+            }}
             aria-label={`${account.name} 자동 수집 다시 켜기`}
             title={[
               loginBlock.kind === 'verification'

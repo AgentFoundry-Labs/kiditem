@@ -111,10 +111,10 @@ test('⭐ 폼을 찾았는데 채우다 실패하면 로그인하지 않고 그 
   assert.equal(injectCalls.length, 1, '다시 채우지 않는다');
 });
 
-test('⭐ 로그인 버튼을 눌렀어도 로그인 화면이 남았으면 다시 채우지 않는다', async () => {
+test('⭐ 로그인 버튼을 눌렀어도 로그인 화면이 남았으면(확인 못 함) 다시 채우지 않는다', async () => {
   const { api, injectCalls } = harness({
     fills: [noForm, ok],
-    login: { success: false, submitted: true, errorCode: 'login_rejected', error: '로그인 화면이 남아 있습니다.' },
+    login: { success: true, submitted: true, verified: false, verifyReason: 'login_form_remains' },
   });
   const result = await api.register({
     mall: 'domeggook', form: form(), accountKey: 'domeggook', credentials: CREDENTIALS,

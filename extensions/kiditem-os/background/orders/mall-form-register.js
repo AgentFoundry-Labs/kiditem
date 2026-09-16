@@ -5928,13 +5928,13 @@
       if (!outcome.ok && outcome.noForm && ensureLogin && message.credentials?.loginId) {
         const login = await ensureLogin(tab.id, message.credentials, message.accountKey || null)
           .catch((error) => ({ success: false, error: error?.message || String(error) }));
-        // 눌렀어도 로그인 화면이 남았으면(`success: false`) 다시 채우지 않는다.
-        if (login?.submitted && login.success !== false) {
+        // 눌렀어도 로그인 화면이 남았으면(`verified: false`) 다시 채우지 않는다.
+        if (login?.submitted && login.verified !== false && login.success !== false) {
           await waitForTabComplete(tab.id).catch(() => undefined);
           await new Promise((resolve) => setTimeout(resolve, 1200));
           outcome = pickOutcome(await injectWithRetry(injectOptions));
           if (outcome.ok) loginWarnings.push("로그인이 풀려 있어 자동 로그인한 뒤 다시 채웠습니다.");
-        } else if (login?.pendingLogin || login?.success === false) {
+        } else if (login?.pendingLogin || login?.success === false || login?.verified === false) {
           // 캡차·OTP·폼 없는 몰(11번가·올웨이즈)은 여기서 멈춘다. 사람이 눌러야 한다.
           outcome = {
             ok: false,

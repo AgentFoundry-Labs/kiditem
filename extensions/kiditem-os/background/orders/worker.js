@@ -5923,19 +5923,18 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       await delay(1500);
       await waitForTabReady(tabId); // 로그인 후 리다이렉트 정착
       await delay(1200);
-      // 눌렀다고 로그인된 것은 아니다. 비밀번호를 거절한 몰은 로그인 폼을 그대로 두거나 알림 창을
-      // 띄운다. 그걸 성공으로 돌려주면 웹이 자동 로그인 차단을 풀고, 다음 수집이 같은 비밀번호를
-      // 또 제출해 몇 번 뒤 몰이 계정을 잠근다.
-      if (await loginFormRemainsAfterSubmit(tabId)) {
-        return {
-          success: false,
-          submitted: true,
-          method: submitted.method || null,
-          errorCode: "login_rejected",
-          error: "로그인 버튼을 누른 뒤에도 로그인 화면이 남아 있습니다(알림 창이 떠 있을 수 있습니다). 열린 탭을 확인하고 몰에 직접 로그인해 주세요.",
-        };
-      }
-      return { success: true, submitted: true, method: submitted.method || null };
+      // 눌렀다고 로그인된 것은 아니다. 로그인 화면이 남았는지까지 보고 `verified` 로 알린다.
+      // 몰마다 로그인 뒤 화면이 달라(알림 창이 뜨거나 관리자 화면에 비밀번호 칸이 남는다) 이것만으로
+      // 비밀번호가 틀렸다고 단정하지 않는다 — 판정은 웹이 하고, 같은 비밀번호를 다시 넣는 것은
+      // 웹의 재시도 간격이 막는다.
+      const loginFormRemains = await loginFormRemainsAfterSubmit(tabId);
+      return {
+        success: true,
+        submitted: true,
+        verified: !loginFormRemains,
+        ...(loginFormRemains ? { verifyReason: "login_form_remains" } : {}),
+        method: submitted.method || null,
+      };
     }
     // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
     // 키드키즈는 management.htm 로드가 끝난 뒤 클라이언트 리다이렉트로 로그인 페이지를
@@ -6124,7 +6123,8 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
       35000,
       "자동 로그인 시간이 초과되었습니다.",
     );
-    if (!result.success || orderCollectionNeedsAttention(result)) {
+    // 로그인했는지 확인하지 못한 경우에도 탭을 남긴다 — 사람이 그 화면을 봐야 안다.
+    if (!result.success || result.verified === false || orderCollectionNeedsAttention(result)) {
       keepOpen = true;
     }
     return result;

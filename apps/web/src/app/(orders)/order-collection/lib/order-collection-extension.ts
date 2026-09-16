@@ -125,6 +125,13 @@ export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   success: boolean;
   /** 실제로 아이디·비밀번호를 채우고 로그인 버튼까지 눌렀는가. */
   submitted?: boolean;
+  /**
+   * 누른 뒤 로그인 화면이 사라졌는가. `false` 면 로그인됐는지 확인하지 못한 것이지 비밀번호가
+   * 틀렸다고 판정한 것이 아니다 — 몰마다 로그인 뒤 화면이 다르다.
+   */
+  verified?: boolean;
+  /** `verified: false` 인 이유 코드. */
+  verifyReason?: string;
   /** submitted 가 false 인 이유. 저장된 비밀번호를 검증하지 못한 경우다. */
   reason?: 'unsupported_mall' | 'already_signed_in' | 'no_credentials';
   /** 로그인 버튼을 어떤 방법으로 눌렀는가. 몰별로 어느 경로가 먹는지 진단에 쓴다. */
@@ -201,8 +208,11 @@ export type MallLoginTestUnavailable = 'extension_not_found' | 'extension_outdat
 
 export interface MallLoginTestResponse {
   success: boolean;
-  /** 아이디 · 비밀번호를 넣고 로그인 버튼을 눌렀는가. 누른 뒤 로그인 화면이 남았으면 `success` 는 false. */
+  /** 아이디 · 비밀번호를 넣고 로그인 버튼을 눌렀는가. */
   submitted?: boolean;
+  /** 누른 뒤 로그인 화면이 사라졌는가. `false` 면 확인하지 못한 것이다. */
+  verified?: boolean;
+  verifyReason?: string;
   reason?: MallLoginEnsureResult['reason'];
   method?: string | null;
   pendingLogin?: boolean;

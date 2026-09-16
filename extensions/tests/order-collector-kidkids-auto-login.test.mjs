@@ -71,8 +71,9 @@ function loadEnsureMallLogin({ scanResults, tabUrls, checkResults = [{ state: "n
 
 const CREDENTIALS = { loginId: "configured-id", password: "configured-password" };
 
-test("⭐ a password the mall rejects leaves the login form, so the submit is a failure, not a success", async () => {
-  // 성공으로 돌려주면 웹이 자동 로그인 차단을 풀고, 다음 수집이 같은 비밀번호를 또 제출한다.
+test("⭐ a login form that stays after the submit is reported as unverified, not as a wrong password", async () => {
+  // 몰마다 로그인 뒤 화면이 다르다(관리자 화면에 비밀번호 칸이 남거나 알림 창이 뜬다).
+  // 확장이 실패로 단정하면 멀쩡히 로그인된 몰이 '직접 로그인 필요'로 굳는다 — 2026-09-16 라이브.
   const { ensureMallLogin, getCheckCount } = loadEnsureMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://po.i-screammall.co.kr/login.do"],
@@ -81,15 +82,15 @@ test("⭐ a password the mall rejects leaves the login form, so the submit is a 
 
   const result = await ensureMallLogin(17, CREDENTIALS, "icecream-mall");
 
-  assert.equal(result.success, false);
+  assert.equal(result.success, true, "판정은 웹이 한다");
   assert.equal(result.submitted, true);
-  assert.equal(result.errorCode, "login_rejected");
-  assert.notEqual(result.pendingLogin, true, "인증 대기가 아니라 비밀번호 문제로 알린다");
-  assert.equal(getCheckCount(), 3, "넘어가는 중일 수 있어 몇 번 더 보고 판정한다");
+  assert.equal(result.verified, false);
+  assert.equal(result.verifyReason, "login_form_remains");
+  assert.equal(getCheckCount(), 3, "넘어가는 중일 수 있어 몇 번 더 본다");
   assert.ok(!JSON.stringify(result).includes("configured-password"));
 });
 
-test("a login whose form disappears after submitting succeeds", async () => {
+test("a login whose form disappears after submitting is verified", async () => {
   const { ensureMallLogin } = loadEnsureMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://po.i-screammall.co.kr/main.do"],
@@ -100,9 +101,10 @@ test("a login whose form disappears after submitting succeeds", async () => {
 
   assert.equal(result.success, true);
   assert.equal(result.submitted, true);
+  assert.equal(result.verified, true);
 });
 
-test("⭐ a page that stops answering after the submit (an alert) counts as a rejected login", async () => {
+test("⭐ a page that stops answering after the submit (an alert) stays unverified", async () => {
   const { ensureMallLogin } = loadEnsureMallLogin({
     scanResults: [{ state: "submitted", method: "onclick-handler" }],
     tabUrls: ["https://shop.kidsnote.com/_manage/"],
@@ -111,8 +113,8 @@ test("⭐ a page that stops answering after the submit (an alert) counts as a re
 
   const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
 
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, "login_rejected");
+  assert.equal(result.success, true);
+  assert.equal(result.verified, false);
 });
 
 test("kidkids waits through the initial management redirect and submits the eventual login form", async () => {

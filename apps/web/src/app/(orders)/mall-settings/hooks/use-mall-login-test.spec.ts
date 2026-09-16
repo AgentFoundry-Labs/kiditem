@@ -48,27 +48,54 @@ describe('useMallLoginTest', () => {
     expect(outcomes.recordMallOperationOutcome).not.toHaveBeenCalled();
   });
 
-  it('⭐ blocks auto-login when the mall kept its login form after the submit', async () => {
+  /** 몰마다 로그인 뒤 화면이 다르다. 확인하지 못한 것을 '비밀번호 틀림'으로 굳히지 않는다. */
+  it('⭐ reports an unverified login without blocking when the login form stayed', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      verifyReason: 'login_form_remains',
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('unverified');
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'login_test',
+      outcome: 'attention',
+      reasonCode: 'login_form_remains',
+    }));
+  });
+
+  it('⭐ blocks auto-login only when the mall itself rejected the credentials', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
       success: false,
       submitted: true,
-      errorCode: 'login_rejected',
-      error: '로그인 화면이 남아 있습니다.',
+      error: '아이디 또는 비밀번호가 올바르지 않습니다.',
     });
 
     const result = await runTest();
 
     expect(result?.outcome).toBe('failed');
     expect(getMallLoginBlocks()).toEqual([expect.objectContaining({ mallKey: 'kidsnote', kind: 'login' })]);
-    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith(expect.objectContaining({
-      operation: 'login_test',
-      outcome: 'failed',
-      reasonCode: 'login_rejected',
-    }));
+  });
+
+  it('⭐ does not block when our own server refused the request (rate limit)', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: false,
+      error: 'ThrottlerException: Too Many Requests',
+    });
+
+    await runTest();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 
   it('clears the block after a login whose form went away', async () => {
-    extension.testMallLoginViaExtension.mockResolvedValue({ success: true, submitted: true, method: 'exact-text' });
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true, submitted: true, verified: true, method: 'exact-text',
+    });
 
     const result = await runTest();
 
@@ -81,7 +108,7 @@ describe('useMallLoginTest', () => {
   });
 
   it('never sends the password anywhere but the extension call', async () => {
-    extension.testMallLoginViaExtension.mockResolvedValue({ success: true, submitted: true });
+    extension.testMallLoginViaExtension.mockResolvedValue({ success: true, submitted: true, verified: true });
 
     await runTest();
 
