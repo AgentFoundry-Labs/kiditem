@@ -32,6 +32,7 @@ export function CollectionStartControl({
   startLabel,
   startAriaLabel,
   stopTone = 'default',
+  runningDisplay = 'scope',
   onStart,
   onStop,
   startBlockedReason = null,
@@ -48,6 +49,12 @@ export function CollectionStartControl({
    * 멈춘다는 것이 보인다. 목록 옆에 작게 붙는 화면은 기본(테두리)을 쓴다.
    */
   stopTone?: 'default' | 'danger';
+  /**
+   * 수집 중일 때 무엇을 보여 줄지. `scope` 는 "수집 중 · 무엇" 과 중단 버튼을 함께 세운다.
+   * `stop-only` 는 중단 버튼 하나만 시작 버튼이 있던 자리에 세운다 — 카드처럼 자리가 좁고
+   * 무엇을 수집하는지 카드 머리가 이미 말하는 화면용이다.
+   */
+  runningDisplay?: 'scope' | 'stop-only';
   /** A source its own screen starts offers none; the control then shows only running and stop. */
   onStart?: () => void;
   onStop: () => void;
@@ -62,29 +69,43 @@ export function CollectionStartControl({
   const { state, running, notice, statusRead, canStop, canStart = true } = control;
   const active = state === 'running' || state === 'stopping';
   const canRequestStart = (state === 'idle' || state === 'refused') && !startBlockedReason;
+  const stopOnly = runningDisplay === 'stop-only';
+  const runningScope = running?.scopeLabel ? `수집 중 · ${running.scopeLabel}` : '수집 중';
 
   return (
     <div className={cn('flex shrink-0 flex-col items-end gap-1.5', className)}>
       {active ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--primary)]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {running?.scopeLabel ? `수집 중 · ${running.scopeLabel}` : '수집 중'}
-          </span>
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-2',
+            stopOnly ? 'w-full justify-stretch' : 'justify-end',
+          )}
+        >
+          {!stopOnly && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--primary)]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {runningScope}
+            </span>
+          )}
           {canStop && (
             <button
               type="button"
               onClick={onStop}
               disabled={state === 'stopping'}
+              aria-label={stopOnly ? '수집 중단' : undefined}
+              title={stopOnly ? runningScope : undefined}
               className={cn(
                 'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:opacity-60',
+                stopOnly && 'flex-1',
                 stopTone === 'danger'
                   ? 'bg-[var(--danger)] text-white hover:brightness-95'
                   : 'border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)]',
               )}
             >
-              <XCircle className="h-3.5 w-3.5" />
-              {state === 'stopping' ? '중단 요청 중…' : '수집 중단'}
+              {stopOnly
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <XCircle className="h-3.5 w-3.5" />}
+              {state === 'stopping' ? '중단 요청 중…' : stopOnly ? '중단' : '수집 중단'}
             </button>
           )}
           {runningLink && (

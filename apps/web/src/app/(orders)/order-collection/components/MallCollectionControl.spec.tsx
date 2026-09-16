@@ -130,7 +130,8 @@ describe('MallCollectionControl', () => {
     status = running();
     renderControl();
 
-    expect(await screen.findByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    // 카드에서는 중단 버튼 하나만 시작 자리에 선다. 무엇을 수집 중인지는 그 버튼의 설명이 말한다.
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '키즈노트 수집' })).not.toBeInTheDocument();
   });
@@ -169,7 +170,7 @@ describe('MallCollectionControl', () => {
       '수집을 중단하지 못했습니다. 잠시 후 다시 시도해 주세요.',
     )).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
-    expect(screen.getByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
   });
 
   /**
@@ -180,7 +181,7 @@ describe('MallCollectionControl', () => {
     status = running();
     renderControls([ACCOUNT, { ...ACCOUNT, key: 'kkomangse', name: '꼬망세' }]);
 
-    expect(await screen.findByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
     // 옆 카드는 자기 몰 칸을 읽으므로 이 수집에 휩쓸리지 않는다.
     expect(await screen.findByRole('button', { name: '꼬망세 수집' })).toBeEnabled();
     expect(apiClient.getParsed).toHaveBeenCalledTimes(1);
@@ -212,7 +213,7 @@ describe('MallCollectionControl', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(await screen.findByText('수집 중 · 꼬망세')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 꼬망세');
     expect(screen.getByText(NOT_CONFIGURED)).toBeInTheDocument();
   });
 
@@ -234,7 +235,7 @@ describe('MallCollectionControl', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText('수집 중')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중');
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
   });
 

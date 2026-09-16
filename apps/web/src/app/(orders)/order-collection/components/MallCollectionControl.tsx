@@ -59,6 +59,8 @@ export function MallCollectionControl<TStatus>({
             startAriaLabel={`${account.name} 수집`}
             // 수집 버튼 자리에 그대로 서는 중단이라 빨강이어야 지금 누르면 멈춘다는 게 보인다.
             stopTone="danger"
+            // 카드 머리가 이미 몰 이름을 말한다. 수집 중에도 버튼 두 개(중단 · 송장 업로드)만 선다.
+            runningDisplay="stop-only"
             startTitle={`${account.name} 개별 수집`}
             startBlockedReason={startBlockedReason}
             onStart={() => control.start({})}
