@@ -318,6 +318,44 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     expect(logActivity).toHaveBeenCalledWith('error', '키즈노트', expect.any(String));
   });
 
+  /**
+   * 라이브(2026-09-16): 로그인이 풀린 몰 여섯 곳이 30분 임대가 끝날 때까지 '수집 중'으로 서 있었다.
+   * 사장님이 로그인하고 돌아와도 카드가 '중단'만 보여 다시 시작할 수 없었다.
+   */
+  it('⭐ 로그인·인증이 필요해 멈춘 시도는 그 자리에서 끝낸다 — 카드가 30분 동안 수집 중으로 서 있지 않게', async () => {
+    const kidkids = mall('kidkids', '키드키즈');
+    const logActivity = vi.fn();
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidkids', 9),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    // 확장이 로그인 화면을 만나 돌아왔을 뿐, owner 의 시도는 아직 돌고 있다.
+    mocks.readAttempt.mockResolvedValue(attemptFor('kidkids', 9));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kidkids', 9), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(
+      Object.assign(new Error('키드키즈 로그인이 필요합니다.'), { errorCode: 'login_required' }),
+    );
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidkids],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAll();
+    });
+
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: attemptFor('kidkids', 9).attemptId }),
+      expect.objectContaining({ code: 'LOGIN_REQUIRED' }),
+    );
+    expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String));
+  });
+
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {
     const kidsnote = mall('kidsnote', '키즈노트');
     mocks.begin.mockResolvedValue({ ...attemptFor('kidsnote', 8), attemptToken: '33333333-3333-4333-8333-333333333333' });

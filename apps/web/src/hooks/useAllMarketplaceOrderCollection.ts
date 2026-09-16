@@ -229,12 +229,29 @@ export function useAllMarketplaceOrderCollection({
           'ownerReconciliationRequired' in error &&
           (error as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
         if (activeRun && attentionKind) {
-          await syncRun(activeRun.attemptId).catch((syncError) => {
+          // 로그인 · 인증 화면을 만나면 확장은 사람이 볼 수 있게 탭만 남기고 돌아온다. 그때
+          // 시도를 끝내지 않으면 임대가 끝나는 30분 동안 카드가 '수집 중'으로 서 있어, 사장님이
+          // 로그인하고 와도 다시 시작할 수 없다. owner 가 이미 끝냈으면 그대로 두고, 아직 돌고
+          // 있으면 여기서 끝낸다 — 무엇을 해야 하는지는 이유 코드가 말한다.
+          const synced = await syncRun(activeRun.attemptId).catch((syncError) => {
             console.warn(
               '[order-collection] failed to sync source attempt',
               syncError,
             );
+            return null;
           });
+          if (!stopped && synced?.state === 'RUNNING') {
+            await failRun(
+              activeRun,
+              attentionKind === 'auth' ? 'AUTH_REQUIRED' : 'LOGIN_REQUIRED',
+              message,
+            ).catch((finalizeError) => {
+              console.warn(
+                '[order-collection] failed to fail source attempt',
+                finalizeError,
+              );
+            });
+          }
         }
         if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
           const unsupported = error instanceof Error && 'sourcePayload' in error
