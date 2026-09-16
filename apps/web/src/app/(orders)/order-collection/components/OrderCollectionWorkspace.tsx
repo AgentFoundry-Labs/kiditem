@@ -948,6 +948,8 @@ export function OrderCollectionWorkspace() {
           const card = {
             account,
             startBlockedReason: mallStartBlockedReason(account),
+            // 아직 수집기가 없는 몰은 카드가 이미 '준비 중'이라고 두 번 적는다(상태 줄 · 준비 버튼).
+            startBlockedQuiet: !isBrowserCollectableMall(account),
             children: renderCard,
           };
           // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).

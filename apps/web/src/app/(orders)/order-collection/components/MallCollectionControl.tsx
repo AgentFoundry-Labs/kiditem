@@ -37,11 +37,14 @@ export function MallCollectionControl<TStatus>({
   account,
   buildAdapter,
   startBlockedReason = null,
+  startBlockedQuiet = false,
   children = (card) => card.control,
 }: {
   account: OrderCollectionMallAccount;
   buildAdapter: (account: OrderCollectionMallAccount) => MallCollectionAdapter<TStatus>;
   startBlockedReason?: string | null;
+  /** 카드가 이미 '준비 중'이라고 적는 이유는 버튼 아래에 다시 적지 않는다. */
+  startBlockedQuiet?: boolean;
   children?: (card: MallCardCollection) => ReactNode;
 }) {
   const adapter = useMemo(() => buildAdapter(account), [account, buildAdapter]);
@@ -63,6 +66,7 @@ export function MallCollectionControl<TStatus>({
             runningDisplay="stop-only"
             startTitle={`${account.name} 개별 수집`}
             startBlockedReason={startBlockedReason}
+            startBlockedQuiet={startBlockedQuiet}
             onStart={() => control.start({})}
             onStop={control.stop}
             className="w-full items-stretch"

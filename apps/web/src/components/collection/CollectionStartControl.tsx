@@ -36,6 +36,7 @@ export function CollectionStartControl({
   onStart,
   onStop,
   startBlockedReason = null,
+  startBlockedQuiet = false,
   startTitle,
   runningLink,
   className,
@@ -60,6 +61,11 @@ export function CollectionStartControl({
   onStop: () => void;
   /** A route-owned reason the start cannot be requested yet, shown in place of the start. */
   startBlockedReason?: string | null;
+  /**
+   * 그 이유를 화면이 이미 다른 자리에서 말하고 있으면 여기서는 적지 않는다 — 몰 카드의
+   * '준비 중'처럼 같은 말이 한 카드에 두 번 들어가는 것을 막는다. 시작은 그대로 막힌다.
+   */
+  startBlockedQuiet?: boolean;
   /** What the start collects, for the start button's tooltip. */
   startTitle?: string;
   /** The screen that shows the running collection's progress and attention, opened in a new tab. */
@@ -147,7 +153,7 @@ export function CollectionStartControl({
         {statusRead === 'rechecking' && (
           <p className="text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
         )}
-        {startBlockedReason && !active && (
+        {startBlockedReason && !startBlockedQuiet && !active && (
           <p className="text-[var(--warning)]">{startBlockedReason}</p>
         )}
         {notice && (
