@@ -12,7 +12,9 @@
   // 몰 키만 보낼 수 있고, 주소는 여기 고정 목록에서만 나온다. 데이터를 바꾸거나 감사 기록을
   // 남기는 주소(엑셀 생성 · 다운로드 사유 · 등록 화면)는 넣지 않는다.
 
-  const LOGIN_PATH = /\/(?:login|signin)|loginform|partnerlogin|partner_login/i;
+  // 로그인 화면 주소. 몰마다 글자가 조금씩 다르다 — `sign-in`(GS샵) · `login_SO.wsp`(롯데ON) ·
+  // `authentication/login.ssg`(신세계)도 같은 화면이다.
+  const LOGIN_PATH = /\/(?:login|signin|sign-in|signIn)|loginform|partnerlogin|partner_login|login_so|authentication\/login/i;
   const VERIFY_PATH = /\/security\/verify_user\.htm$/i;
   const PASSWORD_INPUT = /<input[^>]*type\s*=\s*["']?password/i;
   const LOGOUT_MARKER = /로그아웃|\/logout\b|logout\.(?:php|do|html?|asp)/i;
@@ -118,6 +120,31 @@
       // 못하고 fetch 가 실패한다 — 아래 '튕겨 나갔다' 확인이 그 경우를 로그인 필요로 읽는다.
       url: "https://shop.teacherville.co.kr/selleradmin/order/catalog",
       detect: htmlDetect(/excel_down_form|로그아웃/),
+    }),
+    boribori: Object.freeze({
+      // 주문/배송관리(B201). 로그아웃이면 `/login` 으로 넘어간다(2026-09-16 실측).
+      url: "https://seller-club.co.kr/order/orderDeliList",
+      detect: htmlDetect(/orderDeliList|jqGrid|로그아웃/),
+    }),
+    "lotte-on": Object.freeze({
+      // 판매자센터 첫 화면. 로그아웃이면 `login_SO.wsp` 로 넘어간다(2026-09-16 실측).
+      url: "https://store.lotteon.com/cm/main/index_SO.wsp",
+      detect: htmlDetect(/로그아웃|logout|productInsert|index_SO\.wsp/),
+    }),
+    "gs-shop": Object.freeze({
+      // 파트너스 물류 관리 화면. 로그아웃이면 `/sign-in` 으로 넘어간다(2026-09-16 실측).
+      url: "https://partners.gsshop.com/logistics/partner-logistics-mng",
+      detect: htmlDetect(/로그아웃|logout|partner-logistics-mng/),
+    }),
+    ssg: Object.freeze({
+      // 파트너 오피스 첫 화면. 로그아웃이면 `authentication/login.ssg` 로 넘어간다(2026-09-16 실측).
+      url: "https://po.ssgadm.com/",
+      detect: htmlDetect(/로그아웃|logout|파트너 오피스 홈/),
+    }),
+    thirtymall: Object.freeze({
+      // 샵바이 파트너 어드민. 로그아웃이면 `/login` 으로 넘어간다(2026-09-16 실측).
+      url: "https://partner.shopby.co.kr/",
+      detect: htmlDetect(/로그아웃|logout|partner-remote/),
     }),
     kkomangse: Object.freeze({
       url: "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1",

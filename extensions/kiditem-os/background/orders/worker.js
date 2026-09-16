@@ -7384,7 +7384,7 @@ KidItemDomains.register({
     // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
     mallSessionProbeV1: true,
     mallLoginTestV1: true,
-    mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "kkomangse"],
+    mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "boribori", "lotte-on", "gs-shop", "ssg", "thirtymall", "kkomangse"],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,

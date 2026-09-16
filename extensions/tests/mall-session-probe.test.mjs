@@ -51,9 +51,10 @@ test("a mall without a passive check is never fetched", async () => {
   const { probe, calls } = probeWith(() => {
     throw new Error("unexpected fetch");
   });
-  assert.deepEqual(await probe.probe("lotte-on"), {
+  // 올웨이즈는 로그인 표시가 브라우저 저장소(JWT)에 있어 쿠키 읽기로는 확인할 수 없다.
+  assert.deepEqual(await probe.probe("always"), {
     success: true,
-    mallKey: "lotte-on",
+    mallKey: "always",
     state: "unknown",
     reason: "no_passive_check",
   });
@@ -242,6 +243,35 @@ test("EUC-KR admin pages keep their Korean markers", async () => {
     arrayBuffer: async () => bytes.buffer.slice(0),
   }));
   assert.equal((await probe.probe("haebub-mall")).state, "signed_in");
+});
+
+/**
+ * 로그인 화면 주소는 몰마다 글자가 다르다. 한 몰이라도 빠지면 그 몰은 '로그인 필요' 대신
+ * '확인 불가'로 서서, 사장님은 무엇을 해야 하는지 알 수 없다(2026-09-16 실측한 다섯 몰).
+ */
+test("⭐ malls that bounce to their own login screen read as signed out, whatever the path is called", async () => {
+  const bounced = {
+    boribori: "https://seller-club.co.kr/login",
+    "lotte-on": "https://store.lotteon.com/cm/main/login_SO.wsp",
+    "gs-shop": "https://partners.gsshop.com/sign-in",
+    ssg: "https://po.ssgadm.com/authentication/login.ssg?retUrl=https://po.ssgadm.com/",
+    thirtymall: "https://partner.shopby.co.kr/login",
+  };
+  for (const [mallKey, finalUrl] of Object.entries(bounced)) {
+    const { probe } = probeWith(() => ({
+      url: finalUrl,
+      status: 200,
+      type: "basic",
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("<html><body>로그인</body></html>").buffer,
+    }));
+    assert.deepEqual(await probe.probe(mallKey), {
+      success: true,
+      mallKey,
+      state: "signed_out",
+      reason: "login_page",
+    });
+  }
 });
 
 test("the worker advertises exactly the malls the probe can check and loads the module", () => {
