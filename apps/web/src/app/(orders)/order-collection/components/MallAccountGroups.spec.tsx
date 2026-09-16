@@ -155,6 +155,29 @@ describe('MallAccountGroups', () => {
     expect(onCollectMall).toHaveBeenCalledWith(kakao);
   });
 
+  it('⭐ 수집 오류가 난 몰은 빨간 카드로 선다 — 실패한 카드를 한눈에 찾게', () => {
+    const kakao = account('kakao', { name: '카카오' });
+
+    render(
+      <MallAccountGroups
+        accounts={[kakao]}
+        stats={new Map()}
+        failedMallReasonByKey={new Map<string, FailedMallReason>([['kakao', 'error']])}
+        selectedMall={null}
+        settingsOpen={false}
+        autoDetect={false}
+        autoNextRunAt={null}
+        autoRunning={false}
+        onOpenSettings={vi.fn()}
+        renderCollectionControl={collectButton(vi.fn())}
+        onUploadTracking={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTitle('수집 오류 · 재수집 필요')).toHaveClass('bg-red-500');
+    expect(screen.getByRole('article', { name: '카카오 계정 카드' })).toHaveClass('bg-red-50');
+  });
+
   it('turns the status light red when a mall needs login or authentication', () => {
     const kakao = account('kakao', { name: '카카오' });
     const kidsnote = account('kidsnote', { name: '키즈노트' });

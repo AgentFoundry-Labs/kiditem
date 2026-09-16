@@ -393,6 +393,7 @@ export function useAllMarketplaceOrderCollection({
 
   const collectAccounts = useCallback(async (
     accounts: OrderCollectionMallAccount[],
+    input: MallOrderCollectionStartInput = {},
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
       return { successCount: 0, failedCount: 0, inProgressCount: 0, unconfiguredCount: 0 };
@@ -407,7 +408,7 @@ export function useAllMarketplaceOrderCollection({
       try {
         // Every mall is admitted by its source owner through the shared start
         // control before extension detection or provider I/O.
-        started = await startMall(account);
+        started = await startMall(account, input);
       } catch {
         failedCount += 1;
         return;
@@ -437,10 +438,12 @@ export function useAllMarketplaceOrderCollection({
 
   const collectAll = useCallback((
     sourceAccounts: OrderCollectionMallAccount[] = mallAccounts,
+    input: MallOrderCollectionStartInput = {},
   ): Promise<MarketplaceOrderCollectionBatchResult> => (
-    collectAccounts(sourceAccounts.filter(
-      (account) => account.enabled && isBrowserCollectableMall(account),
-    ))
+    collectAccounts(
+      sourceAccounts.filter((account) => account.enabled && isBrowserCollectableMall(account)),
+      input,
+    )
   ), [collectAccounts, mallAccounts]);
 
   return {
@@ -506,7 +509,10 @@ export function usePersistedAllMarketplaceOrderCollection({
    * 넘겨준다. 그 몰을 그냥 돌리면 로그인 화면만 열고 실패하면서 몰 탭을 하나씩 남기고,
    * 그 탭이 바퀴마다 쌓이면 멀쩡한 몰까지 응답 시간 초과로 끌어내린다.
    */
-  const collectAllOrders = useCallback(async (skipMallKeys: readonly string[] = []) => {
+  const collectAllOrders = useCallback(async (
+    skipMallKeys: readonly string[] = [],
+    options: { automatic?: boolean } = {},
+  ) => {
     if (mallAccountsLoading) {
       throw new Error('몰 계정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
     }
@@ -524,7 +530,10 @@ export function usePersistedAllMarketplaceOrderCollection({
 
     const skipped = new Set(skipMallKeys);
     const targetAccounts = latestAccounts.filter((account) => !skipped.has(account.key));
-    const batch = await collectAll(targetAccounts);
+    // 스스로 도는 바퀴(자동 운전)는 자동으로 표시한다 — 자동 로그인 재시도 간격이 그 표시를 본다.
+    const batch = await collectAll(targetAccounts, {
+      selectionMode: options.automatic ? 'automatic' : 'manual',
+    });
     await generatedFileWriteQueueRef.current;
     const notice = orderCollectionBatchNotice({
       ...batch,

@@ -99,7 +99,7 @@ export function useMallAgentLoopRunner(): void {
         if (isWithinAgentBusinessHours(Date.now())) {
           markMallAgentLoopStep('orders');
           try {
-            await collectRef.current([...waitingForOperator]);
+            await collectRef.current([...waitingForOperator], { automatic: true });
             parts.push(
               waitingForOperator.size > 0
                 ? `주문수집 완료 (${formatNumber(waitingForOperator.size)}개 몰은 직접 로그인 필요라 건너뜀)`

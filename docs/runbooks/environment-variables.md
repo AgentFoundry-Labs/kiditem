@@ -225,6 +225,7 @@ same-origin `/api/*` routing.
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in Office | Nest CORS | Comma-separated trusted Office origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Required for Action Board actions | Action Board | Use the container-local API base (`http://api:4000` in Office). It is not a browser secret. |
+| `API_THROTTLE_LIMIT_PER_MINUTE` | API runtime | No | Nest throttler | Requests per minute per client. Default 600. A 27-mall collect-all round bursts past 120, which returned `Too Many Requests` and failed those malls. Lower it only with a measured round. |
 
 ## Web Runtime And Build
 

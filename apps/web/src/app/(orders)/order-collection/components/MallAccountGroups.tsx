@@ -144,8 +144,7 @@ function MallAccountCard({
   const collectable = account.enabled && isBrowserCollectableMall(account);
   const autoDetectable = isAutoDetectableMall(account);
   const trackingSupported = isTrackingSupportedMall(account.key);
-  // 로그인 실패·인증 필요일 때만 상태등을 빨간불 + 카드 배경을 빨강으로 표시한다.
-  // 일반 수집 오류(주문 없음 등)는 초록불/흰 배경을 유지한다.
+  // 오류가 난 몰은 상태등이 빨간불이고 카드 배경도 빨강이다 — 실패한 카드를 한눈에 찾게.
   //
   // 자동 로그인이 막힌 몰도 같은 빨간 카드다. 자동 운전 고리도 자동감지도 이 몰에는 더
   // 들어가지 않는다 — 다시 돌릴지는 사장님이 정하신다.
@@ -161,7 +160,9 @@ function MallAccountCard({
     : loginBlock?.kind === 'verification';
   const failedTitle = needsVerification
     ? '인증 필요 · 재수집 필요'
-    : '로그인 필요 · 재수집 필요';
+    : failedReason === 'error'
+      ? '수집 오류 · 재수집 필요'
+      : '로그인 필요 · 재수집 필요';
 
   // 쿠팡직배송은 카드 영역을 누르면 입고예정일 달력이 열린다.
   // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).

@@ -743,16 +743,38 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
   });
 
   /** 로그인 뒤 화면은 몰마다 다르다. 확인하지 못한 것을 실패로 굳히지 않고, 대신 자주 넣지 않는다. */
-  it('⭐ 로그인했는지 확인하지 못하면 차단하지 않고, 한 시간 안에는 다시 넣지 않는다', async () => {
+  it('⭐ 스스로 도는 수집은 로그인했는지 확인하지 못하면 한 시간 안에 다시 넣지 않는다', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true, submitted: true, verified: false });
+    const automatic = () =>
+      createBrowserMallCollector({
+        mallAccounts: [ACCOUNT],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        setPreviewId: vi.fn(),
+      })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
 
-    await collect();
+    await automatic();
 
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
 
-    await collect();
+    await automatic();
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
+  });
+
+  /** 사람이 누른 수집은 지금 되기를 바라고 누른 것이다 — 간격 때문에 로그인을 건너뛰지 않는다. */
+  it('⭐ 사람이 누른 수집은 방금 시도했더라도 로그인부터 확인한다', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true, submitted: true, verified: false });
+
+    await createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
+    await collect();
+
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(2);
   });
 
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {

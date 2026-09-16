@@ -137,9 +137,11 @@ export function createBrowserMallCollector({
       });
       return;
     }
-    // 성공했는지 확인하지 못한 자동 로그인은 한 시간에 한 번만 다시 넣는다. 로그인 뒤 화면은
-    // 몰마다 달라 '됐다/안 됐다'를 화면만으로 단정할 수 없어서, 판정 대신 횟수로 계정 잠금을 막는다.
-    const retryAt = mallAutoLoginRetryAt(mallKey);
+    // 스스로 도는 수집(자동 운전 · 자동감지)만 간격을 지킨다. 로그인 뒤 화면은 몰마다 달라
+    // '됐다/안 됐다'를 화면만으로 단정할 수 없어서, 판정 대신 횟수로 계정 잠금을 막는다.
+    // 사람이 누른 수집은 언제나 로그인부터 확인한다 — 사람이 보고 있고, 지금 되기를 바라고 눌렀다.
+    const automatic = run.selectionMode === 'automatic';
+    const retryAt = automatic ? mallAutoLoginRetryAt(mallKey) : null;
     if (retryAt) {
       toast.info(`${mallName} 자동 로그인은 조금 전에 시도했습니다`, {
         description: '한 시간에 한 번만 넣습니다. 지금 로그인이 필요하면 몰에 직접 로그인해 주세요.',
@@ -148,7 +150,7 @@ export function createBrowserMallCollector({
     }
     const credentials = await tryLoadMallCredentials(mallKey);
     if (!credentials) return;
-    markMallAutoLoginAttempt(mallKey);
+    if (automatic) markMallAutoLoginAttempt(mallKey);
     const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
     if (result.success) {
       // 확장이 로그인 화면이 사라진 것까지 봤을 때만 '됐다'로 친다. 확인하지 못했으면 차단을
