@@ -348,9 +348,10 @@ function MallAccountCard({
         )}
       </div>
 
-      <div className="mt-2.5">{control}</div>
-
-      <div className="mt-2.5 flex gap-1.5">
+      {/* 수집과 송장 업로드는 한 줄에 나란히 선다. 카드가 스물일곱 장이라 버튼이 한 줄씩
+          더 차지하면 화면이 두 배로 길어진다. */}
+      <div className="mt-2.5 flex items-start gap-1.5">
+        <div className="min-w-0 flex-1">{control}</div>
         {trackingSupported ? (
           <button
             type="button"

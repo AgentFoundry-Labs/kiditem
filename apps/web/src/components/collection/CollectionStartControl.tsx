@@ -30,6 +30,7 @@ function startButtonLabel(state: CollectionControlView['state'], startLabel: str
 export function CollectionStartControl({
   control,
   startLabel,
+  startAriaLabel,
   onStart,
   onStop,
   startBlockedReason = null,
@@ -39,6 +40,8 @@ export function CollectionStartControl({
 }: {
   control: CollectionControlView;
   startLabel: string;
+  /** 화면에 짧게 적을 때(여러 몰 카드의 '수집') 읽는 이름은 무엇을 시작하는지 밝힌다. */
+  startAriaLabel?: string;
   /** A source its own screen starts offers none; the control then shows only running and stop. */
   onStart?: () => void;
   onStop: () => void;
@@ -90,7 +93,12 @@ export function CollectionStartControl({
           onClick={onStart}
           disabled={!canRequestStart}
           title={startTitle}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-xs font-semibold text-[var(--primary-contrast)] transition hover:bg-[var(--primary-hover)] disabled:opacity-60"
+          // 읽는 이름은 지금 버튼이 하는 말과 같아야 한다. '상태 확인 중'을 무엇을 시작하는지로
+          // 덮으면 화면 읽기는 상태를 듣지 못한다 — 시작을 말할 때만 이름을 길게 준다.
+          aria-label={startAriaLabel && startButtonLabel(state, startLabel) === startLabel
+            ? startAriaLabel
+            : undefined}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-xs font-semibold text-[var(--primary-contrast)] transition hover:bg-[var(--primary-hover)] disabled:opacity-60"
         >
           {state === 'starting' ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

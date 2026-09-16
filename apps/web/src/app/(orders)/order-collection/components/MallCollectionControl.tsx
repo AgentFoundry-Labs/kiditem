@@ -53,7 +53,10 @@ export function MallCollectionControl<TStatus>({
         control: (
           <CollectionStartControl
             control={control}
-            startLabel={`${account.name} 수집`}
+            // 카드가 이미 몰 이름을 머리에 적는다. 버튼은 짧게 '수집'이고, 읽는 이름과 툴팁이
+            // 어느 몰인지 말한다 — 카드마다 몰 이름이 두 번 들어가면 버튼이 카드를 다 덮는다.
+            startLabel="수집"
+            startAriaLabel={`${account.name} 수집`}
             startTitle={`${account.name} 개별 수집`}
             startBlockedReason={startBlockedReason}
             onStart={() => control.start({})}
