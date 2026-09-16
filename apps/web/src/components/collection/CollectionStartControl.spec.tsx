@@ -99,6 +99,21 @@ function SpecControl() {
   );
 }
 
+/** 몰 카드처럼 시작 버튼 자리에 중단이 그대로 서는 화면. */
+function SpecDangerStopControl() {
+  const control = useCollectionSourceControl(specCollection);
+  return (
+    <CollectionStartControl
+      control={control}
+      startLabel="수집"
+      startAriaLabel="롯데ON 수집"
+      stopTone="danger"
+      onStart={() => control.start()}
+      onStop={control.stop}
+    />
+  );
+}
+
 function renderControls(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -168,6 +183,18 @@ describe('CollectionStartControl', () => {
     expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => path)).toEqual([
       '/api/auth/extension-handoff',
     ]);
+  });
+
+  /** 수집 버튼 자리에 그대로 서는 중단이라, 누르면 멈춘다는 것이 색으로 보여야 한다. */
+  it('⭐ paints the stop red where it takes the start button place, and names the short start for readers', async () => {
+    renderControls(<SpecDangerStopControl />);
+
+    const start = await screen.findByRole('button', { name: '롯데ON 수집' });
+    expect(start).toHaveTextContent('수집');
+    fireEvent.click(start);
+
+    const stop = await screen.findByRole('button', { name: '수집 중단' });
+    expect(stop.className).toContain('bg-[var(--danger)]');
   });
 
   it('asks for an extension update and starts nothing when the extension lacks the start contract', async () => {

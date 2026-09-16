@@ -31,6 +31,7 @@ export function CollectionStartControl({
   control,
   startLabel,
   startAriaLabel,
+  stopTone = 'default',
   onStart,
   onStop,
   startBlockedReason = null,
@@ -42,6 +43,11 @@ export function CollectionStartControl({
   startLabel: string;
   /** 화면에 짧게 적을 때(여러 몰 카드의 '수집') 읽는 이름은 무엇을 시작하는지 밝힌다. */
   startAriaLabel?: string;
+  /**
+   * 중단 버튼의 색. 시작 버튼이 그 자리에 있던 화면(몰 카드)에서는 빨강이어야 지금 누르면
+   * 멈춘다는 것이 보인다. 목록 옆에 작게 붙는 화면은 기본(테두리)을 쓴다.
+   */
+  stopTone?: 'default' | 'danger';
   /** A source its own screen starts offers none; the control then shows only running and stop. */
   onStart?: () => void;
   onStop: () => void;
@@ -70,7 +76,12 @@ export function CollectionStartControl({
               type="button"
               onClick={onStop}
               disabled={state === 'stopping'}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--surface-sunken)] disabled:opacity-60"
+              className={cn(
+                'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:opacity-60',
+                stopTone === 'danger'
+                  ? 'bg-[var(--danger)] text-white hover:brightness-95'
+                  : 'border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)]',
+              )}
             >
               <XCircle className="h-3.5 w-3.5" />
               {state === 'stopping' ? '중단 요청 중…' : '수집 중단'}

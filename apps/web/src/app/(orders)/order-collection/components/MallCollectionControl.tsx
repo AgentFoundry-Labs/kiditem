@@ -57,6 +57,8 @@ export function MallCollectionControl<TStatus>({
             // 어느 몰인지 말한다 — 카드마다 몰 이름이 두 번 들어가면 버튼이 카드를 다 덮는다.
             startLabel="수집"
             startAriaLabel={`${account.name} 수집`}
+            // 수집 버튼 자리에 그대로 서는 중단이라 빨강이어야 지금 누르면 멈춘다는 게 보인다.
+            stopTone="danger"
             startTitle={`${account.name} 개별 수집`}
             startBlockedReason={startBlockedReason}
             onStart={() => control.start({})}
