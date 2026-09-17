@@ -422,7 +422,7 @@ const SEEDS: readonly ManifestSeed[] = [
       setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
     hazards: { requiresOperatorApproval: true },
-    note: '공급사 상품 대량 등록 엑셀(재고 컬럼, 옵션 2개 이상은 ; 구분). 품절·일시품절·단종은 [판매설정] 버튼으로 "요청"하는 방식이라 관리자 승인이 끼어들고 즉시 반영이 보장되지 않는다. 되돌리는 UI 는 같은 [판매설정]에 있어 대칭. ⚠️ 공식 안내상 재고 자동 차감 시스템이 아니다.',
+    note: '공급사 상품 대량 등록 엑셀(재고 컬럼, 옵션 2개 이상은 ; 구분). 품절 축은 줄마다 [판매설정](.btn-individual-sale-status[data-prd-code])이 여는 #saleStatusModal 이고, 고른 값이 POST /access/product_access.php?ubr=option_state_modi 로 간다 — prd_code_str 은 상품코드를 / 로 이은 것, sec 는 1=재입고·2=단종·4=일시품절·5=품절, comment 는 사유다(2026-09-18 실측). 되돌리는 값(1 재입고)이 같은 셀렉트에 있어 대칭. ⚠️ 이건 "요청"이라 관리자 승인이 끼어들고 즉시 반영이 보장되지 않는다. 공식 안내상 재고 자동 차감 시스템도 아니다.',
   },
   {
     key: 'teacher-mall',
@@ -438,8 +438,11 @@ const SEEDS: readonly ManifestSeed[] = [
     name: '꼬망세',
     kind: 'extension_form',
     difficulty: 'high',
-    unverified: true,
-    note: 'EduPre. 등록은 _product.form.php 단일 폼(502=핸들러 존재)이지만 엑셀 핸들러와 재고·품절 전용 핸들러가 전부 404 라 상태 전이 경로가 없다. 등록 폼 역방향으로 추정될 뿐 미검증.',
+    supports: {
+      createListing: true, updateListing: true,
+      setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
+    },
+    note: 'EduPre. 품절 축은 노출·재고 일괄 화면(_product_mass.view.php → POST _product_mass.pro.php)이다. 줄마다 chk_pcode[코드]=Y 로 지목하고 _view[코드] Y=판매중/N=판매종료, _stock_control[코드] Y=자동/N=수동, _stock[코드]=재고량을 실어 폼째 보낸다(2026-09-18 실측). ⚠️ 이 몰에는 "일시품절" 값이 없다 — 끄는 값이 판매종료뿐이라 재고 0(재고관리=자동)이 덜 거친 축이고, 되돌리기는 같은 화면에서 대칭이다.',
   },
   {
     key: 'always',
@@ -484,18 +487,24 @@ const SEEDS: readonly ManifestSeed[] = [
   {
     key: 'icecream-mall',
     name: '아이스크림몰',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: 'X2BEE PO. 전 경로가 302(istio-envoy)라 상품·재고 메뉴 이름조차 확인되지 않았다. 계정 확보 전 착수 금지.',
+    kind: 'extension_form',
+    difficulty: 'medium',
+    supports: {
+      createListing: true, updateListing: true,
+      setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
+    },
+    note: 'X2BEE PO. 로그인 뒤 경로가 열려 상품 목록(getGoodsList.do)을 실제로 가져왔다. 품절 축은 목록의 [판매상태 일괄변경](#btn_saleStateAllChange)이 고른 줄을 goodsMgmtPopup.goodsSaleStateModifyView.do 팝업으로 넘기는 경로다 — saleStatCd 10=판매중/20=품절/40=판매종료, 노출은 dispYn Y/N(2026-09-18 실측). 품절↔판매중이 같은 셀렉트라 대칭.',
   },
   {
     key: 'kidkids',
     name: '키드키즈',
     kind: 'extension_form',
     difficulty: 'medium',
-    unverified: true,
-    note: '스토어 파트너센터(euc-kr PHP). 등록은 /sales/goods_reg_renewal.htm 단일 폼(multipart → /stdinfo/reg_process_renewal.htm)으로 실측됐다(2026-09-14, 목록 3,478개). 분류 3단 AJAX · 공정위 고시 gs_id 동적 줄 · TinyMCE 상세. 품절관리·재고수량 메뉴는 있으나 상태 전이 경로는 미검증.',
+    supports: {
+      createListing: true, updateListing: true,
+      setStock: null, setSaleStatus: 'listing', soldOut: true, resume: true,
+    },
+    note: '스토어 파트너센터(euc-kr PHP). 등록은 /sales/goods_reg_renewal.htm 단일 폼(multipart → /stdinfo/reg_process_renewal.htm)으로 실측됐다(2026-09-14, 목록 3,478개). 분류 3단 AJAX · 공정위 고시 gs_id 동적 줄 · TinyMCE 상세. 품절 축은 목록 폼(frmGoodsList)의 goods_code[] 를 골라 changeUseFlag(\'N\') 이 use_flag·commitType 을 세워 ./proc_logis.htm 으로 보내는 경로이고, 해제는 같은 함수의 \'Y\' 다(2026-09-18 실측). 재입고 예정일은 줄마다 stocked_popup → stocked_save 로 따로 건다. ⚠️ 수량 축은 없다 — 판매상태만 쓴다.',
   },
   {
     key: 'woongjin-class',

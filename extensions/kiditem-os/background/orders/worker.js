@@ -842,6 +842,21 @@ function mallFormRegister() {
   return mallFormRegisterInstance;
 }
 
+// 몰 품절 화면 대상 지목. 화면을 열고 줄을 골라 둘 뿐 **제출하지 않는다** — 마지막
+// 버튼은 사람이 누른다. 잘못 보낸 품절은 그동안 팔리지 않으므로 대신 눌러서 얻는
+// 시간보다 잃는 매출이 크다.
+let mallAvailabilityStageInstance = null;
+function mallAvailabilityStage() {
+  if (!mallAvailabilityStageInstance) {
+    mallAvailabilityStageInstance = KidItemMallAvailabilityStage.create({
+      chrome,
+      interactiveTabs,
+      tabReason: INTERACTIVE_TAB_REASONS.MALL_AVAILABILITY_STAGE,
+    });
+  }
+  return mallAvailabilityStageInstance;
+}
+
 // 몰 로그인 상태 조용히 확인. 몰마다 정해진 읽기 전용 주소를 한 번 읽을 뿐, 로그인하지 않고
 // 탭도 열지 않는다. 자격증명을 받지 않으므로 ensureMallLogin 과 섞지 않는다.
 let mallSessionProbeInstance = null;
@@ -896,6 +911,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 몰 분류 목록 한 단. 읽기만 한다 — 폼을 열지도, 값을 넣지도 않는다.
   if (msg?.action === "listMallCategories") {
     return respond(mallFormRegister().listCategories(msg));
+  }
+
+  // 몰 품절 화면에서 대상 지목. 제출하지 않으므로 몰에 부작용이 없다.
+  if (msg?.action === "stageMallAvailability") {
+    return respond(mallAvailabilityStage().stage(msg));
   }
 
   if (msg?.action === "collectSellpiaManualMatch") {
@@ -7739,6 +7759,9 @@ KidItemDomains.register({
     // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
     mallFormRegister: true,
     mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st", "icecream"],
+    // 몰 품절 화면에서 대상 지목(제출은 사람이 한다).
+    mallAvailabilityStage: true,
+    mallAvailabilityStageMalls: KidItemMallAvailabilityStage.MALL_KEYS,
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: ["onch"],

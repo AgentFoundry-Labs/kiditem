@@ -255,6 +255,7 @@ export class MallPublishingService {
           ?? item.product.externalProductId,
         optionName: item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
         sellerSku: item.sku.sellerSku,
+        mallProductCode: item.product.externalProductId,
         sellableStock: item.sku.sellableStock,
         bottleneckCodes: item.components
           .filter((component) => component.isBottleneck)

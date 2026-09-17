@@ -14,6 +14,8 @@
     TRACKING_MUTATION: "tracking_mutation",
     MANUAL_PRODUCT_COLLECTION: "manual_product_collection",
     MALL_PRODUCT_REGISTER: "mall_product_register",
+    // 품절 화면을 열고 대상을 골라 둔 탭. 사람이 마지막 버튼을 눌러야 하므로 닫지 않는다.
+    MALL_AVAILABILITY_STAGE: "mall_availability_stage",
   });
   const allowedReasons = new Set(Object.values(reasons));
 

@@ -72,6 +72,7 @@ importScripts(
   "orders/coupang-po-session.js",
   "orders/kidsnote-product-register.js",
   "orders/mall-form-register.js",
+  "orders/mall-availability-stage.js",
   "orders/mall-session-probe.js",
   "orders/rocket-po-collection.js",
   "orders/rocket-po-source-owner.js",

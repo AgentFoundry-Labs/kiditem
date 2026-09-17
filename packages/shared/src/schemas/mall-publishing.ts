@@ -307,6 +307,14 @@ export const MallAvailabilityCandidateSchema = z.object({
   productName: z.string(),
   optionName: z.string(),
   sellerSku: z.string().nullable(),
+  /**
+   * 몰이 이 상품에 매긴 코드(`ChannelListing.externalId`).
+   *
+   * 품절을 보낼 때 몰 화면에서 줄을 짚는 유일한 열쇠다. 몰 관리자에서 직접 가져온
+   * 몰(키드키즈·아이스크림몰·꼬망세·온채널)은 `sellerSku` 가 비어 있어서 이 값이
+   * 없으면 어느 줄을 골라야 하는지 알 수 없다.
+   */
+  mallProductCode: z.string(),
   sellableStock: z.number().nullable(),
   bottleneckCodes: z.array(z.string()),
   desiredState: z.enum(['sold_out', 'on_sale', 'suspended']),
