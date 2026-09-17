@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
-import type { InventoryAvailabilityCandidate } from '../../../application/port/in/stock/inventory-availability.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { InventoryAvailabilityRepositoryPort } from '../../../application/port/out/repository/inventory-availability.repository.port';
 import {
   readInventoryAvailability,
   readInventoryAvailabilityCandidates,
 } from '../../../read/inventory-availability';
 import { lockSellpiaInventory } from '../../../transaction/sellpia-inventory-lock';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
+import type { InventoryAvailabilityCandidate } from '../../../application/port/in/stock/inventory-availability.port';
+import type { InventoryAvailabilityRepositoryPort } from '../../../application/port/out/repository/inventory-availability.repository.port';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 

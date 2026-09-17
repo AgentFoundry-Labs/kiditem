@@ -1,6 +1,6 @@
 import { AppException } from '@kiditem/shared/server-errors';
-import { FactNotFoundError } from '../../../common/errors/fact-errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FactNotFoundError } from '../../../common/errors/fact-errors';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import type {

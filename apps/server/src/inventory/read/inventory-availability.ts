@@ -8,14 +8,14 @@ import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } from '@kiditem/shared/source-import';
 import {
-  assertSellpiaInventoryLockCovers,
-  type SellpiaInventoryLock,
-} from '../transaction/sellpia-inventory-lock';
-import { FactNotFoundError } from '../../common/errors/fact-errors';
-import {
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshReasonSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import { FactNotFoundError } from '../../common/errors/fact-errors';
+import {
+  assertSellpiaInventoryLockCovers,
+  type SellpiaInventoryLock,
+} from '../transaction/sellpia-inventory-lock';
 import type {
   InventorySkuLinkedChannelOption,
   InventorySkuLinkedProduct,
