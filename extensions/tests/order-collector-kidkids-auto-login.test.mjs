@@ -26,10 +26,15 @@ const source = readFileSync(
 const NO_ANSWER = Symbol("no answer");
 
 /**
+ * 저장된 계정으로 로그인하는 것은 이제 몰 세션 모듈이고(KID-254), 프레임에 스크립트를 넣고
+ * 알림 창을 삼키는 일은 worker.js 의 드라이버다. 둘을 붙여 돌리되, 이미 열린 탭 위에서
+ * 로그인하는 길로 부른다 — 상품등록 폼이 로그인 풀린 화면을 만났을 때 가는 그 길이다.
+ *
  * `checkResults` 는 제출 뒤 로그인 폼 확인(`detectOnly`)이 차례로 받을 답이다. `NO_ANSWER` 는
- * 알림 창이 떠 확인 스크립트가 돌아오지 않는 경우다.
+ * 알림 창이 떠 확인 스크립트가 돌아오지 않는 경우다. 시계는 테스트가 들고 있어
+ * 제한시간까지 기다리는 갈래도 실제로 기다리지 않는다.
  */
-function loadEnsureMallLogin({
+function loadMallLogin({
   scanResults,
   tabUrls,
   checkResults = [{ state: "no-login-form" }],
@@ -41,8 +46,15 @@ function loadEnsureMallLogin({
   let scanIndex = 0;
   let checkIndex = 0;
   let urlIndex = 0;
+  let clock = 1_700_000_000_000;
   const context = vm.createContext({
+    URL, Date, Object, Array, JSON, Error, RegExp, Promise, Number, String, Boolean,
+    setTimeout, clearTimeout, TextDecoder, AbortController,
+    fetch: async () => {
+      throw new Error("unexpected fetch");
+    },
     autoSubmitIcecreamMallLogin: () => undefined,
+    inspectMallLoginScreen: () => undefined,
     chrome: {
       scripting: {
         async executeScript(options) {
@@ -75,11 +87,8 @@ function loadEnsureMallLogin({
     },
     delay: async () => undefined,
     waitForTabReady: async () => undefined,
-    setTimeout,
-    clearTimeout,
-    URL,
-    Error,
   });
+  context.globalThis = context;
   const asyncSource = (name) => extractFunction(source, name).replace(/^function /, "async function ");
   vm.runInContext(extractFunction(source, "withTimeout"), context);
   vm.runInContext(asyncSource("loginFormRemainsAfterSubmit"), context);
@@ -88,8 +97,29 @@ function loadEnsureMallLogin({
   // 이 둘은 worker 에서 `async function` 이라 추출한 뒤 다시 async 로 되살린다.
   vm.runInContext(asyncSource("recordMallLoginDialogs"), context);
   vm.runInContext(asyncSource("takeMallLoginDialog"), context);
-  const ensureMallLogin = vm.runInContext(`(${asyncSource("ensureMallLogin")})`, context);
-  return { ensureMallLogin, getScanCount: () => scanIndex, getCheckCount: () => checkIndex };
+  for (const file of ["mall-session-probe.js", "mall-session.js"]) {
+    vm.runInContext(
+      readFileSync(new URL(`../kiditem-os/background/orders/${file}`, import.meta.url), "utf8"),
+      context,
+    );
+  }
+  vm.runInContext(extractFunction(source, "createMallSessionDriver"), context);
+  context.fakeClock = {
+    now: () => clock,
+    delay: async (ms) => {
+      clock += ms;
+    },
+  };
+  const session = vm.runInContext(
+    "KidItemMallSession.create({ driver: { ...createMallSessionDriver(), ...fakeClock } })",
+    context,
+  );
+  return {
+    login: (tabId, credentials, mallKey) =>
+      session.ensureLoggedIn(mallKey, credentials, { tab: { id: tabId } }),
+    getScanCount: () => scanIndex,
+    getCheckCount: () => checkIndex,
+  };
 }
 
 const CREDENTIALS = { loginId: "configured-id", password: "configured-password" };
@@ -97,13 +127,13 @@ const CREDENTIALS = { loginId: "configured-id", password: "configured-password" 
 test("⭐ a login form that stays after the submit is reported as unverified, not as a wrong password", async () => {
   // 몰마다 로그인 뒤 화면이 다르다(관리자 화면에 비밀번호 칸이 남거나 알림 창이 뜬다).
   // 확장이 실패로 단정하면 멀쩡히 로그인된 몰이 '직접 로그인 필요'로 굳는다 — 2026-09-16 라이브.
-  const { ensureMallLogin, getCheckCount } = loadEnsureMallLogin({
+  const { login, getCheckCount } = loadMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://po.i-screammall.co.kr/login.do"],
     checkResults: [{ state: "login-form" }],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "icecream-mall");
+  const result = await login(17, CREDENTIALS, "icecream-mall");
 
   assert.equal(result.success, true, "판정은 웹이 한다");
   assert.equal(result.submitted, true);
@@ -114,13 +144,13 @@ test("⭐ a login form that stays after the submit is reported as unverified, no
 });
 
 test("a login whose form disappears after submitting is verified", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://po.i-screammall.co.kr/main.do"],
     checkResults: [{ state: "login-form" }, { state: "no-login-form" }],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "icecream-mall");
+  const result = await login(17, CREDENTIALS, "icecream-mall");
 
   assert.equal(result.success, true);
   assert.equal(result.submitted, true);
@@ -128,20 +158,20 @@ test("a login whose form disappears after submitting is verified", async () => {
 });
 
 test("⭐ a page that stops answering after the submit (an alert) stays unverified", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "submitted", method: "onclick-handler" }],
     tabUrls: ["https://shop.kidsnote.com/_manage/"],
     checkResults: [NO_ANSWER],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+  const result = await login(17, CREDENTIALS, "kidsnote");
 
   assert.equal(result.success, true);
   assert.equal(result.verified, false);
 });
 
 test("kidkids waits through the initial management redirect and submits the eventual login form", async () => {
-  const { ensureMallLogin, getScanCount } = loadEnsureMallLogin({
+  const { login, getScanCount } = loadMallLogin({
     scanResults: [{ state: "no-login-form" }, { state: "submitted" }],
     tabUrls: [
       "https://partner.kidkids.net/new/pages/logis/management.htm",
@@ -149,7 +179,7 @@ test("kidkids waits through the initial management redirect and submits the even
     ],
   });
 
-  const result = await ensureMallLogin(
+  const result = await login(
     17,
     { loginId: "configured-id", password: "configured-password" },
     "kidkids",
@@ -161,12 +191,12 @@ test("kidkids waits through the initial management redirect and submits the even
 });
 
 test("kidkids personal verification is returned as an operator login requirement", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "no-login-form" }],
     tabUrls: ["https://partner.kidkids.net/new/pages/security/verify_user.htm"],
   });
 
-  const result = await ensureMallLogin(
+  const result = await login(
     17,
     { loginId: "configured-id", password: "configured-password" },
     "kidkids",
@@ -182,14 +212,14 @@ test("kidkids personal verification is returned as an operator login requirement
  * 그 문장을 결과에 실어 "왜 안 됐는지"를 화면이 말할 수 있게 한다.
  */
 test("⭐ the mall's own answer comes back with the unverified login", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://shop.kidsnote.com/_manage/?body=3010"],
     checkResults: [{ state: "login-form" }],
     dialogs: ["아이디 또는 비밀번호가 일치하지 않습니다."],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+  const result = await login(17, CREDENTIALS, "kidsnote");
 
   assert.equal(result.submitted, true);
   assert.equal(result.verified, false);
@@ -197,13 +227,13 @@ test("⭐ the mall's own answer comes back with the unverified login", async () 
 });
 
 test("a login with nothing to say carries no message", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "submitted", method: "exact-text" }],
     tabUrls: ["https://shop.kidsnote.com/_manage/?body=3010"],
     checkResults: [{ state: "no-login-form" }],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+  const result = await login(17, CREDENTIALS, "kidsnote");
 
   assert.equal(result.verified, true);
   assert.equal(result.mallMessage, undefined);
@@ -215,13 +245,13 @@ test("a login with nothing to say carries no message", async () => {
  * 로 끝난다 — 이유를 그대로 말해야 사장님이 손을 쓸 수 있다.
  */
 test("⭐ a login page the extension cannot reach is reported, not called signed in", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [],
     tabUrls: ["https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth"],
     blockInjection: true,
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "coupang-direct");
+  const result = await login(17, CREDENTIALS, "coupang-direct");
 
   assert.equal(result.success, false);
   assert.equal(result.pendingLogin, true);
@@ -230,12 +260,12 @@ test("⭐ a login page the extension cannot reach is reported, not called signed
 });
 
 test("a mall whose screen answers 'no login form' is still read as already signed in", async () => {
-  const { ensureMallLogin } = loadEnsureMallLogin({
+  const { login } = loadMallLogin({
     scanResults: [{ state: "no-login-form" }],
     tabUrls: ["https://shop.kidsnote.com/_manage/"],
   });
 
-  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+  const result = await login(17, CREDENTIALS, "kidsnote");
 
   assert.equal(result.success, true);
   assert.equal(result.reason, "already_signed_in");

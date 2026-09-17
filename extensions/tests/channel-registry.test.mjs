@@ -29,7 +29,8 @@ function specKeys(relativePath) {
   assert.ok(end >= 0, `SPECS terminator not found in ${relativePath}`);
   const block = source.slice(start, start + end);
   const keys = [];
-  for (const match of block.matchAll(/^ {4}(?:"([^"]+)"|([A-Za-z0-9_$-]+)): (?:Object\.freeze\()?\{/gm)) {
+  // `key: Object.freeze({` · `key: spec({` · `key: {` 를 모두 한 줄 스펙으로 읽는다.
+  for (const match of block.matchAll(/^ {4}(?:"([^"]+)"|([A-Za-z0-9_$-]+)): (?:[A-Za-z.]+\()?\{/gm)) {
     keys.push(match[1] ?? match[2]);
   }
   return [...new Set(keys)];
@@ -49,10 +50,10 @@ test('⭐ 상품등록 폼 스펙 키가 모두 채널 키다', () => {
   }
 });
 
-test('⭐ 로그인 프로브 스펙 키가 모두 채널 키다', () => {
+test('⭐ 몰 세션 스펙 키가 모두 채널 키다', () => {
   const registry = loadRegistry();
-  for (const key of specKeys('background/orders/mall-session-probe.js')) {
-    assert.ok(registry.findChannel(key), `unknown channel key in mall-session-probe SPECS: ${key}`);
+  for (const key of specKeys('background/orders/mall-session.js')) {
+    assert.ok(registry.findChannel(key), `unknown channel key in mall-session SPECS: ${key}`);
   }
 });
 

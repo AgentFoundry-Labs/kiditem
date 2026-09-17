@@ -4,155 +4,12 @@
   // 몰 관리자 로그인 상태를 **조용히** 확인한다 — 로그인은 하지 않는다.
   //
   // 몰마다 정해진 읽기 전용 주소 하나를 사용자 쿠키로 한 번 읽고, 확실한 표시가 있을 때만
-  // 판단한다. 로그인됨은 로그인해야만 보이는 표시(주문 목록 · 로그아웃 링크 · 관리자 JSON)가
-  // 있을 때, 로그인 필요는 로그인 화면으로 넘어가거나(리다이렉트 · 401/403) 몰이 로그인하라고
-  // 답할 때뿐이다. 나머지는 확인 불가다.
+  // 판단한다. 어느 주소를 읽고 무엇을 로그인 표시로 볼지는 몰 세션 모듈의 한 줄
+  // 스펙(`entryUrl` · `headers` · `loggedInSignal`)이 정한다(KID-254). 여기 남은 것은 그
+  // 한 번의 읽기를 실제로 해내는 방법뿐이다 — 몰 목록을 여기 따로 적지 않는다.
   //
-  // 응답에는 상태와 이유 코드만 담는다 — 주소 · 본문 · 헤더 · 쿠키는 돌려주지 않는다. 웹은
-  // 몰 키만 보낼 수 있고, 주소는 여기 고정 목록에서만 나온다. 데이터를 바꾸거나 감사 기록을
-  // 남기는 주소(엑셀 생성 · 다운로드 사유 · 등록 화면)는 넣지 않는다.
-
-  // 로그인 화면 주소. 몰마다 글자가 조금씩 다르다 — `sign-in`(GS샵) · `login_SO.wsp`(롯데ON) ·
-  // `authentication/login.ssg`(신세계)도 같은 화면이다.
-  const LOGIN_PATH = /\/(?:login|signin|sign-in|signIn)|loginform|partnerlogin|partner_login|login_so|authentication\/login/i;
-  const VERIFY_PATH = /\/security\/verify_user\.htm$/i;
-  const PASSWORD_INPUT = /<input[^>]*type\s*=\s*["']?password/i;
-  const LOGOUT_MARKER = /로그아웃|\/logout\b|logout\.(?:php|do|html?|asp)/i;
-  const LOGIN_TEXT = /로그인|login/i;
-
-  function verdict(state, reason) {
-    return { state, reason };
-  }
-
-  function anyText(texts, pattern) {
-    return texts.some((text) => pattern.test(text));
-  }
-
-  function parseJson(text) {
-    const trimmed = String(text || "").trim();
-    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return null;
-    }
-  }
-
-  // 관리자 HTML 화면: 로그인 주소로 넘어갔으면 로그인 필요, 로그인해야만 보이는 표시가 있으면
-  // 로그인됨, 비밀번호 칸만 있으면 로그인 필요. 셋 다 아니면 모른다.
-  function htmlDetect(signedInMarker) {
-    return (page) => {
-      if (LOGIN_PATH.test(page.finalPath)) return verdict("signed_out", "login_page");
-      if (anyText(page.texts, signedInMarker)) return verdict("signed_in", "admin_page");
-      if (anyText(page.texts, PASSWORD_INPUT)) return verdict("signed_out", "login_page");
-      return verdict("unknown", "unrecognized_page");
-    };
-  }
-
-  // 관리자 JSON 주소: 기대한 모양이면 로그인됨, 몰이 로그인하라고 답하면 로그인 필요.
-  // 모양이 다르기만 한 응답은 로그인 여부의 증거가 아니므로 확인 불가로 둔다.
-  function jsonDetect(isSignedIn, isSignedOut) {
-    return (page) => {
-      const json = parseJson(page.texts[0]);
-      if (json && isSignedIn(json)) return verdict("signed_in", "admin_api");
-      if (json && isSignedOut && isSignedOut(json)) return verdict("signed_out", "login_required_response");
-      if (LOGIN_PATH.test(page.finalPath) || anyText(page.texts, PASSWORD_INPUT)) {
-        return verdict("signed_out", "login_page");
-      }
-      if (!json && anyText(page.texts, LOGIN_TEXT)) return verdict("signed_out", "login_page");
-      return verdict("unknown", "unrecognized_page");
-    };
-  }
-
-  // 몰 키는 서버(주문수집 계정 · 매니페스트)의 키다. 주소는 주문수집이 이미 쓰는 읽기 전용
-  // 화면이고, 모두 manifest host_permissions 안에 있다.
-  const SPECS = Object.freeze({
-    domeggook: Object.freeze({
-      url: "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1",
-      headers: Object.freeze({ "x-requested-with": "XMLHttpRequest" }),
-      // 로그인돼 있으면 엑셀 생성 목록(dat 배열)이 온다. 로그아웃이면 200 에
-      // {"res":false,"msg":"로그인이 필요합니다"} 를 준다(2026-09-12 실측).
-      detect: jsonDetect(
-        (json) => Array.isArray(json?.dat),
-        (json) => json?.res === false,
-      ),
-    }),
-    onch: Object.freeze({
-      // 분류 AJAX 는 로그아웃일 때도 200 에 일반 실패 메시지만 줘서 로그인 여부를 가릴 수 없다.
-      // 공급사 주문 목록 화면은 로그아웃이면 /login/login_web.php 로 넘어간다(2026-09-12 실측).
-      url: "https://www.onch3.co.kr/supplier/orders.php?state=all",
-      detect: htmlDetect(/로그아웃|order_detail_supplier/),
-    }),
-    kidsnote: Object.freeze({
-      url: "https://shop.kidsnote.com/_manage/?body=3010",
-      detect: htmlDetect(/주문번호|로그아웃/),
-    }),
-    kidkids: Object.freeze({
-      url: "https://partner.kidkids.net/logis/logis_index.htm?from_logis_index=Y&page_view_cnt=1",
-      detect: (page) => {
-        // 로그인 뒤에 따로 오는 본인확인 화면. 주문 목록이 아니므로 로그인됨으로 치지 않는다.
-        if (VERIFY_PATH.test(page.finalPath)) return verdict("signed_out", "verification_required");
-        const found = htmlDetect(/name\s*=\s*["']?CheckBox2|로그아웃/)(page);
-        if (found.state !== "unknown") return found;
-        // 주문이 0건이면 CheckBox2 가 없다. 로그인 화면으로 넘어가지 않고 비밀번호 칸도 없이
-        // 출고관리 목록에 머물렀으면 로그인된 빈 목록이다 — 주문수집기와 같은 판정이다.
-        return /\/logis\/logis_index\.htm$/i.test(page.finalPath) ? verdict("signed_in", "admin_page") : found;
-      },
-    }),
-    "icecream-mall": Object.freeze({
-      url: "https://po.i-screammall.co.kr/main.do",
-      detect: htmlDetect(LOGOUT_MARKER),
-    }),
-    art09: Object.freeze({
-      url: "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1",
-      // Cafe24 는 로그인된 화면에도 '로그인' 글자와 비밀번호 칸이 있다. 주문목록에 머물렀는지만 본다.
-      detect: (page) =>
-        /order_list\.php$/i.test(page.finalPath)
-          ? verdict("signed_in", "admin_page")
-          : verdict("signed_out", "redirected_away"),
-    }),
-    "haebub-mall": Object.freeze({
-      url: "https://mallseller.genimarket.co.kr/mall/order/basket_list.php",
-      detect: htmlDetect(LOGOUT_MARKER),
-    }),
-    "teacher-mall": Object.freeze({
-      // 로그아웃이면 로그인 화면이 http:// 를 한 번 거친다. 그 주소는 권한 밖이라 따라가지
-      // 못하고 fetch 가 실패한다 — 아래 '튕겨 나갔다' 확인이 그 경우를 로그인 필요로 읽는다.
-      url: "https://shop.teacherville.co.kr/selleradmin/order/catalog",
-      detect: htmlDetect(/excel_down_form|로그아웃/),
-    }),
-    boribori: Object.freeze({
-      // 주문/배송관리(B201). 로그아웃이면 `/login` 으로 넘어간다(2026-09-16 실측).
-      url: "https://seller-club.co.kr/order/orderDeliList",
-      detect: htmlDetect(/orderDeliList|jqGrid|로그아웃/),
-    }),
-    "lotte-on": Object.freeze({
-      // 판매자센터 첫 화면. 로그아웃이면 `login_SO.wsp` 로 넘어간다(2026-09-16 실측).
-      url: "https://store.lotteon.com/cm/main/index_SO.wsp",
-      detect: htmlDetect(/로그아웃|logout|productInsert|index_SO\.wsp/),
-    }),
-    "gs-shop": Object.freeze({
-      // 파트너스 물류 관리 화면. 로그아웃이면 `/sign-in` 으로 넘어간다(2026-09-16 실측).
-      url: "https://partners.gsshop.com/logistics/partner-logistics-mng",
-      detect: htmlDetect(/로그아웃|logout|partner-logistics-mng/),
-    }),
-    ssg: Object.freeze({
-      // 파트너 오피스 첫 화면. 로그아웃이면 `authentication/login.ssg` 로 넘어간다(2026-09-16 실측).
-      url: "https://po.ssgadm.com/",
-      detect: htmlDetect(/로그아웃|logout|파트너 오피스 홈/),
-    }),
-    thirtymall: Object.freeze({
-      // 샵바이 파트너 어드민. 로그아웃이면 `/login` 으로 넘어간다(2026-09-16 실측).
-      url: "https://partner.shopby.co.kr/",
-      detect: htmlDetect(/로그아웃|logout|partner-remote/),
-    }),
-    kkomangse: Object.freeze({
-      url: "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1",
-      detect: htmlDetect(/form_list|로그아웃/),
-    }),
-  });
-
-  const MALLS = Object.freeze(Object.keys(SPECS));
+  // 답에는 판정과 이유 코드만 담는다 — 주소 · 본문 · 헤더 · 쿠키는 돌려주지 않는다. 웹은
+  // 몰 키만 보낼 수 있고, 주소는 스펙에서만 나온다.
 
   function decodeAll(buffer) {
     const texts = [new TextDecoder("utf-8").decode(buffer)];
@@ -175,11 +32,25 @@
     }
   }
 
-  function create({ fetch: fetchImpl, timeoutMs = 8000 } = {}) {
+  /**
+   * `specs` 는 몰 세션 모듈의 스펙 표, `reasons` 는 그 모듈이 쓰는 이유 코드 한 벌이다.
+   * 조용한 확인만 따로 쓸 일은 없으므로 둘 다 받아야 만들어진다.
+   */
+  function create({ fetch: fetchImpl, specs, reasons, timeoutMs = 8000 } = {}) {
     if (typeof fetchImpl !== "function") throw new Error("mall session probe needs fetch");
+    if (!specs || !reasons) throw new Error("mall session probe needs mall specs and reasons");
+
+    const verdict = (state, reason) => ({ verdict: state, reason });
+
+    function specOf(mallKey) {
+      const key = typeof mallKey === "string" ? mallKey : "";
+      if (!Object.prototype.hasOwnProperty.call(specs, key)) return null;
+      const spec = specs[key];
+      return typeof spec?.loggedInSignal === "function" ? spec : null;
+    }
 
     async function request(spec, redirect, signal) {
-      return fetchImpl(spec.url, {
+      return fetchImpl(spec.entryUrl, {
         method: "GET",
         credentials: "include",
         redirect,
@@ -190,48 +61,43 @@
     }
 
     async function probe(mallKey) {
-      const key = typeof mallKey === "string" ? mallKey : "";
-      const spec = Object.prototype.hasOwnProperty.call(SPECS, key) ? SPECS[key] : null;
-      if (!spec) return { success: true, mallKey: key, state: "unknown", reason: "no_passive_check" };
+      const spec = specOf(mallKey);
+      if (!spec) return verdict("unknown", reasons.NO_PASSIVE_CHECK);
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const answer = (result) => ({ success: true, mallKey: key, state: result.state, reason: result.reason });
       try {
         let response;
         try {
           response = await request(spec, "follow", controller.signal);
         } catch (error) {
           if (controller.signal.aborted) throw error;
-          // 로그인 화면이 권한 밖 주소(http · 통합 로그인)로 넘기면 따라가지 못해 fetch 가 실패한다.
+          // 로그인 화면이 권한 밖 주소(http · 통합 로그인)로 넘기면 따라가지 못해 읽기가 실패한다.
           // 관리자 전용 주소에서 튕겨 나갔다는 사실만 다시 확인한다 — 어디로 갔는지는 보지도
           // 돌려주지도 않는다.
           const manual = await request(spec, "manual", controller.signal);
           const bounced = manual.type === "opaqueredirect" || (manual.status >= 300 && manual.status < 400);
-          return answer(bounced ? verdict("signed_out", "redirected_away") : verdict("unknown", "network_error"));
+          return bounced
+            ? verdict("out", reasons.REDIRECTED_AWAY)
+            : verdict("unknown", reasons.NETWORK_ERROR);
         }
         if (response.status === 401 || response.status === 403) {
-          return answer(verdict("signed_out", "http_unauthorized"));
+          return verdict("out", reasons.HTTP_UNAUTHORIZED);
         }
         const page = {
-          finalPath: pathOf(String(response.url || spec.url)),
+          finalPath: pathOf(String(response.url || spec.entryUrl)),
           texts: decodeAll(await response.arrayBuffer()),
         };
-        return answer(spec.detect(page));
+        return spec.loggedInSignal(page);
       } catch {
-        return answer(verdict("unknown", controller.signal.aborted ? "timeout" : "network_error"));
+        return verdict("unknown", controller.signal.aborted ? reasons.TIMEOUT : reasons.NETWORK_ERROR);
       } finally {
         clearTimeout(timer);
       }
     }
 
-    return Object.freeze({ probe, malls: MALLS, urlOf });
+    return Object.freeze({ probe });
   }
 
-  /** 이 몰을 조용히 읽는 관리자 주소. 화면을 열어 확인할 때도 같은 주소부터 연다. */
-  function urlOf(mallKey) {
-    return Object.prototype.hasOwnProperty.call(SPECS, mallKey) ? SPECS[mallKey].url : null;
-  }
-
-  root.KidItemMallSessionProbe = Object.freeze({ create, malls: MALLS, urlOf });
+  root.KidItemMallSessionProbe = Object.freeze({ create });
 })(globalThis);

@@ -10,7 +10,7 @@
   // 이제 몰 한 줄(`entryUrl · loginUrl · loggedInSignal · fields`)이 그 셋을 함께 적고,
   // 밖으로 나가는 문은 둘뿐이다.
   //
-  //   ensureLoggedIn(mallKey, credentials, context) → ok · rejected · unknown
+  //   ensureLoggedIn(mallKey, credentials, { collection, tab }) → ok · rejected · unknown
   //   checkLogin(mallKey, siteUrl)                  → in · out · unknown
   //
   // 탭을 열고 · 프레임에 스크립트를 넣고 · 알림 창을 삼키고 · 조용히 한 번 읽는 일은 모듈
@@ -307,11 +307,16 @@
     /**
      * 저장된 계정으로 로그인한다 — 됐다(`ok`) · 몰이 거절했다(`rejected`) ·
      * 가리지 못했다(`unknown`). 판정은 여기까지고, 언제 다시 넣을지는 웹이 정한다.
+     *
+     * `collection` 은 수집 시도다(있으면 탭 소유권을 그 시도에 맡긴다). `tab` 은 부른 쪽이
+     * 이미 열어 둔 탭이다 — 상품등록 폼이 로그인 풀린 화면을 만났을 때 그 탭 위에서 바로
+     * 로그인한다. 그 탭은 부른 쪽 것이라 열지도 닫지도 않는다.
      */
-    async function ensureLoggedIn(mallKey, credentials, context = null) {
+    async function ensureLoggedIn(mallKey, credentials, { collection = null, tab = null } = {}) {
       if (!credentials || !credentials.loginId || !credentials.password) {
         return answer("unknown", REASONS.NO_CREDENTIALS, { success: true, submitted: false });
       }
+      if (tab) return fillLoginForm(tab.id, credentials, mallKey);
       const found = specOf(mallKey);
       // 고정 주소가 있는 몰은 그 주소로, 없는 몰은 사장님이 적어 둔 사이트 주소로 들어간다.
       // 둘 다 없으면 어디로 갈지 모르므로 시도하지 않는다 — 시도하지 않았다는 사실을
@@ -321,7 +326,7 @@
 
       // 취소된 수집이 로그인 탭을 만들지 못하도록, 탭을 열기 전에 소유권을 확인한다.
       // 이미 취소됐으면 드라이버가 그대로 던져 수집 lifecycle 이 받는다.
-      const opened = await driver.openTab(url, context);
+      const opened = await driver.openTab(url, collection);
       if (opened.cancelled) {
         return answer("unknown", REASONS.COLLECTION_CANCELLED, await driver.cancelledResult());
       }
@@ -337,7 +342,7 @@
         await driver.waitReady(opened.tab.id);
         await driver.delay(AFTER_TAB_OPEN_MS);
         // 로그인 화면이 뜨는 동안 수집이 취소됐을 수 있다. 스크립트를 넣기 직전에 다시 본다.
-        await driver.ensureActive(context);
+        await driver.ensureActive(collection);
         result = await driver.withTimeout(
           fillLoginForm(opened.tab.id, credentials, mallKey),
           LOGIN_TIMEOUT_MS,
@@ -358,7 +363,7 @@
         // 로그인됐다고 확인한 탭만 닫는다 — 나머지는 사람이 그 화면을 봐야 안다. 취소된
         // 수집은 남길 화면이 없으므로 닫는다.
         const settled = result?.verdict === "ok" || result?.reason === REASONS.COLLECTION_CANCELLED;
-        await driver.closeTab(opened.tab, { context, keepOpen: !settled });
+        await driver.closeTab(opened.tab, { collection, keepOpen: !settled });
       }
     }
 
@@ -528,7 +533,7 @@
         }
         return seen(found.verdict, found.reason);
       } finally {
-        await driver.closeTab(opened.tab, { context: null, keepOpen: false });
+        await driver.closeTab(opened.tab, { collection: null, keepOpen: false });
       }
     }
 

@@ -110,8 +110,8 @@ function fakeDriver({
       calls.permissions.push(origin);
       return allowed;
     },
-    async openTab(url, context) {
-      calls.opened.push({ url, context });
+    async openTab(url, collection) {
+      calls.opened.push({ url, collection });
       if (openResult) return openResult;
       return { tab: { id: 77, windowId: 1 } };
     },
@@ -236,7 +236,7 @@ test("⭐ 조용히 가릴 수 없으면 관리자 화면을 열어 보고 닫�
     { verdict: "in", reason: "admin_page" });
   // 저장된 사이트 주소(로그인 화면)보다 로그인해야 열리는 관리자 첫 화면이 먼저다.
   assert.equal(calls.opened[0].url, "https://alwayzseller.ilevit.com/");
-  assert.deepEqual(calls.closed, [{ id: 77, context: null, keepOpen: false }]);
+  assert.deepEqual(calls.closed, [{ id: 77, collection: null, keepOpen: false }]);
 });
 
 test("⭐ 화면에 로그인 폼이 있으면 로그인 필요, 인증칸이 있으면 인증 필요", async () => {
@@ -306,7 +306,7 @@ test("⭐ 로그인 폼을 채워 눌렀는데 폼이 남으면 거절이다 —
     dialog: "아이디 또는 비밀번호가 일치하지 않습니다.",
   });
 
-  const result = await session.ensureLoggedIn("onch", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("onch", CREDENTIALS);
 
   assert.equal(result.verdict, "rejected");
   assert.equal(result.reason, "login_form_remains");
@@ -317,7 +317,7 @@ test("⭐ 로그인 폼을 채워 눌렀는데 폼이 남으면 거절이다 —
   assert.equal(result.mallMessage, "아이디 또는 비밀번호가 일치하지 않습니다.");
   assert.equal(result.method, "exact-text");
   // 사람이 그 화면을 봐야 하므로 탭을 남긴다.
-  assert.deepEqual(calls.closed, [{ id: 77, context: null, keepOpen: true }]);
+  assert.deepEqual(calls.closed, [{ id: 77, collection: null, keepOpen: true }]);
 });
 
 test("⭐ 눌렀고 로그인 화면이 사라졌으면 됐다 — 탭은 닫는다", async () => {
@@ -326,23 +326,23 @@ test("⭐ 눌렀고 로그인 화면이 사라졌으면 됐다 — 탭은 닫는
     formRemains: false,
   });
 
-  const result = await session.ensureLoggedIn("onch", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("onch", CREDENTIALS);
 
   assert.equal(result.verdict, "ok");
   assert.equal(result.reason, "form_submitted");
   assert.equal(result.verified, true);
-  assert.deepEqual(calls.closed, [{ id: 77, context: null, keepOpen: false }]);
+  assert.deepEqual(calls.closed, [{ id: 77, collection: null, keepOpen: false }]);
 });
 
 test("⭐ 알림 창은 채우기 전에 미리 삼켜 둔다 — 백그라운드 탭의 알림 창은 그 탭을 멈춘다", async () => {
   const { session, calls } = fakeDriver({ fills: [{ state: "submitted", method: "form-submit" }] });
-  await session.ensureLoggedIn("onch", CREDENTIALS, null);
+  await session.ensureLoggedIn("onch", CREDENTIALS);
   assert.deepEqual(calls.watched, [77]);
 });
 
 test("로그인 폼이 어디에도 없으면 이미 로그인된 세션이다", async () => {
   const { session } = fakeDriver({ fills: [{ state: "no-login-form" }] });
-  const result = await session.ensureLoggedIn("onch", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("onch", CREDENTIALS);
   assert.equal(result.verdict, "ok");
   assert.equal(result.reason, "already_signed_in");
   assert.equal(result.submitted, false);
@@ -350,7 +350,7 @@ test("로그인 폼이 어디에도 없으면 이미 로그인된 세션이다",
 
 test("⭐ 화면을 한 번도 들여다보지 못했으면 모른다 — 이미 로그인됨으로 넘기지 않는다", async () => {
   const { session } = fakeDriver({ fills: [null], tabUrl: "https://xauth.coupang.com/login" });
-  const result = await session.ensureLoggedIn("coupang-direct", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("coupang-direct", CREDENTIALS);
   assert.equal(result.verdict, "unknown");
   assert.equal(result.reason, "login_page_not_reachable");
   assert.equal(result.loginPageUnreachable, true);
@@ -361,22 +361,22 @@ test("폼은 봤는데 다 채우지 못했으면 모른다 — 사람이 그 �
   const { session, calls } = fakeDriver({
     fills: [{ state: "incomplete", reason: "id-input-not-found" }],
   });
-  const result = await session.ensureLoggedIn("onch", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("onch", CREDENTIALS);
   assert.equal(result.verdict, "unknown");
   assert.equal(result.reason, "login_form_incomplete");
   assert.equal(result.pendingLogin, true);
-  assert.deepEqual(calls.closed, [{ id: 77, context: null, keepOpen: true }]);
+  assert.deepEqual(calls.closed, [{ id: 77, collection: null, keepOpen: true }]);
 });
 
 test("아이디 · 비밀번호가 없거나 들어갈 주소가 없으면 탭도 열지 않고 모른다고 답한다", async () => {
   const noCredentials = fakeDriver({});
-  const empty = await noCredentials.session.ensureLoggedIn("onch", null, null);
+  const empty = await noCredentials.session.ensureLoggedIn("onch", null);
   assert.equal(empty.verdict, "unknown");
   assert.equal(empty.reason, "no_credentials");
   assert.equal(noCredentials.calls.opened.length, 0);
 
   const noAddress = fakeDriver({});
-  const nowhere = await noAddress.session.ensureLoggedIn("ssg", CREDENTIALS, null);
+  const nowhere = await noAddress.session.ensureLoggedIn("ssg", CREDENTIALS);
   assert.equal(nowhere.verdict, "unknown");
   assert.equal(nowhere.reason, "unsupported_mall");
   assert.equal(noAddress.calls.opened.length, 0);
@@ -384,19 +384,19 @@ test("아이디 · 비밀번호가 없거나 들어갈 주소가 없으면 탭�
 
 test("고정 로그인 주소가 없는 몰은 계정에 저장된 사이트 주소로 들어간다", async () => {
   const { session, calls } = fakeDriver({ fills: [{ state: "no-login-form" }] });
-  await session.ensureLoggedIn("ssg", { ...CREDENTIALS, siteUrl: "https://po.ssgadm.com/login" }, null);
+  await session.ensureLoggedIn("ssg", { ...CREDENTIALS, siteUrl: "https://po.ssgadm.com/login" });
   assert.equal(calls.opened[0].url, "https://po.ssgadm.com/login");
 });
 
 test("탭을 열지 못하면 모른다 — 수집이 취소됐으면 열어 둔 탭을 남기지 않는다", async () => {
   const unavailable = fakeDriver({ openResult: { unavailable: true } });
-  const failed = await unavailable.session.ensureLoggedIn("onch", CREDENTIALS, null);
+  const failed = await unavailable.session.ensureLoggedIn("onch", CREDENTIALS);
   assert.equal(failed.verdict, "unknown");
   assert.equal(failed.reason, "login_tab_unavailable");
   assert.equal(failed.success, false);
 
   const cancelled = fakeDriver({ openResult: { cancelled: true } });
-  const stopped = await cancelled.session.ensureLoggedIn("onch", CREDENTIALS, { attemptId: "a1" });
+  const stopped = await cancelled.session.ensureLoggedIn("onch", CREDENTIALS, { collection: { attemptId: "a1" } });
   assert.equal(stopped.verdict, "unknown");
   assert.equal(stopped.reason, "collection_cancelled");
   assert.equal(stopped.errorCode, "COLLECTION_CANCELLED");
@@ -406,7 +406,7 @@ test("⭐ 스펙에 적힌 몰은 하나도 빠짐없이 세 답 중 하나를 �
   const credentials = { ...CREDENTIALS, siteUrl: "https://saved.example/admin" };
   for (const mallKey of MallSession.malls) {
     const ok = fakeDriver({ fills: [{ state: "submitted", method: "form-submit" }], formRemains: false });
-    assert.equal((await ok.session.ensureLoggedIn(mallKey, credentials, null)).verdict, "ok", `${mallKey} ok`);
+    assert.equal((await ok.session.ensureLoggedIn(mallKey, credentials)).verdict, "ok", `${mallKey} ok`);
     assert.equal(
       ok.calls.opened[0].url,
       MallSession.SPECS[mallKey].loginUrl ?? "https://saved.example/admin",
@@ -415,14 +415,14 @@ test("⭐ 스펙에 적힌 몰은 하나도 빠짐없이 세 답 중 하나를 �
 
     const rejected = fakeDriver({ fills: [{ state: "submitted", method: "form-submit" }], formRemains: true });
     assert.equal(
-      (await rejected.session.ensureLoggedIn(mallKey, credentials, null)).verdict,
+      (await rejected.session.ensureLoggedIn(mallKey, credentials)).verdict,
       "rejected",
       `${mallKey} rejected`,
     );
 
     const blind = fakeDriver({ fills: [null] });
     assert.equal(
-      (await blind.session.ensureLoggedIn(mallKey, credentials, null)).verdict,
+      (await blind.session.ensureLoggedIn(mallKey, credentials)).verdict,
       "unknown",
       `${mallKey} unknown`,
     );
@@ -443,8 +443,8 @@ test("⭐ 두 문이 내는 이유 코드는 모두 그 한 벌 안에 있다", 
   ];
   for (const script of scripts) {
     for (const mallKey of [...MallSession.malls, "one-polaris"]) {
-      seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, credentials, null)).reason);
-      seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, null, null)).reason);
+      seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, credentials)).reason);
+      seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, null)).reason);
     }
   }
   for (const screens of [[{ loginForm: true }], [{ loginForm: false, verification: true }], [null, null], [{}]]) {
@@ -464,7 +464,7 @@ test("⭐ 키드키즈 본인확인 화면은 거절이다 — 사람이 인증�
     fills: [{ state: "no-login-form" }],
     tabUrl: "https://partner.kidkids.net/security/verify_user.htm",
   });
-  const result = await session.ensureLoggedIn("kidkids", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("kidkids", CREDENTIALS);
   assert.equal(result.verdict, "rejected");
   assert.equal(result.reason, "verification_required");
   assert.equal(result.pendingLogin, true);
@@ -475,7 +475,7 @@ test("키드키즈는 출고관리 화면에 머무는 것을 확인한 뒤에�
     fills: [{ state: "no-login-form" }],
     tabUrl: "https://partner.kidkids.net/new/pages/logis/management.htm",
   });
-  const result = await session.ensureLoggedIn("kidkids", CREDENTIALS, null);
+  const result = await session.ensureLoggedIn("kidkids", CREDENTIALS);
   assert.equal(result.verdict, "ok");
   assert.equal(result.reason, "already_signed_in");
   // 한 번 보고 끝내지 않는다 — 클라이언트 리다이렉트로 로그인 화면이 뒤늦게 뜬다.

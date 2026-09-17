@@ -329,9 +329,6 @@ const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.html";
 const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
-// 쿠팡 직배송(사입) 발주 화면. 로그아웃 상태면 Supplier Hub 로그인 화면으로 밀려나므로
-// 자동 로그인도 이 주소로 들어간다 — 로그인돼 있으면 폼이 없어 그대로 지나간다.
-const COUPANG_DIRECT_LOGIN_URL = "https://supplier.coupang.com/po-web/app/purchase-order/list";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 
 // Read-only one-shot actions do not have server attempts. Keep their local
@@ -703,7 +700,6 @@ const ONCHANNEL_TAB_MATCHES = ["https://www.onch3.co.kr/*"];
 const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
 const LOTTEON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
-const LOTTEON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
 const LOTTEON_TAB_MATCHES = ["https://store.lotteon.com/*"];
 const GSSHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
 const GSSHOP_TAB_MATCHES = ["https://partners.gsshop.com/*"];
@@ -815,22 +811,132 @@ function mallFormRegister() {
       tabReason: INTERACTIVE_TAB_REASONS.MALL_PRODUCT_REGISTER,
       // 로그인이 풀려 폼이 없을 때만 쓴다. 주문수집이 쓰는 것과 같은 폼 채움 로그인이고,
       // 상품등록이 이미 열어 둔 탭 위에서 동작하므로 별도 탭·수집 lifecycle 을 만들지 않는다.
-      ensureLogin: (tabId, credentials, mallKey) => ensureMallLogin(tabId, credentials, mallKey),
+      ensureLogin: (tabId, credentials, mallKey) =>
+        mallSession().ensureLoggedIn(mallKey, credentials, { tab: { id: tabId } }),
     });
   }
   return mallFormRegisterInstance;
 }
 
-// 몰 로그인 상태 조용히 확인. 몰마다 정해진 읽기 전용 주소를 한 번 읽을 뿐, 로그인하지 않고
-// 탭도 열지 않는다. 자격증명을 받지 않으므로 ensureMallLogin 과 섞지 않는다.
-let mallSessionProbeInstance = null;
-function mallSessionProbe() {
-  if (!mallSessionProbeInstance) {
-    mallSessionProbeInstance = KidItemMallSessionProbe.create({
-      fetch: (...args) => fetch(...args),
-    });
+// 몰 세션 — "어디로 들어가나 · 로그인된 걸 어떻게 아나" 는 몰 세션 모듈의 한 줄 스펙이
+// 혼자 답한다(KID-254). 여기 남은 것은 그 모듈이 크롬에 대고 하는 일뿐이다.
+let mallSessionDriverInstance = null;
+function mallSessionDriver() {
+  if (!mallSessionDriverInstance) mallSessionDriverInstance = createMallSessionDriver();
+  return mallSessionDriverInstance;
+}
+
+let mallSessionInstance = null;
+function mallSession() {
+  if (!mallSessionInstance) {
+    mallSessionInstance = KidItemMallSession.create({ driver: mallSessionDriver() });
   }
-  return mallSessionProbeInstance;
+  return mallSessionInstance;
+}
+
+/**
+ * 몰 세션 모듈의 드라이버 — 탭 열기 · 프레임에 스크립트 넣기 · 알림 창 삼키기 · 조용히 한 번
+ * 읽기. 어느 몰을 어떻게 볼지는 모듈이 알고, 그 일이 실제로 일어나는 곳은 여기다.
+ *
+ * 수집 시도의 탭 소유권(fence · attach · detach)도 여기 있다 — 모듈은 "이 탭을 닫아도
+ * 되는가" 만 말하고, 그 시도가 아직 살아 있는지는 Orders 가 안다.
+ */
+function createMallSessionDriver() {
+  // 조용한 확인은 로그인하지 않고 탭도 열지 않는다. 자격증명을 받지 않는다.
+  const passiveProbe = KidItemMallSessionProbe.create({
+    fetch: (...args) => fetch(...args),
+    specs: KidItemMallSession.SPECS,
+    reasons: KidItemMallSession.REASONS,
+  });
+  const driver = {
+    now: () => Date.now(),
+    delay: (ms) => delay(ms),
+    withTimeout: (promise, timeoutMs, message) => withTimeout(promise, timeoutMs, message),
+    waitReady: (tabId) => waitForTabReady(tabId),
+    ensureActive: (collection) => assertOrderCollectionActive(collection),
+    cancelledResult: (error) => orderCollectionCancelledResult(error),
+    hasPermission: (origin) =>
+      chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false),
+
+    async openTab(url, collection) {
+      // 취소된 시도가 로그인 화면을 남기지 못하도록, 탭을 만들기 전에 소유권을 확인한다.
+      if (collection) await assertOrderCollectionActive(collection);
+      const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
+      if (!Number.isInteger(tab?.id)) return {};
+      rememberOrderCollectionTab(tab.id, collection?.attemptId);
+      if (collection) {
+        const attached = await attachOrderCollectionTab(collection, tab, true);
+        if (attached === null || attached === false) {
+          await closeFreshOrderCollectionTab(tab);
+          return { cancelled: true };
+        }
+      }
+      return { tab };
+    },
+
+    async closeTab(tab, { collection = null, keepOpen = false } = {}) {
+      // 사람이 봐야 하는 화면은 남긴다 — 닫으면 무엇을 해야 하는지 알 수 없다.
+      if (keepOpen) return;
+      forgetOrderCollectionTab(tab?.id);
+      if (collection) {
+        try {
+          await collection.detachTab(tab, { owned: false });
+        } catch {
+          /* 탭 종료는 계속 진행하고 다음 실행에서 stale 소유권을 정리한다. */
+        }
+      }
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+    },
+
+    async tabUrl(tabId) {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        return String(tab?.url || tab?.pendingUrl || "");
+      } catch {
+        return ""; // 탭 주소가 아직 준비되지 않았다.
+      }
+    },
+
+    watchDialogs: (tabId) => recordMallLoginDialogs(tabId),
+    takeDialog: (tabId) => takeMallLoginDialog(tabId),
+    loginFormRemains: (tabId) => loginFormRemainsAfterSubmit(tabId),
+
+    async fillLoginForm(tabId, credentials) {
+      try {
+        const injected = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: autoSubmitIcecreamMallLogin,
+          args: [credentials],
+        });
+        return { frames: injected.map((item) => item.result) };
+      } catch {
+        // 권한이 없는 주소(로그인 화면이 다른 도메인으로 넘어가는 몰)면 이 길로 떨어진다.
+        return { unreachable: true };
+      }
+    },
+
+    async inspectScreen(tabId) {
+      const href = await driver.tabUrl(tabId);
+      try {
+        const injected = await withTimeout(
+          chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectMallLoginScreen }),
+          5000,
+          "login-screen-no-answer",
+        );
+        return { href, frames: (injected || []).map((item) => item.result).filter(Boolean) };
+      } catch {
+        // 권한 밖 주소로 넘어갔거나 알림 창이 떠 페이지가 멈췄다.
+        return { href, frames: null };
+      }
+    },
+
+    probe: (mallKey) => passiveProbe.probe(mallKey),
+  };
+  return driver;
 }
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
@@ -1141,9 +1247,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     ));
   }
 
-  // 로그인 상태만 본다. 몰 키 하나만 받고, 주소는 모듈의 고정 목록에서만 나온다.
+  // 조용히 한 번 읽어 본 로그인 상태. 몰 키 하나만 받고, 주소는 스펙에서만 나온다.
   if (msg?.action === "probeMallSession") {
-    return respond(mallSessionProbe().probe(typeof msg.mallKey === "string" ? msg.mallKey : ""));
+    return respond(probeMallSessionQuietly(typeof msg.mallKey === "string" ? msg.mallKey : ""));
   }
 
   if (msg?.action === "ensureMallLoggedIn") {
@@ -1163,7 +1269,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: false, errorCode: "invalid_request", error: "로그인 테스트 요청이 올바르지 않습니다." });
       return true;
     }
-    return respond(ensureMallLoggedIn(
+    return respond(mallSession().ensureLoggedIn(
       msg.mallKey,
       {
         loginId: credentials.loginId,
@@ -1171,7 +1277,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         ...(credentials.supplierLoginId ? { supplierLoginId: credentials.supplierLoginId } : {}),
         ...(credentials.siteUrl ? { siteUrl: credentials.siteUrl } : {}),
       },
-      null,
     ));
   }
 
@@ -6039,150 +6144,6 @@ async function takeMallLoginDialog(tabId) {
   }
 }
 
-// 제네릭 자동 로그인: 탭에 로그인 폼(ID/비밀번호칸)이 보이면 저장된 계정으로 채워 제출한다.
-// credentials 없으면 아무것도 안 함(세션에 의존 = 기존 동작). autoSubmitIcecreamMallLogin 휴리스틱 재사용.
-async function ensureMallLogin(tabId, credentials, mallKey = null) {
-  if (!credentials || !credentials.loginId || !credentials.password) {
-    return { success: true, submitted: false };
-  }
-  const expiresAt = Date.now() + 15000;
-  let sawIncompleteLoginForm = false;
-  let lastIncompleteReason = null;
-  let kidkidsManagementStableSince = null;
-  // 한 번이라도 화면을 들여다봤는가. 한 번도 못 봤다면 '이미 로그인됨' 이라고 말할 근거가 없다.
-  let sawAnyFrame = false;
-  let lastInjectionError = null;
-  // 몰이 알림 창으로 말하는 답("아이디 또는 비밀번호가 일치하지 않습니다")을 받아 둔다.
-  await recordMallLoginDialogs(tabId);
-  while (Date.now() < expiresAt) {
-    let results = [];
-    try {
-      const injected = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: autoSubmitIcecreamMallLogin,
-        args: [credentials],
-      });
-      results = injected.map((item) => item.result).filter(Boolean);
-      if (results.length > 0) sawAnyFrame = true;
-    } catch (e) {
-      // 권한이 없는 주소(로그인 화면이 다른 도메인으로 넘어가는 몰)면 계속 이 길로 떨어진다.
-      lastInjectionError = e;
-    }
-    const submitted = results.find((r) => r.state === "submitted");
-    if (submitted) {
-      await delay(1500);
-      await waitForTabReady(tabId); // 로그인 후 리다이렉트 정착
-      await delay(1200);
-      // 눌렀다고 로그인된 것은 아니다. 로그인 화면이 남았는지까지 보고 `verified` 로 알린다.
-      // 몰마다 로그인 뒤 화면이 달라(알림 창이 뜨거나 관리자 화면에 비밀번호 칸이 남는다) 이것만으로
-      // 비밀번호가 틀렸다고 단정하지 않는다 — 판정은 웹이 하고, 같은 비밀번호를 다시 넣는 것은
-      // 웹의 재시도 간격이 막는다.
-      const mallMessage = await takeMallLoginDialog(tabId);
-      const loginFormRemains = await loginFormRemainsAfterSubmit(tabId);
-      return {
-        success: true,
-        submitted: true,
-        verified: !loginFormRemains,
-        ...(loginFormRemains ? { verifyReason: "login_form_remains" } : {}),
-        // 몰이 알림 창으로 남긴 답. 왜 안 됐는지는 몰이 가장 잘 안다.
-        ...(mallMessage ? { mallMessage } : {}),
-        method: submitted.method || null,
-      };
-    }
-    // 어느 프레임에서도 로그인 폼이 없으면 이미 로그인된 상태로 간주.
-    // 키드키즈는 management.htm 로드가 끝난 뒤 클라이언트 리다이렉트로 로그인 페이지를
-    // 여는 구간이 있어, 첫 no-login-form 을 성공으로 처리하면 자동 로그인을 건너뛴다.
-    if (results.length && results.every((r) => r.state === "no-login-form")) {
-      if (mallKey !== "kidkids") {
-        // 이미 로그인된 세션이라 폼이 없다. 저장된 비밀번호를 검증한 것이 아니다.
-        return { success: true, submitted: false, reason: "already_signed_in" };
-      }
-
-      let currentUrl = "";
-      try {
-        currentUrl = String((await chrome.tabs.get(tabId))?.url || "").toLowerCase();
-      } catch {
-        /* 탭 URL도 아직 준비되지 않음 — 제한시간 안에서 재시도 */
-      }
-
-      if (/\/security\/verify_user\.htm(?:[?#]|$)/.test(currentUrl)) {
-        return {
-          success: false,
-          submitted: false,
-          pendingLogin: true,
-          error: "키드키즈 본인 인증이 필요합니다. 열린 탭에서 인증 후 다시 수집해 주세요.",
-        };
-      }
-
-      const isKidkidsLoginUrl =
-        /\/partnerlogin\.htm(?:[?#]|$)/.test(currentUrl) ||
-        /\/join\/partner_login\.htm(?:[?#]|$)/.test(currentUrl);
-      const isKidkidsManagementUrl =
-        /^https:\/\/partner\.kidkids\.net\/new\/pages\/logis\/management\.htm(?:[?#]|$)/.test(
-          currentUrl,
-        );
-
-      if (isKidkidsLoginUrl) {
-        kidkidsManagementStableSince = null;
-      } else if (isKidkidsManagementUrl) {
-        kidkidsManagementStableSince ??= Date.now();
-        if (Date.now() - kidkidsManagementStableSince >= 5000) {
-          return { success: true, submitted: false, reason: "already_signed_in" };
-        }
-      } else {
-        kidkidsManagementStableSince = null;
-      }
-
-      await delay(500);
-      continue;
-    }
-    const incomplete = results.find((result) =>
-      ["incomplete", "credentials-missing"].includes(result.state),
-    );
-    if (incomplete) {
-      sawIncompleteLoginForm = true;
-      lastIncompleteReason = incomplete.reason || incomplete.state;
-    }
-    await delay(500);
-  }
-  if (sawIncompleteLoginForm) {
-    return {
-      success: false,
-      submitted: false,
-      pendingLogin: true,
-      error: `로그인 폼 자동 입력을 완료하지 못했습니다 (${lastIncompleteReason || "unknown"}). 열린 탭에서 로그인 후 다시 수집해 주세요.`,
-    };
-  }
-  if (mallKey === "kidkids") {
-    return {
-      success: false,
-      submitted: false,
-      pendingLogin: true,
-      error: "키드키즈 로그인 상태를 제한시간 안에 확인하지 못했습니다. 열린 탭에서 로그인 후 다시 수집해 주세요.",
-    };
-  }
-  // 화면을 한 번도 들여다보지 못했다. 확장이 그 주소에 접근할 권한이 없을 때가 대부분이다
-  // (쿠팡처럼 로그인 화면이 다른 도메인으로 넘어가는 몰). 이것을 '이미 로그인됨' 으로 답하면
-  // 아무도 로그인하지 않은 채 수집이 굴러가 "로그인 필요" 로 끝난다 — 이유를 그대로 말한다.
-  if (!sawAnyFrame && lastInjectionError) {
-    let host = "";
-    try {
-      host = new URL(String((await chrome.tabs.get(tabId))?.url || "")).host;
-    } catch {
-      /* 탭 주소를 못 읽으면 호스트 없이 안내한다. */
-    }
-    return {
-      success: false,
-      submitted: false,
-      pendingLogin: true,
-      errorCode: "login_page_not_reachable",
-      loginPageUnreachable: true,
-      error: `${host || "로그인"} 화면에 확장이 접근할 수 없어 자동 로그인을 하지 못했습니다. 확장을 최신 버전으로 다시 불러온 뒤 다시 시도해 주세요.`,
-    };
-  }
-  return { success: true, submitted: false, reason: "already_signed_in" }; // 폼 못 봄
-}
-
 // 로그인 버튼을 누른 뒤 로그인 폼이 남았는가. 값을 넣거나 누르지 않고 폼만 찾는다.
 //
 // 알림 창이 떠 있으면 페이지 스크립트가 멈춰 확인 스크립트도 답하지 않는다 — 답이 없으면 남은
@@ -6215,27 +6176,12 @@ async function loginFormRemainsAfterSubmit(tabId) {
   return lastSeen;
 }
 
-// ── 몰 로그인 상태 확인(화면을 열어 본다) ──
+// ── 몰 로그인 화면 들여다보기 ──
 //
-// 조용히 읽는 확인(mall-session-probe)으로 답이 나오지 않는 몰은 관리자 화면을 백그라운드 탭에
-// 실제로 열어, 로그인 폼이 뜨는지 · 인증 화면이 뜨는지 본다. 사장님: "로그인됨 / 인증 필요 /
-// 로그인 필요 3가지 아냐?" — 결과는 그 셋 중 하나다. 아이디 · 비밀번호를 넣지도 누르지도
-// 않고, 본 탭은 바로 닫는다.
-
-// 로그인 화면 주소가 아니면 열지 않는 몰의 관리자 첫 화면. 로그인 화면 주소는 로그인돼 있어도
-// 로그인 폼을 보여 줄 수 있어, 확인에는 로그인해야 열리는 화면을 쓴다.
-const MALL_LOGIN_CHECK_URLS = Object.freeze({
-  always: "https://alwayzseller.ilevit.com/",
-  kakao: "https://shopping-seller.kakao.com/",
-  coupang: "https://wing.coupang.com/",
-  rocket: COUPANG_DIRECT_LOGIN_URL,
-  "coupang-direct": COUPANG_DIRECT_LOGIN_URL,
-  "benepia-mul": "https://newmallvenadm.benepia.co.kr/",
-});
-
-// 로그인 화면으로 넘어갔다는 주소. 권한 밖 도메인(통합 로그인)이어도 탭 주소는 읽힌다.
-const LOGIN_SCREEN_URL = /\/(?:login|signin|sign-in|signIn)(?:[/?#.]|$)|loginform|partnerlogin|partner_login|login_so|authentication\/login|xauth\.coupang\.com|nid\.naver\.com|accounts\.kakao\.com|accounts\.commerce\.naver\.com/i;
-const VERIFY_SCREEN_URL = /verify_user|\/otp(?:[/?#.]|$)|two-?factor|\/mfa(?:[/?#.]|$)/i;
+// 조용히 읽는 확인으로 답이 나오지 않는 몰은 관리자 화면을 백그라운드 탭에 실제로 열어,
+// 로그인 폼이 뜨는지 · 인증 화면이 뜨는지 본다. 어느 주소를 열지와 무엇으로 판정할지는 몰
+// 세션 모듈이 정하고, 여기서는 그 화면을 들여다보기만 한다. 아이디 · 비밀번호를
+// 넣지도 누르지도 않는다.
 
 /**
  * 탭 안에서 본다 — 로그인 폼(보이는 비밀번호 칸 + 아이디 칸)인가, 인증 화면(인증번호 · OTP 칸)인가.
@@ -6264,87 +6210,27 @@ function inspectMallLoginScreen() {
   };
 }
 
-async function lookAtMallLoginScreen(tabId) {
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  const href = String(tab?.url || tab?.pendingUrl || "");
-  let frames = null;
-  try {
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectMallLoginScreen }),
-      5000,
-      "login-screen-no-answer",
-    );
-    frames = (injected || []).map((item) => item.result).filter(Boolean);
-  } catch {
-    // 권한 밖 주소로 넘어갔거나 알림 창이 떠 페이지가 멈췄다.
-    frames = null;
-  }
-  if (frames?.some((frame) => frame.loginForm) || LOGIN_SCREEN_URL.test(href)) {
-    return { state: "signed_out", reason: "login_page", definite: true };
-  }
-  if (frames?.some((frame) => frame.verification) || VERIFY_SCREEN_URL.test(href)) {
-    return { state: "verification_required", reason: "verification_required", definite: true };
-  }
-  if (!frames || frames.length === 0) {
-    return { state: "signed_out", reason: "login_page_not_reachable", definite: false };
-  }
-  return { state: "signed_in", reason: "admin_page", definite: false };
-}
-
-async function checkMallLoginOnScreen(mallKey, siteUrl) {
-  const url = mallSessionProbe().urlOf(mallKey)
-    || MALL_LOGIN_CHECK_URLS[mallKey]
-    || savedMallLoginUrl({ siteUrl });
-  if (!url) return { state: "signed_out", reason: "no_login_address" };
-  let origin;
-  try {
-    origin = new URL(url).origin;
-  } catch {
-    return { state: "signed_out", reason: "no_login_address" };
-  }
-  const allowed = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
-  if (!allowed) return { state: "signed_out", reason: "login_page_not_reachable" };
-
-  const tab = await chrome.tabs.create({ url, active: false });
-  if (!Number.isInteger(tab?.id)) return { state: "signed_out", reason: "login_page_not_reachable" };
-  rememberOrderCollectionTab(tab.id, null);
-  try {
-    await withTimeout(waitForTabReady(tab.id), 20000, "login-screen-load").catch(() => undefined);
-    // SPA 는 화면을 띄운 뒤 로그인 여부를 확인하고 로그인 화면으로 넘긴다 — 그 시간을 준다.
-    await delay(2500);
-    let seen = null;
-    for (let look = 0; look < 2; look += 1) {
-      if (look > 0) await delay(2000);
-      seen = await lookAtMallLoginScreen(tab.id);
-      if (seen.definite) break;
-    }
-    return { state: seen.state, reason: seen.reason };
-  } finally {
-    forgetOrderCollectionTab(tab.id);
-    try {
-      await chrome.tabs.remove(tab.id);
-    } catch {
-      /* 이미 닫힘 — 무시 */
-    }
-  }
-}
-
 /**
- * 몰 로그인 상태 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나. 조용히 읽는 확인이 확실하면
- * 그 답을 쓰고, 아니면 화면을 열어 본다. 로그인은 하지 않는다.
+ * 몰 로그인 상태 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나. 판정은 몰 세션 모듈이
+ * 하고(`in` · `out` · `unknown`), 여기서는 웹이 읽는 말로 옮긴다. 가리지 못한 몰은 사람이
+ * 몰에 들어가 봐야 하므로 로그인 필요로 답하고 이유를 그대로 싣는다 — 확인 불가는 없다.
  */
 async function checkMallLogin(mallKey, siteUrl) {
-  const passive = await mallSessionProbe().probe(mallKey);
-  if (passive.state === "signed_in") {
-    return { success: true, mallKey, state: "signed_in", reason: passive.reason };
-  }
-  if (passive.state === "signed_out") {
-    return passive.reason === "verification_required"
-      ? { success: true, mallKey, state: "verification_required", reason: "verification_required" }
-      : { success: true, mallKey, state: "signed_out", reason: passive.reason };
-  }
-  const seen = await checkMallLoginOnScreen(mallKey, siteUrl);
-  return { success: true, mallKey, state: seen.state, reason: seen.reason };
+  const found = await mallSession().checkLogin(mallKey, siteUrl);
+  const state = found.verdict === "in"
+    ? "signed_in"
+    : found.verdict === "out" && found.reason === "verification_required"
+      ? "verification_required"
+      : "signed_out";
+  return { success: true, mallKey, state, reason: found.reason };
+}
+
+/** 조용히 한 번 읽어만 본 로그인 상태. 화면을 열지 않아 모를 수 있다. */
+async function probeMallSessionQuietly(mallKey) {
+  const key = typeof mallKey === "string" ? mallKey : "";
+  const found = await mallSessionDriver().probe(key);
+  const state = found.verdict === "in" ? "signed_in" : found.verdict === "out" ? "signed_out" : "unknown";
+  return { success: true, mallKey: key, state, reason: found.reason };
 }
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
@@ -6359,126 +6245,22 @@ function ensureMallLoginWithLifecycle(message) {
         message.mallKey,
         message.date,
       ),
-      (collection) => ensureMallLoggedIn(
+      (collection) => mallSession().ensureLoggedIn(
         message.mallKey,
         message.credentials,
-        collection,
+        { collection },
       ),
     );
   }
   return runOwnedOrderCollection(
     message,
     message.mallKey,
-    (collection) => ensureMallLoggedIn(
+    (collection) => mallSession().ensureLoggedIn(
       message.mallKey,
       message.credentials,
-      collection,
+      { collection },
     ),
   );
-}
-
-/**
- * 쇼핑몰 계정에 저장된 사이트 주소. 고정 로그인 주소가 없는 몰은 여기로 들어가 같은 폼
- * 자동 로그인을 돌린다. 주소는 사장님이 적은 것만 쓰고(http · https 만), 그 밖의 값은 없는
- * 것으로 본다 — 확장이 임의의 주소를 열지 않는다.
- */
-function savedMallLoginUrl(credentials) {
-  const raw = typeof credentials?.siteUrl === "string" ? credentials.siteUrl.trim() : "";
-  if (!raw) return null;
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
-  if (!credentials || !credentials.loginId || !credentials.password) {
-    return { success: true, submitted: false, reason: "no_credentials" };
-  }
-  const urls = {
-    kidsnote: KIDSNOTE_ORDER_URL,
-    kkomangse: KKOMANGSE_ORDER_URL,
-    onch: ONCHANNEL_ORDER_URL,
-    domeggook: DOMEGGOOK_LIST_URL,
-    kidkids: KIDKIDS_ORDER_URL,
-    boribori: BORIBORI_ORDER_URL,
-    art09: ART09_ORDER_URL,
-    "haebub-mall": HAEBEOP_ORDER_URL,
-    "icecream-mall": ICECREAM_MALL_URL,
-    "teacher-mall": TEACHERVILLE_ORDER_URL,
-    "gs-shop": GSSHOP_ORDER_URL,
-    // 롯데ON 은 <form> 없는 WebSquare 화면이지만 사용자ID/비밀번호 input 과
-    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 가능하다(2026-09-01 DOM 확인).
-    "lotte-on": LOTTEON_LOGIN_URL,
-    // 쿠팡 직배송은 로켓 계정 행에 저장된 아이디·비밀번호를 쓴다(ADR-0012).
-    "coupang-direct": COUPANG_DIRECT_LOGIN_URL,
-    // 카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어 form-fill 자동로그인이
-    // 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
-  };
-  // 고정 주소가 있는 몰은 그 주소로, 없는 몰은 사장님이 쇼핑몰 계정에 적어 둔 사이트 주소로
-  // 들어간다. 주소가 둘 다 없으면 어디로 갈지 모르므로 시도하지 않는다 — 시도하지 않았다는
-  // 사실을 호출부가 알아야 "확인됨" 으로 잘못 표시하지 않는다.
-  const url = urls[mallKey] || savedMallLoginUrl(credentials);
-  if (!url) return { success: true, submitted: false, reason: "unsupported_mall" };
-  // Managed collection login owns a fresh tab. Fence the owner before opening
-  // it so a cancelled attempt cannot create an orphan login page.
-  if (collection) await assertOrderCollectionActive(collection);
-  const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
-  if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
-  rememberOrderCollectionTab(tab.id, collection?.attemptId);
-  if (collection) {
-    const attached = await attachOrderCollectionTab(collection, tab, true);
-    if (attached === null || attached === false) {
-      await closeFreshOrderCollectionTab(tab);
-      return orderCollectionCancelledResult();
-    }
-  }
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    await delay(1000);
-    // The login page may take a while to settle or the attempt may have been
-    // cancelled while it loaded. Check the owner immediately before scripting.
-    await assertOrderCollectionActive(collection);
-    const result = await withTimeout(
-      ensureMallLogin(tab.id, credentials, mallKey),
-      35000,
-      "자동 로그인 시간이 초과되었습니다.",
-    );
-    // 로그인했는지 확인하지 못한 경우에도 탭을 남긴다 — 사람이 그 화면을 봐야 안다.
-    if (!result.success || result.verified === false || orderCollectionNeedsAttention(result)) {
-      keepOpen = true;
-    }
-    return result;
-  } catch (error) {
-    if (error?.code === "COLLECTION_CANCELLED") {
-      return orderCollectionCancelledResult(error);
-    }
-    keepOpen = true;
-    return {
-      success: false,
-      submitted: false,
-      pendingLogin: true,
-      error: error instanceof Error ? error.message : "자동 로그인을 완료하지 못했습니다.",
-    };
-  } finally {
-    if (!keepOpen) {
-      if (collection) {
-        try {
-          await collection.detachTab(tab, { owned: false });
-        } catch {
-          /* 탭 종료는 계속 진행하고 다음 실행에서 stale 소유권을 정리한다. */
-        }
-      }
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
 }
 
 function detectIcecreamMallLoginState() {
@@ -7720,7 +7502,8 @@ KidItemDomains.register({
     mallLoginCheckV2: true,
     // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
     orderCollectionTabCloseV1: true,
-    mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "boribori", "lotte-on", "gs-shop", "ssg", "thirtymall", "kkomangse"],
+    mallSessionProbeMalls: (typeof KidItemMallSession !== "undefined"
+      && KidItemMallSession.passiveMalls) || [],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
