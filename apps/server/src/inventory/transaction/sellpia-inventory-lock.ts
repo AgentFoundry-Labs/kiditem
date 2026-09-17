@@ -30,13 +30,21 @@ const issuedLocks = new WeakSet<SellpiaInventoryLock>();
 /**
  * Takes the lock for the rest of `tx` and returns the evidence of it. `tx`
  * must be an interactive transaction client: on the root client the advisory
- * lock ends with its own statement. The call cannot check this, because a
- * Prisma 7 transaction client also exposes `$transaction`.
+ * lock ends with its own statement, so a client that still has `$connect` is
+ * refused before the lock is requested.
+ * The evidence belongs to the transaction client that took it, so a nested
+ * transaction takes its own.
  */
 export async function lockSellpiaInventory(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<SellpiaInventoryLock> {
+  // `typeof`, not `in`: the `in` check can throw on Prisma's client proxies.
+  if (typeof (tx as { $connect?: unknown }).$connect === 'function') {
+    throw new Error(
+      "lockSellpiaInventory needs the caller's interactive transaction client; a root client releases the advisory lock immediately.",
+    );
+  }
   const lockKey = `inventory-sellpia:${organizationId}:${SELLPIA_INVENTORY_SOURCE_TYPE}`;
   await tx.$queryRaw`
     -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.

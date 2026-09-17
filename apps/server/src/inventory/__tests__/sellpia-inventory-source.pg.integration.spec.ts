@@ -694,21 +694,67 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       });
   });
 
-  it('cannot tell the root client from a transaction client by $transaction', async () => {
-    // Prisma 7 transaction clients open nested transactions, so both expose
-    // $transaction; only the root client keeps $connect. Passing the root
-    // client to lockSellpiaInventory releases the lock at once.
-    const surface = (client: object) => {
-      const members = client as Record<string, unknown>;
-      return {
-        $transaction: typeof members.$transaction,
-        $connect: typeof members.$connect,
-      };
-    };
+  it('takes the Sellpia lock only on an interactive transaction client', async () => {
+    const attempt = await begin('lock-client');
+    await complete(attempt, snapshot(7)).expect(201);
+    const sku = await publishedSku();
 
-    expect(surface(prisma)).toEqual({ $transaction: 'function', $connect: 'function' });
-    await expect(prisma.$transaction(async (tx) => surface(tx)))
-      .resolves.toEqual({ $transaction: 'function', $connect: 'undefined' });
+    // A root client is refused before it asks for the lock: while another
+    // transaction holds it, the call fails at once instead of waiting.
+    let lockHeld!: () => void;
+    const held = new Promise<void>((resolve) => { lockHeld = resolve; });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const holder = prisma.$transaction(async (tx) => {
+      await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+      lockHeld();
+      await released;
+    }, { maxWait: 10_000, timeout: 30_000 });
+    await held;
+    let waited: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const rootOutcome = await Promise.race([
+        lockSellpiaInventory(prisma, TEST_ORGANIZATION_ID).then(
+          () => 'locked',
+          (error: Error) => error.message,
+        ),
+        new Promise<string>((resolve) => {
+          waited = setTimeout(() => resolve('waited for the lock'), 1_000);
+        }),
+      ]);
+      expect(rootOutcome).toBe(
+        "lockSellpiaInventory needs the caller's interactive transaction client; a root client releases the advisory lock immediately.",
+      );
+      expect(await waitingAdvisoryLocks(prisma)).toBe(0);
+    } finally {
+      clearTimeout(waited);
+      release();
+      await holder;
+    }
+
+    await expect(prisma.$transaction((tx) =>
+      lockSellpiaInventory(tx, TEST_ORGANIZATION_ID))).resolves.toMatchObject({
+      organizationId: TEST_ORGANIZATION_ID,
+    });
+
+    // A nested transaction takes evidence of its own; the outer evidence
+    // belongs to the outer client.
+    await expect(prisma.$transaction(async (tx) => {
+      const outer = await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+      return tx.$transaction(async (nested) => {
+        const inner = await lockSellpiaInventory(nested, TEST_ORGANIZATION_ID);
+        await expect(readInventoryAvailability(nested, outer, {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaInventorySkuIds: [sku.id],
+        })).rejects.toThrow('Sellpia inventory lock was taken in another transaction');
+        return readInventoryAvailability(nested, inner, {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaInventorySkuIds: [sku.id],
+        });
+      });
+    })).resolves.toMatchObject({
+      items: [{ sellpiaInventorySkuId: sku.id, currentStock: 7 }],
+    });
   });
 
   it('holds a reader caller behind a publication that holds the Sellpia lock until it commits', async () => {
@@ -990,14 +1036,18 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
   }
 });
 
+async function waitingAdvisoryLocks(prisma: PrismaClient): Promise<number> {
+  const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
+    SELECT count(*)::int AS waiting
+    FROM pg_locks
+    WHERE locktype = 'advisory' AND NOT granted
+  `;
+  return row?.waiting ?? 0;
+}
+
 async function waitForBlockedAdvisoryLock(prisma: PrismaClient): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
-    const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
-      SELECT count(*)::int AS waiting
-      FROM pg_locks
-      WHERE locktype = 'advisory' AND NOT granted
-    `;
-    if ((row?.waiting ?? 0) > 0) return;
+    if (await waitingAdvisoryLocks(prisma) > 0) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error('Timed out waiting for the reader caller to wait on the Sellpia lock.');
