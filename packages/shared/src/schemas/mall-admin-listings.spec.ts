@@ -7,6 +7,7 @@ import {
   MallAdminListingRowSchema,
   MallAdminListingsBeginSchema,
   MallAdminListingsPlanSchema,
+  MallAdminListingsPublicationSchema,
   MallAdminListingsSubmissionSchema,
 } from './mall-admin-listings';
 
@@ -117,5 +118,12 @@ describe('MallAdminListingsSubmissionSchema', () => {
       ...submission,
       proof: { ...submission.proof, validatedList: false },
     }).success).toBe(false);
+  });
+});
+
+describe('MallAdminListingsPublicationSchema', () => {
+  it('⭐ 새 칸이 생기기 전에 저장된 발행 결과도 읽는다 — 0개라고 거짓말하지 않는다', () => {
+    const old = { listings: 3478, deactivated: 0, missingNames: 1484, statuses: { 판매중: 555 } };
+    expect(MallAdminListingsPublicationSchema.parse(old)).toEqual({ ...old, codedListings: 0 });
   });
 });

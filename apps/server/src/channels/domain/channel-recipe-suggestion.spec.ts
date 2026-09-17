@@ -695,4 +695,90 @@ describe('classifyChannelRecipeSuggestion', () => {
       recommendedQuantity: null,
     });
   });
+
+  it('⭐ 이름이 글자까지 같고 묶음 표기가 없으면 낱개 하나다 (KID-246, 사장님 2026-09-17)', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{
+        channelListingOptionId: '00000000-0000-4000-8000-000000000001',
+        listingName: '[키드아이템] 병아리스마트만능패드',
+        itemName: '병아리스마트만능패드',
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      similarityEvidence: [{
+        kind: 'normalized_name',
+        channelValue: '병아리스마트만능패드',
+        normalizedValue: '병아리스마트만능패드',
+        score: 1,
+        sku: sku({ code: '8619-1', name: '병아리스마트만능패드' }),
+      }],
+    }));
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(1);
+  });
+
+  it('묶음 표기가 있으면 그 수를 쓴다 — 낱개로 접지 않는다', () => {
+    const packed = classifyChannelRecipeSuggestion(input({
+      options: [{
+        channelListingOptionId: '00000000-0000-4000-8000-000000000001',
+        listingName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+        itemName: '스크림가면',
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      similarityEvidence: [{
+        kind: 'normalized_name',
+        channelValue: '스크림가면',
+        normalizedValue: '스크림가면',
+        score: 1,
+        sku: sku({ code: '792-1', name: '스크림가면' }),
+      }],
+    }));
+    expect(packed.recommendedQuantity).toBe(12);
+  });
+
+  it('묶음 표기가 서로 어긋나면 낱개로 접지 않는다', () => {
+    const conflicting = classifyChannelRecipeSuggestion(input({
+      options: [{
+        channelListingOptionId: '00000000-0000-4000-8000-000000000001',
+        listingName: '스크림가면 2개입',
+        itemName: '스크림가면 5개',
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      similarityEvidence: [{
+        kind: 'normalized_name',
+        channelValue: '스크림가면',
+        normalizedValue: '스크림가면',
+        score: 1,
+        sku: sku({ code: '792-1', name: '스크림가면' }),
+      }],
+    }));
+    expect(conflicting.automationDecision).toBe('quantity_review');
+  });
+
+  it('이름이 정확히 같지 않은 후보(유사)는 낱개로 접지 않는다', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{
+        channelListingOptionId: '00000000-0000-4000-8000-000000000001',
+        listingName: '병아리 스마트 만능패드 대용량',
+        itemName: '병아리스마트만능패드세트',
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      similarityEvidence: [{
+        kind: 'fuzzy_name',
+        channelValue: '병아리스마트만능패드',
+        normalizedValue: '병아리스마트만능패드',
+        score: 0.9,
+        sku: sku({ code: '8619-1', name: '병아리스마트만능패드' }),
+      }],
+    }));
+    expect(result.automationDecision).toBe('quantity_review');
+  });
+
 });

@@ -110,8 +110,13 @@ export const MallAdminListingsPublicationSchema = z.object({
   deactivated: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
   /** 셀피아 쪽 이름을 읽지 못한 상품 수. 그 상품은 상품명으로만 잇는다. */
   missingNames: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
-  /** 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수. */
-  codedListings: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /**
+   * 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수.
+   *
+   * 이 칸이 생기기 전에 저장된 발행 결과에도 기본값으로 붙는다 — 새 칸 하나 때문에 옛
+   * 결과를 통째로 못 읽으면 화면이 "0개 가져옴"이라고 거짓말을 한다.
+   */
+  codedListings: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
   /** 우리 상태 글자별 상품 수. */
   statuses: z.record(requiredText(20), z.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT))
     .refine((value) => Object.keys(value).length <= 20, 'Too many statuses'),

@@ -851,7 +851,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     })).resolves.toEqual({ sellpiaInventorySkuId: sku.id, quantity: 1 });
   });
 
-  it('leaves duplicate normalized names and unknown selling quantities for review', async () => {
+  it('leaves duplicate normalized names for review, and reads an unmarked exact name as one unit (KID-246)', async () => {
     const first = await createProduct('KI-NAME-DUP-1', '키즈 식판');
     const second = await createProduct('KI-NAME-DUP-2', '키즈 식판');
     await Promise.all([
@@ -887,10 +887,16 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     } });
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
-      .resolves.toEqual({ evaluatedListings: 2, matchedListings: 0, configuredOptions: 0 });
+      .resolves.toEqual({ evaluatedListings: 2, matchedListings: 1, configuredOptions: 1 });
+    // 같은 이름이 SKU 둘에 걸리면 어느 쪽인지 모른다 — 그대로 사람 확인으로 남긴다.
     expect(await prisma.channelListingOptionInventoryComponent.count({
-      where: { channelListingOptionId: { in: [duplicateOption.id, quantityOption.id] } },
+      where: { channelListingOptionId: duplicateOption.id },
     })).toBe(0);
+    // 이름이 그 상품 이름과 글자까지 같고 묶음 표기가 없으면 낱개 하나다(사장님 2026-09-17).
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: quantityOption.id },
+      select: { quantity: true },
+    })).resolves.toEqual([{ quantity: 1 }]);
   });
 
   it('leaves a high-scoring color mismatch for review', async () => {

@@ -67,7 +67,7 @@ describe('ChannelRecipeSuggestionService', () => {
     );
   });
 
-  it('strips a leading Sellpia price code but requires registration quantity confirmation', async () => {
+  it('strips a leading Sellpia price code and reads an unmarked exact name as one unit (KID-246)', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {
       sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
@@ -92,9 +92,11 @@ describe('ChannelRecipeSuggestionService', () => {
     })).resolves.toMatchObject({
       channelListingOptionId: optionId,
       masterProductId: null,
-      status: 'quantity_review',
-      automationDecision: 'quantity_review',
-      recommendedQuantity: null,
+      // 이름이 그 상품 이름과 글자까지 같고(가격 접두만 다름) 어디에도 묶음 표기가 없으면
+      // 낱개 하나다(사장님 2026-09-17). 차감수량은 등록 화면에서 사람이 바꿀 수 있다.
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
       proposals: [{
         sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
         code: '10451-1',
