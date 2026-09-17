@@ -27,6 +27,10 @@ test('registers the ledger reader scanner', () => {
   assert.ok(!SCRIPT_INVENTORY.includes('check-listing-day-ad-reader.sh'));
 });
 
+test('registers the cross-owner foreign-key scanner', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('check-cross-owner-fk.mjs'));
+});
+
 test('accepts complete script inventory metadata', () => {
   const result = analyzeInventory({
     actualFiles: SCRIPT_INVENTORY,
@@ -48,6 +52,7 @@ test('accepts complete script inventory metadata', () => {
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:cutover-blocker-coverage': 'node scripts/check-cutover-blocker-coverage.mjs',
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
+      'check:cross-owner-fk': 'node scripts/check-cross-owner-fk.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
       'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
@@ -57,7 +62,7 @@ test('accepts complete script inventory metadata', () => {
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
     },
   });
 
@@ -86,6 +91,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:cutover-blocker-coverage': 'node scripts/check-cutover-blocker-coverage.mjs',
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
+      'check:cross-owner-fk': 'node scripts/check-cross-owner-fk.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
       'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
@@ -95,7 +101,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
     },
   });
 
@@ -132,6 +138,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:scripts-inventory',
     'check:cutover-blocker-coverage',
     'check:ledger-readers',
+    'check:cross-owner-fk',
     'deploy:office:local',
     'deploy:office:status',
     'deploy:office:rollback',
@@ -143,6 +150,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'test:scripts',
     'check:conventions -> check:scripts-inventory',
     'check:conventions -> check:ledger-readers',
+    'check:conventions -> check:cross-owner-fk',
     'check:conventions -> check:schema-artifact-sync',
     'check:conventions -> check:directory-architecture',
     'check:conventions -> check:shared-interface-names',
