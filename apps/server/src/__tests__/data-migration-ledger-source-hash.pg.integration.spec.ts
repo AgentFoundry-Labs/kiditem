@@ -316,6 +316,17 @@ describe('data migration ledger source hash (PostgreSQL)', () => {
     expect(failed.error).toContain('a key reserved for the runner');
     expect(failed.details).toEqual({ _runner: attempted });
 
+    // Each new attempt on a failed row records the source it ran.
+    const retried = sourceOf(RESERVED_KEY_PROBE_ID, 'export const reserved = 1.5;\n');
+    await expect(
+      applyDataMigration(prisma, reserved.migration, { target: 'local' }, RUN_IDENTITY, retried, TRANSACTION_TIMEOUT_MS),
+    ).rejects.toThrow('returned details._runner');
+    expect(reserved.run).toHaveBeenCalledTimes(2);
+    const [failedAgain] = await ledgerRows(RESERVED_KEY_PROBE_ID);
+    expect(failedAgain).toMatchObject({ status: 'failed', affectedRows: 0 });
+    expect(failedAgain.details).toEqual({ _runner: retried });
+    expect(await probeWrites()).toEqual([]);
+
     // A failed attempt runs again from the current file, so it is never listed as drift.
     const fixedSource = sourceOf(RESERVED_KEY_PROBE_ID, 'export const reserved = 2;\n');
     const current = new Map([[RESERVED_KEY_PROBE_ID, fixedSource]]);
