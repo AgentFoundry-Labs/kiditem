@@ -4,9 +4,9 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CompletePurchaseOrderProviderFailureInput,
@@ -533,7 +533,7 @@ async function readPurchaseInventoryAvailability(
       sellpiaInventorySkuIds,
     });
   } catch (error) {
-    if (error instanceof NotFoundException) throw referenceInvalid();
+    if (error instanceof FactNotFoundError) throw referenceInvalid();
     throw error;
   }
 }

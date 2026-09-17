@@ -1,6 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import { FactInputError } from '../../../common/errors/fact-errors';
 import { businessDateKey, parseBusinessDate } from '../../../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
 import { SELLPIA_SALES_SOURCE_TYPE } from '../domain/sellpia-sales-source';
@@ -33,7 +33,7 @@ export async function readSellpiaSalesDailyFacts(
 ): Promise<SellpiaSalesDailyFacts> {
   const from = parseBusinessDate(input.from);
   const to = parseBusinessDate(input.to);
-  if (!from || !to || from > to) throw new BadRequestException('INVALID_DATE_RANGE');
+  if (!from || !to || from > to) throw new FactInputError('INVALID_DATE_RANGE');
 
   const runs = await tx.sourceImportRun.findMany({
     where: {

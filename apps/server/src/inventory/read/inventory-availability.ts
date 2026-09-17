@@ -1,7 +1,3 @@
-import {
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   InventoryAvailabilityBatchSchema,
@@ -12,6 +8,7 @@ import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } from '@kiditem/shared/source-import';
 import { lockSellpiaInventoryTransaction } from '../adapter/out/repository/sellpia-inventory-transaction-lock';
+import { FactNotFoundError } from '../../common/errors/fact-errors';
 import {
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshReasonSchema,
@@ -853,9 +850,7 @@ function mapInventoryImportRun(
   }>,
 ): SellpiaImportRunRow {
   if (!isSourceImportStatus(row.status)) {
-    throw new InternalServerErrorException(
-      `Unknown source import status: ${row.status}`,
-    );
+    throw new Error(`Unknown source import status: ${row.status}`);
   }
   return {
     ...row,
@@ -873,9 +868,7 @@ function mapInventoryImportRun(
 function inventorySafeInteger(value: bigint, field: string): number {
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < 0) {
-    throw new InternalServerErrorException(
-      `Inventory snapshot ${field} exceeds safe range`,
-    );
+    throw new Error(`Inventory snapshot ${field} exceeds safe range`);
   }
   return result;
 }
@@ -923,7 +916,7 @@ async function loadInventorySkus(
     },
   });
   if (rows.length !== sellpiaInventorySkuIds.length) {
-    throw new NotFoundException(
+    throw new FactNotFoundError(
       'One or more Sellpia inventory SKUs were not found in this organization',
     );
   }

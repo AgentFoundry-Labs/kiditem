@@ -1,5 +1,5 @@
 import { AppException } from '@kiditem/shared/server-errors';
-import { NotFoundException } from '@nestjs/common';
+import { FactNotFoundError } from '../../../common/errors/fact-errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
@@ -501,7 +501,9 @@ implements SellpiaInventoryFreshnessRepositoryPort {
         generation: this.state(organizationId).verifiedGeneration.toString(),
       }];
     });
-    if (items.length !== ids.length) throw new NotFoundException();
+    if (items.length !== ids.length) {
+      throw new FactNotFoundError('One or more Sellpia inventory SKUs were not found in this organization');
+    }
     const state = this.state(organizationId);
     return {
       snapshot: {

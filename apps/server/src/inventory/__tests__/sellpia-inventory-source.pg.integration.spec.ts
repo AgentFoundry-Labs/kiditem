@@ -27,6 +27,7 @@ import { SellpiaInventoryFreshnessService } from '../application/service/sellpia
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
 import type { PrismaClient } from '@prisma/client';
+import { FactNotFoundError } from '../../common/errors/fact-errors';
 import {
   readActiveInventoryMatchingCandidates,
   readInventoryAvailability,
@@ -579,11 +580,15 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       }],
     });
 
-    await expect(prisma.$transaction((tx) =>
+    const foreignRead = prisma.$transaction((tx) =>
       readInventoryAvailability(tx, {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaInventorySkuIds: [published.id, foreign.id],
-      }))).rejects.toMatchObject({ status: 404 });
+      }));
+    await expect(foreignRead).rejects.toBeInstanceOf(FactNotFoundError);
+    await expect(foreignRead).rejects.toThrow(
+      'One or more Sellpia inventory SKUs were not found in this organization',
+    );
 
     await expect(prisma.$transaction((tx) =>
       readActiveInventoryMatchingCandidates(tx, TEST_ORGANIZATION_ID)))
