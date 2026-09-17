@@ -23,8 +23,14 @@ import {
  * 누르면 **끝까지 보낸다.** 사람이 몰에 다시 들어가지 않는다.
  */
 
-/** 창 안에서만 세지 않도록 넉넉히 읽는다. 품절 후보는 몰 전체에 흩어져 있다. */
-const PREVIEW_LIMIT = 1_000;
+/**
+ * 후보 전부를 읽는다.
+ *
+ * 창을 좁히면 그 창에 안 든 몰은 버튼조차 서지 않아 통째로 빠진다 — 표가 100건만
+ * 보여주던 때 키드키즈·아이스크림몰이 정확히 그렇게 사라졌다. 그래도 상한은 있으므로
+ * 남은 건수를 화면이 말한다.
+ */
+const PREVIEW_LIMIT = 3_000;
 
 export function MallAvailabilitySend({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
@@ -49,6 +55,8 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
       .sort((a, b) => b.codes.length - a.codes.length);
   }, [previewQuery.data]);
 
+  const preview = previewQuery.data;
+  const beyondWindow = preview ? Math.max(0, preview.total - preview.loaded) : 0;
   const sendable = groups.filter((group) => canSendMallAvailability(group.mallKey));
   const blocked = groups.filter((group) => !canSendMallAvailability(group.mallKey));
   if (previewQuery.isLoading || groups.length === 0) return null;
@@ -117,6 +125,12 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
           <span className="text-xs text-slate-400">보낼 수 있는 몰의 품절 후보가 없습니다.</span>
         ) : null}
       </div>
+      {/* 창 밖에 남은 후보를 숨기지 않는다. 버튼의 숫자가 전부인 것처럼 읽히면 안 된다. */}
+      {beyondWindow > 0 ? (
+        <p className="mt-2 text-[11px] text-amber-700">
+          후보 {formatNumber(beyondWindow)}건이 이 창 밖에 있습니다. 한 번 보낸 뒤 새로고침하면 다음 건이 올라옵니다.
+        </p>
+      ) : null}
       {/* 경로가 없는 몰을 숨기지 않는다. 왜 버튼이 없는지 그 자리에서 말한다. */}
       {blocked.length > 0 ? (
         <ul className="mt-3 space-y-0.5 text-[11px] text-slate-400">
