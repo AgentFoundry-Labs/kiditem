@@ -47,6 +47,7 @@ function productRow(overrides: Partial<PreflightProductRow> = {}): PreflightProd
     salePrice: 24900,
     optionNames: ['기본'],
     kc: { status: 'exists', number: 'CB061R1234-1001' },
+    stock: 12,
     ...overrides,
   };
 }
@@ -157,6 +158,18 @@ describe('MallPublishingService.preflight', () => {
     expect(response.products[0]?.hasCertification).toBe(false);
     expect(response.products[0]?.results[0]?.violations.map((violation) => violation.rule))
       .toContain('kc_certification');
+  });
+
+  /** 목록에 서는 것과 보내도 되는 것은 다르다. 품절 행은 목록에 서고 여기서 막힌다. */
+  it('⭐ blocks a sold-out product the matrix still shows', async () => {
+    const service = buildService({
+      mallAccounts: [mallAccount()],
+      products: [productRow({ stock: 0 })],
+    });
+    const response = await service.preflight(ORG, { mallKeys: ['kidsnote'], page: 1, limit: 25 }, ASOF);
+    expect(response.products[0]?.results[0]?.violations.map((violation) => violation.rule))
+      .toContain('out_of_stock');
+    expect(response.products[0]?.eligibleMallCount).toBe(0);
   });
 
   it('blocks a mall that has no account row instead of creating one', async () => {
