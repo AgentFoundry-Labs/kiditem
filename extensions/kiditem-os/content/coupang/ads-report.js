@@ -2712,10 +2712,10 @@
   }
 
   // Campaign registration is the only action this extension applies to
-  // Coupang. Keyword pauses, bid changes and daily budget changes are applied
-  // by hand in the ad center (KID-138 decision A), and the server refuses their
-  // claim. One an older server still lets through, like any other type without
-  // an executor here, is reported failed without touching the page.
+  // Coupang. The server decides which other types the operator applies by hand
+  // (KID-138 decision A) and refuses their claim. One an older server still
+  // lets through, like any other type without an executor here, is reported
+  // failed without touching the page.
   async function executeClaimedAction(action, claim) {
     if (action.actionType === "create_campaign") {
       return executeCreateCampaign(action, claim);

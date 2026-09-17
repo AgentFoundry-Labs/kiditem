@@ -163,8 +163,9 @@ export interface AdActionRepositoryPort {
    * Actions created since `sinceCreatedAt` that are still open work: awaiting
    * review, or approved with the latest attempt queued or running within its
    * execution deadline. An approved action of a type the operator applies by
-   * hand (`MANUAL_AD_ACTION_TYPES`) stays open until it is rejected or its
-   * latest attempt is done.
+   * hand (`MANUAL_AD_ACTION_TYPES`) also stays open while its latest attempt
+   * reads failed, which approval records; rejecting it or a done attempt from
+   * before KID-138 decision A releases it.
    */
   findExistingInflightActions(
     organizationId: string,
@@ -173,8 +174,9 @@ export interface AdActionRepositoryPort {
 
   /**
    * At most one row per keyword (advertised option and keyword text): its
-   * latest `pause_keyword` proposal whatever its execution state, and none when
-   * that latest proposal was rejected, so an older one does not come back. A
+   * latest `pause_keyword` proposal while its execution state is one of the
+   * lifecycle's words, and none when that latest proposal was rejected, so an
+   * older one does not come back. A
    * keyword with one is what the keyword view shows as "연관 없음"; the verdict
    * itself is not a daily fact and is not stored on the fact row.
    */
@@ -185,9 +187,11 @@ export interface AdActionRepositoryPort {
   // Writes
   /**
    * Insert the candidates as proposals awaiting review. A `pause_keyword`
-   * candidate is skipped when its keyword already has an open proposal, under
-   * the same open-work rule as `findExistingInflightActions`, so a pause the
-   * operator approved is not proposed again until it is rejected.
+   * candidate is skipped when its keyword's latest proposal (the one
+   * `findKeywordPauseProposals` returns) is open under the same open-work rule
+   * as `findExistingInflightActions`, so a pause the operator approved is not
+   * proposed again until it is closed. An older proposal behind a rejected one
+   * never blocks.
    */
   createAdActionsFromCandidates(
     organizationId: string,
