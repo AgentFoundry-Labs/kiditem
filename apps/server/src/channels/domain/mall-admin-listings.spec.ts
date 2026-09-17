@@ -159,6 +159,8 @@ describe('mallAdminListingProducts', () => {
       externalProductId: '176227',
       registeredName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
       displayName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+      // 목록에 사진이 없는 몰은 null 이다 — 온채널처럼 주는 몰만 값이 선다.
+      imageUrl: null,
       category: null,
       manufacturer: null,
       brand: null,

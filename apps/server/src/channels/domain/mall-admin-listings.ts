@@ -60,6 +60,18 @@ const STATUS_RULES: Record<
     ['전시안함', MALL_ADMIN_LISTING_STATUS.hidden],
     ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
+  /*
+    온채널: 한 칸에 판매상태(판매중 · 판매중지)와 재고상태(품절 · 일시품절 · 단종)가 함께 온다
+    (라이브 2026-09-17: `판매중 / 일시품절`). 끝난 것(단종)이 먼저고, 그다음이 멈춘 것,
+    마지막이 팔리는 것이다 — 두 글자가 같이 오면 더 나쁜 쪽이 그 상품의 상태다.
+  */
+  onch: [
+    ['단종', MALL_ADMIN_LISTING_STATUS.ended],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['일시품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.hidden],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
 };
 
 /**
@@ -92,6 +104,8 @@ export type MallAdminListingProduct = {
   externalProductId: string;
   registeredName: string;
   displayName: string;
+  /** 몰 목록에 사진이 있으면 그 주소. 없는 몰은 null. */
+  imageUrl: string | null;
   category: null;
   manufacturer: null;
   brand: null;
@@ -155,6 +169,7 @@ function productFromRow(
     externalProductId: row.mallProductCode,
     registeredName: row.productName,
     displayName: row.productName,
+    imageUrl: row.imageUrl ?? null,
     category: null,
     manufacturer: null,
     brand: null,

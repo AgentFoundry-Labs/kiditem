@@ -40,6 +40,16 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 10_000,
     detailNames: true,
   },
+  /**
+   * 온채널 공급사. 등록 상품 관리 화면이 쪽 크기를 고르지 못해 15줄씩 46쪽을 다 돈다
+   * (라이브 2026-09-17: 687개). 쪽 경계가 상품코드로 갈려 겹치지 않는다.
+   */
+  onch: {
+    mallName: '온채널',
+    origin: 'https://www.onch3.co.kr',
+    pageSize: 15,
+    detailNames: false,
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;
@@ -162,6 +172,8 @@ export const MallAdminListingRowSchema = z.object({
   salePrice: z.number().int().nonnegative().max(1_000_000_000).nullable(),
   statusWords: z.array(requiredText(20)).min(1).max(4),
   registeredOn: YYYY_MM_DD.nullable(),
+  /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
+  imageUrl: z.string().url().max(2_000).optional(),
 }).strict();
 export type MallAdminListingRow = z.infer<typeof MallAdminListingRowSchema>;
 

@@ -197,6 +197,16 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
           products,
         });
         mappingChanged = upserted.mappingIdentityChanged;
+        // 몰이 목록에 사진을 함께 주는 몰(온채널)은 그 주소를 리스팅에 남긴다. 신원 upsert 는
+        // 사진을 모르므로 여기서 값이 달라진 줄만 쓴다.
+        for (const product of products) {
+          const listingId = upserted.listingIds.get(product.externalProductId);
+          if (!listingId || !product.imageUrl) continue;
+          await tx.channelListing.updateMany({
+            where: { id: listingId, organizationId: input.organizationId, imageUrl: null },
+            data: { imageUrl: product.imageUrl },
+          });
+        }
       }
       const deactivated = await deactivateSourceAbsence(tx, {
         organizationId: input.organizationId,

@@ -2123,7 +2123,8 @@ test('details stage sends each successful product chunk before a later product f
   assert.equal(chunks[2].sequence, 1);
   assert.equal(chunks[2].itemCount, 1);
   assert.equal(chunks[2].payload.products[0].product.externalProductId, '1');
-  assert.equal(h.calls.extraction, 2);
+  // 상품 1 은 한 번에 오고, 500 을 주는 상품 2 는 일시적 실패라 세 번까지 다시 묻는다.
+  assert.equal(h.calls.extraction, 4);
   assert.equal(h.calls.requests.some((request) => request.path.endsWith('/fail')), true);
   assert.equal(h.calls.requests.some((request) => request.path.endsWith('/finalize')), false);
   assert.equal(h.storage[stateKey].status, 'error');
