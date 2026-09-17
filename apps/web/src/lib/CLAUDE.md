@@ -63,12 +63,15 @@ multiple route groups.
   Recording is fire-and-forget and never blocks the work; payloads carry counts
   and reason codes only (no credentials, recipients, or order numbers), and the
   strict contract drops unknown keys.
-- `mall-session-probe.ts` owns the passive mall login check (`probeMallSession`)
-  and the `sweepMallSessions` round used by the agent loop. It sends only a mall
-  key, never credentials, and maps anything unexpected to `unknown`; a stale
-  extension is reported as outdated, not absent. The sweep names the malls it
-  found signed out (`signedOutKeys`) so the loop can skip collecting them this
-  round; `unknown` never lands in that list.
+- `mall-session-probe.ts` owns the mall login check (`probeMallSession`) and the
+  `sweepMallSessions` round used by the agent loop. A mall is `signed_in`,
+  `verification_required`, or `signed_out` — there is no unknown state. It sends
+  only a mall key and the operator's saved site address, never credentials;
+  anything unexpected or unanswered is `signed_out` with its reason, and
+  our-side reasons (no answer, unreachable screen, no address) are not recorded
+  as observations. A stale extension is reported as outdated, not absent. The
+  sweep names the malls needing a person (`signedOutKeys`, verification
+  included) so the loop can skip collecting them this round.
 - `mall-login-block.ts` owns both guards against locking the operator's mall
   account. A **block** stops auto-login for a mall until the operator's own
   session is observed (`signed_in`), a login test succeeds, or they clear it;

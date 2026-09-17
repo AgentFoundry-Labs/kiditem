@@ -28,11 +28,10 @@ needs them.
   (`sweepMallSessions`, `usePersistedAllMarketplaceOrderCollection`) instead of
   new collectors, skips a round when another tab holds the lock, and never
   performs irreversible mall work. Loop state lives in `lib/mall-agent-loop.ts`.
-- A round collects only the malls a human is not already blocking. The probe's
-  `signedOutKeys` plus the auto-login blocks become `collectAllOrders`'
-  skip list; collecting a signed-out mall only opens its login page, fails, and
-  leaves one more tab behind each round. `unknown` is not a skip — no signal is
-  not a logged-out signal.
+- A round collects only the malls a human is not already blocking. The login
+  check's `signedOutKeys` (sign-in or verification needed) plus the auto-login
+  blocks become `collectAllOrders`' skip list; collecting such a mall only opens
+  its login page, fails, and leaves one more tab behind each round.
 - `useProductAbcRecalculation()` shares Products' ABC publication trigger
   between Product Management and Dashboard: the `SOURCE_NOT_READY` and
   conflict outcomes, the publication message that names each source whose

@@ -1132,6 +1132,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(closeOrderCollectionTabs(attemptIds));
   }
 
+  // 로그인 상태를 셋 중 하나로 답한다. 조용히 읽어 모르면 화면을 열어 본다 — 로그인은 하지 않는다.
+  // 주소는 고정 목록 · 사장님이 저장한 사이트 주소에서만 나오고, 확장 권한 안의 주소만 연다.
+  if (msg?.action === "checkMallLogin") {
+    return respond(checkMallLogin(
+      typeof msg.mallKey === "string" ? msg.mallKey : "",
+      typeof msg.siteUrl === "string" ? msg.siteUrl : "",
+    ));
+  }
+
   // 로그인 상태만 본다. 몰 키 하나만 받고, 주소는 모듈의 고정 목록에서만 나온다.
   if (msg?.action === "probeMallSession") {
     return respond(mallSessionProbe().probe(typeof msg.mallKey === "string" ? msg.mallKey : ""));
@@ -6206,6 +6215,138 @@ async function loginFormRemainsAfterSubmit(tabId) {
   return lastSeen;
 }
 
+// ── 몰 로그인 상태 확인(화면을 열어 본다) ──
+//
+// 조용히 읽는 확인(mall-session-probe)으로 답이 나오지 않는 몰은 관리자 화면을 백그라운드 탭에
+// 실제로 열어, 로그인 폼이 뜨는지 · 인증 화면이 뜨는지 본다. 사장님: "로그인됨 / 인증 필요 /
+// 로그인 필요 3가지 아냐?" — 결과는 그 셋 중 하나다. 아이디 · 비밀번호를 넣지도 누르지도
+// 않고, 본 탭은 바로 닫는다.
+
+// 로그인 화면 주소가 아니면 열지 않는 몰의 관리자 첫 화면. 로그인 화면 주소는 로그인돼 있어도
+// 로그인 폼을 보여 줄 수 있어, 확인에는 로그인해야 열리는 화면을 쓴다.
+const MALL_LOGIN_CHECK_URLS = Object.freeze({
+  always: "https://alwayzseller.ilevit.com/",
+  kakao: "https://shopping-seller.kakao.com/",
+  coupang: "https://wing.coupang.com/",
+  rocket: COUPANG_DIRECT_LOGIN_URL,
+  "coupang-direct": COUPANG_DIRECT_LOGIN_URL,
+  "benepia-mul": "https://newmallvenadm.benepia.co.kr/",
+});
+
+// 로그인 화면으로 넘어갔다는 주소. 권한 밖 도메인(통합 로그인)이어도 탭 주소는 읽힌다.
+const LOGIN_SCREEN_URL = /\/(?:login|signin|sign-in|signIn)(?:[/?#.]|$)|loginform|partnerlogin|partner_login|login_so|authentication\/login|xauth\.coupang\.com|nid\.naver\.com|accounts\.kakao\.com|accounts\.commerce\.naver\.com/i;
+const VERIFY_SCREEN_URL = /verify_user|\/otp(?:[/?#.]|$)|two-?factor|\/mfa(?:[/?#.]|$)/i;
+
+/**
+ * 탭 안에서 본다 — 로그인 폼(보이는 비밀번호 칸 + 아이디 칸)인가, 인증 화면(인증번호 · OTP 칸)인가.
+ * 값을 넣거나 누르지 않는다.
+ */
+function inspectMallLoginScreen() {
+  const visible = (el) => {
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const typeOf = (input) => String(input.type || "text").toLowerCase();
+  const inputs = Array.from(document.querySelectorAll("input")).filter((input) => visible(input) && !input.disabled);
+  const password = inputs.some((input) => typeOf(input) === "password");
+  const idField = inputs.some((input) => ["", "text", "email", "tel"].includes(typeOf(input)));
+  const describe = (input) => [input.name, input.id, input.placeholder, input.getAttribute("aria-label")]
+    .filter(Boolean)
+    .join(" ");
+  const codeField = inputs.some((input) =>
+    ["", "text", "tel", "number"].includes(typeOf(input)) && /인증|otp|code|auth|번호/i.test(describe(input)));
+  const text = String((document.body && document.body.innerText) || "").slice(0, 8000);
+  const verificationText = /본인\s*인증|본인\s*확인|인증\s*번호|OTP|SMS\s*인증|2단계\s*인증|추가\s*인증|휴대폰\s*인증/i.test(text);
+  return {
+    loginForm: password && idField,
+    verification: !password && codeField && verificationText,
+  };
+}
+
+async function lookAtMallLoginScreen(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const href = String(tab?.url || tab?.pendingUrl || "");
+  let frames = null;
+  try {
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectMallLoginScreen }),
+      5000,
+      "login-screen-no-answer",
+    );
+    frames = (injected || []).map((item) => item.result).filter(Boolean);
+  } catch {
+    // 권한 밖 주소로 넘어갔거나 알림 창이 떠 페이지가 멈췄다.
+    frames = null;
+  }
+  if (frames?.some((frame) => frame.loginForm) || LOGIN_SCREEN_URL.test(href)) {
+    return { state: "signed_out", reason: "login_page", definite: true };
+  }
+  if (frames?.some((frame) => frame.verification) || VERIFY_SCREEN_URL.test(href)) {
+    return { state: "verification_required", reason: "verification_required", definite: true };
+  }
+  if (!frames || frames.length === 0) {
+    return { state: "signed_out", reason: "login_page_not_reachable", definite: false };
+  }
+  return { state: "signed_in", reason: "admin_page", definite: false };
+}
+
+async function checkMallLoginOnScreen(mallKey, siteUrl) {
+  const url = mallSessionProbe().urlOf(mallKey)
+    || MALL_LOGIN_CHECK_URLS[mallKey]
+    || savedMallLoginUrl({ siteUrl });
+  if (!url) return { state: "signed_out", reason: "no_login_address" };
+  let origin;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return { state: "signed_out", reason: "no_login_address" };
+  }
+  const allowed = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
+  if (!allowed) return { state: "signed_out", reason: "login_page_not_reachable" };
+
+  const tab = await chrome.tabs.create({ url, active: false });
+  if (!Number.isInteger(tab?.id)) return { state: "signed_out", reason: "login_page_not_reachable" };
+  rememberOrderCollectionTab(tab.id, null);
+  try {
+    await withTimeout(waitForTabReady(tab.id), 20000, "login-screen-load").catch(() => undefined);
+    // SPA 는 화면을 띄운 뒤 로그인 여부를 확인하고 로그인 화면으로 넘긴다 — 그 시간을 준다.
+    await delay(2500);
+    let seen = null;
+    for (let look = 0; look < 2; look += 1) {
+      if (look > 0) await delay(2000);
+      seen = await lookAtMallLoginScreen(tab.id);
+      if (seen.definite) break;
+    }
+    return { state: seen.state, reason: seen.reason };
+  } finally {
+    forgetOrderCollectionTab(tab.id);
+    try {
+      await chrome.tabs.remove(tab.id);
+    } catch {
+      /* 이미 닫힘 — 무시 */
+    }
+  }
+}
+
+/**
+ * 몰 로그인 상태 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나. 조용히 읽는 확인이 확실하면
+ * 그 답을 쓰고, 아니면 화면을 열어 본다. 로그인은 하지 않는다.
+ */
+async function checkMallLogin(mallKey, siteUrl) {
+  const passive = await mallSessionProbe().probe(mallKey);
+  if (passive.state === "signed_in") {
+    return { success: true, mallKey, state: "signed_in", reason: passive.reason };
+  }
+  if (passive.state === "signed_out") {
+    return passive.reason === "verification_required"
+      ? { success: true, mallKey, state: "verification_required", reason: "verification_required" }
+      : { success: true, mallKey, state: "signed_out", reason: passive.reason };
+  }
+  const seen = await checkMallLoginOnScreen(mallKey, siteUrl);
+  return { success: true, mallKey, state: seen.state, reason: seen.reason };
+}
+
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 function ensureMallLoginWithLifecycle(message) {
@@ -7567,6 +7708,8 @@ KidItemDomains.register({
     // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
     mallSessionProbeV1: true,
     mallLoginTestV1: true,
+    // 로그인됨 · 인증 필요 · 로그인 필요 셋으로 답하는 확인(모르면 화면을 열어 본다).
+    mallLoginCheckV2: true,
     // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
     orderCollectionTabCloseV1: true,
     mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "boribori", "lotte-on", "gs-shop", "ssg", "thirtymall", "kkomangse"],

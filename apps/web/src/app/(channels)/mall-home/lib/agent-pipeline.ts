@@ -45,7 +45,7 @@ export interface AgentPipelineInput {
   alerts: { total: number; attention: number } | null;
   noLoginCount: number | null;
   /** 몰 로그인 상태(확장이 조용히 확인한 결과) — 몰 수. 다 확인하기 전이면 `null`. */
-  sessions: { signedIn: number; signedOut: number; unknown: number } | null;
+  sessions: { signedIn: number; verification: number; signedOut: number } | null;
   soldOutTotal: number | null;
   coupangPendingAccept: number | null;
   /** 아직 열린 몰 원천 실패 알림 수. 못 받았으면 `null`. */
@@ -152,12 +152,12 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         href: { path: '/mall-settings', label: '계정 설정' },
       },
       {
-        // 확장이 조용히 확인할 수 있는 몰만 안다. 나머지는 확인 불가라 일부다.
+        // 확장이 조용히 읽고, 모르면 화면을 열어 봐 몰마다 셋 중 하나로 답한다.
         id: 'sense-session',
         title: '몰 로그인 상태',
         status: 'progress',
         detail: input.sessions
-          ? `로그인됨 ${formatNumber(input.sessions.signedIn)} · 로그인 필요 ${formatNumber(input.sessions.signedOut)} · 확인 불가 ${formatNumber(input.sessions.unknown)}곳`
+          ? `로그인됨 ${formatNumber(input.sessions.signedIn)} · 인증 필요 ${formatNumber(input.sessions.verification)} · 로그인 필요 ${formatNumber(input.sessions.signedOut)}곳`
           : PIPELINE_UNKNOWN,
         href: { path: '#mall-status', label: '몰별 상태' },
       },

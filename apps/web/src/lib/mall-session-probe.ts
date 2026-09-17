@@ -10,15 +10,21 @@ import {
 } from './mall-operation-outcomes-api';
 
 /**
- * 몰 로그인 상태 조용히 확인.
+ * 몰 로그인 상태 확인 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나.
  *
- * 확장이 몰마다 정해진 읽기 전용 주소 하나를 사용자 쿠키로 읽어 판단한다. 로그인은 하지
- * 않는다 — 비밀번호를 넘기지 않고, 확장은 상태와 이유 코드만 돌려준다. 확인할 신호가
- * 없는 몰은 `unknown`(확인 불가)이다.
+ * 확장이 몰마다 정해진 읽기 전용 주소를 사용자 쿠키로 먼저 읽고, 그걸로 가릴 수 없으면
+ * 관리자 화면을 백그라운드 탭에 실제로 열어 로그인 폼 · 인증 화면이 뜨는지 본 뒤 바로 닫는다.
+ * 로그인은 하지 않는다 — 비밀번호를 넘기지 않고, 확장은 상태와 이유 코드만 돌려준다.
+ * 사장님: "로그인됨 / 인증 필요 / 로그인 필요 3가지 아냐?" — 확인 불가는 없다. 확인할 주소가
+ * 없거나 화면에 닿지 못한 몰은, 사람이 몰에 들어가 봐야 하므로 로그인 필요로 답하고 이유를
+ * 함께 적는다.
  */
-export const MALL_SESSION_PROBE_CAPABILITY = 'mallSessionProbeV1';
+export const MALL_SESSION_PROBE_CAPABILITY = 'mallLoginCheckV2';
 
-export type MallSessionState = 'signed_in' | 'signed_out' | 'unknown';
+export type MallSessionState = 'signed_in' | 'verification_required' | 'signed_out';
+
+/** 우리 쪽 사정으로 몰을 보지 못한 이유. 몰을 본 사실이 아니라서 관찰 기록에는 남기지 않는다. */
+const OUR_SIDE_REASONS = new Set(['extension_no_answer', 'login_page_not_reachable', 'no_login_address']);
 
 export interface MallSessionProbeResult {
   mallKey: string;
@@ -53,7 +59,10 @@ export interface RecordedLoginCheck {
   at: number;
 }
 
-/** 확인 결과를 기억 한 줄로. 몰 키와 이유 코드만 담는다. 확인 불가는 적지 않는다. */
+/**
+ * 확인 결과를 기억 한 줄로. 몰 키와 이유 코드만 담는다. 우리 쪽 사정으로 몰을 보지 못한
+ * 결과(확장 무응답 · 화면에 닿지 못함 · 확인할 주소 없음)는 몰에 대한 관찰이 아니라 적지 않는다.
+ */
 export function loginCheckRecord(result: MallSessionProbeResult): LoginCheckRecord | null {
   if (result.state === 'signed_in') {
     return {
@@ -63,15 +72,21 @@ export function loginCheckRecord(result: MallSessionProbeResult): LoginCheckReco
       reasonCode: 'session_alive',
     };
   }
-  if (result.state === 'signed_out') {
+  if (result.state === 'verification_required') {
     return {
       mallKey: result.mallKey,
       operation: 'login_check',
       outcome: 'attention',
-      reasonCode: result.reason === 'verification_required' ? 'verification_required' : 'login_required',
+      reasonCode: 'verification_required',
     };
   }
-  return null;
+  if (result.reason && OUR_SIDE_REASONS.has(result.reason)) return null;
+  return {
+    mallKey: result.mallKey,
+    operation: 'login_check',
+    outcome: 'attention',
+    reasonCode: 'login_required',
+  };
 }
 
 /** 기억에 적을까 — 처음이거나, 상태가 바뀌었거나, 같은 상태로 6시간이 지났을 때만. */
@@ -96,12 +111,11 @@ export function shouldRememberLogin(
 export interface MallSessionSweep {
   checked: number;
   signedIn: number;
+  verification: number;
   signedOut: number;
-  unknown: number;
   /**
-   * 방금 확인해서 '로그인 필요'로 나온 몰들. 자동 운전 고리는 이 몰의 수집을 이번 바퀴에
-   * 건너뛴다 — 어차피 로그인 화면만 나오고, 몰 탭만 하나 더 열린 채 남기 때문이다.
-   * '확인 불가'는 여기 넣지 않는다. 확인할 신호가 없는 것이지 로그아웃된 것이 아니다.
+   * 방금 확인해서 '로그인 필요' · '인증 필요'로 나온 몰들. 자동 운전 고리는 이 몰의 수집을
+   * 이번 바퀴에 건너뛴다 — 어차피 로그인 · 인증 화면만 나오고, 사람이 해야 끝난다.
    */
   signedOutKeys: string[];
 }
@@ -112,8 +126,12 @@ export interface MallSessionSweep {
  * 확장이 없거나 옛 버전이면 아무 몰도 건드리지 않고 0으로 돌려준다. 결과가 바뀐 몰만
  * 기억(`login_check`)에 남는다. 로그인은 하지 않는다.
  */
-export async function sweepMallSessions(mallKeys: readonly string[]): Promise<MallSessionSweep> {
-  const empty: MallSessionSweep = { checked: 0, signedIn: 0, signedOut: 0, unknown: 0, signedOutKeys: [] };
+export async function sweepMallSessions(
+  mallKeys: readonly string[],
+  /** 몰마다 쇼핑몰 계정에 저장된 사이트 주소. 고정 확인 주소가 없는 몰은 이 화면을 열어 본다. */
+  siteUrls: Readonly<Record<string, string | null | undefined>> = {},
+): Promise<MallSessionSweep> {
+  const empty: MallSessionSweep = { checked: 0, signedIn: 0, verification: 0, signedOut: 0, signedOutKeys: [] };
   const keys = [...new Set(mallKeys)].filter((key) => key.length > 0);
   if (keys.length === 0) return empty;
   const runtime = await detectMallSessionProbe();
@@ -130,16 +148,17 @@ export async function sweepMallSessions(mallKeys: readonly string[]): Promise<Ma
       const key = keys[cursor];
       cursor += 1;
       if (key === undefined) break;
-      const result = await probeMallSession(runtime.extensionId, key);
+      const result = await probeMallSession(runtime.extensionId, key, siteUrls[key] ?? null);
       sweep.checked += 1;
       if (result.state === 'signed_in') {
         sweep.signedIn += 1;
         // 사람이 직접 로그인했다 — 막아 뒀던 자동 로그인을 다시 연다.
         clearMallAutoLoginBlock(key);
-      } else if (result.state === 'signed_out') {
-        sweep.signedOut += 1;
+      } else {
+        if (result.state === 'verification_required') sweep.verification += 1;
+        else sweep.signedOut += 1;
         sweep.signedOutKeys.push(key);
-      } else sweep.unknown += 1;
+      }
       const record = loginCheckRecord(result);
       if (record && shouldRememberLogin(record, result.checkedAt, remembered)) {
         await recordMallOperationOutcome(record);
@@ -150,19 +169,31 @@ export async function sweepMallSessions(mallKeys: readonly string[]): Promise<Ma
   return sweep;
 }
 
-/** 한 몰의 로그인 상태. 실패해도 던지지 않고 '확인 불가'로 돌려준다. */
-export async function probeMallSession(extensionId: string, mallKey: string): Promise<MallSessionProbeResult> {
+/**
+ * 한 몰의 로그인 상태. 실패해도 던지지 않는다 — 확장이 답하지 않으면 사람이 몰에 들어가
+ * 봐야 하므로 로그인 필요로, 이유(`extension_no_answer`)와 함께 돌려준다.
+ */
+export async function probeMallSession(
+  extensionId: string,
+  mallKey: string,
+  siteUrl: string | null = null,
+): Promise<MallSessionProbeResult> {
   try {
     const response = await sendToExtension<{ success?: boolean; state?: unknown; reason?: unknown }>(
       extensionId,
-      { action: 'probeMallSession', mallKey },
-      20_000,
+      { action: 'checkMallLogin', mallKey, ...(siteUrl ? { siteUrl } : {}) },
+      // 조용히 읽어 모르면 화면을 열어 본다 — 화면 로드와 두 번 보기까지 기다린다.
+      45_000,
     );
     const state: MallSessionState =
-      response?.state === 'signed_in' || response?.state === 'signed_out' ? response.state : 'unknown';
-    const reason = typeof response?.reason === 'string' && REASON.test(response.reason) ? response.reason : null;
+      response?.state === 'signed_in' || response?.state === 'verification_required'
+        ? response.state
+        : 'signed_out';
+    const reason = typeof response?.reason === 'string' && REASON.test(response.reason)
+      ? response.reason
+      : response ? null : 'extension_no_answer';
     return { mallKey, state, reason, checkedAt: Date.now() };
   } catch {
-    return { mallKey, state: 'unknown', reason: 'extension_error', checkedAt: Date.now() };
+    return { mallKey, state: 'signed_out', reason: 'extension_no_answer', checkedAt: Date.now() };
   }
 }

@@ -14,7 +14,7 @@ const input = (overrides: Partial<AgentPipelineInput> = {}): AgentPipelineInput 
   missions: buildMallAgentMissions(totals),
   alerts: { total: 25, attention: 25 },
   noLoginCount: 2,
-  sessions: { signedIn: 6, signedOut: 2, unknown: 21 },
+  sessions: { signedIn: 6, verification: 1, signedOut: 2 },
   soldOutTotal: 387,
   coupangPendingAccept: 0,
   openAlertCount: 0,
@@ -69,7 +69,7 @@ describe('buildAgentPipeline', () => {
   it('감지 · 도구 칸은 홈의 다른 칸과 같은 숫자를 쓴다', () => {
     expect(itemOf('sense', 'sense-work').detail).toBe('알림 25건 · 확인 필요 25건');
     expect(itemOf('sense', 'sense-login').detail).toBe('2곳');
-    expect(itemOf('sense', 'sense-session').detail).toBe('로그인됨 6 · 로그인 필요 2 · 확인 불가 21곳');
+    expect(itemOf('sense', 'sense-session').detail).toBe('로그인됨 6 · 인증 필요 1 · 로그인 필요 2곳');
     expect(itemOf('sense', 'sense-soldout').detail).toBe('387개 — 판매 가능 재고 0');
     expect(itemOf('act', 'act-orders').detail).toBe('29곳 중 13곳');
     expect(itemOf('act', 'act-register').detail).toBe('29곳 중 14곳 · 제출은 사람이');
@@ -78,7 +78,7 @@ describe('buildAgentPipeline', () => {
     expect(soldOut.detail).toBe('29곳 중 0곳');
   });
 
-  /** 확장은 조용히 확인할 수 있는 몰만 안다. 나머지는 확인 불가라 이 일은 일부다. */
+  /** 확장이 조용히 읽고, 모르면 화면을 열어 봐 몰마다 셋 중 하나로 답한다. */
   it('⭐ 몰 로그인 상태 — 조용히 확인할 수 있는 몰만 알아 일부다', () => {
     const session = itemOf('sense', 'sense-session');
     expect(session.status).toBe('progress');

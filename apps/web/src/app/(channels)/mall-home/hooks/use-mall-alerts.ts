@@ -9,6 +9,7 @@ import {
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { queryKeys } from '@/lib/query-keys';
+import { orderMallAccountApi } from '../../../(orders)/order-collection/lib/order-mall-account-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { useMallCapabilityRows } from '../../_shared/use-mall-capability-rows';
 import {
@@ -65,7 +66,24 @@ export function useMallAlerts() {
 
   // 몰 로그인 상태 — 열면 확장이 몰마다 조용히 확인한다(로그인하지 않는다).
   const mallKeys = useMemo(() => channels?.map((channel) => channel.mallKey) ?? null, [channels]);
-  const probe = useMallSessionProbe(mallKeys, outcomeSummary?.rows ?? null);
+  // 고정 확인 주소가 없는 몰은 쇼핑몰 계정에 저장된 사이트 주소를 열어 본다.
+  const mallAccountsQuery = useQuery({
+    queryKey: queryKeys.orders.collectionMalls(),
+    queryFn: () => orderMallAccountApi.list(),
+  });
+  const siteUrls = useMemo(
+    () => Object.fromEntries(
+      (Array.isArray(mallAccountsQuery.data) ? mallAccountsQuery.data : [])
+        .map((account) => [account.key, account.siteUrl]),
+    ),
+    [mallAccountsQuery.data],
+  );
+  const probe = useMallSessionProbe(
+    mallKeys,
+    outcomeSummary?.rows ?? null,
+    siteUrls,
+    mallAccountsQuery.isSuccess || mallAccountsQuery.isError,
+  );
   const sessionStates = useMemo(
     () => mallSessionStates(mallKeys ?? [], probe.results, probe.checking),
     [mallKeys, probe.results, probe.checking],

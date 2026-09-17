@@ -53,14 +53,21 @@ describe('loginCheckRecord', () => {
       outcome: 'attention',
       reasonCode: 'login_required',
     });
-    expect(loginCheckRecord(probe('kidkids', 'signed_out', 'verification_required'))?.reasonCode).toBe(
-      'verification_required',
-    );
+    expect(loginCheckRecord(probe('kidkids', 'verification_required', 'verification_required'))).toEqual({
+      mallKey: 'kidkids',
+      operation: 'login_check',
+      outcome: 'attention',
+      reasonCode: 'verification_required',
+    });
   });
 
-  it('확인 불가는 관찰 기록에 적지 않는다', () => {
-    expect(loginCheckRecord(probe('coupang', 'unknown', 'no_passive_check'))).toBeNull();
-  });
+  /** 확장이 답하지 않았거나 화면에 닿지 못했거나 확인할 주소가 없다 — 몰을 본 것이 아니다. */
+  it.each(['extension_no_answer', 'login_page_not_reachable', 'no_login_address'])(
+    '우리 쪽 사정(%s)으로 몰을 못 본 결과는 관찰 기록에 적지 않는다',
+    (reason) => {
+      expect(loginCheckRecord(probe('coupang', 'signed_out', reason))).toBeNull();
+    },
+  );
 });
 
 describe('shouldRememberLogin', () => {
@@ -93,18 +100,19 @@ describe('shouldRememberLogin', () => {
 });
 
 describe('mallSessionStates · countMallSessions', () => {
-  it('확인 중이면 확인 중, 결과가 없는 몰은 비워 둔다', () => {
+  /** 사장님: "로그인됨 / 인증 필요 / 로그인 필요 3가지 아냐?" — 확인한 몰은 그 셋 중 하나다. */
+  it('⭐ 확인한 몰은 로그인됨 · 인증 필요 · 로그인 필요 셋으로 센다, 확인 중이면 확인 중', () => {
     const states = mallSessionStates(
-      ['onch', 'kidsnote', 'coupang', 'art09'],
+      ['onch', 'kidsnote', 'kidkids', 'art09'],
       {
         onch: probe('onch', 'signed_in'),
-        coupang: probe('coupang', 'unknown'),
+        kidkids: probe('kidkids', 'verification_required'),
         art09: probe('art09', 'signed_out'),
       },
       new Set(['kidsnote']),
     );
-    expect(states).toEqual({ onch: 'signed_in', kidsnote: 'checking', coupang: 'unknown', art09: 'signed_out' });
-    expect(countMallSessions(states)).toEqual({ signedIn: 1, signedOut: 1, unknown: 1, checking: 1 });
+    expect(states).toEqual({ onch: 'signed_in', kidsnote: 'checking', kidkids: 'verification', art09: 'signed_out' });
+    expect(countMallSessions(states)).toEqual({ signedIn: 1, verification: 1, signedOut: 1, checking: 1 });
     expect(mallSessionStates(['onch'], {}, new Set())).toEqual({});
   });
 });

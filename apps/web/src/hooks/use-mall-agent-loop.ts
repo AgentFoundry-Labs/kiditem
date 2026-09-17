@@ -83,12 +83,16 @@ export function useMallAgentLoopRunner(): void {
         markMallAgentLoopStep('login');
         try {
           const accounts = await orderMallAccountApi.list();
-          const sweep = await sweepMallSessions(accounts.filter((account) => account.enabled).map((account) => account.key));
+          const enabled = accounts.filter((account) => account.enabled);
+          const sweep = await sweepMallSessions(
+            enabled.map((account) => account.key),
+            Object.fromEntries(enabled.map((account) => [account.key, account.siteUrl])),
+          );
           for (const key of sweep.signedOutKeys) waitingForOperator.add(key);
           parts.push(
             sweep.checked === 0
               ? '로그인 확인 못 함'
-              : `로그인됨 ${formatNumber(sweep.signedIn)} · 로그인 필요 ${formatNumber(sweep.signedOut)}`,
+              : `로그인됨 ${formatNumber(sweep.signedIn)} · 인증 필요 ${formatNumber(sweep.verification)} · 로그인 필요 ${formatNumber(sweep.signedOut)}`,
           );
         } catch {
           parts.push('로그인 확인 실패');

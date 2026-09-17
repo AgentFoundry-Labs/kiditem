@@ -225,8 +225,13 @@
       }
     }
 
-    return Object.freeze({ probe, malls: MALLS });
+    return Object.freeze({ probe, malls: MALLS, urlOf });
   }
 
-  root.KidItemMallSessionProbe = Object.freeze({ create, malls: MALLS });
+  /** 이 몰을 조용히 읽는 관리자 주소. 화면을 열어 확인할 때도 같은 주소부터 연다. */
+  function urlOf(mallKey) {
+    return Object.prototype.hasOwnProperty.call(SPECS, mallKey) ? SPECS[mallKey].url : null;
+  }
+
+  root.KidItemMallSessionProbe = Object.freeze({ create, malls: MALLS, urlOf });
 })(globalThis);

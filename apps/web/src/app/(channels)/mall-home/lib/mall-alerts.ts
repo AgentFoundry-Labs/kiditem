@@ -215,7 +215,8 @@ export function derivedMallAlerts({
  * `signed_in` 을 본다) 몰이 본인확인 · OTP 를 요구해 주문을 못 보는 몰이 있다. 그때 '로그인됨'
  * 이라고 적으면 멀쩡한데 왜 안 되냐는 말이 된다 — 사장님이 하실 일은 인증이다.
  */
-export type TileLoginState = 'checking' | 'signed_in' | 'signed_out' | 'verification' | 'unknown';
+/** 로그인 칩. 확인한 몰은 로그인됨 · 인증 필요 · 로그인 필요 중 하나다. */
+export type TileLoginState = 'checking' | 'signed_in' | 'signed_out' | 'verification';
 
 /** 인증을 기다리는 중이라고 말하는 이유 코드들. */
 const VERIFICATION_REASONS = new Set(['operator_action_required', 'verification_required']);
@@ -349,7 +350,7 @@ export function mallStatusTiles(
       const current = derived.filter((alert) => alert.mallKeys.includes(channel.mallKey));
       const login = sessions[channel.mallKey] ?? null;
       // 방금 확인한 로그인 상태가 있으면 지난 로그인 확인 기록은 접는다 — 칩과 알림이 지금을 말한다.
-      const fresh = login === 'signed_in' || login === 'signed_out';
+      const fresh = login === 'signed_in' || login === 'signed_out' || login === 'verification';
       const remembered = (rememberedByMall.get(channel.mallKey) ?? []).filter(
         (row) => !(fresh && row.operation === 'login_check'),
       );

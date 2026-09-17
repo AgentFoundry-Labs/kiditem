@@ -43,7 +43,7 @@ const LOGIN: Record<TileLoginState, { word: string; chip: string; Icon: typeof M
     word: '로그인 필요',
     chip: 'bg-red-100 text-red-700',
     Icon: KeyRound,
-    title: '이 브라우저에서 몰 관리자 로그인이 풀렸습니다. 로그인해야 수집 · 등록이 됩니다.',
+    title: '몰 관리자 화면을 열면 로그인 화면이 나옵니다(또는 화면에 닿지 못했습니다). 로그인해야 수집 · 등록이 됩니다.',
   },
   verification: {
     word: '인증 필요',
@@ -51,19 +51,14 @@ const LOGIN: Record<TileLoginState, { word: string; chip: string; Icon: typeof M
     Icon: ShieldAlert,
     title: '로그인은 되어 있지만 몰이 본인확인 · OTP 를 요구합니다. 몰 화면에서 인증하셔야 주문이 보입니다.',
   },
-  unknown: {
-    word: '확인 불가',
-    chip: 'bg-slate-100 text-slate-500',
-    Icon: Minus,
-    title: '조용히 확인할 방법이 없거나 몰이 답하지 않았습니다. 쇼핑몰 계정의 로그인 테스트로 확인하세요.',
-  },
 };
 
 /**
  * 몰별 상태 — 연결된 몰마다 지금 어떤지 한 줄씩, 그리고 로그인 상태.
  *
  * 상태는 그 몰의 가장 최근 알림 · 기억과 지금 상태(로그인 정보 등)에서 나온다. 로그인 상태는
- * 화면을 열 때 확장이 몰 관리자 화면을 한 번 조용히 읽어 판단한다 — 로그인은 하지 않는다.
+ * 확장이 몰 관리자 화면을 조용히 읽고, 그걸로 모르면 화면을 열어 본다 — 로그인은 하지 않는다.
+ * 확인한 몰은 로그인됨 · 인증 필요 · 로그인 필요 셋 중 하나다.
  * 색만으로 말하지 않고 아이콘과 글로 함께 적는다. 타일을 누르면 오른쪽 알림판이 그 몰 알림만
  * 보여 준다.
  */
@@ -125,7 +120,7 @@ export function MallStatusBoard({
 }
 
 /**
- * 로그인 상태 한 줄 — 로그인됨 · 로그인 필요 · 확인 불가 몰 수와 확인한 때.
+ * 로그인 상태 한 줄 — 로그인됨 · 인증 필요 · 로그인 필요 몰 수와 확인한 때.
  * 확장이 없으면 없다고, 옛 버전이면 그 버전과 빠진 기능을 적는다 — 둘을 섞지 않는다.
  */
 function LoginSummary({ session }: { session: MallSessionView }) {
@@ -137,10 +132,13 @@ function LoginSummary({ session }: { session: MallSessionView }) {
         {status === 'done' ? (
           <span>
             로그인됨 {formatNumber(counts.signedIn)} ·{' '}
+            <span className={cn(counts.verification > 0 && 'font-semibold text-red-600')}>
+              인증 필요 {formatNumber(counts.verification)}
+            </span>{' '}
+            ·{' '}
             <span className={cn(counts.signedOut > 0 && 'font-semibold text-red-600')}>
               로그인 필요 {formatNumber(counts.signedOut)}
-            </span>{' '}
-            · 확인 불가 {formatNumber(counts.unknown)}
+            </span>
             {checkedAt !== null ? ` · ${timeAgo(new Date(checkedAt))} 확인` : ''}
           </span>
         ) : (
@@ -163,7 +161,7 @@ function LoginSummary({ session }: { session: MallSessionView }) {
 function pendingText(status: MallSessionView['status'], checking: number, version: string | null): string {
   switch (status) {
     case 'running':
-      return `로그인 확인 중 · 남은 몰 ${formatNumber(checking)}곳`;
+      return `로그인 확인 중(몰 화면을 열어 봅니다) · 남은 몰 ${formatNumber(checking)}곳`;
     case 'no_extension':
       return 'KidItem 확장이 없어 로그인 상태를 확인하지 못했습니다.';
     case 'outdated':
