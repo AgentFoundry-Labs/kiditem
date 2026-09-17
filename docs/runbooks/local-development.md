@@ -218,8 +218,15 @@ diff skips the push.
 | Exit | Meaning |
 |---|---|
 | `0` | Done, or already in sync. With `--dry-run`: nothing would stop the real run. |
-| `1` | Stopped for a decision: survey blockers, destructive DDL without `--accept-data-loss`, Prisma data-loss warnings, or missing AI-agent consent. |
+| `1` | Stopped for a decision: survey blockers, destructive DDL without `--accept-data-loss`, Prisma data-loss warnings, missing AI-agent consent, or source drift that `DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT` refuses. |
 | `2` | Refused target, invalid usage, or a failed step. |
+
+Step 3 lists
+[source drift](../../scripts/data-migrations/README.md#source-drift) as a
+warning. With `DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT=1` in the shell or `.env`,
+`data:migrate -- up` refuses a phase that selects a drifted migration, so the
+command stops after step 3, before any change, when step 4 or 9 would select
+one. Other drift still only warns.
 
 When an AI agent runs the command with `--accept-data-loss`, Prisma refuses
 the push unless `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` holds the
@@ -472,6 +479,7 @@ private reasoning in verification evidence.
 | `db:sync:local` stops at destructive DDL (exit 1) | its `DESTRUCTIVE` lines | review the statements, then rerun with `--accept-data-loss`; the backup is taken first |
 | `db:sync:local` stops at Prisma data-loss warnings (exit 1) | the preview's unique-index or primary-key line and Prisma's warning list | the survey already checked new unique indexes for duplicates; review the warnings, then rerun with `--accept-data-loss` |
 | `db:sync:local` stops at Prisma consent (exit 1) | an AI agent ran `--accept-data-loss` | whoever runs it sets `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` to the user's exact consent text, then reruns |
+| `db:sync:local` stops at source drift (exit 1) | `DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT` is set and an applied migration it would run was edited | report the edit (the fix needs a new migration id), or unset the variable to continue with a warning |
 | `db:sync:local` backup fails (exit 2) | Docker is running and exactly one container publishes the port | start Docker or stop the extra container; otherwise take your own backup and rerun with `--no-backup` |
 
 Do not delete `pgdata`, `minio-data`, or the Gateway root as a generic fix.

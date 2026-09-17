@@ -8,10 +8,13 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeTestPrisma } from '../test-helpers/real-prisma';
+import { ENSURE_STEP_IDS } from '../../../../scripts/data-migrations/ensure/index';
 import {
+  FAIL_ON_SOURCE_DRIFT_ENV,
   PRISMA_USER_CONSENT_ENV,
   compareReleaseVersions,
   createCommandRunner,
+  extractJsonReport,
   loadDataMigrationRegistry,
   readFileHead,
   resolveRuntimeTools,
@@ -106,14 +109,14 @@ describe('db:sync:local over disposable PostgreSQL databases', () => {
     if (backupDirectory) await rm(backupDirectory, { recursive: true, force: true });
   });
 
-  function startSync(url = databaseUrl): SyncRun {
+  function startSync(url = databaseUrl, extraEnv: Record<string, string> = {}): SyncRun {
     const commands: LocalSyncCommand[] = [];
     const results = new Map<LocalSyncCommand['step'], LocalSyncCommandResult>();
     const lines: string[] = [];
     const run = createCommandRunner(repoRoot);
     const deps: LocalSyncDependencies = {
       platform: process.platform,
-      env: { ...process.env, DATABASE_URL: url, AI_AGENT: '1' },
+      env: { ...process.env, DATABASE_URL: url, AI_AGENT: '1', ...extraEnv },
       prismaUserConsent: undefined,
       repoRoot,
       backupDirectory,
@@ -208,6 +211,22 @@ describe('db:sync:local over disposable PostgreSQL databases', () => {
     expect(new Set(rows.map((row) => row.status))).toEqual(new Set(['succeeded']));
     expect(sync.text()).toContain(`not applicable to this database: ${notApplicableIds.join(', ')}`);
     expect(await readdir(backupDirectory)).toEqual([]);
+
+    // The post-schema `up` reports the ensure steps next to its migrations,
+    // and the final status, with its per-row source checks, never lists them.
+    const postSchema = extractJsonReport(sync.results.get('post-schema')?.stdout ?? '') as {
+      results: Array<{ migrationId: string; status: string }>;
+      sourceDrift: unknown[];
+    };
+    expect(postSchema.sourceDrift).toEqual([]);
+    expect(postSchema.results.filter(({ migrationId }) => migrationId.startsWith('ensure:')))
+      .toEqual(ENSURE_STEP_IDS.map((migrationId) => expect.objectContaining({ migrationId, status: 'ensured' })));
+    const finalStatus = extractJsonReport(sync.results.get('final-status')?.stdout ?? '') as {
+      database: { runs: Array<{ migrationId: string; sourceCheck: string }>; sourceDrift: unknown[] };
+    };
+    expect(finalStatus.database.runs.map((run) => run.migrationId).sort()).toEqual(appliedIds);
+    expect(new Set(finalStatus.database.runs.map((run) => run.sourceCheck))).toEqual(new Set(['match']));
+    expect(finalStatus.database.sourceDrift).toEqual([]);
   }, SYNC_TIMEOUT_MS);
 
   it('changes nothing on a second run', async () => {
@@ -243,6 +262,57 @@ describe('db:sync:local over disposable PostgreSQL databases', () => {
     expect(sync.steps()).toEqual(['status', 'survey', 'ddl-preview']);
     expect(sync.text()).toContain('Result: in sync. Nothing to apply.');
   }, SYNC_TIMEOUT_MS);
+
+  it('stops before any change when the fail setting covers an edited applied migration, and only warns without it', async () => {
+    const driftedId = appliedIds.find((id) =>
+      registry.find((migration) => migration.id === id)?.phase === 'post-schema');
+    if (!driftedId) throw new Error('the registry has no post-schema migration');
+    const staleSha256 = '0'.repeat(64);
+    const [original] = await target.$queryRaw<Array<{ details: unknown }>>`
+      SELECT details FROM data_migration_runs WHERE migration_id = ${driftedId}
+    `;
+    // The ledger now says this migration ran from another source than the checkout holds.
+    await target.$executeRaw`
+      UPDATE data_migration_runs
+      SET details = jsonb_set(details, '{_runner,sourceSha256}', to_jsonb(${staleSha256}::text))
+      WHERE migration_id = ${driftedId}
+    `;
+    try {
+      const before = await ledger();
+      const refused = startSync(databaseUrl, { [FAIL_ON_SOURCE_DRIFT_ENV]: '1' });
+
+      const outcome = await runLocalSync(APPLY, refused.deps);
+
+      expect(outcome, refused.text()).toMatchObject({ exitCode: 1, state: 'blocked' });
+      expect(refused.steps()).toEqual(['build-shared', 'status']);
+      expect(refused.results.get('status')?.exitCode).toBe(3);
+      expect(refused.text()).toContain(
+        `Stopped before any change: ${FAIL_ON_SOURCE_DRIFT_ENV} is set, and ${driftedId} already succeeded`,
+      );
+      expect(await ledger()).toEqual(before);
+
+      const dryRun = startSync(databaseUrl, { [FAIL_ON_SOURCE_DRIFT_ENV]: '1' });
+      await expect(runLocalSync({ ...APPLY, dryRun: true }, dryRun.deps))
+        .resolves.toMatchObject({ exitCode: 1, state: 'blocked' });
+      expect(dryRun.text()).toContain(`the real run would stop at source drift in ${driftedId}`);
+
+      const warned = startSync(databaseUrl, { [FAIL_ON_SOURCE_DRIFT_ENV]: '0' });
+
+      const warnedOutcome = await runLocalSync(APPLY, warned.deps);
+
+      expect(warnedOutcome, warned.text()).toMatchObject({ exitCode: 0, state: 'in-sync' });
+      expect(warned.text()).toContain(`source drift: ${driftedId} (drift)`);
+      expect(warned.results.get('post-schema')?.stderr ?? '')
+        .toContain(`Data migration ${driftedId} ran from source ${staleSha256}`);
+      expect(await ledger()).toEqual(before);
+    } finally {
+      await target.$executeRaw`
+        UPDATE data_migration_runs
+        SET details = ${JSON.stringify(original.details)}::jsonb
+        WHERE migration_id = ${driftedId}
+      `;
+    }
+  }, SYNC_TIMEOUT_MS * 2);
 
   it('syncs a database that has rows but an empty ledger through the same gates', async () => {
     await admin.$executeRawUnsafe(`CREATE DATABASE "${pushedOnlyName}"`);

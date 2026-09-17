@@ -5,10 +5,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assertLocalDevelopmentDatabase } from '../_shared/local-development-database';
-import { dataMigrations } from '../data-migrations/index';
-import { APPLY_DATA_MIGRATIONS_CONFIRMATION as RUNNER_CONFIRMATION } from '../run-data-migrations';
+import { dataMigrations, retiredDataMigrations } from '../data-migrations/index';
+import { checkLedgerSources, type LedgerRun } from '../data-migrations/ledger';
+import {
+  APPLY_DATA_MIGRATIONS_CONFIRMATION as RUNNER_CONFIRMATION,
+  DATA_MIGRATIONS_SCHEMA_VERSION,
+  FAIL_ON_SOURCE_DRIFT_ENV as RUNNER_FAIL_ON_SOURCE_DRIFT_ENV,
+  dataMigrationRegistryStatus,
+  migrationSourceIdentities,
+} from '../run-data-migrations';
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
+  FAIL_ON_SOURCE_DRIFT_ENV,
   LOCAL_SYNC_HELP,
   PRISMA_USER_CONSENT_ENV,
   backupFileName,
@@ -24,6 +32,7 @@ import {
   resolvePostgresContainer,
   resolveRuntimeTools,
   runLocalSync,
+  sourceDriftRefusedBySync,
   type LocalSyncCommand,
   type LocalSyncCommandResult,
   type LocalSyncDependencies,
@@ -1014,25 +1023,178 @@ describe('db:sync:local status parsing', () => {
     });
   });
 
-  it('reads recorded source drift and only warns about it', async () => {
-    const sourceDrift = [{
-      migrationId: OPEN_PRE,
-      sourceCheck: 'drift',
-      sourcePath: 'scripts/data-migrations/v0.1.31/001_open_pre_schema.ts',
-      ranSourceSha256: 'a'.repeat(64),
-      currentSourceSha256: 'b'.repeat(64),
-      gitSha: null,
-    }];
+  const driftEntry = (migrationId: string, sourceCheck = 'drift') => ({
+    migrationId,
+    sourceCheck,
+    sourcePath: `scripts/data-migrations/${migrationId.replace(':', '/')}.ts`,
+    ranSourceSha256: 'a'.repeat(64),
+    currentSourceSha256: 'b'.repeat(64),
+    gitSha: null,
+  });
+
+  it('reads recorded source drift and, without the fail setting, only warns about it', async () => {
+    const sourceDrift = [driftEntry(OPEN_PRE)];
     expect(parseRunnerStatus(statusReport({ sourceDrift })).sourceDrift).toEqual([
       { migrationId: OPEN_PRE, sourceCheck: 'drift' },
     ]);
 
-    // `status --fail-on-source-drift` exits 3 with a complete report.
-    const harness = createHarness({ statuses: [{ sourceDrift }], statusExitCode: 3, ddl: EMPTY_SQL });
-    const outcome = await runLocalSync({ ...OPTIONS, dryRun: true }, harness.deps);
-    expect(outcome.exitCode).toBe(0);
-    expect(harness.output()).toContain(`source drift: ${OPEN_PRE} (drift)`);
-    expect(harness.output()).toContain('A fix needs a new migration id.');
+    const dryRun = createHarness({ statuses: [{ sourceDrift }], ddl: EMPTY_SQL });
+    await expect(runLocalSync({ ...OPTIONS, dryRun: true }, dryRun.deps))
+      .resolves.toMatchObject({ exitCode: 0, state: 'in-sync' });
+    expect(dryRun.output()).toContain(`source drift: ${OPEN_PRE} (drift)`);
+    expect(dryRun.output()).toContain('A fix needs a new migration id.');
+
+    const harness = createHarness({ statuses: [{ sourceDrift }], ddl: EMPTY_SQL });
+    await expect(runLocalSync(OPTIONS, harness.deps))
+      .resolves.toMatchObject({ exitCode: 0, state: 'in-sync' });
+    expect(harness.steps()).toContain('post-schema');
+  });
+
+  it.each([
+    ['the open train\'s pre-schema', OPEN_PRE],
+    ['an earlier release\'s post-schema', OLD_POST],
+    ['the open train\'s post-schema', OPEN_POST],
+  ])('stops before any change when the fail setting covers %s migration', async (_label, migrationId) => {
+    // `status` exits 3 only when DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT is set and a recorded hash differs.
+    const statuses = [{ sourceDrift: [driftEntry(migrationId)] }];
+    const harness = createHarness({ statuses, statusExitCode: 3, ddl: ADDITIVE_SQL });
+
+    const outcome = await runLocalSync(OPTIONS, harness.deps);
+
+    expect(outcome).toEqual({ exitCode: 1, state: 'blocked', steps: ['build-shared', 'status'] });
+    expect(harness.steps()).toEqual(['build-shared', 'status']);
+    expect(harness.output()).toContain(
+      `Stopped before any change: ${FAIL_ON_SOURCE_DRIFT_ENV} is set, and ${migrationId} already succeeded from a source that has changed since`,
+    );
+
+    const dryRun = createHarness({ statuses, statusExitCode: 3, ddl: ADDITIVE_SQL });
+    await expect(runLocalSync({ ...OPTIONS, dryRun: true }, dryRun.deps))
+      .resolves.toEqual({ exitCode: 1, state: 'blocked', steps: ['status', 'survey', 'ddl-preview'] });
+    expect(dryRun.output()).toContain(
+      `Result: the real run would stop at source drift in ${migrationId} (${FAIL_ON_SOURCE_DRIFT_ENV} is set).`,
+    );
+  });
+
+  it('continues under the fail setting when no migration it runs has recorded drift', async () => {
+    // `up` never stops for derived drift or for a migration outside its selection.
+    const statuses = [{
+      sourceDrift: [driftEntry(OLD_PRE), driftEntry(OPEN_POST, 'unrecorded-derived-drift')],
+    }];
+    const harness = createHarness({ statuses, statusExitCode: 3, ddl: EMPTY_SQL });
+
+    await expect(runLocalSync(OPTIONS, harness.deps))
+      .resolves.toMatchObject({ exitCode: 0, state: 'in-sync' });
+    expect(harness.steps()).toEqual([
+      'build-shared',
+      'status',
+      'pre-schema',
+      'survey',
+      'ddl-preview',
+      'generate',
+      'post-schema',
+      'final-status',
+    ]);
+    expect(harness.output()).toContain(
+      `source drift: ${OLD_PRE} (drift), ${OPEN_POST} (unrecorded-derived-drift)`,
+    );
+  });
+
+  it('counts recorded drift in exactly the migrations its own up calls select', () => {
+    const status = parseRunnerStatus(statusReport({
+      sourceDrift: [
+        driftEntry(OLD_PRE),
+        driftEntry(OLD_POST),
+        driftEntry(OPEN_PRE, 'unrecorded-derived-drift'),
+        driftEntry(OPEN_POST),
+        driftEntry('v0.1.29:001_unknown_phase'),
+      ],
+    }));
+
+    expect(sourceDriftRefusedBySync(status, REGISTRY)).toEqual([
+      OLD_POST,
+      OPEN_POST,
+      'v0.1.29:001_unknown_phase',
+    ]);
+  });
+
+  it('accepts the report data:migrate status prints, with source checks, retired and unregistered rows', async () => {
+    // Built from the runner's own report parts over the real registry.
+    const current = migrationSourceIdentities(dataMigrations);
+    const registry: RegisteredMigration[] = dataMigrations.map((migration) => ({
+      id: migration.id,
+      releaseVersion: migration.releaseVersion,
+      phase: migration.phase ?? 'post-schema',
+    }));
+    const openTrain = readFileSync(path.join(repoRoot, 'VERSION'), 'utf8').trim();
+    const notApplicable = registry
+      .filter((migration) => migration.phase === 'pre-schema'
+        && compareReleaseVersions(migration.releaseVersion, openTrain) === -1)
+      .map((migration) => migration.id);
+    expect(notApplicable.length).toBeGreaterThan(0);
+    const applied = registry.filter((migration) => !notApplicable.includes(migration.id));
+    const drifted = applied.find((migration) => migration.phase === 'post-schema');
+    if (!drifted) throw new Error('the registry has no post-schema migration');
+    const retired = retiredDataMigrations[0];
+    const ledgerRow = (migrationId: string, releaseVersion: string, runner: unknown): LedgerRun => ({
+      migrationId,
+      name: migrationId,
+      releaseVersion,
+      status: 'succeeded',
+      affectedRows: 0,
+      gitSha: null,
+      prismaSchemaHash: null,
+      completedAt: new Date('2026-09-17T00:00:00.000Z'),
+      error: null,
+      runner,
+    });
+    const { runs, sourceDrift } = await checkLedgerSources([
+      ...applied.map(({ id, releaseVersion }) => ledgerRow(
+        id,
+        releaseVersion,
+        id === drifted.id ? { ...current.get(id), sourceSha256: '0'.repeat(64) } : current.get(id),
+      )),
+      ledgerRow(retired.id, retired.releaseVersion, null),
+      ledgerRow('v0.1.21:001_backfill_inventory_commitments', '0.1.21', null),
+    ], {
+      current,
+      retiredIds: new Set(retiredDataMigrations.map(({ id }) => id)),
+      deriveSourceSha256: async () => null,
+    });
+    expect(new Set(runs.map((run) => run.sourceCheck)))
+      .toEqual(new Set(['match', 'drift', 'retired', 'unregistered']));
+    const output = `${JSON.stringify({
+      schemaVersion: DATA_MIGRATIONS_SCHEMA_VERSION,
+      releaseVersion: openTrain,
+      schemaGitSha: 'c'.repeat(40),
+      prismaSchemaHash: 'd'.repeat(64),
+      ...dataMigrationRegistryStatus(current),
+      checkedAt: '2026-09-17T00:00:00.000Z',
+      database: { tableExists: true, runs, sourceDrift },
+    }, null, 2)}\n`;
+
+    const status = parseRunnerStatus(output);
+
+    expect(status.pendingIds).toEqual(notApplicable);
+    expect(status.failedIds).toEqual([]);
+    expect(status.sourceDrift).toEqual([{ migrationId: drifted.id, sourceCheck: 'drift' }]);
+    expect(classifyPendingMigrations(status, registry)).toEqual({ toApply: [], notApplicable });
+    expect(sourceDriftRefusedBySync(status, registry)).toEqual([drifted.id]);
+
+    // The final check passes on this report; with the fail setting the sync stops first.
+    for (const [statusExitCode, expected] of [
+      [0, { exitCode: 0, state: 'in-sync' }],
+      [3, { exitCode: 1, state: 'blocked' }],
+    ] as const) {
+      const harness = createHarness({ ddl: EMPTY_SQL }, { loadRegistry: async () => registry });
+      const run = harness.deps.run;
+      const outcome = await runLocalSync(OPTIONS, {
+        ...harness.deps,
+        run: async (command) => (command.step === 'status' || command.step === 'final-status'
+          ? { exitCode: statusExitCode, signal: null, stdout: output, stderr: '' }
+          : run(command)),
+      });
+      expect(outcome, `status exit ${statusExitCode}`).toMatchObject(expected);
+    }
   });
 
   it('rejects a report without a release version or database section', () => {
@@ -1076,7 +1238,7 @@ describe('db:sync:local command line', () => {
     expect(() => parseLocalSyncArgs(['--yes'])).toThrow('Unknown argument: --yes');
   });
 
-  it('documents every flag, the release rule, the consent variable, the backup and the exit codes', () => {
+  it('documents every flag, the release rule, the ensure steps, both variables, the backup and the exit codes', () => {
     for (const text of [
       '--dry-run',
       '--accept-data-loss',
@@ -1085,11 +1247,16 @@ describe('db:sync:local command line', () => {
       'pre-schema data migrations of the open release train (root VERSION)',
       'Pre-schema migrations of earlier releases are reported as not applicable',
       'cannot catch up through this command',
+      're-applies the ensure steps',
+      'Ensure steps\n                       are not previewed',
       'DATABASE_URL',
       PRISMA_USER_CONSENT_ENV,
       'never creates, defaults or prints it',
+      FAIL_ON_SOURCE_DRIFT_ENV,
+      'stops after step 3,\n                       before any change',
       '.data/db-backups/',
       'Exit codes:',
+      `source drift that ${FAIL_ON_SOURCE_DRIFT_ENV} refuses`,
     ]) {
       expect(LOCAL_SYNC_HELP).toContain(text);
     }
@@ -1141,8 +1308,9 @@ describe('db:sync:local command line', () => {
     }
   });
 
-  it('matches the runner confirmation and the package entrypoint', () => {
+  it('matches the runner confirmation, fail setting and the package entrypoint', () => {
     expect(APPLY_DATA_MIGRATIONS_CONFIRMATION).toBe(RUNNER_CONFIRMATION);
+    expect(FAIL_ON_SOURCE_DRIFT_ENV).toBe(RUNNER_FAIL_ON_SOURCE_DRIFT_ENV);
     const scripts = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts;
     expect(scripts['db:sync:local']).toBe('tsx scripts/sync-local-database.ts');
     expect(scripts['db:migrate']).toBeUndefined();

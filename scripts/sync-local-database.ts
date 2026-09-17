@@ -7,12 +7,18 @@
  *   refuse a non-local target → build shared JavaScript → status
  *   → the open release train's pre-schema migrations → cutover survey
  *   → DDL preview → backup (accepted destructive DDL only) → db push
- *   → prisma generate → post-schema migrations of every release
- *   → final status
+ *   → prisma generate → post-schema migrations of every release (that `up`
+ *   also re-applies the ensure steps) → final status
  *
  * Pushing first loses data: `db push --accept-data-loss` drops columns that
  * pre-schema migrations still have to read, and those migrations then record
  * `succeeded` over zero rows.
+ *
+ * With DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT set, `up` refuses a selection that
+ * holds an applied migration whose recorded source changed, and `status` exits
+ * 3. The command then stops before its first change when either `up` it runs
+ * would refuse, rather than pushing the schema and failing at the post-schema
+ * phase.
  *
  * Pre-schema migrations run for the open train only (`--release-version`, as
  * the Office deployer passes it). An earlier release's pre-schema migration
@@ -35,6 +41,10 @@ import { assertLocalDevelopmentDatabase } from './_shared/local-development-data
 export const PRISMA_USER_CONSENT_ENV = 'PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION';
 /** Same value as `APPLY_DATA_MIGRATIONS_CONFIRMATION` in run-data-migrations.ts. */
 export const APPLY_DATA_MIGRATIONS_CONFIRMATION = 'APPLY_DATA_MIGRATIONS';
+/** Same value as `FAIL_ON_SOURCE_DRIFT_ENV` in run-data-migrations.ts. */
+export const FAIL_ON_SOURCE_DRIFT_ENV = 'DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT';
+/** `data:migrate status` exit code for recorded source drift under FAIL_ON_SOURCE_DRIFT_ENV. */
+const STATUS_SOURCE_DRIFT_EXIT_CODE = 3;
 
 const RUNNER_SCRIPT = 'scripts/run-data-migrations.ts';
 const SURVEY_SCRIPT = 'scripts/check-cutover-data-blockers.mjs';
@@ -60,9 +70,11 @@ the Office cutover order:
    7. backup, only when the DDL drops a table or column or changes a column
       type and --accept-data-loss is given
    8. db push (never --force-reset), then prisma generate
-   9. post-schema data migrations of every release
+   9. post-schema data migrations of every release; the same data:migrate up
+      then re-applies the ensure steps (scripts/data-migrations/README.md)
   10. final data:migrate status: every open-train migration and every
-      post-schema migration must have succeeded
+      post-schema migration must have succeeded (ensure steps write no
+      ledger row)
 
 A database without data_migration_runs skips step 4 and runs it after the
 push instead.
@@ -77,7 +89,8 @@ Flags:
   --dry-run            Run only steps 1, 3, 5 and 6. Nothing is built,
                        migrated, backed up or pushed. The survey then measures
                        the database before any pre-schema migration, so it can
-                       report rows those migrations would remove.
+                       report rows those migrations would remove. Ensure steps
+                       are not previewed.
   --accept-data-loss   Allow DDL that drops a table or column or changes a
                        column type, and pass --accept-data-loss to db push.
                        A backup is written first unless --no-backup is given.
@@ -96,6 +109,12 @@ Environment:
                        when an AI agent runs db push --accept-data-loss; the
                        value must be the user's exact consent text. This
                        command never creates, defaults or prints it.
+  ${FAIL_ON_SOURCE_DRIFT_ENV}
+                       Passed to data:migrate. When it is 1 or true and a
+                       migration that step 4 or 9 selects already succeeded
+                       from a source that has changed since, data:migrate up
+                       would refuse, so this command stops after step 3,
+                       before any change. Other drift only warns.
 
 Backup:
   .data/db-backups/<database>-<UTC time>.dump (pg_dump custom format), taken
@@ -105,7 +124,8 @@ Backup:
 Exit codes:
   0  done, or already in sync (--dry-run: nothing would stop the real run)
   1  stopped for a decision: survey blockers, destructive DDL without
-     --accept-data-loss, Prisma data-loss warnings, or missing AI consent
+     --accept-data-loss, Prisma data-loss warnings, missing AI consent, or
+     source drift that ${FAIL_ON_SOURCE_DRIFT_ENV} refuses
   2  refused target, invalid usage, or a failed step
 `;
 
@@ -319,6 +339,30 @@ export function compareReleaseVersions(left: string, right: string): number | nu
     if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
   }
   return 0;
+}
+
+/**
+ * Applied migrations with recorded source drift that this command's `up`
+ * calls select: the open train's pre-schema migrations (an exact
+ * `--release-version` match, as the runner filters) and every post-schema
+ * one. Under DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT, `up` refuses to start while
+ * its selection holds one. Derived drift never stops `up`; an id whose phase
+ * cannot be read counts as selected.
+ */
+export function sourceDriftRefusedBySync(
+  status: LocalSyncStatus,
+  registry: readonly RegisteredMigration[],
+): string[] {
+  const migrationById = new Map(registry.map((migration) => [migration.id, migration]));
+  return status.sourceDrift
+    .filter((entry) => entry.sourceCheck === 'drift')
+    .map((entry) => entry.migrationId)
+    .filter((id) => {
+      const migration = migrationById.get(id);
+      return migration === undefined
+        || migration.phase === 'post-schema'
+        || migration.releaseVersion === status.releaseVersion;
+    });
 }
 
 /**
@@ -575,11 +619,17 @@ export async function runLocalSync(
       steps.push('build-shared');
     }
 
-    const before = await readStatus(deps, env, 'status', options.dryRun);
+    const { status: before, failsOnSourceDrift } = await readStatus(deps, env, 'status', options.dryRun);
     steps.push('status');
     const registry = await loadRegistry(deps);
     const pending = classifyPendingMigrations(before, registry);
     reportStatus(deps, before, pending);
+    // `up` would refuse these only after an earlier phase, or the push, has
+    // already run, so the sync refuses them before its first change.
+    const refusedDrift = failsOnSourceDrift ? sourceDriftRefusedBySync(before, registry) : [];
+    if (refusedDrift.length > 0 && !options.dryRun) {
+      throw new LocalSyncStop(1, sourceDriftStopMessage(refusedDrift));
+    }
     const plan = planLocalSync({ ledgerTableExists: before.tableExists, dryRun: options.dryRun });
 
     if (plan.preSchema === 'before-push') {
@@ -604,7 +654,7 @@ export async function runLocalSync(
     }
 
     if (options.dryRun) {
-      return finishDryRun(deps, { before, pending, surveyBlocked, ddl, options, steps });
+      return finishDryRun(deps, { before, pending, refusedDrift, surveyBlocked, ddl, options, steps });
     }
     if (destructive && !options.acceptDataLoss) {
       throw new LocalSyncStop(1, DESTRUCTIVE_STOP_MESSAGE);
@@ -634,7 +684,7 @@ export async function runLocalSync(
     await applyPostSchemaMigrations(deps, env);
     steps.push('post-schema');
 
-    const after = await readStatus(deps, env, 'final-status', false);
+    const { status: after } = await readStatus(deps, env, 'final-status', false);
     steps.push('final-status');
     const remaining = classifyPendingMigrations(after, registry);
     reportStatus(deps, after, remaining);
@@ -679,6 +729,14 @@ const CONSENT_STOP_MESSAGE = [
   'This command never creates that value, and a value in .env is not used. Then rerun the same command.',
 ].join('\n');
 
+function sourceDriftStopMessage(migrationIds: readonly string[]): string {
+  return [
+    `Stopped before any change: ${FAIL_ON_SOURCE_DRIFT_ENV} is set, and ${migrationIds.join(', ')} already succeeded from a source that has changed since (source drift above).`,
+    'data:migrate up refuses to start while its selection holds such a migration, so nothing was migrated or pushed.',
+    `An applied migration was edited: restore its source and put the fix in a new migration id, or unset ${FAIL_ON_SOURCE_DRIFT_ENV} to continue with a warning. Then rerun \`npm run db:sync:local\`.`,
+  ].join('\n');
+}
+
 const PRISMA_WARNINGS_STOP_MESSAGE = [
   'Stopped at db push: Prisma listed data-loss warnings (above) and needs --accept-data-loss. Nothing was pushed.',
   'The DDL preview found no dropped table or column and no type change, so these are warnings such as a new unique index on a table with rows.',
@@ -690,13 +748,14 @@ function finishDryRun(
   input: {
     before: LocalSyncStatus;
     pending: PendingMigrations;
+    refusedDrift: readonly string[];
     surveyBlocked: boolean;
     ddl: PlannedDdl;
     options: LocalSyncOptions;
     steps: LocalSyncStep[];
   },
 ): LocalSyncOutcome {
-  const { before, pending, surveyBlocked, ddl, options, steps } = input;
+  const { before, pending, refusedDrift, surveyBlocked, ddl, options, steps } = input;
   const destructive = ddl.destructive.length > 0;
   deps.log(
     'Dry run: the survey measured the database before any pre-schema migration, so it can report rows those migrations would remove.',
@@ -705,6 +764,9 @@ function finishDryRun(
     deps.log('Dry run: data_migration_runs is missing, so the real run pushes the schema before any migration phase.');
   }
   const stops: string[] = [];
+  if (refusedDrift.length > 0) {
+    stops.push(`source drift in ${refusedDrift.join(', ')} (${FAIL_ON_SOURCE_DRIFT_ENV} is set)`);
+  }
   if (surveyBlocked) stops.push('survey findings (listed above)');
   if (destructive && !options.acceptDataLoss) stops.push('destructive DDL without --accept-data-loss');
   if (stops.length > 0) {
@@ -745,7 +807,7 @@ async function readStatus(
   env: NodeJS.ProcessEnv,
   step: 'status' | 'final-status',
   dryRun: boolean,
-): Promise<LocalSyncStatus> {
+): Promise<{ status: LocalSyncStatus; failsOnSourceDrift: boolean }> {
   deps.log(step === 'status' ? '==> Data-migration status' : '==> Final data-migration status');
   const result = await deps.run({
     step,
@@ -754,13 +816,14 @@ async function readStatus(
     env,
     output: 'capture',
   });
-  // Exit 3 means DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT found recorded drift;
-  // the report is still complete.
-  if (result.spawnError || result.signal || (result.exitCode !== 0 && result.exitCode !== 3)) {
+  // Exit 3 means DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT is set and found recorded
+  // drift; the report is still complete.
+  const failsOnSourceDrift = result.exitCode === STATUS_SOURCE_DRIFT_EXIT_CODE;
+  if (result.spawnError || result.signal || (result.exitCode !== 0 && !failsOnSourceDrift)) {
     throw new LocalSyncStop(2, `${failureMessage(result, 'data:migrate status', result.stderr)}${sharedBuildHint(dryRun)}`);
   }
   try {
-    return parseRunnerStatus(result.stdout);
+    return { status: parseRunnerStatus(result.stdout), failsOnSourceDrift };
   } catch (error) {
     throw new LocalSyncStop(2, `data:migrate status printed no usable report: ${errorMessage(error)}.`);
   }
