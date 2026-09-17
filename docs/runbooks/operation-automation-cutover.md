@@ -113,6 +113,10 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    duplicate that a kept row cites is marked `failed` instead of removed; a
    duplicated generation that a receipt or consumption cites stops 014.
 
+   `v0.1.31:015` then closes as failed every approved ad action the old Office
+   never ran, campaign registrations included, with the manual-action or
+   cutover message (KID-230).
+
    A table that already has its column, and a key whose index exists, are
    left alone. Tables and columns a database no longer has are skipped:
 

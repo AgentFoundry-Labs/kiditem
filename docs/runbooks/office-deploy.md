@@ -82,10 +82,13 @@ Gateway stopped. Runtime-only rollback is intentionally blocked for an
 immediate schema/data cutover.
 
 After a schema/data cutover, update the Office Chrome extension from the
-deployed release's `office-v<VERSION>` bundle
-([Install Or Update](extension-releases.md#install-or-update)) before the first
-"승인 액션 실행" in the extension popup. Extension builds from before #515
-(KID-90) write to Coupang even when the server refuses their report.
+deployed release's `office-v<VERSION>-<date>-<sha>` bundle, which is published
+by hand ([Install Or Update](extension-releases.md#install-or-update)), before
+the extension is used on the Coupang ad center. Both the popup's "승인 액션 실행"
+and any tab opened with `kiditemExecuteActions=1` run approved actions. Confirm
+that the Office handshake reports the bundle's extension version. The build
+Office ran before the v0.1.31 cutover (manifest 1.0.23 on `release/office`,
+from before #515) writes to Coupang even when the server refuses its report.
 
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.
