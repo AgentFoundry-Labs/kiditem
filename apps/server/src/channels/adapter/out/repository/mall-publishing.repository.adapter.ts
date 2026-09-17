@@ -39,6 +39,24 @@ const ACCOUNT_ROW_ORDER = [
 ] satisfies Prisma.ChannelAccountOrderByWithRelationInput[];
 
 
+/**
+ * 매트릭스와 송신 전 점검이 행으로 세우는 마스터.
+ *
+ * 정본 재고 마스터(`INV-SELLPIA-*`)의 `isActive` 는 **"재고가 있고 파는 중"** 이라 재고가
+ * 0 이 되면 꺼진다(ABC·수익성이 그 뜻으로 쓴다). 그 깃발로 행을 고르면 이미 몰에 올라간
+ * 상품이 품절되는 순간 표에서 사라져, 표가 "어느 몰에 무엇이 있나"를 답하지 못한다.
+ * 그래서 셀피아 SKU 가 살아 있으면 재고와 무관하게 세우고(품절은 재고 0 으로 보인다),
+ * 보낼 수 있는지는 송신 전 점검(`out_of_stock`)이 답한다. SKU 가 스냅샷에서 사라진
+ * 단종은 살아 있지 않으므로 내려간다. 셀피아에서 오지 않은 마스터는 종전대로
+ * `isActive` 가 조건이다.
+ */
+const VISIBLE_MASTER: Prisma.MasterProductWhereInput = {
+  OR: [
+    { isActive: true },
+    { inventorySkus: { some: { isActive: true } } },
+  ],
+};
+
 /** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
 function firstListingImageUrl(
   listings: readonly {
@@ -127,16 +145,18 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   ): Promise<{ rows: PreflightProductRow[]; total: number }> {
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
-      isActive: true,
       ...(query.masterProductIds?.length ? { id: { in: query.masterProductIds } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        VISIBLE_MASTER,
+        ...(query.search
+          ? [{
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' as const } },
+                { code: { contains: query.search, mode: 'insensitive' as const } },
+              ],
+            }]
+          : []),
+      ],
     };
 
     const [records, total] = await Promise.all([
@@ -273,17 +293,19 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
 
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
-      isActive: true,
       ...(query.listed === true ? { channelListings: { some: listingScope } } : {}),
       ...(query.listed === false ? { channelListings: { none: listingScope } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        VISIBLE_MASTER,
+        ...(query.search
+          ? [{
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' as const } },
+                { code: { contains: query.search, mode: 'insensitive' as const } },
+              ],
+            }]
+          : []),
+      ],
     };
 
     const [records, total] = await Promise.all([

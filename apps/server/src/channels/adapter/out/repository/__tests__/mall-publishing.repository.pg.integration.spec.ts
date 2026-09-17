@@ -145,6 +145,51 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  const SELLPIA_HEADER = '상품코드,상품명,재고,바코드,매입가,판매가';
+
+  async function seedSellpiaSourceState() {
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        requestedGeneration: 0n,
+        verifiedGeneration: 0n,
+        freshnessFence: randomUUID(),
+      },
+    });
+  }
+
+  /**
+   * 셀피아 스냅샷 한 번. 정본 재고 마스터(`INV-SELLPIA-*`)와 그 `isActive` 는 이 발행이
+   * 만든다 — 표가 보는 사실을 테스트가 손으로 적지 않게 한다.
+   */
+  async function publishSellpiaSnapshot(rows: readonly string[]) {
+    const alerts = new SourceFailureAlerts(prisma as never);
+    const inventory = new SellpiaInventoryImportService(
+      new SellpiaImportRunRepositoryAdapter(prisma as never, alerts),
+      new SellpiaSnapshotPublicationRepositoryAdapter(prisma as never, alerts),
+      new ConfirmedChannelComponentReferenceRepositoryAdapter(prisma as never),
+      new SellpiaInventoryFileValidator(),
+    );
+    return inventory.importInventory({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      file: {
+        buffer: Buffer.from([SELLPIA_HEADER, ...rows].join('\n')),
+        fileName: 'sellpia.csv',
+        mimeType: 'text/csv',
+      },
+      execution: { kind: 'manual', manualFreshExportConfirmed: true },
+    });
+  }
+
+  async function sellpiaSku(code: string) {
+    return prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: { organizationId_code: { organizationId: TEST_ORGANIZATION_ID, code } },
+    });
+  }
+
   describe('listMatrixProducts', () => {
     /** 재고는 Inventory가 발행한 셀피아 스냅샷에서만 온다. 재고 연결이 없는 마스터는 0이 아니라 null이다. */
     it('reads each master stock from the published Sellpia snapshot and none for an unlinked master', async () => {
@@ -196,6 +241,84 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         expect.objectContaining({ masterProductId: publishedSku.masterProductId, stock: 7 }),
         expect.objectContaining({ masterProductId: unlinkedMaster.id, stock: null }),
       ]));
+    });
+
+    /**
+     * 품절은 표에서 사라질 일이 아니다.
+     *
+     * 정본 재고 마스터의 `isActive` 는 "재고가 있고 파는 중"이라 재고가 0 이 되면 꺼진다.
+     * 그 깃발로 행을 고르면 이미 몰에 올라간 상품이 품절되는 순간 표에서 사라져, 표가
+     * "어느 몰에 무엇이 있나"를 답하지 못한다. 품절은 재고 0(빨강)으로 선다.
+     */
+    it('⭐ keeps an out-of-stock canonical master in the matrix with stock 0', async () => {
+      await seedSellpiaSourceState();
+      await expect(publishSellpiaSnapshot([
+        'SP-201,품절 블록,0,8800000000201,100,200',
+      ])).resolves.toMatchObject({ outcome: 'published' });
+      const sku = await sellpiaSku('SP-201');
+      const master = await prisma.masterProduct.findUniqueOrThrow({
+        where: { id: sku.masterProductId! },
+      });
+      // 마스터의 판매 깃발 자체는 그대로 꺼져 있다 — 표만 다르게 읽는다.
+      expect(master.isActive).toBe(false);
+
+      const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 10,
+      });
+
+      expect(rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ masterProductId: master.id, stock: 0 }),
+      ]));
+    });
+
+    /** 단종(SKU 가 스냅샷에서 사라짐)은 품절과 다른 사실이다. 표에서 내린다. */
+    it('⭐ drops a canonical master whose Sellpia SKU left the snapshot', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-301,블록 A,3,8800000000301,100,200',
+        'SP-302,블록 B,3,8800000000302,100,200',
+        'SP-303,블록 C,3,8800000000303,100,200',
+        'SP-304,블록 D,3,8800000000304,100,200',
+        'SP-305,단종 블록,3,8800000000305,100,200',
+      ]);
+      await expect(publishSellpiaSnapshot([
+        'SP-301,블록 A,3,8800000000301,100,200',
+        'SP-302,블록 B,3,8800000000302,100,200',
+        'SP-303,블록 C,3,8800000000303,100,200',
+        'SP-304,블록 D,3,8800000000304,100,200',
+      ])).resolves.toMatchObject({ outcome: 'published' });
+      const discontinued = await sellpiaSku('SP-305');
+      expect(discontinued.isActive).toBe(false);
+      const alive = await sellpiaSku('SP-301');
+
+      const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 20,
+      });
+
+      const shown = rows.map((row) => row.masterProductId);
+      expect(shown).toContain(alive.masterProductId);
+      expect(shown).not.toContain(discontinued.masterProductId);
+    });
+
+    /** 셀피아에서 오지 않은 마스터는 종전 그대로 `isActive` 가 표에 서는 조건이다. */
+    it('still hides an inactive master that has no Sellpia SKU', async () => {
+      const inactive = await prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID-OFF',
+          name: '판매 중지',
+          isActive: false,
+        },
+      });
+
+      const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 10,
+      });
+
+      expect(rows.map((row) => row.masterProductId)).not.toContain(inactive.id);
     });
   });
 
@@ -291,6 +414,38 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
 
       const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, { limit: 10, offset: 0 });
       expect(rows[0]?.kc).toEqual({ status: 'exists', number: 'CB999' });
+    });
+
+    /**
+     * 송신 전 점검의 후보도 표와 같은 기준으로 세운다. 품절이라 보내지 않는다는 판정은
+     * 목록에서 지우는 것이 아니라 `evaluateMallPreflight` 가 이유와 함께 말할 일이다.
+     */
+    it('⭐ keeps an out-of-stock canonical master as a preflight candidate and drops a discontinued one', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-401,블록 A,3,8800000000401,100,200',
+        'SP-402,블록 B,3,8800000000402,100,200',
+        'SP-403,블록 C,3,8800000000403,100,200',
+        'SP-404,품절 블록,0,8800000000404,100,200',
+        'SP-405,단종 블록,3,8800000000405,100,200',
+      ]);
+      await expect(publishSellpiaSnapshot([
+        'SP-401,블록 A,3,8800000000401,100,200',
+        'SP-402,블록 B,3,8800000000402,100,200',
+        'SP-403,블록 C,3,8800000000403,100,200',
+        'SP-404,품절 블록,0,8800000000404,100,200',
+      ])).resolves.toMatchObject({ outcome: 'published' });
+      const soldOut = await sellpiaSku('SP-404');
+      const discontinued = await sellpiaSku('SP-405');
+
+      const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, {
+        limit: 20,
+        offset: 0,
+      });
+
+      const candidates = rows.map((row) => row.masterProductId);
+      expect(candidates).toContain(soldOut.masterProductId);
+      expect(candidates).not.toContain(discontinued.masterProductId);
     });
   });
 });
