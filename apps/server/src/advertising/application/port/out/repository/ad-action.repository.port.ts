@@ -4,7 +4,10 @@
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type { AdAction } from '@prisma/client';
-import type { AdKeywordPauseProposal } from '@kiditem/shared/advertising';
+import type {
+  AdActionExpectedApprovalStatus,
+  AdKeywordPauseProposal,
+} from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
 
 export const AD_ACTION_REPOSITORY_PORT = Symbol('AdActionRepositoryPort');
@@ -138,6 +141,15 @@ export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
 }
 
 /**
+ * How an approve or reject treats the actions it names. With
+ * `expectedApprovalStatus`, only the actions still in that review change, checked
+ * under their row locks; the others are skipped and not counted.
+ */
+export interface AdActionReviewOptions {
+  expectedApprovalStatus?: AdActionExpectedApprovalStatus;
+}
+
+/**
  * A browser execution report for one attempt of an approved action. It names
  * the attempt (`executionTaskId`, from the action listing) so it can move only
  * that attempt, and only while it is the action's latest.
@@ -204,18 +216,29 @@ export interface AdActionRepositoryPort {
    * action of a `MANUAL_AD_ACTION_TYPES` type (KID-138 decision A): approval
    * records the operator's confirmation, and the task is recorded failed with
    * `MANUAL_AD_ACTION_MESSAGE` so it never reaches the executor queue. Returns
-   * how many distinct actions of the organization the ids name.
+   * how many distinct actions of the organization it approved: every one the
+   * ids name, or with `expectedApprovalStatus` only those still in that review.
    */
-  approveAdActions(ids: string[], organizationId: string): Promise<number>;
+  approveAdActions(
+    ids: string[],
+    organizationId: string,
+    options?: AdActionReviewOptions,
+  ): Promise<number>;
 
   /**
    * Reject + cancel not-yet-started execution tasks inside a single
-   * $transaction. Returns how many distinct actions of the organization the ids
-   * name. Throws ConflictException and rejects none when one of them has an
-   * attempt running within its execution deadline (`EXECUTION_TASK_RUNNING`)
-   * or a latest attempt that is done (`EXECUTION_TASK_DONE`).
+   * $transaction. Returns how many distinct actions of the organization it
+   * rejected: every one the ids name, or with `expectedApprovalStatus` only
+   * those still in that review. Throws ConflictException and rejects none when
+   * one of them has an attempt running within its execution deadline
+   * (`EXECUTION_TASK_RUNNING`) or a latest attempt that is done
+   * (`EXECUTION_TASK_DONE`).
    */
-  rejectAdActions(ids: string[], organizationId: string): Promise<number>;
+  rejectAdActions(
+    ids: string[],
+    organizationId: string,
+    options?: AdActionReviewOptions,
+  ): Promise<number>;
 
   /**
    * Move the attempt a browser execution report names. Throws

@@ -1,6 +1,10 @@
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AD_ACTION_COMMAND_MAX_IDS } from '@kiditem/shared/advertising';
+import {
+  AD_ACTION_COMMAND_MAX_IDS,
+  AdActionExpectedApprovalStatusSchema,
+  type AdActionExpectedApprovalStatus,
+} from '@kiditem/shared/advertising';
 import { AD_ACTION_TARGET_TYPES } from '../../../../domain/model/strategy-types';
 
 export class AdActionQueryDto {
@@ -47,6 +51,14 @@ export class AdActionCommandDto {
   @ArrayMaxSize(AD_ACTION_COMMAND_MAX_IDS)
   @IsUUID(undefined, { each: true })
   ids?: string[];
+
+  /**
+   * The review each named action must still be in for an approve or reject to
+   * change it; the others are skipped. Absent, every named action changes.
+   */
+  @IsOptional()
+  @IsIn(AdActionExpectedApprovalStatusSchema.options)
+  expectedApprovalStatus?: AdActionExpectedApprovalStatus;
 
   /** The action an execution report is for. */
   @IsOptional()

@@ -208,19 +208,39 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     expect(svcs.action.generateActions).toHaveBeenCalledWith(COMPANY);
   });
 
-  it('action=approve → action.approveActions(ids, organizationId)', () => {
+  it('action=approve → action.approveActions(ids, organizationId, the review it expects)', () => {
     ctrl.handleActionCommand({ action: 'approve', ids: ['a', 'b'] } as any, COMPANY);
-    expect(svcs.action.approveActions).toHaveBeenCalledWith(['a', 'b'], COMPANY);
+    expect(svcs.action.approveActions).toHaveBeenCalledWith(['a', 'b'], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
+    ctrl.handleActionCommand(
+      { action: 'approve', ids: ['a'], expectedApprovalStatus: 'pending_review' } as any,
+      COMPANY,
+    );
+    expect(svcs.action.approveActions).toHaveBeenLastCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: 'pending_review',
+    });
   });
 
   it('action=approve (ids 없음) → empty array 전달', () => {
     ctrl.handleActionCommand({ action: 'approve' } as any, COMPANY);
-    expect(svcs.action.approveActions).toHaveBeenCalledWith([], COMPANY);
+    expect(svcs.action.approveActions).toHaveBeenCalledWith([], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
   });
 
-  it('action=reject → action.rejectActions(ids, organizationId)', () => {
+  it('action=reject → action.rejectActions(ids, organizationId, the review it expects)', () => {
     ctrl.handleActionCommand({ action: 'reject', ids: ['a'] } as any, COMPANY);
-    expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY);
+    expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
+    ctrl.handleActionCommand(
+      { action: 'reject', ids: ['a'], expectedApprovalStatus: 'approved' } as any,
+      COMPANY,
+    );
+    expect(svcs.action.rejectActions).toHaveBeenLastCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: 'approved',
+    });
   });
 
   it('action=markRunning → action.markRunning(id, executionTaskId, beforeJson, organizationId)', () => {
@@ -318,6 +338,17 @@ describe('AdvertisingController — POST /actions body validation (KID-211)', ()
     for (const action of ['markRunning', 'markDone', 'markFailed']) {
       expect(await statusOf({ action, id: ACTION_ID, executionTaskId: TASK_ID })).toBe(201);
       expect(await statusOf({ action, id: 'not-a-uuid', executionTaskId: TASK_ID })).toBe(400);
+    }
+  });
+
+  it('answers 400 when an approve or reject names a review it expects other than awaiting review or approved', async () => {
+    for (const action of ['approve', 'reject']) {
+      for (const expectedApprovalStatus of ['pending_review', 'approved']) {
+        expect(await statusOf({ action, ids: [ACTION_ID], expectedApprovalStatus })).toBe(201);
+      }
+      for (const expectedApprovalStatus of ['rejected', '', 'APPROVED']) {
+        expect(await statusOf({ action, ids: [ACTION_ID], expectedApprovalStatus })).toBe(400);
+      }
     }
   });
 

@@ -172,6 +172,14 @@ export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 export const AD_ACTION_COMMAND_MAX_IDS = 200;
 
 /**
+ * The review an approve or reject command can require each named action to
+ * still be in. An action in another review is skipped, so a screen read before
+ * another operator's review never undoes that review.
+ */
+export const AdActionExpectedApprovalStatusSchema = z.enum(['pending_review', 'approved']);
+export type AdActionExpectedApprovalStatus = z.infer<typeof AdActionExpectedApprovalStatusSchema>;
+
+/**
  * What an ad action approve or reject command answers: how many distinct
  * actions of the organization it changed.
  */

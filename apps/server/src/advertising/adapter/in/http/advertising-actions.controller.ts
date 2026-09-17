@@ -21,9 +21,13 @@ export class AdvertisingActionsController {
       case 'generate':
         return this.adActionService.generateActions(organizationId);
       case 'approve':
-        return this.adActionService.approveActions(body.ids ?? [], organizationId);
+        return this.adActionService.approveActions(body.ids ?? [], organizationId, {
+          expectedApprovalStatus: body.expectedApprovalStatus,
+        });
       case 'reject':
-        return this.adActionService.rejectActions(body.ids ?? [], organizationId);
+        return this.adActionService.rejectActions(body.ids ?? [], organizationId, {
+          expectedApprovalStatus: body.expectedApprovalStatus,
+        });
       case 'markRunning': {
         const { id, executionTaskId } = executionReportTarget(body);
         return this.adActionService.markRunning(id, executionTaskId, body.beforeJson, organizationId);

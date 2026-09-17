@@ -1289,6 +1289,77 @@ describe('AdAction flow (PG integration)', () => {
     });
   });
 
+  describe('reviews that name the review they expect (KID-138 review)', () => {
+    const MANUAL_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
+    const keywordPause = (label: string) =>
+      seedPendingAction(label, TEST_ORGANIZATION_ID, 'pause_keyword');
+
+    it('#20 a bulk rejection of proposals awaiting review skips one another operator approved meanwhile', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      // Another operator confirms a proposal after this operator's list was read.
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.rejectActions([pending.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'pending_review',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(pending.id)).toMatchObject({ approvalStatus: 'rejected' });
+      expect(await reviewItem(confirmed.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'failed',
+        errorMessage: MANUAL_MESSAGE,
+      });
+    });
+
+    it('#21 an approval of proposals awaiting review skips a rejected one and one already approved', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const closed = await keywordPause('KW-CLOSED');
+      await adActionService.rejectActions([closed.id], TEST_ORGANIZATION_ID);
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.approveActions([pending.id, closed.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'pending_review',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(pending.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'failed',
+      });
+      expect(await reviewItem(closed.id)).toMatchObject({ approvalStatus: 'rejected' });
+      expect(await tasksOf(closed.id)).toEqual([]);
+      // The confirmation is not recorded a second time.
+      expect((await tasksOf(confirmed.id)).map((task) => task.status)).toEqual(['failed']);
+    });
+
+    it('#22 closing approved proposals skips one still awaiting review', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.rejectActions([pending.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'approved',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(confirmed.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: MANUAL_MESSAGE,
+      });
+      expect(await reviewItem(pending.id)).toMatchObject({
+        approvalStatus: 'pending_review',
+        executionTaskId: null,
+      });
+    });
+  });
+
   describe('cross-tenant + IDOR', () => {
     it('#11 generateActions scopes to organizationId — other organization snapshot ignored', async () => {
       const mine = await seedListingWithOption({

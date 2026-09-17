@@ -379,6 +379,105 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   });
 });
 
+describe('AdActionRepositoryAdapter reviews under row locks (PG integration)', () => {
+  let observerPrisma: PrismaClient;
+
+  beforeAll(async () => {
+    observerPrisma = makeTestPrisma();
+    await observerPrisma.$connect();
+  });
+
+  afterAll(async () => {
+    await observerPrisma.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(observerPrisma);
+    await seedBaseFixture(observerPrisma);
+  });
+
+  it('checks the review it expects under the row lock, so a rejection that waited for another review skips what that review changed (KID-138 review)', async () => {
+    const proposal = await observerPrisma.adAction.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        actionType: 'pause_keyword',
+        targetType: 'keyword',
+        externalId: 'vendor-item-lock-test',
+        targetLabel: '콩순이 비눗방울',
+        reason: '상품과 무관한 캐릭터 키워드',
+      },
+      select: { id: true },
+    });
+    const holderPrisma = makeTestPrisma();
+    const rejectingPrisma = makeTestPrisma();
+    await Promise.all([holderPrisma.$connect(), rejectingPrisma.$connect()]);
+    let release = () => {};
+    let signalLocked = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      signalLocked = resolve;
+    });
+    // Another operator's approval holds the row while it commits.
+    const holding = holderPrisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM ad_actions
+        WHERE id = ${proposal.id}::uuid AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      signalLocked();
+      await released;
+      await tx.adAction.update({
+        where: { id: proposal.id },
+        data: { approvalStatus: 'approved', approvedAt: new Date() },
+      });
+    });
+
+    try {
+      await locked;
+      const rejecting = new AdActionRepositoryAdapter(rejectingPrisma as never, {} as never)
+        .rejectAdActions([proposal.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'pending_review',
+        });
+      await waitForRowLockWaiters(observerPrisma, 1);
+      release();
+      await holding;
+
+      await expect(rejecting).resolves.toBe(0);
+      expect(
+        await observerPrisma.adAction.findUniqueOrThrow({
+          where: { id: proposal.id },
+          select: { approvalStatus: true },
+        }),
+      ).toEqual({ approvalStatus: 'approved' });
+    } finally {
+      release();
+      await Promise.allSettled([holding]);
+      await Promise.all([holderPrisma.$disconnect(), rejectingPrisma.$disconnect()]);
+    }
+  });
+});
+
+/** Waits until this many sessions wait for a row lock another transaction holds. */
+async function waitForRowLockWaiters(
+  prisma: PrismaClient,
+  expectedCount: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const [row] = await prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM pg_locks
+      WHERE granted = false
+        AND locktype IN ('transactionid', 'tuple')
+    `;
+    if ((row?.count ?? 0) >= expectedCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Timed out waiting for ${expectedCount} sessions blocked on a row lock.`);
+}
+
 async function waitForAdvisoryWaiters(
   prisma: PrismaClient,
   expectedCount: number,

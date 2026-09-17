@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { AdActionCommandResult } from '@kiditem/shared/advertising';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionQuery,
   type AdActionRepositoryPort,
+  type AdActionReviewOptions,
 } from '../port/out/repository/ad-action.repository.port';
 import {
   createActionCandidate,
@@ -15,6 +15,7 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../../../channels/application/port/in/channel-sku-availability.port';
+import type { AdActionCommandResult } from '@kiditem/shared/advertising';
 
 const ACTION_DEDUP_HOURS = 24;
 
@@ -160,18 +161,27 @@ export class AdActionService {
   }
 
   /**
-   * `updated` is how many distinct actions of the organization the ids name; a
-   * repeated id, another organization's action or an unknown id adds nothing.
+   * `updated` is how many distinct actions of the organization changed; a
+   * repeated id, another organization's action, an unknown id, or an action no
+   * longer in the review `options` expects adds nothing.
    */
-  async approveActions(ids: string[], organizationId: string) {
+  async approveActions(
+    ids: string[],
+    organizationId: string,
+    options: AdActionReviewOptions = {},
+  ) {
     return {
-      updated: await this.repo.approveAdActions(ids, organizationId),
+      updated: await this.repo.approveAdActions(ids, organizationId, options),
     } satisfies AdActionCommandResult;
   }
 
-  async rejectActions(ids: string[], organizationId: string) {
+  async rejectActions(
+    ids: string[],
+    organizationId: string,
+    options: AdActionReviewOptions = {},
+  ) {
     return {
-      updated: await this.repo.rejectAdActions(ids, organizationId),
+      updated: await this.repo.rejectAdActions(ids, organizationId, options),
     } satisfies AdActionCommandResult;
   }
 

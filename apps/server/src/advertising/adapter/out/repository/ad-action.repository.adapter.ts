@@ -45,6 +45,7 @@ import type {
   AdActionQuery,
   AdActionRecord,
   AdActionRepositoryPort,
+  AdActionReviewOptions,
   AdActionReviewResult,
   ExistingAdActionDedupRow,
   KeywordPauseProposalRow,
@@ -550,25 +551,24 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   async approveAdActions(
     ids: string[],
     organizationId: string,
+    options: AdActionReviewOptions = {},
   ): Promise<number> {
     if (ids.length === 0) return 0;
     return this.prisma.$transaction(async (tx) => {
-      // The row locks this update takes serialize concurrent approvals of the
-      // same actions, so each reads the attempt the other committed.
+      const scopedActions = await lockReviewableActions(tx, {
+        ids,
+        organizationId,
+        expectedApprovalStatus: options.expectedApprovalStatus,
+      });
+      const scopedIds = scopedActions.map((a) => a.id);
+      if (scopedIds.length === 0) return 0;
       await tx.adAction.updateMany({
-        where: { id: { in: ids }, organizationId },
+        where: { id: { in: scopedIds }, organizationId },
         data: {
           approvalStatus: 'approved',
           approvedAt: new Date(),
         },
       });
-
-      const scopedActions = await tx.adAction.findMany({
-        where: { id: { in: ids }, organizationId },
-        select: { id: true, actionType: true },
-      });
-      const scopedIds = scopedActions.map((a) => a.id);
-      if (scopedIds.length === 0) return 0;
 
       // Approval adds a new attempt unless the latest one is still open. A
       // failed or done attempt stays as evidence and the new task becomes the
@@ -619,20 +619,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   async rejectAdActions(
     ids: string[],
     organizationId: string,
+    options: AdActionReviewOptions = {},
   ): Promise<number> {
     if (ids.length === 0) return 0;
     return this.prisma.$transaction(async (tx) => {
-      await tx.adAction.updateMany({
-        where: { id: { in: ids }, organizationId },
-        data: { approvalStatus: 'rejected' },
-      });
-
-      const scopedActions = await tx.adAction.findMany({
-        where: { id: { in: ids }, organizationId },
-        select: { id: true },
+      const scopedActions = await lockReviewableActions(tx, {
+        ids,
+        organizationId,
+        expectedApprovalStatus: options.expectedApprovalStatus,
       });
       const scopedIds = scopedActions.map((a) => a.id);
       if (scopedIds.length === 0) return 0;
+      await tx.adAction.updateMany({
+        where: { id: { in: scopedIds }, organizationId },
+        data: { approvalStatus: 'rejected' },
+      });
 
       // An attempt running within its deadline may already be writing to
       // Coupang, and a done attempt already changed it, so either refuses the
@@ -917,6 +918,35 @@ function manualAttemptClosure(now: Date): {
     finishedAt: now,
     errorMessage: MANUAL_AD_ACTION_MESSAGE,
   };
+}
+
+/**
+ * Row-locks the named actions of the organization, in id order, and returns
+ * the ones a review changes: every one of them, or with
+ * `expectedApprovalStatus` only those still in that review. The review is
+ * checked under the lock, so a review that waited for another one skips the
+ * actions that one changed. The locks serialize concurrent reviews of the same
+ * actions, so each reads the attempt the other committed.
+ */
+async function lockReviewableActions(
+  tx: Prisma.TransactionClient,
+  input: {
+    ids: readonly string[];
+    organizationId: string;
+    expectedApprovalStatus?: AdActionReviewOptions['expectedApprovalStatus'];
+  },
+): Promise<Array<{ id: string; actionType: string }>> {
+  return tx.$queryRaw<Array<{ id: string; actionType: string }>>(Prisma.sql`
+    SELECT action.id, action.action_type AS "actionType"
+    FROM ad_actions action
+    WHERE action.organization_id = ${input.organizationId}::uuid
+      AND action.id IN (${Prisma.join(input.ids.map((id) => Prisma.sql`${id}::uuid`))})
+      ${input.expectedApprovalStatus
+        ? Prisma.sql`AND action.approval_status = ${input.expectedApprovalStatus}`
+        : Prisma.empty}
+    ORDER BY action.id
+    FOR UPDATE
+  `);
 }
 
 function executionReportConflict(
