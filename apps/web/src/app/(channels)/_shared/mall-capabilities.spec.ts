@@ -232,3 +232,30 @@ describe('soldOutNoteFor', () => {
     expect(soldOutNoteFor(null)).toBeNull();
   });
 });
+
+describe('품절 송신 칸', () => {
+  it('우리가 그 몰 관리자를 뚫은 몰만 초록이다', () => {
+    const wired = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: true }, soldOutRoute: 'mall_admin' }),
+    });
+    expect(wired.soldout).toBe('ready');
+  });
+
+  it('몰이 품절을 받아도 우리 경로가 없으면 초록이 아니다', () => {
+    // 이 칸은 몰의 사정이 아니라 **우리가 지금 보낼 수 있는가**를 말한다.
+    const noRoute = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: true }, soldOutRoute: null }),
+    });
+    expect(noRoute.soldout).toBe('pending');
+  });
+
+  it('품절을 안 받는다고 확인된 몰은 경로와 무관하게 빨강이다', () => {
+    const refuses = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: false }, soldOutRoute: 'mall_admin' }),
+    });
+    expect(refuses.soldout).toBe('unavailable');
+  });
+});

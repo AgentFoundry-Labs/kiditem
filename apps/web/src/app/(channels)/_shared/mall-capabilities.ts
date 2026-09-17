@@ -39,6 +39,13 @@ export interface MallManifestFacts {
   /** 몰 방식이 아직 확인되지 않았다. 이때 `supports` 는 비어 있다(모름). */
   unverified: boolean;
   supports: { soldOut: boolean };
+  /**
+   * 우리가 그 몰 관리자에 품절을 쓰는 구현을 만들었는가.
+   *
+   * `supports.soldOut`(그 몰이 품절을 지원하는가)과 다르다. 지원하는데 우리가 아직
+   * 안 뚫은 몰이 대부분이라, 이 칸의 초록은 **이 값**만 보고 켠다.
+   */
+  soldOutRoute?: 'mall_admin' | null;
   hazards: { soldOutDeletesListing: boolean };
 }
 
@@ -72,9 +79,12 @@ export function mallCapabilities(
       ? 'unavailable'
       : context.hasAdapter ? 'ready' : 'pending',
     update: onlyWhereApplicable,
-    // ⚠️ 품절 송신 경로는 아직 어느 몰에도 없다 — 서버에 송신 API 가 없고 품절 관리 화면은
-    // 미리보기만 한다(2026-09-11). 몰이 품절을 안 받는다고 확인된 곳은 빨강이다.
-    soldout: !applicable || !takesSoldOut ? 'unavailable' : 'pending',
+    // 품절 송신은 확장이 그 몰 관리자에 직접 쓰는 몰만 초록이다(`soldOutRoute`).
+    // 몰이 품절을 받는다는 사실만으로 켜지 않는다 — 그건 몰의 사정이고, 이 칸은
+    // **우리가 지금 보낼 수 있는가**를 말한다. 몰이 안 받는다고 확인된 곳은 빨강이다.
+    soldout: !applicable || !takesSoldOut
+      ? 'unavailable'
+      : manifest?.soldOutRoute === 'mall_admin' ? 'ready' : 'pending',
     stock: onlyWhereApplicable,
   };
 }
