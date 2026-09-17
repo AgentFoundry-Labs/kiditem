@@ -345,7 +345,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         : {}),
     };
 
-    const page = await this.matrixPageIds(where);
+    const page = await this.matrixPageIds(organizationId, where);
     const records = await this.prisma.masterProduct.findMany({
       where: { organizationId, id: { in: page.ids.slice(query.offset, query.offset + query.limit) } },
         select: {
@@ -434,23 +434,20 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
    * 이 화면의 모수는 조직의 활성 마스터(수천)라 한 번에 읽어도 된다.
    */
   private async matrixPageIds(
+    organizationId: string,
     where: Prisma.MasterProductWhereInput,
   ): Promise<{ ids: string[]; sellpiaCodeById: Map<string, string> }> {
-    const candidates = await this.prisma.masterProduct.findMany({
-      where,
-      select: { id: true, inventorySkus: { select: { code: true } } },
-    });
+    const [candidates, bestCodeByMaster] = await Promise.all([
+      this.prisma.masterProduct.findMany({ where, select: { id: true } }),
+      this.readSellpiaCodeByMaster(organizationId),
+    ]);
     const ranked = candidates.map((candidate) => {
-      let sequence = -1;
-      let sellpiaCode: string | null = null;
-      for (const sku of candidate.inventorySkus) {
-        const value = sellpiaProductSequence(sku.code);
-        if (value !== null && value > sequence) {
-          sequence = value;
-          sellpiaCode = sku.code;
-        }
-      }
-      return { id: candidate.id, sequence, sellpiaCode };
+      const best = bestCodeByMaster.get(candidate.id);
+      return {
+        id: candidate.id,
+        sequence: best?.sequence ?? -1,
+        sellpiaCode: best?.code ?? null,
+      };
     });
     ranked.sort((left, right) => right.sequence - left.sequence || left.id.localeCompare(right.id));
     return {
@@ -458,6 +455,28 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       sellpiaCodeById: new Map(ranked.flatMap((candidate) =>
         candidate.sellpiaCode ? [[candidate.id, candidate.sellpiaCode] as const] : [])),
     };
+  }
+
+  /**
+   * 마스터마다 번호가 가장 큰 셀피아 상품코드. 셀피아 재고 SKU 는 Inventory 리더로만 읽는다
+   * (ADR-0009) — 마스터의 관계로 직접 읽으면 원장 경계를 넘는다.
+   */
+  private async readSellpiaCodeByMaster(
+    organizationId: string,
+  ): Promise<Map<string, { code: string; sequence: number }>> {
+    const identities = await this.prisma.$transaction((tx) =>
+      readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }));
+    const best = new Map<string, { code: string; sequence: number }>();
+    for (const identity of identities) {
+      if (!identity.masterProductId) continue;
+      const sequence = sellpiaProductSequence(identity.code);
+      if (sequence === null) continue;
+      const current = best.get(identity.masterProductId);
+      if (!current || sequence > current.sequence) {
+        best.set(identity.masterProductId, { code: identity.code, sequence });
+      }
+    }
+    return best;
   }
 
   /**
