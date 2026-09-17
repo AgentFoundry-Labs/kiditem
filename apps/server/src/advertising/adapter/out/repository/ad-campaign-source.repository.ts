@@ -42,10 +42,8 @@ import {
   hasCompleteObservedAdditiveMetrics,
   mergeAuthoritativeTargetInputs,
 } from '../../../application/service/ad-campaign-normalizer';
-import {
-  normalizeAdKeywordTarget,
-  mergeKeywordTargets,
-} from '../../../application/service/ad-keyword-normalizer';
+import { normalizeAdKeywordTarget } from '../../../application/service/ad-keyword-normalizer';
+import { mergeKeywordTargets } from '../../../domain/ad-keyword-target-merge';
 import { resolveCampaignReportAuthority } from '../../../domain/campaign-report-authority';
 import { adReportEvidenceCutoff, confirmedAdReportEnd } from '../../../domain/ad-report-confirmation';
 import {

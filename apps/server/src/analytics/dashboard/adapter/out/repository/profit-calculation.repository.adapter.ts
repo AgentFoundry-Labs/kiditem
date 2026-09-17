@@ -39,10 +39,10 @@ import {
 } from '../../../domain/period/dashboard-period';
 import {
   advertisingApplies,
-  dayAfter,
   readAdWindowFacts,
   type AdWindowDay,
 } from '../../../../../advertising/read/ad-target-facts';
+import { addDays } from '../../../../../common/kst';
 import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,
@@ -325,7 +325,7 @@ export class ProfitCalculationRepositoryAdapter
       return { rows: [], hasAdAccount: true };
     }
     const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
-    const to = dayAfter(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`));
+    const to = addDays(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`), 1);
     try {
       const applies = await advertisingApplies(tx, organizationId);
       const facts = await readAdWindowFacts(tx, { organizationId, from, to });

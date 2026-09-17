@@ -16,6 +16,10 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { hashCatalogChunkPayload } from '../../../application/service/channel-catalog-collection.service';
 import {
+  CATALOG_DETAILS_SOURCE,
+  CATALOG_PARSER,
+} from '../../../domain/catalog-source-identity';
+import {
   assertCatalogRunning,
   assertCatalogPublicationPlan,
   assertCatalogWritable,
@@ -28,8 +32,6 @@ import {
   CATALOG_LEGACY_LIST_URL,
   CATALOG_STAGED_DETAIL_URL,
   CATALOG_STAGED_LIST_URL,
-  CATALOG_DETAILS_SOURCE,
-  CATALOG_PARSER,
   CATALOG_STAGING_SOURCE,
   catalogSourceForStage,
   assertExpectedDetailsBasis,

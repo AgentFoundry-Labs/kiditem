@@ -16,7 +16,7 @@ import {
   totalOrUnavailable,
   type AccountAdEvidence,
 } from '../../common/per-listing-profit';
-import { advertisingAppliesToSale } from '../../advertising/read/ad-target-facts';
+import { advertisingAppliesToSale } from '../../advertising/domain/ad-sweep-coverage';
 
 /**
  * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.

@@ -1,3 +1,4 @@
+import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/catalog-source-identity';
 import type { ChannelCatalogIdentityProduct } from './channel-catalog-identity-upsert';
 
 export type RocketMatchingCsvCatalogRow = {
@@ -17,8 +18,6 @@ export type RocketMatchingCsvCatalogRow = {
   evidence: string | null;
   rawJson: Record<string, string>;
 };
-
-export const ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE = 'coupang_rocket_matching_csv';
 
 export function rocketMatchingCsvRowsToCatalogProducts(
   rows: readonly RocketMatchingCsvCatalogRow[],

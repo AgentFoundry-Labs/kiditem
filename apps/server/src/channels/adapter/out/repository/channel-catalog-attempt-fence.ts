@@ -1,8 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
   CoupangCatalogCollectionPlanSchema,
   CoupangCatalogDetailManifestConfirmationV1Schema,
   CoupangCatalogListingBasicsChunkV1Schema,
@@ -10,12 +8,14 @@ import {
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
+import {
+  CATALOG_BASICS_SOURCE,
+  CATALOG_DETAILS_SOURCE,
+  CATALOG_PARSER,
+  CATALOG_SOURCE,
+} from '../../../domain/catalog-source-identity';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 
-export const CATALOG_SOURCE = 'coupang_wing_catalog';
-export const CATALOG_BASICS_SOURCE = COUPANG_CATALOG_BASIC_SOURCE_TYPE;
-export const CATALOG_DETAILS_SOURCE = COUPANG_CATALOG_DETAILS_SOURCE_TYPE;
-export const CATALOG_PARSER = 'coupang-catalog-owner-v1';
 export const CATALOG_STAGING_SOURCE = 'coupang_wing_catalog_browser';
 export const CATALOG_RATE_LIMIT_CODE = 'WING_PROVIDER_RATE_LIMITED';
 export const CATALOG_LEGACY_LIST_URL =

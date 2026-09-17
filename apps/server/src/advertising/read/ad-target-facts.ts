@@ -1,21 +1,21 @@
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { addDays, businessDateKey, parseBusinessDate } from '../../common/kst';
-import { compareAttemptsNewestFirst, isNewerAttempt } from '../../common/current-row';
 import {
   Prisma,
   type ChannelAdTargetDailySnapshot,
   type SourceImportRun,
 } from '@prisma/client';
+import { businessDateKey, parseBusinessDate } from '../../common/kst';
+import { compareAttemptsNewestFirst, isNewerAttempt } from '../../common/current-row';
 import { currentRowTieBreakSql } from '../../common/current-row';
+import { mergeKeywordTargets } from '../domain/ad-keyword-target-merge';
+import { adReportEvidenceCutoff } from '../domain/ad-report-confirmation';
+import { AD_SWEEP_ACCOUNT_STATUS, AD_SWEEP_CHANNEL } from '../domain/ad-sweep-coverage';
 import {
   AD_METRIC_SUMS_SQL,
   CONVERSIONS_OBSERVED_SQL,
   IS_CAMPAIGN_GRAIN_SQL,
   IS_PRODUCT_GRAIN_SQL,
-} from '../adapter/out/repository/ad-target-grain.sql';
-import { mergeKeywordTargets } from '../application/service/ad-keyword-normalizer';
-import { adReportEvidenceCutoff } from '../domain/ad-report-confirmation';
-import type { UpsertAdTargetDailyInput } from '../application/port/out/repository/channel-target-daily.repository.port';
+} from './ad-target-grain.sql';
 
 /**
  * The one reader of listing-day advertising values.
@@ -48,45 +48,12 @@ import type { UpsertAdTargetDailyInput } from '../application/port/out/repositor
  *   and are never summed here.
  */
 
-/** The channel whose accounts the Coupang campaign sweep publishes target-day advertising for. */
-export const AD_SWEEP_CHANNEL = 'coupang';
-const AD_SWEEP_ACCOUNT_STATUS = 'active';
-
-/**
- * Whether the campaign sweep covers a channel account: an active Coupang
- * account. No target-day row can exist for a listing sold on any other
- * account. The one statement of the rule `advertisingApplies` and the ledger's
- * active-account filter apply.
- */
-export function adSweepCoversChannelAccount(
-  account: Readonly<{ channel: string; status: string }>,
-): boolean {
-  return account.channel === AD_SWEEP_CHANNEL && account.status === AD_SWEEP_ACCOUNT_STATUS;
-}
-
-/**
- * Whether advertising is an input to one sale key's profit — a listing, or a
- * channel grouping of listings. Measured spend for the key always applies,
- * whatever account the sold lines sit on; otherwise advertising applies when
- * the organization advertises and the key sells on an account the sweep
- * covers. Where it does not apply, advertising is Not applied (0), never an
- * unmeasured cost.
- */
-export function advertisingAppliesToSale(
-  input: Readonly<{
-    organizationAdvertises: boolean;
-    sweepCoversAccount: boolean;
-    hasMeasuredSpend: boolean;
-  }>,
-): boolean {
-  return input.hasMeasuredSpend || (input.organizationAdvertises && input.sweepCoversAccount);
-}
-
 /**
  * Whether advertising applies to the organization at all: false when it has
- * no active Coupang channel account, so there is nothing to collect and
- * advertising is a satisfied input at zero. The one place this fact is read for ad
- * evidence, so "not applied" is decided the same way by every consumer.
+ * no active Coupang channel account (`adSweepCoversChannelAccount`), so there
+ * is nothing to collect and advertising is a satisfied input at zero. The one
+ * place this fact is read for ad evidence, so "not applied" is decided the
+ * same way by every consumer.
  */
 export async function advertisingApplies(
   tx: Prisma.TransactionClient,
@@ -490,11 +457,6 @@ export async function readLatestAdDate(
     SELECT MAX(business_date) AS business_date FROM covered
   `);
   return rows[0]?.business_date ?? null;
-}
-
-/** The exclusive end of a `[from, to)` window whose last business date is `date`. */
-export function dayAfter(date: Date): Date {
-  return addDays(date, 1);
 }
 
 /**
@@ -1049,11 +1011,11 @@ export async function readCompleteAdKeywordFacts(
     { fact: AdKeywordFact; observedAt: number; sourceImportRunId: string | null }
   >();
   for (const { contribution, observedAt } of observations) {
-    const target = {
+    const target: AdKeywordFact = {
       ...contribution,
-      targetType: 'keyword' as const,
+      targetType: 'keyword',
       keyword: contribution.keyword!,
-      windowDays: 7 as const,
+      windowDays: 7,
       conversionsObserved: keywordConversionsObserved(contribution.metaJson),
     };
     const key = JSON.stringify([target.channelAccountId, target.targetKey]);
@@ -1074,25 +1036,11 @@ export async function readCompleteAdKeywordFacts(
     rows.set(key, {
       ...previous,
       fact: {
-        ...previous.fact,
-        ...mergeKeywordTargets(
-          {
-            ...previous.fact,
-            metaJson:
-              previous.fact.metaJson as UpsertAdTargetDailyInput['metaJson'],
-          },
-          {
-            ...target,
-            metaJson: target.metaJson as UpsertAdTargetDailyInput['metaJson'],
-          },
-        ),
-        keyword: previous.fact.keyword,
-        targetType: 'keyword',
-        metaJson: previous.fact.metaJson,
-        windowDays: 7,
+        // The earlier contribution keeps its identity, keyword and metadata.
+        ...mergeKeywordTargets(previous.fact, target),
         // A merged count is a measurement only if every contribution observed it.
         conversionsObserved: previous.fact.conversionsObserved && target.conversionsObserved,
-      } as AdKeywordFact,
+      },
     });
   }
   return { attempts, rows: [...rows.values()].map((row) => row.fact) };
