@@ -40,6 +40,9 @@ executable in [the Inventory tests](__tests__/).
 - Inventory owns freshness policy, generation high-water mark, source binding,
   browser lease, and advisory lock. Expired browser work follows the explicit
   retry policy; it is not silently reclaimed.
+- `transaction/sellpia-inventory-lock` holds the only lock key. Sellpia writers
+  and every availability caller take `lockSellpiaInventory` in their own
+  transaction, a caller right before its read, and pass the evidence on.
 - The availability and freshness gates return `currentStock`, equal
   `availableStock`, and active state from the same fenced generation. Before a
   snapshot is collected, availability contains no SKU items. Consumers may
@@ -68,7 +71,8 @@ component relations; never infer them from codes, names, or barcodes.
 ## Boundaries
 
 - Controllers depend on incoming ports; application and domain code follow the
-  server adapter/purity rules. Prisma imports stay in repository adapters.
+  server adapter/purity rules. Prisma imports stay in repository adapters,
+  `read/`, and `transaction/`.
 - No receive, issue, adjust, reserve, release, restock, stock-ledger, or Rocket
   event may write physical stock. No active logical-hold path reduces public
   availability.

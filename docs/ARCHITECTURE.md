@@ -392,6 +392,8 @@ apps/server/src/{owner}/
   application/service/    orchestration, transactions, organization context
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
+  read/                   pure ledger readers over the caller's transaction client
+  transaction/            owner locks and fences that run in the caller's transaction
 ```
 
 Required: module file, `application/service/`, and a port/adapter boundary for
@@ -399,6 +401,14 @@ each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
 Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
+
+`read/` exists when the owner publishes a ledger
+([ADR-0009](adr/0009-one-ledger-one-reader.md)) and `transaction/` when other
+code must take the owner's lock or fence inside its own transaction. Both export
+plain functions with no DI or HTTP. A reader imports no adapter, application, or
+NestJS code and takes no lock: its caller locks, passes the evidence, and owns
+the transaction. Readers throw `common/errors/fact-errors`, which the global
+exception filter maps to 404, 409, and 400.
 
 Agent-facing capabilities use the neutral contract in
 `apps/server/src/common/capability-definition.ts`. Each owner domain owns its

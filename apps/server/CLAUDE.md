@@ -35,6 +35,10 @@ owns its identity and mutation rules.
 - Application code does not import concrete `adapter/out/**`
   implementations or another owner's service. Prisma belongs in outgoing
   persistence adapters or a documented legacy CRUD exception.
+- `read/` ledger readers are pure functions of the caller's transaction with no
+  adapter, application, NestJS, or lock use; they throw `common/errors` types.
+- `transaction/` exports locks and fences that run in the caller's transaction,
+  without DI or HTTP; readers receive their evidence and never call them.
 - The owner publishes a cross-domain capability. Consumers use that incoming
   interface or a narrow anti-corruption port; shared behavior does not move to
   `common` merely for reuse.
