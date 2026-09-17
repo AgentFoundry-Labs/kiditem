@@ -43,7 +43,17 @@ const notApplicable = manifest({ applicable: false, supports: { soldOut: false }
 describe('mallCapabilities', () => {
   it('서버가 경로가 있다고 한 일만 초록이고, 나머지는 회색이다', () => {
     const caps = mallCapabilities(channel({ collectsOrders: true }), { hasAdapter: false, manifest: manifest() });
-    expect(caps).toEqual({ orders: 'ready', tracking: 'pending', register: 'pending', soldout: 'pending' });
+    expect(caps).toEqual({
+      orders: 'ready',
+      claims: 'pending',
+      tracking: 'pending',
+      inquiries: 'pending',
+      inquiryReplies: 'pending',
+      register: 'pending',
+      update: 'pending',
+      soldout: 'pending',
+      stock: 'pending',
+    });
   });
 
   it('상품등록은 등록 어댑터가 있어야 초록이다', () => {
@@ -60,6 +70,34 @@ describe('mallCapabilities', () => {
     expect(caps.soldout).toBe('unavailable');
   });
 
+  /** 발주를 받는 사입 채널에는 고객 클레임 · 문의도, 우리가 고칠 상품 페이지도, 보낼 재고도 없다. */
+  it('⭐ 사입 채널은 클레임 · 문의 · 상품수정 · 재고송신도 빨강이다 — 주문수집 · 운송장은 그대로', () => {
+    const caps = mallCapabilities(
+      channel({ collectsOrders: true }),
+      { hasAdapter: false, manifest: notApplicable },
+    );
+    expect(caps).toMatchObject({
+      orders: 'ready',
+      tracking: 'pending',
+      claims: 'unavailable',
+      inquiries: 'unavailable',
+      inquiryReplies: 'unavailable',
+      update: 'unavailable',
+      stock: 'unavailable',
+    });
+  });
+
+  /** 클레임 · 문의 수집, 문의 답변, 상품수정 · 재고 송신 경로는 아직 어느 몰에도 없다. */
+  it('새로 붙은 칸은 아직 초록이 없다 — 경로가 붙기 전까지 회색', () => {
+    const caps = mallCapabilities(
+      channel({ collectsOrders: true, uploadsTracking: true }),
+      { hasAdapter: true, manifest: manifest() },
+    );
+    for (const key of ['claims', 'inquiries', 'inquiryReplies', 'update', 'stock'] as const) {
+      expect(caps[key]).toBe('pending');
+    }
+  });
+
   /**
    * 품절 송신 경로는 아직 어느 몰에도 없다(품절 관리 화면은 미리보기만). 몰이 품절을 받는다고
    * 매니페스트에 적혀 있어도 초록이 아니다 — 눌러서 되는 게 아니다.
@@ -72,7 +110,15 @@ describe('mallCapabilities', () => {
   it('확인 전인 몰과 매니페스트를 못 받은 경우는 불가로 단정하지 않는다', () => {
     expect(mallCapabilities(channel(), { hasAdapter: false, manifest: manifest({ unverified: true, supports: { soldOut: false } }) }).soldout).toBe('pending');
     expect(mallCapabilities(channel(), { hasAdapter: false, manifest: null })).toEqual({
-      orders: 'pending', tracking: 'pending', register: 'pending', soldout: 'pending',
+      orders: 'pending',
+      claims: 'pending',
+      tracking: 'pending',
+      inquiries: 'pending',
+      inquiryReplies: 'pending',
+      register: 'pending',
+      update: 'pending',
+      soldout: 'pending',
+      stock: 'pending',
     });
   });
 

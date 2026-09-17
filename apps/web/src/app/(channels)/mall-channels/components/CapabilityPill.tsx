@@ -1,22 +1,46 @@
 'use client';
 
-import { Check, Download, Minus, PackageX, Send, Truck, X } from 'lucide-react';
+import {
+  Boxes,
+  Check,
+  Download,
+  MessageCircleQuestion,
+  MessageSquareReply,
+  Minus,
+  PackageX,
+  PencilLine,
+  RotateCcw,
+  Send,
+  Truck,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CapabilityKey, CapabilityState } from '../../_shared/mall-capabilities';
 
+/** 칸 이름은 사방넷 스케줄러와 같다 — 사장님이 두 화면을 같은 말로 읽는다. */
 export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
   orders: '주문수집',
-  tracking: '송장전송',
+  claims: '클레임수집',
+  tracking: '운송장 송신',
+  inquiries: '문의수집',
+  inquiryReplies: '문의답변',
   register: '상품등록',
-  soldout: '품절관리',
+  update: '상품수정',
+  soldout: '상품상태송신',
+  stock: '재고송신',
 };
 
 /** 일마다 아이콘이 다르다. 색은 상태가 정하므로, 무슨 일인지는 아이콘과 글자가 말한다. */
 export const CAPABILITY_ICON = {
   orders: Download,
+  claims: RotateCcw,
   tracking: Truck,
+  inquiries: MessageCircleQuestion,
+  inquiryReplies: MessageSquareReply,
   register: Send,
+  update: PencilLine,
   soldout: PackageX,
+  stock: Boxes,
 } as const;
 
 export const STATE_WORD: Record<CapabilityState, string> = {
@@ -47,36 +71,63 @@ const STATE_TONE: Record<CapabilityState, string> = {
 
 const STATE_MARK = { ready: Check, pending: Minus, unavailable: X } as const;
 
+const SUPPLY_CHANNEL = '발주를 받는 사입 채널에는 이 일이 없습니다.';
+
 const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
   orders: {
     ready: '이 몰의 주문을 가져올 수 있습니다.',
     pending: '주문수집 경로가 아직 없습니다.',
     unavailable: '이 몰에는 주문수집이 없습니다.',
   },
+  claims: {
+    ready: '이 몰의 취소 · 반품 · 교환을 가져올 수 있습니다.',
+    pending: '클레임(취소 · 반품 · 교환) 수집 경로가 아직 없습니다.',
+    unavailable: SUPPLY_CHANNEL,
+  },
   tracking: {
     ready: '이 몰에 송장(발송처리)을 올릴 수 있습니다.',
-    pending: '송장전송 경로가 아직 없습니다.',
-    unavailable: '이 몰에는 송장전송이 없습니다.',
+    pending: '운송장 송신 경로가 아직 없습니다.',
+    unavailable: '이 몰에는 운송장 송신이 없습니다.',
+  },
+  inquiries: {
+    ready: '이 몰의 고객 문의를 가져올 수 있습니다.',
+    pending: '문의수집 경로가 아직 없습니다.',
+    unavailable: SUPPLY_CHANNEL,
+  },
+  inquiryReplies: {
+    ready: '이 몰의 고객 문의에 답을 올릴 수 있습니다.',
+    pending: '문의답변 경로가 아직 없습니다.',
+    unavailable: SUPPLY_CHANNEL,
   },
   register: {
     ready: '이 몰의 상품등록 폼을 채울 수 있습니다.',
     pending: '상품등록 경로가 아직 없습니다.',
     unavailable: '이 채널에는 상품등록 개념이 없습니다(발주를 받는 사입 채널).',
   },
+  update: {
+    ready: '이 몰에 등록된 상품의 수정(가격 · 상품명 · 상세)을 보낼 수 있습니다.',
+    pending: '상품수정 송신 경로가 아직 없습니다.',
+    unavailable: SUPPLY_CHANNEL,
+  },
   soldout: {
-    ready: '이 몰에 품절·해제를 보낼 수 있습니다.',
-    pending: '품절 송신 경로가 아직 없습니다 — 품절 관리 화면은 미리보기만 합니다.',
+    ready: '이 몰에 품절 · 판매중지 · 해제를 보낼 수 있습니다.',
+    pending: '품절 · 판매중지 송신 경로가 아직 없습니다 — 품절 관리 화면은 미리보기만 합니다.',
     unavailable: '이 채널에는 품절 송신 개념이 없습니다.',
+  },
+  stock: {
+    ready: '이 몰에 재고 수량을 보낼 수 있습니다.',
+    pending: '재고송신 경로가 아직 없습니다.',
+    unavailable: SUPPLY_CHANNEL,
   },
 };
 
 /**
- * 카드 안의 한 줄 — 이 몰로 그 일이 되는가.
+ * 표의 한 칸 — 이 몰로 그 일이 되는가. 색만으로 말하지 않고 ✓ · – · ✕ 와 글자를 함께 둔다.
  *
- * `note` 는 기본 설명 대신 붙는 사연이다(옥션: G마켓 등록에 함께 올라감 · G마켓 품절:
- * 완전품절이 영구삭제).
+ * `label` 은 칸 이름을 바꿔 부를 때(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'), `note` 는
+ * 기본 설명 대신 붙는 사연이다(옥션: G마켓 등록에 함께 올라감 · 완전품절이 영구삭제인 몰).
  */
-export function CapabilityPill({
+export function CapabilityCell({
   kind,
   state,
   note,
@@ -85,27 +136,25 @@ export function CapabilityPill({
   kind: CapabilityKey;
   state: CapabilityState;
   note?: string | null;
-  /** 줄 이름을 바꿔 부를 때(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'). */
   label?: string | null;
 }) {
-  const Icon = CAPABILITY_ICON[kind];
   const Mark = STATE_MARK[state];
   const name = label || CAPABILITY_LABEL[kind];
+  // 셀피아처럼 길이 다른 초록은 칸 안에 그 이름을 짧게 적는다.
+  const word = label && state === 'ready' ? label.replace(CAPABILITY_LABEL[kind], '').trim() || STATE_WORD[state] : STATE_WORD[state];
   return (
-    <li
+    <span
+      role="img"
       aria-label={`${name} ${STATE_WORD[state]}`}
       title={note || STATE_HINT[kind][state]}
       className={cn(
-        'flex items-center justify-between gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold',
+        'inline-flex min-w-[3.25rem] items-center justify-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold',
         STATE_TONE[state],
       )}
     >
-      <span className="flex min-w-0 items-center gap-1">
-        <Icon size={11} className="flex-none" />
-        <span className="truncate">{name}</span>
-      </span>
       <Mark size={11} className="flex-none" aria-hidden />
-    </li>
+      {word}
+    </span>
   );
 }
 

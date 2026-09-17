@@ -1,7 +1,9 @@
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 /**
- * 연결된 몰 한 곳으로 **무엇이 되는가** — 주문수집 · 송장전송 · 상품등록 · 품절관리.
+ * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17):
+ * 주문수집 · 클레임수집 · 운송장 송신 · 문의수집 · 문의답변 · 상품등록 · 상품수정 ·
+ * 상품상태송신(품절 · 판매중지) · 재고송신.
  *
  * 상태는 셋뿐이다.
  *  - `ready`(초록): 지금 된다. 경로가 실제로 있다.
@@ -16,7 +18,17 @@ import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
  */
 export type CapabilityState = 'ready' | 'pending' | 'unavailable';
 
-export const CAPABILITY_KEYS = ['orders', 'tracking', 'register', 'soldout'] as const;
+export const CAPABILITY_KEYS = [
+  'orders',
+  'claims',
+  'tracking',
+  'inquiries',
+  'inquiryReplies',
+  'register',
+  'update',
+  'soldout',
+  'stock',
+] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
 export type MallCapabilities = Record<CapabilityKey, CapabilityState>;
@@ -43,17 +55,27 @@ export function mallCapabilities(
   const applicable = manifest ? manifest.applicable : true;
   // 확인된 몰인데 품절을 안 받는다고 하면 없는 일이다. 확인 전이면 모른다.
   const takesSoldOut = !manifest || manifest.unverified || manifest.supports?.soldOut !== false;
+  // 발주를 받는 사입 채널(쿠팡 로켓 · 직배송)에는 고객 클레임 · 문의도, 우리가 고칠 상품
+  // 페이지도, 우리가 보낼 재고도 없다. 그 칸은 빨강이다.
+  const onlyWhereApplicable: CapabilityState = applicable ? 'pending' : 'unavailable';
   return {
     orders: channel.collectsOrders ? 'ready' : 'pending',
+    // ⚠️ 클레임 · 문의 수집, 문의 답변, 상품수정 · 재고 송신 경로는 아직 어느 몰에도 없다
+    // (2026-09-17). 그래서 초록이 없다. 경로가 붙으면 그 권위(서버가 내려주는 플래그)를
+    // 여기서 읽고 초록을 켠다. 몰 이름으로 켜지 않는다.
+    claims: onlyWhereApplicable,
     tracking: channel.uploadsTracking ? 'ready' : 'pending',
+    inquiries: onlyWhereApplicable,
+    inquiryReplies: onlyWhereApplicable,
     // 개념이 없는 채널은 어댑터가 있든 없든 빨강이다. 거기 초록을 칠하면 거짓말이다.
     register: !applicable
       ? 'unavailable'
       : context.hasAdapter ? 'ready' : 'pending',
+    update: onlyWhereApplicable,
     // ⚠️ 품절 송신 경로는 아직 어느 몰에도 없다 — 서버에 송신 API 가 없고 품절 관리 화면은
-    // 미리보기만 한다(2026-09-11). 그래서 초록이 없다. 경로가 붙으면 그 권위(서버가 내려주는
-    // 플래그)를 여기서 읽고 초록을 켠다. 몰 이름으로 켜지 않는다.
+    // 미리보기만 한다(2026-09-11). 몰이 품절을 안 받는다고 확인된 곳은 빨강이다.
     soldout: !applicable || !takesSoldOut ? 'unavailable' : 'pending',
+    stock: onlyWhereApplicable,
   };
 }
 

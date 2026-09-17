@@ -1,11 +1,15 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader2, Settings, Share2 } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
-import { ChannelCard } from './components/ChannelCard';
 import { ChannelSummary } from './components/ChannelSummary';
+import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
 import { CapabilityLegend } from './components/CapabilityPill';
 
 /**
@@ -14,10 +18,11 @@ import { CapabilityLegend } from './components/CapabilityPill';
  * "지금 어디에 연결돼 있고, 각 몰로 무엇이 되는가" 한 화면. 자격증명 편집은 여기가
  * 아니라 쇼핑몰 계정 화면이 소유한다 — 그 화면은 주문수집 도메인 것이라 옮기지 않는다.
  *
- * 맨 위는 요약 여섯 칸(활성 상품 · 연결된 몰 · 주문수집 · 송장전송 · 상품등록 · 품절관리),
- * 그 아래는 연결된 몰 **한 목록**이다. 카드마다 되는 일 넷과 숫자 셋을 같은 틀로 적고
- * **다 되는 몰부터** 둔다. 요약의 막대와 카드의 줄은 같은 색이다 — 초록 됨 · 회색 아직 ·
- * 빨강 불가. 판정은 쇼핑몰 홈과 같은 곳(`useMallCapabilityRows`)에서 읽는다.
+ * 맨 위는 활성 상품 · 연결된 몰, 그 아래는 연결된 몰 **한 표**다(사방넷 스케줄러와 같은 모양,
+ * 사장님 2026-09-17). 줄마다 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정과 되는 일 아홉 칸을 적고
+ * **다 되는 몰부터** 둔다. 칸 머리에 몇 곳에서 되는지가 선다 — 초록 됨 · 회색 아직 · 빨강 불가.
+ * 판정은 쇼핑몰 홈과 같은 곳(`useMallCapabilityRows`)에서 읽는다. 쇼핑몰 ID · 사용여부는
+ * 쇼핑몰 계정 화면의 값을 읽기만 한다.
  *
  * 몰을 새로 만드는 기능은 없다. 몰 목록은 서버가 가진 고정 카탈로그이고, '연결'은
  * 그 중 하나에 계정을 채우는 일이다. 그래서 여기에 '채널 추가' 버튼을 두지 않고
@@ -25,6 +30,17 @@ import { CapabilityLegend } from './components/CapabilityPill';
  */
 export default function MallChannelsPage() {
   const { overviewQuery, overview, rows, totals } = useMallCapabilityRows();
+  const accountsQuery = useQuery({
+    queryKey: queryKeys.orders.collectionMalls(),
+    queryFn: () => orderMallAccountApi.list(),
+  });
+  const accounts = useMemo((): ReadonlyMap<string, ChannelAccountInfo> | null => {
+    if (!Array.isArray(accountsQuery.data)) return accountsQuery.isError ? new Map() : null;
+    return new Map(accountsQuery.data.map((account) => [
+      account.key,
+      { loginId: account.loginId ?? null, enabled: account.enabled },
+    ]));
+  }, [accountsQuery.data, accountsQuery.isError]);
 
   return (
     <div className="space-y-6">
@@ -64,7 +80,6 @@ export default function MallChannelsPage() {
           <ChannelSummary
             productCount={overview.shop.productCount}
             connectedCount={overview.shop.connectedChannelCount}
-            totals={totals}
           />
 
           {rows.length > 0 ? (
@@ -76,17 +91,7 @@ export default function MallChannelsPage() {
                 </h2>
                 <CapabilityLegend />
               </div>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-                {rows.map(({ channel, capabilities, notes, labels }) => (
-                  <ChannelCard
-                    key={channel.mallKey}
-                    channel={channel}
-                    capabilities={capabilities}
-                    notes={notes}
-                    labels={labels}
-                  />
-                ))}
-              </div>
+              <ChannelTable rows={rows} totals={totals} accounts={accounts} />
             </section>
           ) : (
             <div className="empty-state">연결된 몰이 없습니다.</div>
