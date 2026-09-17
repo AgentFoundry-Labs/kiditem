@@ -441,7 +441,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     return readOrderCountsByChannelAccount(this.prisma, organizationId);
   }
 
-  countActiveMasterProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({ where: { organizationId, isActive: true } });
+  async countVisibleMasterProducts(organizationId: string): Promise<number> {
+    return this.prisma.masterProduct.count({
+      where: { organizationId, ...(await this.visibleMasterWhere(organizationId)) },
+    });
   }
 }

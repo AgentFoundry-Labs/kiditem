@@ -72,7 +72,7 @@ function buildService(overrides: {
       total: (overrides.matrixProducts ?? []).length,
     }),
     countOrdersByAccount: async () => overrides.orderCounts ?? [],
-    countActiveMasterProducts: async () => overrides.masterProductCount ?? 0,
+    countVisibleMasterProducts: async () => overrides.masterProductCount ?? 0,
   };
   const availability = {
     list: async () => ({ items: [], total: 0, page: 1, limit: 50 }),

@@ -465,7 +465,7 @@ export class MallPublishingService {
       this.repository.listMallAccounts(organizationId),
       this.repository.listAccountsWithListings(organizationId),
       this.repository.countOrdersByAccount(organizationId),
-      this.repository.countActiveMasterProducts(organizationId),
+      this.repository.countVisibleMasterProducts(organizationId),
     ]);
 
     const mallAccountByKey = new Map(mallAccounts.map((row) => [row.mallKey, row]));

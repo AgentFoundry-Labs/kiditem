@@ -104,6 +104,6 @@ export interface MallPublishingRepositoryPort {
   ): Promise<{ rows: MallMatrixProductRow[]; total: number }>;
   /** 계정별 주문 건수. */
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]>;
-  /** 판매 가능한 상품 마스터 수. 허브 중앙 숫자다. */
-  countActiveMasterProducts(organizationId: string): Promise<number>;
+  /** 등록 현황 표에 서는 상품 마스터 수. 허브 중앙 숫자이고 표의 `total` 과 같은 집합이다. */
+  countVisibleMasterProducts(organizationId: string): Promise<number>;
 }

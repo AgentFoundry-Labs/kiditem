@@ -331,6 +331,46 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
    * "어느 몰에 무엇이 있나", 재고 후보 리더는 "지금 보낼 재고가 있나". 매트릭스를 고치면서
    * 재고 쪽 판정까지 끌려가지 않았는지 같은 행으로 확인한다.
    */
+  /**
+   * 허브 맨 위 숫자와 등록 현황 표가 같은 것을 센다. 표에는 서는데 숫자에는 빠지면
+   * 사장님이 "상품 3개인데 표에 4줄"을 보고 어느 쪽이 맞는지 우리에게 묻게 된다.
+   */
+  describe('countVisibleMasterProducts', () => {
+    it('⭐ counts the same set the matrix shows — sold-out in, discontinued out', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-701,블록 A,3,8800000000701,100,200',
+        'SP-702,블록 B,3,8800000000702,100,200',
+        'SP-703,블록 C,3,8800000000703,100,200',
+        'SP-704,품절 블록,0,8800000000704,100,200',
+        'SP-705,단종 블록,3,8800000000705,100,200',
+      ]);
+      await publishSellpiaSnapshot([
+        'SP-701,블록 A,3,8800000000701,100,200',
+        'SP-702,블록 B,3,8800000000702,100,200',
+        'SP-703,블록 C,3,8800000000703,100,200',
+        'SP-704,품절 블록,0,8800000000704,100,200',
+      ]);
+      await prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID-OFF-COUNT',
+          name: '판매 중지',
+          isActive: false,
+        },
+      });
+
+      const { total } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 50,
+      });
+
+      // 판매중 3 + 품절 1 = 4. 단종과 셀피아 아닌 비활성은 양쪽 모두에서 빠진다.
+      expect(total).toBe(4);
+      expect(await repository.countVisibleMasterProducts(TEST_ORGANIZATION_ID)).toBe(total);
+    });
+  });
+
   describe('inventory boundary', () => {
     it('⭐ leaves the sold-out candidate reader unchanged for the row the matrix now shows', async () => {
       await seedSellpiaSourceState();
