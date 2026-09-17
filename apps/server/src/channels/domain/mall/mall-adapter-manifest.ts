@@ -110,29 +110,50 @@ export interface MallAdapterManifest {
  * ⚠️ 근거는 **코드에 실제로 있는 경로**다. 문서에 스펙만 적힌 것은 켜지 않는다 —
  * 그러면 화면이 되는 것처럼 말하고 사람이 눌렀을 때 아무 일도 안 일어난다.
  *
- *  - `collectsOrders`: 서버에 주문수집 변환 엔드포인트가 있는 몰
- *    (`orders/collection/{몰}/convert`, 2026-09-11 기준 13곳).
+ *  - `collectsOrders`: 이 몰의 주문이 들어오는가. 길은 `orderCollectionVia` 가 말한다 —
+ *    `kiditem` 은 우리 확장 수집기(쿠팡 로켓은 발주 수집), `sellpia` 는 셀피아가 그 몰에서
+ *    직접 가져오는 주문수집이다.
  *  - `uploadsTracking`: 확장에 발송처리(송장 등록) 액션이 있는 몰
  *    (`uploadOnchTracking`·`uploadKidkidsTracking`·`uploadDomeggookTracking`, 3곳).
  *    아이스크림몰·티쳐몰·키즈노트·보리보리·카카오는 **스펙만 있고 미구현**이다.
  */
+export type OrderCollectionVia = 'kiditem' | 'sellpia';
+
 export interface MallInboundSupports {
   readonly collectsOrders: boolean;
+  readonly orderCollectionVia: OrderCollectionVia | null;
   readonly uploadsTracking: boolean;
 }
 
-/** 주문수집 변환 엔드포인트가 있는 몰. 엔드포인트 이름과 몰 키가 다른 것이 정상이다. */
+/**
+ * 우리 수집기가 주문을 가져오는 몰. 아트공구는 확장 수집기가 CSV 로 만들고, 쿠팡 로켓은
+ * 발주 수집(Supply)이 주문 자리를 채운다(사장님 확인 2026-09-17).
+ */
 const ORDER_COLLECTING_KEYS: ReadonlySet<string> = new Set([
-  'always', 'boribori', 'coupang-direct', 'domeggook', 'gs-shop', 'haebub-mall',
-  'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'teacher-mall',
+  'always', 'art09', 'boribori', 'coupang-direct', 'domeggook', 'gs-shop', 'haebub-mall',
+  'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'rocket',
+  'teacher-mall',
+]);
+
+/**
+ * 셀피아가 그 몰에서 주문을 직접 가져오는 몰. 우리 수집기는 없고, 주문은 셀피아
+ * 주문수집 화면으로 들어온다(사장님 확인 2026-09-17). 쿠팡은 마켓플레이스(윙) 주문이다 —
+ * 로켓 발주와 직배송은 우리 수집기로 들어온다.
+ */
+const SELLPIA_ORDER_COLLECTING_KEYS: ReadonlySet<string> = new Set([
+  '11st', 'auction', 'coupang', 'gmarket', 'smartstore', 'ssg',
 ]);
 
 /** 발송처리(송장 등록)까지 되는 몰. 조인 키가 깔끔한 셋뿐이다. */
 const TRACKING_UPLOAD_KEYS: ReadonlySet<string> = new Set(['onch', 'kidkids', 'domeggook']);
 
 export function mallInboundSupports(mallKey: string): MallInboundSupports {
+  const orderCollectionVia: OrderCollectionVia | null = ORDER_COLLECTING_KEYS.has(mallKey)
+    ? 'kiditem'
+    : SELLPIA_ORDER_COLLECTING_KEYS.has(mallKey) ? 'sellpia' : null;
   return {
-    collectsOrders: ORDER_COLLECTING_KEYS.has(mallKey),
+    collectsOrders: orderCollectionVia !== null,
+    orderCollectionVia,
     uploadsTracking: TRACKING_UPLOAD_KEYS.has(mallKey),
   };
 }

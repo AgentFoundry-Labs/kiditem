@@ -9,7 +9,8 @@ import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
  *  - `unavailable`(빨강): 그 몰에는 그 일이 없다. 만들 수도 없다.
  *
  * 근거는 전부 이미 있는 권위에서 온다. 주문수집·송장전송은 서버 매니페스트
- * (`collectsOrders`·`uploadsTracking`), 상품등록은 등록 어댑터 레지스트리, '없는 일'은
+ * (`collectsOrders`·`uploadsTracking`, 주문이 셀피아로 들어오는 몰은 `orderCollectionVia`),
+ * 상품등록은 등록 어댑터 레지스트리, '없는 일'은
  * 매니페스트의 `applicable: false`(쿠팡 로켓·쿠팡직배송처럼 우리가 발주를 받는 사입
  * 채널)다. 화면이 몰 이름을 보고 추측하지 않는다 — 추측으로 칠한 초록은 눌러도 안 된다.
  */
@@ -93,6 +94,26 @@ export function sortByCapability<
     || countOf(a.capabilities, 'unavailable') - countOf(b.capabilities, 'unavailable')
     || activity(b) - activity(a)
     || a.channel.mallName.localeCompare(b.channel.mallName, 'ko'));
+}
+
+/**
+ * 주문수집 줄의 이름. 셀피아가 그 몰에서 직접 주문을 가져오는 몰(옥션 · 지마켓 · 11번가 ·
+ * 신세계 · 스마트스토어 · 쿠팡 마켓플레이스)은 줄 이름부터 '셀피아 주문수집'이다 — 우리 수집기로 가져오는 몰과
+ * 같은 초록이지만 길이 다르다는 것이 카드에서 바로 읽혀야 한다(사장님 2026-09-17).
+ */
+export function ordersLabelFor(
+  channel: Pick<MallChannelSummary, 'orderCollectionVia'>,
+): string | null {
+  return channel.orderCollectionVia === 'sellpia' ? '셀피아 주문수집' : null;
+}
+
+/** 주문수집 줄에 붙는 사연. */
+export function ordersNoteFor(
+  channel: Pick<MallChannelSummary, 'orderCollectionVia'>,
+): string | null {
+  return channel.orderCollectionVia === 'sellpia'
+    ? '이 몰의 주문은 셀피아 주문수집으로 들어옵니다. 우리 수집기는 따로 돌지 않습니다.'
+    : null;
 }
 
 /**

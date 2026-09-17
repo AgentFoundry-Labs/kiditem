@@ -143,6 +143,26 @@ describe('쇼핑몰 현황 — 연결된 몰 목록', () => {
     for (const word of ['됨', '아직', '불가']) expect(screen.getByText(word)).toBeInTheDocument();
   });
 
+  /**
+   * 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어는 셀피아가 주문을 가져온다(사장님 2026-09-17).
+   * 카드에서 우리 수집기로 가져오는 몰과 길이 다르다는 것이 바로 읽혀야 한다.
+   */
+  it('⭐ 셀피아가 주문을 가져오는 몰은 "셀피아 주문수집 됨"으로 선다', () => {
+    overview = {
+      ...overview,
+      channels: [
+        channel(),
+        idle('11st', '11번가', { collectsOrders: true, orderCollectionVia: 'sellpia' }),
+      ],
+    };
+
+    render(<MallChannelsPage />);
+
+    const elevenSt = card('11번가');
+    const orders = within(elevenSt).getByRole('listitem', { name: '셀피아 주문수집 됨' });
+    expect(orders).toHaveAttribute('title', expect.stringContaining('셀피아 주문수집으로 들어옵니다'));
+  });
+
   it('가져온 몰은 숫자를 보여준다', () => {
     render(<MallChannelsPage />);
     const coupang = card('쿠팡(마켓플레이스)');

@@ -26,11 +26,14 @@ export function ChannelCard({
   channel,
   capabilities,
   notes,
+  labels,
 }: {
   channel: MallChannelSummary;
   capabilities: MallCapabilities;
   /** 줄마다 기본 설명 대신 붙는 사연(옥션 상품등록 · 완전품절=삭제 몰의 품절관리). */
   notes?: Partial<Record<CapabilityKey, string | null>>;
+  /** 줄 이름을 바꿔 부르는 몰(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'). */
+  labels?: Partial<Record<CapabilityKey, string | null>>;
 }) {
   const logo = mallLogoPath(channel.mallKey);
   return (
@@ -60,7 +63,13 @@ export function ChannelCard({
       {/* 이 몰로 무엇이 되는가. 줄이 늘 같은 순서·같은 자리에 선다. */}
       <ul className="mt-2.5 w-full space-y-1">
         {CAPABILITY_KEYS.map((key) => (
-          <CapabilityPill key={key} kind={key} state={capabilities[key]} note={notes?.[key]} />
+          <CapabilityPill
+            key={key}
+            kind={key}
+            state={capabilities[key]}
+            note={notes?.[key]}
+            label={labels?.[key]}
+          />
         ))}
       </ul>
 

@@ -3,6 +3,7 @@ import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
   listSendableMallManifests,
+  mallInboundSupports,
   requiresManualResume,
   resolveSoldOutCommand,
 } from './mall-adapter-manifest';
@@ -108,5 +109,44 @@ describe('requiresManualResume', () => {
   it('flags haebub-mall as needing a different resume path', () => {
     const haebub = getMallAdapterManifest('haebub-mall')!;
     expect(haebub.hazards.resumeRequiresAlternatePath).toBe(true);
+  });
+});
+
+/**
+ * 쇼핑몰 현황의 주문수집 칸. 사장님 확인(2026-09-17): 아트공구는 우리 수집기로, 쿠팡 로켓은
+ * 발주 수집으로 들어오고, 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어 · 쿠팡(마켓플레이스)은
+ * 셀피아가 가져온다.
+ */
+describe('mallInboundSupports', () => {
+  it.each(['art09', 'rocket', 'kidsnote', 'coupang-direct'])('%s 는 우리 수집기로 들어온다', (mallKey) => {
+    expect(mallInboundSupports(mallKey)).toMatchObject({
+      collectsOrders: true,
+      orderCollectionVia: 'kiditem',
+    });
+  });
+
+  it.each(['auction', 'gmarket', '11st', 'ssg', 'smartstore', 'coupang'])('⭐ %s 는 셀피아 주문수집으로 들어온다', (mallKey) => {
+    expect(mallInboundSupports(mallKey)).toMatchObject({
+      collectsOrders: true,
+      orderCollectionVia: 'sellpia',
+    });
+  });
+
+  it('길이 없는 몰은 들어오지 않는다고 말한다 — 추측으로 초록을 칠하지 않는다', () => {
+    expect(mallInboundSupports('toss')).toEqual({
+      collectsOrders: false,
+      orderCollectionVia: null,
+      uploadsTracking: false,
+    });
+  });
+
+  it('두 길에 한 몰이 함께 들어 있지 않다', () => {
+    const viaBoth = MALL_ADAPTER_MANIFESTS
+      .map((manifest) => manifest.key)
+      .filter((key) => {
+        const supports = mallInboundSupports(key);
+        return supports.collectsOrders !== (supports.orderCollectionVia !== null);
+      });
+    expect(viaBoth).toEqual([]);
   });
 });

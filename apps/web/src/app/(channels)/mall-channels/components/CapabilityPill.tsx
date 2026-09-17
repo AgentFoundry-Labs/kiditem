@@ -80,16 +80,20 @@ export function CapabilityPill({
   kind,
   state,
   note,
+  label,
 }: {
   kind: CapabilityKey;
   state: CapabilityState;
   note?: string | null;
+  /** 줄 이름을 바꿔 부를 때(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'). */
+  label?: string | null;
 }) {
   const Icon = CAPABILITY_ICON[kind];
   const Mark = STATE_MARK[state];
+  const name = label || CAPABILITY_LABEL[kind];
   return (
     <li
-      aria-label={`${CAPABILITY_LABEL[kind]} ${STATE_WORD[state]}`}
+      aria-label={`${name} ${STATE_WORD[state]}`}
       title={note || STATE_HINT[kind][state]}
       className={cn(
         'flex items-center justify-between gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold',
@@ -98,7 +102,7 @@ export function CapabilityPill({
     >
       <span className="flex min-w-0 items-center gap-1">
         <Icon size={11} className="flex-none" />
-        <span className="truncate">{CAPABILITY_LABEL[kind]}</span>
+        <span className="truncate">{name}</span>
       </span>
       <Mark size={11} className="flex-none" aria-hidden />
     </li>

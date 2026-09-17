@@ -254,8 +254,14 @@ export const MallChannelSummarySchema = z.object({
   hasCredentials: z.boolean(),
   /** 리스팅을 가져온 적이 있는가. */
   imported: z.boolean(),
-  /** 이 몰에서 주문을 수집할 수 있는가(서버에 변환 경로가 있는가). */
+  /** 이 몰의 주문이 들어오는가 — 우리 수집기로든, 셀피아 주문수집으로든. */
   collectsOrders: z.boolean(),
+  /**
+   * 주문이 어느 길로 들어오는가. `kiditem` 은 우리 확장 수집기(로켓은 발주 수집),
+   * `sellpia` 는 셀피아가 그 몰에서 직접 가져오는 주문수집이다. 들어오지 않으면 null.
+   * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다.
+   */
+  orderCollectionVia: z.enum(['kiditem', 'sellpia']).nullable().default(null),
   /** 이 몰에 송장(발송처리)을 올릴 수 있는가(확장에 액션이 있는가). */
   uploadsTracking: z.boolean(),
   listingCount: z.number(),

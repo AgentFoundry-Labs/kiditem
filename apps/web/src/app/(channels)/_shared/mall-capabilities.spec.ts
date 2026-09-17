@@ -3,6 +3,8 @@ import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import {
   capabilityTotals,
   mallCapabilities,
+  ordersLabelFor,
+  ordersNoteFor,
   readyCount,
   registerNoteFor,
   soldOutNoteFor,
@@ -18,6 +20,7 @@ const channel = (overrides: Partial<MallChannelSummary> = {}): MallChannelSummar
   hasCredentials: false,
   imported: false,
   collectsOrders: false,
+  orderCollectionVia: null,
   uploadsTracking: false,
   listingCount: 0,
   orderCount: 0,
@@ -124,6 +127,26 @@ describe('sortByCapability', () => {
       row('가나몰', {}),
     ]);
     expect(sorted.map((item) => item.channel.mallName)).toEqual(['롯데ON', '가나몰', '카카오', '쿠팡 로켓']);
+  });
+});
+
+/**
+ * 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어는 셀피아가 그 몰에서 주문을 직접 가져온다.
+ * 같은 초록이어도 길이 다르다는 것이 카드 줄 이름에서 바로 읽혀야 한다(사장님 2026-09-17).
+ */
+describe('ordersLabelFor / ordersNoteFor', () => {
+  it('⭐ 셀피아가 가져오는 몰은 주문수집 줄 이름이 "셀피아 주문수집"이고 초록이다', () => {
+    const sellpia = channel({ collectsOrders: true, orderCollectionVia: 'sellpia' });
+
+    expect(ordersLabelFor(sellpia)).toBe('셀피아 주문수집');
+    expect(ordersNoteFor(sellpia)).toContain('셀피아 주문수집으로 들어옵니다');
+    expect(mallCapabilities(sellpia, { hasAdapter: false, manifest: manifest() }).orders).toBe('ready');
+  });
+
+  it('우리 수집기로 가져오는 몰과 들어오지 않는 몰은 이름을 바꾸지 않는다', () => {
+    expect(ordersLabelFor(channel({ collectsOrders: true, orderCollectionVia: 'kiditem' }))).toBeNull();
+    expect(ordersNoteFor(channel({ collectsOrders: true, orderCollectionVia: 'kiditem' }))).toBeNull();
+    expect(ordersLabelFor(channel())).toBeNull();
   });
 });
 

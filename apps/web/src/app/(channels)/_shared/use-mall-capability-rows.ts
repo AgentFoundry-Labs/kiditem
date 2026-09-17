@@ -8,6 +8,8 @@ import { mallPublishingApi } from './mall-publishing-api';
 import {
   capabilityTotals,
   mallCapabilities,
+  ordersLabelFor,
+  ordersNoteFor,
   registerNoteFor,
   soldOutNoteFor,
   sortByCapability,
@@ -49,8 +51,12 @@ export function useMallCapabilityRows() {
           channel,
           capabilities: mallCapabilities(channel, { hasAdapter: Boolean(adapter), manifest }),
           notes: {
+            orders: ordersNoteFor(channel),
             register: registerNoteFor(channel.mallKey, adapter, mallNameOf),
             soldout: soldOutNoteFor(manifest),
+          },
+          labels: {
+            orders: ordersLabelFor(channel),
           },
         };
       }),

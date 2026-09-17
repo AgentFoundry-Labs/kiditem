@@ -77,12 +77,13 @@ export default function MallChannelsPage() {
                 <CapabilityLegend />
               </div>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-                {rows.map(({ channel, capabilities, notes }) => (
+                {rows.map(({ channel, capabilities, notes, labels }) => (
                   <ChannelCard
                     key={channel.mallKey}
                     channel={channel}
                     capabilities={capabilities}
                     notes={notes}
+                    labels={labels}
                   />
                 ))}
               </div>
