@@ -1,4 +1,4 @@
-import { channelFormSpec, type ChannelKey } from '@kiditem/shared/channel-registry';
+import type { ChannelKey } from '@kiditem/shared/channel-registry';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { loadMallLoginCredentials } from '@/lib/mall-login-credentials';
 import {
@@ -32,6 +32,12 @@ const MALL_FILL_TIMEOUT_MS = 120_000;
  * 예전에는 확장 스펙 이름(`gsshop`·`artgonggu`·`alwayz` …)과 계정 키가 달라 웹이 번역표를
  * 들고 있었고, 그 표를 빠뜨린 몰은 자동 로그인이 조용히 아무것도 하지 않았다. 스펠링이
  * 다를 수 있는 자리는 레지스트리의 `formSpec` 한 칸뿐이다(옥션 → 지마켓 ESM 폼).
+ *
+ * ⚠️ 이 타입은 채널 29개를 모두 받는다. 실제로 채울 폼이 있는 것은 확장 스펙이 있는
+ * 16개뿐이고, **레지스트리 행에서는 그 16개를 가려낼 수 없다** — `register` 는 몰이 등록을
+ * 어떻게 받는가이지 우리가 폼을 만들어 뒀는가가 아니다(도매꾹은 `none` 인데 스펙이 있고,
+ * 보리보리는 `api` 인데 스펙이 있다). 그래서 좁히는 대신, 어댑터가 부르는 키가 모두 확장
+ * 스펙에 있는지를 `adapters/index.spec.ts` 가 잠근다.
  */
 export type MallFormRegisterMall = ChannelKey;
 
@@ -88,6 +94,11 @@ export async function fillMallRegistrationForm(
   // 올웨이즈는 채울 로그인 폼이 없어(JWT · 토큰) 확장이 "직접 로그인하세요" 로 멈춘다 —
   // 그게 맞는 동작이다.
   //
+  // ESM Plus(`item.esmplus.com`)는 **지마켓 판매자 어드민**이다. 예전에는 확장 스펙 이름이
+  // `esmplus` 라 계정을 못 찾고 늘 열린 세션에 기댔지만, 이제 몰 키 `gmarket` 으로 부르므로
+  // 쇼핑몰 계정에 저장된 지마켓 아이디 · 비밀번호(`GMARKET_*`)로 자동 로그인이 붙는다.
+  // 옥션은 이 등록 한 번에 함께 올라가므로 따로 로그인하지 않는다.
+  //
   // ⚠️ 비밀번호가 들어 있다. 로그·토스트·오류 메시지에 싣지 말 것.
   const credentials = await loadMallLoginCredentials(mall);
 
@@ -97,8 +108,9 @@ export async function fillMallRegistrationForm(
       extensionId,
       {
         action: 'registerToMallForm',
-        // 확장이 열 폼. 대개 몰 키와 같고, 옥션만 지마켓 ESM 폼을 함께 쓴다.
-        mall: channelFormSpec(mall),
+        // 몰 키 그대로 넘긴다. **어느 폼을 여는지는 확장이 정한다**(`specFor` 가 레지스트리의
+        // `formSpec` 을 거친다) — 양쪽에서 접으면 접는 규칙이 두 곳이 된다.
+        mall,
         form,
         accountKey: mall,
         ...(credentials ? { credentials } : {}),
