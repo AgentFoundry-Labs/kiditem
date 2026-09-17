@@ -8,13 +8,15 @@ import type {
 /**
  * 몰 카드의 준비 상태 한 줄.
  *
- * `needs_profile` 은 막는 것이 아니다 — 등록 기본값(`config.listingProfile`)을 저장하는 화면이
- * 아직 없어서(KID-235) 사람이 지금 할 수 있는 일이 없다. 송신 전 점검도 이것으로는 막지
- * 않는다. 그래서 할 일을 부르는 호박색이 아니라 '보낼 수 있다'와 같은 색으로 둔다.
+ * 라벨은 몰이 지금 어떤가를 말한다. 우리 화면이 아직 없다는 사정은 사장님이 읽을 말이 아니다.
+ *
+ * `needs_profile` 은 막는 것이 아니다 — 등록 기본값(`config.listingProfile`)이 없을 뿐이고
+ * 송신 전 점검도 이것으로는 막지 않는다. 저장하는 화면은 KID-235 가 만든다. 그래서 할 일을
+ * 부르는 호박색이 아니라 '보낼 수 있다'와 같은 색으로 둔다.
  */
 export const MALL_READINESS_LABEL: Record<MallPublishTarget['readiness'], string> = {
   ready: '송신 준비됨',
-  needs_profile: '등록 기본값을 저장하는 화면이 아직 없음',
+  needs_profile: '등록 기본값 없음 — 송신에는 영향 없음',
   needs_account: '계정 정보 필요',
   unsupported: '경로 미확인',
 };

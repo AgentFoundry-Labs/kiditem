@@ -71,11 +71,12 @@ describe('productMonogram', () => {
 
 describe('몰 준비 상태 표시', () => {
   /**
-   * 등록 기본값을 저장하는 화면이 아직 없다(KID-235). 사람이 할 수 있는 일이 없는 것을 할 일로
-   * 부르면 몰 카드가 영원히 호박색으로 선다 — 이유만 적고 색은 '보낼 수 있다'와 같이 둔다.
+   * 라벨은 몰이 지금 어떤가를 말한다. 우리 화면이 아직 없다는 사정(KID-235)은 사장님이
+   * 읽을 말이 아니다 — 등록 기본값이 없다는 사실과 그래도 보낼 수 있다는 것만 적고, 색은
+   * 할 일을 부르는 호박색이 아니라 '보낼 수 있다'와 같이 둔다.
    */
-  it('⭐ 등록 기본값 없음은 할 일이 아니라 이유만 적는다', () => {
-    expect(MALL_READINESS_LABEL.needs_profile).toBe('등록 기본값을 저장하는 화면이 아직 없음');
+  it('⭐ 등록 기본값 없음은 우리 사정이 아니라 몰 상태로 적는다', () => {
+    expect(MALL_READINESS_LABEL.needs_profile).toBe('등록 기본값 없음 — 송신에는 영향 없음');
     expect(MALL_READINESS_TONE.needs_profile).toBe(MALL_READINESS_TONE.ready);
   });
 
