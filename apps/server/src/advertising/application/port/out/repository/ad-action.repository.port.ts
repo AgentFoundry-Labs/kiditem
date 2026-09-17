@@ -5,6 +5,10 @@
 
 import type { AdAction } from '@prisma/client';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
+import type { AdActionExecution } from '../../../../read/ad-action-execution';
+
+/** The execution words `read/ad-action-execution.ts` derives from the latest task. */
+export type { AdActionExecution };
 
 export const AD_ACTION_REPOSITORY_PORT = Symbol('AdActionRepositoryPort');
 
@@ -60,24 +64,6 @@ export interface AdActionReviewSummary {
   failed: number;
   latestSnapshotAt: Date | null;
   latestSnapshotPageType: string | null;
-}
-
-/**
- * The execution words an action reads from its latest ExecutionTask
- * (`read/ad-action-execution.ts`). AdAction stores no copy; the wire keeps
- * these field names.
- */
-export interface AdActionExecution {
-  /**
-   * The latest ExecutionTask: the attempt an executor names in every report
-   * (KID-160). `null` while the action has no attempt.
-   */
-  executionTaskId: string | null;
-  executeStatus: string;
-  beforeJson: unknown;
-  afterJson: unknown;
-  errorMessage: string | null;
-  executedAt: Date | null;
 }
 
 /** An AdAction row with the execution words of its latest ExecutionTask. */

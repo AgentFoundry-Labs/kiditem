@@ -1,82 +1,38 @@
+import type { InventorySkuSnapshotSummary } from '@kiditem/shared/inventory';
 import type {
-  InventorySkuLinkedProduct,
-  InventorySkuLinkedChannelOption,
-  InventorySkuSnapshotSummary,
-  InventorySkuStockStatus,
-  SellpiaInventorySkuActiveStatus,
-  SellpiaInventorySkuLinkStatus,
-  SellpiaImportRunSummary,
-} from '@kiditem/shared/inventory';
+  InventorySkuSnapshotQuery,
+  InventorySkuSnapshotRow,
+  SellpiaImportRunRow,
+} from '../../../../read/inventory-availability';
 
 export const INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT = Symbol(
   'INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT',
 );
 
-export type InventorySkuSnapshotRepositoryQuery = {
-  skip: number;
-  take?: number;
-  query?: string;
-  stockStatus: InventorySkuStockStatus;
-  activeStatus: SellpiaInventorySkuActiveStatus;
-  linkStatus?: SellpiaInventorySkuLinkStatus;
-};
-
-export type InventorySkuSnapshotRepositoryRow = {
-  sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
-  optionName: string | null;
-  barcode: string | null;
-  currentStock: number;
-  purchasePrice: number | null;
-  salePrice: number | null;
-  isActive: boolean;
-  lastImportRunId: string | null;
-  lastImportedAt: Date | null;
-  linkedChannelOptionCount: number;
-  linkedProductCount: number;
-  linkedProducts: InventorySkuLinkedProduct[];
-  linkedChannelOptions: InventorySkuLinkedChannelOption[];
-};
-
-export type SellpiaImportRunRepositoryRow = Omit<
-  SellpiaImportRunSummary,
-  | 'importedAt'
-  | 'lastVerifiedAt'
-  | 'manualFreshExportConfirmedAt'
-  | 'freshnessGeneration'
-  | 'createdAt'
-  | 'updatedAt'
-> & {
-  importedAt: Date | null;
-  lastVerifiedAt: Date | null;
-  manualFreshExportConfirmedAt: Date | null;
-  freshnessGeneration: bigint | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
+/** The snapshot list and import-run shapes `read/inventory-availability.ts` owns. */
+export type { InventorySkuSnapshotQuery, InventorySkuSnapshotRow, SellpiaImportRunRow };
 
 export interface InventorySkuSnapshotListRepositoryPort {
   listSnapshot(
     organizationId: string,
-    query: InventorySkuSnapshotRepositoryQuery,
+    query: InventorySkuSnapshotQuery,
   ): Promise<{
-    rows: InventorySkuSnapshotRepositoryRow[];
+    rows: InventorySkuSnapshotRow[];
     total: number;
     summary: InventorySkuSnapshotSummary;
-    latestImport: SellpiaImportRunRepositoryRow | null;
+    latestImport: SellpiaImportRunRow | null;
   }>;
 
   getSnapshot(
     organizationId: string,
     sellpiaInventorySkuId: string,
-  ): Promise<InventorySkuSnapshotRepositoryRow | null>;
+  ): Promise<InventorySkuSnapshotRow | null>;
 
   listImportRuns(
     organizationId: string,
     query: { skip: number; take: number },
   ): Promise<{
-    rows: SellpiaImportRunRepositoryRow[];
+    rows: SellpiaImportRunRow[];
     total: number;
   }>;
 }

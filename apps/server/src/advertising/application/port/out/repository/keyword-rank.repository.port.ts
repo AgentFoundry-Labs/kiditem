@@ -6,6 +6,21 @@
 // the Prisma-backed adapter lives in
 // `adapter/out/repository/keyword-rank.repository.adapter.ts`.
 
+import type {
+  RankHistoryRow,
+  RankOverviewSnapshotRow,
+  SerpSnapshotRow,
+  WingSalesRankSnapshotRow,
+} from "../../../../read/keyword-rank-facts";
+
+/** Rank and SERP facts `read/keyword-rank-facts.ts` returns. */
+export type {
+  RankHistoryRow,
+  RankOverviewSnapshotRow,
+  SerpSnapshotRow,
+  WingSalesRankSnapshotRow,
+};
+
 export const KEYWORD_RANK_REPOSITORY_PORT = Symbol("KeywordRankRepositoryPort");
 
 export interface KeywordTrackerRow {
@@ -83,28 +98,6 @@ export interface UpsertSerpSnapshotInput {
   capturedAt: Date;
 }
 
-export interface RankHistoryRow {
-  vendorItemId: string;
-  businessDate: Date;
-  productName: string | null;
-  overallRank: number | null;
-  organicRank: number | null;
-  adRank: number | null;
-  page: number | null;
-}
-
-/** 상품 대표 키워드 현황 집계용 최근 순위 fact. */
-export interface RankOverviewSnapshotRow {
-  keyword: string;
-  vendorItemId: string;
-  businessDate: Date;
-  productName: string | null;
-  overallRank: number | null;
-  organicRank: number | null;
-  adRank: number | null;
-  capturedAt: Date;
-}
-
 export interface ReplaceWingSalesRankSnapshotInput {
   sourceImportRunId: string;
   organizationId: string;
@@ -129,38 +122,6 @@ export interface ReplaceWingSalesRankSnapshotInput {
   collectedCount: number;
   totalResults: number | null;
   capturedAt: Date;
-}
-
-export interface WingSalesRankSnapshotRow {
-  id: string;
-  keyword: string;
-  vendorItemId: string;
-  businessDate: Date;
-  productName: string | null;
-  categoryHierarchy: string | null;
-  salesRank: number | null;
-  salesLast28d: number | null;
-  viewsLast28d: number | null;
-  revenueLast28d: number | null;
-  conversionRate28d: number | null;
-  salePrice: number | null;
-  reviewCount: number | null;
-  keywordSalesLast28d: number | null;
-  keywordViewsLast28d: number | null;
-  keywordConversionRate28d: number | null;
-  collectedCount: number;
-  totalResults: number | null;
-  capturedAt: Date;
-  updatedAt: Date;
-}
-
-export interface SerpSnapshotRow {
-  keyword: string;
-  businessDate: Date;
-  capturedAt: Date;
-  pagesScanned: number;
-  itemCount: number;
-  items: unknown;
 }
 
 export interface MutateLatestSerpSnapshotInput {

@@ -1,9 +1,9 @@
-import { ConflictException } from "@nestjs/common";
 import { Prisma, type SourceImportRun } from "@prisma/client";
 import {
   ROCKET_CONFIRMATION_REQUEST_STATUSES,
   RocketPoCollectionEvidenceSchema,
   RocketPoSourcePlanSchema,
+  type RocketPoCatalogPublication,
   type RocketPoCatalogRow,
   type RocketPoSource,
   type RocketSavedPoSnapshot,
@@ -21,10 +21,16 @@ import {
   kstBusinessDate,
   parseBusinessDate,
 } from "../../common/kst";
-import type { RocketPoCompleteCollection } from "../application/port/in/rocket-po-catalog.port";
+import { FactConflictError } from "../../common/errors/fact-errors";
 
 export const ROCKET_PO_CATALOG_SOURCE_TYPE = "coupang_rocket_po_catalog";
 export const ROCKET_PO_CATALOG_PARSER_VERSION = "rocket-po-v1";
+
+export type RocketPoCatalogIdentity = { poLineId: string; channelSkuId: string };
+export type RocketPoCompleteCollection = RocketSavedPoSnapshot & {
+  catalog: RocketPoCatalogPublication;
+  identities: RocketPoCatalogIdentity[];
+};
 
 const savedLineSelect = {
   poLineId: true,
@@ -423,7 +429,7 @@ async function resolveIdentities(
   return input.rows.map((row) => {
     const channelSkuId = optionByExternalId.get(row.productNo);
     if (!channelSkuId) {
-      throw new ConflictException(
+      throw new FactConflictError(
         `Rocket identity ${row.productNo} was not persisted`,
       );
     }
@@ -457,7 +463,7 @@ function publicAttempt(run: RocketPoAttemptRow, now: Date) {
 
 function requiredSavedValue<T>(value: T | null, field: string): T {
   if (value === null) {
-    throw new ConflictException(
+    throw new FactConflictError(
       `Saved Rocket PO confirmation is missing ${field}`,
     );
   }

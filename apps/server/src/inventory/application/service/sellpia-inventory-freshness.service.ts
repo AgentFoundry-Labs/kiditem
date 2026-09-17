@@ -5,8 +5,8 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
+import { FactNotFoundError } from '../../../common/errors/fact-errors';
 import {
   SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
   type SellpiaInventoryFreshnessRepositoryPort,
@@ -280,7 +280,7 @@ async function readAvailability(
   try {
     return await transaction.findInventoryAvailability(sellpiaInventorySkuIds);
   } catch (error) {
-    if (error instanceof NotFoundException) throw referenceInvalid();
+    if (error instanceof FactNotFoundError) throw referenceInvalid();
     throw error;
   }
 }

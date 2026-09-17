@@ -29,6 +29,7 @@ import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapt
 import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
+import { FactConflictError } from '../../common/errors/fact-errors';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const base = '/api/channels/rocket-po';
@@ -277,6 +278,31 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     });
 
     expect(saved?.rows).toEqual([row('P1'), unconfirmed]);
+  });
+  it('fails a saved read closed with a typed conflict when stored evidence is incomplete', async () => {
+    const attempt = (await start()).body;
+    await finish(attempt, [row('P1')]).expect(200);
+    const exact = {
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      sourceImportRunId: attempt.attemptId,
+    };
+    await prisma.channelListingOption.updateMany({
+      where: { organizationId: ORG, externalOptionId: 'P1' },
+      data: { externalOptionId: 'P1-RENUMBERED' },
+    });
+
+    const complete = catalog.readComplete(exact);
+    await expect(complete).rejects.toBeInstanceOf(FactConflictError);
+    await expect(complete).rejects.toThrow('Rocket identity P1 was not persisted');
+
+    await prisma.rocketPoCatalogLine.updateMany({
+      where: { organizationId: ORG, snapshot: { sourceImportRunId: attempt.attemptId } },
+      data: { poStatus: null },
+    });
+    const saved = catalog.loadSavedCollection(exact);
+    await expect(saved).rejects.toBeInstanceOf(FactConflictError);
+    await expect(saved).rejects.toThrow('Saved Rocket PO confirmation is missing poStatus');
   });
   it('dates the COMPLETE cutoff by its KST business day across the 00:30 KST boundary', async () => {
     const attempt = (await start()).body;

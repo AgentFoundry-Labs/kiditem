@@ -68,15 +68,13 @@ describe('Inventory architecture contract', () => {
     expect(hits).toEqual([]);
   });
 
-  it('centralizes the Sellpia advisory transaction lock', () => {
+  it('keeps the Sellpia advisory lock key in the one exported lock module', () => {
+    const serverSrc = path.dirname(inventoryRel());
     const hits = rg(
-      `--type ts --files-with-matches 'inventory-sellpia:' ${inventoryRel()} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'inventory-sellpia:' ${serverSrc} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(hits).toEqual([
-      path.join(
-        inventoryRel(),
-        'adapter/out/repository/sellpia-inventory-transaction-lock.ts',
-      ),
+      path.join(inventoryRel(), 'transaction/sellpia-inventory-lock.ts'),
     ]);
   });
 

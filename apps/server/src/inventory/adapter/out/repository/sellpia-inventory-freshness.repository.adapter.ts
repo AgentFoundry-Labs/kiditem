@@ -6,7 +6,10 @@ import {
   SellpiaSyncScopeSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import {
+  lockSellpiaInventory,
+  type SellpiaInventoryLock,
+} from '../../../transaction/sellpia-inventory-lock';
 import type {
   SellpiaInventoryFreshnessRepositoryPort,
   SellpiaInventoryFreshnessRepositoryTransaction,
@@ -70,7 +73,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     ) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      const inventoryLock = await lockSellpiaInventory(tx, input.organizationId);
       const initialState = input.createInitialState();
       await tx.sellpiaInventoryState.upsert({
         where: { organizationId: input.organizationId },
@@ -86,6 +89,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
       return operation(new LockedFreshnessTransaction(
         tx,
         input.organizationId,
+        inventoryLock,
       ));
     }, TRANSACTION_OPTIONS);
   }
@@ -96,6 +100,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   constructor(
     private readonly tx: Prisma.TransactionClient,
     private readonly organizationId: string,
+    private readonly inventoryLock: SellpiaInventoryLock,
   ) {}
 
   async getState(): Promise<SellpiaInventoryFreshnessState> {
@@ -122,7 +127,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   findInventoryAvailability(
     sellpiaInventorySkuIds: string[],
   ): Promise<InventoryAvailabilityBatch> {
-    return readInventoryAvailability(this.tx, {
+    return readInventoryAvailability(this.tx, this.inventoryLock, {
       organizationId: this.organizationId,
       sellpiaInventorySkuIds,
     });

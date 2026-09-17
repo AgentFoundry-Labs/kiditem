@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  mergeKeywordTargets,
-  normalizeAdKeywordTarget,
-} from '../ad-keyword-normalizer';
+import { normalizeAdKeywordTarget } from '../ad-keyword-normalizer';
 import type { ListingMap } from '../../../domain/listing-match';
 
 const map: ListingMap = {
@@ -68,30 +65,6 @@ describe('ad-keyword-normalizer', () => {
 
   it('rejects a keyword-column control label without creating a target', () => {
     expect(target({ keyword: '키워드 보기' })).toBeNull();
-  });
-
-  it('sums shared keyword metrics and drops an ambiguous option link', () => {
-    const first = target({ impressions: 3, clicks: 1, spend: 100 });
-    const second = target({
-      externalOptionId: '95514078596',
-      impressions: 5,
-      clicks: 2,
-      spend: 250,
-    });
-
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    const merged = mergeKeywordTargets(first!, second!);
-
-    expect(merged).toMatchObject({
-      impressions: 8,
-      clicks: 3,
-      spend: 350,
-      adSpend: 350,
-      externalOptionId: null,
-      listingId: null,
-      listingOptionId: null,
-    });
   });
 
   it('requires a stable campaign identity for a keyword target', () => {
