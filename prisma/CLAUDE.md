@@ -38,6 +38,12 @@ generic guidance.
 - Give every FK an index usable for joins and parent update/delete checks. Reuse
   an existing composite index when its leftmost columns cover the FK access path.
 - Optional FKs declare `onDelete` explicitly.
+- A reference to another owner's row is a plain id column with an index and no
+  `@relation`; organization/user scope, relations inside one owner, and
+  `SourceImportRun` keep their foreign keys. The remaining exceptions live in
+  `scripts/cross-owner-fk.json`, which only shrinks, and
+  `npm run check:cross-owner-fk` fails both a new one and a stale entry
+  ([ADR-0013](../docs/adr/0013-cross-owner-references-are-ids-not-foreign-keys.md)).
 
 ## Organization Boundary
 
