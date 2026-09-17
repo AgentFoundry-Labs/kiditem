@@ -11,6 +11,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-agents-hygiene.mjs',
   'check-business-date-arithmetic.mjs',
   'check-copilotkit-train.mjs',
+  'check-cross-owner-fk.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-identifier-contracts.mjs',
@@ -55,6 +56,7 @@ const SUPPORT_FILES = new Set([
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
   'ledger-readers.json',
+  'cross-owner-fk.json',
   'cutover-blocker-coverage.json',
   'README.md',
 ]);
@@ -153,6 +155,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (packageScripts['check:ledger-readers'] !== 'node scripts/check-ledger-readers.mjs') {
     missingPackageHooks.push('check:ledger-readers');
   }
+  if (packageScripts['check:cross-owner-fk'] !== 'node scripts/check-cross-owner-fk.mjs') {
+    missingPackageHooks.push('check:cross-owner-fk');
+  }
   if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
     missingPackageHooks.push('deploy:office:local');
   }
@@ -185,6 +190,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:ledger-readers')) {
     missingPackageHooks.push('check:conventions -> check:ledger-readers');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:cross-owner-fk')) {
+    missingPackageHooks.push('check:conventions -> check:cross-owner-fk');
   }
   if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
     missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');
