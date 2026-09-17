@@ -41,8 +41,9 @@ executable in [the Inventory tests](__tests__/).
   browser lease, and advisory lock. Expired browser work follows the explicit
   retry policy; it is not silently reclaimed.
 - `transaction/sellpia-inventory-lock` holds the only lock key. Sellpia writers
-  and every availability caller take `lockSellpiaInventory` in their own
-  transaction, a caller right before its read, and pass the evidence on.
+  take `lockSellpiaInventory` in their own transaction. An availability
+  caller takes it right before the read and passes the returned evidence to
+  the reader.
 - The availability and freshness gates return `currentStock`, equal
   `availableStock`, and active state from the same fenced generation. Before a
   snapshot is collected, availability contains no SKU items. Consumers may
