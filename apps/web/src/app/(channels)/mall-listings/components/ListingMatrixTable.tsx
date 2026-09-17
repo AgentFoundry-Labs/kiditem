@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Check, CircleSlash, MoreHorizontal, PauseCircle, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, CircleSlash, PauseCircle, X } from 'lucide-react';
 import type {
   MallListingMatrixColumn,
   MallListingMatrixRow,
@@ -37,8 +37,8 @@ const STICKY = {
   check: { width: 'w-11', left: 'left-0' },
   product: { width: 'w-[300px]', left: 'left-11' },
   stock: { width: 'w-[76px]', left: 'left-[344px]' },
-  // '상세보기'(약 48px) + 더보기 버튼(22px) + 좌우 여백 32px = 최소 104px 이라
-  // 104 로 두면 내용이 폭을 밀어내 헤더와 본문이 어긋난다. 여유를 주고 고정한다.
+  // '액션' 버튼(약 64px) + 좌우 여백 32px. 폭이 내용에 밀리면 헤더와 본문이 어긋나므로
+  // 여유를 두고 고정한다. 상세로 가는 길은 상품 정보 칸이 맡는다.
   action: { width: 'w-[120px]', left: 'left-[420px]' },
 } as const;
 
@@ -130,7 +130,7 @@ export function ListingMatrixTable({
                   STICKY.action.width,
                   STICKY.action.left,
                   STICKY_EDGE,
-                  'text-right',
+                  'text-center',
                 )}
               >
                 액션
@@ -356,10 +356,17 @@ function MatrixRow({
         {/* 표가 가로로 넘치므로 셀 안쪽 폭을 직접 묶는다. `<td>` 의 width 는
             내용이 길면 늘어나는 제안값이라, 안 묶으면 긴 카테고리 경로가 고정
             구간 밖으로 새어 나와 몰 칸 위에 겹쳐 보인다. */}
-        <div className="flex w-[268px] items-start gap-2.5 overflow-hidden">
+        {/* 상품 정보 전체가 상세로 가는 자리다. 따로 '상세보기' 글자를 두지 않는다 — 사진이나
+            이름을 누르는 것이 가장 먼저 떠오르는 동작이다(사장님 2026-09-18). */}
+        <Link
+          href={`/product-hub/${row.masterProductId}`}
+          className="group/product flex w-[268px] items-start gap-2.5 overflow-hidden rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+        >
           <ProductThumbnail imageUrl={row.imageUrl} name={row.name} seed={row.masterProductId} />
           <span className="min-w-0 flex-1">
-            <span className="block line-clamp-2 font-medium text-slate-900">{row.name}</span>
+            <span className="block line-clamp-2 font-medium text-slate-900 group-hover/product:text-primary group-hover/product:underline">
+              {row.name}
+            </span>
             {/* 표는 셀피아 번호가 큰 것부터 선다. 번호가 보여야 순서가 읽힌다 — 마스터 코드는
                 해시라 아무것도 알려주지 않는다(사장님 2026-09-18: "최신상품 순으로 하라니깐"). */}
             <span className="mt-0.5 block truncate text-xs text-slate-400" title={row.code}>
@@ -367,7 +374,7 @@ function MatrixRow({
               {row.category ? ` · ${row.category}` : ''}
             </span>
           </span>
-        </div>
+        </Link>
       </td>
       <td
         className={cn(
@@ -388,31 +395,32 @@ function MatrixRow({
       </td>
       <td
         className={cn(
-          'sticky z-10 text-right group-hover:bg-slate-50',
+          'sticky z-10 text-center group-hover:bg-slate-50',
           STICKY.action.left,
           STICKY_EDGE,
           rowTone,
         )}
       >
-        <div className="relative flex items-center justify-end gap-1">
-          <Link
-            href={`/product-hub/${row.masterProductId}`}
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            상세보기
-          </Link>
+        <div className="relative flex items-center justify-center">
           <button
             type="button"
             onClick={(event) => onToggleMenu(event.currentTarget)}
             aria-haspopup="menu"
             aria-expanded={rowMenu !== null}
-            aria-label={`${row.name} 작업 메뉴`}
+            aria-label={`${row.name} 액션`}
             className={cn(
-              'rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600',
-              rowMenu && 'bg-slate-100 text-slate-600',
+              'inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+              rowMenu
+                ? 'border-purple-300 bg-purple-50 text-purple-700'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
             )}
           >
-            <MoreHorizontal size={14} />
+            액션
+            <ChevronDown
+              size={12}
+              aria-hidden
+              className={cn('transition-transform', rowMenu && 'rotate-180')}
+            />
           </button>
           {rowMenu ? (
             <RowActionMenu

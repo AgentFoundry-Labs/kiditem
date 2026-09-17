@@ -438,14 +438,24 @@ describe('표 배치', () => {
     expect(container.querySelector('.scrollbar-x-visible')).not.toBeNull();
   });
 
-  it('액션 열은 상세보기와 더보기가 들어갈 폭을 잡는다', () => {
+  it('액션 열은 액션 버튼이 들어갈 폭을 고정한다', () => {
     withMalls(3);
     render(<MallListingsPage />);
     const action = screen
       .getAllByRole('columnheader')
       .find((cell) => (cell.textContent ?? '').includes('액션'));
-    // 104px 로 두면 '상세보기'(48) + 더보기(22) + 여백(32) 이 폭을 밀어내 헤더와 어긋난다.
+    // 폭이 내용에 밀리면 헤더와 본문이 어긋난다.
     expect(action?.className).toContain('w-[120px]');
+  });
+
+  it('상품 정보를 누르면 상품 상세로 간다 — 따로 상세보기 글자를 두지 않는다', () => {
+    withMalls(3);
+    render(<MallListingsPage />);
+    const productLinks = screen
+      .getAllByRole('link')
+      .filter((link) => (link.getAttribute('href') ?? '').startsWith('/product-hub/'));
+    expect(productLinks.length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: '상세보기' })).not.toBeInTheDocument();
   });
 
   it('재고와 액션이 몰보다 앞에 온다', () => {
@@ -542,7 +552,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('행 더보기는 몰 수와 함께 일괄 작업을 보여준다', () => {
     withActions();
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /작업 메뉴/ }));
+    fireEvent.click(screen.getByRole('button', { name: /액션$/ }));
     const menu = screen.getByRole('menu');
     expect(within(menu).getByText('전 몰 품절 처리')).toBeInTheDocument();
     expect(within(menu).getAllByText('1개 몰')).toHaveLength(4);
@@ -554,7 +564,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     render(<MallListingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /작업 메뉴/ }));
+    fireEvent.click(screen.getByRole('button', { name: /액션$/ }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('menu')).toBeInTheDocument();
   });
