@@ -120,6 +120,14 @@ const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner
   request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
   collect: sabangnetMallListings.collect,
 });
+const mallAdminListings = KidItemMallAdminListings.create({ chrome });
+const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: mallAdminListings.collect,
+  mallName: mallAdminListings.mallName,
+});
 const coupangDirectshipSourceOwner = KidItemCoupangDirectshipSourceOwner.create({
   chrome,
   sessions: collectionSessions,
@@ -291,6 +299,9 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
   }
   if (session?.producer === "orders.sabangnet_mall_listings") {
     return sabangnetMallListingsSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.mall_admin_listings") {
+    return mallAdminListingsSourceOwner.cancel({ attemptId, environmentId });
   }
   if (session?.producer === "orders.mall") {
     return orderCollectionSourceOwner.cancel({ attemptId, environmentId });
@@ -7655,6 +7666,12 @@ KidItemDomains.register({
         sabangnetMallListingsSourceOwner.run({ attemptId, environmentId }),
       ),
     },
+    collectMallAdminListings: {
+      validate: KidItemMallAdminListingsSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        mallAdminListingsSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
     collectRocketPoRows: {
       validate: KidItemRocketPoSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -7704,6 +7721,8 @@ KidItemDomains.register({
     sellpiaManualMatchSourceOwnerV1: true,
     // 사방넷 송신 기록으로 몰 등록 상품을 가져온다(KID-246).
     sabangnetMallListingsSourceOwnerV1: true,
+    // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
+    mallAdminListingsSourceOwnerV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

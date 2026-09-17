@@ -20,6 +20,7 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "orders.coupang_shipment_summary": "inventory",
   "orders.mall": "orders",
   "orders.sabangnet_mall_listings": "channels",
+  "orders.mall_admin_listings": "channels",
   "orders.sellpia_manual_match": "channels",
   "orders.sellpia_product_profitability": "analytics",
   "orders.sellpia_sales": "analytics",

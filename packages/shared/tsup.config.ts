@@ -36,6 +36,7 @@ export default defineConfig({
     'src/sellpia-manual-match.ts',
     'src/rocket-purchase-preview.ts',
     'src/sabangnet-mall-listings.ts',
+    'src/mall-admin-listings.ts',
     'src/coupang-catalog-snapshot.ts',
     'src/identifiers/index.ts',
     'src/agent-interaction/index.ts',

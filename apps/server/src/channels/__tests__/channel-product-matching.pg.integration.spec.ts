@@ -619,6 +619,47 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(retiredSku.masterProductId).toBe(retired.id);
   });
 
+  it('links a mall listing by the Sellpia name the mall keeps as its option name, with the title pack count (KID-246)', async () => {
+    const waxPop = await createProduct('10271-1', '왁스팝 말랑이');
+    const mask = await createProduct('792-1', '스크림가면');
+    const sellpiaSku = (code: string, name: string, masterProductId: string) =>
+      prisma.sellpiaInventorySku.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId,
+          code,
+          name,
+          currentStock: 20,
+          purchasePrice: 100,
+          lastImportRunId: inventoryCompletedRunId,
+        },
+      });
+    // 셀피아 이름에는 가격이 앞에 붙는다. 키드키즈 송장용 상품명도 같은 글자다.
+    const waxPopSku = await sellpiaSku('10271-1', '3000왁스팝 말랑이', waxPop.id);
+    const maskSku = await sellpiaSku('792-1', '스크림가면', mask.id);
+    const single = await createListing({
+      channelName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+      displayName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+    });
+    const singleOption = await createOption(single.id, { itemName: '3000왁스팝 말랑이' });
+    const pack = await createListing({
+      channelName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+      displayName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+    });
+    const packOption = await createOption(pack.id, { itemName: '스크림가면' });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toMatchObject({ evaluatedListings: 2, configuredOptions: 2 });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: { in: [singleOption.id, packOption.id] } },
+      select: { channelListingOptionId: true, sellpiaInventorySkuId: true, quantity: true },
+      orderBy: { quantity: 'asc' },
+    })).resolves.toEqual([
+      { channelListingOptionId: singleOption.id, sellpiaInventorySkuId: waxPopSku.id, quantity: 1 },
+      { channelListingOptionId: packOption.id, sellpiaInventorySkuId: maskSku.id, quantity: 12 },
+    ]);
+  });
+
   it('rejects incompatible provider and confirmed CSV barcodes without writing recipes or stock changes', async () => {
     const product = await createProduct('KI-BARCODE-REJECT', '퓨어 클리어 슬라임');
     const listing = await createListing({

@@ -69,6 +69,12 @@ vi.mock('../_shared/SabangnetListingsImport', () => ({
   SabangnetListingsImport: () => <button type="button">사방넷에서 가져오기</button>,
 }));
 
+vi.mock('../_shared/MallAdminListingsImport', () => ({
+  MallAdminListingsImport: ({ mallKey }: { mallKey: string }) => (
+    <button type="button">{mallKey}에서 가져오기</button>
+  ),
+}));
+
 let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
 
 /** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. */

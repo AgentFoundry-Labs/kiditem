@@ -72,6 +72,24 @@ registration, and Coupang cookie-overflow recovery.
 - A total that moves between pages, a short page, or an unknown response code
   stops the run; the owner publishes only a complete list.
 
+## Mall Admin Listing Import
+
+- `orders.mall_admin_listings` (Channels owner) reads registered products
+  directly from a mall admin for malls Sabangnet does not carry (KID-246 step
+  2). One import is one attempt for one mall account; the frozen plan names the
+  mall, its origin, and its page-size cap. It opens only list and read-only
+  product-view screens, never save, approval, or delete.
+- The reader lives in `mall-admin-listings.js`, keyed by mall in `READERS`.
+  Adding a mall is one reader plus one key there and one contract entry in
+  `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must
+  match that contract, which the owner re-validates.
+- Kidkids paginates its list by modification date with many ties, so paging
+  drops rows; the reader instead replays the seller's own "상품리스트 다운받기"
+  link (a complete EUC-KR HTML table) and cross-checks its row count against
+  the list counter. i-Scream reads its JSON list API in one page. Both carry
+  the Sellpia product name the mall keeps (Kidkids 송장용 상품명, i-Scream the
+  goods-notice 품명), and only whitelisted columns are returned.
+
 ## Sellpia And Rocket Boundaries
 
 - Inventory collection uses the fixed authenticated full-snapshot JSON contract.

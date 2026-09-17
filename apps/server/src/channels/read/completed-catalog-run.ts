@@ -12,6 +12,10 @@ import {
   ROCKET_PO_CATALOG_SOURCE_TYPE,
 } from './rocket-po-catalog.reader';
 import {
+  MALL_ADMIN_LISTINGS_PARSER_VERSION,
+  MALL_ADMIN_LISTINGS_SOURCE_TYPE,
+} from '@kiditem/shared/mall-admin-listings';
+import {
   SABANGNET_MALL_LISTINGS_PARSER_VERSION,
   SABANGNET_MALL_LISTINGS_SOURCE_TYPE,
 } from '@kiditem/shared/sabangnet-mall-listings';
@@ -37,9 +41,9 @@ const COMPLETED_FILE_CATALOG_SOURCE_TYPES = [
 /**
  * The one rule for a source import run whose listings are catalog identity for
  * matching availability, Sellpia alias candidates, the matching row lock, and
- * readiness: a completed catalog file import, a Rocket PO catalog or a Sabangnet
- * mall listing import its owner certifies by parser version, or a completed
- * catalog-owner basics/details publication.
+ * readiness: a completed catalog file import, a Rocket PO catalog, a Sabangnet
+ * mall listing import or a mall admin listing import its owner certifies by
+ * parser version, or a completed catalog-owner basics/details publication.
  */
 export function completedCatalogRunWhere(
   organizationId: string,
@@ -58,6 +62,10 @@ export function completedCatalogRunWhere(
       {
         sourceType: SABANGNET_MALL_LISTINGS_SOURCE_TYPE,
         parserVersion: SABANGNET_MALL_LISTINGS_PARSER_VERSION,
+      },
+      {
+        sourceType: MALL_ADMIN_LISTINGS_SOURCE_TYPE,
+        parserVersion: MALL_ADMIN_LISTINGS_PARSER_VERSION,
       },
       {
         sourceType: { in: [CATALOG_BASICS_SOURCE, CATALOG_DETAILS_SOURCE] },

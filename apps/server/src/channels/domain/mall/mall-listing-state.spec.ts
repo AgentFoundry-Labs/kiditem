@@ -65,6 +65,25 @@ describe('resolveMallListingState', () => {
     expect(result.warning).toContain('사방넷 송신 기록 기준');
   });
 
+  it.each([
+    ['판매중', 'published'],
+    ['품절', 'paused'],
+    ['미노출', 'paused'],
+    ['보류', 'paused'],
+    ['승인대기', 'reviewing'],
+    ['판매종료', 'discontinued'],
+    ['반려', 'error'],
+  ] as const)('몰 화면에서 직접 읽은 %s 를 %s 로 접고, 경고를 붙이지 않는다', (status, expected) => {
+    const result = resolveMallListingState({ hasListing: true, listingStatus: status });
+    expect(result.state).toBe(expected);
+    expect(result.warning).toBeNull();
+  });
+
+  it('몰 화면 글자가 접히지 않으면(임시저장 · 전시) 확인필요로 둔다', () => {
+    expect(resolveMallListingState({ hasListing: true, listingStatus: '임시저장 · 전시' }).state)
+      .toBe('unknown');
+  });
+
   it('사방넷 표시가 붙은 모르는 상태는 확인필요로 둔다', () => {
     expect(resolveMallListingState({ hasListing: true, listingStatus: '사방넷 처음보는상태' }).state)
       .toBe('unknown');

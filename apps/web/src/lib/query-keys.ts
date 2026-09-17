@@ -299,6 +299,8 @@ export const queryKeys = {
     channelOverview: () => [...queryKeys.mallPublishing.all, 'channel-overview'] as const,
     sabangnetListingsSource: () =>
       [...queryKeys.mallPublishing.all, 'sabangnet-listings-source'] as const,
+    mallAdminListingsSource: () =>
+      [...queryKeys.mallPublishing.all, 'mall-admin-listings-source'] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,

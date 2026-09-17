@@ -39,6 +39,12 @@ vi.mock('../_shared/SabangnetListingsImport', () => ({
   SabangnetListingsImport: () => <button type="button">사방넷에서 가져오기</button>,
 }));
 
+vi.mock('../_shared/MallAdminListingsImport', () => ({
+  MallAdminListingsImport: ({ mallKey }: { mallKey: string }) => (
+    <button type="button">{mallKey}에서 가져오기</button>
+  ),
+}));
+
 // 실제 next/link 는 aria-label 을 그대로 넘긴다. 아이콘만 있는 링크의 이름이 거기서 나온다.
 vi.mock('next/link', () => ({
   default: ({

@@ -36,6 +36,8 @@ const automaticFocusSafeFiles = [
   'extensions/kiditem-os/background/orders/sellpia-manual-match.js',
   'extensions/kiditem-os/background/orders/sabangnet-mall-listings.js',
   'extensions/kiditem-os/background/orders/sabangnet-mall-listings-source-owner.js',
+  'extensions/kiditem-os/background/orders/mall-admin-listings.js',
+  'extensions/kiditem-os/background/orders/mall-admin-listings-source-owner.js',
 ];
 
 function countFocusTokens(source) {

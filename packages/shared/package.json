@@ -175,6 +175,11 @@
       "import": "./dist/sabangnet-mall-listings.js",
       "require": "./dist/sabangnet-mall-listings.cjs"
     },
+    "./mall-admin-listings": {
+      "types": "./dist/mall-admin-listings.d.ts",
+      "import": "./dist/mall-admin-listings.js",
+      "require": "./dist/mall-admin-listings.cjs"
+    },
     "./coupang-catalog-snapshot": {
       "types": "./dist/coupang-catalog-snapshot.d.ts",
       "import": "./dist/coupang-catalog-snapshot.js",
@@ -368,6 +373,9 @@
       ],
       "sabangnet-mall-listings": [
         "dist/sabangnet-mall-listings.d.ts"
+      ],
+      "mall-admin-listings": [
+        "dist/mall-admin-listings.d.ts"
       ],
       "coupang-catalog-snapshot": [
         "dist/coupang-catalog-snapshot.d.ts"

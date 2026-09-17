@@ -1,3 +1,4 @@
+import { MALL_ADMIN_LISTING_STATUS } from '../mall-admin-listings';
 import { SABANGNET_STATUS_PREFIX } from '../sabangnet-mall-listings';
 
 /**
@@ -16,6 +17,9 @@ import { SABANGNET_STATUS_PREFIX } from '../sabangnet-mall-listings';
  *     (공급중 · 일시중지 · 완전품절 · 대기중). 몰 상품코드는 몰이 사방넷에 돌려준
  *     값이라 등록 사실의 근거가 되지만, 몰 화면에서 직접 바꾼 상태는 모른다 — 그래서
  *     접되 경고를 늘 붙인다.
+ *  4. 몰 관리자 화면에서 직접 읽은 값(KID-246 2단계): 몰 글자를 `mall-admin-listings`
+ *     가 판매중 · 품절 · 미노출 · 보류 · 승인대기 · 판매종료 · 반려로 먼저 접는다. 몰이
+ *     직접 준 상태라 경고를 붙이지 않는다.
  *
  * ⚠️ 그 정규화가 `UNDER_EXAMINATION`(심사중)과 `REJECTED`(반려)를 **둘 다
  * `draft`** 로 접는다(domain/coupang-normalization.ts). 검수중과 오류는 운영자가
@@ -59,6 +63,14 @@ const LISTING_STATUS_MAP: Record<string, MallListingState> = {
   [`${SABANGNET_STATUS_PREFIX}일시중지`]: 'paused',
   [`${SABANGNET_STATUS_PREFIX}완전품절`]: 'discontinued',
   [`${SABANGNET_STATUS_PREFIX}대기중`]: 'reviewing',
+  // 품절 · 미노출 · 보류는 몰이 다시 열 수 있는 멈춤이고, 판매종료는 끝난 것이다.
+  [MALL_ADMIN_LISTING_STATUS.selling]: 'published',
+  [MALL_ADMIN_LISTING_STATUS.soldOut]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.hidden]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.held]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.awaitingApproval]: 'reviewing',
+  [MALL_ADMIN_LISTING_STATUS.ended]: 'discontinued',
+  [MALL_ADMIN_LISTING_STATUS.rejected]: 'error',
   // 크롤로 존재만 확인한 리스팅. 몰이 상태를 준 적이 없다.
   observed: 'unknown',
   '미확인': 'unknown',

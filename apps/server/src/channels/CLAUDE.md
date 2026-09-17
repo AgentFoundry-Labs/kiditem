@@ -100,6 +100,14 @@ sync, registration, matching, and capacity behavior is executable in
   Sellpia SKU code) and turns off only listings this source created that left
   the list. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
+- The mall admin listing import (KID-246 step 2) is one attempt per mall
+  account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
+  `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
+  products as listings with one option whose `itemName` is the Sellpia name the
+  mall keeps, and turns off only listings this source created that left the
+  list (shared `deactivateSourceAbsence`). It sets no `sellerSku`; matching
+  links by that name. Statuses come from the mall itself and fold without a
+  Sabangnet warning.
 - Rocket PO reads select the latest COMPLETE before filtering rows; an empty
   COMPLETE replaces the current view. Preserve prior snapshots for exact
   source/workbook references. Publication changes source facts and identities,

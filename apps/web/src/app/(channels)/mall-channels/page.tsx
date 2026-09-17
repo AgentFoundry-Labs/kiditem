@@ -8,6 +8,7 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
+import { MallAdminListingsImport } from '../_shared/MallAdminListingsImport';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
 import { ChannelSummary } from './components/ChannelSummary';
 import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
@@ -59,6 +60,8 @@ export default function MallChannelsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <MallAdminListingsImport mallKey="kidkids" />
+          <MallAdminListingsImport mallKey="icecream-mall" />
           <SabangnetListingsImport />
           <Link
             href="/mall-settings"
