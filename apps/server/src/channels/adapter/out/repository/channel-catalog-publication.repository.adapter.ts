@@ -529,11 +529,17 @@ async function publishDiscoveryImages(
       if (item.primaryImageUrl) byExternalId.set(item.externalProductId, item.primaryImageUrl);
     }
   }
-  for (const [externalId, imageUrl] of byExternalId) {
-    await tx.channelListing.updateMany({
-      where: { organizationId, externalId, NOT: { imageUrl } },
-      data: { imageUrl },
-    });
+  if (byExternalId.size === 0) return;
+  // 값이 달라진 줄만 쓴다. `NOT: { imageUrl }` 로 거르면 SQL 에서 NULL 비교가 참이 아니라
+  // **비어 있는 줄이 통째로 빠진다** — 사진을 처음 넣는 줄이 바로 그 줄이다.
+  const listings = await tx.channelListing.findMany({
+    where: { organizationId, externalId: { in: [...byExternalId.keys()] } },
+    select: { id: true, externalId: true, imageUrl: true },
+  });
+  for (const listing of listings) {
+    const imageUrl = byExternalId.get(listing.externalId);
+    if (!imageUrl || listing.imageUrl === imageUrl) continue;
+    await tx.channelListing.update({ where: { id: listing.id }, data: { imageUrl } });
   }
 }
 
