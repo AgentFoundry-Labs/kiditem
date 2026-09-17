@@ -145,7 +145,12 @@ sessions.
    rebase a topic branch: when `develop` moves, `git merge origin/develop`, so
    the commit SHAs recorded in Linear stay reachable. Size a PR as one unit
    that is reviewed and verified together (see the root `CLAUDE.md`); do not
-   split one piece of work into step-by-step PRs. In the PR body write
+   split one piece of work into step-by-step PRs. Bundle issues that touch
+   the same area and milestone into one PR: reviewers handle large diffs, and
+   every extra PR costs a review, a worktree, and a merge approval. Split
+   only when the review axes differ (a boundary move that preserves
+   behaviour, a behaviour change, a new gate), never by diff size or issue
+   count. In the PR body write
    `Fixes KID-nnn` for every issue the merge completes and `Refs KID-nnn` for
    issues that still need verification after merge (QA, a workflow run). The
    Linear GitHub integration moves `Fixes` issues to In Review on open and Done
