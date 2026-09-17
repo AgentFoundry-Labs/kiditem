@@ -6,19 +6,33 @@ import type { Prisma } from '@prisma/client';
 
 const SELLPIA_INVENTORY_SOURCE_TYPE = 'sellpia_inventory';
 
-declare const sellpiaInventoryLockBrand: unique symbol;
-
 /**
  * Evidence that `tx` holds the Sellpia inventory lock of `organizationId`.
- * Only `lockSellpiaInventory` issues it.
+ * Only `lockSellpiaInventory` issues it. The class is not exported and its
+ * private brand does not survive a spread, so a copy is neither assignable to
+ * this type nor accepted at run time.
  */
-export type SellpiaInventoryLock = Readonly<{
-  [sellpiaInventoryLockBrand]: true;
-  tx: Prisma.TransactionClient;
-  organizationId: string;
-}>;
+class SellpiaInventoryLock {
+  readonly #issuedByLockSellpiaInventory = true;
 
-/** Takes the lock for the rest of `tx` and returns the evidence of it. */
+  constructor(
+    readonly tx: Prisma.TransactionClient,
+    readonly organizationId: string,
+  ) {
+    Object.freeze(this);
+  }
+}
+
+export type { SellpiaInventoryLock };
+
+const issuedLocks = new WeakSet<SellpiaInventoryLock>();
+
+/**
+ * Takes the lock for the rest of `tx` and returns the evidence of it. `tx`
+ * must be an interactive transaction client: on the root client the advisory
+ * lock ends with its own statement. The call cannot check this, because a
+ * Prisma 7 transaction client also exposes `$transaction`.
+ */
 export async function lockSellpiaInventory(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -28,15 +42,23 @@ export async function lockSellpiaInventory(
     -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
-  return Object.freeze({ tx, organizationId }) as SellpiaInventoryLock;
+  const lock = new SellpiaInventoryLock(tx, organizationId);
+  issuedLocks.add(lock);
+  return lock;
 }
 
-/** Throws unless `lock` was taken in this very transaction for this organization. */
+/**
+ * Throws unless `lock` is evidence `lockSellpiaInventory` issued, taken in
+ * this very transaction for this organization.
+ */
 export function assertSellpiaInventoryLockCovers(
   lock: SellpiaInventoryLock,
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): void {
+  if (!issuedLocks.has(lock)) {
+    throw new Error('Sellpia inventory lock evidence was not issued by lockSellpiaInventory');
+  }
   if (lock.tx !== tx) {
     throw new Error('Sellpia inventory lock was taken in another transaction');
   }
