@@ -3,14 +3,14 @@ Before working in this directory, always read this document first rather than re
 # coupang — Coupang Wing + Ad-Center Domain
 
 `extensions/kiditem-os/background/coupang/` collects Coupang Wing catalog and ad-center
-data plus public Coupang search evidence, executes approved ad actions, and
-supports explicit Wing page automation.
+data plus public Coupang search evidence, executes approved campaign
+registrations, and supports explicit Wing page automation.
 
 ## Owned Surfaces
 
 - Resumable Coupang Wing full-catalog collection: products, sellable options,
   and provider media
-- Coupang ad-center scrape and approved action execution
+- Coupang ad-center scrape and approved campaign-registration execution
 - Public Coupang keyword SERP collection, bounded product-detail seller
   resolution, and server-selected seller-shop catalog collection
 - Extension popup/manual control UI
@@ -69,7 +69,11 @@ supports explicit Wing page automation.
   so always ask for a trailing multi-day window and send explicit
   `startDate`/`endDate`. The sweep is budgeted per run and resumes from
   sessionStorage, so a large account completes across several runs.
-- Ad action execution stays on `advertising.coupang.com`.
+- Ad action execution stays on `advertising.coupang.com` and applies only
+  `create_campaign`. The server decides which actions the operator applies by
+  hand and refuses their claim with `EXECUTION_REPORT_MANUAL_ACTION`
+  (`MANUAL_AD_ACTION_TYPES` in
+  `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).
 - Public SERP collection stays on Coupang search URLs; seller enrichment may
   fetch only exact `www.coupang.com/vp/products/{id}` links discovered in that
   SERP and must remain bounded and rate-limited.

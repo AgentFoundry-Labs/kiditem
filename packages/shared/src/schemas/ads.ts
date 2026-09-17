@@ -166,19 +166,25 @@ export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 
 /**
  * A keyword's latest `pause_keyword` proposal. Once that proposal is rejected
- * the keyword shows none, and an older proposal does not come back; one that
- * failed or is done is still shown, so an operator can run a failure again.
+ * the keyword shows none, and an older proposal does not come back. An
+ * approved one stays shown until the operator closes it, since the operator
+ * pauses the keyword in the ad center (KID-138 decision A).
  */
 export const AdKeywordPauseProposalSchema = z.object({
   actionId: z.string().uuid(),
   approvalStatus: z.enum(['pending_review', 'approved']),
   /**
    * Execution state read from the proposal's latest attempt. A proposal
-   * awaiting review has no attempt and reads `queued`; a running attempt past
-   * its execution deadline reads `failed`.
+   * awaiting review has no attempt and reads `queued`. An approved one reads
+   * `failed`, since its attempt never runs, unless it was approved before
+   * KID-138 decision A; a running attempt past its execution deadline reads
+   * `failed`.
    */
   executeStatus: z.enum(['queued', 'running', 'done', 'failed']),
-  /** Why the latest attempt failed, such as "실행 기한 초과"; null otherwise. */
+  /**
+   * Why the latest attempt failed, such as that the pause is applied by hand or
+   * "실행 기한 초과"; null otherwise.
+   */
   errorMessage: z.string().nullable(),
 });
 export type AdKeywordPauseProposal = z.infer<typeof AdKeywordPauseProposalSchema>;

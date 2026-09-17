@@ -13,6 +13,10 @@ throughout.
 
 - Advertising owns Coupang ad facts, keyword/SERP evidence, competitor
   observations, strategy proposals, and approved ad-action execution.
+- Approving `pause_keyword`, `change_bid`, or `change_daily_budget` records the
+  operator's confirmation; the operator applies the change in the ad center,
+  and the browser extension never applies it. Keep that list in
+  `MANUAL_AD_ACTION_TYPES` (`domain/execution-task-lifecycle.ts`).
 - Raw scrape evidence and daily fact projections remain organization-scoped and
   auditable. Advertising is the canonical writer for its own facts; consumers
   use its read contracts rather than mutating channel tables directly.
@@ -54,8 +58,8 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - The model only proposes. `toKeywordPauseCandidates` rejects unknown refs,
   drifted keywords, missing rationale, keywords whose conversions were not
   observed, and keywords that converted; survivors become `pause_keyword`
-  AdActions in `pending_review` and still require human approval before the
-  extension executes them.
+  AdActions in `pending_review` that require human approval. The operator
+  pauses an approved keyword in the ad center (see Ownership).
 
 ## Cross-Domain Boundaries
 
