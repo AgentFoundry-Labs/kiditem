@@ -11,9 +11,9 @@ IO. Wing/browser evidence and approved internal sources remain supported.
 
 `MallOperationOutcome` is an append-only, idempotent observation log (관찰
 기록) written by the web through `/api/channels/mall-operation-outcomes`. It
-holds only `login_check`, `login_test`, and `registration_fill`; order
-collection, Sellpia transfer, and tracking upload results are Orders facts and
-never land here. Organization and actor come from the session, the body is a
+holds only `login_check`, `login_test`, `registration_fill`, and
+`availability_stage`; order collection, Sellpia transfer, and tracking upload
+results are Orders facts and never land here. Organization and actor come from the session, the body is a
 strict shared contract, the mall key must be in the adapter manifest, rows hold
 counts and reason codes only, and reads go through
 `read/mall-operation-outcome.reader.ts`.

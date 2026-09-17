@@ -8,6 +8,7 @@ import type { MallAvailabilityCandidate } from '@kiditem/shared/mall-publishing'
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
+import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { mallPublishingApi } from '../_shared/mall-publishing-api';
 import { canStageMallAvailability, stageMallAvailability } from '../_shared/mall-availability-stage';
 
@@ -164,12 +165,30 @@ function MallStageBar({ candidates }: { candidates: MallAvailabilityCandidate[] 
       if (!canStageMallAvailability(mallKey)) return;
       const result = await stageMallAvailability(mallKey, codes);
       for (const warning of result.warnings) toast.warning(warning);
+      // 골라 둔 것은 성공이 아니라 `attention` 이다 — 사람이 이어서 눌러야 끝난다.
+      // 개수와 이유 코드만 남긴다. 상품코드도 이름도 관찰 기록에 넣지 않는다.
+      void recordMallOperationOutcome({
+        mallKey,
+        operation: 'availability_stage',
+        outcome: 'attention',
+        reasonCode: 'manual_submit_required',
+        itemCount: result.staged,
+        failedCount: result.missing,
+        warningCount: result.warnings.length,
+      });
       // 성공 문구가 "보냈습니다" 가 되면 안 된다. 고른 것과 보낸 것은 다른 사실이다.
       toast.success(
         `${mallName} ${formatNumber(result.staged)}건을 골라 뒀습니다. 그 화면에서 [${result.submitLabel}] 을 누르세요.`,
         { description: result.submitHint || undefined, duration: 10_000 },
       );
     } catch (error) {
+      void recordMallOperationOutcome({
+        mallKey,
+        operation: 'availability_stage',
+        outcome: 'failed',
+        reasonCode: 'extension_unavailable',
+        itemCount: codes.length,
+      });
       toast.error(error instanceof Error ? error.message : '품절 화면을 열지 못했습니다.');
     } finally {
       setRunning(null);

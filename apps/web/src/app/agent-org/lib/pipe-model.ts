@@ -184,6 +184,7 @@ const LOGIN_MESSAGE = /로그인|인증|login|captcha|otp/i;
 
 const MALL_OPERATION_LABEL: Readonly<Record<string, string>> = {
   registration_fill: '상품등록',
+  availability_stage: '품절 지목',
 };
 
 /** 인박스 제목을 고를 때 더 구체적인 기록을 앞세운다. */

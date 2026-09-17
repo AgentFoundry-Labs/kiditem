@@ -3,19 +3,19 @@ import { z } from 'zod';
 /**
  * 쇼핑몰 에이전트의 관찰 기록 — source owner 가 없는 몰 작업의 결과 한 줄.
  *
- * 로그인 확인 · 로그인 테스트 · 등록 폼 채움만 담는다. 주문수집 · 셀피아 전송 · 송장 전송의
+ * 로그인 확인 · 로그인 테스트 · 등록 폼 채움 · 품절 지목만 담는다. 주문수집 · 셀피아 전송 · 송장 전송의
  * 결과는 Orders 가 수집 시도와 전송 기록으로 이미 가지고 있으므로 여기 적지 않는다.
  * 비밀번호 · 받는 사람 · 주소 · 주문번호 같은 값은 담지 않는다 — 개수와 이유 코드, 짧은
  * 요약만. 요청은 `.strict()` 라 모르는 키(예: organizationId, password)는 거절된다. 조직과
  * 사람은 서버가 세션에서 붙인다.
  */
-export const MALL_OPERATION_KINDS = ['login_check', 'login_test', 'registration_fill'] as const;
+export const MALL_OPERATION_KINDS = ['login_check', 'login_test', 'registration_fill', 'availability_stage'] as const;
 export const MallOperationKindSchema = z.enum(MALL_OPERATION_KINDS);
 export type MallOperationKind = z.infer<typeof MallOperationKindSchema>;
 
 /**
- * 결과. `attention` 은 사람이 이어서 해야 하는 상태다(로그인 필요 · 폼은 채웠고 제출은 사람).
- * 폼을 채운 것을 `succeeded` 로 적지 않는다.
+ * 결과. `attention` 은 사람이 이어서 해야 하는 상태다(로그인 필요 · 폼은 채웠고 제출은 사람 ·
+ * 품절 대상은 골라 뒀고 버튼은 사람). 폼을 채운 것도 줄을 골라 둔 것도 `succeeded` 로 적지 않는다.
  */
 export const MALL_OPERATION_OUTCOMES = ['succeeded', 'empty', 'attention', 'failed', 'cancelled'] as const;
 export const MallOperationOutcomeValueSchema = z.enum(MALL_OPERATION_OUTCOMES);

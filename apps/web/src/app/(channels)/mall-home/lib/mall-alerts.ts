@@ -249,6 +249,7 @@ function toneOf(item: AlertItem): MallTileTone {
 
 const OPERATION_LABEL: Record<MallOperationKind, string> = {
   registration_fill: '상품등록',
+  availability_stage: '품절 지목',
   login_test: '로그인 테스트',
   login_check: '로그인 확인',
 };

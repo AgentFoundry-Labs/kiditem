@@ -845,7 +845,7 @@ model MallOperationOutcome {
   idempotencyKey String  @map("idempotency_key")
 
   mallKey      String  @map("mall_key")
-  /// login_check | login_test | registration_fill — shared z.enum 이 검증한다.
+  /// login_check | login_test | registration_fill | availability_stage — shared z.enum 이 검증한다.
   operation    String
   /// succeeded | empty | attention | failed | cancelled
   outcome      String
