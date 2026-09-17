@@ -9,6 +9,8 @@ import { ChannelOptionInventoryDialog } from './ChannelOptionInventoryDialog';
 type OptionRow = ProductChannelListingSummary['options'][number] & {
   channel: string;
   channelAccountName: string;
+  /** 몰이 매긴 상품코드. 이 상품이 그 몰에서 무엇인지 가리키는 값이다. */
+  listingExternalId: string;
 };
 
 export default function ChannelOptionInventoryPanel({
@@ -27,6 +29,7 @@ export default function ChannelOptionInventoryPanel({
       ...option,
       channel: listing.channel,
       channelAccountName: listing.channelAccountName,
+      listingExternalId: listing.externalId,
     }))), [channelListings]);
   const [editingOption, setEditingOption] = useState<OptionRow | null>(null);
 
@@ -75,7 +78,20 @@ export default function ChannelOptionInventoryPanel({
                     <h3 className="mt-2 truncate text-base font-extrabold text-[var(--text-primary)]">
                       {option.itemName ?? option.externalOptionId}
                     </h3>
-                    <p className="mt-1 font-mono text-xs text-[var(--text-tertiary)]">{option.sellerSku ?? option.externalOptionId}</p>
+                    {/* 몰마다 이 상품을 부르는 코드가 따로 있다. 옵션이 여럿인 몰은 옵션 코드도
+                        따로라 둘이 다를 때만 함께 적는다. 셀피아 코드는 아래 재고 줄에 이미 있다. */}
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--text-tertiary)]">
+                      <span>
+                        몰 상품코드{' '}
+                        <span className="font-mono font-semibold text-[var(--text-secondary)]">{option.listingExternalId}</span>
+                      </span>
+                      {option.externalOptionId !== option.listingExternalId ? (
+                        <span>
+                          옵션{' '}
+                          <span className="font-mono font-semibold text-[var(--text-secondary)]">{option.externalOptionId}</span>
+                        </span>
+                      ) : null}
+                    </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className={`text-sm font-extrabold ${option.capacity === null ? 'text-amber-700' : 'text-emerald-700'}`}>
