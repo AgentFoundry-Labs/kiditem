@@ -72,7 +72,9 @@ function renderSection(
   collectionControls?: ReactNode,
   options: {
     ownerControl?: boolean;
-    onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+    /** 이 카드의 원천이 무엇을 수집할지 먼저 고르는 화면을 여는가(직배송 달력 같은). */
+    opensChooser?: boolean;
+    onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   } = {},
 ) {
   const callbacks = {
@@ -101,16 +103,21 @@ function renderSection(
       mallLoading={false}
       mallSaving={false}
       browserCollecting={false}
-      onOpenCalendar={options.onOpenCalendar}
+      onOpenChooser={options.onOpenChooser}
       renderCollectionControl={options.ownerControl
         ? (account, renderCard) => (
           <MallCollectionControl
             account={account}
-            buildAdapter={(target) => mallOrderCollectionSource({
-              organizationId: ORGANIZATION_ID,
-              account: target,
-              handOff: vi.fn().mockResolvedValue(undefined),
-            })}
+            buildAdapter={(target) => {
+              const source = mallOrderCollectionSource({
+                organizationId: ORGANIZATION_ID,
+                account: target,
+                handOff: vi.fn().mockResolvedValue(undefined),
+              });
+              return options.opensChooser
+                ? { ...source, card: { ...source.card, opensChooser: true } }
+                : source;
+            }}
           >
             {renderCard}
           </MallCollectionControl>
@@ -122,6 +129,7 @@ function renderSection(
             </button>
           ),
           running: false,
+          opensChooser: false,
         })}
       mallError={null}
       selectedMall={accounts[0]}
@@ -281,35 +289,62 @@ describe("MallAccountSection", () => {
    */
   it("closes the card's own actions while the owner reports this mall collecting", async () => {
     const user = userEvent.setup();
-    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
-    const onOpenCalendar = vi.fn();
+    const account = mallAccount("kidsnote", { name: "키즈노트" });
+    const onOpenChooser = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(
       async () => ({ malls: [runningOwnerStatus(account.key)] }),
     );
 
-    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
+    renderSection([account], new Map(), undefined, {
+      ownerControl: true,
+      opensChooser: true,
+      onOpenChooser,
+    });
 
     // 카드는 중단 버튼 하나만 세운다 — 무엇을 수집 중인지는 그 버튼의 설명에 있다.
-    expect(await screen.findByRole("button", { name: "수집 중단" })).toHaveAttribute("title", "수집 중 · 쿠팡직배송");
-    expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeDisabled();
-    await user.click(screen.getByRole("article", { name: "쿠팡직배송 계정 카드" }));
-    expect(onOpenCalendar).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "수집 중단" })).toHaveAttribute("title", "수집 중 · 키즈노트");
+    expect(screen.getByRole("button", { name: "키즈노트 송장 업로드" })).toBeDisabled();
+    await user.click(screen.getByRole("article", { name: "키즈노트 계정 카드" }));
+    expect(onOpenChooser).not.toHaveBeenCalled();
   });
 
   it("keeps the card's own actions open while the owner reports no collection", async () => {
     const user = userEvent.setup();
-    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
-    const onOpenCalendar = vi.fn();
+    const account = mallAccount("kidsnote", { name: "키즈노트" });
+    const onOpenChooser = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
       malls: [{ ...runningOwnerStatus(account.key), running: null }],
     }));
 
-    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
+    renderSection([account], new Map(), undefined, {
+      ownerControl: true,
+      opensChooser: true,
+      onOpenChooser,
+    });
 
-    expect(await screen.findByRole("button", { name: "쿠팡직배송 수집" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeEnabled();
-    await user.click(screen.getByRole("article", { name: "쿠팡직배송 계정 카드" }));
-    expect(onOpenCalendar).toHaveBeenCalledWith(account);
+    expect(await screen.findByRole("button", { name: "키즈노트 수집" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "키즈노트 송장 업로드" })).toBeEnabled();
+    await user.click(screen.getByRole("article", { name: "키즈노트 계정 카드" }));
+    expect(onOpenChooser).toHaveBeenCalledWith(account);
+  });
+
+  /**
+   * 카드가 여는 화면은 몰 키가 아니라 그 카드의 원천이 답한다(KID-255). 고르는 화면이
+   * 없는 원천의 카드는 눌러도 아무 일이 없어야 한다 — 손 모양 커서만 뜨고 아무것도
+   * 열리지 않으면 사장님은 카드가 고장 난 줄 안다.
+   */
+  it("⭐ leaves the card click alone for a source that opens no chooser", async () => {
+    const user = userEvent.setup();
+    const account = mallAccount("kidsnote", { name: "키즈노트" });
+    const onOpenChooser = vi.fn();
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
+      malls: [{ ...runningOwnerStatus(account.key), running: null }],
+    }));
+
+    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenChooser });
+
+    await user.click(await screen.findByRole("article", { name: "키즈노트 계정 카드" }));
+    expect(onOpenChooser).not.toHaveBeenCalled();
   });
 
   it("wires source-owner recovery and explicit cancel through the order route", () => {

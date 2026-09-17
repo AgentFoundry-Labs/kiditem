@@ -2,15 +2,10 @@
 
 import { useMemo, type ReactNode } from 'react';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
-import {
-  useCollectionSourceControl,
-  type CollectionSourceAdapter,
-} from '@/hooks/use-collection-source-control';
+import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import type { MallCardCollection } from './MallAccountGroups';
-import type {
-  MallOrderCollectionSourceList,
-  MallOrderCollectionStartInput,
-} from '../lib/mall-order-collection-source';
+import type { MallOrderCollectionSourceList } from '../lib/mall-order-collection-source';
+import type { OrderCollectionSourceAdapter } from '../lib/order-collection-source-adapter';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
 /**
@@ -18,10 +13,8 @@ import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
  * 로켓 계정 하나의 원천 상태를 따로 읽는다. 카드가 읽는 상태 타입은 그 원천의 것
  * 그대로다 — 목록인 척 캐스팅해 넣으면 아무도 검사하지 않는다(KID-214).
  */
-export type MallCollectionAdapter<TStatus = MallOrderCollectionSourceList> = CollectionSourceAdapter<
-  TStatus,
-  MallOrderCollectionStartInput
->;
+export type MallCollectionAdapter<TStatus = MallOrderCollectionSourceList> =
+  OrderCollectionSourceAdapter<TStatus>;
 
 /**
  * One mall card's start control. Every mall is its own collection source, so
@@ -42,6 +35,7 @@ export function MallCollectionControl<TStatus>({
 }: {
   account: OrderCollectionMallAccount;
   buildAdapter: (account: OrderCollectionMallAccount) => MallCollectionAdapter<TStatus>;
+  /** 화면이 모든 몰에 똑같이 대는 시작 불가 사유. 없으면 이 원천 제 사유를 쓴다. */
   startBlockedReason?: string | null;
   /** 카드가 이미 '준비 중'이라고 적는 이유는 버튼 아래에 다시 적지 않는다. */
   startBlockedQuiet?: boolean;
@@ -65,7 +59,7 @@ export function MallCollectionControl<TStatus>({
             // 카드 머리가 이미 몰 이름을 말한다. 수집 중에도 버튼 두 개(중단 · 송장 업로드)만 선다.
             runningDisplay="stop-only"
             startTitle={`${account.name} 개별 수집`}
-            startBlockedReason={startBlockedReason}
+            startBlockedReason={startBlockedReason ?? adapter.card.startBlockedReason}
             startBlockedQuiet={startBlockedQuiet}
             onStart={() => control.start({})}
             onStop={control.stop}
@@ -76,6 +70,8 @@ export function MallCollectionControl<TStatus>({
         running: control.state === 'starting'
           || control.state === 'running'
           || control.state === 'stopping',
+        // 카드 영역 클릭으로 여는 화면이 있는지는 이 원천이 답한다(KID-255).
+        opensChooser: adapter.card.opensChooser,
       })}
     </>
   );
