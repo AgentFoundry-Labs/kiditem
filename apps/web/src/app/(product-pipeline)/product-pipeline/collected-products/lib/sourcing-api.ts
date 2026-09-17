@@ -31,6 +31,53 @@ export interface ExternalWingSellpiaMatchPreview {
 export const isInProgress = (s: string | undefined | null): boolean =>
   s === 'pending' || s === 'processing';
 
+/**
+ * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
+ *
+ * 초안 행(`ProductPreparation.status`)은 거울이라 울타리와 어긋날 수 있다 — 어긋난
+ * 거울을 믿으면 이미 마켓에 올라간 상품에 '등록 준비' 버튼이 다시 열린다(ADR-0014).
+ */
+export type CandidateRegistrationState =
+  | 'none'
+  | 'preparing'
+  | 'confirming'
+  | 'failed'
+  | 'registered';
+
+const CANDIDATE_REGISTRATION_STATES: readonly CandidateRegistrationState[] = [
+  'none',
+  'preparing',
+  'confirming',
+  'failed',
+  'registered',
+];
+
+/** 서버가 준 등록 상태. 구버전 응답에는 없어서 `null` 로 정규화한다. */
+export function normalizeRegistrationState(value: unknown): CandidateRegistrationState | null {
+  return CANDIDATE_REGISTRATION_STATES.find((state) => state === value) ?? null;
+}
+
+/**
+ * 울타리 값이 없는 응답에서만 쓰는 거울 환산.
+ *
+ * 초안(`draft`)과 취소(`cancelled`)는 아직 아무것도 보내지 않은 것이라 `none` 이다 —
+ * 초안이 있다는 사실 자체는 초안 행이 답한다.
+ */
+export function registrationStateFromPreparation(
+  status: ProductPreparationSelection['status'] | null,
+): CandidateRegistrationState {
+  switch (status) {
+    case 'submitting':
+      return 'confirming';
+    case 'registered':
+      return 'registered';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'none';
+  }
+}
+
 export interface SourcedProduct {
   id: string;
   organizationId?: string;
@@ -45,6 +92,8 @@ export interface SourcedProduct {
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
+  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
+  registrationState?: CandidateRegistrationState | null;
   /**
    * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
    * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
@@ -93,6 +142,8 @@ export interface ProductDetailResponse {
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
   productPreparation: ProductPreparationSelection | null;
+  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
+  registrationState: CandidateRegistrationState | null;
   /**
    * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
    *
@@ -626,6 +677,7 @@ export const productsApi = {
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
+        registrationState: normalizeRegistrationState(p.registrationState),
         selectedThumbnailUrl,
         thumbnailPreviewUrls,
         rejectedAt: p.rejectedAt ?? null,
@@ -683,6 +735,7 @@ export const productsApi = {
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
       productPreparation,
+      registrationState: normalizeRegistrationState(p.registrationState),
       contentWorkspaceId:
         typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
           ? p.contentWorkspaceId

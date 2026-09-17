@@ -26,6 +26,7 @@ import {
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import {
   candidatesApi,
+  registrationStateFromPreparation,
   type UpdateProductBasicsInput,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
@@ -143,7 +144,16 @@ export function ProductWorkspaceScreen({
 
   const product = fetchedData?.product ?? null;
   const productPreparation = product?.productPreparation ?? null;
+  /**
+   * 등록이 시작됐는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
+   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 보낸 등록의 초안을 계속 고치게
+   * 된다. 울타리 값이 없는 구버전 응답에서만 거울로 환산한다.
+   */
+  const registrationState = product?.registrationState
+    ?? registrationStateFromPreparation(productPreparation?.status ?? null);
+  // 초안이 살아 있다는 사실은 초안 행이, 아직 보내지 않았다는 사실은 울타리가 답한다.
   const editablePreparationId = productPreparation?.status === 'draft'
+    && registrationState === 'none'
     ? productPreparation.id
     : null;
   const detailGenerationProductId = productId;
@@ -617,6 +627,7 @@ export function ProductWorkspaceScreen({
         productId={productId}
         status={product?.status}
         productPreparation={productPreparation}
+        registrationState={registrationState}
         basicInfo={product?.basicInfo ?? null}
         costCny={product?.cost_cny ?? null}
         isEditComplete={isEditComplete}
