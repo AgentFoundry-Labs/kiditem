@@ -25,6 +25,7 @@ import { isDeletablePurchaseOrderStatus } from '../../../domain/policy/purchase-
 import {
   readInventoryAvailability as readInventoryAvailabilityFact,
 } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -527,8 +528,9 @@ async function readPurchaseInventoryAvailability(
   organizationId: string,
   sellpiaInventorySkuIds: string[],
 ): Promise<InventoryAvailabilityBatch> {
+  const inventoryLock = await lockSellpiaInventory(transaction, organizationId);
   try {
-    return await readInventoryAvailabilityFact(transaction, {
+    return await readInventoryAvailabilityFact(transaction, inventoryLock, {
       organizationId,
       sellpiaInventorySkuIds,
     });

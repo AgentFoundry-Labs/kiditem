@@ -7,6 +7,7 @@ import {
   readInventoryAvailability,
   readInventoryAvailabilityCandidates,
 } from '../../../read/inventory-availability';
+import { lockSellpiaInventory } from '../../../transaction/sellpia-inventory-lock';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -19,10 +20,10 @@ implements InventoryAvailabilityRepositoryPort {
     organizationId: string;
     sellpiaInventorySkuIds: string[];
   }): Promise<InventoryAvailabilityBatch> {
-    return this.prisma.$transaction(
-      (tx) => readInventoryAvailability(tx, input),
-      TRANSACTION_OPTIONS,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const inventoryLock = await lockSellpiaInventory(tx, input.organizationId);
+      return readInventoryAvailability(tx, inventoryLock, input);
+    }, TRANSACTION_OPTIONS);
   }
 
 
@@ -32,9 +33,9 @@ implements InventoryAvailabilityRepositoryPort {
     limit: number;
     stockStatus: 'in_stock' | 'all';
   }): Promise<InventoryAvailabilityCandidate[]> {
-    return this.prisma.$transaction(
-      (tx) => readInventoryAvailabilityCandidates(tx, input),
-      TRANSACTION_OPTIONS,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const inventoryLock = await lockSellpiaInventory(tx, input.organizationId);
+      return readInventoryAvailabilityCandidates(tx, inventoryLock, input);
+    }, TRANSACTION_OPTIONS);
   }
 }

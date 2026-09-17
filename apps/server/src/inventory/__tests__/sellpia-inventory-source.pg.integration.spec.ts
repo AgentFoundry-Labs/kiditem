@@ -26,8 +26,12 @@ import { SellpiaInventoryFileValidator } from '../application/service/sellpia-in
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { FactNotFoundError } from '../../common/errors/fact-errors';
+import {
+  lockSellpiaInventory,
+  type SellpiaInventoryLock,
+} from '../transaction/sellpia-inventory-lock';
 import {
   readActiveInventoryMatchingCandidates,
   readInventoryAvailability,
@@ -566,8 +570,8 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       },
     });
 
-    await expect(prisma.$transaction((tx) =>
-      readInventoryAvailability(tx, {
+    await expect(underInventoryLock((tx, lock) =>
+      readInventoryAvailability(tx, lock, {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaInventorySkuIds: [published.id, stale.id],
       }))).resolves.toMatchObject({
@@ -580,8 +584,8 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       }],
     });
 
-    const foreignRead = prisma.$transaction((tx) =>
-      readInventoryAvailability(tx, {
+    const foreignRead = underInventoryLock((tx, lock) =>
+      readInventoryAvailability(tx, lock, {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaInventorySkuIds: [published.id, foreign.id],
       }));
@@ -590,14 +594,14 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       'One or more Sellpia inventory SKUs were not found in this organization',
     );
 
-    await expect(prisma.$transaction((tx) =>
-      readActiveInventoryMatchingCandidates(tx, TEST_ORGANIZATION_ID)))
+    await expect(underInventoryLock((tx, lock) =>
+      readActiveInventoryMatchingCandidates(tx, lock, TEST_ORGANIZATION_ID)))
       .resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ id: stale.id, currentStock: null }),
         expect.objectContaining({ id: published.id, currentStock: 7 }),
       ]));
-    await expect(prisma.$transaction((tx) =>
-      readInventoryAvailabilityCandidates(tx, {
+    await expect(underInventoryLock((tx, lock) =>
+      readInventoryAvailabilityCandidates(tx, lock, {
         organizationId: TEST_ORGANIZATION_ID,
         query: 'Candidate',
         limit: 1,
@@ -605,8 +609,8 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       }))).resolves.toEqual([
       expect.objectContaining({ sellpiaInventorySkuId: published.id, currentStock: 7 }),
     ]);
-    await expect(prisma.$transaction((tx) =>
-      readInventoryAvailabilityCandidates(tx, {
+    await expect(underInventoryLock((tx, lock) =>
+      readInventoryAvailabilityCandidates(tx, lock, {
         organizationId: TEST_ORGANIZATION_ID,
         query: 'Candidate',
         limit: 1,
@@ -614,6 +618,80 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       }))).resolves.toEqual([
       expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: null }),
     ]);
+  });
+
+  it('reads only under Sellpia lock evidence of the same transaction and organization', async () => {
+    const attempt = await begin('lock-evidence');
+    await complete(attempt, snapshot(7)).expect(201);
+    const sku = await publishedSku();
+    const lockedReads: Array<(
+      tx: Prisma.TransactionClient,
+      lock: SellpiaInventoryLock,
+    ) => Promise<unknown>> = [
+      (tx, lock) => readInventoryAvailability(tx, lock, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaInventorySkuIds: [sku.id],
+      }),
+      (tx, lock) => readInventoryAvailabilityCandidates(tx, lock, {
+        organizationId: TEST_ORGANIZATION_ID,
+        query: 'SP',
+        limit: 5,
+        stockStatus: 'all',
+      }),
+      (tx, lock) => readActiveInventoryMatchingCandidates(tx, lock, TEST_ORGANIZATION_ID),
+    ];
+    const committedLock = await prisma.$transaction((tx) =>
+      lockSellpiaInventory(tx, TEST_ORGANIZATION_ID));
+
+    for (const read of lockedReads) {
+      await expect(prisma.$transaction((tx) => read(tx, committedLock)))
+        .rejects.toThrow('Sellpia inventory lock was taken in another transaction');
+      await expect(prisma.$transaction(async (tx) =>
+        read(tx, await lockSellpiaInventory(tx, OTHER_ORGANIZATION_ID))))
+        .rejects.toThrow('Sellpia inventory lock was taken for another organization');
+      await expect(underInventoryLock(read)).resolves.toBeDefined();
+    }
+    await expect(underInventoryLock(lockedReads[0]!)).resolves.toMatchObject({
+      items: [{ sellpiaInventorySkuId: sku.id, currentStock: 7 }],
+    });
+  });
+
+  it('holds a reader caller behind a publication that holds the Sellpia lock until it commits', async () => {
+    const attempt = await begin('lock-serialization');
+    await complete(attempt, snapshot(7)).expect(201);
+    const sku = await publishedSku();
+    let lockHeld!: () => void;
+    const held = new Promise<void>((resolve) => { lockHeld = resolve; });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const publication = prisma.$transaction(async (tx) => {
+      await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+      lockHeld();
+      await released;
+      await tx.sellpiaInventorySku.update({
+        where: { id: sku.id },
+        data: { currentStock: 9 },
+      });
+    }, { maxWait: 10_000, timeout: 30_000 });
+    await held;
+
+    let readSettled = false;
+    const read = availability.findBySkuIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      sellpiaInventorySkuIds: [sku.id],
+    }).finally(() => {
+      readSettled = true;
+    });
+    try {
+      await waitForBlockedAdvisoryLock(prisma);
+      expect(readSettled).toBe(false);
+    } finally {
+      release();
+      await publication;
+    }
+    await expect(read).resolves.toMatchObject({
+      items: [{ sellpiaInventorySkuId: sku.id, currentStock: 9, availableStock: 9 }],
+    });
   });
 
   it('keeps one completed basis visible through running/failure and exposes the stale status', async () => {
@@ -780,6 +858,24 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       .set('x-test-organization', TEST_ORGANIZATION_ID);
   }
 
+  function underInventoryLock<T>(
+    read: (tx: Prisma.TransactionClient, lock: SellpiaInventoryLock) => Promise<T>,
+  ): Promise<T> {
+    return prisma.$transaction(async (tx) =>
+      read(tx, await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID)));
+  }
+
+  function publishedSku() {
+    return prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: {
+        organizationId_code: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SP-001',
+        },
+      },
+    });
+  }
+
   function cancel(attemptId: string, organizationId = TEST_ORGANIZATION_ID) {
     return request(app.getHttpServer())
       .post(base + `/attempts/${attemptId}/cancel`)
@@ -838,6 +934,19 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       .expect(status);
   }
 });
+
+async function waitForBlockedAdvisoryLock(prisma: PrismaClient): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
+      SELECT count(*)::int AS waiting
+      FROM pg_locks
+      WHERE locktype = 'advisory' AND NOT granted
+    `;
+    if ((row?.waiting ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for the reader caller to wait on the Sellpia lock.');
+}
 
 function snapshot(stock: number): Buffer {
   return snapshotFor('SP', '001', stock);

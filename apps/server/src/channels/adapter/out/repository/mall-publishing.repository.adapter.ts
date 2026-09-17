@@ -4,6 +4,7 @@ import {
   readInventoryAvailability,
   readInventorySkuIdentities,
 } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
@@ -378,7 +379,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       const skus = (await readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }))
         .filter((sku) => sku.masterProductId !== null && wanted.has(sku.masterProductId));
       if (skus.length === 0) return new Map<string, number>();
-      const availability = await readInventoryAvailability(tx, {
+      const inventoryLock = await lockSellpiaInventory(tx, organizationId);
+      const availability = await readInventoryAvailability(tx, inventoryLock, {
         organizationId,
         sellpiaInventorySkuIds: skus.map((sku) => sku.sellpiaInventorySkuId),
       });

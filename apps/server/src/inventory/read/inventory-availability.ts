@@ -7,7 +7,10 @@ import {
   isSourceImportStatus,
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } from '@kiditem/shared/source-import';
-import { lockSellpiaInventoryTransaction } from '../adapter/out/repository/sellpia-inventory-transaction-lock';
+import {
+  assertSellpiaInventoryLockCovers,
+  type SellpiaInventoryLock,
+} from '../transaction/sellpia-inventory-lock';
 import { FactNotFoundError } from '../../common/errors/fact-errors';
 import {
   SellpiaInventoryQualityReportSchema,
@@ -172,12 +175,15 @@ type InventorySummaryRow = {
 /**
  * Inventory's transaction-aware fact reader. Every availability consumer gets
  * the same organization, completed-run, and row-publication fences from here.
+ * The caller holds the Sellpia inventory lock (`lockSellpiaInventory`) in `tx`
+ * for the organization, so the read cannot interleave with a publication.
  */
 export async function readInventoryAvailability(
   tx: Prisma.TransactionClient,
+  lock: SellpiaInventoryLock,
   input: InventoryAvailabilityReaderInput,
 ): Promise<InventoryAvailabilityBatch> {
-  await lockSellpiaInventoryTransaction(tx, input.organizationId);
+  assertSellpiaInventoryLockCovers(lock, tx, input.organizationId);
   const inventorySkus = await loadInventorySkus(
     tx,
     input.organizationId,
@@ -204,17 +210,21 @@ export async function readInventoryAvailability(
   });
 }
 
-/** Active matching identities with nullable stock from the published generation. */
+/**
+ * Active matching identities with nullable stock from the published generation,
+ * under the caller's Sellpia inventory lock.
+ */
 export async function readActiveInventoryMatchingCandidates(
   tx: Prisma.TransactionClient,
+  lock: SellpiaInventoryLock,
   organizationId: string,
 ): Promise<InventoryMatchingCandidate[]> {
-  await lockSellpiaInventoryTransaction(tx, organizationId);
+  assertSellpiaInventoryLockCovers(lock, tx, organizationId);
   const identities = await readInventorySkuIdentities(tx, {
     organizationId,
     selector: { kind: 'active' },
   });
-  const availability = await readInventoryAvailability(tx, {
+  const availability = await readInventoryAvailability(tx, lock, {
     organizationId,
     sellpiaInventorySkuIds: identities.map(
       (identity) => identity.sellpiaInventorySkuId,
@@ -238,12 +248,13 @@ export async function readActiveInventoryMatchingCandidates(
 }
 
 /**
- * Availability-aware candidate search. The published-run predicate is applied
- * before the result limit so an earlier out-of-stock row cannot hide a later
- * in-stock candidate.
+ * Availability-aware candidate search under the caller's Sellpia inventory
+ * lock. The published-run predicate is applied before the result limit so an
+ * earlier out-of-stock row cannot hide a later in-stock candidate.
  */
 export async function readInventoryAvailabilityCandidates(
   tx: Prisma.TransactionClient,
+  lock: SellpiaInventoryLock,
   input: {
     organizationId: string;
     query: string;
@@ -251,7 +262,7 @@ export async function readInventoryAvailabilityCandidates(
     stockStatus: 'in_stock' | 'all';
   },
 ): Promise<InventoryAvailabilityCandidate[]> {
-  await lockSellpiaInventoryTransaction(tx, input.organizationId);
+  assertSellpiaInventoryLockCovers(lock, tx, input.organizationId);
   const basis = await loadPublishedInventoryBasis(tx, input.organizationId);
   if (basis === null && input.stockStatus === 'in_stock') return [];
 

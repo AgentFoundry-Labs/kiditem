@@ -3,7 +3,6 @@ import { Test } from '@nestjs/testing';
 import { json } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Prisma } from '@prisma/client';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -16,6 +15,7 @@ import { ChannelProductMatchingController } from '../adapter/in/http/channel-pro
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
+import { lockSellpiaInventory } from '../../inventory/transaction/sellpia-inventory-lock';
 import {
   SellpiaManualMatchSourceStatusSchema,
   type SellpiaManualMatchSnapshot,
@@ -489,11 +489,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     let releaseLock!: () => void;
     const lockRelease = new Promise<void>((resolve) => { releaseLock = resolve; });
     const mutation = prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(
-          hashtextextended(${`inventory-sellpia:${TEST_ORGANIZATION_ID}:sellpia_inventory`}, 0)
-        )::text AS "lock"
-      `);
+      await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
       lockAcquired();
       await lockRelease;
       await tx.sellpiaInventorySku.update({

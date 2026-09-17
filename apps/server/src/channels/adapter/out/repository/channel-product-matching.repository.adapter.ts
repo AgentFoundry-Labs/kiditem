@@ -16,6 +16,7 @@ import {
   readActiveInventoryMatchingCandidates,
   readInventorySkuIdentities,
 } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
 import {
   rankChannelRecipeNameCandidates,
@@ -342,8 +343,12 @@ implements ChannelProductMatchingRepositoryPort {
         rows.push(alias);
         aliasesByName.set(alias.normalizedAlias, rows);
       }
-      const activeSkus: ActiveSellpiaSku[] =
-        await readActiveInventoryMatchingCandidates(tx, input.organizationId);
+      const inventoryLock = await lockSellpiaInventory(tx, input.organizationId);
+      const activeSkus: ActiveSellpiaSku[] = await readActiveInventoryMatchingCandidates(
+        tx,
+        inventoryLock,
+        input.organizationId,
+      );
       const referencedSkuIds = [...new Set([
         ...listings.flatMap((listing) => listing.options.flatMap((option) =>
           option.inventoryComponents.map((component) =>
