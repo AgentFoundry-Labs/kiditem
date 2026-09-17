@@ -97,7 +97,7 @@ describe('Review facts reader over disposable PostgreSQL', () => {
       data: {
         id: SOURCE_ACCOUNT_ID,
         organizationId: TEST_ORGANIZATION_ID,
-        channel: 'order_collection',
+        channel: 'haebub-mall',
         name: 'Order collection source',
         externalAccountId: 'haebub-mall',
       },

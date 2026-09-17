@@ -26,7 +26,8 @@ import { OrderCollectionSourceController } from '../controllers/order-collection
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
-import { ORDER_COLLECTION_MALLS } from '../services/order-collection-mall-account.service';
+import { ORDER_COLLECTION_MALLS } from '../domain/order-collection-malls';
+import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
@@ -108,26 +109,26 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
       data: [
         {
           organizationId: ORG,
-          channel: 'order_collection',
+          channel: 'art09',
           name: '아트공구',
           externalAccountId: 'art09',
           isPrimary: true,
         },
         {
           organizationId: ORG,
-          channel: 'order_collection',
+          channel: 'kakao',
           name: '카카오',
           externalAccountId: 'kakao',
         },
         {
           organizationId: ORG,
-          channel: 'order_collection',
+          channel: 'haebub-mall',
           name: '해법몰',
           externalAccountId: 'haebub-mall',
         },
         {
           organizationId: ORG,
-          channel: 'order_collection',
+          channel: 'domeggook',
           name: '도매꾹',
           externalAccountId: 'domeggook',
         },
@@ -463,7 +464,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
 
     const idle = OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body);
     const account = await prisma.channelAccount.findFirstOrThrow({
-      where: { organizationId: ORG, channel: 'order_collection', externalAccountId: 'art09' },
+      where: { organizationId: ORG, channel: 'art09', externalAccountId: 'art09' },
     });
     expect(idle).toEqual({
       mallKey: 'art09',
@@ -623,7 +624,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
   it('answers the live attempt when a newer RUNNING row on the same mall has expired', async () => {
     const live = (await begin('art09').expect(201)).body;
     const account = await prisma.channelAccount.findFirstOrThrow({
-      where: { organizationId: ORG, channel: 'order_collection', externalAccountId: 'art09' },
+      where: { organizationId: ORG, channel: 'art09', externalAccountId: 'art09' },
     });
     // begin 은 임대가 지난 RUNNING 행을 만나면 끝내 버리므로, 더 나중에 만들어진
     // 만료 행은 owner 밖에서 남긴다(열어 둔 채 사라진 다른 브라우저의 시도).
@@ -662,6 +663,62 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     expect(art09).toEqual(
       OrderCollectionSourceStatusSchema.parse((await readSource('art09').expect(200)).body),
     );
+  });
+
+  /**
+   * ADR-0012: 몰 하나 = 계정 행 하나. 로그인을 저장한 행과 수집 시도가 붙는 행이 같고,
+   * 쿠팡직배송은 로켓 행을 쓰되 그 행의 이름·상태는 건드리지 않는다.
+   */
+  it('⭐ keeps a mall login and its collection attempts on one channel account row', async () => {
+    process.env.CHANNEL_CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+    const rocket = await prisma.channelAccount.create({
+      data: {
+        organizationId: ORG,
+        channel: 'rocket',
+        name: '로켓',
+        externalAccountId: 'V0001',
+        status: 'active',
+        config: { rocketNote: 'kept' },
+      },
+    });
+    const accounts = new OrderCollectionMallAccountService(prisma as never);
+
+    await accounts.update(ORG, 'toss', {
+      loginId: 'toss-user',
+      password: 'toss-password',
+      siteUrl: 'https://toss.example.com',
+    });
+    await accounts.update(ORG, 'coupang-direct', {
+      loginId: 'supplier-user',
+      password: 'supplier-password',
+      siteUrl: 'https://supplier.coupang.com',
+    });
+
+    const toss = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId: ORG, channel: 'toss', externalAccountId: 'toss' },
+    });
+    const attempt = (await begin('toss').expect(201)).body;
+    expect((await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } })).channelAccountId)
+      .toBe(toss.id);
+
+    const byKey = new Map(
+      ((await readSources().expect(200)).body.malls as unknown[])
+        .map((mall) => OrderCollectionSourceStatusSchema.parse(mall))
+        .map((mall) => [mall.mallKey, mall]),
+    );
+    expect(byKey.get('toss')?.channelAccountId).toBe(toss.id);
+    expect(byKey.get('coupang-direct')?.channelAccountId).toBe(rocket.id);
+
+    const rocketAfter = await prisma.channelAccount.findUniqueOrThrow({ where: { id: rocket.id } });
+    expect(rocketAfter).toMatchObject({ name: '로켓', status: 'active', externalAccountId: 'V0001' });
+    expect(rocketAfter.config).toMatchObject({
+      rocketNote: 'kept',
+      orderCollection: { loginId: 'supplier-user' },
+    });
+    expect(await accounts.getPassword(ORG, 'coupang-direct'))
+      .toEqual({ key: 'coupang-direct', password: 'supplier-password' });
+    expect(await prisma.channelAccount.count({ where: { channel: 'order_collection' } })).toBe(0);
+    expect(await prisma.channelAccount.count({ where: { organizationId: ORG, channel: 'rocket' } })).toBe(1);
   });
 
   it('shows another organization its own empty mall registry', async () => {

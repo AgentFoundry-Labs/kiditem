@@ -72,6 +72,7 @@ vi.mock('./ProductTabContent', () => ({
   default: ({
     onSaveThumbnailConfiguration,
     onCommitBasicInfo,
+    onCommitMallRegisterValues,
     onApplyRegistrationDetailPage,
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
@@ -93,6 +94,10 @@ vi.mock('./ProductTabContent', () => ({
     onCommitBasicInfo?: (input: {
       name?: string;
       salePrice?: number;
+    }) => void;
+    onCommitMallRegisterValues?: (input: {
+      mallRegisterValues?: Record<string, Record<string, string>>;
+      mallRegisterShared?: Record<string, string>;
     }) => void;
     onApplyRegistrationDetailPage?: (input: {
       selectedDetailPageGenerationId: string;
@@ -150,6 +155,16 @@ vi.mock('./ProductTabContent', () => ({
         onClick={() => onCommitBasicInfo?.({ name: '수정 상품명', salePrice: 13900 })}
       >
         mock-save-basic
+      </button>
+      <button
+        type="button"
+        disabled={!onCommitMallRegisterValues}
+        onClick={() => onCommitMallRegisterValues?.({
+          mallRegisterValues: { '11st': { categoryPath: '문구>팬시' } },
+          mallRegisterShared: { certNumber: 'CB065R1579-2008' },
+        })}
+      >
+        mock-save-mall-values
       </button>
       <button
         type="button"
@@ -357,6 +372,58 @@ describe('ProductWorkspaceScreen', () => {
         basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
       },
     ));
+  });
+
+  it('⭐ saves mall register values on the candidate even while a draft preparation exists', async () => {
+    // 송신 전 점검과 폼 채우기는 후보 manualBasics 를 읽는다. 준비에 넣으면 점검이 그 값을 못 본다.
+    useProductDetailMock.mockReturnValue({
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            channelAccountId: null,
+            sourceContentWorkspaceId: null,
+            channelListingId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
+      error: null,
+      isLoading: false,
+    });
+    apiClientPatchMock.mockResolvedValue({ ok: true });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-mall-values' }));
+
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+      '/api/sourcing/candidates/candidate-1/basic-info',
+      {
+        mallRegisterValues: { '11st': { categoryPath: '문구>팬시' } },
+        mallRegisterShared: { certNumber: 'CB065R1579-2008' },
+      },
+    ));
+    expect(apiClientPatchMock).not.toHaveBeenCalledWith(
+      '/api/sourcing/preparations/prep-1',
+      expect.anything(),
+    );
   });
 
   it('keeps consecutive basic saves on the same preparation identity', async () => {

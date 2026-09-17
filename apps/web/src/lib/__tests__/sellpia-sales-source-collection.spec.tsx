@@ -166,7 +166,7 @@ describe('Sellpia sales collection control', () => {
     const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
     vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
       (message as { action: string }).action === 'collectSellpiaSaleSummary'
-        ? { success: false, error: 'Another Sellpia sales collection is running' }
+        ? { success: false, error: '이전 셀피아 판매 현황 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.' }
         : null);
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path === BEGIN_PATH) return beginReply();
@@ -178,7 +178,7 @@ describe('Sellpia sales collection control', () => {
     fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
 
     expect(
-      await screen.findByText('확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.'),
+      await screen.findByText('이전 셀피아 판매 현황 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '매출 받기' })).toBeEnabled();
     expect(apiClient.post).toHaveBeenCalledWith(cancelPath);

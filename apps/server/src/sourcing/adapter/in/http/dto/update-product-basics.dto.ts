@@ -1,4 +1,16 @@
-import { IsArray, IsISO8601, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsISO8601,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  Validate,
+} from 'class-validator';
+import { IsBoundedStringMap } from './bounded-string-map.validator';
 
 export class UpdateProductBasicsDto {
   @IsOptional()
@@ -115,6 +127,29 @@ export class UpdateProductBasicsDto {
   @IsArray()
   @IsString({ each: true })
   thumbnailUrls?: string[];
+
+  /**
+   * 몰별 상품등록 칸 값. `{ 몰키: { 칸키: 값 } }`.
+   *
+   * 서버는 뜻을 모른다 — 어느 몰이 어떤 칸을 요구하는지 아는 것은 프런트 어댑터뿐이다.
+   * 여기서는 **모양과 크기만** 지킨다. 자유 JSON 을 그대로 받으면 `rawData` 가
+   * 끝없이 자라고, 그건 우리가 만든 사고다.
+   */
+  @IsOptional()
+  @IsObject()
+  @Validate(IsBoundedStringMap, [2])
+  mallRegisterValues?: Record<string, Record<string, string>>;
+
+  /**
+   * 여러 몰이 함께 쓰는 칸 값. `{ 칸키: 값 }`.
+   *
+   * 안전인증번호처럼 상품에 하나뿐인 값이다. 몰마다 따로 담으면 서로 다르게 적히고,
+   * 그것도 우리가 만든 오류다.
+   */
+  @IsOptional()
+  @IsObject()
+  @Validate(IsBoundedStringMap, [1])
+  mallRegisterShared?: Record<string, string>;
 
   @IsOptional()
   @IsISO8601()

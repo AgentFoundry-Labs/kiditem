@@ -145,20 +145,27 @@
   /**
    * 옵션 목록 표(`.option-content`)의 체크박스들.
    *
-   * 라이브 실측(formV2, 2026-07): 이 표는 `<table>` 이 아니라 div 그리드다.
+   * 이 표는 `<table>` 이 아니라 div 그리드다.
    *   .option-content
-   *     .option-pane-table-head  … span.sc-common-check > input  ← 전체선택
-   *     .option-pane-table-content
-   *       .option-pane-table-row > .option-pane-table-cell.checkbox > span.sc-common-check > input
+   *     .option-pane-table-head   … 헤더(전체선택 체크박스가 여기 있다)
+   *     .option-pane-table-body   … 행들 (2026-09 이전 이름은 `-content` 였다)
+   *       .option-pane-table-row > 셀 … > input[type="checkbox"]
    *
-   * ⚠️ `.option-content` 안에는 '판매자 자동가격조정'·'묶음배송' 토글도 checkbox 로 들어 있다.
-   *    그것들은 `label > input` 이라 `span.sc-common-check > input` 로 좁히면 걸리지 않는다.
+   * ⚠️ **행을 담는 상자 이름으로 찾지 않는다.** 쿠팡이 `.option-pane-table-content` 를
+   *    `.option-pane-table-body` 로 바꾸면서(가상 스크롤 도입) 그 이름에 매달린
+   *    선택자가 행을 0개로 봤고, 그러면 `optionGenerate:noButton` 으로 멈춰
+   *    **가격·재고·대표이미지·추가이미지·상세설명이 전부 안 들어갔다**
+   *    (라이브 실측 2026-09-10: tableRow 4 · tableContent 0 · rowChecks 0).
+   *    행은 `.option-pane-table-row` 로 직접 찾고 헤더 안의 것만 빼면 된다 —
+   *    상자 이름이 또 바뀌어도 버틴다.
+   *
+   * ⚠️ `.option-content` 안에는 '판매자 자동가격조정'·'묶음배송' 토글도 checkbox 로
+   *    들어 있다. 그것들은 행(`.option-pane-table-row`) 밖이라 걸리지 않는다.
    */
   const OPTION_ROOT_SELECTOR = '.option-content';
   const OPTION_SELECT_ALL_SELECTOR =
-    '.option-pane-table-head span.sc-common-check > input[type="checkbox"]';
-  const OPTION_ROW_CHECK_SELECTOR =
-    '.option-pane-table-content .option-pane-table-cell.checkbox span.sc-common-check > input[type="checkbox"]';
+    '.option-pane-table-head input[type="checkbox"]';
+  const OPTION_DATA_ROW_SELECTOR = '.option-pane-table-row';
   // formV2 옵션 입력 UI는 판매자/카테고리 feature group에 따라 둘 중 하나다.
   // - 현재 low-code DynamicOption: `.dynamic-option-form-pane` + `.attribute`
   // - 레거시 MultiOptionPaneCreation: `.option-creation` + `.option-creation-input-group`
@@ -267,9 +274,18 @@
     return written;
   }
 
-  function optionRowChecks() {
+  /** 헤더가 아닌 실제 옵션 행들. */
+  function optionDataRows() {
     const root = document.querySelector(OPTION_ROOT_SELECTOR);
-    return root ? [...root.querySelectorAll(OPTION_ROW_CHECK_SELECTOR)] : [];
+    if (!root) return [];
+    return [...root.querySelectorAll(OPTION_DATA_ROW_SELECTOR)]
+      .filter((row) => !row.closest('.option-pane-table-head'));
+  }
+
+  function optionRowChecks() {
+    return optionDataRows()
+      .map((row) => row.querySelector('input[type="checkbox"]'))
+      .filter(Boolean);
   }
 
   /**
@@ -1101,7 +1117,36 @@
     );
   }
 
-  async function generateOptionRows(log) {
+  /**
+   * 옵션 영역이 어떻게 생겼는지 한 줄로 남긴다.
+   *
+   * 여기서 실패하면 뒤의 값·이미지·상세가 전부 안 돈다. 그런데 `noButton` 한 마디로는
+   * WING 이 화면을 바꾼 것인지, 카테고리가 옵션을 안 요구하는 것인지 알 수 없다.
+   * 세는 것과 클래스 이름만 남긴다 — DOM 을 통째로 실어 보내지 않는다.
+   */
+  function optionAreaFingerprint() {
+    const counts = {
+      optionContent: document.querySelectorAll('.option-content').length,
+      dynamicPane: document.querySelectorAll('.dynamic-option-form-pane').length,
+      optionCreation: document.querySelectorAll('.option-creation').length,
+      tableHead: document.querySelectorAll('.option-pane-table-head').length,
+      tableBody: document.querySelectorAll('.option-pane-table-body').length,
+      tableContent: document.querySelectorAll('.option-pane-table-content').length,
+      tableRow: document.querySelectorAll('.option-pane-table-row').length,
+      rowChecks: optionRowChecks().length,
+      generateButton: document.querySelectorAll(OPTION_GENERATE_SELECTOR).length,
+    };
+    const classes = new Set();
+    for (const el of document.querySelectorAll('[class*="option"]')) {
+      for (const name of String(el.className || '').split(/\s+/)) {
+        if (name.includes('option')) classes.add(name);
+      }
+      if (classes.size >= 24) break;
+    }
+    return { counts, classes: [...classes].slice(0, 24) };
+  }
+
+  async function generateOptionRows(log, report = () => {}) {
     const available = await waitFor(
       () => {
         const rows = optionRowChecks().length;
@@ -1113,6 +1158,7 @@
     );
     if (!available) {
       log('optionGenerate:noButton');
+      report(optionAreaFingerprint());
       return false;
     }
     if (available.rows) {
@@ -1535,7 +1581,11 @@
           }
         }
 
-        if (!optionsApplied || !(await generateOptionRows(log))) {
+        if (!optionsApplied || !(await generateOptionRows(log, (shape) => {
+          // 여기서 막히면 뒤의 값·이미지·상세가 전부 안 돈다. 다음 사람이 원인을
+          // 다시 파헤치지 않도록 옵션 영역이 어떤 모양이었는지 같이 남긴다.
+          if (evidence) evidence.optionArea = shape;
+        }))) {
           registrationError =
             '쿠팡 WING 옵션값을 옵션 목록으로 생성하지 못했습니다. 카테고리 속성과 옵션값을 확인해 주세요.';
         }

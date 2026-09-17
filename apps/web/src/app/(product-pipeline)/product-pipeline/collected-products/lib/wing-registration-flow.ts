@@ -88,7 +88,7 @@ export function requireRenderedDetailImage(
   return rendered.imageUrl;
 }
 
-async function prepareSavedCandidateDetailImage(
+export async function prepareSavedCandidateDetailImage(
   candidateId: string,
   detail: ProductDetailResponse,
 ): Promise<DetailPageClientRenderPrepareResponse> {
@@ -714,8 +714,11 @@ export async function prepareWingRegistration(
       // 핸드셰이크로 새 ID 를 받아올 통로도 함께 죽어 있어 탐지가 실패한다.
       // (확장 3개를 하나로 합친 뒤에는 저장된 ID 가 반드시 옛것이라 더 자주 걸린다)
       // 확장만 리로드하라고 안내하면 이미 리로드한 사용자가 같은 곳을 맴돈다.
-      'Wing 상품등록 기능이 있는 최신 KidItem 확장을 찾지 못했습니다. '
-      + '확장을 리로드했다면 이 페이지도 새로고침(F5)한 뒤 다시 시도하세요.',
+      // 그리고 확장이 **자고 있어서** 못 찾는 경우가 그만큼 잦다. MV3 서비스워커는
+      // 놀면 내려가고, 깨어나는 데 시간이 걸린다(실측: 따뜻해도 왕복 0.3~0.9초).
+      // 두 경우를 같은 문구로 뭉개면 사람은 멀쩡한 확장을 계속 리로드한다.
+      'KidItem 확장이 응답하지 않습니다. 확장이 잠들어 있으면 잠깐 뒤 한 번 더 눌러 보세요. '
+      + '그래도 같으면 확장을 리로드하고 이 페이지도 새로고침(F5)한 뒤 다시 시도하세요.',
     );
   }
   const detail = await productsApi.getDetail(candidateId);
@@ -912,6 +915,17 @@ export async function submitWingRegistration(
     throw error;
   }
   if (!res?.ok) {
+    // 자동 실행이 꺼진 경로에서는 확장이 '상품등록' 버튼을 **누를 수 없다**. 그러니
+    // 폼을 채우다 멈춘 것은 마켓에 아무것도 올라가지 않았다는 뜻이고, 장부를 열어둘
+    // 이유가 없다. 닫지 않으면 그 수집상품은 다시는 보낼 수 없게 된다 —
+    // "An active registration preparation already exists." 로 영영 막힌다
+    // (라이브 확인 2026-09-10: 옵션 생성 실패 한 번으로 상품이 잠겼다).
+    if (autoSubmit !== true) {
+      await candidatesApi.markExternalWingRegistrationNotSubmitted(
+        draft.candidateId, execution.executionId,
+        { reason: 'extension_error', error: res?.error ?? null, attempted: false },
+      ).catch(() => undefined);
+    }
     if (autoSubmit === true) {
       // ⭐ 확장이 구조화된 실패를 돌려줬다는 건 폼을 채우다 멈췄다는 뜻이다.
       // 제출(상품등록 버튼)은 채우기가 전부 끝난 뒤에만 실행되므로 마켓에는
@@ -1034,4 +1048,32 @@ function normalizePrice(value: number): number {
   const n = Math.max(0, Math.round(value));
   // 쿠팡 최소 10원 단위
   return Math.round(n / 10) * 10;
+}
+
+/**
+ * 서버가 영어로 돌려주는 등록 거절을 사람 말로 옮긴다.
+ *
+ * WING 은 다른 몰과 달리 서버에 등록 시도 장부를 남긴다. 같은 상품을 두 번 올려
+ * 쿠팡에 중복 리스팅이 생기는 것을 막기 위한 것이라 규칙이 빡빡한데, 그 거절이
+ * 영어 한 줄로 나오면 사람은 무엇을 해야 할지 알 수 없다. 규칙을 풀지는 않는다 —
+ * 무엇이 막혔고 다음에 무엇을 보면 되는지만 말한다.
+ */
+const WING_ERROR_TRANSLATIONS: readonly { match: RegExp; message: string }[] = [
+  {
+    match: /active registration preparation already exists/i,
+    message:
+      '이 상품은 이미 진행 중인 WING 등록 시도가 있습니다. '
+      + '쿠팡에 같은 상품이 두 번 올라가는 것을 막으려고 서버가 막은 것입니다. '
+      + 'WING 에서 실제로 등록됐는지 먼저 확인하세요 — 등록됐으면 등록상품ID를 연결하고, '
+      + '안 됐으면 이전 시도를 정리해야 다시 보낼 수 있습니다.',
+  },
+  {
+    match: /preparation is not in a submittable state/i,
+    message: '이전 시도가 아직 정리되지 않았습니다. 등록 상태를 확인한 뒤 다시 시도하세요.',
+  },
+];
+
+export function translateWingError(detail: string): string {
+  const hit = WING_ERROR_TRANSLATIONS.find((entry) => entry.match.test(detail));
+  return hit ? hit.message : detail;
 }

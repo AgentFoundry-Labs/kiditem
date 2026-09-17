@@ -19,6 +19,7 @@ import {
   syncExtensionAuth,
 } from '@/lib/extension-auth';
 import { BrowserCollectionProvider } from './BrowserCollectionProvider';
+import { MallAgentLoopProvider } from './MallAgentLoopProvider';
 import { SellpiaInventorySyncProvider } from './SellpiaInventorySyncProvider';
 
 export type AuthStatus =
@@ -154,7 +155,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={value}>
       <SellpiaInventorySyncProvider>
         <BrowserCollectionProvider enabled={status === 'ready'}>
-          {children}
+          <MallAgentLoopProvider enabled={status === 'ready'}>
+            {children}
+          </MallAgentLoopProvider>
         </BrowserCollectionProvider>
       </SellpiaInventorySyncProvider>
     </AuthContext.Provider>

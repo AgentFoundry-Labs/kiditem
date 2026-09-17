@@ -22,6 +22,11 @@ export interface IcecreamMallExtensionCredentials {
   loginId: string;
   supplierLoginId?: string;
   password: string;
+  /**
+   * 쇼핑몰 계정에 저장한 사이트 주소. 확장에 고정 로그인 주소가 없는 몰은 이 주소를 열어
+   * 같은 폼 자동 로그인을 돌린다 — 없으면 어디로 갈지 몰라 로그인을 시도하지 않는다.
+   */
+  siteUrl?: string;
 }
 
 export type OrderCollectionFailureCode =
@@ -123,7 +128,45 @@ export function orderCollectionExtensionRunFields(
 
 export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   success: boolean;
+  /** 실제로 아이디·비밀번호를 채우고 로그인 버튼까지 눌렀는가. */
   submitted?: boolean;
+  /**
+   * 누른 뒤 로그인 화면이 사라졌는가. `false` 면 로그인됐는지 확인하지 못한 것이지 비밀번호가
+   * 틀렸다고 판정한 것이 아니다 — 몰마다 로그인 뒤 화면이 다르다.
+   */
+  verified?: boolean;
+  /** `verified: false` 인 이유 코드. */
+  verifyReason?: string;
+  /**
+   * 로그인 뒤 몰이 알림 창으로 남긴 답("아이디 또는 비밀번호가 일치하지 않습니다" 등).
+   * 왜 안 됐는지는 몰이 가장 잘 안다 — 그 말을 그대로 사장님께 보여 준다.
+   */
+  mallMessage?: string;
+  /** submitted 가 false 인 이유. 저장된 비밀번호를 검증하지 못한 경우다. */
+  reason?: 'unsupported_mall' | 'already_signed_in' | 'no_credentials';
+  /**
+   * 확장이 그 로그인 화면에 접근하지 못했다(권한 없는 도메인으로 넘어가는 몰). 자격증명
+   * 문제가 아니므로 자동 로그인을 막지 않는다 — 확장을 최신으로 다시 불러오면 풀린다.
+   */
+  loginPageUnreachable?: boolean;
+  /** 로그인 버튼을 어떤 방법으로 눌렀는가. 몰별로 어느 경로가 먹는지 진단에 쓴다. */
+  method?: string | null;
+}
+
+/**
+ * 수집이 끝난 시도가 연 몰 탭을 닫는다. 사장님: "수집 끝났으면 창 닫아라".
+ * 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰은 부르지 않아 탭이 남는다.
+ * 확장이 오래됐거나 답하지 않아도 수집 결과에는 영향이 없다 — 조용히 지나간다.
+ */
+export async function closeOrderCollectionTabsViaExtension(
+  extensionId: string,
+  attemptId: string,
+): Promise<void> {
+  try {
+    await sendToExtension(extensionId, { action: 'closeOrderCollectionTabs', attemptIds: [attemptId] }, 5_000);
+  } catch {
+    /* 탭 정리는 수집 결과와 무관하다. */
+  }
 }
 
 export async function detectOrderCollectionSessionExtension(): Promise<string | null> {
@@ -187,6 +230,67 @@ export async function collectIcecreamMallRowsFromExtension(
     source: response.source ?? 'icecream-mall-delivery-grid',
     url: response.url,
   };
+}
+
+export const MALL_LOGIN_TEST_CAPABILITY = 'mallLoginTestV1';
+
+/** 로그인 테스트가 확장에 닿지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다. */
+export type MallLoginTestUnavailable = 'extension_not_found' | 'extension_outdated' | 'extension_no_answer';
+
+export interface MallLoginTestResponse {
+  success: boolean;
+  /** 아이디 · 비밀번호를 넣고 로그인 버튼을 눌렀는가. */
+  submitted?: boolean;
+  /** 누른 뒤 로그인 화면이 사라졌는가. `false` 면 확인하지 못한 것이다. */
+  verified?: boolean;
+  verifyReason?: string;
+  /** 로그인 뒤 몰이 알림 창으로 남긴 답. */
+  mallMessage?: string;
+  reason?: MallLoginEnsureResult['reason'];
+  method?: string | null;
+  pendingLogin?: boolean;
+  /** 확장이 돌려준 이유 코드(`login_rejected` 등). */
+  errorCode?: string;
+  error?: string;
+  /** 확장에 닿지 못했을 때만 있다. */
+  unavailable?: MallLoginTestUnavailable;
+}
+
+/**
+ * 쇼핑몰 계정 화면의 로그인 테스트. 확장이 백그라운드 탭에서 저장된 계정으로 로그인만 해 보고
+ * 닫는다. 수집이 아니므로 수집 시도 없이 도는 `testMallLogin` 을 부른다 — 수집 시도 안에서만
+ * 도는 `ensureMallLoggedIn` 으로 보내면 확장이 늘 거절한다.
+ */
+export async function testMallLoginViaExtension(
+  mallKey: string,
+  credentials: IcecreamMallExtensionCredentials,
+): Promise<MallLoginTestResponse> {
+  const runtime = await detectOrderCollectionExtensionRuntime(1500, [MALL_LOGIN_TEST_CAPABILITY]);
+  if (runtime.status !== 'ready') {
+    return {
+      success: false,
+      unavailable: runtime.status === 'incompatible' ? 'extension_outdated' : 'extension_not_found',
+      error: orderCollectionExtensionUnavailableMessage(runtime),
+    };
+  }
+  try {
+    const response = await sendToExtension<MallLoginTestResponse>(
+      runtime.extensionId,
+      { action: 'testMallLogin', mallKey, credentials },
+      60_000,
+    );
+    return response ?? {
+      success: false,
+      unavailable: 'extension_no_answer',
+      error: '확장이 로그인 테스트에 답하지 않았습니다.',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      unavailable: 'extension_no_answer',
+      error: error instanceof Error ? error.message : '확장이 로그인 테스트에 답하지 않았습니다.',
+    };
+  }
 }
 
 /**

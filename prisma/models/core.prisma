@@ -114,6 +114,9 @@ model Organization {
   channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
 
+  // Channels — 몰별 상품등록·품절 송신 (Phase 0)
+  mallOperationOutcomes MallOperationOutcome[] @relation("MallOperationOutcomeOrganization")
+
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
   channelScrapeChunks                ChannelScrapeChunk[]
@@ -215,6 +218,7 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
+  recordedMallOperationOutcomes              MallOperationOutcome[]                         @relation("MallOperationOutcomeActor")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")

@@ -110,6 +110,16 @@
       "import": "./dist/channel-sku-availability.js",
       "require": "./dist/channel-sku-availability.cjs"
     },
+    "./mall-publishing": {
+      "types": "./dist/mall-publishing.d.ts",
+      "import": "./dist/mall-publishing.js",
+      "require": "./dist/mall-publishing.cjs"
+    },
+    "./mall-operation-outcomes": {
+      "types": "./dist/mall-operation-outcomes.d.ts",
+      "import": "./dist/mall-operation-outcomes.js",
+      "require": "./dist/mall-operation-outcomes.cjs"
+    },
     "./inventory-availability": {
       "types": "./dist/inventory-availability.d.ts",
       "import": "./dist/inventory-availability.js",
@@ -314,6 +324,12 @@
       ],
       "channel-sku-availability": [
         "dist/channel-sku-availability.d.ts"
+      ],
+      "mall-publishing": [
+        "dist/mall-publishing.d.ts"
+      ],
+      "mall-operation-outcomes": [
+        "dist/mall-operation-outcomes.d.ts"
       ],
       "inventory-availability": [
         "dist/inventory-availability.d.ts"

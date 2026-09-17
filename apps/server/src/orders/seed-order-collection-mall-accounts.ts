@@ -14,6 +14,10 @@ import {
   type OrderCollectionMallAccount,
 } from "./services/order-collection-mall-account.service";
 import type { PrismaService } from "../prisma/prisma.service";
+import {
+  findOrderCollectionMall,
+  orderCollectionMallAccountIdentity,
+} from "./domain/order-collection-malls";
 
 const SEED_CONFIRMATION = "APPLY_ORDER_COLLECTION_MALL_ACCOUNTS";
 const UUID_PATTERN =
@@ -40,6 +44,13 @@ export const ORDER_COLLECTION_MALL_ENV = [
   { key: "teacher-mall", prefix: "TEACHER_MALL" },
   { key: "gs-shop", prefix: "GS_SHOP" },
   { key: "coupang-direct", prefix: "COUPANG_DIRECT" },
+  { key: "gmarket", prefix: "GMARKET" },
+  { key: "auction", prefix: "AUCTION" },
+  { key: "11st", prefix: "ELEVEN_ST" },
+  { key: "smartstore", prefix: "SMARTSTORE" },
+  { key: "ssg", prefix: "SSG" },
+  { key: "thirtymall", prefix: "THIRTYMALL" },
+  { key: "yoons", prefix: "YOONS" },
 ] as const;
 
 type OrderCollectionMallSeedKey =
@@ -177,6 +188,23 @@ export async function seedOrderCollectionMallAccounts(
     ) {
       throw new Error(
         "Missing ART09_SUPPLIER_ID: a new Art09 seed requires the supplier login ID.",
+      );
+    }
+  }
+
+  // 기존 마켓 행을 쓰는 몰(쿠팡직배송 → rocket)은 그 행이 있어야 로그인을 둘 수 있다
+  // (ADR-0012). 몰 몇 개를 쓰고 나서 멈추지 않도록, 쓰기 전에 모두 확인한다.
+  for (const account of seedConfig.accounts) {
+    const mall = findOrderCollectionMall(account.key);
+    const identity = mall ? orderCollectionMallAccountIdentity(mall) : null;
+    if (identity?.kind !== "shared") continue;
+    const sharedRow = await prisma.channelAccount.findFirst({
+      where: { organizationId: seedConfig.organizationId, channel: identity.channel },
+      select: { id: true },
+    });
+    if (!sharedRow) {
+      throw new Error(
+        `Missing ${identity.channel} channel account: ${account.key} credentials are stored on that row.`,
       );
     }
   }

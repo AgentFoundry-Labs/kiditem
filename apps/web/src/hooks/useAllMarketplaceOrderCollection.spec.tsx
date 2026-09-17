@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fail: vi.fn(),
   readAttempt: vi.fn(),
   collectMall: vi.fn(),
+  closeTabs: vi.fn(),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -26,6 +27,7 @@ vi.mock('@/app/(orders)/order-collection/lib/order-collection-extension', async 
     extensionId: 'order-extension',
     version: '1.0.86',
   }),
+  closeOrderCollectionTabsViaExtension: mocks.closeTabs,
 }));
 vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   createBrowserMallCollector: () => mocks.collectMall,
@@ -316,6 +318,131 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
       expect.objectContaining({ code: 'COLLECTION_FAILED' }),
     );
     expect(logActivity).toHaveBeenCalledWith('error', '키즈노트', expect.any(String));
+  });
+
+  /**
+   * 라이브(2026-09-16): 로그인이 풀린 몰 여섯 곳이 30분 임대가 끝날 때까지 '수집 중'으로 서 있었다.
+   * 사장님이 로그인하고 돌아와도 카드가 '중단'만 보여 다시 시작할 수 없었다.
+   */
+  it('⭐ 로그인·인증이 필요해 멈춘 시도는 그 자리에서 끝낸다 — 카드가 30분 동안 수집 중으로 서 있지 않게', async () => {
+    const kidkids = mall('kidkids', '키드키즈');
+    const logActivity = vi.fn();
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidkids', 9),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    // 확장이 로그인 화면을 만나 돌아왔을 뿐, owner 의 시도는 아직 돌고 있다.
+    mocks.readAttempt.mockResolvedValue(attemptFor('kidkids', 9));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kidkids', 9), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(
+      Object.assign(new Error('키드키즈 로그인이 필요합니다.'), { errorCode: 'login_required' }),
+    );
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidkids],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAll();
+    });
+
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: attemptFor('kidkids', 9).attemptId }),
+      expect.objectContaining({ code: 'LOGIN_REQUIRED' }),
+    );
+    expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String));
+  });
+
+  /**
+   * 사장님: "수집 끝났으면 창 닫아라". 우리가 연 몰 탭은 그 몰의 수집이 끝나는 대로 닫는다.
+   * 남기는 것은 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰뿐이다.
+   */
+  it('⭐ 수집이 끝나면 그 몰의 탭을 닫는다 — 인증이 필요한 몰만 남긴다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 8),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue({ ...attemptFor('kidsnote', 8), state: 'COMPLETE' });
+    mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAccounts([kidsnote]);
+    });
+
+    expect(mocks.closeTabs).toHaveBeenCalledWith('order-extension', attemptFor('kidsnote', 8).attemptId);
+  });
+
+  it('인증이 필요한 몰의 탭은 사람이 끝내야 하므로 닫지 않는다', async () => {
+    const gsshop = mall('gs-shop', 'GS샵');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('gs-shop', 8),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attemptFor('gs-shop', 8));
+    mocks.fail.mockResolvedValue({ ...attemptFor('gs-shop', 8), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(new Error('GS샵 SMS 인증이 필요합니다.'));
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [gsshop],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAccounts([gsshop]);
+    });
+
+    expect(mocks.closeTabs).not.toHaveBeenCalled();
+  });
+
+  /**
+   * KID-228: owner 가 열어 준 시도가 이미 RUNNING 이 아니면(임대 만료 · 다른 탭의 중단) 넘길
+   * 절차가 없어 핸드오프를 건너뛴다. 그때 남는 수집은 `null` 이고 `await null` 은 그냥
+   * 통과하므로, 아무것도 안 한 몰이 '수집 완료'로 세어지면 안 된다.
+   */
+  it('⭐ 시작만 되고 수집 절차가 남지 않은 몰은 성공으로 세지 않는다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 8),
+      state: 'COMPLETE' as const,
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    let batch: { successCount: number; failedCount: number } | null = null;
+    await act(async () => {
+      batch = await result.current.collectAccounts([kidsnote]);
+    });
+
+    expect(batch).toMatchObject({ successCount: 0, failedCount: 1 });
+    // 절차가 없으니 수집도 돌지 않았다.
+    expect(mocks.collectMall).not.toHaveBeenCalled();
   });
 
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {

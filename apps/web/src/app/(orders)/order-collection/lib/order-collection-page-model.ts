@@ -109,6 +109,8 @@ export function isBrowserCollectableMall(account: OrderCollectionMallAccount): b
   if (account.key === 'coupang-direct') return true;
   if (account.key === 'art09') return true;
   if (account.key === 'haebub-mall') return true;
+  // 11번가 수집기는 코드만 들어와 있다. 셀피아 양식이 확정되지 않아 파일을 만들지 못하므로
+  // 검증 전 몰로 두고 운영 화면에서 켜지 않는다(KID-105 Q2).
   return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
 }
 
@@ -266,6 +268,8 @@ export function orderCollectionBatchNotice(result: {
   failedCount: number;
   inProgressCount: number;
   unconfiguredCount: number;
+  /** 사람이 직접 로그인해야 해서 이번 수집에서 뺀 몰 수. */
+  skippedCount?: number;
 }): OrderCollectionBatchNotice {
   const parts = [`${formatNumber(result.successCount)}개 성공`];
   if (result.failedCount > 0) parts.push(`${formatNumber(result.failedCount)}개 실패`);
@@ -273,6 +277,9 @@ export function orderCollectionBatchNotice(result: {
     parts.push(`${formatNumber(result.unconfiguredCount)}개 미설정`);
   }
   if (result.inProgressCount > 0) parts.push(`${formatNumber(result.inProgressCount)}개 진행 중`);
+  if (result.skippedCount) {
+    parts.push(`${formatNumber(result.skippedCount)}개 건너뜀(직접 로그인 필요)`);
+  }
   if (parts.length === 1) return { tone: 'success', message: '전체 수집 완료' };
   return { tone: 'warning', message: `전체 수집 ${parts.join(', ')}` };
 }

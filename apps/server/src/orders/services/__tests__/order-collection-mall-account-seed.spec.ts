@@ -308,6 +308,53 @@ describe("order-collection mall account seed", () => {
     );
     expect(service.update).not.toHaveBeenCalled();
   });
+
+  it("⭐ rejects a Coupang direct seed before any write when the Rocket row is missing", async () => {
+    const prisma = {
+      organization: {
+        findFirst: vi.fn().mockResolvedValue({ id: ORGANIZATION_ID }),
+      },
+      channelAccount: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const service = {
+      list: vi.fn().mockResolvedValue([]),
+      getPassword: vi.fn(),
+      update: vi.fn(),
+    } as unknown as OrderCollectionMallAccountService;
+
+    await expect(
+      seedOrderCollectionMallAccounts(
+        prisma as never,
+        {
+          organizationId: ORGANIZATION_ID,
+          accounts: [
+            {
+              key: "always",
+              loginId: "always-id",
+              password: "password",
+              siteUrl: "https://always.example.com",
+            },
+            {
+              key: "coupang-direct",
+              loginId: "supplier-id",
+              password: "supplier-password",
+              siteUrl: "https://supplier.coupang.com",
+            },
+          ],
+        },
+        service,
+      ),
+    ).rejects.toThrow(
+      "Missing rocket channel account: coupang-direct credentials are stored on that row.",
+    );
+    expect(prisma.channelAccount.findFirst).toHaveBeenCalledWith({
+      where: { organizationId: ORGANIZATION_ID, channel: "rocket" },
+      select: { id: true },
+    });
+    expect(service.update).not.toHaveBeenCalled();
+  });
 });
 
 function mallAccount({

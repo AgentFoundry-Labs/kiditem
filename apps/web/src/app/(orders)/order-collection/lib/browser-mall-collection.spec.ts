@@ -20,11 +20,14 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
     warning: vi.fn(),
     success: vi.fn(),
+    info: vi.fn(),
   }),
 }));
 
 vi.mock('sonner', () => ({ toast: mocks.toast }));
-vi.mock('@/lib/extension-bridge', () => ({
+// 자동 로그인 차단은 확장 응답 시간 초과 문구(`EXTENSION_TIMEOUT_MESSAGE`)를 실제 값으로 비교한다.
+vi.mock('@/lib/extension-bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/extension-bridge')>()),
   sendToExtension: mocks.sendToExtension,
 }));
 vi.mock('./order-collection-extension', () => ({
@@ -72,6 +75,8 @@ vi.mock('./coupang-directship-api', () => ({
   convertCoupangDirectToSellpiaFile: mocks.convertCoupang,
 }));
 
+import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
+import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { createBrowserMallCollector } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 import type { CoupangDirectData } from './coupang-directship-api';
@@ -98,6 +103,9 @@ const ACCOUNT: OrderCollectionMallAccount = {
 describe('createBrowserMallCollector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 자동 로그인 차단은 모듈 상태다 — 한 테스트의 로그인 실패가 다음 테스트를 막지 않게 비운다.
+    resetMallLoginBlocksForTest();
+    window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
@@ -125,9 +133,10 @@ describe('createBrowserMallCollector', () => {
 
     await expect(collector(ACCOUNT, RUN)).rejects.toThrow('로그인 확인이 필요합니다.');
 
+    // 확장에 고정 로그인 주소가 없는 몰은 이 주소로 들어가 로그인 버튼까지 누른다.
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kidsnote',
-      { loginId: 'operator', password: 'secret' },
+      { loginId: 'operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
       expect.objectContaining(RUN),
     );
     expect(mocks.collectKidsnote).not.toHaveBeenCalled();
@@ -167,7 +176,7 @@ describe('createBrowserMallCollector', () => {
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kidsnote',
-      { loginId: 'fresh-operator', password: 'secret' },
+      { loginId: 'fresh-operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
       expect.objectContaining(RUN),
     );
   });
@@ -370,6 +379,7 @@ describe('createBrowserMallCollector', () => {
         loginId: 'operator',
         supplierLoginId: 'supplier-operator',
         password: 'secret',
+        siteUrl: 'https://shop.kidsnote.com',
       },
       expect.objectContaining(RUN),
     );
@@ -675,5 +685,156 @@ describe('createBrowserMallCollector', () => {
       ['PO-SELECTED'],
       ['PO-SELECTED'],
     ]);
+  });
+});
+
+describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMallLoginBlocksForTest();
+    window.localStorage.clear();
+    mocks.detectExtension.mockResolvedValue(RUN.extensionId);
+    mocks.password.mockResolvedValue({ password: 'secret' });
+    mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
+  });
+
+  const collect = () =>
+    createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    })(ACCOUNT, RUN);
+
+  /**
+   * 확장이 답을 안 준 것으로 차단하면, 멀쩡히 로그인된 몰이 '직접 로그인 필요'로 굳는다.
+   * 사장님은 로그인돼 있는데 로그인하라는 화면을 보게 된다 — 실제로 그렇게 나왔다.
+   */
+  it('⭐ 확장 응답 시간 초과로는 차단하지 않는다 — 비밀번호가 틀린 게 아니다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: false,
+      error: EXTENSION_TIMEOUT_MESSAGE,
+    });
+
+    await expect(collect()).rejects.toThrow(EXTENSION_TIMEOUT_MESSAGE);
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  it('비밀번호가 거부되면 차단한다 — 또 두드리면 계정이 잠긴다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: false,
+      error: '아이디 또는 비밀번호가 올바르지 않습니다.',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+  });
+
+  /** 12:29 라이브: 전체수집이 서버 요청 한도(분당 120)를 넘겨 몰 20곳이 한꺼번에 차단됐다. */
+  it('⭐ 우리 서버가 요청 한도로 막은 실패로는 차단하지 않는다 — 비밀번호 문제가 아니다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: false,
+      error: 'ThrottlerException: Too Many Requests',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  /** 로그인 뒤 화면은 몰마다 다르다. 확인하지 못한 것을 실패로 굳히지 않고, 대신 자주 넣지 않는다. */
+  it('⭐ 스스로 도는 수집은 로그인했는지 확인하지 못하면 한 시간 안에 다시 넣지 않는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true, submitted: true, verified: false });
+    const automatic = () =>
+      createBrowserMallCollector({
+        mallAccounts: [ACCOUNT],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        setPreviewId: vi.fn(),
+      })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
+
+    await automatic();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
+
+    await automatic();
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
+  });
+
+  /** 사람이 누른 수집은 지금 되기를 바라고 누른 것이다 — 간격 때문에 로그인을 건너뛰지 않는다. */
+  it('⭐ 사람이 누른 수집은 방금 시도했더라도 로그인부터 확인한다', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true, submitted: true, verified: false });
+
+    await createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
+    await collect();
+
+    expect(mocks.ensureLogin).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * 키즈노트처럼 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
+   * 않고 몰의 말을 그대로 보여 주고, 아이디·비밀번호를 거부한 것이면 더 두드리지 않는다.
+   */
+  it('⭐ 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의 자동 로그인을 막는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
+    });
+
+    await collect();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+  });
+
+  it('몰이 다른 말을 남기면 막지 않는다 — 점검 중 · 세션 만료는 자격증명 문제가 아니다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '서비스 점검 중입니다.',
+    });
+
+    await collect();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  /**
+   * 쿠팡처럼 로그인 화면이 다른 도메인으로 넘어가는 몰은 확장 권한이 없으면 우리가 화면을
+   * 들여다보지도 못한다. 비밀번호가 틀린 게 아니므로 그 몰을 막으면 안 된다 — 확장을 새로
+   * 불러오면 풀린다.
+   */
+  it('⭐ 확장이 로그인 화면에 접근하지 못한 것은 비밀번호 문제가 아니다 — 막지 않는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: true,
+      loginPageUnreachable: true,
+      errorCode: 'login_page_not_reachable',
+      error: 'xauth.coupang.com 화면에 확장이 접근할 수 없어 자동 로그인을 하지 못했습니다.',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: true,
+      error: '본인 인증이 필요합니다.',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 });

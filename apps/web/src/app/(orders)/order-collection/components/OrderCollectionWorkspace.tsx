@@ -24,6 +24,7 @@ import { OrderCollectionDailyPanel } from './OrderCollectionDailyPanel';
 import { OrderCollectionPipeline } from './OrderCollectionPipeline';
 import { OrderUploadModal } from './OrderUploadModal';
 import { useOrderActivityEvents } from '../hooks/use-order-activity-events';
+import { useMallOrderDrag } from '../hooks/use-mall-order-drag';
 import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
@@ -31,6 +32,7 @@ import {
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
 import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-shipment-tracking-source-owner';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
+import { ensureMallLoginForRun } from '../lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
@@ -63,6 +65,7 @@ import {
   createStoredTrackingFile,
   deleteGeneratedOrderFile,
   loadGeneratedOrderFiles,
+  subscribeGeneratedOrderFiles,
   saveGeneratedOrderFile,
 } from '../lib/order-generated-file-store';
 import {
@@ -336,6 +339,11 @@ export function OrderCollectionWorkspace() {
     void invalidateMallOrderCollectionSources(queryClient, user?.organizationId ?? null);
   }, [queryClient, user?.organizationId]);
 
+  const mallOrder = useMallOrderDrag({
+    mallAccounts,
+    onSaved: refreshMallAccounts,
+  });
+
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
@@ -351,17 +359,32 @@ export function OrderCollectionWorkspace() {
     );
   }, [mallAccounts]);
 
+  // 수집 파일 목록은 이 화면만 담는 게 아니다 — 대시보드 부서 버튼, 자동 운전 고리, 다른 탭도
+  // 같은 저장소에 쌓는다. 저장소가 바뀌었다고 알릴 때와 창으로 돌아올 때 다시 읽어, 몰 카드의
+  // '당일 · 신규'가 다른 곳의 수집을 따라가게 한다.
   useEffect(() => {
     let active = true;
-    loadGeneratedOrderFiles()
-      .then((files) => {
-        if (active) setHistory(files);
-      })
-      .catch(() => {
-        if (active) setHistory([]);
-      });
+    const refresh = () => {
+      loadGeneratedOrderFiles()
+        .then((files) => {
+          if (active) setHistory(files);
+        })
+        .catch(() => {
+          if (active) setHistory([]);
+        });
+    };
+    refresh();
+    const unsubscribe = subscribeGeneratedOrderFiles(refresh);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       active = false;
+      unsubscribe();
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 
@@ -458,6 +481,8 @@ export function OrderCollectionWorkspace() {
       run = await sessionControls.prepareDirectRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
       setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
+      // 발주 화면도 로그인해야 열린다. 카드에서 달력을 열 때도 수집과 같은 자동 로그인을 쓴다.
+      await ensureMallLoginForRun(account, run);
       const { collectCoupangDirectFromExtension } = await import(
         '../lib/coupang-directship-api'
       );
@@ -905,8 +930,10 @@ export function OrderCollectionWorkspace() {
         enabledMallCount={enabledMallCount}
         failedMallCount={failedMallAccounts.length}
         failedMallReasonByKey={failedMallReasonByKey}
-        mallAccounts={mallAccounts}
+        mallAccounts={mallOrder.accounts}
         mallCollectionStats={mallStatsByKey}
+        onMoveMall={mallOrder.move}
+        onDropMall={mallOrder.drop}
         onReconcileSellpia={() => void handleReconcileWithSellpia({})}
         reconciling={reconciling}
         reconcileCheckedAt={sellpiaReconcile?.checkedAt ?? null}
@@ -924,6 +951,8 @@ export function OrderCollectionWorkspace() {
           const card = {
             account,
             startBlockedReason: mallStartBlockedReason(account),
+            // 아직 수집기가 없는 몰은 카드가 이미 '준비 중'이라고 두 번 적는다(상태 줄 · 준비 버튼).
+            startBlockedQuiet: !isBrowserCollectableMall(account),
             children: renderCard,
           };
           // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).

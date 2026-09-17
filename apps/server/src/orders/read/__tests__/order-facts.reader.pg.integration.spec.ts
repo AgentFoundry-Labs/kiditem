@@ -45,14 +45,14 @@ describe('Order facts reader over disposable PostgreSQL', () => {
         {
           id: ACCOUNT_ID,
           organizationId: TEST_ORGANIZATION_ID,
-          channel: 'order_collection',
+          channel: 'haebub-mall',
           name: 'Reader account',
           externalAccountId: 'haebub-mall',
         },
         {
           id: SECOND_ACCOUNT_ID,
           organizationId: TEST_ORGANIZATION_ID,
-          channel: 'order_collection',
+          channel: 'domeggook',
           name: 'Second reader account',
           externalAccountId: 'domeggook',
         },

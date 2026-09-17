@@ -5,13 +5,15 @@ import {
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
 import type { QueryKey } from '@tanstack/react-query';
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import {
+  COLLECTION_IDLE_POLL_MS,
+  type CollectionSourceAdapter,
+} from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 
 const PATH = '/api/orders/sellpia-shipment-tracking';
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 export function readSellpiaShipmentTrackingSourceStatus(): Promise<OrderCollectionSourceStatus> {
   return apiClient.getParsed(`${PATH}/source`, OrderCollectionSourceStatusSchema);
@@ -41,7 +43,7 @@ CollectionSourceAdapter<OrderCollectionSourceStatus> {
     >({
       queryKey: queryKeys.orders.sellpiaShipmentTrackingSource(),
       queryFn: readSellpiaShipmentTrackingSourceStatus,
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

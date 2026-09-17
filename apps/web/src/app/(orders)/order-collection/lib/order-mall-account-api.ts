@@ -11,6 +11,8 @@ export interface OrderCollectionMallAccount {
   siteUrl: string | null;
   memo: string | null;
   passwordUpdatedAt: string | null;
+  /** 카드 순서. null 이면 기본 순서. */
+  sortOrder?: number | null;
   updatedAt: string | null;
 }
 
@@ -31,6 +33,14 @@ export interface OrderCollectionMallPassword {
 export const orderMallAccountApi = {
   list(): Promise<OrderCollectionMallAccount[]> {
     return apiClient.get<OrderCollectionMallAccount[]>('/api/orders/collection/malls');
+  },
+
+  /** 화면에 보이는 순서대로 몰 키를 보내면 그 순서로 저장된다. */
+  reorder(mallKeys: string[]): Promise<OrderCollectionMallAccount[]> {
+    return apiClient.patch<OrderCollectionMallAccount[]>(
+      '/api/orders/collection/malls/display-order',
+      { mallKeys },
+    );
   },
 
   update(

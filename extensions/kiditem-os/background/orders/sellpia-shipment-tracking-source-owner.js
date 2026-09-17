@@ -408,7 +408,7 @@
         if (previous.producer !== PRODUCER || previous.attemptId === attemptId) continue;
         const previousAttempt = await read(environmentId, previous.attemptId);
         if (previousAttempt.state === "RUNNING") {
-          throw new Error("Another Sellpia shipment tracking collection is running");
+          throw new Error("이전 셀피아 송장 추적 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.");
         }
         await finish(environmentId, previousAttempt);
       }
@@ -518,7 +518,7 @@
       const current = active.get(environmentId);
       if (current) {
         if (current.attemptId !== attemptId) {
-          return Promise.reject(new Error("Another Sellpia shipment tracking collection is running"));
+          return Promise.reject(new Error("이전 셀피아 송장 추적 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요."));
         }
         if (current.promise) return current.promise;
       }
@@ -536,7 +536,7 @@
     async function cancel({ environmentId, attemptId }) {
       const current = active.get(environmentId);
       if (current && current.attemptId !== attemptId) {
-        throw new Error("Another Sellpia shipment tracking collection is running");
+        throw new Error("이전 셀피아 송장 추적 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.");
       }
       const work = current || { attemptId, terminal: null, control: null };
       active.set(environmentId, work);

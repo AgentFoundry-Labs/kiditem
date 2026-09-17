@@ -20,7 +20,7 @@ function makePrisma() {
         coverageStartDate: new Date('2000-01-01T00:00:00.000Z'),
         coverageEndDate: new Date('3000-01-01T00:00:00.000Z'),
         channelAccount: {
-          channel: 'order_collection',
+          channel: 'haebub-mall',
           externalAccountId: 'haebub-mall',
         },
         orders: [],

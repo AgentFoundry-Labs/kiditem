@@ -11,6 +11,7 @@ import {
   type SellpiaInventoryFreshnessView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
+  COLLECTION_IDLE_POLL_MS,
   useCollectionSourceControl,
   type CollectionRunning,
   type CollectionSourceAdapter,
@@ -136,7 +137,6 @@ function sellpiaInventoryRunning(freshness: SellpiaInventoryFreshnessView): Coll
   return freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
 }
 
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 /**
  * Sellpia inventory collection for the shared control. The page opens the
@@ -160,7 +160,7 @@ export function sellpiaInventoryCollection({
       queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? ''),
       queryFn: () => sellpiaInventoryFreshnessApi.getState(),
       enabled: Boolean(organizationId),
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

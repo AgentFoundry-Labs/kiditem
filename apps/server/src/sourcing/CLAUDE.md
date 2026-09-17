@@ -66,6 +66,16 @@ belong to Supply; supplier payments belong to Finance.
   never deletes promoted masters, images, listings, orders, inventory, or
   finance data. Storage deletion is retention/GC only and rechecks references.
 
+## Owner confirm report
+
+- Routes: `GET /api/sourcing/workspace/confirm-report/status` and
+  `POST /api/sourcing/workspace/confirm-report/telegram`.
+- The report sends only when an owner or admin asks. Telegram answers write the existing
+  `final` review selection through `SourcingReviewService` with its version
+  check, re-resolved against the latest recommendation run on every press.
+  Button values carry no state and are signed by the messenger adapter. The bot
+  token, chat, and allowed users stay server-side.
+
 ## Verification
 
 Run the focused sourcing suite for changes in this domain:

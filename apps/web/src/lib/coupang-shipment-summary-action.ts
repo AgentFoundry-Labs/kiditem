@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { QueryKey } from "@tanstack/react-query";
 import {
+  COLLECTION_IDLE_POLL_MS,
   COLLECTION_RUNNING_POLL_MS,
   type CollectionSourceAdapter,
 } from "@/hooks/use-collection-source-control";
@@ -102,7 +103,6 @@ export function cancelCoupangShipmentSummaryAttempt(attemptId: string) {
   return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
 }
 
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 /**
  * The shipment date-summary collection for the shared control. The calendar
@@ -130,7 +130,7 @@ CollectionSourceAdapter<CoupangShipmentSummarySource> {
     >({
       queryKey: queryKeys.inventory.coupangShipmentSummary(),
       queryFn: loadCoupangShipmentSummarySource,
-      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : SOURCE_IDLE_POLL_MS,
+      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),
