@@ -224,6 +224,25 @@ describe('mallStatusTiles', () => {
     expect(rocket?.login).toBe('signed_out');
   });
 
+  /**
+   * 쿠팡직배송은 로켓 계정 행을 함께 쓴다 — 관찰 기록도 로켓 줄이라 카드가 그 줄을 읽어야
+   * '최근 기록 없음'으로 서지 않는다.
+   */
+  it('⭐ 쿠팡직배송 카드가 함께 쓰는 로켓 줄을 읽는다', () => {
+    const tile = mallStatusTiles(
+      [channel('coupang-direct', '쿠팡직배송')],
+      [],
+      [],
+      [remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
+    )[0];
+    expect(tile).toMatchObject({
+      mallKey: 'coupang-direct',
+      tone: 'attention',
+      label: '로그인 확인 로그인 필요',
+      attentionCount: 1,
+    });
+  });
+
   it('⭐ 방금 확인한 로그인 상태가 지난 로그인 확인 기록보다 앞선다', () => {
     const lastCheck = remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' });
     const rocketOnly = [channel('rocket', '쿠팡 로켓')];

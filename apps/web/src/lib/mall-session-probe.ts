@@ -1,6 +1,9 @@
 'use client';
 
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
+import {
+  mallOperationOutcomeKey,
+  type MallOperationOutcomeSummaryRow,
+} from '@kiditem/shared/mall-operation-outcomes';
 import { detectOrderCollectionExtensionRuntime, sendToExtension } from './extension-bridge';
 import { clearMallAutoLoginBlock } from './mall-login-block';
 import {
@@ -89,15 +92,21 @@ export function loginCheckRecord(result: MallSessionProbeResult): LoginCheckReco
   };
 }
 
-/** 기억에 적을까 — 처음이거나, 상태가 바뀌었거나, 같은 상태로 6시간이 지났을 때만. */
+/**
+ * 기억에 적을까 — 처음이거나, 상태가 바뀌었거나, 같은 상태로 6시간이 지났을 때만.
+ *
+ * 줄은 기록 키로 찾는다. 계정 행을 함께 쓰는 몰(쿠팡직배송)은 로켓 줄이 제 기록이다 —
+ * 몰 키 그대로 찾으면 못 찾아 한 바퀴마다 같은 줄을 새로 쌓는다.
+ */
 export function shouldRememberLogin(
   record: LoginCheckRecord,
   checkedAt: number,
   remembered: readonly MallOperationOutcomeSummaryRow[],
   recordedHere?: RecordedLoginCheck,
 ): boolean {
+  const outcomeKey = mallOperationOutcomeKey(record.mallKey);
   const latest = remembered.find(
-    (row) => row.mallKey === record.mallKey && row.operation === 'login_check',
+    (row) => row.mallKey === outcomeKey && row.operation === 'login_check',
   )?.latest;
   const previous = [
     ...(latest ? [{ outcome: latest.outcome as string, at: Date.parse(latest.occurredAt) }] : []),

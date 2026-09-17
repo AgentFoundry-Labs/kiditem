@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 
 const mockDetectRuntime = vi.hoisted(() => vi.fn());
 const mockSend = vi.hoisted(() => vi.fn());
@@ -16,7 +17,13 @@ vi.mock('../mall-operation-outcomes-api', () => ({
   recordMallOperationOutcome: mockRecord,
 }));
 
-import { detectMallSessionProbe, probeMallSession, sweepMallSessions } from '../mall-session-probe';
+import {
+  detectMallSessionProbe,
+  loginCheckRecord,
+  probeMallSession,
+  shouldRememberLogin,
+  sweepMallSessions,
+} from '../mall-session-probe';
 
 describe('detectMallSessionProbe', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -84,6 +91,45 @@ describe('probeMallSession', () => {
       state: 'signed_out',
       reason: 'extension_no_answer',
     });
+  });
+});
+
+describe('shouldRememberLogin — 계정 행을 함께 쓰는 몰', () => {
+  const NOW = Date.parse('2026-09-17T03:00:00.000Z');
+
+  function rocketRow(occurredAt: string): MallOperationOutcomeSummaryRow {
+    return {
+      mallKey: 'rocket',
+      operation: 'login_check',
+      latest: {
+        id: '44444444-4444-4444-8444-444444444444',
+        mallKey: 'rocket',
+        operation: 'login_check',
+        outcome: 'attention',
+        reasonCode: 'login_required',
+        message: null,
+        itemCount: null,
+        failedCount: null,
+        warningCount: null,
+        occurredAt,
+      },
+      counts: { succeeded: 0, empty: 0, attention: 1, failed: 0, cancelled: 0 },
+    };
+  }
+
+  /**
+   * 쿠팡직배송 카드가 로켓 줄을 읽지 못하면 같은 상태인데도 한 바퀴마다 한 줄씩 새로 쌓인다.
+   */
+  it('⭐ 쿠팡직배송 카드가 로켓 줄을 제 기록으로 읽는다', () => {
+    const record = loginCheckRecord({
+      mallKey: 'coupang-direct',
+      state: 'signed_out',
+      reason: 'login_page',
+      checkedAt: NOW,
+    })!;
+
+    expect(shouldRememberLogin(record, NOW, [rocketRow(new Date(NOW - 60 * 60 * 1000).toISOString())])).toBe(false);
+    expect(shouldRememberLogin(record, NOW, [])).toBe(true);
   });
 });
 

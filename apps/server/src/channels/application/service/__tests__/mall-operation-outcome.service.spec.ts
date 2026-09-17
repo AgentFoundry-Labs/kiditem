@@ -80,6 +80,24 @@ describe('MallOperationOutcomeService', () => {
     expect(repository.record).not.toHaveBeenCalled();
   });
 
+  /**
+   * 쿠팡직배송은 로켓 계정 행을 함께 쓴다. 관찰 기록도 그 행 하나에 모여야 화면이 로그인 상태를
+   * 한 줄로 읽는다 — 매니페스트 확인은 보낸 키 그대로 한다(둘 다 아는 몰이다).
+   */
+  it('⭐ folds a shared-account mall onto the row it shares', async () => {
+    const { repository, service } = setup();
+    const item = await service.record(ORG, 'user-1', {
+      idempotencyKey: KEY,
+      mallKey: 'coupang-direct',
+      operation: 'login_check',
+      outcome: 'succeeded',
+      reasonCode: 'session_alive',
+    });
+
+    expect(repository.record).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'rocket' }));
+    expect(item.mallKey).toBe('rocket');
+  });
+
   it('summarises the latest outcome and counts per mall and operation', async () => {
     const now = new Date('2026-09-12T12:00:00.000Z');
     const { repository, service } = setup({

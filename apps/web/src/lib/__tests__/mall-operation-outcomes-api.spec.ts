@@ -56,6 +56,25 @@ describe('recordMallOperationOutcome', () => {
     );
   });
 
+  /**
+   * 쿠팡직배송은 로켓 계정 행을 함께 쓴다. 보낼 때부터 접어야 화면이 읽는 키와 같은 줄에
+   * 쌓인다 — 서버만 접으면 화면은 `coupang-direct` 줄을 찾다 못 찾아 한 바퀴마다 새로 쓴다.
+   */
+  it('⭐ folds a shared-account mall key onto the row it shares', async () => {
+    await recordMallOperationOutcome({
+      mallKey: 'coupang-direct',
+      operation: 'login_check',
+      outcome: 'succeeded',
+      reasonCode: 'session_alive',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/channels/mall-operation-outcomes',
+      expect.objectContaining({ mallKey: 'rocket' }),
+      expect.anything(),
+    );
+  });
+
   it('never blocks the work — a failed request is swallowed', async () => {
     mockPost.mockRejectedValueOnce(new Error('offline'));
     await expect(

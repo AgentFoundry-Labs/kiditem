@@ -319,6 +319,21 @@ describe('몰 연결', () => {
     ]);
   });
 
+  /** 쿠팡직배송은 로켓 계정 행을 함께 쓴다 — 그 줄이 이 몰의 로그인 증거다. */
+  it('⭐ 계정 행을 함께 쓰는 몰은 그 행의 관찰 기록을 제 증거로 읽는다', () => {
+    const { connectors } = buildPipeSnapshot(
+      inputs({
+        malls: { data: [{ key: 'coupang-direct', name: '쿠팡직배송', enabled: true }], failed: false },
+        outcomes: {
+          data: [outcome('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
+          failed: false,
+        },
+      }),
+    );
+    expect(connectors).toMatchObject({ total: 1, signedIn: 0, needsLogin: 1, unknown: 0, needsLoginNames: ['쿠팡직배송'] });
+    expect(connectors.malls).toEqual([{ key: 'coupang-direct', name: '쿠팡직배송', state: 'needs_login' }]);
+  });
+
   it('몰 목록을 못 받았으면 전체 수를 지어내지 않는다', () => {
     const { connectors } = buildPipeSnapshot(inputs({ malls: { data: null, failed: true } }));
     expect(connectors.total).toBeNull();

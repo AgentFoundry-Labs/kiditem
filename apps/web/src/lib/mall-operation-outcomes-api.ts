@@ -3,6 +3,7 @@
 import {
   MallOperationOutcomeSummarySchema,
   RecordMallOperationOutcomeRequestSchema,
+  mallOperationOutcomeKey,
   type MallOperationOutcomeSummary,
   type RecordMallOperationOutcomeRequest,
 } from '@kiditem/shared/mall-operation-outcomes';
@@ -38,12 +39,16 @@ export function sanitizeOutcomeMessage(message: string | null | undefined): stri
  * 셀피아 전송 · 송장 전송은 Orders 가 가진 사실이라 여기 적지 않는다. 비밀번호 · 아이디 ·
  * 받는 사람 · 주소 · 주문번호는 넣지 않는다 — 개수와 이유 코드가 기록의 본체다. 계약이
  * `.strict()` 라 모르는 키가 섞이면 보내지 않고 버린다.
+ *
+ * 계정 행을 함께 쓰는 몰(쿠팡직배송 → 로켓)은 여기서 그 행의 채널로 접는다. 읽는 쪽도 같은
+ * `mallOperationOutcomeKey` 를 쓰므로 쓴 줄과 읽는 줄이 언제나 같은 키다.
  */
 export async function recordMallOperationOutcome(input: MallOperationOutcomeInput): Promise<void> {
   try {
     const body = RecordMallOperationOutcomeRequestSchema.parse({
       ...input,
       idempotencyKey: input.idempotencyKey ?? createSecureRandomUuid(),
+      mallKey: mallOperationOutcomeKey(input.mallKey),
       message: sanitizeOutcomeMessage(input.message),
     });
     await apiClient.post(BASE, body, { suppressNetworkErrorLog: true, timeoutMs: 10_000 });

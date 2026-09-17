@@ -1,8 +1,9 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type {
-  MallOperationKind,
-  MallOperationOutcomeItem,
-  MallOperationOutcomeSummaryRow,
+import {
+  mallOperationOutcomeKey,
+  type MallOperationKind,
+  type MallOperationOutcomeItem,
+  type MallOperationOutcomeSummaryRow,
 } from '@kiditem/shared/mall-operation-outcomes';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { formatNumber } from '@/lib/utils';
@@ -351,7 +352,8 @@ export function mallStatusTiles(
       const login = sessions[channel.mallKey] ?? null;
       // 방금 확인한 로그인 상태가 있으면 지난 로그인 확인 기록은 접는다 — 칩과 알림이 지금을 말한다.
       const fresh = login === 'signed_in' || login === 'signed_out' || login === 'verification';
-      const remembered = (rememberedByMall.get(channel.mallKey) ?? []).filter(
+      // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 기록은 그 행의 키로 쌓인다 — 같은 규칙으로 찾는다.
+      const remembered = (rememberedByMall.get(mallOperationOutcomeKey(channel.mallKey)) ?? []).filter(
         (row) => !(fresh && row.operation === 'login_check'),
       );
       const alertAttention = own.filter(needsAttention).length;

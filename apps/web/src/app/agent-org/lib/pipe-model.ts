@@ -1,5 +1,8 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
+import {
+  mallOperationOutcomeKey,
+  type MallOperationOutcomeSummaryRow,
+} from '@kiditem/shared/mall-operation-outcomes';
 import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   PIPE_STAGES,
@@ -610,8 +613,10 @@ function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => stri
   const malls: PipeMallConnector[] = [];
   for (const account of accounts) {
     const recorded: { at: number; signedIn: boolean }[] = [];
+    // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 관찰 기록은 그 행의 키로 쌓인다.
+    const outcomeKey = mallOperationOutcomeKey(account.key);
     for (const row of rows) {
-      if (row.mallKey !== account.key) continue;
+      if (row.mallKey !== outcomeKey) continue;
       const item = row.latest;
       const at = time(item.occurredAt);
       if (item.operation === 'login_check' || item.operation === 'login_test') {
@@ -646,7 +651,13 @@ function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => stri
 }
 
 export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
-  const names = new Map((inputs.malls.data ?? []).map((account) => [account.key, account.name]));
+  // 계정 키와 그 계정이 관찰 기록에 쓰는 키를 둘 다 건다 — 로켓 줄이 '쿠팡직배송'으로 읽힌다.
+  const names = new Map(
+    (inputs.malls.data ?? []).flatMap((account) => [
+      [mallOperationOutcomeKey(account.key), account.name] as const,
+      [account.key, account.name] as const,
+    ]),
+  );
   const mallName = (mallKey: string) => names.get(mallKey) ?? mallKey;
 
   const signals: PipeSignal[] = [];

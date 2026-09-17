@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   MALL_OPERATION_OUTCOMES,
+  mallOperationOutcomeKey,
   type MallOperationKind,
   type MallOperationOutcomeCounts,
   type MallOperationOutcomeItem,
@@ -44,7 +45,9 @@ function toItem(row: MallOperationOutcomeRow): MallOperationOutcomeItem {
  * 쇼핑몰 에이전트의 관찰 기록 — 몰 작업 결과를 한 줄씩 쌓고 몰 · 작업별로 요약한다.
  *
  * 조직과 사람은 세션에서만 받는다. 몰 키는 매니페스트가 아는 몰이어야 한다. 같은
- * idempotencyKey 는 한 번만 쓴다.
+ * idempotencyKey 는 한 번만 쓴다. 계정 행을 함께 쓰는 몰(쿠팡직배송 → 로켓)은 그 행의
+ * 채널로 접어 쌓는다 — 접는 규칙은 계약(`mallOperationOutcomeKey`)이 가지고, 화면도
+ * 같은 함수로 읽는다.
  */
 @Injectable()
 export class MallOperationOutcomeService {
@@ -58,6 +61,7 @@ export class MallOperationOutcomeService {
     actorUserId: string | null,
     input: RecordMallOperationOutcomeRequest,
   ): Promise<MallOperationOutcomeItem> {
+    // 매니페스트는 보낸 키 그대로 확인한다 — 접은 뒤에 확인하면 모르는 몰이 통과한다.
     if (!getMallAdapterManifest(input.mallKey)) {
       throw new BadRequestException(`알 수 없는 몰입니다: ${input.mallKey}`);
     }
@@ -65,7 +69,7 @@ export class MallOperationOutcomeService {
       organizationId,
       actorUserId,
       idempotencyKey: input.idempotencyKey,
-      mallKey: input.mallKey,
+      mallKey: mallOperationOutcomeKey(input.mallKey),
       operation: input.operation,
       outcome: input.outcome,
       reasonCode: input.reasonCode ?? null,
