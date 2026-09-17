@@ -19,6 +19,10 @@ convenience history.
   Writers publish the change through `order-generated-file-store`, and screens
   re-read on that signal and on window focus. Do not keep a mount-only snapshot:
   file actions, previews, and `신규` read that list.
+- Reading today's and `신규` counts from that browser store is temporary. One
+  browser holds them, so another device or a cleared browser sees none. KID-234
+  moves the counts to the Orders reader; until it lands, do not add a new count
+  on this store.
 - A mall whose auto-login is blocked (`mall-login-block`) is off limits to every
   automatic driver — the agent loop and this screen's 자동감지 both skip it, and
   neither may re-enter it on its own. Only the operator resumes it: by logging
