@@ -14,6 +14,10 @@ convenience history.
 - All extension IO goes through the shared extension bridge and route adapter.
   The order screen and dashboard share
   `useAllMarketplaceOrderCollection`; do not create a count-only collector.
+- The shared collection loop and the mall cards use only the source adapter
+  (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner
+  stamped on the run; they never compare a mall key. A source with its own
+  owner, login or start screen answers inside its own adapter file.
 - Order collection, Sellpia transfer, and tracking upload results are Orders
   facts. Never record them as `MallOperationOutcome` rows or read card numbers
   from that log.
