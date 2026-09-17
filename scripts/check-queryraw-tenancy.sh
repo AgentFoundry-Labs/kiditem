@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# $queryRaw tenancy enforcement
+# Raw SQL tenancy enforcement
 #
-# Scans apps/server/src for $queryRaw tagged templates (excluding tests/specs/docs)
-# and verifies each site has `organization_id` binding within 30 lines after the hit.
+# Scans apps/server/src for raw SQL sites (excluding tests/specs/docs) and
+# verifies each has an `organization_id` binding within 30 lines after the hit.
 #
-# Scope: $queryRaw (tagged template). $queryRawUnsafe is separately banned by repository policy.
+# Scope — every way this repository reaches raw SQL:
+#   - `$queryRaw` tagged template and `$queryRaw<T>` generic tagged template.
+#   - `$queryRaw(...)` / `$executeRaw(...)` call form, normally `Prisma.sql`.
+#   - `$queryRawUnsafe(...)` / `$executeRawUnsafe(...)`, where every argument is
+#     an interpolated string and the tenant binding matters most.
 #
 # Exemptions (auto-detected within the 30-line window):
 #   - `FOR UPDATE` row locks on UUID primary key (id = ${uuid}::uuid FOR UPDATE) —
 #     tenancy is enforced by the subsequent Prisma findFirst({ id, organizationId }).
 #   - `nextval('...')` sequence calls — globally scoped sequence, no tenant data.
-#   - Explicitly reviewed organization-scoped advisory locks with the exact
-#     `queryraw-tenancy-exempt: organization-scoped advisory lock` marker. These
-#     serialize by a key containing organizationId and do not read tenant rows.
+#   - Organization-scoped advisory locks. All three are required, so a comment
+#     alone never exempts a site: a `queryraw-tenancy-exempt:` marker naming the
+#     organization reason, a `pg_advisory_xact_lock` call, and a lock key derived
+#     from organizationId at the lock statement (the 8 lines above the hit cover
+#     the key composition, which normally sits just above the SQL).
 #   - Exact database-clock reads with the
 #     `queryraw-tenancy-exempt: database clock only` marker and no table access.
 #
@@ -29,9 +35,13 @@ if ! command -v rg &> /dev/null; then
   exit 2
 fi
 
-echo "🔍 Scanning apps/server/src for \$queryRaw sites..."
+# Tagged-template forms, then the call forms. `(Unsafe)?` keeps
+# `$queryRawUnsafe(` from being read as `$queryRaw` followed by other text.
+RAW_SITE_PATTERN='(\.\$(queryRaw|executeRaw)(Unsafe)?\s*\()|(\.\$queryRaw[<`])'
 
-# Find every .ts file that uses $queryRaw. Exclusions:
+echo "🔍 Scanning apps/server/src for raw SQL sites..."
+
+# Find every .ts file that uses raw SQL. Exclusions:
 # - test-helpers/: integration-test infrastructure (DB teardown etc.), not prod.
 # - __tests__/ + *.spec.ts + *.integration.spec.ts: tests.
 # - .md files: documentation (--type ts handles this).
@@ -40,7 +50,7 @@ FILES=()
 while IFS= read -r _line; do
   [ -z "$_line" ] && continue
   FILES+=("$_line")
-done < <(rg -l '\$queryRaw' "$REPO_ROOT/apps/server/src" \
+done < <(rg -l '\$(queryRaw|executeRaw)' "$REPO_ROOT/apps/server/src" \
   --type ts \
   --glob '!**/__tests__/**' \
   --glob '!**/*.spec.ts' \
@@ -49,28 +59,26 @@ done < <(rg -l '\$queryRaw' "$REPO_ROOT/apps/server/src" \
   2>/dev/null | sort -u)
 
 if [ ${#FILES[@]} -eq 0 ]; then
-  echo "✅ No \$queryRaw sites found in production code."
+  echo "✅ No raw SQL sites found in production code."
   exit 0
 fi
 
-echo "  Found \$queryRaw in ${#FILES[@]} file(s)."
+echo "  Found raw SQL in ${#FILES[@]} file(s)."
 echo ""
 
 FAILURES=()
 
 for file in "${FILES[@]}"; do
-  # Collect line numbers of every $queryRaw method-call site (not comment, not Unsafe).
-  # Matches: `.\$queryRaw<T>` (generic) and `.\$queryRaw\`` (bare tagged template).
-  # Excludes: `.\$queryRawUnsafe(` (separately banned by repository policy).
+  # Collect line numbers of every raw SQL method-call site.
   # Bash 3.2-compatible array assignment (no mapfile/readarray).
   linenos=()
   while IFS= read -r _ln; do
     [ -z "$_ln" ] && continue
     linenos+=("$_ln")
-  done < <(rg -n '\.\$queryRaw[<\`]' "$file" 2>/dev/null | cut -d: -f1)
+  done < <(rg -n "$RAW_SITE_PATTERN" "$file" 2>/dev/null | cut -d: -f1)
 
   if [ ${#linenos[@]} -eq 0 ]; then
-    # No method-call hits (comment-only file, or $queryRawUnsafe only). Skip.
+    # No method-call hits (comment-only file, or a re-exported name). Skip.
     continue
   fi
 
@@ -79,6 +87,11 @@ for file in "${FILES[@]}"; do
     [ -z "$lineno" ] && continue
     end=$((lineno + 30))
     window=$(sed -n "${lineno},${end}p" "$file" 2>/dev/null || true)
+    # Advisory-lock keys are composed just above the statement that binds them,
+    # so the lock evidence window reaches a few lines back as well.
+    lock_start=$((lineno - 8))
+    [ "$lock_start" -lt 1 ] && lock_start=1
+    lock_window=$(sed -n "${lock_start},${end}p" "$file" 2>/dev/null || true)
 
     # Compliant: has `organization_id` binding anywhere in the window.
     if echo "$window" | rg -q 'organization_id'; then
@@ -96,10 +109,13 @@ for file in "${FILES[@]}"; do
       continue
     fi
 
-    # Exempt: explicitly reviewed organization-scoped advisory lock. Keep this
-    # marker narrow so unrelated raw SQL cannot bypass the tenant-row binding.
-    if echo "$window" | rg -q 'queryraw-tenancy-exempt: organization-scoped advisory lock' \
-      && echo "$window" | rg -q 'pg_advisory_xact_lock'; then
+    # Exempt: reviewed organization-scoped advisory lock. The reviewed marker
+    # names the organization reason, the statement takes a transaction advisory
+    # lock, and the lock key is derived from organizationId — so a lock keyed by
+    # anything else, and any other raw SQL wearing the marker, still fails.
+    if echo "$window" | rg -q 'queryraw-tenancy-exempt:.*organization' \
+      && echo "$window" | rg -q 'pg_advisory_xact_lock' \
+      && echo "$lock_window" | rg -q 'organizationId|organization_id'; then
       continue
     fi
 
@@ -121,15 +137,15 @@ for file in "${FILES[@]}"; do
 done
 
 if [ ${#FAILURES[@]} -gt 0 ]; then
-  echo "❌ FAIL: \$queryRaw without organization_id binding found in:"
+  echo "❌ FAIL: raw SQL without organization_id binding found in:"
   for f in "${FAILURES[@]}"; do
     echo "   - $f"
   done
   echo ""
-  echo "Every \$queryRaw must bind WHERE organization_id = \${organizationId}::uuid"
-  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, explicitly reviewed organization-scoped advisory lock.)"
+  echo "Every raw SQL site must bind WHERE organization_id = \${organizationId}::uuid"
+  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, reviewed advisory lock keyed by organizationId.)"
   exit 1
 fi
 
-echo "✅ PASS: all \$queryRaw sites bind organization_id or are exempt"
+echo "✅ PASS: all raw SQL sites bind organization_id or are exempt"
 exit 0
