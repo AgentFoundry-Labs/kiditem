@@ -13,6 +13,7 @@ import {
   ValidatorConstraint,
   type ValidatorConstraintInterface,
 } from 'class-validator';
+import { RegistrationInputWithoutMallRegisterValues } from './registration-input-mall-values.validator';
 
 const EDITABLE_FIELDS = [
   'displayName',
@@ -49,6 +50,7 @@ export class UpdateProductPreparationDto {
 
   @IsOptional()
   @IsObject()
+  @Validate(RegistrationInputWithoutMallRegisterValues)
   registrationInput?: Record<string, unknown>;
 
   @IsOptional()

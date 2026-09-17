@@ -25,6 +25,12 @@ export type ProductAbcRecalculationResult = Readonly<
       classifiedProductCount: number;
       unclassifiedProductCount: number;
       changedProductCount: number;
+      /**
+       * Each source's own readiness, as on `SOURCE_NOT_READY`. A source whose
+       * `actualCutoff` passes `officialCutoff` collected further than the pair
+       * this publication used.
+       */
+      sources: ProfitabilityEvidenceSnapshot['sources'];
     }
   | {
       outcome: 'SOURCE_NOT_READY';

@@ -20,6 +20,26 @@ registration, and Coupang cookie-overflow recovery.
   Coupang cookie recovery is limited to named/path cookies for the supplier
   origin and must warn that shared Coupang sessions will be signed out; never
   read or return cookie values.
+- A login check (`checkMallLogin`) answers one of `signed_in`,
+  `verification_required`, or `signed_out` — never "unknown". It first uses
+  `mall-session-probe.js` (one fixed, read-only GET per mall with the operator's
+  cookies; `signed_in` needs a positive admin marker and `signed_out` a login
+  signal). When that cannot tell, it opens the mall's admin screen (the probe
+  URL, a fixed check URL, or the operator's saved site address inside
+  `host_permissions`) in an inactive tab, looks for a login form or a
+  verification-code screen, and closes the tab. No credentials, no typing, no
+  clicks, and no URL, body, or header in the answer; a screen it cannot reach is
+  `signed_out` with its reason. Never add export, audit-logging, or mutating
+  URLs, and never reuse `ensureMallLogin` for checks.
+- Stored-credential login (`ensureMallLogin`) reports what it did, not a verdict:
+  `submitted` for the click and `verified` for whether the login form was gone
+  afterwards. A form that stays, or a page that stops answering (a dialog), is
+  `verified: false` — not a wrong password, because mall screens after a login
+  differ too much to judge from the page. The web decides what to do with that
+  and limits how often the same mall is tried. The account screen's login test
+  uses `testMallLogin`, which runs outside a collection attempt and sends nothing
+  to KidItem. Registration form fill logs in only when the form is absent
+  (`noForm`); a form that fails to fill is never a login prompt.
 
 ## Collection Contract
 
@@ -30,7 +50,10 @@ registration, and Coupang cookie-overflow recovery.
   stale extension is incompatible, not absent, and the web app must show its
   loaded version and missing capabilities.
 - Managed collectors use inactive tabs, attach created tabs to the run before
-  work, and leave a tab open only for explicit operator attention.
+  work, and leave a tab open only for explicit operator attention. Close the tab
+  you created on every other path, including failure; a collector that runs
+  each round and never closes leaves one tab per round until the service worker
+  misses its deadlines and healthy malls time out.
 - Normalize, bound, deduplicate, validate, and deterministically sort provider
   rows. Never return raw responses, headers, DOM dumps, redirects, or secrets.
 - The detailed failure-code, capability, evidence-field, tab-lifecycle, and

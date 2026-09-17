@@ -96,6 +96,13 @@ jobs:
         # Script specs import runtime JS only; the DTS build exhausts the hosted runner heap.
         run: npm exec --workspace=packages/shared tsup -- --no-dts
 
+      - name: Fetch the Office release schema
+        run: git fetch --no-tags --depth=1 origin +refs/heads/release/office:refs/remotes/origin/release/office
+
+      - name: Check cutover blocker coverage
+        # Diffs the schema against release/office offline; no database or secret is used.
+        run: node scripts/check-cutover-blocker-coverage.mjs --base-ref origin/release/office
+
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
 

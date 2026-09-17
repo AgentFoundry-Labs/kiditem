@@ -47,6 +47,9 @@ interface MallAccountSectionProps {
   autoRunning: boolean;
   failedMallCount: number;
   failedMallReasonByKey?: Map<string, FailedMallReason>;
+  /** 카드 손잡이 드래그로 순서 변경. 없으면 손잡이를 감춘다. */
+  onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
+  onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   /** 셀피아에 실제로 올라갔는지 대조해 "신규" 숫자를 실측으로 바꾼다. */
   onReconcileSellpia?: () => void;
   reconciling?: boolean;
@@ -103,6 +106,8 @@ export function MallAccountSection({
   autoRunning,
   failedMallCount,
   failedMallReasonByKey,
+  onMoveMall,
+  onDropMall,
   onReconcileSellpia,
   reconciling = false,
   reconcileCheckedAt = null,
@@ -256,6 +261,8 @@ export function MallAccountSection({
           ) : (
             <MallAccountGroups
               accounts={mallAccounts}
+              onMoveMall={onMoveMall}
+              onDropMall={onDropMall}
               stats={mallCollectionStats}
               failedMallReasonByKey={failedMallReasonByKey}
               selectedMall={selectedMall}

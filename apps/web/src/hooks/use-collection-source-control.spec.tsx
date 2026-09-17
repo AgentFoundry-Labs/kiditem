@@ -172,6 +172,35 @@ describe('a status read several sources share', () => {
     expect(screen.queryByText(REFUSED)).not.toBeInTheDocument();
   });
 
+  /**
+   * KID-161. 넘기기는 20초를 기다린다. 그 사이에 상태 읽기가 끝나 이 원천의 칸이 바뀌면,
+   * 시작이 실패한 이유가 근거 없이 사라져 사장님은 왜 안 됐는지 못 본다.
+   */
+  it('⭐ keeps why the start failed even when this source`s status changes', async () => {
+    const source = {
+      ...listAdapter(ownSlot),
+      start: async (): Promise<CollectionStartOutcome> => {
+        throw new Error('확장 프로그램이 수집을 넘겨받지 않았습니다.');
+      },
+    };
+    const client = renderControl(source);
+    await screen.findByRole('button', { name: '수집' });
+
+    await startCollectionSource(client, source, undefined).catch(() => undefined);
+    expect(await screen.findByText('확장 프로그램이 수집을 넘겨받지 않았습니다.')).toBeInTheDocument();
+
+    slots = [slot('mine', { lastAttempt: 'FAILED' }), slots[1]!];
+    await reread(client);
+    expect(screen.getByText('확장 프로그램이 수집을 넘겨받지 않았습니다.')).toBeInTheDocument();
+
+    // 그 원천이 다시 수집 중이 되면 안내는 물러난다 — 늦게 넘겨받은 수집이 그렇다.
+    slots = [slot('mine', { running: ATTEMPT_ID }), slots[1]!];
+    await reread(client);
+    await waitFor(() => expect(
+      screen.queryByText('확장 프로그램이 수집을 넘겨받지 않았습니다.'),
+    ).not.toBeInTheDocument());
+  });
+
   it('retires the refusal on any change when the source names no identity', async () => {
     const source = listAdapter();
     const client = renderControl(source);

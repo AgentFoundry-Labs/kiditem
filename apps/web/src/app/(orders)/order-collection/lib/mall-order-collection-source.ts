@@ -6,9 +6,10 @@ import {
 } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
-import type {
-  CollectionSourceAdapter,
-  CollectionStartOutcome,
+import {
+  COLLECTION_IDLE_POLL_MS,
+  type CollectionSourceAdapter,
+  type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -31,8 +32,6 @@ import {
 } from './order-collection-source-owner';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
-/** Every mounted mall card re-reads its owner this often while nothing runs. */
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 export type OrderCollectionMode = 'browser' | 'manual-upload';
 
@@ -101,7 +100,7 @@ export function findMallSource(
 }
 
 /**
- * 이 조직에 이 몰의 order_collection 계정 행이 없어 아직 수집할 수 없다. 상태를 읽지
+ * 이 조직에 이 몰의 계정 행(ADR-0012)이 없어 아직 수집할 수 없다. 상태를 읽지
  * 못한 것도, 수집이 실패한 것도 아니므로 운영자에게 다음 할 일을 말한다(KID-170 D1).
  */
 const NOT_CONFIGURED = {
@@ -252,7 +251,7 @@ export function mallOrderCollectionSource({
       queryKey: sourcesQueryKey(organizationId),
       queryFn: readMallOrderCollectionSources,
       enabled: Boolean(organizationId),
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

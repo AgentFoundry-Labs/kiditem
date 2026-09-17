@@ -23,6 +23,8 @@ export default defineConfig({
     'src/coupang-direct-order.ts',
     'src/channel-sku-matching.ts',
     'src/channel-sku-availability.ts',
+    'src/mall-publishing.ts',
+    'src/mall-operation-outcomes.ts',
     'src/inventory-availability.ts',
     'src/channel-option-capacity.ts',
     'src/product-operations.ts',

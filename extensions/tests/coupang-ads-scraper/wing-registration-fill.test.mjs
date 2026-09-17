@@ -635,6 +635,19 @@ function createOptionAndNoticeHarness({
 
   const selectAll = checkbox('selectAll');
   const rows = Array.from({ length: rowCount }, () => checkbox('row'));
+  /**
+   * 옵션 행 한 줄.
+   *
+   * 라이브 구조(2026-09-10 실측): 행은 `.option-pane-table-row` 이고 그 안에
+   * 체크박스가 있다. 행을 담는 상자 이름(`-content` → `-body`)은 쿠팡이 바꾼다.
+   * 그래서 하네스도 상자가 아니라 행으로 준다.
+   */
+  const asDataRow = (box) => ({
+    className: 'option-pane-table-row',
+    closest: () => null,
+    querySelector: (selector) => (selector.includes('checkbox') ? box : null),
+    querySelectorAll: () => [],
+  });
   selectAll.click = function click() {
     this.checked = !this.checked;
     events.push(`selectAll:${this.checked}`);
@@ -732,8 +745,12 @@ function createOptionAndNoticeHarness({
   });
   const columnCells = COLUMN_X.map((range, index) =>
     [3, 4, 8, 9, 10, 11].includes(index) ? textCell(range) : plainCell(range));
+  // 실제 본문 행에는 체크박스가 있다. 없으면 행을 못 찾아 일괄입력이 조용히 무시된다.
+  const columnRowCheck = checkbox('row');
   const columnBodyRow = {
+    className: 'option-pane-table-row',
     closest: () => null,
+    querySelector: (selector) => (selector.includes('checkbox') ? columnRowCheck : null),
     querySelectorAll: () => columnCells,
   };
   const headCell = (text, range, nested) => ({
@@ -769,10 +786,9 @@ function createOptionAndNoticeHarness({
       return selector.includes('option-pane-table-head') ? selectAll : null;
     },
     querySelectorAll(selector) {
-      if (selector.includes('option-pane-table-content')) return rows;
       if (vendorCodeColumnOnly && selector.includes('option-pane-table-head')) return headCells;
-      if (vendorCodeColumnOnly && selector.includes('option-pane-table-row')) {
-        return [columnBodyRow];
+      if (selector.includes('option-pane-table-row')) {
+        return vendorCodeColumnOnly ? [columnBodyRow] : rows.map(asDataRow);
       }
       return [];
     },
@@ -1195,6 +1211,8 @@ function createSubmitHarness({
   confirmModalLabel = null,
   // 완료 안내 문구. 라이브는 `등록상품ID : 16311492950`(콜론+공백).
   successText = null,
+  // 제출 뒤 탭의 URL. 기본 formV2 에는 vendorInventoryId 가 없다.
+  href = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2',
 } = {}) {
   let listener = null;
   const clicks = [];
@@ -1347,7 +1365,7 @@ function createSubmitHarness({
   });
   context.window = context;
   context.KidItemWingAccountIdentity = { verifyExpectedVendorId: () => ({ ok: true, vendorId: 'A00012345', source: 'dom:data-vendor-id' }) };
-  context.location = { href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2' };
+  context.location = { href };
   vm.runInContext(source, context, { filename: 'wing-registration-fill.js' });
 
   return {
@@ -1460,6 +1478,31 @@ test('extracts the registered id from the live 등록상품ID : 16311492950 word
 
   assert.equal(result.submission.ok, true);
   assert.equal(result.submission.externalListingId, '16311492950');
+});
+
+test('reports no registered id when the completion page shows only a 상품번호 number', async () => {
+  // KID-204: 확인한 Wing 화면 어디에도 "상품번호" 글자는 없고, 그 옆 숫자(예: 노출상품
+  // productId)는 등록상품ID 가 아닐 수 있다. 그 숫자로 만든 리스팅은 트래픽 행과 연결되지 않는다.
+  const harness = createSubmitHarness({
+    successText: '상품등록이 완료되었습니다.\n상품번호 12345678901\n상품목록 새로운 상품등록',
+  });
+  const result = await harness.fill({ autoSubmit: true });
+
+  assert.equal(result.submission.ok, true);
+  assert.equal(result.submission.status, 'registered');
+  assert.equal(result.submission.externalListingId, null);
+  assert.ok(result.steps.includes('submit:ok:noId'));
+});
+
+test('reads the registered id from the vendorInventoryId in the tab URL', async () => {
+  const harness = createSubmitHarness({
+    href: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify?vendorInventoryId=16311500001',
+    successText: '상품등록이 완료되었습니다.',
+  });
+  const result = await harness.fill({ autoSubmit: true });
+
+  assert.equal(result.submission.status, 'registered');
+  assert.equal(result.submission.externalListingId, '16311500001');
 });
 
 test('never mistakes the 별점주기 위젯 등록 button for the submit button', async () => {

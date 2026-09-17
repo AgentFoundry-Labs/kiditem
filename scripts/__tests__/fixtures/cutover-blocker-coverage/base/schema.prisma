@@ -1,0 +1,22 @@
+// The promoted schema for the cutover blocker coverage golden test.
+// check-cutover-blocker-coverage.test.mjs commits it to a temporary repository.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model A {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+}
+
+model B {
+  id    String  @id @default(uuid()) @db.Uuid
+  code  String
+  label String?
+  size  Int
+}

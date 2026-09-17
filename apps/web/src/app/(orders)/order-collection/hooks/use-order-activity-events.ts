@@ -16,7 +16,7 @@ const ATTENTION_KINDS = new Set<OrderActivityEvent['kind']>(['error', 'login', '
  * 로그인 실패·인증 필요(사용자 개입이 필요한 경우)에만 빨강으로 표시한다.
  * 일반 수집 오류(주문 없음, 페이지 파싱 실패 등)는 빨강으로 표시하지 않는다.
  */
-export type FailedMallReason = 'login' | 'auth';
+export type FailedMallReason = 'login' | 'auth' | 'error';
 
 export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[]) {
   const [events, setEvents] = useState<OrderActivityEvent[]>([]);
@@ -84,10 +84,9 @@ export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[
       if (!latest || !ATTENTION_KINDS.has(latest.kind)) continue;
       // 실패 몰 재수집 대상: 오류·로그인·인증 모두 포함.
       accounts.push(account);
-      // 빨간불/빨간 배경은 로그인·인증(사용자 개입 필요)만. 일반 오류는 초록불/흰 배경 유지.
-      if (latest.kind === 'login' || latest.kind === 'auth') {
-        reasonByKey.set(account.key, latest.kind);
-      }
+      // 오류가 난 몰은 빨간 카드로 선다 — 수집이 실패했는데 흰 카드로 서 있으면 스물일곱 장
+      // 가운데 어느 몰이 실패했는지 사람이 찾아야 한다. 로그인·인증은 사람이 할 일이 달라 따로 적는다.
+      reasonByKey.set(account.key, latest.kind === 'login' || latest.kind === 'auth' ? latest.kind : 'error');
     }
     return { failedMallAccounts: accounts, failedMallReasonByKey: reasonByKey };
   }, [events, mallAccounts]);

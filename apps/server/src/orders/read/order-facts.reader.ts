@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { businessDateKey, datesInclusive, kstBusinessDate } from '../../common/kst';
+import { orderCollectionMallKeyForAccount } from '../domain/order-collection-malls';
 
 export const ORDER_FACT_EXCLUDED_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
@@ -638,10 +639,10 @@ async function readCompletedOrderCoverageRuns(
         {
           sourceType: 'order_collection_mall',
           channelAccountId: { not: null },
+          // 몰 주문 수집 시도는 owner 가 그 몰의 계정 행(ADR-0012)에만 붙인다.
           channelAccount: {
             is: {
               organizationId: input.organizationId,
-              channel: 'order_collection',
             },
           },
           coverageStartDate: lastDate ? { not: null, lte: new Date(lastDate) } : { not: null },
@@ -689,12 +690,15 @@ function buildOrderCoverage(
 
   for (const run of runs) {
     const sourceKey = `${run.sourceType}\u0000${run.channelAccountId ?? ''}`;
+    // 몰 키는 몰 주문 수집 시도에만 붙인다 — 공유 마켓 행(rocket)의 다른 원천은 몰이 아니다.
+    // 몰 행의 채널이 곧 몰 키이고(ADR-0012), 레지스트리로 되찾는 것은 공유 마켓 행뿐이다.
+    const mallKey = run.sourceType === 'order_collection_mall' && run.channelAccount
+      ? orderCollectionMallKeyForAccount(run.channelAccount) ?? run.channelAccount.channel
+      : null;
     const source = bySource.get(sourceKey) ?? {
       sourceType: run.sourceType,
       channelAccountId: run.channelAccountId,
-      mallKey: run.channelAccount?.channel === 'order_collection'
-        ? run.channelAccount.externalAccountId
-        : null,
+      mallKey,
       factDates: new Set<string>(),
       included: new Set<string>(),
       observedAt: null,
@@ -704,9 +708,8 @@ function buildOrderCoverage(
       if (requested.has(date)) source.factDates.add(date);
     }
     if (
-      run.sourceType === 'order_collection_mall'
+      mallKey
       && run.channelAccountId
-      && run.channelAccount?.channel === 'order_collection'
       && run.coverageStartDate
       && run.coverageEndDate
     ) {

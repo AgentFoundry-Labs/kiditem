@@ -203,11 +203,17 @@ export const queryKeys = {
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
     kpis: () => [...queryKeys.coupangDashboard.all, 'kpis'] as const,
+    // 요약 전체(발주확인 대기 등). kpis 는 손익 화면이 lastModifiedAt 하나로 접어 캐시하므로 섞지 않는다.
+    summary: () => [...queryKeys.coupangDashboard.all, 'summary'] as const,
     trend: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'trend', params] as const,
     ranking: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'ranking', params] as const,
     returnSummary: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnSummary', params] as const,
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
+  },
+  mallOperationOutcomes: {
+    all: ['mallOperationOutcomes'] as const,
+    summary: (days: number) => [...queryKeys.mallOperationOutcomes.all, 'summary', days] as const,
   },
   logs: {
     all: ['logs'] as const,
@@ -280,6 +286,18 @@ export const queryKeys = {
     list: (params: Record<string, string>) =>
       [...queryKeys.channelSkuAvailability.lists(), params] as const,
   },
+  mallPublishing: {
+    all: ['mallPublishing'] as const,
+    manifests: () => [...queryKeys.mallPublishing.all, 'manifests'] as const,
+    targets: () => [...queryKeys.mallPublishing.all, 'targets'] as const,
+    preflight: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'preflight', params] as const,
+    availabilityPreview: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'availability-preview', params] as const,
+    listingMatrix: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'listing-matrix', params] as const,
+    channelOverview: () => [...queryKeys.mallPublishing.all, 'channel-overview'] as const,
+  },
   coupangAccount: {
     all: ['coupangAccount'] as const,
     settings: () => [...queryKeys.coupangAccount.all, 'settings'] as const,
@@ -313,6 +331,8 @@ export const queryKeys = {
         [...queryKeys.sourcing.workspace.root(organizationId), 'keyword-preferences'] as const,
       interests: (organizationId: string) =>
         [...queryKeys.sourcing.workspace.root(organizationId), 'interests'] as const,
+      confirmReport: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'confirm-report'] as const,
     },
     intelligence: () => [...queryKeys.sourcing.all, 'intelligence'] as const,
     intelligenceSources: () =>

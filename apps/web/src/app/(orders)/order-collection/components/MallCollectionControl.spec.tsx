@@ -6,6 +6,7 @@ import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collecti
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { MallCollectionControl } from './MallCollectionControl';
+import { coupangDirectshipCollectionSource } from '../lib/coupang-directship-collection-source';
 import { mallOrderCollectionSource } from '../lib/mall-order-collection-source';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
@@ -63,9 +64,20 @@ function running(): OrderCollectionSourceStatus {
   };
 }
 
+const DIRECT_ACCOUNT: OrderCollectionMallAccount = {
+  ...ACCOUNT,
+  key: 'coupang-direct',
+  name: '쿠팡 직배송',
+};
+
 const buildAdapter = (target: OrderCollectionMallAccount) => mallOrderCollectionSource({
   organizationId: ORGANIZATION_ID,
   account: target,
+  handOff: vi.fn().mockResolvedValue(undefined),
+});
+
+const buildDirectshipAdapter = () => coupangDirectshipCollectionSource({
+  channelAccountId: CHANNEL_ACCOUNT_ID,
   handOff: vi.fn().mockResolvedValue(undefined),
 });
 
@@ -118,7 +130,8 @@ describe('MallCollectionControl', () => {
     status = running();
     renderControl();
 
-    expect(await screen.findByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    // 카드에서는 중단 버튼 하나만 시작 자리에 선다. 무엇을 수집 중인지는 그 버튼의 설명이 말한다.
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '키즈노트 수집' })).not.toBeInTheDocument();
   });
@@ -157,7 +170,7 @@ describe('MallCollectionControl', () => {
       '수집을 중단하지 못했습니다. 잠시 후 다시 시도해 주세요.',
     )).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
-    expect(screen.getByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
   });
 
   /**
@@ -168,7 +181,7 @@ describe('MallCollectionControl', () => {
     status = running();
     renderControls([ACCOUNT, { ...ACCOUNT, key: 'kkomangse', name: '꼬망세' }]);
 
-    expect(await screen.findByText('수집 중 · 키즈노트')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 키즈노트');
     // 옆 카드는 자기 몰 칸을 읽으므로 이 수집에 휩쓸리지 않는다.
     expect(await screen.findByRole('button', { name: '꼬망세 수집' })).toBeEnabled();
     expect(apiClient.getParsed).toHaveBeenCalledTimes(1);
@@ -200,8 +213,30 @@ describe('MallCollectionControl', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(await screen.findByText('수집 중 · 꼬망세')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중 · 꼬망세');
     expect(screen.getByText(NOT_CONFIGURED)).toBeInTheDocument();
+  });
+
+  /**
+   * KID-214. 쿠팡 직배송 카드도 같은 컨트롤을 쓰지만, 그 몰만 로켓 계정 하나의 원천
+   * 상태를 따로 읽는다. 컨트롤이 몰 목록 타입에 묶여 있으면 그 어댑터를 몰 목록인 척
+   * 캐스팅해 넣어야 하고, 그러면 카드가 읽는 상태를 아무도 검사하지 않는다.
+   */
+  it('hosts a source that reads its own status instead of the shared mall list', async () => {
+    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => (
+      path.startsWith('/api/orders/collection/coupang-directship')
+        ? { ...running(), mallKey: DIRECT_ACCOUNT.key }
+        : { malls: [idle()] }
+    ));
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MallCollectionControl account={DIRECT_ACCOUNT} buildAdapter={buildDirectshipAdapter} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toHaveAttribute('title', '수집 중');
+    expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
   });
 
   it('never offers a start for a mall that cannot collect yet', async () => {

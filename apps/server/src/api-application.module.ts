@@ -28,10 +28,20 @@ import { SourcingModule } from './sourcing/sourcing.module';
 import { SupplyModule } from './supply/supply.module';
 import { UploadsModule } from './uploads/uploads.module';
 
+/** 분당 요청 한도. 기본 600, `API_THROTTLE_LIMIT_PER_MINUTE` 로 조정한다. */
+function apiThrottleLimitPerMinute(): number {
+  const raw = Number.parseInt(process.env.API_THROTTLE_LIMIT_PER_MINUTE ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 600;
+}
+
 @Module({
   imports: [
     EventEmitterModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // 한 브라우저가 1분에 보낼 수 있는 요청 수. 몰 27곳 전체수집 한 바퀴는 몰마다 수집 시작 ·
+    // 비밀번호 조회 · 변환 · 확장의 서버 제출이 겹쳐 분당 120건을 넘었고, 그 뒤 몰들이 줄줄이
+    // `Too Many Requests` 로 실패했다(2026-09-16 라이브). 사내 단일 조직이 쓰는 API라 한도를
+    // 올려 두고, 폭주만 막는다. 값은 `API_THROTTLE_LIMIT_PER_MINUTE` 로 바꿀 수 있다.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: apiThrottleLimitPerMinute() }]),
     PrismaModule,
     AlertsModule,
     AuthModule,

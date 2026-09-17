@@ -38,6 +38,14 @@ generic guidance.
 - Give every FK an index usable for joins and parent update/delete checks. Reuse
   an existing composite index when its leftmost columns cover the FK access path.
 - Optional FKs declare `onDelete` explicitly.
+- A reference to another owner's row is a plain id column with an index and no
+  `@relation`; organization/user scope, relations inside one owner, and
+  `SourceImportRun` keep their foreign keys. `npm run check:cross-owner-fk`
+  fails an unlisted cross-owner relation and a stale
+  `scripts/cross-owner-fk.json` entry; it cannot stop an entry being added, so
+  a PR that adds one states why, and a PR that drops a `@relation` drops its
+  entry too
+  ([ADR-0013](../docs/adr/0013-cross-owner-references-are-ids-not-foreign-keys.md)).
 
 ## Organization Boundary
 
@@ -63,9 +71,11 @@ generic guidance.
   evidence that a query can use it.
 - Manage database objects through Prisma. When a required RLS policy, CHECK
   constraint, expression index, sequence, trigger, extension, or other object
-  cannot be represented there, give it a durable owner and rationale, a
-  versioned migration or cutover path, proof that Prisma workflows preserve it,
-  and a regression gate.
+  cannot be represented there, give it a durable owner and rationale, an ensure
+  step in `scripts/data-migrations/ensure/` that every post-schema
+  `data:migrate -- up` re-applies (rows it would reject first need a pre-schema
+  cleanup migration), proof that Prisma workflows preserve it, and a regression
+  gate.
 - KidItem currently exposes data through NestJS rather than direct database
   clients, so organization isolation is enforced by guards and repository
   predicates. Any direct client, database API, or new bypass path requires an
@@ -78,14 +88,21 @@ generic guidance.
   `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through
   `npm run data:migrate`, and record `data_migration_runs`.
 - Compatible schema changes share the open root release-train `VERSION`. Never
-  append a migration to a train already promoted to `main`; open the next train.
-  Follow
+  append a migration to a train already promoted to `release/office` or `main`;
+  open the next train. Follow
   [`release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
 - Run `db push` only against an explicitly confirmed disposable or local target.
   Drops, narrowing type changes, or `--accept-data-loss` reach Office only
   through the deployment cutover, which may discard data that no longer fits
   ([data-loss policy](../docs/runbooks/deployment-architecture.md#data-loss-policy)).
   Keep them out of routine post-pull setup.
+- A schema change that existing rows can stop (a required column without a
+  database default, SET NOT NULL, a type change, or a unique, primary, or
+  foreign key on an existing table) needs an entry in
+  `scripts/cutover-blocker-coverage.json`: the pre-schema migration that
+  removes or fixes those rows, or why no row can stop it. PR checks run
+  `npm run check:cutover-blocker-coverage`, which diffs the schema against
+  `origin/release/office` offline.
 
 ## Verification
 
@@ -94,8 +111,9 @@ After Prisma model or schema-consumer changes:
 ```bash
 npx prisma format
 npx prisma validate
-npm run db:push             # confirmed disposable/local target only
+npm run db:sync:local       # local developer database only; see docs/runbooks/local-development.md
 npx prisma generate
 npm run build --workspace=packages/shared
 npm run db:erd
+npm run check:cutover-blocker-coverage   # needs origin/release/office fetched
 ```

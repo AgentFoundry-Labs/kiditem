@@ -58,6 +58,37 @@ multiple route groups.
   control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
   by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
   fail a source.
+- `mall-operation-outcomes-api.ts` owns recording the mall observation log
+  (관찰 기록) for login checks, login tests, and registration fills only.
+  Recording is fire-and-forget and never blocks the work; payloads carry counts
+  and reason codes only (no credentials, recipients, or order numbers), and the
+  strict contract drops unknown keys.
+- `mall-session-probe.ts` owns the mall login check (`probeMallSession`) and the
+  `sweepMallSessions` round used by the agent loop. A mall is `signed_in`,
+  `verification_required`, or `signed_out` — there is no unknown state. It sends
+  only a mall key and the operator's saved site address, never credentials;
+  anything unexpected or unanswered is `signed_out` with its reason, and
+  our-side reasons (no answer, unreachable screen, no address) are not recorded
+  as observations. A stale extension is reported as outdated, not absent. The
+  sweep names the malls needing a person (`signedOutKeys`, verification
+  included) so the loop can skip collecting them this round.
+- `mall-login-block.ts` owns both guards against locking the operator's mall
+  account. A **block** stops auto-login for a mall until the operator's own
+  session is observed (`signed_in`), a login test succeeds, or they clear it;
+  collection then stops with a "직접 로그인" notice. Only the mall rejecting the
+  credentials blocks: anything our own side failed to answer — an extension
+  timeout, the API throttler (`Too Many Requests`), a missing extension, or a
+  login whose result we could not confirm — is not a wrong password, and
+  `isCredentialFailureReason` keeps those out (stored blocks with those reasons
+  are dropped on read). A **retry interval**
+  (`AUTO_LOGIN_RETRY_INTERVAL_MS`) then covers what judgement cannot: after any
+  auto-login submit the same mall waits an hour, because mall screens after a
+  login differ too much to call success from the page. A screen that shows a
+  confirmed `signed_in` never shows a login block beside it.
+- `mall-agent-loop.ts` holds the agent loop's interval, schedule, and last-round
+  state. Only the interval and the last round persist; the on state lives in the
+  tab, so a loaded app never starts the loop. The runner that acts on it lives
+  in `hooks/use-mall-agent-loop.ts`.
 
 ## Boundary Rules
 

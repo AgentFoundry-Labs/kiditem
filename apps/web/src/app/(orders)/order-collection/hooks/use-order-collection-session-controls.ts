@@ -347,6 +347,20 @@ export function useOrderCollectionSessionControls(
     return activateOwnerRun(account, started);
   }, [activateOwnerRun, organizationId, setScopedAttempt]);
 
+  /**
+   * Drops this browser's bookkeeping for an attempt the owner no longer runs.
+   * A mall generator that stalls without stopping never reaches the procedure's
+   * `finally`, so its entry would outlive the attempt's lease and the next stop
+   * would aim at a collection that ended long ago (KID-208 파생, 원 KID-229).
+   * A newer attempt for the same mall keeps its own entry.
+   */
+  const releaseEndedRun = useCallback((attemptId: string, state: string) => {
+    if (state === 'RUNNING') return;
+    for (const [mallKey, active] of activeRunsRef.current) {
+      if (active.run.attemptId === attemptId) activeRunsRef.current.delete(mallKey);
+    }
+  }, []);
+
   const syncRun = useCallback(async (attemptId: string) => {
     const active = [...activeRunsRef.current.values()]
       .find((entry) => entry.run.attemptId === attemptId);
@@ -359,6 +373,7 @@ export function useOrderCollectionSessionControls(
           channelAccountId: null,
         }, environmentKey);
       }
+      releaseEndedRun(attemptId, current.state);
       return current;
     }
     const current = await readOrderCollectionSourceAttempt(attemptId);
@@ -368,8 +383,9 @@ export function useOrderCollectionSessionControls(
         current,
       );
     }
+    releaseEndedRun(attemptId, current.state);
     return current;
-  }, [environmentKey, organizationId, queryClient]);
+  }, [environmentKey, organizationId, queryClient, releaseEndedRun]);
 
   const failRun = useCallback(async (
     run: OrderCollectionExtensionRun,

@@ -610,6 +610,7 @@ export class SellpiaSalesSourceService {
 
   private async lock(tx: Tx, organizationId: string): Promise<void> {
     await tx.$queryRaw(Prisma.sql`
+      -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
       SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(organizationId)}, 0))::text AS lock
     `);
   }

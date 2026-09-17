@@ -289,7 +289,8 @@ describe("MallAccountSection", () => {
 
     renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
 
-    expect(await screen.findByText("수집 중 · 쿠팡직배송")).toBeInTheDocument();
+    // 카드는 중단 버튼 하나만 세운다 — 무엇을 수집 중인지는 그 버튼의 설명에 있다.
+    expect(await screen.findByRole("button", { name: "수집 중단" })).toHaveAttribute("title", "수집 중 · 쿠팡직배송");
     expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeDisabled();
     await user.click(screen.getByRole("article", { name: "쿠팡직배송 계정 카드" }));
     expect(onOpenCalendar).not.toHaveBeenCalled();

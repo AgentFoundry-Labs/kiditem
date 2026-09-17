@@ -124,12 +124,15 @@ contract.
 ## Git And Pull Requests
 
 - `main`, `develop`, and `release/office` are protected. Regular work branches
-  from and targets `develop`; promotions flow `develop` to `main`.
+  from and targets `develop` as `kid-<number>-<short-description>`; each
+  contributor pulls `develop` and branches for themselves. Promotions flow
+  `develop` to `main`.
 - Never delete, prune, or classify `release/office` as stale. Every checkout
   keeps a local branch tracking `origin/release/office`; the live checkout is
   an operational anchor, not the source or admission gate for local deployment.
 - Squash normal PRs; use merge commits for `develop`/`main` sync and promotion.
-  Never rebase a shared branch.
+  Never rebase a shared branch or a topic branch that Linear records; merge
+  `origin/develop` into the topic branch instead.
 - Group changes into PRs that can be reviewed and verified together. A PR may
   cover multiple Linear issues; identify its scope and dependencies in the body.
 - Before opening or merging, stop on an unexpected base, commit count,

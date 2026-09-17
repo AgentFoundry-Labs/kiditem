@@ -304,13 +304,13 @@ export async function seedCompletedOrderCoverageRun(
     where: {
       organizationId_channel_externalAccountId: {
         organizationId: opts.organizationId,
-        channel: 'order_collection',
+        channel: mallKey,
         externalAccountId: mallKey,
       },
     },
     create: {
       organizationId: opts.organizationId,
-      channel: 'order_collection',
+      channel: mallKey,
       name: mallKey,
       externalAccountId: mallKey,
       isPrimary: false,
@@ -405,7 +405,7 @@ export async function seedCompletedOrderCollection(
     const account = await tx.channelAccount.create({
       data: {
         organizationId: opts.organizationId,
-        channel: 'order_collection',
+        channel: 'finance-fixture-mall',
         name: 'Measured finance order fixture',
         externalAccountId: 'finance-fixture-mall',
       },

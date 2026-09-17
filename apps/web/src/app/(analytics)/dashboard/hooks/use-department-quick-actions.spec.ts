@@ -33,7 +33,10 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     expect(dashboard).toContain('usePersistedAllMarketplaceOrderCollection');
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
     expect(sharedOrderAction).toContain('await refetchMallAccounts()');
-    expect(sharedOrderAction).toContain('collectAll(latestAccounts)');
+    // 다시 불러온 계정을 같은 collectAll 로 넘긴다 — 대시보드 버튼이 제 수집기를 따로 만들지
+    // 않는다는 뜻이다. 사람이 직접 로그인해야 하는 몰만 빼고 넘기므로 이름은 targetAccounts 다.
+    expect(sharedOrderAction).toContain('collectAll(targetAccounts, {');
+    expect(sharedOrderAction).toMatch(/targetAccounts\s*=[\s\S]{0,200}latestAccounts/);
     expect(sharedOrderAction).toContain('await syncRun(activeRun.attemptId)');
     expect(orderScreen).toContain('useAllMarketplaceOrderCollection');
 

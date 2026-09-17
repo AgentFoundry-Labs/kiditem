@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { ApiError } from '@/lib/api-error';
 import { DashboardGradeCards } from './DashboardGradeCards';
 
 const recalculateProductAbc = vi.hoisted(() => vi.fn());
@@ -40,6 +41,10 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('DashboardGradeCards', () => {
+  beforeEach(() => {
+    recalculateProductAbc.mockReset();
+  });
+
   /**
    * The panel is three grades. It used to carry two more cells — 평가 대기 and
    * 원천 확인 필요 — which counted populations rather than grades, and 원천 확인
@@ -134,6 +139,47 @@ describe('DashboardGradeCards', () => {
 
     expect(await screen.findByText(
       '마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. 공식 등급 기준일 2026-08-31',
+    )).toBeInTheDocument();
+  });
+
+  it('tells the operator to retry, not to wait for a source, when the inputs moved during the calculation', async () => {
+    recalculateProductAbc.mockRejectedValue(new ApiError(409, 'INPUT_CHANGED', 'Inputs changed'));
+    const refetchReads = vi.fn(async () => {});
+
+    render(<DashboardGradeCards {...summary} refetchReads={refetchReads} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
+
+    expect(await screen.findByText(
+      '계산 중 입력이 변경되었습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요.',
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/원천이 준비되지 않아/)).not.toBeInTheDocument();
+    expect(refetchReads).toHaveBeenCalledTimes(1);
+    expect(recalculateProductAbc).toHaveBeenCalledTimes(1);
+  });
+
+  it('names a source collected past the official cutoff, with the day its collection reaches', async () => {
+    // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
+    // so the pair whose ends meet on 2026-09-12 published: Sellpia is reflected
+    // through that day, and only its 2026-09-13 is left out.
+    recalculateProductAbc.mockResolvedValue({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      formulaRevision: 1,
+      officialCutoff: '2026-09-12',
+      classifiedProductCount: 4,
+      unclassifiedProductCount: 0,
+      changedProductCount: 0,
+      sources: {
+        sellpia: readySource('2026-09-13'),
+        advertising: { ...readySource('2026-09-12'), ready: false, requiredCutoff: '2026-09-13' },
+      },
+    });
+
+    render(<DashboardGradeCards {...summary} refetchReads={async () => {}} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
+
+    expect(await screen.findByText(
+      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 기준일 뒤 수집분 미반영: 셀피아 상품 손익(2026-09-13까지 수집)',
     )).toBeInTheDocument();
   });
 });

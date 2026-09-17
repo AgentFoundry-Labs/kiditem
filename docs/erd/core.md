@@ -409,6 +409,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
+| Organization | organization | referenced by external | Channels | MallOperationOutcome |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
@@ -506,6 +507,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
+| User | actorUser | referenced by external | Channels | MallOperationOutcome |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |

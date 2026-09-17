@@ -612,9 +612,13 @@ export class ProfitabilityAdImportRepositoryAdapter
       const uploadedAllocation = await assertConservation(targets, facts, expectedSlices);
       const requestedEnd = businessDateKey(attempt.coverageEndDate!);
       const confirmedEnd = confirmedImportEnd(plan, targets, requestedEnd);
+      // What the run publishes: the targets through `confirmedEnd`. The target
+      // counts, the spend and the empty proof are all counted over them.
+      const publishedEnd = dateOnly(confirmedEnd);
+      const publishedTargets = targets.filter((target) => target.businessDate.getTime() <= publishedEnd.getTime());
       const { facts: publishedFacts, allocationSummary } = confirmedEnd === requestedEnd
         ? { facts, allocationSummary: uploadedAllocation }
-        : await withdrawUnconfirmedDays(tx, attempt, targets, expectedSlices, confirmedEnd);
+        : await withdrawUnconfirmedDays(tx, attempt, publishedTargets, expectedSlices, confirmedEnd);
       const coveredMonths = attempt.coveredMonths.filter((month) => `${month}-01` <= confirmedEnd);
 
       const importedAt = new Date();
@@ -655,7 +659,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           verificationCount: { increment: 1 },
           contentChecksum: receiptDigest,
           contentByteCount: Buffer.byteLength(JSON.stringify(receipts.map((receipt) => receipt.metaJson))),
-          providerBackedEmptyProof: targets.length === 0 || targets.every((target) => target.adSpend === 0),
+          providerBackedEmptyProof: publishedTargets.length === 0
+            || publishedTargets.every((target) => target.adSpend === 0),
           publicationSequence,
           qualityReport,
           coverageEndDate: dateOnly(confirmedEnd),
@@ -2152,12 +2157,13 @@ function accountDaySpend(
  * month left without a confirmed day is dropped. Every other month that loses
  * days is re-allocated from its targets through `confirmedEnd`, because an
  * account that reported a withdrawn day may have spent on it. Conservation is
- * proven again over the published targets, facts and slices.
+ * proven again over the published targets (those through `confirmedEnd`),
+ * facts and slices.
  */
 async function withdrawUnconfirmedDays(
   tx: Transaction,
   attempt: SourceAttempt,
-  targets: readonly Target[],
+  publishedTargets: readonly Target[],
   slices: readonly StoredSlice[],
   confirmedEnd: string,
 ): Promise<{ facts: MonthlyFact[]; allocationSummary: TargetAllocationSummary }> {
@@ -2182,7 +2188,7 @@ async function withdrawUnconfirmedDays(
   }
   const facts = await tx.channelAdListingProductMonthlyFact.findMany({ where: run });
   const allocationSummary = await assertConservation(
-    targets.filter((target) => target.businessDate.getTime() <= end.getTime()),
+    publishedTargets,
     facts,
     slices
       .filter((slice) => slice.from <= confirmedEnd)

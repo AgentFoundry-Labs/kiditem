@@ -14,7 +14,10 @@ import {
   saveGeneratedOrderFile,
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
-import { type OrderCollectionExtensionRun } from '@/app/(orders)/order-collection/lib/order-collection-extension';
+import {
+  closeOrderCollectionTabsViaExtension,
+  type OrderCollectionExtensionRun,
+} from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import {
   coupangDirectshipCollectionSource,
   type CoupangDirectshipHandoff,
@@ -53,6 +56,7 @@ import {
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
 import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 const NOOP = () => undefined;
@@ -68,6 +72,48 @@ export type MarketplaceOrderCollectionActivityKind =
   | 'auth'
   | 'login'
   | 'error';
+
+/** 중단이 끝낸 절차의 거절. 표준 취소와 같은 이름이라 중단인 줄 알아볼 수 있다. */
+function collectionStoppedError(): Error {
+  return new DOMException(COLLECTION_STOPPED_MESSAGE, 'AbortError');
+}
+
+/**
+ * Ends the tracked collection the moment the operator's stop reaches it, even
+ * when the mall's own procedure never observes that stop: a generator parked on
+ * an extension message that never arrives (a mall that opened no tab, one left
+ * on a login page) leaves its promise pending for good, so the stopped notice
+ * never shows and a batch waits on it forever (KID-220).
+ *
+ * The underlying collection is left to settle whenever it does; this promise
+ * already answered, so a later success or failure changes nothing.
+ */
+function endsWhenStopped<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return operation;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const stop = () => {
+      if (settled) return;
+      settled = true;
+      reject(collectionStoppedError());
+    };
+    const answer = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', stop);
+      settle();
+    };
+    operation.then(
+      (value) => answer(() => resolve(value)),
+      (error: unknown) => answer(() => reject(error)),
+    );
+    if (signal.aborted) stop();
+    else signal.addEventListener('abort', stop, { once: true });
+  });
+}
 
 export type MarketplaceOrderCollectionBatchResult = {
   successCount: number;
@@ -138,6 +184,9 @@ export function useAllMarketplaceOrderCollection({
       directship?: { eddDates: string[]; data?: CoupangDirectData },
     ) => {
       const activeRun = run;
+      // 인증(본인확인 · OTP · 캡차)만 사람이 그 화면에서 끝낼 수 있다. 그 몰의 탭만 남기고
+      // 나머지는 수집이 끝나는 대로 닫는다(사장님: "수집 끝났으면 창 닫아라").
+      let keepTabsForOperator = false;
       try {
         const collected = await collectBrowserMall(account, activeRun, { directship });
         if (collected.rowCount === 0) {
@@ -181,17 +230,35 @@ export function useAllMarketplaceOrderCollection({
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
+        keepTabsForOperator = failureKind === 'auth';
         const noNewOrders = !stopped && failureKind === 'empty';
         const ownerReconciliationRequired = error instanceof Error &&
           'ownerReconciliationRequired' in error &&
           (error as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
         if (activeRun && attentionKind) {
-          await syncRun(activeRun.attemptId).catch((syncError) => {
+          // 로그인 · 인증 화면을 만나면 확장은 사람이 볼 수 있게 탭만 남기고 돌아온다. 그때
+          // 시도를 끝내지 않으면 임대가 끝나는 30분 동안 카드가 '수집 중'으로 서 있어, 사장님이
+          // 로그인하고 와도 다시 시작할 수 없다. owner 가 이미 끝냈으면 그대로 두고, 아직 돌고
+          // 있으면 여기서 끝낸다 — 무엇을 해야 하는지는 이유 코드가 말한다.
+          const synced = await syncRun(activeRun.attemptId).catch((syncError) => {
             console.warn(
               '[order-collection] failed to sync source attempt',
               syncError,
             );
+            return null;
           });
+          if (!stopped && synced?.state === 'RUNNING') {
+            await failRun(
+              activeRun,
+              attentionKind === 'auth' ? 'AUTH_REQUIRED' : 'LOGIN_REQUIRED',
+              message,
+            ).catch((finalizeError) => {
+              console.warn(
+                '[order-collection] failed to fail source attempt',
+                finalizeError,
+              );
+            });
+          }
         }
         if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
           const unsupported = error instanceof Error && 'sourcePayload' in error
@@ -221,6 +288,9 @@ export function useAllMarketplaceOrderCollection({
         }
         throw error;
       } finally {
+        if (activeRun?.extensionId && !keepTabsForOperator) {
+          void closeOrderCollectionTabsViaExtension(activeRun.extensionId, activeRun.attemptId);
+        }
         if (activeRun) releaseRun(account.key, activeRun.attemptId);
       }
     },
@@ -237,7 +307,8 @@ export function useAllMarketplaceOrderCollection({
   /**
    * Keeps the collection a hand-off left running, so a batch can wait for it,
    * and tells the operator how the one mall they started ended. A collection
-   * the operator stopped is not a failure.
+   * the operator stopped is not a failure, and the stop ends it here rather
+   * than waiting for the mall's own procedure to notice (KID-220).
    */
   const startCollectionProcedure = useCallback((
     account: OrderCollectionMallAccount,
@@ -245,8 +316,9 @@ export function useAllMarketplaceOrderCollection({
     collection: Promise<BrowserMallCollectionResult>,
     report: boolean,
   ) => {
-    collectionsRef.current.set(account.key, collection);
-    collection.then(
+    const tracked = endsWhenStopped(collection, run.signal);
+    collectionsRef.current.set(account.key, tracked);
+    tracked.then(
       (collected) => {
         if (!report) return;
         if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
@@ -295,26 +367,32 @@ export function useAllMarketplaceOrderCollection({
    * One mall's adapter for the shared control. The card that renders it starts,
    * shows and stops the same collection every other browser sees.
    */
-  const collectionAdapter = useCallback((
+  const mallCollectionAdapter = useCallback((
     account: OrderCollectionMallAccount,
     report = true,
   ): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> => (
-    account.key === COUPANG_DIRECT_MALL_KEY
-      ? coupangDirectshipCollectionSource({
-        channelAccountId: rocketChannelAccountId,
-        handOff: (handoff) => handOffDirectship(account, handoff, report),
-        abortLocalRun,
-      }) as unknown as CollectionSourceAdapter<
-        MallOrderCollectionSourceList,
-        MallOrderCollectionStartInput
-      >
-      : mallOrderCollectionSource({
-        organizationId,
-        account,
-        handOff: (handoff) => handOffMall(account, handoff, report),
-        abortLocalRun,
-      })
-  ), [abortLocalRun, handOffDirectship, handOffMall, organizationId, rocketChannelAccountId]);
+    mallOrderCollectionSource({
+      organizationId,
+      account,
+      handOff: (handoff) => handOffMall(account, handoff, report),
+      abortLocalRun,
+    })
+  ), [abortLocalRun, handOffMall, organizationId]);
+
+  /**
+   * 쿠팡 직배송 카드의 어댑터. 몰 카드가 함께 읽는 목록과 달리 로켓 계정 하나의 원천
+   * 상태를 따로 읽으므로, 그 읽기 타입을 그대로 들고 다닌다(KID-214).
+   */
+  const directshipCollectionAdapter = useCallback((
+    account: OrderCollectionMallAccount,
+    report = true,
+  ): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> => (
+    coupangDirectshipCollectionSource({
+      channelAccountId: rocketChannelAccountId,
+      handOff: (handoff) => handOffDirectship(account, handoff, report),
+      abortLocalRun,
+    })
+  ), [abortLocalRun, handOffDirectship, rocketChannelAccountId]);
 
   /**
    * Starts one mall through its shared control from outside a mounted card,
@@ -329,21 +407,20 @@ export function useAllMarketplaceOrderCollection({
     collection: Promise<BrowserMallCollectionResult> | null;
   }>> => {
     collectionsRef.current.delete(account.key);
-    const outcome = await startCollectionSource(
-      queryClient,
-      collectionAdapter(account, false),
-      input,
-    );
+    const outcome = await (account.key === COUPANG_DIRECT_MALL_KEY
+      ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
+      : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {
       outcome,
       collection: outcome.outcome === 'started'
         ? collectionsRef.current.get(account.key) ?? null
         : null,
     };
-  }, [collectionAdapter, queryClient]);
+  }, [directshipCollectionAdapter, mallCollectionAdapter, queryClient]);
 
   const collectAccounts = useCallback(async (
     accounts: OrderCollectionMallAccount[],
+    input: MallOrderCollectionStartInput = {},
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
       return { successCount: 0, failedCount: 0, inProgressCount: 0, unconfiguredCount: 0 };
@@ -358,7 +435,7 @@ export function useAllMarketplaceOrderCollection({
       try {
         // Every mall is admitted by its source owner through the shared start
         // control before extension detection or provider I/O.
-        started = await startMall(account);
+        started = await startMall(account, input);
       } catch {
         failedCount += 1;
         return;
@@ -376,6 +453,12 @@ export function useAllMarketplaceOrderCollection({
         else failedCount += 1;
         return;
       }
+      // 시작은 됐는데 절차가 남지 않았다(핸드오프가 수집을 걸지 못함). `await null` 은 그냥
+      // 통과하므로 그대로 두면 아무것도 안 한 몰이 '수집 완료'로 세어진다(KID-228).
+      if (!started.collection) {
+        failedCount += 1;
+        return;
+      }
       try {
         await started.collection;
         successCount += 1;
@@ -388,17 +471,20 @@ export function useAllMarketplaceOrderCollection({
 
   const collectAll = useCallback((
     sourceAccounts: OrderCollectionMallAccount[] = mallAccounts,
+    input: MallOrderCollectionStartInput = {},
   ): Promise<MarketplaceOrderCollectionBatchResult> => (
-    collectAccounts(sourceAccounts.filter(
-      (account) => account.enabled && isBrowserCollectableMall(account),
-    ))
+    collectAccounts(
+      sourceAccounts.filter((account) => account.enabled && isBrowserCollectableMall(account)),
+      input,
+    )
   ), [collectAccounts, mallAccounts]);
 
   return {
     collectAccount,
     collectAccounts,
     collectAll,
-    collectionAdapter,
+    directshipCollectionAdapter,
+    mallCollectionAdapter,
     startMall,
     collectableAccountCount: mallAccounts.filter(
       (account) => account.enabled && isBrowserCollectableMall(account),
@@ -421,7 +507,11 @@ export function usePersistedAllMarketplaceOrderCollection({
   });
   const mallAccountsLoading = mallAccountsQuery.isLoading;
   const refetchMallAccounts = mallAccountsQuery.refetch;
-  const mallAccounts = mallAccountsQuery.data ?? EMPTY_MALL_ACCOUNTS;
+  // 이 훅은 앱 전역(자동 운전 고리)에서도 마운트된다. 응답이 배열이 아니면 그때 바로 깨지지
+  // 않고 빈 목록으로 선다 — 수집은 목록을 다시 받아 확인한 뒤에만 시작한다.
+  const mallAccounts = Array.isArray(mallAccountsQuery.data)
+    ? mallAccountsQuery.data
+    : EMPTY_MALL_ACCOUNTS;
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     generatedFileWriteQueueRef.current = generatedFileWriteQueueRef.current
       .catch(() => undefined)
@@ -447,7 +537,15 @@ export function usePersistedAllMarketplaceOrderCollection({
     addGeneratedFile,
   });
 
-  const collectAllOrders = useCallback(async () => {
+  /**
+   * 전체 수집. `skipMallKeys` 는 사람이 직접 로그인·인증해야 하는 몰이다 — 자동 운전 고리가
+   * 넘겨준다. 그 몰을 그냥 돌리면 로그인 화면만 열고 실패하면서 몰 탭을 하나씩 남기고,
+   * 그 탭이 바퀴마다 쌓이면 멀쩡한 몰까지 응답 시간 초과로 끌어내린다.
+   */
+  const collectAllOrders = useCallback(async (
+    skipMallKeys: readonly string[] = [],
+    options: { automatic?: boolean } = {},
+  ) => {
     if (mallAccountsLoading) {
       throw new Error('몰 계정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
     }
@@ -463,9 +561,17 @@ export function usePersistedAllMarketplaceOrderCollection({
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const batch = await collectAll(latestAccounts);
+    const skipped = new Set(skipMallKeys);
+    const targetAccounts = latestAccounts.filter((account) => !skipped.has(account.key));
+    // 스스로 도는 바퀴(자동 운전)는 자동으로 표시한다 — 자동 로그인 재시도 간격이 그 표시를 본다.
+    const batch = await collectAll(targetAccounts, {
+      selectionMode: options.automatic ? 'automatic' : 'manual',
+    });
     await generatedFileWriteQueueRef.current;
-    const notice = orderCollectionBatchNotice(batch);
+    const notice = orderCollectionBatchNotice({
+      ...batch,
+      skippedCount: latestAccounts.length - targetAccounts.length,
+    });
     if (notice.tone === 'warning') toast.warning(notice.message);
     else toast.success(notice.message);
 

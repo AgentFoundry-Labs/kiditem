@@ -69,9 +69,11 @@ export type CollectionSourceAdapter<TStatus, TInput = void> = Readonly<{
   /**
    * What this source's own part of the status read is, for a read that answers
    * several sources at once (the order screen's 20 mall cards share one list).
-   * A start notice speaks about the status it was decided against, so it is
-   * retired when that part changes; without this the whole read is compared and
-   * any other source's transition retires it (KID-170).
+   * A start notice about the status it was decided against — a refusal, or a
+   * collection already running — is retired when that part changes; without
+   * this the whole read is compared and any other source's transition retires
+   * it (KID-170). A start failure is not retired this way: it speaks about the
+   * start, not about the status (KID-161).
    */
   readStatusIdentity?: (status: TStatus) => unknown;
   /** The latest complete collection's identity; a change while mounted is a newly finished collection. */
@@ -128,6 +130,12 @@ const EXTENSION_STOP_DEADLINE_MS = 10_000;
  * flight, so the control learns the attempt before a short run is over.
  */
 export const COLLECTION_RUNNING_POLL_MS = 2_000;
+/**
+ * Every mounted control re-reads its owner this often while nothing runs, so a
+ * collection another tab or browser started shows up here too. Coming back to
+ * the tab reads it right away (KID-186); this is the cadence while it is open.
+ */
+export const COLLECTION_IDLE_POLL_MS = 60_000;
 // A real Wing traffic run uploads its first receipt 30 to 50 seconds in (KID-132).
 const NO_PROGRESS_NOTICE_MS = 90_000;
 const NO_PROGRESS =
@@ -287,10 +295,13 @@ function startNotice<TStatus, TInput>(
   identity: (status: TStatus | undefined) => unknown,
 ): CollectionControlNotice | null {
   if (!latest || latest.status === 'idle' || latest.status === 'pending') return null;
-  if (identity(latest.variables?.statusAtStart) !== identity(status)) return null;
+  // 시작이 왜 실패했는지는 상태에 대한 답이 아니라 이 시작에 일어난 일이다. 넘기기를 기다리는
+  // 20초 사이에 상태 읽기가 끝났다는 이유로 지우면 사장님은 이유를 영영 못 본다(KID-161).
+  // 그 원천이 수집 중이 되면 안내 자체가 그때 물러난다.
   if (latest.status === 'error') {
     return { tone: 'error', message: operatorMessage(latest.error, START_FAILED) };
   }
+  if (identity(latest.variables?.statusAtStart) !== identity(status)) return null;
   if (latest.data?.outcome === 'refused') return { tone: 'refused', message: latest.data.message };
   if (latest.data?.outcome === 'running') {
     return { tone: 'info', message: COLLECTION_ALREADY_RUNNING_MESSAGE };

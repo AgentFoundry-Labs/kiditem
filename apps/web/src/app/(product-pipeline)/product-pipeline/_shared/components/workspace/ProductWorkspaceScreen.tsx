@@ -272,6 +272,13 @@ export function ProductWorkspaceScreen({
     }
   };
 
+  // 몰 등록 값(`mallRegisterValues/Shared`)은 준비가 있어도 후보에만 저장한다. 송신 전 점검과
+  // 폼 채우기가 후보 `manualBasics` 를 읽기 때문이다 — 준비에 넣으면 점검이 그 값을 못 보고,
+  // 준비의 깊은 병합 때문에 지운 칸도 빠지지 않는다.
+  const handleCommitMallRegisterValues = async (input: UpdateProductBasicsInput) => {
+    await updateCandidateBasicInfoMutation.mutateAsync(input);
+  };
+
   const kcAutoFilledRef = useRef<string | null>(null);
   useEffect(() => {
     setIsEditComplete(false);
@@ -659,6 +666,8 @@ export function ProductWorkspaceScreen({
               // 준비가 있으면 준비에, 없어도 후보 워크스페이스(수집상품)면 후보에 저장한다.
               // 등록상품(showCandidateActions=false)은 후보가 아니라 저장 대상이 없어 읽기 전용.
               onCommitBasicInfo={editablePreparationId || showCandidateActions ? handleCommitBasicInfo : undefined}
+              // 몰 등록 값은 후보에만 담는다. 후보 워크스페이스(수집상품)가 아니면 저장할 후보가 없다.
+              onCommitMallRegisterValues={showCandidateActions ? handleCommitMallRegisterValues : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { isMallAutoLoginBlocked } from '@/lib/mall-login-block';
 import { formatNumber } from '@/lib/utils';
 import {
   loadSeenOrderKeys,
@@ -19,7 +20,6 @@ import type { OrderActivityEvent } from '../components/OrderActivityFeed';
 const DEFAULT_AUTO_INTERVAL_MIN = 30;
 const AUTO_BUSINESS_START_HOUR = 9;
 const AUTO_BUSINESS_END_HOUR = 18;
-const AUTO_DETECT_KEY = 'kiditem-order-auto-detect';
 const AUTO_INTERVAL_KEY = 'kiditem-order-auto-interval';
 
 export const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60] as const;
@@ -56,33 +56,46 @@ export function useOrderAutoDetect({
 
   const run = useCallback(async () => {
     if (busyRef.current || !isWithinBusinessHours(Date.now())) return;
-    const targets = mallAccounts.filter(isAutoDetectableMall);
+    // 로그인·인증이 막힌 몰은 자동으로 더 건드리지 않는다. 들어가 봐야 로그인 화면만 열고
+    // 실패하면서 몰 탭만 하나 남기고, 그 탭이 바퀴마다 쌓여 멀쩡한 몰까지 끌어내린다.
+    // 다시 도는 건 사장님이 직접 로그인하신 뒤다 — 그때 확인이 차단을 풀어 준다.
+    const targets = mallAccounts.filter(
+      (account) => isAutoDetectableMall(account) && !isMallAutoLoginBlocked(account.key),
+    );
     if (targets.length === 0) return;
 
     busyRef.current = true;
     setRunning(true);
     try {
       for (const account of targets) {
+        let started: Awaited<ReturnType<typeof startMall>>;
         try {
-          const started = await startMall(account, {
+          started = await startMall(account, {
             selectionMode: 'automatic',
             // Freeze the exact trimmed-cell/row-separator criterion before
             // provider capture. The extension/server owner retains this
             // alongside the full original capture.
             seenRowKeys: [...loadSeenOrderKeys(account.key)],
           });
-          // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
-          // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
-          if (started.outcome.outcome !== 'started' || !started.collection) continue;
+        } catch (err) {
+          // 시작 자체가 안 됐으면 수집 절차가 돌지 않았으므로 아무도 남기지 않았다.
+          const message = err instanceof Error ? err.message : '자동 감지 실패';
+          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
+          logActivity(kind, account.name, kind === 'empty' ? undefined : message);
+          console.warn('[order-auto-detect]', account.key, err);
+          continue;
+        }
+        // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
+        // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
+        if (started.outcome.outcome !== 'started' || !started.collection) continue;
+        try {
           const collected = await started.collection;
           if (collected.rowCount > 0) {
             toast.success(`${account.name} 새 주문 ${formatNumber(collected.rowCount)}건 감지`);
           }
         } catch (err) {
-          // 시도의 종료 처리는 수집 절차가 이미 한다. 여기서는 왜 못 돌았는지만 남긴다.
-          const message = err instanceof Error ? err.message : '자동 감지 실패';
-          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
-          logActivity(kind, account.name, kind === 'empty' ? undefined : message);
+          // 시도의 종료도 활동 기록도 수집 절차가 이미 했다. 여기서 또 남기면 한 번 실패한
+          // 몰이 활동 기록에 두 줄로 선다(KID-199).
           console.warn('[order-auto-detect]', account.key, err);
         }
       }
@@ -93,18 +106,16 @@ export function useOrderAutoDetect({
     }
   }, [logActivity, mallAccounts, startMall]);
 
+  // 간격만 기억한다. 켜짐은 기억하지 않는다 — 새로고침 · 탭 복원 · 서버 재시작 뒤에 자동
+  // 감지가 저 혼자 다시 돌면 사장님이 보지 않는 사이에 몰을 연다. 시작은 언제나 사람이
+  // 누른다(KID-106 Q1, KID-187). 자동 운전 고리도 같은 규칙이다.
   useEffect(() => {
     const savedInterval = Number(window.localStorage.getItem(AUTO_INTERVAL_KEY));
-    const nextInterval = AUTO_INTERVAL_OPTIONS_MIN.includes(
+    setIntervalMin(AUTO_INTERVAL_OPTIONS_MIN.includes(
       savedInterval as (typeof AUTO_INTERVAL_OPTIONS_MIN)[number],
     )
       ? savedInterval
-      : DEFAULT_AUTO_INTERVAL_MIN;
-    setIntervalMin(nextInterval);
-    if (window.localStorage.getItem(AUTO_DETECT_KEY) === '1') {
-      setEnabled(true);
-      setNextRunAt(nextAutoRunAt(Date.now(), nextInterval * 60 * 1000));
-    }
+      : DEFAULT_AUTO_INTERVAL_MIN);
   }, []);
 
   useEffect(() => {
@@ -126,7 +137,6 @@ export function useOrderAutoDetect({
     const next = !enabled;
     setEnabled(next);
     setNextRunAt(next ? nextAutoRunAt(Date.now(), intervalMs) : null);
-    window.localStorage.setItem(AUTO_DETECT_KEY, next ? '1' : '0');
     if (next) void run();
   }, [enabled, intervalMs, run]);
 

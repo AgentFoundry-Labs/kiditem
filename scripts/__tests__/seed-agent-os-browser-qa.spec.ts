@@ -10,6 +10,11 @@ import {
 import { canonicalSourcingCandidateIdentity } from '../../apps/server/src/sourcing/domain/sourcing-candidate-identity';
 import { freezeProductPreparationPayload } from '../../apps/server/src/sourcing/domain/product-preparation-payload';
 
+const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
+vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
+  ensureAbsoluteProductAbcFormulaForOrganization: ensureFormula,
+}));
+
 const repoRoot = resolve(__dirname, '..', '..');
 const seedPath = resolve(repoRoot, 'scripts', 'seed-agent-os-browser-qa.ts');
 
@@ -539,9 +544,21 @@ describe('isolated Agent OS browser-QA seed', () => {
       sourcingRecommendationItemEvidence: { upsert: vi.fn() },
       sourcingWorkspaceSnapshot: { upsert: workspaceSnapshotUpsert },
     };
+    let inTransaction = false;
     const prisma = {
-      $transaction: async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
+      $transaction: async (action: (tx: typeof transaction) => Promise<unknown>) => {
+        inTransaction = true;
+        try {
+          return await action(transaction);
+        } finally {
+          inTransaction = false;
+        }
+      },
     };
+    const formulaCalls: boolean[] = [];
+    ensureFormula.mockReset().mockImplementation(async () => {
+      formulaCalls.push(inTransaction);
+    });
 
     const result = await seed.runBrowserQaSeed({
       prisma,
@@ -551,6 +568,12 @@ describe('isolated Agent OS browser-QA seed', () => {
       hashPassword,
     });
 
+    // The QA database gets no data migrations, so the seed installs the ABC formula itself.
+    expect(ensureFormula).toHaveBeenCalledTimes(1);
+    expect(ensureFormula).toHaveBeenCalledWith(transaction, 'organization-id');
+    expect(formulaCalls).toEqual([true]);
+    expect(membershipUpsert.mock.invocationCallOrder[0])
+      .toBeLessThan(ensureFormula.mock.invocationCallOrder[0]!);
     expect(hashPassword).toHaveBeenCalledWith(enteredValue);
     expect(userUpsert.mock.calls[0]?.[0].create).toMatchObject({
       passwordHash: expect.stringMatching(/^scrypt\$16384\$/),

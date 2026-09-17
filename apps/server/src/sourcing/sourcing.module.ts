@@ -42,6 +42,7 @@ import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcin
 import { SourcingInterestTargetController } from "./adapter/in/http/sourcing-interest-target.controller";
 import { SourcingWorkspaceController } from "./adapter/in/http/sourcing-workspace.controller";
 import { SourcingReviewController } from "./adapter/in/http/sourcing-review.controller";
+import { SourcingConfirmReportController } from "./adapter/in/http/sourcing-confirm-report.controller";
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
@@ -55,6 +56,10 @@ import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
+import { SourcingConfirmReportService } from "./application/service/sourcing-confirm-report.service";
+import { SourcingConfirmListenerService } from "./application/service/sourcing-confirm-listener.service";
+import { TelegramConfirmMessengerAdapter } from "./adapter/out/telegram/telegram-confirm-messenger.adapter";
+import { SOURCING_CONFIRM_MESSENGER_PORT } from "./application/port/out/provider/sourcing-confirm-messenger.port";
 import { SourcingKeywordPreferenceService } from "./application/service/sourcing-keyword-preference.service";
 import { SourcingKeywordSuggestionService } from "./application/service/sourcing-keyword-suggestion.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
@@ -175,6 +180,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingInterestTargetController,
     SourcingWorkspaceController,
     SourcingReviewController,
+    SourcingConfirmReportController,
     SourcingEntryRecommendationController,
     TrendCollectionController,
     LiveCommerceController,
@@ -206,6 +212,8 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingWorkspaceArchiveService,
     SourcingEntryRecommendationService,
     SourcingRecommendationService,
+    SourcingConfirmReportService,
+    SourcingConfirmListenerService,
     SourcingKeywordPreferenceService,
     SourcingKeywordSuggestionService,
     SourcingWingCatalogIngestService,
@@ -250,6 +258,11 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     ShortstrendTrendAdapter,
     TaobaoLiveAdapter,
     SourcingSupplyIntelligenceAdapter,
+    TelegramConfirmMessengerAdapter,
+    {
+      provide: SOURCING_CONFIRM_MESSENGER_PORT,
+      useExisting: TelegramConfirmMessengerAdapter,
+    },
     {
       provide: SOURCING_1688_IMAGE_SEARCH_PORT,
       useExisting: Direct1688ImageSearchAdapter,

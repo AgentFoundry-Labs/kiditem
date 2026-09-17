@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   columnAdditions,
   notNullAdditions,
   predicateWithInitialValues,
+  prismaDiffCommand,
   surveyExitCode,
   uniqueIndexes,
 } from '../check-cutover-data-blockers.mjs';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const surveyPath = join(repoRoot, 'scripts', 'check-cutover-data-blockers.mjs');
 
 /**
  * The survey's correctness rests on reading Prisma's own DDL faithfully. Missing
@@ -72,6 +80,58 @@ test('passes over a nullable column', () => {
   assert.deepEqual(notNullAdditions('ALTER TABLE "alerts" ADD COLUMN "href" TEXT;'), []);
 });
 
+// Prisma writes a precision's comma inside the clause. Splitting there once
+// read `DECIMAL(12,6) NOT NULL` as `DECIMAL(12` and passed eight required ABC
+// columns over.
+test('blocks a DECIMAL(12,6) NOT NULL column without a default', () => {
+  assert.deepEqual(
+    notNullAdditions('ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL;'),
+    [{ table: 'evaluations', column: 'score' }],
+  );
+  assert.deepEqual(
+    columnAdditions('ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL;'),
+    [{ table: 'evaluations', column: 'score', initialSql: null }],
+  );
+});
+
+test('passes over a DECIMAL(12,6) NOT NULL column with a default', () => {
+  const sql = 'ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL DEFAULT 0;';
+  assert.deepEqual(notNullAdditions(sql), []);
+  assert.deepEqual(columnAdditions(sql), [{ table: 'evaluations', column: 'score', initialSql: '0' }]);
+});
+
+test('passes over a nullable VARCHAR(80) column', () => {
+  const sql = 'ALTER TABLE "evaluations" ADD COLUMN "label" VARCHAR(80);';
+  assert.deepEqual(notNullAdditions(sql), []);
+  assert.deepEqual(columnAdditions(sql), [{ table: 'evaluations', column: 'label', initialSql: 'NULL' }]);
+});
+
+test('reads each clause of an ALTER TABLE that mixes precision types, defaults, and nullability', () => {
+  const sql = `
+-- AlterTable
+ALTER TABLE "evaluations" DROP COLUMN "adjusted_score",
+ADD COLUMN     "consistency_score" DECIMAL(12,6) NOT NULL,
+ADD COLUMN     "margin_score" DECIMAL(12,6),
+ADD COLUMN     "label" VARCHAR(80),
+ADD COLUMN     "weight" DECIMAL(20,6) NOT NULL DEFAULT 0,
+ADD COLUMN     "tags" TEXT[] DEFAULT ARRAY['a', 'b']::TEXT[],
+ADD COLUMN     "profit_score" DECIMAL(12,6) NOT NULL,
+ALTER COLUMN "calculated_at" SET NOT NULL;
+`;
+  assert.deepEqual(notNullAdditions(sql), [
+    { table: 'evaluations', column: 'consistency_score' },
+    { table: 'evaluations', column: 'profit_score' },
+  ]);
+  assert.deepEqual(columnAdditions(sql), [
+    { table: 'evaluations', column: 'consistency_score', initialSql: null },
+    { table: 'evaluations', column: 'margin_score', initialSql: 'NULL' },
+    { table: 'evaluations', column: 'label', initialSql: 'NULL' },
+    { table: 'evaluations', column: 'weight', initialSql: '0' },
+    { table: 'evaluations', column: 'tags', initialSql: "ARRAY['a', 'b']::TEXT[]" },
+    { table: 'evaluations', column: 'profit_score', initialSql: null },
+  ]);
+});
+
 test("does not read an ADD COLUMN out of a different table's statement", () => {
   const additions = notNullAdditions(`
 ALTER TABLE "first" ADD COLUMN "a" TEXT NOT NULL;
@@ -124,4 +184,49 @@ test('blocks a schema cutover while any survey item is still pending', () => {
   assert.equal(surveyExitCode([], []), 0);
   assert.equal(surveyExitCode([{}], []), 1);
   assert.equal(surveyExitCode([], [{}]), 1);
+});
+
+/**
+ * The Office deployer runs this survey on the Windows host between the
+ * pre-schema migrations and `db push`, and any non-zero exit stops the cutover.
+ * A survey that cannot start there would stop every cutover.
+ */
+test("runs this checkout's Prisma CLI with the current Node executable, from the repository root", () => {
+  const command = prismaDiffCommand();
+  assert.equal(command.file, process.execPath);
+  assert.match(command.args[0], /[\\/]node_modules[\\/]prisma[\\/]build[\\/]index\.js$/);
+  assert.ok(command.args[0].startsWith(repoRoot), 'the Prisma CLI comes from this checkout');
+  assert.deepEqual(command.args.slice(1), [
+    'migrate',
+    'diff',
+    '--from-config-datasource',
+    '--to-schema=prisma',
+    '--script',
+  ]);
+  assert.equal(command.cwd, repoRoot);
+
+  const source = readFileSync(surveyPath, 'utf8');
+  assert.doesNotMatch(source, /['"]npx(?:\.cmd)?['"]/, 'npx is a .cmd shim on Windows');
+  assert.doesNotMatch(source, /\bshell\s*:/, 'no shell parses the command');
+});
+
+test('issues only SELECT statements against the surveyed database', () => {
+  const source = readFileSync(surveyPath, 'utf8');
+  const statements = [...source.matchAll(/client\.query\(\s*`\s*(\w+)/g)].map((match) => match[1]);
+  assert.ok(statements.length >= 3, 'the scan finds the survey queries');
+  assert.deepEqual([...new Set(statements)], ['SELECT']);
+  assert.equal(source.match(/client\.query\(/g)?.length, statements.length, 'every query is a template literal the scan can read');
+});
+
+test('exits non-zero without a database URL, before reaching any database', () => {
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  const result = spawnSync(process.execPath, [surveyPath], {
+    cwd: repoRoot,
+    env,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /DATABASE_URL is required/);
 });

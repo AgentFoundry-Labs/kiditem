@@ -341,7 +341,7 @@ test('keeps the running-session fence for a prior same-environment attempt', asy
 
   await assert.rejects(
     fixture.owner.run({ environmentId: 'local', attemptId }),
-    /Another Sellpia profitability collection is running/,
+    /이전 셀피아 상품 손익 수집이 아직 진행 중입니다/,
   );
   assert.equal(fixture.collectionContext, null);
   assert.ok(await fixture.sessions.get(runningAttemptId));

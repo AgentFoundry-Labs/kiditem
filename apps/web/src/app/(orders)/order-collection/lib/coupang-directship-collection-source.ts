@@ -5,7 +5,10 @@ import {
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import {
+  COLLECTION_IDLE_POLL_MS,
+  type CollectionSourceAdapter,
+} from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
@@ -21,7 +24,6 @@ import {
 } from './order-collection-extension';
 
 const PATH = '/api/orders/collection/coupang-directship';
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 export type CoupangDirectshipHandoff = Readonly<{
   extensionId: string;
@@ -74,6 +76,9 @@ async function detectDirectshipExtension(): Promise<string> {
  * account collects at a time; the owner's account-scoped status read is what
  * every browser sees as running, so the calendar's own start shows up here too
  * and can be stopped from any tab.
+ *
+ * 이 시작은 입력을 읽지 않는다. 시작 입력 타입을 `unknown` 으로 두어, 몰 카드처럼
+ * 제 입력을 실어 보내는 컨트롤도 이 원천을 그대로 담을 수 있다(KID-214).
  */
 export function coupangDirectshipCollectionSource({
   channelAccountId,
@@ -85,7 +90,7 @@ export function coupangDirectshipCollectionSource({
   handOff: (handoff: CoupangDirectshipHandoff) => Promise<void>;
   /** Ends this browser's procedure for the attempt the operator is stopping. */
   abortLocalRun?: (attemptId: string) => void;
-}>): CollectionSourceAdapter<OrderCollectionSourceStatus> {
+}>): CollectionSourceAdapter<OrderCollectionSourceStatus, unknown> {
   return {
     sourceKey: `orders.coupang_directship:${channelAccountId ?? ''}`,
     label: '쿠팡 직배송 주문 수집',
@@ -98,7 +103,7 @@ export function coupangDirectshipCollectionSource({
       queryKey: queryKeys.orders.coupangDirectshipSource(channelAccountId ?? ''),
       queryFn: () => readCoupangDirectshipSource(channelAccountId ?? ''),
       enabled: Boolean(channelAccountId),
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

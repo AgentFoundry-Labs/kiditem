@@ -138,7 +138,9 @@ function adapter(handOff = vi.fn().mockResolvedValue(undefined)) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // `clearAllMocks` 는 호출 기록만 지운다. 이 스펙은 `mockResolvedValueOnce` 로 한 번짜리
+  // 답을 쌓아 두므로, 쓰지 않고 남은 답이 다음 테스트로 새어 엉뚱한 결과를 만든다(KID-205).
+  vi.resetAllMocks();
   window.localStorage.clear();
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
     status: 'ready',
@@ -223,7 +225,7 @@ describe('mallOrderCollectionSource', () => {
   });
 
   /**
-   * 이 조직에 이 몰의 order_collection 계정 행이 없으면 owner 는 시작을 받지 못한다.
+   * 이 조직에 이 몰의 계정 행(ADR-0012)이 없으면 owner 는 시작을 받지 못한다.
    * 상태를 읽지 못한 것이 아니라 아직 설정되지 않은 것이므로, 서버도 확장도 부르지
    * 않고 무엇을 하면 되는지만 말한다(KID-170 D1).
    */

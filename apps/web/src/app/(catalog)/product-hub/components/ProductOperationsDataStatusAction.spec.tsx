@@ -1,61 +1,46 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement, ReactNode } from 'react';
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeQueryClient } from '@/components/providers/query-client';
+import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 
 const mocks = vi.hoisted(() => ({
   recalculateProductAbc: vi.fn(),
   refetchProducts: vi.fn(),
-  refetchQueries: vi.fn(),
-  mutationOptions: null as null | {
-    mutationFn: () => Promise<unknown>;
-    onSuccess?: (result: unknown) => Promise<void> | void;
-    onError?: (error: unknown) => Promise<void> | void;
-    retry?: boolean;
-  },
-  statusData: null as unknown as ReturnType<typeof readyStatus>,
-}));
-
-vi.mock('@tanstack/react-query', () => ({
-  useMutation: (options: NonNullable<typeof mocks.mutationOptions>) => {
-    mocks.mutationOptions = options;
-    return {
-      isPending: false,
-      mutate: () => {
-        void options.mutationFn()
-          .then((result) => options.onSuccess?.(result))
-          .catch((error) => options.onError?.(error));
-      },
-    };
-  },
-  useQueryClient: () => ({ refetchQueries: mocks.refetchQueries }),
 }));
 
 vi.mock('@/lib/product-abc-api', () => ({
   recalculateProductAbc: mocks.recalculateProductAbc,
 }));
 
-vi.mock('../hooks/useProductOperationsDataStatus', () => ({
-  useProductOperationsDataStatus: () => ({
-    data: mocks.statusData,
-    isLoading: false,
-    isError: false,
-  }),
-}));
-
 vi.mock('./ProductOperationsSourceCollections', () => ({
   ProductOperationsSourceCollections: () => <div>Sellpia source controls</div>,
 }));
 
+/**
+ * The data status arrives from the API through the app's own query client, so
+ * the dialog caches it the way operators get it: a read younger than a minute
+ * counts as fresh unless the dialog asks again.
+ */
+let statusData: ReturnType<typeof readyStatus>;
+let queryClient: QueryClient;
+
 describe('ProductOperationsDataStatusAction', () => {
   beforeEach(() => {
-    mocks.statusData = readyStatus();
+    statusData = readyStatus();
+    queryClient = makeQueryClient();
+    vi.spyOn(apiClient, 'getParsed')
+      .mockImplementation(async (_path, schema) => schema.parse(statusData));
     mocks.recalculateProductAbc.mockReset();
     mocks.refetchProducts.mockReset();
-    mocks.refetchQueries.mockReset();
     mocks.refetchProducts.mockResolvedValue(undefined);
-    mocks.refetchQueries.mockResolvedValue(undefined);
-    mocks.mutationOptions = null;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('is the only Product Hub action that explicitly recalculates ABC and refetches its reads', async () => {
@@ -67,28 +52,34 @@ describe('ProductOperationsDataStatusAction', () => {
       classifiedProductCount: 7,
       unclassifiedProductCount: 2,
       changedProductCount: 3,
+      sources: {
+        sellpia: sourceEndingOn('2026-08-31', '2026-08-31'),
+        advertising: sourceEndingOn('2026-08-31', '2026-08-31'),
+      },
     });
 
     renderAction();
-    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+    fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
 
-    await waitFor(() => {
-      expect(mocks.recalculateProductAbc).toHaveBeenCalledTimes(1);
-      expect(mocks.refetchProducts).toHaveBeenCalledTimes(1);
-      expect(mocks.refetchQueries).toHaveBeenCalledTimes(2);
-    });
-    expect(mocks.mutationOptions?.retry).toBe(false);
+    // Both sources end on the official cutoff, so the message names none.
+    expect(await screen.findByText('ABC 등급을 발행했습니다. 공식 등급 기준일 2026-08-31'))
+      .toBeInTheDocument();
+    expect(mocks.recalculateProductAbc).toHaveBeenCalledTimes(1);
+    expect(mocks.refetchProducts).toHaveBeenCalledTimes(1);
+    // The open dialog read its data status again before the message.
+    expect(apiClient.getParsed).toHaveBeenCalledTimes(2);
   });
 
   it.each([
-    ['sellpia', () => { mocks.statusData.sources.sellpia.ready = false; }],
-    ['advertising', () => { mocks.statusData.sources.advertising = source(false, false); }],
-    ['mapping', () => { mocks.statusData.sources.mapping.ready = false; }],
-  ])('disables recalculation until %s is ready', (_source, makeUnavailable) => {
+    ['sellpia', () => { statusData.sources.sellpia.ready = false; }],
+    ['advertising', () => { statusData.sources.advertising = source(false, false); }],
+    ['mapping', () => { statusData.sources.mapping.ready = false; }],
+  ])('keeps the grade refresh available while %s is not ready', async (_source, makeUnavailable) => {
     makeUnavailable();
     renderAction();
 
-    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+    // The server publishes the newest pair that ends together, as the dashboard's refresh does.
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 
   it('keeps official grades and explains SOURCE_NOT_READY inline', async () => {
@@ -104,7 +95,7 @@ describe('ProductOperationsDataStatusAction', () => {
     });
 
     renderAction();
-    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+    fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
 
     expect(await screen.findByText(/원천이 준비되지 않아 기존 공식 등급을 유지합니다/))
       .toBeInTheDocument();
@@ -156,38 +147,124 @@ describe('ProductOperationsDataStatusAction', () => {
     });
 
     renderAction();
-    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+    fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.queryByText(/원천이 준비되지 않아|데이터 기준일 없음/)).not.toBeInTheDocument();
     expect(mocks.refetchProducts).not.toHaveBeenCalled();
   });
 
-  it('refetches once and shows retry guidance for INPUT_CHANGED without auto-retry', async () => {
+  it('names a source collected past the official cutoff in the same words as the dashboard', async () => {
+    // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
+    // so the pair that ends together on 2026-09-12 published.
+    mocks.recalculateProductAbc.mockResolvedValue({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      formulaRevision: 1,
+      officialCutoff: '2026-09-12',
+      classifiedProductCount: 4,
+      unclassifiedProductCount: 0,
+      changedProductCount: 0,
+      sources: {
+        sellpia: sourceEndingOn('2026-09-13', '2026-09-13'),
+        advertising: sourceEndingOn('2026-09-12', '2026-09-13'),
+      },
+    });
+
+    renderAction();
+    fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
+
+    expect(await screen.findByText(
+      'ABC 등급을 발행했습니다. 공식 등급 기준일 2026-09-12 · 기준일 뒤 수집분 미반영: 셀피아 상품 손익(2026-09-13까지 수집)',
+    )).toBeInTheDocument();
+  });
+
+  it('refetches once and shows retry guidance for INPUT_CHANGED without a second attempt', async () => {
     mocks.recalculateProductAbc.mockRejectedValue(
       new ApiError(409, 'INPUT_CHANGED', 'Inputs changed'),
     );
 
     renderAction();
-    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+    fireEvent.click(await screen.findByRole('button', { name: '등급 새로고침' }));
 
     expect(await screen.findByText(/입력이 변경되었습니다.*다시 시도/)).toBeInTheDocument();
     expect(mocks.recalculateProductAbc).toHaveBeenCalledTimes(1);
     expect(mocks.refetchProducts).toHaveBeenCalledTimes(1);
-    expect(mocks.refetchQueries).toHaveBeenCalledTimes(2);
-    expect(mocks.mutationOptions?.retry).toBe(false);
+    expect(apiClient.getParsed).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the data status again on every open and holds the grade refresh until that read answers', async () => {
+    // The first open reads advertising through 2026-08-30, a day short of its cutoff.
+    statusData.sources.advertising = sourceEndingOn('2026-08-30', '2026-08-31');
+    const { rerender } = renderAction();
+    expect(within(await sourceRow('광고비')).getByText('2026-08-30까지')).toBeInTheDocument();
+
+    // Advertising is collected in another tab, and the operator reopens the
+    // dialog within the minute.
+    let answer!: () => void;
+    vi.mocked(apiClient.getParsed).mockImplementationOnce((_path, schema) => new Promise((resolve) => {
+      answer = () => resolve(schema.parse(readyStatus()));
+    }));
+    rerender(action({ open: false }));
+    rerender(action({ open: true }));
+
+    await waitFor(() => expect(apiClient.getParsed).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: '현황 확인 중' })).toBeDisabled();
+
+    await act(async () => answer());
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
+    expect(within(await sourceRow('광고비')).getByText('2026-08-31까지')).toBeInTheDocument();
+  });
+
+  it('keeps the grade refresh closed while the latest status read has failed', async () => {
+    const { rerender } = renderAction();
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
+
+    // The operator reopens the dialog and that read fails, so the dates still
+    // on screen are the previous read's.
+    let readFails = true;
+    vi.mocked(apiClient.getParsed).mockImplementation(async (_path, schema) => {
+      if (readFails) throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Service unavailable');
+      return schema.parse(statusData);
+    });
+    rerender(action({ open: false }));
+    rerender(action({ open: true }));
+
+    expect(await screen.findByText('데이터 현황을 불러오지 못했습니다.', undefined, { timeout: 4_000 }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+
+    // A later open reads successfully, and the grade refresh opens again.
+    readFails = false;
+    rerender(action({ open: false }));
+    rerender(action({ open: true }));
+
+    await waitFor(() => expect(screen.queryByText('데이터 현황을 불러오지 못했습니다.')).not.toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: '등급 새로고침' })).toBeEnabled();
   });
 });
 
-function renderAction() {
-  return render(
+function action({ open }: { open: boolean }): ReactElement {
+  return (
     <ProductOperationsDataStatusAction
-      open
+      open={open}
       onOpenChange={vi.fn()}
       onProductsRefetch={mocks.refetchProducts}
       periodDays={30}
-    />,
+    />
   );
+}
+
+function renderAction() {
+  return render(action({ open: true }), { wrapper });
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+async function sourceRow(label: string): Promise<HTMLElement> {
+  return (await screen.findByText(label)).parentElement!;
 }
 
 function readyStatus() {

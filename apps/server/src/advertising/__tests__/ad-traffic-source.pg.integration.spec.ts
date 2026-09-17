@@ -16,12 +16,14 @@ import {
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { DEFAULT_TRANSACTION_OPTIONS } from '../../prisma/prisma.service';
 import { AdTrafficSourceController } from '../adapter/in/http/ad-traffic-source.controller';
+import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
 import { AdTrafficSourceRepository } from '../adapter/out/repository/ad-traffic-source.repository';
 import {
   AD_TRAFFIC_READ_PORT,
   AD_TRAFFIC_SOURCE_PORT,
 } from '../application/port/in/ad-traffic-source.port';
 import { currentBusinessDate } from '../domain/business-date';
+import type { AdsConfig } from '../domain/model/strategy-types';
 import { readListingTrafficWindowFacts } from '../../channels/read/channel-listing-daily-facts';
 import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
@@ -1003,6 +1005,130 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       }]);
     });
 
+    it('changes only the traffic columns of an item-winner day it reports or zero-fills, so ad-ops keeps the observation count', async () => {
+      const plan = range();
+      const businessDate = new Date(`${plan.startDate}T00:00:00.000Z`);
+      const itemWinnerObservedAt = new Date(`${plan.startDate}T05:00:00.000Z`);
+      const itemWinnerRun = await prisma.channelScrapeRun.create({
+        data: {
+          organizationId: ORG,
+          channelAccountId: accountId,
+          channel: 'coupang',
+          source: 'wing',
+          pageType: 'itemwinner',
+          businessDate,
+        },
+      });
+      /** A listing whose state the item-winner source observed three times that day. */
+      const observedThreeTimes = async (externalId: string) => {
+        const listing = await catalogListing(externalId, registered());
+        const snapshot = await prisma.channelScrapeSnapshot.create({
+          data: {
+            organizationId: ORG,
+            scrapeRunId: itemWinnerRun.id,
+            channel: 'coupang',
+            source: 'wing',
+            pageType: 'itemwinner',
+            businessDate,
+            observedAt: itemWinnerObservedAt,
+            externalId,
+            listingId: listing.id,
+            matchStatus: 'matched_listing_only',
+            rawJson: { externalId },
+          },
+        });
+        await prisma.channelListingDailySnapshot.create({
+          data: {
+            organizationId: ORG,
+            listingId: listing.id,
+            channel: 'coupang',
+            externalId,
+            businessDate,
+            isOfferWinner: true,
+            saleStatus: '판매중',
+            sampleCount: 3,
+            firstObservedAt: itemWinnerObservedAt,
+            lastObservedAt: itemWinnerObservedAt,
+            rawSnapshotId: snapshot.id,
+          },
+        });
+        return { listing, snapshot };
+      };
+      const reported = await observedThreeTimes('EXT-ITEMWINNER-REPORTED');
+      await prisma.channelListingOption.create({
+        data: { organizationId: ORG, listingId: reported.listing.id, externalOptionId: '2001', isActive: true },
+      });
+      const zeroFilled = await observedThreeTimes('EXT-ITEMWINNER-ZERO-FILLED');
+      // Both listings advertised that day, so the ad-ops strategy reads their channel state.
+      const sweep = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: ORG,
+          channelAccountId: accountId,
+          sourceType: 'coupang_ad_campaign',
+          parserVersion: 'ad-campaign-v1',
+          status: 'completed',
+          freshnessGeneration: 1n,
+          plan: { captureMode: 'campaign_sweep' },
+          coverageStartDate: businessDate,
+          coverageEndDate: businessDate,
+        },
+      });
+      await prisma.channelAdTargetDailySnapshot.createMany({
+        data: [reported, zeroFilled].map(({ listing }) => ({
+          organizationId: ORG,
+          channelAccountId: accountId,
+          channel: 'coupang',
+          businessDate,
+          listingId: listing.id,
+          externalId: listing.externalId,
+          targetType: 'product',
+          targetKey: `product:${listing.externalId}`,
+          campaignId: 'campaign-1',
+          campaignName: 'Campaign',
+          spend: 1_000,
+          sourceImportRunId: sweep.id,
+        })),
+      });
+
+      await collectOne(plan, summary(), [
+        row('1001'),
+        row('2001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
+      ]);
+
+      const context = await new AdStrategyContextRepositoryAdapter(prisma as never).loadStrategyContext(
+        ORG,
+        { from: businessDate, to: new Date(businessDate.getTime() + DAY_MS) },
+        '7d',
+        {} as AdsConfig,
+      );
+      for (const { listing } of [reported, zeroFilled]) {
+        expect(context.channelStateByListing.get(listing.id), listing.externalId).toMatchObject({
+          businessDate: plan.startDate,
+          sampleCount: 3,
+          lastObservedAt: itemWinnerObservedAt.toISOString(),
+        });
+      }
+      const wingObservedAt = new Date(`${plan.startDate}T01:00:00.000Z`);
+      await expect(listingDays(reported.listing.id)).resolves.toMatchObject([{
+        trafficViews: 9,
+        trafficRevenue: 90,
+        trafficObservedAt: wingObservedAt,
+        isOfferWinner: true,
+        sampleCount: 3,
+        lastObservedAt: itemWinnerObservedAt,
+        rawSnapshotId: reported.snapshot.id,
+      }]);
+      await expect(listingDays(zeroFilled.listing.id)).resolves.toMatchObject([{
+        trafficViews: 0,
+        trafficRevenue: 0,
+        trafficObservedAt: wingObservedAt,
+        isOfferWinner: true,
+        sampleCount: 3,
+        lastObservedAt: itemWinnerObservedAt,
+        rawSnapshotId: zeroFilled.snapshot.id,
+      }]);
+    });
+
     it('publishes zero traffic only from the KST day Wing registered the listing', async () => {
       const plan = range(3);
       const registrationDate = dateShift(plan.startDate, 1);
@@ -1795,6 +1921,97 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .set('x-test-org', OTHER_ORG)
       .query({ channelAccountId: accountId })
       .expect(404);
+  });
+
+  it('publishes a v1 attempt an earlier release admitted onto an item-winner day without taking its observation count or time', async () => {
+    const plan = range();
+    const businessDate = new Date(`${plan.startDate}T00:00:00.000Z`);
+    const itemWinnerObservedAt = new Date(`${plan.startDate}T05:00:00.000Z`);
+    const started = await begin(plan);
+    // The v1 plan an earlier release froze for this attempt.
+    await prisma.sourceImportRun.update({
+      where: { id: started.attempt.attemptId },
+      data: {
+        parserVersion: 'wing-traffic-v1',
+        plan: {
+          sourceType: 'coupang_wing_traffic',
+          parserVersion: 'wing-traffic-v1',
+          channelAccountId: accountId,
+          expectedAdvertiserId: 'VENDOR-A',
+          startDate: plan.startDate,
+          endDate: plan.endDate,
+          businessDate: plan.endDate,
+          periodDays: 1,
+          targetUrl: plan.url,
+        },
+      },
+    });
+    // The item-winner source observed the listing's state three times that day.
+    const itemWinnerRun = await prisma.channelScrapeRun.create({
+      data: {
+        organizationId: ORG,
+        channelAccountId: accountId,
+        channel: 'coupang',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate,
+      },
+    });
+    const itemWinnerSnapshot = await prisma.channelScrapeSnapshot.create({
+      data: {
+        organizationId: ORG,
+        scrapeRunId: itemWinnerRun.id,
+        channel: 'coupang',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate,
+        observedAt: itemWinnerObservedAt,
+        externalId: 'EXT-TRAFFIC',
+        listingId,
+        matchStatus: 'matched_listing_only',
+        rawJson: { externalId: 'EXT-TRAFFIC' },
+      },
+    });
+    await prisma.channelListingDailySnapshot.update({
+      where: { organizationId_listingId_businessDate: { organizationId: ORG, listingId, businessDate } },
+      data: {
+        isOfferWinner: true,
+        sampleCount: 3,
+        lastObservedAt: itemWinnerObservedAt,
+        rawSnapshotId: itemWinnerSnapshot.id,
+      },
+    });
+
+    await upload(started.attempt, 0, {
+      key: `${started.attempt.attemptId}:page:1`,
+      capturedAt: `${plan.startDate}T01:00:00.000Z`,
+      url: plan.url,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      period: 1,
+      pageIndex: 1,
+      proof: {
+        expectedPages: 1,
+        visitedPages: [1],
+        terminalPageObserved: true,
+        verified: true,
+        complete: true,
+      },
+      data: [row('1001', { visitors: 7, views: 8, cartAdds: 2, orders: 1, salesQty: 2, revenue: 70 })],
+    }).expect(200);
+    await complete(started.attempt, 201);
+
+    await expect(prisma.channelListingDailySnapshot.findUniqueOrThrow({
+      where: { organizationId_listingId_businessDate: { organizationId: ORG, listingId, businessDate } },
+    })).resolves.toMatchObject({
+      trafficViews: 8,
+      trafficRevenue: 70,
+      trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
+      isOfferWinner: true,
+      sampleCount: 3,
+      lastObservedAt: itemWinnerObservedAt,
+      rawSnapshotId: itemWinnerSnapshot.id,
+    });
   });
 
   it('reads a seeded v1 period as exact legacy evidence without treating it as a daily READY source', async () => {

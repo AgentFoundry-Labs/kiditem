@@ -42,7 +42,11 @@ the nearest scoped guide owns route-specific composition.
   from outside a mounted control (collect-all, the auto-detect loop) calls
   `startCollectionSource`, which runs that source's own start mutation, so
   every mounted control shows the start and a source already collecting
-  answers as running.
+  answers as running. A screen that mounts the control for many sources, or
+  adds any polling, states its worst-case requests per minute per tab in the
+  design note and the review prompt, against the API throttler budget —
+  `API_THROTTLE_LIMIT_PER_MINUTE`, 600 requests per minute per client by
+  default — and reads one screen-level list instead of one status per card.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a

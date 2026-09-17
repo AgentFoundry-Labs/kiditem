@@ -23,8 +23,13 @@ import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-ke
 import { businessDateKey } from '../../../../common/kst';
 import {
   ORDER_COLLECTION_MALLS,
+  ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
+  findOrderCollectionMall,
+  orderCollectionMallAccountChannels,
+  orderCollectionMallAccountFilter,
+  pickOrderCollectionMallAccounts,
   type OrderCollectionMallKey,
-} from '../../../services/order-collection-mall-account.service';
+} from '../../../domain/order-collection-malls';
 import type {
   OrderCollectionArtifact,
   OrderCollectionAttempt,
@@ -59,8 +64,11 @@ type ArtifactRow = Prisma.OrderCollectionArtifactGetPayload<{ select: typeof ART
 /** 상태 한 칸을 짓는 데 필요한 행들. 몰 하나짜리 읽기와 화면 목록이 같은 것을 고른다. */
 type StatusRuns = {
   running: Pick<SourceRun, 'id' | 'plan' | 'createdAt' | 'expiresAt'> | null;
-  lastComplete: SourceRun | null;
-  lastRow: SourceRun | null;
+  lastComplete: Pick<SourceRun, 'id' | 'importedAt' | 'publicationSequence'> | null;
+  lastRow: Pick<
+    SourceRun,
+    'id' | 'status' | 'expiresAt' | 'errorCode' | 'errorMessage' | 'importedAt' | 'updatedAt'
+  > | null;
 };
 
 /**
@@ -73,6 +81,26 @@ const RUNNING_SELECT = {
   plan: true,
   createdAt: true,
   expiresAt: true,
+} as const;
+
+/** 마지막 완료분 칸이 쓰는 열만. */
+const LAST_COMPLETE_SELECT = {
+  id: true,
+  channelAccountId: true,
+  importedAt: true,
+  publicationSequence: true,
+} as const;
+
+/** 마지막 시도 칸이 쓰는 열만 — 상태 · 임대 · 실패 이유 · 끝난 시각. */
+const LAST_ROW_SELECT = {
+  id: true,
+  channelAccountId: true,
+  status: true,
+  expiresAt: true,
+  errorCode: true,
+  errorMessage: true,
+  importedAt: true,
+  updatedAt: true,
 } as const;
 
 const NO_STATUS_RUNS: StatusRuns = { running: null, lastComplete: null, lastRow: null };
@@ -235,16 +263,29 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         channelAccountId: account.id,
       } as const;
 
+      // 목록 읽기와 같은 규칙으로 좁힌다(KID-216). 임대가 지난 RUNNING 행은 아무도
+      // 돌리고 있지 않으므로 DB 가 거르고, 칸을 짓는 데 쓰는 열만 읽는다 — 이 조회는
+      // 카드마다 2초로 돌고 `plan` JSONB 는 seenRowKeys 수천 개를 담을 수 있다.
       return sourceStatusView(account, {
-        running: (await tx.sourceImportRun.findMany({
-          where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+        running: await tx.sourceImportRun.findFirst({
+          where: {
+            ...scope,
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
+            expiresAt: { gt: new Date() },
+          },
           orderBy: [...LATEST_FIRST],
-        })).find((row) => !expired(row)) ?? null,
+          select: RUNNING_SELECT,
+        }),
         lastComplete: await tx.sourceImportRun.findFirst({
           where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           orderBy: [{ importedAt: 'desc' }, ...LATEST_FIRST],
+          select: LAST_COMPLETE_SELECT,
         }),
-        lastRow: await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...LATEST_FIRST] }),
+        lastRow: await tx.sourceImportRun.findFirst({
+          where: scope,
+          orderBy: [...LATEST_FIRST],
+          select: LAST_ROW_SELECT,
+        }),
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
@@ -259,21 +300,25 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]> {
     return this.prisma.$transaction(async (tx) => {
+      const { own, shared } = orderCollectionMallAccountChannels();
       const accounts = await tx.channelAccount.findMany({
         where: {
           organizationId: input.organizationId,
-          channel: 'order_collection',
-          externalAccountId: { in: ORDER_COLLECTION_MALLS.map((mall) => mall.key) },
+          OR: [
+            { channel: { in: own }, externalAccountId: { in: own } },
+            { channel: { in: shared } },
+          ],
         },
-        select: { id: true, externalAccountId: true },
+        orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
+        select: { id: true, channel: true, externalAccountId: true },
       });
       const accountByMallKey = new Map(
-        accounts.map((account) => [account.externalAccountId, account.id]),
+        [...pickOrderCollectionMallAccounts(accounts)].map(([mallKey, account]) => [mallKey, account.id]),
       );
       const runs = await this.findStatusRuns(
         tx,
         input.organizationId,
-        accounts.map((account) => account.id),
+        [...new Set(accountByMallKey.values())],
       );
 
       return ORDER_COLLECTION_MALLS.map((mall) => {
@@ -334,6 +379,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
       orderBy: [...perAccount, { importedAt: 'desc' }, ...LATEST_FIRST],
       distinct: ['channelAccountId'],
+      select: LAST_COMPLETE_SELECT,
     })) {
       const current = runs(row.channelAccountId);
       if (current) current.lastComplete = row;
@@ -342,6 +388,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       where: scope,
       orderBy: [...perAccount, ...LATEST_FIRST],
       distinct: ['channelAccountId'],
+      select: LAST_ROW_SELECT,
     })) {
       const current = runs(row.channelAccountId);
       if (current) current.lastRow = row;
@@ -542,20 +589,23 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     };
   }
 
-  /** 몰 계정 식별. 시작 경로와 같은 조회라 모르는 몰은 같은 오류로 끝난다. */
+  /**
+   * 몰 계정 식별(ADR-0012: 몰 하나 = 계정 행 하나). 시작 경로와 같은 조회라 모르는 몰과
+   * 계정 행이 없는 몰은 같은 오류로 끝난다.
+   */
   private async findMallAccount(tx: Tx, organizationId: string, mallKey: string): Promise<{
     id: string;
     mallKey: OrderCollectionMallKey;
     mallName: string;
   }> {
+    const mall = findOrderCollectionMall(mallKey);
+    if (!mall) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
     const account = await tx.channelAccount.findFirst({
-      where: { organizationId, channel: 'order_collection', externalAccountId: mallKey },
-      select: { id: true, externalAccountId: true },
+      where: { organizationId, ...orderCollectionMallAccountFilter(mall) },
+      orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
+      select: { id: true },
     });
-    if (!account || !account.externalAccountId) {
-      throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
-    }
-    const mall = mallByKey(account.externalAccountId);
+    if (!account) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
     return { id: account.id, mallKey: mall.key, mallName: mall.name };
   }
 
@@ -629,12 +679,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${organizationId}:${SOURCE_TYPE}`}, 0))::text AS lock
       FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant WHERE organization_id = ${organizationId}::uuid`;
   }
-}
-
-function mallByKey(key: string): { key: OrderCollectionMallKey; name: string } {
-  const mall = ORDER_COLLECTION_MALLS.find((item) => item.key === key);
-  if (!mall) throw new BadRequestException('ORDER_COLLECTION_MALL_UNSUPPORTED');
-  return mall;
 }
 
 function readPlan(value: Prisma.JsonValue | null): OrderCollectionPlan {
@@ -757,7 +801,10 @@ function sourceStatusView(
  * 시도가 끝난 시각. 완료분은 발행 시각, 실패는 마지막 기록 시각이고, 아직 RUNNING인
  * 채로 임대만 지난 행은 그 임대가 끝난 시각이다.
  */
-function endedAt(row: SourceRun, state: 'RUNNING' | 'COMPLETE' | 'FAILED'): string | null {
+function endedAt(
+  row: Pick<SourceRun, 'status' | 'expiresAt' | 'importedAt' | 'updatedAt'>,
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED',
+): string | null {
   if (state === 'RUNNING') return null;
   if (row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) return row.expiresAt?.toISOString() ?? null;
   return (row.importedAt ?? row.updatedAt).toISOString();

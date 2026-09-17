@@ -247,6 +247,26 @@ describe('collection source-status query rule', () => {
     expect(toast.error).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * KID-186. 수집은 다른 탭에서 시작되고 끝난다. 탭마다 캐시가 따로이고 배경 탭은 폴링도
+   * 쉬므로, 돌아와 창을 다시 보는 순간 상태를 읽지 않으면 끝난 수집이 '수집 중'으로 남는다.
+   */
+  it('re-reads the status when the operator comes back to the tab', () => {
+    const options = collectionSourceStatusQueryOptions({ queryKey, queryFn: async () => running });
+
+    expect(options.refetchOnWindowFocus).toBe(true);
+  });
+
+  it('lets a caller keep its own focus rule', () => {
+    const options = collectionSourceStatusQueryOptions({
+      queryKey,
+      queryFn: async () => running,
+      refetchOnWindowFocus: false,
+    });
+
+    expect(options.refetchOnWindowFocus).toBe(false);
+  });
+
   it.each([
     ['loading', { data: undefined, isError: false }],
     ['unavailable', { data: undefined, isError: true }],

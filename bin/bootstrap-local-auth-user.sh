@@ -20,7 +20,8 @@ Usage: npm run dev:bootstrap-user -- [--email EMAIL] [--name NAME]
        [--organization-name NAME] [--organization-slug SLUG]
 
 Creates or refreshes one local-only User, Organization, active membership, and
-password. Password input is interactive and never enters argv or an env file.
+password, and installs the organization's absolute ABC formula when it has
+none. Password input is interactive and never enters argv or an env file.
 EOF
 }
 

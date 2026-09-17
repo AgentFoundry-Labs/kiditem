@@ -37,6 +37,7 @@ import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/rep
 import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import { productAbcDisplayStatus } from '@kiditem/shared/product-abc';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -1203,7 +1204,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     }
   });
 
-  it('requires full declared traffic coverage and keeps sales separate from Wing traffic', async () => {
+  it('keeps sales separate from Wing traffic while views and cart adds follow the covered days', async () => {
     const withoutFacts = await service.createProduct(
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
@@ -1319,19 +1320,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       adSpend: null,
       abcEvaluation: null,
     });
+    // Wing confirmed only yesterday, so views and cart adds sum that one day.
     expect(byId.get(withFacts.id)).toMatchObject({
       channelCount: 1,
       traffic: null,
       visitorCount: null,
-      viewCount: null,
-      cartAddCount: null,
+      viewCount: 20,
+      cartAddCount: 2,
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
       adSpend: null,
-      metricsFreshness: { traffic: { ready: false } },
       abcEvaluation: null,
     });
+    expect(periodBasisStatus(byId.get(withFacts.id)!.metricsFreshness.traffic.basis)).toBe('partial');
     expect(page.summary.negativeProfitCount).toBe(0);
 
     const dates = Array.from(
@@ -1358,76 +1360,120 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       viewCount: null,
       cartAddCount: null,
     });
-    expect(measured.items.find(({ id }) => id === withFacts.id)).toMatchObject({
+    const measuredWithFacts = measured.items.find(({ id }) => id === withFacts.id);
+    expect(measuredWithFacts).toMatchObject({
       visitorCount: null,
       viewCount: 20,
       cartAddCount: 2,
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
-      metricsFreshness: { traffic: { ready: true }, orders: { ready: false } },
+      metricsFreshness: { orders: { ready: false } },
     });
+    expect(periodBasisStatus(measuredWithFacts!.metricsFreshness.traffic.basis)).toBe('complete');
   });
 
-  it('withholds product traffic totals when the selected window has missing owner coverage', async () => {
-    const product = await service.createProduct(
-      TEST_ORGANIZATION_ID,
-      TEST_USER_ID,
-      { code: 'KI-TRAFFIC-PARTIAL-WINDOW', name: 'Partial traffic window' },
-    );
-    const account = await prisma.channelAccount.create({
+  it('sums views and cart adds over the covered days of a partial window while orders keep the whole window', async () => {
+    const { product, listings } = await productWithWingListings('KI-TRAFFIC-PARTIAL-WINDOW', 1);
+    const listing = listings[0]!;
+    const option = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Partial traffic window Wing',
+        listingId: listing.id,
+        externalOptionId: 'KI-TRAFFIC-PARTIAL-WINDOW-O-1',
       },
     });
-    const listing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        masterProductId: product.id,
-        externalId: 'TRAFFIC-PARTIAL-WINDOW',
-        createdAt: CATALOG_SEEDED_AT,
-      },
-    });
-    const cutoff = productAbcEvidenceCutoff(new Date());
-    const periodStartDate = new Date(`${cutoff}T00:00:00.000Z`);
-    periodStartDate.setUTCDate(periodStartDate.getUTCDate() - 6);
-    const periodStart = periodStartDate.toISOString().slice(0, 10);
-    const observedAt = new Date(`${cutoff}T02:00:00.000Z`);
+    const dates = closedWindowDates(14);
+    // Wing confirmed every day of the window except yesterday.
+    const coveredDates = dates.slice(0, 13);
+    const capturedAt = new Date(`${dates[13]}T02:00:00.000Z`);
     const attempt = await prisma.sourceImportRun.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
+        channelAccountId: listing.channelAccountId,
         sourceType: 'coupang_wing_traffic',
         status: 'completed',
         freshnessGeneration: 1n,
         providerBackedEmptyProof: false,
-        qualityReport: { confirmedDates: [cutoff] },
-        importedAt: observedAt,
+        qualityReport: { confirmedDates: coveredDates },
+        importedAt: capturedAt,
       },
     });
-    await prisma.channelListingDailySnapshot.create({
-      data: {
+    await prisma.channelListingDailySnapshot.createMany({
+      data: coveredDates.map((date) => ({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         channel: 'coupang',
         externalId: listing.externalId,
-        businessDate: new Date(`${cutoff}T00:00:00.000Z`),
-        trafficViews: 20,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficViews: 7,
         trafficCartAdds: 2,
-        trafficOrders: 3,
-        trafficSalesQty: 4,
-        trafficRevenue: 40_000,
-        trafficObservedAt: observedAt,
-        lastObservedAt: observedAt,
+        trafficObservedAt: capturedAt,
         metaJson: {
           'traffic.currentSource': 'wing.traffic',
-          'wing.traffic': { sourceAttemptId: attempt.id },
+          'wing.traffic': { sourceAttemptId: attempt.id, businessDate: date },
         },
+      })),
+    });
+    // Orders cover the same thirteen days and hold one sale inside them.
+    const order = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'TRAFFIC-PARTIAL-WINDOW-ORDER',
+      orderedAt: kstDayStart(new Date(`${coveredDates[5]}T00:00:00.000Z`)).toISOString(),
+      lineItems: [{
+        quantity: 1,
+        totalPrice: 3_000,
+        optionId: 'option',
+        listingOptionId: option.id,
+      }],
+    });
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: coveredDates[0]!,
+      endDate: coveredDates[12]!,
+      orderIds: [order],
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 14,
+      activeStatus: 'all',
+    });
+
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
+      visitorCount: null,
+      viewCount: 91,
+      cartAddCount: 26,
+      orderCount: null,
+      salesQuantity: null,
+      salesAmount: null,
+      metricsFreshness: { orders: { ready: false } },
+    });
+    // Traffic freshness is the capture time and the basis, with nothing derived from them.
+    expect(item?.metricsFreshness.traffic).toEqual({
+      capturedAt,
+      basis: {
+        kind: 'period',
+        from: dates[0],
+        to: dates[13],
+        targetDays: 14,
+        includedDates: coveredDates,
+        invalidDates: [],
+        sources: ['wing_traffic'],
       },
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('partial');
+  });
+
+  it('keeps views and cart adds unmeasured when no day of the window is covered', async () => {
+    const { product, listings } = await productWithWingListings('KI-TRAFFIC-NO-COVERED-DAY', 2);
+    const dates = closedWindowDates(7);
+    const refusedDate = dates[6]!;
+    // One of the product's two listings has an uploaded row, so the reader
+    // refuses the date instead of counting it as collected.
+    await seedCsvTraffic(listings[0]!, [refusedDate], { visitors: 9, views: 50, cartAdds: 5 });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -1436,21 +1482,52 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       activeStatus: 'all',
     });
 
-    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
+      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
-      orderCount: null,
-      salesQuantity: null,
-      salesAmount: null,
-      metricsFreshness: {
-        traffic: {
-          ready: false,
-          coverageStartDate: periodStart,
-          coverageEndDate: cutoff,
-          capturedAt: observedAt,
-        },
-      },
     });
+    expect(item?.metricsFreshness.traffic.basis).toEqual({
+      kind: 'period',
+      from: dates[0],
+      to: refusedDate,
+      targetDays: 7,
+      includedDates: [],
+      invalidDates: [refusedDate],
+      sources: ['wing_traffic'],
+    });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('empty');
+  });
+
+  it('leaves rows on a refused traffic date out of views and cart adds', async () => {
+    const { product, listings } = await productWithWingListings('KI-TRAFFIC-REFUSED-DATE', 2);
+    const dates = closedWindowDates(7);
+    const coveredDates = dates.slice(0, 6);
+    const refusedDate = dates[6]!;
+    // Both listings uploaded the first six days. Yesterday only the first one
+    // did, so the reader refuses yesterday but still returns that row.
+    await seedCsvTraffic(listings[0]!, dates, { visitors: 3, views: 5, cartAdds: 1 });
+    await seedCsvTraffic(listings[1]!, coveredDates, { visitors: 1, views: 2, cartAdds: 1 });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+    });
+
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
+      visitorCount: null,
+      viewCount: 42,
+      cartAddCount: 12,
+    });
+    expect(item?.metricsFreshness.traffic.basis).toMatchObject({
+      includedDates: coveredDates,
+      invalidDates: [refusedDate],
+    });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('partial');
   });
 
   it('keeps product traffic unmeasured when its listing has no row in a covered window', async () => {
@@ -1504,7 +1581,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     // Only the traffic owner's zero row makes an omitted listing a measured 0.
-    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
       visitorCount: null,
       viewCount: null,
       cartAddCount: null,
@@ -1512,15 +1590,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: null,
       metricsFreshness: {
-        traffic: {
-          ready: true,
-          coverageStartDate: confirmedDates[0],
-          coverageEndDate: cutoff,
-          capturedAt,
-        },
+        traffic: { capturedAt, basis: { from: confirmedDates[0], to: cutoff } },
         orders: { ready: false },
       },
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('complete');
   });
 
   it('publishes the traffic owner zero rows of a covered window as measured zero', async () => {
@@ -1583,12 +1657,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       activeStatus: 'all',
     });
 
-    expect(page.items.find((item) => item.id === product.id)).toMatchObject({
+    const item = page.items.find(({ id }) => id === product.id);
+    expect(item).toMatchObject({
       visitorCount: null,
       viewCount: 0,
       cartAddCount: 0,
-      metricsFreshness: { traffic: { ready: true } },
     });
+    expect(periodBasisStatus(item!.metricsFreshness.traffic.basis)).toBe('complete');
   });
 
   it('keeps a missing traffic date distinct from measured zero in the public data status', async () => {
@@ -1999,6 +2074,56 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         },
       })));
     return { product, listing, options };
+  }
+
+  /** A product sold through `listingCount` active listings of one Wing account. */
+  async function productWithWingListings(code: string, listingCount: number) {
+    const product = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code, name: code },
+    });
+    const account = await prisma.channelAccount.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: `${code} Wing` },
+    });
+    const listings = await Promise.all(Array.from({ length: listingCount }, (_, index) =>
+      prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: account.id,
+          masterProductId: product.id,
+          externalId: `${code}-P-${index + 1}`,
+          createdAt: CATALOG_SEEDED_AT,
+        },
+      })));
+    return { product, account, listings };
+  }
+
+  /** One uploaded traffic row per date for one listing. */
+  function seedCsvTraffic(
+    listing: { id: string; externalId: string },
+    dates: readonly string[],
+    metrics: { visitors: number; views: number; cartAdds: number },
+  ) {
+    return prisma.channelListingDailySnapshot.createMany({
+      data: dates.map((date) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date(`${date}T00:00:00.000Z`),
+        trafficVisitors: metrics.visitors,
+        trafficViews: metrics.views,
+        trafficCartAdds: metrics.cartAdds,
+        trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
+        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      })),
+    });
+  }
+
+  /** The last `days` closed KST business dates, oldest first, ending at the evidence cutoff. */
+  function closedWindowDates(days: number): string[] {
+    const cutoff = new Date(`${productAbcEvidenceCutoff(new Date())}T00:00:00.000Z`);
+    return Array.from({ length: days }, (_, index) =>
+      businessDateKey(addDays(cutoff, index - (days - 1))));
   }
 
   function inventorySku(

@@ -669,6 +669,7 @@ function assertBeginInput(input: BeginSourcingBrowserSourceAttemptInput): void {
 
 async function databaseClock(tx: Transaction): Promise<Date> {
   const rows = await tx.$queryRaw<Array<{ now: Date }>>`
+    -- queryraw-tenancy-exempt: database clock only; reads no table or tenant row.
     SELECT clock_timestamp() AS "now"
   `;
   return rows[0].now;

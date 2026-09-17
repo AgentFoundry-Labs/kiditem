@@ -83,6 +83,8 @@ const basicInfo: ProductBasics = {
   selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
   selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
   selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
+  mallRegisterValues: { '11st': { categoryPath: '문구>팬시' } },
+  mallRegisterShared: { certNumber: 'CB123R456-7001' },
 };
 
 function renderWithQueryClient(ui: React.ReactElement) {
@@ -183,6 +185,9 @@ describe('ProductEditHeader preparation draft action', () => {
     ));
     const request = createPreparationDraftMock.mock.calls[0]?.[1];
     expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
+    // 몰 등록 값은 후보에만 산다 — 준비로 복사하지 않는다.
+    expect(request?.registrationInput).not.toHaveProperty('mallRegisterValues');
+    expect(request?.registrationInput).not.toHaveProperty('mallRegisterShared');
     expect(request).not.toHaveProperty('options');
     expect(request).not.toHaveProperty('skipPostPromotionHooks');
     expect(request).not.toHaveProperty('masterId');

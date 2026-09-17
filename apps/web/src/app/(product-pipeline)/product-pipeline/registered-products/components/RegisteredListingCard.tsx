@@ -119,5 +119,7 @@ export function channelDisplayName(channel: string): string {
   if (key === 'naver' || key === 'smartstore') return '스마트스토어';
   if (key === '11st') return '11번가';
   if (key === 'esm' || key === 'esmplus') return 'ESM Plus';
+  // 쿠팡 로켓은 WING(`coupang`)과 별개 채널이다. 합치면 사입/로켓 매출이 섞인다.
+  if (key === 'rocket') return '쿠팡 로켓';
   return channel;
 }

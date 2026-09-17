@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
@@ -129,6 +130,28 @@ describe('ProductRowCard', () => {
     expect(screen.getAllByText('미수집')).not.toHaveLength(0);
     expect(screen.queryByText('품절')).not.toBeInTheDocument();
   });
+
+  it('leaves the partial-period caption to the product list', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      viewCount: 91,
+      cartAddCount: 26,
+      metricsFreshness: {
+        ...product().metricsFreshness,
+        traffic: {
+          capturedAt: '2026-09-15T00:00:00.000Z',
+          basis: buildPeriodBasis({
+            from: '2026-09-01',
+            to: '2026-09-14',
+            includedDates: enumerateDashboardDates('2026-09-01', '2026-09-13'),
+            sources: ['wing_traffic'],
+          }),
+        },
+      },
+    }} />);
+
+    expect(screen.queryByText(/부분/)).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsListItem {
@@ -207,10 +230,13 @@ function product(): MasterProductOperationsListItem {
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
-        ready: true,
-        coverageStartDate: '2026-07-01',
-        coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
+        basis: buildPeriodBasis({
+          from: '2026-07-01',
+          to: '2026-07-31',
+          includedDates: enumerateDashboardDates('2026-07-01', '2026-07-31'),
+          sources: ['wing_traffic'],
+        }),
       },
       advertising: {
         ready: true,

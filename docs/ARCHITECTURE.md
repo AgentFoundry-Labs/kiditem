@@ -331,7 +331,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -373,7 +373,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
-| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. |
+| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
 | `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
@@ -540,13 +540,15 @@ Kinds:
 |---|---|---|
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
+| `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신(사이드바 '쇼핑몰 에이전트'). `/mall-home`(쇼핑몰 에이전트 홈 — 대시보드 3 : 쇼핑몰 알림판 1(몰별 상태 높이까지), 몰별 로그인 상태(확장이 조용히 확인), 그 아래 에이전트 파이프라인과 단계별 일 · 미션), `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
 | `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
-| `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
+| `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, `/mall-settings`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/decision-center` (초기 진입 추천 표: 1688 신상품·키워드 트렌드·쿠팡 경쟁상품·쿠팡 급상승을 합쳐 상품을 직접 추천하고, 관심 키워드로 분류하며, 자사 데이터 RAG 어시스턴트를 곁들인다), `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
+| `apps/web/src/app/agent-org` | App Internal | Fullscreen dark `/agent-org` (Agent Org, linked from the workspace hub) in the former Agent OS frame: the pipeline canvas in the center with a floating agents list on the left (selecting an agent focuses its group), live activity (attention inbox + feed) on the right, and a bottom summary of agent health, monthly sales/profit/ROAS/CTR (same dashboard sales/ad queries), and open alerts. The canvas draws the sourcing-to-CS pipeline as one top-down architecture diagram whose stages are framed and colored by the owning agent (analysis, sourcing, owner confirm, product, mall, order, inventory, CS, and marketing with planned ads, reels, and blog stages), with external-service brand marks (`lib/brand-marks.ts`, Simple Icons paths), the marketplace box on the center axis, routed connectors, Sellpia/Telegram system boxes, oversight and memory panels, and canvas zoom and pan; coordinates in `lib/pipe-diagram-layout.ts` plus a root-cause attention inbox and a live feed. Reads the shared alert query (`/api/alerts`, polled every ten seconds), mall operation outcomes, Sellpia freshness, dashboard sales/ad summaries, and the sourcing confirm-report status; `lib/pipe-stages.ts` maps them to stages and a stage with no source says why instead of showing a number. Its only write is the person-pressed "지금 보고 보내기" Telegram confirm report. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
 | `apps/web/src/app/login` | Route Leaf | Login route. |
@@ -1065,9 +1067,13 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 ## Data And Tenant Rules
 
 - Prisma schema source of truth lives under `prisma/models/`.
-- Prisma schema is the only DB schema source of truth. `prisma db push`
-  should be sufficient after schema edits; do not add SQL overlays for RLS,
-  CHECK constraints, expression indexes, or standalone sequences.
+- Prisma schema is the only DB schema source of truth. After schema edits,
+  `prisma db push` and a post-schema `data:migrate -- up` bring a database
+  current. A database object Prisma cannot declare needs the owner that
+  [prisma/CLAUDE.md](../prisma/CLAUDE.md#indexes-and-database-objects)
+  requires. The only one is `source_import_runs_status_check`. Its owner is the
+  `ensure:source_import_run_status_check` step, which re-applies it on every
+  post-schema run ([ensure steps](../scripts/data-migrations/README.md#ensure-steps)).
 - NestJS uses the owner DB role and must pass `organizationId` explicitly from
   `@CurrentOrganization()` into tenant-owned reads and writes.
 - Chatbot/agent processes do not receive DB URLs. Business data reaches agents

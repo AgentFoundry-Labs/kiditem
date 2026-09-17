@@ -1,5 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildPeriodBasis,
+  enumerateDashboardDates,
+  type DashboardPeriodBasis,
+} from '@kiditem/shared/dashboard';
 import ProductsPageContent from './ProductsPageContent';
 import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
 
@@ -80,7 +85,18 @@ const state = vi.hoisted(() => ({
       adSpendRate: null,
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: {
+          capturedAt: null,
+          basis: {
+            kind: 'period' as const,
+            from: '2026-07-10',
+            to: '2026-07-16',
+            targetDays: 7,
+            includedDates: [],
+            invalidDates: [],
+            sources: ['wing_traffic'],
+          },
+        },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     }],
@@ -370,4 +386,71 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('상품 목록 실패')).toBeInTheDocument();
     expect(screen.queryByText('조건에 맞는 KidItem 상품이 없습니다.')).not.toBeInTheDocument();
   });
+
+  describe('partial Wing traffic period', () => {
+    afterEach(() => {
+      state.isPlaceholderData = false;
+    });
+
+    it('says once for the whole list that views and cart adds cover only part of the period', () => {
+      state.data = listWithTrafficBasis(trafficBasis(13));
+
+      render(<ProductsPageContent headingLevel={1} />);
+
+      expect(screen.getAllByText('조회·장바구니 부분 13/14일')).toHaveLength(1);
+    });
+
+    it.each<[string, () => void]>([
+      ['every day is covered', () => {
+        state.data = listWithTrafficBasis(trafficBasis(14));
+      }],
+      ['no day is covered', () => {
+        state.data = listWithTrafficBasis(trafficBasis(0));
+      }],
+      ['the list has no rows', () => {
+        state.data = { ...defaultData, items: [], total: 0 };
+      }],
+      ['the list failed to load', () => {
+        state.data = listWithTrafficBasis(trafficBasis(13));
+        state.errorMessage = '상품 목록 실패';
+      }],
+      ['the list is refreshing for new conditions', () => {
+        state.data = listWithTrafficBasis(trafficBasis(13));
+        state.isPlaceholderData = true;
+      }],
+    ])('shows no period caption when %s', (_case, arrange) => {
+      arrange();
+
+      render(<ProductsPageContent headingLevel={1} />);
+
+      expect(screen.queryByText(/조회·장바구니 부분/)).not.toBeInTheDocument();
+    });
+  });
 });
+
+/** A 14-day Wing traffic basis whose first `coveredDays` days were collected. */
+function trafficBasis(coveredDays: number): DashboardPeriodBasis {
+  return buildPeriodBasis({
+    from: '2026-09-01',
+    to: '2026-09-14',
+    includedDates: enumerateDashboardDates('2026-09-01', '2026-09-14').slice(0, coveredDays),
+    sources: ['wing_traffic'],
+  });
+}
+
+/** Two rows read over one query window, so both carry the same traffic basis. */
+function listWithTrafficBasis(basis: DashboardPeriodBasis): MasterProductOperationsListResponse {
+  const row = defaultData.items[0]!;
+  return {
+    ...defaultData,
+    items: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'].map((id, index) => ({
+      ...row,
+      id,
+      name: `스테이지 상품 ${index + 1}`,
+      metricsFreshness: {
+        ...row.metricsFreshness,
+        traffic: { capturedAt: '2026-09-15T00:00:00.000Z', basis },
+      },
+    })),
+  };
+}

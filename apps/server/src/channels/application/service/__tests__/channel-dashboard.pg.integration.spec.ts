@@ -71,7 +71,7 @@ describe('Channel dashboard (PG integration)', () => {
         {
           id: ORDER_COLLECTION_ACCOUNT_ID,
           organizationId: TEST_ORGANIZATION_ID,
-          channel: 'order_collection',
+          channel: 'haebub-mall',
           name: 'Dashboard order source',
           externalAccountId: 'haebub-mall',
           status: 'active',

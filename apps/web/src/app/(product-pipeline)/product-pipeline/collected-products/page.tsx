@@ -21,6 +21,11 @@ import {
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { GenerationProgressBannerStack } from '../_shared/components/workspace/GenerationProgressBanner';
+import {
+  KIDSNOTE_CATEGORY_PRESET,
+  KIDSNOTE_DEFAULT_CATEGORY,
+  type KidsnoteCategoryKey,
+} from '../_shared/lib/kidsnote-registration-form';
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
@@ -41,11 +46,14 @@ import {
   generateWingExcelForCandidates,
   isConfirmedWingRegistration,
   submitWingRegistration,
+  translateWingError,
   waitForRegisteredListing,
   type WingRegistrationDraft,
   type WingRegistrationOverrides,
   type WingSellpiaSelection,
 } from './lib/wing-registration-flow';
+import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
+import { useMallQuickRegister } from './hooks/useMallQuickRegister';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -105,6 +113,12 @@ export default function SourcingPage() {
   const { processingIds } = useProcessingIds(products);
   const quickProcessTargetIdSet = new Set(quickProcessTargetIds);
   const quickProcessTargetProducts = products.filter((product) => quickProcessTargetIdSet.has(product.id));
+  // 몰별 등록은 어댑터 레지스트리가 그린다. 값은 상품 상세에 저장된 것을 읽는다 —
+  // 모달은 값을 묻지 않고 버튼만 세운다.
+  const mallRegister = useMallQuickRegister({
+    candidateId: quickProcessTargetIds[0] ?? null,
+    enabled: quickProcessModalOpen,
+  });
   const displayedProcessingIds = new Set([...processingIds, ...quickProcessingIds]);
 
   const deleteMutation = useMutation({
@@ -238,7 +252,7 @@ export default function SourcingPage() {
   };
 
   const wingErrorMessage = (err: unknown, fallback: string): string =>
-    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
+    translateWingError(isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback);
 
   // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
   //
@@ -501,6 +515,12 @@ export default function SourcingPage() {
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
         onWingRegister={handleModalWingRegister}
+        mallRegister={mallRegister}
+        mallDetailHref={
+          quickProcessTargetIds[0]
+            ? collectedProductDetailHref(quickProcessTargetIds[0])
+            : null
+        }
       />
 
       <WingRegistrationConfirmDialog
@@ -529,6 +549,8 @@ function QuickProcessSelectedDialog({
   onClose,
   onConfirm,
   onWingRegister,
+  mallRegister,
+  mallDetailHref,
 }: {
   open: boolean;
   targetCount: number;
@@ -539,6 +561,8 @@ function QuickProcessSelectedDialog({
   onClose: () => void;
   onConfirm: (task: QuickProcessTask) => void;
   onWingRegister: () => void;
+  mallRegister: ReturnType<typeof useMallQuickRegister>;
+  mallDetailHref: string | null;
 }) {
   if (!open) return null;
   const previewProducts = targetProducts.slice(0, 6);
@@ -547,106 +571,122 @@ function QuickProcessSelectedDialog({
 
   return (
     <div role="dialog" aria-modal="true" aria-label="선택 상품 AI 간편 처리" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+      {/* 몰 줄이 열여덟이라 내용이 창보다 길다. 창 높이를 넘지 않게 두고 머리만 남긴 채
+          본문을 스크롤한다. 폭을 넓혀 몰마다 이유가 두세 줄로 접히지 않게 한다. */}
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 pb-4 pt-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
               <Wand2 size={18} />
             </div>
-            <h2 className="mt-3 text-base font-black text-slate-900">선택 상품 AI 간편 처리</h2>
-            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-              이 카드 상품 또는 체크된 상품만 원하는 AI 작업으로 시작합니다.
-            </p>
+            <div className="min-w-0">
+              <h2 className="text-base font-black text-slate-900">선택 상품 AI 간편 처리</h2>
+              <p className="mt-0.5 text-sm font-semibold text-slate-500">
+                이 카드 상품 또는 체크된 상품만 원하는 AI 작업으로 시작합니다.
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
             aria-label="닫기"
           >
             <X size={16} />
           </button>
         </div>
 
-        {targetCount > 0 ? (
-          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-xs font-black text-slate-700">처리할 상품</p>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-violet-700 ring-1 ring-violet-100">
-                {targetCount}개
-              </span>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+          {targetCount > 0 ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-black text-slate-700">처리할 상품</p>
+                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-violet-700 ring-1 ring-violet-100">
+                  {targetCount}개
+                </span>
+              </div>
+              <div className="grid gap-2">
+                {previewProducts.map((product) => (
+                  <div key={product.id} className="flex min-w-0 items-center gap-2 rounded-md bg-white p-2 ring-1 ring-slate-100">
+                    {product.thumbnailUrl ? (
+                      <img src={product.thumbnailUrl} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                    ) : (
+                      <div className="h-9 w-9 shrink-0 rounded bg-slate-100" />
+                    )}
+                    <p className="truncate text-sm font-bold text-slate-800">{product.name}</p>
+                  </div>
+                ))}
+                {hiddenCount > 0 && (
+                  <p className="px-1 text-xs font-bold text-slate-500">외 {hiddenCount}개 상품</p>
+                )}
+              </div>
             </div>
-            <div className="grid gap-2">
-              {previewProducts.map((product) => (
-                <div key={product.id} className="flex min-w-0 items-center gap-2 rounded-md bg-white p-2 ring-1 ring-slate-100">
-                  {product.thumbnailUrl ? (
-                    <img src={product.thumbnailUrl} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
-                  ) : (
-                    <div className="h-9 w-9 shrink-0 rounded bg-slate-100" />
-                  )}
-                  <p className="truncate text-sm font-bold text-slate-800">{product.name}</p>
-                </div>
-              ))}
-              {hiddenCount > 0 && (
-                <p className="px-1 text-xs font-bold text-slate-500">외 {hiddenCount}개 상품</p>
-              )}
+          ) : (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+              <p className="text-sm font-bold text-slate-700">선택된 상품이 없습니다.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                카드의 AI 작업 선택 버튼을 다시 눌러 주세요.
+              </p>
             </div>
+          )}
+
+          <div className="mt-5 grid gap-2 sm:grid-cols-[1fr_1fr_1fr]">
+            <QuickProcessTaskButton
+              title="상세페이지 생성"
+              description="KIDITEM DESIGN 상세페이지"
+              disabled={!canSubmit}
+              isSubmitting={isSubmitting}
+              onClick={() => onConfirm('detail')}
+            />
+            <QuickProcessTaskButton
+              title="썸네일 생성"
+              description="대표 이미지 기준 썸네일"
+              disabled={!canSubmit}
+              isSubmitting={isSubmitting}
+              onClick={() => onConfirm('thumbnail')}
+            />
+            <QuickProcessTaskButton
+              title="둘 다 실행"
+              description="상세페이지 + 썸네일"
+              disabled={!canSubmit}
+              isSubmitting={isSubmitting}
+              onClick={() => onConfirm('all')}
+            />
           </div>
-        ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
-            <p className="text-sm font-bold text-slate-700">선택된 상품이 없습니다.</p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              카드의 AI 작업 선택 버튼을 다시 눌러 주세요.
-            </p>
+
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            {/* 쿠팡 WING 도 같은 줄로 선다. 예전에는 혼자 주황색 큰 버튼이었는데
+                실제로 다른 것은 마지막 확인 한 단계뿐이라, 그 사실만 줄 안에 적고
+                생김새는 나머지 몰과 같게 뒀다. */}
+            <MallQuickRegisterRows
+              readiness={mallRegister.readiness}
+              results={mallRegister.results}
+              runningMallKey={mallRegister.runningMallKey}
+              isLoading={mallRegister.isLoading}
+              disabled={targetCount === 0 || isSubmitting}
+              detailHref={mallDetailHref}
+              targetCount={targetCount}
+              wing={{
+                row: mallRegister.wingReadiness,
+                busy: wingRegistering,
+                busyLabel: wingRegisteringMessage ?? '등록 준비 중',
+                result: null,
+              }}
+              onRunOne={(mallKey) => {
+                if (mallKey === mallRegister.wingReadiness.mallKey) onWingRegister();
+                else void mallRegister.runMalls([mallKey]);
+              }}
+              onRunSelected={async (mallKeys) => {
+                // 폼 몰을 먼저 다 채우고 쿠팡을 마지막에 연다. 확인 창이 떠 있는 채로
+                // 뒤에서 탭이 열리면 사람이 어느 창을 보는지 알 수 없다.
+                const wingKey = mallRegister.wingReadiness.mallKey;
+                await mallRegister.runMalls(mallKeys.filter((key) => key !== wingKey));
+                if (mallKeys.includes(wingKey)) onWingRegister();
+              }}
+            />
           </div>
-        )}
-
-        <div className="mt-5 grid gap-2 sm:grid-cols-[1fr_1fr_1fr]">
-          <QuickProcessTaskButton
-            title="상세페이지 생성"
-            description="KIDITEM DESIGN 상세페이지"
-            disabled={!canSubmit}
-            isSubmitting={isSubmitting}
-            onClick={() => onConfirm('detail')}
-          />
-          <QuickProcessTaskButton
-            title="썸네일 생성"
-            description="대표 이미지 기준 썸네일"
-            disabled={!canSubmit}
-            isSubmitting={isSubmitting}
-            onClick={() => onConfirm('thumbnail')}
-          />
-          <QuickProcessTaskButton
-            title="둘 다 실행"
-            description="상세페이지 + 썸네일"
-            disabled={!canSubmit}
-            isSubmitting={isSubmitting}
-            onClick={() => onConfirm('all')}
-          />
         </div>
-
-        <div className="mt-3 border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            onClick={onWingRegister}
-            disabled={targetCount === 0 || isSubmitting || wingRegistering}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {wingRegistering ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Store size={15} />
-            )}
-            {wingRegistering
-              ? wingRegisteringMessage ?? '쿠팡 WING 등록 준비 중'
-              : '쿠팡 WING 상품 등록'}
-          </button>
-          <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-            고정 카테고리 확인 · WING 상품등록 페이지를 열어 직접 입력
-          </p>
-        </div>
-
       </div>
     </div>
   );
