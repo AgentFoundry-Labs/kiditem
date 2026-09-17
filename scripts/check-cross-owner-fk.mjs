@@ -107,7 +107,12 @@ export function classifyRelations({ edges, config, modelOwners }) {
   const overrides = config.owners ?? {};
   const scopeTargets = new Set(config.scopeTargets ?? []);
   const keptTargets = new Set(config.keptTargets ?? []);
-  const allowlist = new Set(config.allowlist ?? []);
+  // One entry covers one relation, so a second `@relation` between the same two
+  // models is a new cross-owner edge rather than a free ride on the first.
+  const remaining = new Map();
+  for (const key of config.allowlist ?? []) {
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+  }
 
   const ownerOf = (model) => overrides[model] ?? declared.get(model) ?? null;
 
@@ -116,7 +121,6 @@ export function classifyRelations({ edges, config, modelOwners }) {
   const crossEdges = [];
   const unlisted = [];
   const unknownTargets = [];
-  const matched = new Set();
 
   for (const edge of edges) {
     summary.total += 1;
@@ -151,11 +155,15 @@ export function classifyRelations({ edges, config, modelOwners }) {
     summary.cross += 1;
     classifications.push(crossEdge);
     crossEdges.push(crossEdge);
-    if (allowlist.has(key)) matched.add(key);
-    else unlisted.push(crossEdge);
+    const covered = remaining.get(key) ?? 0;
+    if (covered > 0) remaining.set(key, covered - 1);
+    else unlisted.push({ ...crossEdge, listed: remaining.has(key) });
   }
 
-  const stale = [...allowlist].filter((key) => !matched.has(key)).sort();
+  const stale = [...remaining]
+    .filter(([, count]) => count > 0)
+    .map(([key]) => key)
+    .sort();
 
   return { classifications, summary, crossEdges, unlisted, stale, unknownTargets };
 }
@@ -217,8 +225,11 @@ function main() {
   if (hasFailure) {
     console.error('check:cross-owner-fk FAIL');
     for (const edge of result.unlisted) {
+      const already = edge.listed
+        ? ` ("${edge.key}" already covers another relation)`
+        : '';
       console.error(
-        `${edge.file}:${edge.line} ${edge.model}.${edge.field} -> ${edge.targetOwner}.${edge.target}: cross-owner @relation is not allowlisted; drop @relation, keep the id column and its index (ADR-0013)`,
+        `${edge.file}:${edge.line} ${edge.model}.${edge.field} -> ${edge.targetOwner}.${edge.target}: cross-owner @relation is not allowlisted${already}; drop @relation, keep the id column and its index (ADR-0013)`,
       );
     }
     for (const key of result.stale) {

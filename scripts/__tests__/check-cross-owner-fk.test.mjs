@@ -122,6 +122,30 @@ test('treats an allowlisted cross-owner relation as satisfied and reports no sta
   assert.deepEqual(result.stale, []);
 });
 
+test('an allowlist entry covers one relation, so a second one between the same models fails', () => {
+  const edges = parseRelationEdges(
+    'orders.prisma',
+    ORDERS_SOURCE.replace(
+      '  items           OrderItem[]\n',
+      '  settlementAccount ChannelAccount @relation("OrderSettlement", fields: [settlementAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)\n',
+    ),
+  );
+  const result = classifyRelations({
+    edges,
+    config: {
+      ...CONFIG,
+      allowlist: ['orders.Order -> channels.ChannelAccount'],
+    },
+  });
+
+  assert.equal(result.summary.cross, 2);
+  assert.deepEqual(
+    result.unlisted.map((edge) => edge.field),
+    ['settlementAccount'],
+  );
+  assert.deepEqual(result.stale, []);
+});
+
 test('reports an allowlist entry whose relation no longer exists as stale', () => {
   const edges = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
   const result = classifyRelations({
