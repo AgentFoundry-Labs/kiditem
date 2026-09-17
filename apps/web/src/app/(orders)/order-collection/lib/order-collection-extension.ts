@@ -144,6 +144,11 @@ export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   mallMessage?: string;
   /** submitted 가 false 인 이유. 저장된 비밀번호를 검증하지 못한 경우다. */
   reason?: 'unsupported_mall' | 'already_signed_in' | 'no_credentials';
+  /**
+   * 확장이 그 로그인 화면에 접근하지 못했다(권한 없는 도메인으로 넘어가는 몰). 자격증명
+   * 문제가 아니므로 자동 로그인을 막지 않는다 — 확장을 최신으로 다시 불러오면 풀린다.
+   */
+  loginPageUnreachable?: boolean;
   /** 로그인 버튼을 어떤 방법으로 눌렀는가. 몰별로 어느 경로가 먹는지 진단에 쓴다. */
   method?: string | null;
 }

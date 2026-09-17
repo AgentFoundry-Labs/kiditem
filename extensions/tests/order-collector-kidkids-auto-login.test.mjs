@@ -35,6 +35,8 @@ function loadEnsureMallLogin({
   checkResults = [{ state: "no-login-form" }],
   // 몰이 알림 창으로 남긴 문장. 페이지 컨텍스트(MAIN)에서 읽어 온다.
   dialogs = [],
+  // 확장에 그 주소 권한이 없어 주입 자체가 막히는 경우.
+  blockInjection = false,
 }) {
   let scanIndex = 0;
   let checkIndex = 0;
@@ -44,6 +46,9 @@ function loadEnsureMallLogin({
     chrome: {
       scripting: {
         async executeScript(options) {
+          if (blockInjection) {
+            throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+          }
           if (options?.world === "MAIN") {
             return options.func?.name === "readMallLoginDialogs"
               ? [{ result: dialogs }]
@@ -72,6 +77,8 @@ function loadEnsureMallLogin({
     waitForTabReady: async () => undefined,
     setTimeout,
     clearTimeout,
+    URL,
+    Error,
   });
   const asyncSource = (name) => extractFunction(source, name).replace(/^function /, "async function ");
   vm.runInContext(extractFunction(source, "withTimeout"), context);
@@ -200,4 +207,36 @@ test("a login with nothing to say carries no message", async () => {
 
   assert.equal(result.verified, true);
   assert.equal(result.mallMessage, undefined);
+});
+
+/**
+ * 쿠팡처럼 로그인 화면이 다른 도메인으로 넘어가는 몰은 확장에 그 주소 권한이 없으면 주입 자체가
+ * 막힌다. 그때 '이미 로그인됨' 으로 답하면 아무도 로그인하지 않은 채 수집이 굴러가 "로그인 필요"
+ * 로 끝난다 — 이유를 그대로 말해야 사장님이 손을 쓸 수 있다.
+ */
+test("⭐ a login page the extension cannot reach is reported, not called signed in", async () => {
+  const { ensureMallLogin } = loadEnsureMallLogin({
+    scanResults: [],
+    tabUrls: ["https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth"],
+    blockInjection: true,
+  });
+
+  const result = await ensureMallLogin(17, CREDENTIALS, "coupang-direct");
+
+  assert.equal(result.success, false);
+  assert.equal(result.pendingLogin, true);
+  assert.equal(result.errorCode, "login_page_not_reachable");
+  assert.match(result.error, /xauth\.coupang\.com/);
+});
+
+test("a mall whose screen answers 'no login form' is still read as already signed in", async () => {
+  const { ensureMallLogin } = loadEnsureMallLogin({
+    scanResults: [{ state: "no-login-form" }],
+    tabUrls: ["https://shop.kidsnote.com/_manage/"],
+  });
+
+  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+
+  assert.equal(result.success, true);
+  assert.equal(result.reason, "already_signed_in");
 });

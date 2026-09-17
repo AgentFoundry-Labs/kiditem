@@ -32,6 +32,7 @@ import {
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
 import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-shipment-tracking-source-owner';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
+import { ensureMallLoginForRun } from '../lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
@@ -480,6 +481,8 @@ export function OrderCollectionWorkspace() {
       run = await sessionControls.prepareDirectRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
       setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
+      // 발주 화면도 로그인해야 열린다. 카드에서 달력을 열 때도 수집과 같은 자동 로그인을 쓴다.
+      await ensureMallLoginForRun(account, run);
       const { collectCoupangDirectFromExtension } = await import(
         '../lib/coupang-directship-api'
       );

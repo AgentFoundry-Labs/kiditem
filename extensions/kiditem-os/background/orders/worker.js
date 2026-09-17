@@ -6040,6 +6040,9 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
   let sawIncompleteLoginForm = false;
   let lastIncompleteReason = null;
   let kidkidsManagementStableSince = null;
+  // 한 번이라도 화면을 들여다봤는가. 한 번도 못 봤다면 '이미 로그인됨' 이라고 말할 근거가 없다.
+  let sawAnyFrame = false;
+  let lastInjectionError = null;
   // 몰이 알림 창으로 말하는 답("아이디 또는 비밀번호가 일치하지 않습니다")을 받아 둔다.
   await recordMallLoginDialogs(tabId);
   while (Date.now() < expiresAt) {
@@ -6051,8 +6054,10 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
         args: [credentials],
       });
       results = injected.map((item) => item.result).filter(Boolean);
+      if (results.length > 0) sawAnyFrame = true;
     } catch (e) {
-      /* 프레임 아직 준비 안 됨 — 재시도 */
+      // 권한이 없는 주소(로그인 화면이 다른 도메인으로 넘어가는 몰)면 계속 이 길로 떨어진다.
+      lastInjectionError = e;
     }
     const submitted = results.find((r) => r.state === "submitted");
     if (submitted) {
@@ -6145,6 +6150,25 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       submitted: false,
       pendingLogin: true,
       error: "키드키즈 로그인 상태를 제한시간 안에 확인하지 못했습니다. 열린 탭에서 로그인 후 다시 수집해 주세요.",
+    };
+  }
+  // 화면을 한 번도 들여다보지 못했다. 확장이 그 주소에 접근할 권한이 없을 때가 대부분이다
+  // (쿠팡처럼 로그인 화면이 다른 도메인으로 넘어가는 몰). 이것을 '이미 로그인됨' 으로 답하면
+  // 아무도 로그인하지 않은 채 수집이 굴러가 "로그인 필요" 로 끝난다 — 이유를 그대로 말한다.
+  if (!sawAnyFrame && lastInjectionError) {
+    let host = "";
+    try {
+      host = new URL(String((await chrome.tabs.get(tabId))?.url || "")).host;
+    } catch {
+      /* 탭 주소를 못 읽으면 호스트 없이 안내한다. */
+    }
+    return {
+      success: false,
+      submitted: false,
+      pendingLogin: true,
+      errorCode: "login_page_not_reachable",
+      loginPageUnreachable: true,
+      error: `${host || "로그인"} 화면에 확장이 접근할 수 없어 자동 로그인을 하지 못했습니다. 확장을 최신 버전으로 다시 불러온 뒤 다시 시도해 주세요.`,
     };
   }
   return { success: true, submitted: false, reason: "already_signed_in" }; // 폼 못 봄

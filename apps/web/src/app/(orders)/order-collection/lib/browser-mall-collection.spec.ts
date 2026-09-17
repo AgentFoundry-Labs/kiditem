@@ -809,6 +809,24 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 
+  /**
+   * 쿠팡처럼 로그인 화면이 다른 도메인으로 넘어가는 몰은 확장 권한이 없으면 우리가 화면을
+   * 들여다보지도 못한다. 비밀번호가 틀린 게 아니므로 그 몰을 막으면 안 된다 — 확장을 새로
+   * 불러오면 풀린다.
+   */
+  it('⭐ 확장이 로그인 화면에 접근하지 못한 것은 비밀번호 문제가 아니다 — 막지 않는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: true,
+      loginPageUnreachable: true,
+      errorCode: 'login_page_not_reachable',
+      error: 'xauth.coupang.com 화면에 확장이 접근할 수 없어 자동 로그인을 하지 못했습니다.',
+    });
+
+    await expect(collect()).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {
     mocks.ensureLogin.mockResolvedValue({
       success: false,
