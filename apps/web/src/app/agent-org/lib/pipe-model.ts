@@ -652,12 +652,14 @@ function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => stri
 
 export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
   // 계정 키와 그 계정이 관찰 기록에 쓰는 키를 둘 다 건다 — 로켓 줄이 '쿠팡직배송'으로 읽힌다.
-  const names = new Map(
-    (inputs.malls.data ?? []).flatMap((account) => [
-      [mallOperationOutcomeKey(account.key), account.name] as const,
-      [account.key, account.name] as const,
-    ]),
-  );
+  // 제 키가 먼저다: 로켓도 목록에 있으면 그 줄은 로켓 것이고, 함께 쓰는 몰의 별칭이 덮으면
+  // 로켓 계정이 '쿠팡직배송'으로 불린다.
+  const accounts = inputs.malls.data ?? [];
+  const names = new Map(accounts.map((account) => [account.key, account.name] as const));
+  for (const account of accounts) {
+    const outcomeKey = mallOperationOutcomeKey(account.key);
+    if (!names.has(outcomeKey)) names.set(outcomeKey, account.name);
+  }
   const mallName = (mallKey: string) => names.get(mallKey) ?? mallKey;
 
   const signals: PipeSignal[] = [];

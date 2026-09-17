@@ -334,6 +334,33 @@ describe('몰 연결', () => {
     expect(connectors.malls).toEqual([{ key: 'coupang-direct', name: '쿠팡직배송', state: 'needs_login' }]);
   });
 
+  /**
+   * 함께 쓰는 몰과 그 행의 몰이 둘 다 목록에 있을 때, 이름은 제 키를 가진 몰이 먼저다.
+   * 별칭이 덮으면 로켓 줄이 '쿠팡직배송'으로 불려 사장님은 로켓 계정을 찾지 못한다.
+   */
+  it('⭐ 계정 행을 가진 몰의 이름을 함께 쓰는 몰의 별칭이 덮지 않는다', () => {
+    const { connectors } = buildPipeSnapshot(
+      inputs({
+        malls: {
+          data: [
+            { key: 'rocket', name: '쿠팡 로켓', enabled: true },
+            { key: 'coupang-direct', name: '쿠팡직배송', enabled: true },
+          ],
+          failed: false,
+        },
+        outcomes: {
+          data: [outcome('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
+          failed: false,
+        },
+      }),
+    );
+    expect(connectors.malls).toEqual([
+      { key: 'rocket', name: '쿠팡 로켓', state: 'needs_login' },
+      { key: 'coupang-direct', name: '쿠팡직배송', state: 'needs_login' },
+    ]);
+    expect(connectors.needsLoginNames).toEqual(['쿠팡 로켓', '쿠팡직배송']);
+  });
+
   it('몰 목록을 못 받았으면 전체 수를 지어내지 않는다', () => {
     const { connectors } = buildPipeSnapshot(inputs({ malls: { data: null, failed: true } }));
     expect(connectors.total).toBeNull();
