@@ -78,6 +78,14 @@ is intentionally blocked for an immediate schema/data cutover.
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.
 
+A cutover transcript line starting `Data migration <id> ran from source` means
+a migration that already succeeded on Office has been edited since it ran, which
+violates the release contract. The migration still does not run again and the
+cutover continues. Afterwards, record the id on the release issue and ship the
+fix as a new migration id. `npm run data:migrate -- status`, run from the
+deployed SHA against the Office database, lists the same rows under
+`database.sourceDrift`.
+
 The deployer never runs `docker system prune`. If disk capacity is the only
 blocker, the operator may opt into bounded BuildKit cleanup with
 `--prune-build-cache`; persistent volumes are never pruned.
