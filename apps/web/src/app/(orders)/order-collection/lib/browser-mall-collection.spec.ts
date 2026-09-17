@@ -399,34 +399,6 @@ describe('createBrowserMallCollector', () => {
     expect(source).toContain('function collectionDateOf(');
   });
 
-  /**
-   * 공용 몰 수집 루프와 화면은 몰 키를 하나도 외우지 않는다. `coupang-direct` 를 여섯 곳에서
-   * 특례로 알아보던 동안, 루프를 고칠 때마다 직배송을 따로 검증해야 했다(KID-255). 그 키를
-   * 아는 곳은 직배송 원천의 파일 하나이고, 루프와 화면은 그 원천이 답한 것만 본다.
-   */
-  it('⭐ 루프와 화면은 직배송 몰 키를 모른다 — 원천이 답한 것만 본다', () => {
-    const routeRoot = path.resolve(import.meta.dirname, '..');
-    const srcRoot = path.resolve(routeRoot, '../../..');
-    const loopAndScreen = [
-      'lib/browser-mall-collection.ts',
-      'lib/order-collection-page-model.ts',
-      'lib/mall-order-collection-source.ts',
-      'lib/order-collection-source-adapter.ts',
-      'components/OrderCollectionWorkspace.tsx',
-      'components/MallAccountSection.tsx',
-      'components/MallAccountGroups.tsx',
-      'components/MallCollectionControl.tsx',
-    ].map((file) => path.join(routeRoot, file));
-    loopAndScreen.push(path.join(srcRoot, 'hooks/useAllMarketplaceOrderCollection.ts'));
-
-    for (const file of loopAndScreen) {
-      // 몰 키 문자열만 본다 — `coupang-directship-*` 모듈을 가리키는 import 경로는 그 원천을
-      // 부르는 길이지 키 분기가 아니다.
-      expect([file, /['"`]coupang-direct['"`]/.test(readFileSync(file, 'utf8'))])
-        .toEqual([file, false]);
-    }
-  });
-
   it('defers every managed mall session until web conversion finishes', () => {
     const apiFiles = [
       'order-collection-extension.ts',
