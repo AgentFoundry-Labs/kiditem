@@ -119,7 +119,9 @@ _Avoid_: company, seller
 
 **Channel account**:
 Marketplace or store identity. One row per mall or marketplace seller system;
-every mall-scoped record hangs off that row
+every mall-scoped record hangs off that row, except observed mall outcomes,
+which key on the mall's channel key because some — a registration fill among
+them — are recorded for a mall that has no row
 ([ADR-0012](../../docs/adr/0012-one-channel-account-row-per-mall.md)).
 _Avoid_: shop, store, seller account, mall account
 
