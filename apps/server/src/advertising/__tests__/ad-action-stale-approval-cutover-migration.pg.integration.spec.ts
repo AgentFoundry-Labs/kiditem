@@ -393,7 +393,15 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
       new Date('2026-09-10T02:00:00.000Z'),
     );
     const schemaSteps: Record<string, (tx: Prisma.TransactionClient) => Promise<unknown>> = {
-      'one stored column dropped': (tx) =>
+      'execute_status dropped': (tx) =>
+        tx.$executeRaw`ALTER TABLE ad_actions DROP COLUMN execute_status`,
+      'before_json dropped': (tx) =>
+        tx.$executeRaw`ALTER TABLE ad_actions DROP COLUMN before_json`,
+      'after_json dropped': (tx) =>
+        tx.$executeRaw`ALTER TABLE ad_actions DROP COLUMN after_json`,
+      'error_message dropped': (tx) =>
+        tx.$executeRaw`ALTER TABLE ad_actions DROP COLUMN error_message`,
+      'executed_at dropped': (tx) =>
         tx.$executeRaw`ALTER TABLE ad_actions DROP COLUMN executed_at`,
       'every stored column dropped': dropStoredColumns,
     };
@@ -428,6 +436,97 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
         ],
       },
     });
+  });
+
+  it('takes the task with the greater id as the latest of two created at the same instant', async () => {
+    const createdAt = new Date('2026-09-10T01:00:00.000Z');
+    const cancelledAt = new Date('2026-09-10T02:00:00.000Z');
+    // The cancelled attempt has the greater id, so it is the latest: a closed
+    // attempt follows it, and the queued attempt below it stays as it was.
+    const bidTied = await insertAction({
+      key: 'bid-tied',
+      approvalStatus: 'approved',
+      executeStatus: 'queued',
+    });
+    const bidQueuedBelow = await insertTask(
+      bidTied,
+      'queued',
+      createdAt,
+      null,
+      '10000000-0000-4000-8000-000000000001',
+    );
+    const bidCancelledAbove = await insertTask(
+      bidTied,
+      'cancelled',
+      createdAt,
+      cancelledAt,
+      '20000000-0000-4000-8000-000000000001',
+    );
+    // The queued attempt has the greater id, so it is the latest and closes in place.
+    const campaignTied = await insertAction({
+      key: 'campaign-tied',
+      actionType: 'create_campaign',
+      approvalStatus: 'approved',
+      executeStatus: 'queued',
+    });
+    const campaignCancelledBelow = await insertTask(
+      campaignTied,
+      'cancelled',
+      createdAt,
+      cancelledAt,
+      '10000000-0000-4000-8000-000000000002',
+    );
+    const campaignQueuedAbove = await insertTask(
+      campaignTied,
+      'queued',
+      createdAt,
+      null,
+      '20000000-0000-4000-8000-000000000002',
+    );
+
+    await expect(runCutover()).resolves.toEqual({
+      backfill: backfillNoOp(true),
+      closure: {
+        affectedRows: 2,
+        details: {
+          storedExecutionColumnsPresent: true,
+          closedAtCutover: [
+            { kind: 'manual', rows: 1 },
+            { kind: 'other', rows: 1 },
+          ],
+        },
+      },
+    });
+
+    const derived = await derivedExecutions({ bidTied, campaignTied });
+    expect(derived).toEqual({
+      bidTied: {
+        executionTaskId: expect.any(String),
+        executeStatus: 'failed',
+        beforeJson: null,
+        afterJson: null,
+        errorMessage: MANUAL_AD_ACTION_MESSAGE,
+        executedAt: null,
+      },
+      campaignTied: {
+        executionTaskId: campaignQueuedAbove,
+        executeStatus: 'failed',
+        beforeJson: null,
+        afterJson: null,
+        errorMessage: CUTOVER_CLOSED_MESSAGE,
+        executedAt: null,
+      },
+    });
+    expect(await tasksOf(bidTied)).toEqual([
+      { id: bidQueuedBelow, status: 'queued', startedAt: null, closed: false },
+      { id: bidCancelledAbove, status: 'cancelled', startedAt: null, closed: true },
+      { id: derived.bidTied.executionTaskId, status: 'failed', startedAt: null, closed: true },
+    ]);
+    expect(await tasksOf(campaignTied)).toEqual([
+      { id: campaignCancelledBelow, status: 'cancelled', startedAt: null, closed: true },
+      { id: campaignQueuedAbove, status: 'failed', startedAt: null, closed: true },
+    ]);
+    expect(await executorQueue(prisma)).toEqual({ ids: [], approvedQueued: 0 });
   });
 
   it('restates the manual action types and message of the KID-138 domain policy', () => {
@@ -551,11 +650,12 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
     status: string,
     createdAt: Date,
     finishedAt: Date | null = null,
+    id: string | null = null,
   ): Promise<string> {
     const [row] = await prisma.$queryRaw<Array<{ id: string }>>`
       INSERT INTO execution_tasks (id, action_id, status, created_at, finished_at)
       VALUES (
-        gen_random_uuid(),
+        COALESCE(${id}::uuid, gen_random_uuid()),
         ${actionId}::uuid,
         ${status},
         ${createdAt}::timestamptz,
