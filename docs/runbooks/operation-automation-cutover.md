@@ -79,7 +79,15 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    generic rows, and, while `action_tasks` still exists, verifies that its
    row count did not move. The schema-drop cleanup (`v0.1.31:013`) removes
    account-day KPI rows, the raw scrape rows only they used, and the retired
-   `ads.tier.dailyBudget` setting. Tables and columns a database no longer
+   `ads.tier.dailyBudget` setting. The sourcing trend snapshot cleanup
+   (`v0.1.31:014`) deletes every row of `naver_keyword_daily_snapshots`,
+   `naver_popular_keyword_daily_snapshots`, `shorts_trend_daily_snapshots`,
+   `live_commerce_broadcast_daily_snapshots`,
+   `live_commerce_product_daily_snapshots`, and
+   `tiktok_creative_trend_daily_snapshots` while that table still lacks
+   `ingestion_run_id`. Those rows name no ingestion run, and `db push` cannot
+   add the required column to a table that has rows. A table that already
+   has the column is left alone. Tables and columns a database no longer
    has are skipped:
 
    ```powershell
