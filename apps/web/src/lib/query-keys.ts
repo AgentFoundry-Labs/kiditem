@@ -146,7 +146,9 @@ export const queryKeys = {
     manualReportsAll: () => [...queryKeys.ads.all, 'manual-reports'] as const,
     manualReports: (from: string, to: string) =>
       [...queryKeys.ads.manualReportsAll(), from, to] as const,
-    keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
+    // Every period's keyword list; a keyword's pause proposal is the same in each.
+    keywordsAll: () => [...queryKeys.ads.all, 'keywords'] as const,
+    keywords: (period?: string) => [...queryKeys.ads.keywordsAll(), period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
     trends: (period?: string | number) => [...queryKeys.ads.all, 'trends', period] as const,

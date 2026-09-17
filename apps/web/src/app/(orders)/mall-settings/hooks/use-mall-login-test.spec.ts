@@ -70,6 +70,30 @@ describe('useMallLoginTest', () => {
     }));
   });
 
+  /**
+   * 카카오(토큰) · 올웨이즈(브라우저 저장소 JWT)는 확장이 채울 로그인 폼이 없다. 확장이 탭도
+   * 열지 않고 `no_login_form` 으로 답하므로, 화면은 왜 확인하지 못했는지 그대로 말해야 한다 —
+   * "실패"로 굳히거나 자동 로그인을 막지 않는다.
+   */
+  it('⭐ says why a mall with no fillable login form could not be checked', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: false,
+      reason: 'no_login_form',
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('unverified');
+    expect(result?.detail).toBe('이 몰은 확장이 채울 로그인 폼이 없어 확인하지 못했습니다.');
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'login_test',
+      outcome: 'attention',
+      reasonCode: 'no_login_form',
+    }));
+  });
+
   it('⭐ blocks auto-login only when the mall itself rejected the credentials', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
       success: false,

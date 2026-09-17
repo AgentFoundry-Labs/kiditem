@@ -14,6 +14,7 @@ import {
   orderCollectionBatchNotice,
   todayYmd,
 } from './order-collection-page-model';
+import { COUPANG_DIRECT_MALL_KEY } from './coupang-directship-collection-source';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
@@ -292,7 +293,7 @@ describe('isBrowserCollectableMall — 채널 레지스트리 파생', () => {
   } as OrderCollectionMallAccount);
 
   it('⭐ 확장에 수집기가 있는 몰은 켜진다 — 카카오도 그중 하나다', () => {
-    for (const key of ['kakao', 'onch', 'domeggook', 'coupang-direct', 'art09']) {
+    for (const key of ['kakao', 'onch', 'domeggook', COUPANG_DIRECT_MALL_KEY, 'art09']) {
       expect([key, isBrowserCollectableMall(account(key))]).toEqual([key, true]);
     }
   });

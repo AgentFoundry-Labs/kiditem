@@ -4,9 +4,15 @@ import test from "node:test";
 import vm from "node:vm";
 
 /**
- * 몰 로그인 상태 확인(`checkMallLogin`). 사장님: "로그인됨 / 인증 필요 / 로그인 필요 3가지
- * 아냐?" — 조용히 읽어 확실하면 그 답을 쓰고, 아니면 관리자 화면을 백그라운드 탭에 열어
- * 로그인 폼 · 인증 화면이 뜨는지 본 뒤 닫는다. 아이디 · 비밀번호는 넣지도 누르지도 않는다.
+ * 몰 로그인 상태 확인이 **웹에게 하는 말**(`checkMallLogin`).
+ *
+ * 어디를 열어 무엇을 보고 판정하는지는 이제 몰 세션 모듈 하나가 안다(KID-254) — 그 판정은
+ * [mall-session.test.mjs](./mall-session.test.mjs) 가 스펙에 적힌 몰 전부로 돌린다.
+ * 여기 남은 것은 두 가지다. 모듈의 세 답(`in` · `out` · `unknown`)을 웹이 읽는 말로 옮기는
+ * 자리와, 화면을 들여다보는 주입 스크립트가 아무것도 건드리지 않는다는 사실.
+ *
+ * 사장님: "로그인됨 / 인증 필요 / 로그인 필요 3가지 아냐?" — 웹에게는 그 셋뿐이다. 가리지
+ * 못한 몰은 사람이 몰에 들어가 봐야 하므로 로그인 필요로 답하고 이유를 그대로 싣는다.
  */
 const source = readFileSync(
   new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
@@ -31,161 +37,60 @@ function extractFunction(name, { async = false } = {}) {
   throw new Error(`${name} closing brace not found`);
 }
 
-function extractConst(name) {
-  const start = source.indexOf(`const ${name} =`);
-  assert.notEqual(start, -1, `${name} not found`);
-  const end = source.indexOf(";\n", start);
-  return source.slice(start, end + 1);
-}
-
-/**
- * `passive` 는 조용히 읽는 확인의 답, `screens` 는 탭에서 차례로 보는 화면(프레임 결과 또는
- * `BLOCKED`), `finalUrl` 은 탭이 머문 주소다.
- */
-const BLOCKED = Symbol("blocked");
-
-function load({ passive, probeUrl = null, screens = [], finalUrl = "https://example.invalid/admin", allowed = true }) {
-  const calls = { created: [], removed: [], remembered: [], forgotten: [], permissions: [] };
-  let look = 0;
+/** 모듈이 낸 판정 하나를 들려주고, 웹에게 나가는 답을 받는다. */
+function answerFor(found) {
+  const asked = [];
   const context = {
-    URL,
-    Number,
-    Promise,
-    setTimeout,
-    clearTimeout,
-    Error,
-    COUPANG_DIRECT_LOGIN_URL: "https://supplier.coupang.com/po-web/app/purchase-order/list",
-    chrome: {
-      permissions: {
-        async contains(request) {
-          calls.permissions.push(request);
-          return allowed;
-        },
+    mallSession: () => ({
+      checkLogin: async (mallKey, siteUrl) => {
+        asked.push({ mallKey, siteUrl });
+        return found;
       },
-      tabs: {
-        async create(options) {
-          calls.created.push(options);
-          return { id: 77, windowId: 1 };
-        },
-        async remove(tabId) {
-          calls.removed.push(tabId);
-        },
-        async get() {
-          return { id: 77, url: finalUrl };
-        },
-      },
-      scripting: {
-        async executeScript() {
-          const screen = screens[Math.min(look, screens.length - 1)];
-          look += 1;
-          if (screen === BLOCKED || screen === undefined) throw new Error("Cannot access contents of the page");
-          return screen.map((result) => ({ result }));
-        },
-      },
-    },
-    mallSessionProbe: () => ({
-      probe: async (mallKey) => ({ success: true, mallKey, ...passive }),
-      urlOf: () => probeUrl,
     }),
-    rememberOrderCollectionTab: (tabId) => calls.remembered.push(tabId),
-    forgetOrderCollectionTab: (tabId) => calls.forgotten.push(tabId),
-    waitForTabReady: async () => undefined,
-    delay: async () => undefined,
-    inspectMallLoginScreen: () => undefined,
   };
   vm.createContext(context);
-  for (const name of ["MALL_LOGIN_CHECK_URLS", "LOGIN_SCREEN_URL", "VERIFY_SCREEN_URL"]) {
-    vm.runInContext(extractConst(name).replace(/^const /, "var "), context);
-  }
-  vm.runInContext(extractFunction("savedMallLoginUrl"), context);
-  vm.runInContext(extractFunction("withTimeout"), context);
-  vm.runInContext(extractFunction("lookAtMallLoginScreen", { async: true }), context);
-  vm.runInContext(extractFunction("checkMallLoginOnScreen", { async: true }), context);
   vm.runInContext(extractFunction("checkMallLogin", { async: true }), context);
-  return { context, calls, check: (mallKey, siteUrl = "") => vm.runInContext(`checkMallLogin(${JSON.stringify(mallKey)}, ${JSON.stringify(siteUrl)})`, context) };
+  return {
+    asked,
+    check: (mallKey, siteUrl = "") =>
+      vm.runInContext(
+        `checkMallLogin(${JSON.stringify(mallKey)}, ${JSON.stringify(siteUrl)})`,
+        context,
+      ),
+  };
 }
 
-test("a definite quiet answer is used as is — no tab opens", async () => {
-  const signedIn = load({ passive: { state: "signed_in", reason: "admin_page" } });
-  assert.equal((await signedIn.check("onch")).state, "signed_in");
-  assert.equal(signedIn.calls.created.length, 0);
+test("⭐ 로그인됨과 인증 필요는 그대로, 모른다는 로그인 필요로 옮겨 간다", async () => {
+  const signedIn = answerFor({ verdict: "in", reason: "admin_page" });
+  assert.deepEqual({ ...(await signedIn.check("onch")) }, {
+    success: true,
+    mallKey: "onch",
+    state: "signed_in",
+    reason: "admin_page",
+  });
 
-  const verify = load({ passive: { state: "signed_out", reason: "verification_required" } });
+  const verify = answerFor({ verdict: "out", reason: "verification_required" });
   assert.equal((await verify.check("kidkids")).state, "verification_required");
 
-  const signedOut = load({ passive: { state: "signed_out", reason: "login_page" } });
+  const signedOut = answerFor({ verdict: "out", reason: "login_page" });
   assert.equal((await signedOut.check("kidsnote")).state, "signed_out");
-  assert.equal(signedOut.calls.created.length, 0);
+
+  // 확인 불가는 웹에 없다. 이유는 그대로 실어 보내 무엇 때문인지 알 수 있게 한다.
+  for (const reason of ["login_page_not_reachable", "no_login_address"]) {
+    const blind = answerFor({ verdict: "unknown", reason });
+    assert.deepEqual({ ...(await blind.check("kakao")) }, {
+      success: true,
+      mallKey: "kakao",
+      state: "signed_out",
+      reason,
+    });
+  }
 });
 
-test("⭐ when the quiet read cannot tell, the admin screen is opened in the background and closed", async () => {
-  const { calls, check } = load({
-    passive: { state: "unknown", reason: "no_passive_check" },
-    screens: [[{ loginForm: false, verification: false }]],
-  });
-
-  const result = await check("always", "https://alwayzseller.ilevit.com/login");
-
-  assert.equal(result.state, "signed_in");
-  // 로그인 화면 주소(저장된 사이트 주소)보다 로그인해야 열리는 관리자 첫 화면을 먼저 연다.
-  assert.equal(calls.created[0].url, "https://alwayzseller.ilevit.com/");
-  assert.equal(calls.created[0].active, false);
-  assert.deepEqual(calls.removed, [77]);
-  assert.deepEqual(calls.forgotten, [77]);
-});
-
-test("⭐ a login form on the screen is sign-in needed, a code screen is verification needed", async () => {
-  const signedOut = load({
-    passive: { state: "unknown", reason: "unrecognized_page" },
-    probeUrl: "https://partners.gsshop.com/logistics/partner-logistics-mng",
-    screens: [[{ loginForm: true, verification: false }]],
-  });
-  assert.deepEqual(
-    { ...(await signedOut.check("gs-shop")) },
-    { success: true, mallKey: "gs-shop", state: "signed_out", reason: "login_page" },
-  );
-  assert.equal(signedOut.calls.created[0].url, "https://partners.gsshop.com/logistics/partner-logistics-mng");
-
-  const verify = load({
-    passive: { state: "unknown", reason: "unrecognized_page" },
-    probeUrl: "https://partners.gsshop.com/logistics/partner-logistics-mng",
-    screens: [[{ loginForm: false, verification: true }]],
-  });
-  assert.equal((await verify.check("gs-shop")).state, "verification_required");
-});
-
-test("a screen that moved to a login address on another domain is sign-in needed even if we cannot look in", async () => {
-  const { check } = load({
-    passive: { state: "unknown", reason: "no_passive_check" },
-    screens: [BLOCKED],
-    finalUrl: "https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth",
-  });
-  assert.equal((await check("coupang")).state, "signed_out");
-});
-
-test("a screen we could not look into at all is sign-in needed with the reason", async () => {
-  const { check } = load({
-    passive: { state: "unknown", reason: "no_passive_check" },
-    screens: [BLOCKED, BLOCKED],
-  });
-  const result = await check("kakao");
-  assert.equal(result.state, "signed_out");
-  assert.equal(result.reason, "login_page_not_reachable");
-});
-
-test("no address to open, or an address outside the extension's reach, opens nothing", async () => {
-  const noAddress = load({ passive: { state: "unknown", reason: "no_passive_check" } });
-  const none = await noAddress.check("one-polaris");
-  assert.equal(none.state, "signed_out");
-  assert.equal(none.reason, "no_login_address");
-  assert.equal(noAddress.calls.created.length, 0);
-
-  const outside = load({ passive: { state: "unknown", reason: "no_passive_check" }, allowed: false });
-  const blocked = await outside.check("yoons", "https://unknown-mall.example/admin");
-  assert.equal(blocked.reason, "login_page_not_reachable");
-  assert.equal(outside.calls.created.length, 0);
-  // VM 안에서 만든 객체라 모양만 맞춰 본다.
-  assert.equal(JSON.stringify(outside.calls.permissions), JSON.stringify([{ origins: ["https://unknown-mall.example/*"] }]));
+test("확인은 몰 키와 사장님이 저장한 사이트 주소만 넘긴다", async () => {
+  const { asked, check } = answerFor({ verdict: "in", reason: "admin_page" });
+  await check("always", "https://alwayzseller.ilevit.com/login");
+  assert.deepEqual(asked, [{ mallKey: "always", siteUrl: "https://alwayzseller.ilevit.com/login" }]);
 });
 
 test("the page check never fills or presses anything", () => {
@@ -196,4 +101,20 @@ test("the page check never fills or presses anything", () => {
 test("the worker advertises the three-state check", () => {
   assert.match(source, /mallLoginCheckV2: true/);
   assert.match(source, /msg\?\.action === "checkMallLogin"/);
+});
+
+/**
+ * 확인용으로 여는 탭은 확장 권한 안의 주소만 열고, 본 뒤에는 반드시 닫는다. 여는 일과 닫는
+ * 일은 드라이버가 하므로 그 자리가 실제로 권한을 묻고 탭을 지우는지 본다.
+ */
+test("⭐ 드라이버는 권한을 물어보고 우리가 연 탭을 반드시 지운다", () => {
+  const driver = extractFunction("createMallSessionDriver");
+  assert.match(driver, /chrome\.permissions\.contains\(\{ origins: \[`\$\{origin\}\/\*`\] \}\)/);
+  assert.match(driver, /if \(keepOpen\) return;/);
+  assert.match(driver, /forgetOrderCollectionTab\(tab\?\.id\)/);
+  assert.match(driver, /await chrome\.tabs\.remove\(tab\.id\)/);
+  // 화면을 들여다보기만 한다 — 값을 넣거나 누르는 주입은 로그인 갈래에만 있다.
+  const inspectScreen = driver.slice(driver.indexOf("async inspectScreen("));
+  assert.match(inspectScreen, /func: inspectMallLoginScreen/);
+  assert.doesNotMatch(inspectScreen.slice(0, inspectScreen.indexOf("probe:")), /args: \[credentials\]/);
 });

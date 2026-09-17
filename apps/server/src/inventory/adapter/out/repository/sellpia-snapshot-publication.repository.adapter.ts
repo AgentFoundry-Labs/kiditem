@@ -20,7 +20,7 @@ import {
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import { lockSellpiaInventory } from '../../../transaction/sellpia-inventory-lock';
 import {
   SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
   sellpiaInventorySourceFailureAlert,
@@ -72,7 +72,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
     }
     const result = await this.prisma.$transaction(async (tx): Promise<PublicationResult> => {
       await lockProductMapping(tx, input.organizationId);
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
         lockedRun(tx, input.organizationId, input.runId),
@@ -201,7 +201,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
 
   async verifySameHash(input: VerifyInput): Promise<SellpiaSnapshotPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
         lockedRun(tx, input.organizationId, input.runId),

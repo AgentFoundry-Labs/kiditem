@@ -21,7 +21,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import { lockSellpiaInventory } from '../../../transaction/sellpia-inventory-lock';
 import { sellpiaInventorySourceFailureAlert } from './sellpia-inventory-source-failure-alert';
 import type {
   ClaimedSellpiaManualExecution,
@@ -69,7 +69,7 @@ implements SellpiaImportRunRepositoryPort {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       let state = await lockedState(tx, input.organizationId);
       assertConfirmedBinding(state);
       const now = new Date();
@@ -230,7 +230,7 @@ implements SellpiaImportRunRepositoryPort {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const state = await lockedState(tx, input.organizationId);
       const run = await findOwnerAttempt(tx, input.organizationId, { id: input.attemptId });
       if (!run) throw new NotFoundException('SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND');
@@ -277,7 +277,7 @@ implements SellpiaImportRunRepositoryPort {
     attemptId: string;
   }): Promise<SellpiaInventorySourceAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const run = await findOwnerAttempt(tx, input.organizationId, { id: input.attemptId });
       if (!run) throw new NotFoundException('SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND');
       if (run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return ownerAttemptView(run);
@@ -305,7 +305,7 @@ implements SellpiaImportRunRepositoryPort {
 
   claimFileRun(input: ClaimInput): Promise<SellpiaFileRunClaim> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const state = await lockedState(tx, input.organizationId);
       assertConfirmedBinding(state);
       const now = new Date();
@@ -333,7 +333,7 @@ implements SellpiaImportRunRepositoryPort {
 
   async markRunFailed(input: FailureInput): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       const now = new Date();
       const updated = await tx.sourceImportRun.updateMany({
         where: {

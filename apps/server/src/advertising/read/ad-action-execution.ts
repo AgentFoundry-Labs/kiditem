@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import type { AdActionExecution } from '../application/port/out/repository/ad-action.repository.port';
 import {
   EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
   executionDeadlineCutoff,
@@ -28,6 +27,23 @@ import {
  *   finish time of a done task; `beforeJson` / `afterJson` are the task's own.
  */
 type AdActionExecuteStatus = 'queued' | 'running' | 'done' | 'failed';
+
+/**
+ * The execution words an action reads from its latest ExecutionTask. AdAction
+ * stores no copy; the wire keeps these field names.
+ */
+export interface AdActionExecution {
+  /**
+   * The latest ExecutionTask: the attempt an executor names in every report
+   * (KID-160). `null` while the action has no attempt.
+   */
+  executionTaskId: string | null;
+  executeStatus: string;
+  beforeJson: unknown;
+  afterJson: unknown;
+  errorMessage: string | null;
+  executedAt: Date | null;
+}
 
 const EXECUTE_STATUS_BY_TASK_STATUS: Readonly<
   Record<ExecutionTaskStatus, AdActionExecuteStatus>

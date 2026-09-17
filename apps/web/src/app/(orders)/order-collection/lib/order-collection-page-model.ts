@@ -18,8 +18,6 @@ export interface MallAccountDraft {
 
 export const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 export const ICECREAM_MALL_KEY = 'icecream-mall';
-/** The one mall card whose collection belongs to the Coupang directship owner. */
-export const COUPANG_DIRECT_MALL_KEY = 'coupang-direct';
 export const MAX_HISTORY_ITEMS = 1000;
 export const MALL_ACCOUNT_GRID_CLASS =
   'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';

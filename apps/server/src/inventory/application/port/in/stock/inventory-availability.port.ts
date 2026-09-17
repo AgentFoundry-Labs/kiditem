@@ -1,13 +1,8 @@
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
+import type { InventoryAvailabilityCandidate } from '../../../../read/inventory-availability';
 
-export type InventoryAvailabilityCandidate = Readonly<{
-  sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
-  optionName: string | null;
-  barcode: string | null;
-  currentStock: number | null;
-}>;
+/** The candidate `read/inventory-availability.ts` returns. */
+export type { InventoryAvailabilityCandidate };
 
 export interface InventoryAvailabilityPort {
   findBySkuIds(input: {

@@ -6,7 +6,10 @@ import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collecti
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { MallCollectionControl } from './MallCollectionControl';
-import { coupangDirectshipCollectionSource } from '../lib/coupang-directship-collection-source';
+import {
+  COUPANG_DIRECT_MALL_KEY,
+  coupangDirectshipCollectionSource,
+} from '../lib/coupang-directship-collection-source';
 import { mallOrderCollectionSource } from '../lib/mall-order-collection-source';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
@@ -66,7 +69,7 @@ function running(): OrderCollectionSourceStatus {
 
 const DIRECT_ACCOUNT: OrderCollectionMallAccount = {
   ...ACCOUNT,
-  key: 'coupang-direct',
+  key: COUPANG_DIRECT_MALL_KEY,
   name: '쿠팡 직배송',
 };
 
@@ -244,5 +247,47 @@ describe('MallCollectionControl', () => {
 
     expect(await screen.findByRole('button', { name: '키즈노트 수집' })).toBeDisabled();
     expect(screen.getByText('중지된 계정입니다.')).toBeInTheDocument();
+  });
+
+  /**
+   * 그 원천만의 시작 불가 사유는 원천이 답한다(KID-255) — 화면이 몰 키를 보고 문장을
+   * 고르지 않는다. 화면이 모든 몰에 똑같이 대는 사유가 있으면 그 사유가 먼저다.
+   */
+  it('⭐ 화면 공통 사유가 없으면 그 원천이 답한 시작 불가 사유를 세운다', async () => {
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({ malls: [idle()] }));
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MallCollectionControl
+          account={DIRECT_ACCOUNT}
+          buildAdapter={() => coupangDirectshipCollectionSource({
+            channelAccountId: null,
+            handOff: vi.fn().mockResolvedValue(undefined),
+          })}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('쿠팡 로켓 계정을 먼저 선택해 주세요.')).toBeInTheDocument();
+  });
+
+  it('⭐ 화면 공통 사유가 있으면 그 사유가 먼저다', async () => {
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({ malls: [idle()] }));
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MallCollectionControl
+          account={{ ...DIRECT_ACCOUNT, enabled: false }}
+          startBlockedReason="중지된 계정입니다."
+          buildAdapter={() => coupangDirectshipCollectionSource({
+            channelAccountId: null,
+            handOff: vi.fn().mockResolvedValue(undefined),
+          })}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('중지된 계정입니다.')).toBeInTheDocument();
+    expect(screen.queryByText('쿠팡 로켓 계정을 먼저 선택해 주세요.')).not.toBeInTheDocument();
   });
 });

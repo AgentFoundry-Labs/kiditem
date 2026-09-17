@@ -35,6 +35,7 @@ const LOGIN_METHOD_LABEL: Record<string, string> = {
 
 const UNVERIFIED_DETAIL: Record<string, string> = {
   unsupported_mall: '이 몰은 폼 자동 로그인을 지원하지 않아 비밀번호를 확인하지 못했습니다.',
+  no_login_form: '이 몰은 확장이 채울 로그인 폼이 없어 확인하지 못했습니다.',
   already_signed_in: '브라우저가 이미 로그인된 상태라 저장된 비밀번호를 확인하지 못했습니다.',
   no_credentials: '저장된 아이디·비밀번호가 없습니다.',
 };

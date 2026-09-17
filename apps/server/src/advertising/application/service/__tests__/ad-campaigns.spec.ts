@@ -418,7 +418,7 @@ describe('AdCampaignsService.getKeywords conversion availability', () => {
     const service = new AdCampaignsService(
       campaignRepo as unknown as AdCampaignRepositoryPort,
       listingRepo as unknown as AdListingRepositoryPort,
-      // The mock resolves no open keyword relevance proposal.
+      // The mock resolves no keyword pause proposal.
       buildMockAdActionRepo() as unknown as AdActionRepositoryPort,
       { getConfig: vi.fn() } as never,
     );
@@ -454,7 +454,7 @@ describe('AdCampaignsService.getKeywords conversion availability', () => {
     const service = new AdCampaignsService(
       campaignRepo as unknown as AdCampaignRepositoryPort,
       buildMockAdListingRepo() as unknown as AdListingRepositoryPort,
-      // The mock resolves no open keyword relevance proposal.
+      // The mock resolves no keyword pause proposal.
       buildMockAdActionRepo() as unknown as AdActionRepositoryPort,
       { getConfig: vi.fn() } as never,
     );
