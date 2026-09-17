@@ -133,7 +133,7 @@ describe('startWebOpenedCollection', () => {
 
   it('gives a Korean reason for an English refusal and still rejects when the stop fails', async () => {
     handOff = async () => {
-      throw new Error('Another Sellpia sales collection is running');
+      throw new Error('Receiving end does not exist.');
     };
     cancel = vi.fn(async () => {
       throw new Error('network down');

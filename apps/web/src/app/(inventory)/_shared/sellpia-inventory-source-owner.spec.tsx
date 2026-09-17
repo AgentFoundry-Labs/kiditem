@@ -116,11 +116,12 @@ describe('Sellpia inventory source-owner transport', () => {
       path === CANCEL_PATH ? attempt('FAILED') : attempt('RUNNING'));
     extension.send.mockImplementation(async (_extensionId: string, message: { action: string }) =>
       message.action === 'collectSellpiaInventory'
-        ? { success: false, error: 'Another Sellpia inventory collection is running' }
+        ? { success: false, error: '이전 셀피아 재고 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.' }
         : null);
 
+    // 확장이 이유를 한국어로 말하면 그 이유를 그대로 보여 준다(KID-161).
     await expect(startCollection()).rejects.toThrow(
-      '확장 프로그램이 수집을 넘겨받지 못했습니다. 확장 상태를 확인한 뒤 다시 시작해 주세요.',
+      '이전 셀피아 재고 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.',
     );
     expect(api.post).toHaveBeenCalledWith(CANCEL_PATH);
   });
