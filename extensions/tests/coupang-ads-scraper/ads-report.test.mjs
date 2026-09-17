@@ -3628,9 +3628,14 @@ const DONE_REFUSED_WARNING =
   "승인 액션 1개는 광고센터에 반영됐을 수 있지만 완료 보고가 거절됐습니다. 실행 기한이 지났거나 새 실행 시도로 바뀌었으니 다시 승인하기 전에 광고센터에서 확인해 주세요.";
 const UNRECORDED_ACTION_WARNING =
   "승인 액션 1개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.";
-// The server refuses the claim of an action the operator applies by hand in
-// the ad center (KID-138 decision A).
-const MANUAL_ACTION_CODE = "EXECUTION_REPORT_MANUAL_ACTION";
+// The code the server refuses the claim of an action the operator applies by
+// hand with (KID-138 decision A), read from the server's own lifecycle policy.
+const MANUAL_ACTION_CODE = fs
+  .readFileSync(
+    path.join(repoRoot, "apps/server/src/advertising/domain/execution-task-lifecycle.ts"),
+    "utf8",
+  )
+  .match(/export const EXECUTION_REPORT_MANUAL_ACTION\s*=\s*'([^']+)'/)?.[1];
 const manualActionWarning = (count) =>
   `자동 실행하지 않는 승인 액션 ${count}개(키워드 끄기·입찰가·일예산)는 광고센터에 쓰지 않았습니다. 광고센터에서 직접 처리해 주세요.`;
 const WRITE_DEADLINE_MS = 10 * 60 * 1000;
@@ -3867,6 +3872,11 @@ function openCampaignRegistrationTab({
   pageReads.count = 0;
   return { tab, events, reports, badges, pageReads, clicks, nameInput };
 }
+
+test("the extension counts a refused claim apart by the same manual-action code the server sends", () => {
+  assert.ok(MANUAL_ACTION_CODE, "the server's lifecycle policy exports EXECUTION_REPORT_MANUAL_ACTION");
+  assert.equal(source.match(/const MANUAL_ACTION_REFUSAL_CODE = "([^"]+)"/)?.[1], MANUAL_ACTION_CODE);
+});
 
 test("a rejected running report stops the approved action before any Coupang write", async () => {
   const rejected = createCampaignAction("rejected", "거절된 캠페인");

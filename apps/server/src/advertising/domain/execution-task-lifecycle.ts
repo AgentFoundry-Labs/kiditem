@@ -63,6 +63,15 @@ export const MANUAL_AD_ACTION_TYPES = [
 export const MANUAL_AD_ACTION_MESSAGE =
   '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
 
+/**
+ * The 409 code of a running or done report refused as `manual_action`. The
+ * extension counts a claim refused with it apart and tells the operator to
+ * apply the action in the ad center (`MANUAL_ACTION_REFUSAL_CODE` in
+ * `extensions/kiditem-os/content/coupang/ads-report.js`, held equal by an
+ * extension test).
+ */
+export const EXECUTION_REPORT_MANUAL_ACTION = 'EXECUTION_REPORT_MANUAL_ACTION';
+
 export function isManualAdActionType(actionType: string): boolean {
   return (MANUAL_AD_ACTION_TYPES as readonly string[]).includes(actionType);
 }

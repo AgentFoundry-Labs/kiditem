@@ -31,6 +31,7 @@ import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
   EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
+  EXECUTION_REPORT_MANUAL_ACTION,
   isExpiredRunningExecutionTask,
   isManualAdActionType,
   isOpenExecutionTask,
@@ -883,11 +884,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
 // 409 codes of a refused execution report, so the executor and an operator can
 // tell a report for a replaced attempt, one for an attempt past its deadline,
-// one for an action applied by hand, and one the attempt cannot take apart.
+// one for an action applied by hand (`EXECUTION_REPORT_MANUAL_ACTION`, which
+// the lifecycle policy publishes for the extension), and one the attempt
+// cannot take apart.
 const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
 const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
-// The action is applied by hand in the ad center (KID-138 decision A); the extension counts this refusal apart.
-const EXECUTION_REPORT_MANUAL_ACTION = 'EXECUTION_REPORT_MANUAL_ACTION';
 const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
 // 409 codes of a refused rejection: an attempt running within its deadline may
 // already be changing Coupang, and a done attempt already changed it.

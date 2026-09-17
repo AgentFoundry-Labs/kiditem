@@ -2725,8 +2725,9 @@
 
   // The server refuses the claim of an action the operator applies by hand
   // (EXECUTION_REPORT_MANUAL_ACTION in
-  // apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts)
-  // and closes its queued attempt. The extension keeps no list of those types.
+  // apps/server/src/advertising/domain/execution-task-lifecycle.ts, held equal
+  // by a test) and closes its queued attempt. The extension keeps no list of
+  // those types.
   const MANUAL_ACTION_REFUSAL_CODE = "EXECUTION_REPORT_MANUAL_ACTION";
 
   // Every listed action is claimed, whatever page the tab shows: the server
