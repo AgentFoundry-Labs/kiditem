@@ -377,6 +377,13 @@ test('Office compose keeps env and external volumes while accepting only prebuil
   assert.match(compose, /local runtime manifest/);
 });
 
+test('Office compose pulls MinIO from quay.io because Docker Hub no longer serves minio/minio or minio/mc', () => {
+  const compose = read('deploy/office/compose.office.yml');
+  assert.match(compose, /^\s*image: quay\.io\/minio\/minio:\S+$/m);
+  assert.match(compose, /^\s*image: quay\.io\/minio\/mc:\S+$/m);
+  assert.doesNotMatch(compose, /^\s*image: (?:(?:index\.)?docker\.io\/)?minio\//m);
+});
+
 test('Office deployer stops, starts, and waits only for services and containers that compose.office.yml defines', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const compose = read('deploy/office/compose.office.yml');

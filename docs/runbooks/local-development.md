@@ -119,8 +119,10 @@ Expected services:
 
 - PostgreSQL 17.9 on `localhost:5433` with local-only
   `kiditem`/`kiditem` credentials.
-- MinIO on `localhost:9000`; console on `localhost:9001`.
-- An idempotent `kiditem` bucket initialization container that exits 0.
+- MinIO `RELEASE.2025-09-07T16-13-09Z` from `quay.io/minio/minio` on
+  `localhost:9000`; console on `localhost:9001`.
+- An idempotent `kiditem` bucket initialization container
+  (`quay.io/minio/mc`) that exits 0.
 
 `db:push` is explicit because it mutates the selected database. The wrapper
 blocks `--force-reset`. Do not pass `--accept-data-loss` for a developer DB

@@ -32,8 +32,11 @@ test('the recommended local runtime and examples form one reproducible macOS bas
 test('local service images are version-pinned instead of following floating tags', () => {
   const compose = read('docker-compose.yml');
   assert.match(compose, /image:\s*postgres:17\.9/);
-  assert.match(compose, /image:\s*minio\/minio:RELEASE\.2025-09-07T16-13-09Z/);
-  assert.match(compose, /image:\s*minio\/mc:RELEASE\.2025-08-13T08-35-41Z/);
+  // Docker Hub no longer serves minio/minio or minio/mc; quay.io/minio carries
+  // the same release tags.
+  assert.match(compose, /image:\s*quay\.io\/minio\/minio:RELEASE\.2025-09-07T16-13-09Z/);
+  assert.match(compose, /image:\s*quay\.io\/minio\/mc:RELEASE\.2025-08-13T08-35-41Z/);
+  assert.doesNotMatch(compose, /image:\s*(?:(?:index\.)?docker\.io\/)?minio\//);
   assert.doesNotMatch(compose, /image:\s*\S+:latest/);
 });
 
