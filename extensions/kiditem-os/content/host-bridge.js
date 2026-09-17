@@ -51,10 +51,30 @@
     const keepalivePortName = "kiditem-1688-trend-keepalive";
     const keepaliveIntervalMs = 20_000;
     let keepaliveTimer = null;
+    let keepalivePort = null;
+    // 화면을 옮겨 이 페이지가 뒤로/앞으로 캐시에 들어가면 우리가 먼저 포트를 닫는다.
+    // 열린 확장 포트는 캐시 자격을 막고, 크롬이 대신 끊으면서 남긴 이유를 아무도 읽지
+    // 않아 chrome://extensions 오류 목록에 "Unchecked runtime.lastError" 로 쌓였다(KID-155).
+    let pageCached = false;
+
+    const stopKeepalive = () => {
+      if (keepaliveTimer) clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+      const port = keepalivePort;
+      keepalivePort = null;
+      if (!port) return;
+      try {
+        port.disconnect();
+      } catch {
+        /* 이미 끊김 — 무시 */
+      }
+    };
 
     const connectKeepalive = () => {
+      if (pageCached) return;
       try {
         const port = chrome.runtime.connect({ name: keepalivePortName });
+        keepalivePort = port;
         const ping = () => {
           try {
             port.postMessage({ type: "keepalive", at: Date.now() });
@@ -66,14 +86,32 @@
         ping();
         keepaliveTimer = setInterval(ping, keepaliveIntervalMs);
         port.onDisconnect.addListener(() => {
+          // 끊긴 이유를 읽어 소비한다. 읽지 않으면 확장 오류 목록에 남는다.
+          void chrome.runtime.lastError;
           if (keepaliveTimer) clearInterval(keepaliveTimer);
           keepaliveTimer = null;
+          if (keepalivePort === port) keepalivePort = null;
+          if (pageCached) return;
           window.setTimeout(connectKeepalive, 1_000);
         });
       } catch {
+        keepalivePort = null;
         window.setTimeout(connectKeepalive, 1_000);
       }
     };
+
+    // 캐시로 들어갈 때만 멈춘다(`persisted`). 페이지가 아주 닫히는 길에서는 포트도 함께
+    // 사라지므로 할 일이 없다. 돌아오면 다시 붙어 하트비트를 이어 간다.
+    window.addEventListener("pagehide", (event) => {
+      if (!event?.persisted) return;
+      pageCached = true;
+      stopKeepalive();
+    });
+    window.addEventListener("pageshow", (event) => {
+      if (!event?.persisted) return;
+      pageCached = false;
+      if (!keepalivePort) connectKeepalive();
+    });
 
     connectKeepalive();
 
