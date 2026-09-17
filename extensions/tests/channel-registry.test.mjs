@@ -69,3 +69,14 @@ test('레지스트리는 전역 하나만 만들고 얼려 둔다', () => {
   assert.equal(registry.channelFormSpec('auction'), 'gmarket');
   assert.equal(registry.channelOutcomeKey('coupang-direct'), 'rocket');
 });
+
+/**
+ * 확장이 "어느 몰 폼을 채울 수 있다" 고 광고하는 목록은 스펙에서 나온다(KID-250).
+ * 손으로 적어 두면 몰을 붙인 날 이 줄만 옛말이 되고, 웹은 그 몰을 모른다고 읽는다.
+ */
+test('⭐ 폼 자동채움 능력 목록은 스펙 키에서 파생한다', () => {
+  const worker = readFileSync(path.join(EXTENSION, 'background/orders/worker.js'), 'utf8');
+  const line = worker.match(/mallFormRegisterMalls: [^\n]*(\n[^\n]*){0,3}/)?.[0] ?? '';
+  assert.match(line, /Object\.keys\(/, 'the advertised list must be derived, not hand-written');
+  assert.doesNotMatch(line, /"(domeggook|onch|artgonggu|alwayz|teacherville)"/);
+});

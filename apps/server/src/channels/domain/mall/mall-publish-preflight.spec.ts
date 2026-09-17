@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getMallAdapterManifest } from './mall-adapter-manifest';
+import { MARKETPLACE_ADAPTER_NOTES, getMallAdapterManifest } from './mall-adapter-manifest';
 import {
   evaluateMallPreflight,
   isKcReady,
@@ -116,6 +116,39 @@ describe('evaluateMallPreflight', () => {
     });
     const violation = result.violations.find((entry) => entry.rule === 'option_count_within_limit');
     expect(violation?.message).toContain('300');
+  });
+
+  /**
+   * 쿠팡 마켓플레이스는 몰 등록 매니페스트를 떠났지만(KID-250) 그 상한은 실측으로 알아낸
+   * 사실이다. 등록을 다시 붙이는 날 조사부터 다시 하지 않도록 점검이 그대로 받는다.
+   */
+  it('⭐ 마켓 어댑터 사정도 같은 점검을 그대로 받는다 — 쿠팡 옵션 200개 상한', () => {
+    const coupang = MARKETPLACE_ADAPTER_NOTES.coupang;
+    expect(getMallAdapterManifest('coupang')).toBeNull();
+    expect(coupang.limits).toEqual({
+      maxPerRequest: 1,
+      ratePerSecond: null,
+      maxOptionsPerListing: 200,
+      minStockValue: null,
+    });
+    const result = evaluateMallPreflight({
+      manifest: coupang,
+      product: product({ optionNames: Array.from({ length: 201 }, (_, index) => `옵션${index}`) }),
+      account: ACCOUNT,
+    });
+    const violation = result.violations.find((entry) => entry.rule === 'option_count_within_limit');
+    expect(violation?.message).toContain('200');
+  });
+
+  /** 로켓은 사입 채널이라 등록 개념이 없다. 마켓 사정으로도 그 판정은 같다. */
+  it('⭐ 쿠팡 로켓은 마켓 사정으로 봐도 판매 채널이 아니다', () => {
+    const result = evaluateMallPreflight({
+      manifest: MARKETPLACE_ADAPTER_NOTES.rocket,
+      product: product(),
+      account: ACCOUNT,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations[0]?.message).toContain('상품 판매 채널이 아닙니다');
   });
 
   it('blocks an unverified mall before running any rule', () => {

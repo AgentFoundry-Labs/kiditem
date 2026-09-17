@@ -11,10 +11,14 @@
 
 import {
   MALL_CHANNELS,
+  MARKETPLACE_CHANNELS,
+  channelCollectsOrders,
+  channelCollectsViaExtension,
   channelRegistersListings,
-  findChannel,
+  channelUploadsTracking,
   type ChannelRegistryEntry,
   type MallChannelKey,
+  type MarketplaceChannelRow,
 } from '@kiditem/shared/channel-registry';
 
 /** 어떤 실행 경로로 몰에 쓰는가. 채널 레지스트리의 `register` 를 이 어휘로 옮긴 것이다. */
@@ -141,14 +145,13 @@ export interface MallInboundSupports {
  * 매니페스트가 몰 목록을 따로 들고 있던 동안 확장에 수집기가 있는 카카오를 빠뜨렸다.
  */
 export function mallInboundSupports(mallKey: string): MallInboundSupports {
-  const entry = findChannel(mallKey);
-  const orderCollectionVia: OrderCollectionVia | null = entry?.collector === 'extension'
+  const orderCollectionVia: OrderCollectionVia | null = channelCollectsViaExtension(mallKey)
     ? 'kiditem'
-    : entry?.collector === 'sellpia' ? 'sellpia' : null;
+    : channelCollectsOrders(mallKey) ? 'sellpia' : null;
   return {
-    collectsOrders: orderCollectionVia !== null,
+    collectsOrders: channelCollectsOrders(mallKey),
     orderCollectionVia,
-    uploadsTracking: entry?.uploadTracking === true,
+    uploadsTracking: channelUploadsTracking(mallKey),
   };
 }
 
@@ -421,6 +424,21 @@ const SEEDS: Record<MallChannelKey, ManifestSeed> = {
   },
 };
 
+const MARKETPLACE_SEEDS: Record<MarketplaceChannelRow['key'], ManifestSeed> = {
+  coupang: {
+    difficulty: 'low',
+    supports: {
+      createListing: true, updateListing: true,
+      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
+    },
+    limits: { maxPerRequest: 1, maxOptionsPerListing: 200 },
+    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가.',
+  },
+  rocket: {
+    note: '쿠팡이 발주하고 우리가 납품하는 사입 채널이다(ChannelAccount channel=\'rocket\'). 리스팅 판매상태를 우리가 바꾸는 구조가 아니라 품절 송신 대상이 아니다. 재고는 발주 확정과 셀피아 재고로 관리한다. 주문수집 카탈로그의 쿠팡직배송(coupang-direct)과 같은 거래 관계를 가리킨다.',
+  },
+};
+
 /**
  * 몰 등록 매니페스트는 **몰만** 담는다. 쿠팡 마켓플레이스와 쿠팡 로켓은 마켓 판매자
  * 시스템이라 몰 등록 마법사에 서지 않는다(KID-250). 그 채널들의 정체와 능력은 레지스트리가
@@ -429,6 +447,20 @@ const SEEDS: Record<MallChannelKey, ManifestSeed> = {
 export const MALL_ADAPTER_MANIFESTS: readonly MallAdapterManifest[] = MALL_CHANNELS.map(
   (entry) => manifest(entry, SEEDS[entry.key]),
 );
+
+/**
+ * 마켓 판매자 시스템의 어댑터 사정. **`MALL_ADAPTER_MANIFESTS` 에 들어가지 않는다** —
+ * 몰 등록 마법사가 다루는 대상이 아니고 `getMallAdapterManifest` 로도 나오지 않는다.
+ *
+ * 그래도 지운 값이 아니다. 쿠팡 마켓플레이스의 1회 1건 · 옵션 200개 상한, sales/stop ↔
+ * sales/resume 의 완전 대칭, 판매자ID당 OpenAPI 키 1개라는 제약은 우리가 실측으로 알아낸
+ * 사실이고, 쿠팡 등록을 다시 붙이는 날 그 사실부터 다시 조사하게 만들 이유가 없다.
+ * 송신 전 점검(`evaluateMallPreflight`)도 이 값을 그대로 받는다.
+ */
+export const MARKETPLACE_ADAPTER_NOTES: Record<MarketplaceChannelRow['key'], MallAdapterManifest> =
+  Object.fromEntries(
+    MARKETPLACE_CHANNELS.map((entry) => [entry.key, manifest(entry, MARKETPLACE_SEEDS[entry.key])]),
+  ) as Record<MarketplaceChannelRow['key'], MallAdapterManifest>;
 
 const BY_KEY = new Map(MALL_ADAPTER_MANIFESTS.map((entry) => [entry.key, entry]));
 
