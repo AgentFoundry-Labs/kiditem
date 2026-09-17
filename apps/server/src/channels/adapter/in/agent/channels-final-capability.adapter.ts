@@ -9,10 +9,10 @@ import {
   type ResolveProductRegistrationWithOwnerReceiptInput,
 } from "../../../application/port/in/capability/marketplace-registration.port";
 import {
-  SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT,
+  FROZEN_REGISTRATION_READ_PORT,
   type ServerFrozenRegistration,
-  type SourcingFrozenRegistrationReadCapabilityPort,
-} from "../../../../sourcing/application/port/in/capability/sourcing-frozen-registration-capability.port";
+  type FrozenRegistrationReadPort,
+} from "../../../application/port/in/capability/frozen-registration-read.port";
 import type {
   ChannelsConfirmedListingInput,
   ChannelsFinalCapabilityPort,
@@ -26,8 +26,8 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
   constructor(
     @Inject(CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT)
     private readonly registrations: ChannelsMarketplaceRegistrationCapabilityPort,
-    @Inject(SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT)
-    private readonly provenance: SourcingFrozenRegistrationReadCapabilityPort,
+    @Inject(FROZEN_REGISTRATION_READ_PORT)
+    private readonly provenance: FrozenRegistrationReadPort,
     private readonly prisma: PrismaService,
   ) {}
 

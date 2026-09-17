@@ -11,9 +11,9 @@ import {
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/domain/sourcing-candidate-identity';
 import {
-  freezeProductPreparationPayload,
-  type ProductPreparationJson,
-} from '../apps/server/src/sourcing/domain/product-preparation-payload';
+  freezeProductRegistrationPayload,
+  type RegistrationSubmissionJson,
+} from '../apps/server/src/channels/domain/registration-submission-payload';
 import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
@@ -184,9 +184,9 @@ type BrowserQaConfirmedListingPlan = {
     id: string;
     displayName: string;
     status: 'submitting';
-    registrationInput: ProductPreparationJson;
+    registrationInput: RegistrationSubmissionJson;
     submissionKey: string;
-    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadJson: RegistrationSubmissionJson;
     submissionPayloadHash: string;
     providerOutcome: 'uncertain';
     reviewPayloadHash: string;
@@ -198,7 +198,7 @@ type BrowserQaConfirmedListingPlan = {
     expectedProviderAccountId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
     idempotencyKey: string;
     requestHash: string;
-    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadJson: RegistrationSubmissionJson;
     submissionPayloadHash: string;
     status: 'executing';
     providerOutcome: 'uncertain';
@@ -987,9 +987,9 @@ function createBrowserQaConfirmedListingFrozenPayload({
 }: {
   channelAccountId: string;
   displayName: string;
-  registrationInput: ProductPreparationJson;
+  registrationInput: RegistrationSubmissionJson;
 }) {
-  return freezeProductPreparationPayload({
+  return freezeProductRegistrationPayload({
     channelAccountId,
     displayName,
     registrationInput,

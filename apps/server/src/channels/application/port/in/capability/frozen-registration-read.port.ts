@@ -1,6 +1,11 @@
-/** Read-only anti-corruption port for Channels-owned Agent capabilities. */
-export const SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT = Symbol(
-  "SOURCING_FROZEN_REGISTRATION_READ_CAPABILITY_PORT",
+/**
+ * 실행이 동결한 제출본을 읽는 읽기 전용 경계.
+ *
+ * 울타리는 Channels 것이고 Agent capability 는 여기서만 그 payload 를 본다
+ * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+ */
+export const FROZEN_REGISTRATION_READ_PORT = Symbol(
+  "FROZEN_REGISTRATION_READ_PORT",
 );
 
 export interface FrozenRegistrationReference {
@@ -11,7 +16,7 @@ export interface FrozenRegistrationReference {
 }
 
 /**
- * Server-loaded registration state. It is deliberately returned by Sourcing's
+ * Server-loaded registration state. It is deliberately returned by the fence's
  * read boundary rather than accepted through the Agent capability contract.
  */
 export interface ServerFrozenRegistration {
@@ -37,7 +42,7 @@ export interface ServerFrozenRegistration {
   expectedProviderAccountId: string | null;
 }
 
-export interface SourcingFrozenRegistrationReadCapabilityPort {
+export interface FrozenRegistrationReadPort {
   loadSubmission(
     input: FrozenRegistrationReference,
   ): Promise<ServerFrozenRegistration>;

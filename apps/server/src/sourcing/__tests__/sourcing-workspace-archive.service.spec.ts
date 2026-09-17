@@ -19,8 +19,14 @@ function makeRepo() {
 
 function makePreparationGuard() {
   return {
-    cancelUnstartedExternalRegistrationIntents: vi.fn().mockResolvedValue(0),
     assertCandidateTerminalTransitionAllowed: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** 실행 장부는 Channels 울타리 것이다(ADR-0014). 후보 삭제 준비도 그쪽을 부른다. */
+function makeExecutionFence() {
+  return {
+    cancelUnstartedExecutions: vi.fn().mockResolvedValue(0),
   };
 }
 
@@ -43,10 +49,12 @@ describe('SourcingWorkspaceArchiveService', () => {
       const repo = makeRepo();
       const aiArchive = makeAiArchive();
       const preparations = makePreparationGuard();
+      const executions = makeExecutionFence();
       const service = new SourcingWorkspaceArchiveService(
         repo as never,
         aiArchive as never,
         preparations as never,
+        executions as never,
       );
 
       await expect(service.archive(CANDIDATE_ID, ORG)).resolves.toEqual({
@@ -63,7 +71,7 @@ describe('SourcingWorkspaceArchiveService', () => {
         id: CANDIDATE_ID,
         organizationId: ORG,
       });
-      expect(preparations.cancelUnstartedExternalRegistrationIntents).toHaveBeenCalledWith(
+      expect(executions.cancelUnstartedExecutions).toHaveBeenCalledWith(
         { tx: true },
         {
           organizationId: ORG,
@@ -76,8 +84,8 @@ describe('SourcingWorkspaceArchiveService', () => {
         { organizationId: ORG, sourceCandidateId: CANDIDATE_ID },
       );
       expect(repo.lockCandidate.mock.invocationCallOrder[0])
-        .toBeLessThan(preparations.cancelUnstartedExternalRegistrationIntents.mock.invocationCallOrder[0]);
-      expect(preparations.cancelUnstartedExternalRegistrationIntents.mock.invocationCallOrder[0])
+        .toBeLessThan(executions.cancelUnstartedExecutions.mock.invocationCallOrder[0]);
+      expect(executions.cancelUnstartedExecutions.mock.invocationCallOrder[0])
         .toBeLessThan(preparations.assertCandidateTerminalTransitionAllowed.mock.invocationCallOrder[0]);
       expect(preparations.assertCandidateTerminalTransitionAllowed.mock.invocationCallOrder[0])
         .toBeLessThan(repo.archiveSourcedWorkspace.mock.invocationCallOrder[0]);
@@ -101,10 +109,12 @@ describe('SourcingWorkspaceArchiveService', () => {
     repo.findCandidateState.mockResolvedValueOnce(null);
     const aiArchive = makeAiArchive();
     const preparations = makePreparationGuard();
+    const executions = makeExecutionFence();
     const service = new SourcingWorkspaceArchiveService(
       repo as never,
       aiArchive as never,
       preparations as never,
+      executions as never,
     );
 
     await expect(service.archive(CANDIDATE_ID, ORG)).rejects.toBeInstanceOf(NotFoundException);
@@ -117,6 +127,7 @@ describe('SourcingWorkspaceArchiveService', () => {
     const repo = makeRepo();
     const aiArchive = makeAiArchive();
     const preparations = makePreparationGuard();
+    const executions = makeExecutionFence();
     preparations.assertCandidateTerminalTransitionAllowed.mockRejectedValueOnce(
       new ConflictException('Candidate has an active product preparation.'),
     );
@@ -124,6 +135,7 @@ describe('SourcingWorkspaceArchiveService', () => {
       repo as never,
       aiArchive as never,
       preparations as never,
+      executions as never,
     );
 
     await expect(service.archive(CANDIDATE_ID, ORG)).rejects.toBeInstanceOf(ConflictException);

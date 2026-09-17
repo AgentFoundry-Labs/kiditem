@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
-import { SourcingFrozenRegistrationReadCapabilityModule } from '../sourcing/sourcing-frozen-registration-read-capability.module';
+import { ChannelsFrozenRegistrationReadModule } from './channels-frozen-registration-read.module';
 import { ChannelsFinalCapabilityAdapter } from './adapter/in/agent/channels-final-capability.adapter';
 import { ChannelsCapabilityCompositionAdapter } from './adapter/in/agent/channels-capability-composition.adapter';
 import { CHANNELS_FINAL_CAPABILITY_PORT } from './application/port/in/capability/channels-final-capability.port';
 import { CHANNELS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/channels-capability-composition.port';
 import { ChannelsModule } from './channels.module';
 
-/** API-only composition: Channels mutation owner plus Sourcing read guard. */
+/** API-only composition: Channels mutation owner plus the fence's frozen read guard. */
 @Module({
-  imports: [ChannelsModule, SourcingFrozenRegistrationReadCapabilityModule],
+  imports: [ChannelsModule, ChannelsFrozenRegistrationReadModule],
   providers: [
     ChannelsFinalCapabilityAdapter,
     ChannelsCapabilityCompositionAdapter,
