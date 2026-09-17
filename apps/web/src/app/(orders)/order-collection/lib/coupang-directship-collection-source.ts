@@ -5,7 +5,10 @@ import {
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import {
+  COLLECTION_IDLE_POLL_MS,
+  type CollectionSourceAdapter,
+} from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
@@ -21,7 +24,6 @@ import {
 } from './order-collection-extension';
 
 const PATH = '/api/orders/collection/coupang-directship';
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 export type CoupangDirectshipHandoff = Readonly<{
   extensionId: string;
@@ -101,7 +103,7 @@ export function coupangDirectshipCollectionSource({
       queryKey: queryKeys.orders.coupangDirectshipSource(channelAccountId ?? ''),
       queryFn: () => readCoupangDirectshipSource(channelAccountId ?? ''),
       enabled: Boolean(channelAccountId),
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

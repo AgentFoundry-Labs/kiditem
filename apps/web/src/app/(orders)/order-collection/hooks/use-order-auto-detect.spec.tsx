@@ -112,6 +112,29 @@ describe('useOrderAutoDetect', () => {
     expect(logActivity).not.toHaveBeenCalled();
   });
 
+  /**
+   * KID-199. 수집 절차가 이미 활동 기록을 남기고 실패를 다시 던진다. 여기서 또 남기면
+   * 한 번 실패한 몰이 활동 기록에 두 줄로 선다.
+   */
+  it('⭐ 수집 절차가 남긴 실패를 자동 감지가 또 남기지 않는다', async () => {
+    const startMall = vi.fn().mockResolvedValue({
+      outcome: { outcome: 'started', attemptId: ATTEMPT_ID },
+      collection: Promise.reject(new Error('키즈노트 파일 생성 실패')),
+    });
+    const logActivity = vi.fn();
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      startMall,
+      logActivity,
+    }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
   it('records why a mall could not be started at all', async () => {
     const startMall = vi.fn().mockRejectedValue(
       new Error('주문수집 확장프로그램을 찾지 못했습니다.'),

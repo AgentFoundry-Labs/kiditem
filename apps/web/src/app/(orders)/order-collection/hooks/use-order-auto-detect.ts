@@ -68,26 +68,34 @@ export function useOrderAutoDetect({
     setRunning(true);
     try {
       for (const account of targets) {
+        let started: Awaited<ReturnType<typeof startMall>>;
         try {
-          const started = await startMall(account, {
+          started = await startMall(account, {
             selectionMode: 'automatic',
             // Freeze the exact trimmed-cell/row-separator criterion before
             // provider capture. The extension/server owner retains this
             // alongside the full original capture.
             seenRowKeys: [...loadSeenOrderKeys(account.key)],
           });
-          // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
-          // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
-          if (started.outcome.outcome !== 'started' || !started.collection) continue;
+        } catch (err) {
+          // 시작 자체가 안 됐으면 수집 절차가 돌지 않았으므로 아무도 남기지 않았다.
+          const message = err instanceof Error ? err.message : '자동 감지 실패';
+          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
+          logActivity(kind, account.name, kind === 'empty' ? undefined : message);
+          console.warn('[order-auto-detect]', account.key, err);
+          continue;
+        }
+        // 이미 수집 중인 몰은 두 번째 시도를 열지 않았을 뿐 실패한 것이 아니다. 다음 tick 에
+        // 다시 만나므로 실패로 닫지도, 활동 기록에 남기지도 않는다(KID-106 Q6).
+        if (started.outcome.outcome !== 'started' || !started.collection) continue;
+        try {
           const collected = await started.collection;
           if (collected.rowCount > 0) {
             toast.success(`${account.name} 새 주문 ${formatNumber(collected.rowCount)}건 감지`);
           }
         } catch (err) {
-          // 시도의 종료 처리는 수집 절차가 이미 한다. 여기서는 왜 못 돌았는지만 남긴다.
-          const message = err instanceof Error ? err.message : '자동 감지 실패';
-          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
-          logActivity(kind, account.name, kind === 'empty' ? undefined : message);
+          // 시도의 종료도 활동 기록도 수집 절차가 이미 했다. 여기서 또 남기면 한 번 실패한
+          // 몰이 활동 기록에 두 줄로 선다(KID-199).
           console.warn('[order-auto-detect]', account.key, err);
         }
       }

@@ -64,8 +64,11 @@ type ArtifactRow = Prisma.OrderCollectionArtifactGetPayload<{ select: typeof ART
 /** 상태 한 칸을 짓는 데 필요한 행들. 몰 하나짜리 읽기와 화면 목록이 같은 것을 고른다. */
 type StatusRuns = {
   running: Pick<SourceRun, 'id' | 'plan' | 'createdAt' | 'expiresAt'> | null;
-  lastComplete: SourceRun | null;
-  lastRow: SourceRun | null;
+  lastComplete: Pick<SourceRun, 'id' | 'importedAt' | 'publicationSequence'> | null;
+  lastRow: Pick<
+    SourceRun,
+    'id' | 'status' | 'expiresAt' | 'errorCode' | 'errorMessage' | 'importedAt' | 'updatedAt'
+  > | null;
 };
 
 /**
@@ -78,6 +81,26 @@ const RUNNING_SELECT = {
   plan: true,
   createdAt: true,
   expiresAt: true,
+} as const;
+
+/** 마지막 완료분 칸이 쓰는 열만. */
+const LAST_COMPLETE_SELECT = {
+  id: true,
+  channelAccountId: true,
+  importedAt: true,
+  publicationSequence: true,
+} as const;
+
+/** 마지막 시도 칸이 쓰는 열만 — 상태 · 임대 · 실패 이유 · 끝난 시각. */
+const LAST_ROW_SELECT = {
+  id: true,
+  channelAccountId: true,
+  status: true,
+  expiresAt: true,
+  errorCode: true,
+  errorMessage: true,
+  importedAt: true,
+  updatedAt: true,
 } as const;
 
 const NO_STATUS_RUNS: StatusRuns = { running: null, lastComplete: null, lastRow: null };
@@ -240,16 +263,29 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         channelAccountId: account.id,
       } as const;
 
+      // 목록 읽기와 같은 규칙으로 좁힌다(KID-216). 임대가 지난 RUNNING 행은 아무도
+      // 돌리고 있지 않으므로 DB 가 거르고, 칸을 짓는 데 쓰는 열만 읽는다 — 이 조회는
+      // 카드마다 2초로 돌고 `plan` JSONB 는 seenRowKeys 수천 개를 담을 수 있다.
       return sourceStatusView(account, {
-        running: (await tx.sourceImportRun.findMany({
-          where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
+        running: await tx.sourceImportRun.findFirst({
+          where: {
+            ...scope,
+            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
+            expiresAt: { gt: new Date() },
+          },
           orderBy: [...LATEST_FIRST],
-        })).find((row) => !expired(row)) ?? null,
+          select: RUNNING_SELECT,
+        }),
         lastComplete: await tx.sourceImportRun.findFirst({
           where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           orderBy: [{ importedAt: 'desc' }, ...LATEST_FIRST],
+          select: LAST_COMPLETE_SELECT,
         }),
-        lastRow: await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...LATEST_FIRST] }),
+        lastRow: await tx.sourceImportRun.findFirst({
+          where: scope,
+          orderBy: [...LATEST_FIRST],
+          select: LAST_ROW_SELECT,
+        }),
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
@@ -343,6 +379,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
       orderBy: [...perAccount, { importedAt: 'desc' }, ...LATEST_FIRST],
       distinct: ['channelAccountId'],
+      select: LAST_COMPLETE_SELECT,
     })) {
       const current = runs(row.channelAccountId);
       if (current) current.lastComplete = row;
@@ -351,6 +388,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       where: scope,
       orderBy: [...perAccount, ...LATEST_FIRST],
       distinct: ['channelAccountId'],
+      select: LAST_ROW_SELECT,
     })) {
       const current = runs(row.channelAccountId);
       if (current) current.lastRow = row;
@@ -763,7 +801,10 @@ function sourceStatusView(
  * 시도가 끝난 시각. 완료분은 발행 시각, 실패는 마지막 기록 시각이고, 아직 RUNNING인
  * 채로 임대만 지난 행은 그 임대가 끝난 시각이다.
  */
-function endedAt(row: SourceRun, state: 'RUNNING' | 'COMPLETE' | 'FAILED'): string | null {
+function endedAt(
+  row: Pick<SourceRun, 'status' | 'expiresAt' | 'importedAt' | 'updatedAt'>,
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED',
+): string | null {
   if (state === 'RUNNING') return null;
   if (row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) return row.expiresAt?.toISOString() ?? null;
   return (row.importedAt ?? row.updatedAt).toISOString();

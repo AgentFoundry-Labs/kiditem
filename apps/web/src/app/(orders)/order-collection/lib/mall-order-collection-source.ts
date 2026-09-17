@@ -6,9 +6,10 @@ import {
 } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
-import type {
-  CollectionSourceAdapter,
-  CollectionStartOutcome,
+import {
+  COLLECTION_IDLE_POLL_MS,
+  type CollectionSourceAdapter,
+  type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -31,8 +32,6 @@ import {
 } from './order-collection-source-owner';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
-/** Every mounted mall card re-reads its owner this often while nothing runs. */
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 export type OrderCollectionMode = 'browser' | 'manual-upload';
 
@@ -252,7 +251,7 @@ export function mallOrderCollectionSource({
       queryKey: sourcesQueryKey(organizationId),
       queryFn: readMallOrderCollectionSources,
       enabled: Boolean(organizationId),
-      refetchInterval: SOURCE_IDLE_POLL_MS,
+      refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

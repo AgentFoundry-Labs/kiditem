@@ -3,6 +3,7 @@
 import type { SellpiaManualMatchSourceStatus } from '@kiditem/shared/sellpia-manual-match';
 import type { QueryKey } from '@tanstack/react-query';
 import {
+  COLLECTION_IDLE_POLL_MS,
   COLLECTION_RUNNING_POLL_MS,
   type CollectionSourceAdapter,
 } from '@/hooks/use-collection-source-control';
@@ -12,7 +13,6 @@ import { queryKeys } from '@/lib/query-keys';
 import { readSellpiaManualMatchSourceCurrent } from './channel-sku-matching-api';
 
 const PATH = '/api/channels/product-mappings/sellpia-manual-match';
-const SOURCE_IDLE_POLL_MS = 60_000;
 
 /** The owner's operator stop, without the extension's fence token (KID-159). */
 export function cancelSellpiaManualMatchAttempt(attemptId: string) {
@@ -45,7 +45,7 @@ CollectionSourceAdapter<SellpiaManualMatchSourceStatus> {
     >({
       queryKey: queryKeys.channelSkuMappings.sellpiaManualMatchSource(),
       queryFn: readSellpiaManualMatchSourceCurrent,
-      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : SOURCE_IDLE_POLL_MS,
+      refetchInterval: localStartInFlight ? COLLECTION_RUNNING_POLL_MS : COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),

@@ -130,6 +130,12 @@ const EXTENSION_STOP_DEADLINE_MS = 10_000;
  * flight, so the control learns the attempt before a short run is over.
  */
 export const COLLECTION_RUNNING_POLL_MS = 2_000;
+/**
+ * Every mounted control re-reads its owner this often while nothing runs, so a
+ * collection another tab or browser started shows up here too. Coming back to
+ * the tab reads it right away (KID-186); this is the cadence while it is open.
+ */
+export const COLLECTION_IDLE_POLL_MS = 60_000;
 // A real Wing traffic run uploads its first receipt 30 to 50 seconds in (KID-132).
 const NO_PROGRESS_NOTICE_MS = 90_000;
 const NO_PROGRESS =
