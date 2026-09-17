@@ -174,15 +174,19 @@ describe('resolveExecutionReport', () => {
         ['queued', 'done', 'manual_action'],
         ['running', 'running', 'manual_action'],
         ['running', 'done', 'manual_action'],
-        ['done', 'done', 'manual_action'],
         ['done', 'running', 'manual_action'],
         ['failed', 'running', 'manual_action'],
         ['failed', 'done', 'manual_action'],
         ['cancelled', 'running', 'manual_action'],
+        ['cancelled', 'done', 'manual_action'],
+        // Repeating the recorded outcome changes nothing, as for any action:
+        // an executor from before decision A repeats a done report whose
+        // response it lost.
+        ['done', 'done', 'replay'],
+        ['failed', 'failed', 'replay'],
         // A failure report changes nothing in the ad center and follows the lifecycle.
         ['queued', 'failed', 'apply'],
         ['running', 'failed', 'apply'],
-        ['failed', 'failed', 'replay'],
         ['done', 'failed', 'invalid_transition'],
         ['cancelled', 'failed', 'invalid_transition'],
       ] as const)('latest task %s, reported %s for it → %s', (latest, reported, decision) => {

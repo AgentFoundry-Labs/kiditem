@@ -121,6 +121,8 @@ export interface ExecutionReportTarget {
  * - `expired`: the report names the latest attempt, but it is running past its
  *   deadline. The report is refused and the attempt is closed as failed, so
  *   approving the action again adds a new one.
+ * - `replay`: the latest task already has that outcome; a repeated done or
+ *   failed report changes nothing, whatever the action type.
  * - `manual_action`: a running or done report for an action of a
  *   `MANUAL_AD_ACTION_TYPES` type. No executor may apply it, so the report is
  *   refused, and a queued attempt (one left from an approval before KID-138
@@ -128,8 +130,6 @@ export interface ExecutionReportTarget {
  *   report for such an action changes nothing in the ad center and follows the
  *   rules below.
  * - `apply`: move the latest task to the reported status.
- * - `replay`: the latest task already has that outcome; a repeated done or
- *   failed report changes nothing.
  * - `invalid_transition`: the report names the latest attempt but is not the
  *   executor's to make — the attempt was cancelled, a different outcome is
  *   already recorded, or it is already running. The extension never repeats a
@@ -155,6 +155,9 @@ export function resolveExecutionReport(
     return 'not_latest_attempt';
   }
   if (isExpiredRunningExecutionTask(latestTask, now)) return 'expired';
+  // A running report is never a replay: the extension does not repeat one the
+  // server applied.
+  if (report.status !== 'running' && latestTask.status === report.status) return 'replay';
   if (isManualAdActionType(actionType) && report.status !== 'failed') {
     return 'manual_action';
   }
@@ -162,6 +165,5 @@ export function resolveExecutionReport(
   if (latestTask.status === 'running') {
     return report.status === 'running' ? 'invalid_transition' : 'apply';
   }
-  if (latestTask.status === report.status) return 'replay';
   return 'invalid_transition';
 }
