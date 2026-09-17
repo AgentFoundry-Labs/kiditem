@@ -9,6 +9,7 @@ import { formatNumber } from '@/lib/utils';
 import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { mallPublishingApi } from './mall-publishing-api';
 import {
+  MALL_AVAILABILITY_NO_ROUTE,
   MALL_AVAILABILITY_PENDING,
   canSendMallAvailability,
   sendMallAvailability,
@@ -137,7 +138,7 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
           {blocked.map((group) => (
             <li key={group.mallKey}>
               {group.mallName} {formatNumber(group.codes.length)}건 —{' '}
-              {MALL_AVAILABILITY_PENDING[group.mallKey] ?? '아직 품절 경로가 없습니다.'}
+              {MALL_AVAILABILITY_PENDING[group.mallKey] ?? MALL_AVAILABILITY_NO_ROUTE}
             </li>
           ))}
         </ul>

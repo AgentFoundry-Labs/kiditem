@@ -26,10 +26,18 @@ export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch'] as 
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
 
-/** 아직 경로가 없는 몰. 화면이 이유를 그대로 보여 준다. */
+/**
+ * 아직 그 몰 관리자를 뚫지 않은 몰. 화면이 이유를 그대로 보여 준다.
+ *
+ * 사방넷 경유는 길로 세지 않는다 — 사방넷 기능을 흡수하고 그만 쓰는 것이 방침이라
+ * (KID-251), 몰마다 그 관리자 화면을 직접 뚫는 것만이 길이다.
+ */
 export const MALL_AVAILABILITY_PENDING: Readonly<Record<string, string>> = {
-  'icecream-mall': '판매상태 일괄변경이 별도 창에서 저장돼 경로가 더 필요합니다.',
+  'icecream-mall': '저장 경로(goodsCommon.modifyGoodsInfo)는 찾았고 본문 모양이 남았습니다.',
 };
+
+/** 길이 없는 몰에 공통으로 붙는 말. 사방넷을 대안으로 제시하지 않는다. */
+export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를 아직 뚫지 않았습니다.';
 
 export function canSendMallAvailability(mallKey: string): mallKey is MallAvailabilitySendMall {
   return (MALL_AVAILABILITY_SEND_MALLS as readonly string[]).includes(mallKey);

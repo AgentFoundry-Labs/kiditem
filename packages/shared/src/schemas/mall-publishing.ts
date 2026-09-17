@@ -42,6 +42,14 @@ export const MallPreflightRuleSchema = z.enum([
 ]);
 export type MallPreflightRule = z.infer<typeof MallPreflightRuleSchema>;
 
+/**
+ * 품절을 보내는 길. 매니페스트가 소유하고 화면은 읽기만 한다.
+ *
+ * `mall_admin` 하나뿐인 것이 방침이다 — 사방넷 기능을 흡수하고 사방넷을 그만 쓴다(KID-251).
+ */
+export const MallSoldOutRouteSchema = z.enum(['mall_admin']).nullable();
+export type MallSoldOutRoute = z.infer<typeof MallSoldOutRouteSchema>;
+
 export const MallAdapterManifestSchema = z.object({
   key: z.string(),
   name: z.string(),
@@ -57,6 +65,7 @@ export const MallAdapterManifestSchema = z.object({
     soldOut: z.boolean(),
     resume: z.boolean(),
   }),
+  soldOutRoute: MallSoldOutRouteSchema,
   hazards: z.object({
     soldOutDeletesListing: z.boolean(),
     suspendAutoDeletesAfterDays: z.number().nullable(),
@@ -188,6 +197,13 @@ export const MallListingMatrixColumnSchema = z.object({
     setStock: z.boolean(),
     soldOutDeletesListing: z.boolean(),
     requiresOperatorApproval: z.boolean(),
+    /**
+     * 품절을 어느 길로 보내는가.
+     *
+     * `mall_admin` 은 우리가 그 몰 관리자에 직접 쓰는 구현이 있다는 뜻이고, `null` 은
+     * 아직 그 몰을 뚫지 않았다는 뜻이다. 화면은 이 값으로 **왜** 버튼이 없는지 말한다.
+     */
+    soldOutRoute: MallSoldOutRouteSchema,
   }),
 });
 export type MallListingMatrixColumn = z.infer<typeof MallListingMatrixColumnSchema>;

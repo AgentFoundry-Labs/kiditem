@@ -93,6 +93,18 @@ export interface MallAdapterManifest {
   /** 상품등록·품절 개념 자체가 없는 채널(발주 전용 등). */
   readonly applicable: boolean;
   readonly supports: MallAdapterSupports;
+  /**
+   * 품절을 **어느 길로** 보내는가. `supports` 와 따로 두는 이유는 종류가 달라서다 —
+   * `supports` 는 "그 몰이 품절을 지원하는가"(매니페스트 실측)이고, 이건 "우리가 그리로
+   * 쓰는 구현을 만들었는가"다. 지원하는데 우리가 아직 안 뚫은 몰이 대부분이라, 둘을 한
+   * 값으로 뭉개면 화면이 "왜 버튼이 없는지"를 말하지 못한다.
+   *
+   * `mall_admin` 우리 확장에 그 몰 관리자로 쓰는 구현이 **실제로 있다**.
+   * `null`       아직 그 몰 관리자를 뚫지 않았다.
+   *
+   * 사방넷 경유는 길이 아니다 — 사방넷 기능을 흡수하고 그만 쓰는 것이 방침이다(KID-251).
+   */
+  readonly soldOutRoute: 'mall_admin' | null;
   readonly hazards: MallAdapterHazards;
   readonly limits: MallAdapterLimits;
   readonly preflightRules: readonly MallPreflightRule[];
@@ -199,6 +211,26 @@ const NO_LIMIT: MallAdapterLimits = {
   minStockValue: null,
 };
 
+/**
+ * 품절을 그 몰 관리자에 **직접** 쓸 수 있는 몰.
+ *
+ * 사방넷을 경유하지 않는다. 사장님 방침(2026-09-18): 사방넷 기능을 흡수하고 사방넷을
+ * 그만 쓴다(KID-251). 그래서 "사방넷이 나르니까 된다" 는 길이 아니라, 몰마다 그
+ * 관리자 화면을 뚫는 것만이 길이다.
+ *
+ * ⚠️ 여기에는 **확장에 실제 구현이 있는 몰만** 적는다(`mall-availability-send.js` 의
+ *    SPECS 와 같아야 한다). 문서에 스펙만 있는 몰을 적으면 화면이 되는 것처럼 말하고
+ *    눌렀을 때 아무 일도 안 일어난다.
+ */
+const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
+  'kkomangse', 'kidkids', 'onch',
+]);
+
+function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
+  if (!applicable) return null;
+  return MALL_ADMIN_SOLD_OUT_KEYS.has(key) ? 'mall_admin' : null;
+}
+
 interface ManifestSeed {
   key: string;
   name: string;
@@ -230,6 +262,7 @@ function manifest(seed: ManifestSeed): MallAdapterManifest {
     unverified,
     applicable,
     supports,
+    soldOutRoute: soldOutRouteFor(seed.key, applicable),
     hazards: { ...NO_HAZARD, ...seed.hazards },
     limits: { ...NO_LIMIT, ...seed.limits },
     preflightRules: applicable ? [...BASE_RULES, ...(seed.extraRules ?? [])] : [],

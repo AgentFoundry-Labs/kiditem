@@ -73,6 +73,7 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
       setStock: false,
       soldOutDeletesListing: false,
       requiresOperatorApproval: false,
+      soldOutRoute: null,
     };
   }
   return {
@@ -83,6 +84,7 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
     setStock: manifest.supports.setStock !== null,
     soldOutDeletesListing: manifest.hazards.soldOutDeletesListing,
     requiresOperatorApproval: manifest.hazards.requiresOperatorApproval,
+    soldOutRoute: manifest.soldOutRoute,
   };
 }
 
