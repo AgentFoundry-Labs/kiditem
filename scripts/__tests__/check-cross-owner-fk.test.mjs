@@ -36,6 +36,40 @@ function write(root, relativePath, contents) {
   writeFileSync(target, contents);
 }
 
+// The models the data file names, so the scanner's declared-name check has
+// something to resolve them against.
+const SUPPORTING_SOURCE = `model Organization {
+  id String @id @default(uuid()) @db.Uuid
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+}
+
+model OrganizationMembership {
+  id String @id @default(uuid()) @db.Uuid
+}
+
+model SourceImportRun {
+  id String @id @default(uuid()) @db.Uuid
+}
+
+model MasterProduct {
+  id String @id @default(uuid()) @db.Uuid
+}
+`;
+
+const CHANNELS_SOURCE = `model ChannelAccount {
+  id String @id @default(uuid()) @db.Uuid
+}
+`;
+
+function writeSchema(root, ordersSource) {
+  write(root, 'prisma/models/orders.prisma', ordersSource);
+  write(root, 'prisma/models/core.prisma', SUPPORTING_SOURCE);
+  write(root, 'prisma/models/channels.prisma', CHANNELS_SOURCE);
+}
+
 function runScanner(root) {
   return spawnSync(process.execPath, [scanner, '--root', root], {
     encoding: 'utf8',
@@ -204,7 +238,7 @@ test('fails when a cross-owner relation is missing from the allowlist', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
 
   try {
-    write(root, 'prisma/models/orders.prisma', ORDERS_SOURCE);
+    writeSchema(root, ORDERS_SOURCE);
     write(
       root,
       'scripts/cross-owner-fk.json',
@@ -229,7 +263,7 @@ test('fails when an allowlist entry no longer matches a relation', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
 
   try {
-    write(root, 'prisma/models/orders.prisma', ORDERS_SOURCE);
+    writeSchema(root, ORDERS_SOURCE);
     write(
       root,
       'scripts/cross-owner-fk.json',
@@ -251,6 +285,52 @@ test('fails when an allowlist entry no longer matches a relation', () => {
       result.stderr,
       /stale allowlist entry "orders\.Order -> supply\.Supplier"/,
     );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('fails when the data file names a model the schema does not declare', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
+
+  try {
+    writeSchema(root, ORDERS_SOURCE);
+    write(
+      root,
+      'scripts/cross-owner-fk.json',
+      JSON.stringify({
+        version: 1,
+        ...CONFIG,
+        owners: { ...CONFIG.owners, RetiredModel: 'channels' },
+        allowlist: ['orders.Order -> channels.ChannelAccount'],
+      }),
+    );
+
+    const result = runScanner(root);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /check:cross-owner-fk FAIL/);
+    assert.match(result.stderr, /unknown model in owners: RetiredModel/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('refuses a data file whose version it does not know', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
+
+  try {
+    writeSchema(root, ORDERS_SOURCE);
+    write(
+      root,
+      'scripts/cross-owner-fk.json',
+      JSON.stringify({ version: 2, ...CONFIG }),
+    );
+
+    const result = runScanner(root);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /version must be 1/);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

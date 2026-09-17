@@ -142,7 +142,6 @@ export function classifyRelations({ edges, config, modelOwners }) {
 
   const classifications = [];
   const summary = { total: 0, scope: 0, kept: 0, intra: 0, cross: 0 };
-  const crossEdges = [];
   const unlisted = [];
   const unknownTargets = [];
 
@@ -160,7 +159,7 @@ export function classifyRelations({ edges, config, modelOwners }) {
       continue;
     }
 
-    const sourceOwner = ownerOf(edge.model) ?? edge.defaultOwner;
+    const sourceOwner = ownerOf(edge.model);
     const targetOwner = ownerOf(edge.target);
     if (targetOwner === null) {
       unknownTargets.push(edge);
@@ -178,7 +177,6 @@ export function classifyRelations({ edges, config, modelOwners }) {
     const crossEdge = { ...edge, kind: 'cross', sourceOwner, targetOwner, key };
     summary.cross += 1;
     classifications.push(crossEdge);
-    crossEdges.push(crossEdge);
     const covered = remaining.get(key) ?? 0;
     if (covered > 0) remaining.set(key, covered - 1);
     else unlisted.push({ ...crossEdge, listed: remaining.has(key) });
@@ -189,17 +187,37 @@ export function classifyRelations({ edges, config, modelOwners }) {
     .map(([key]) => key)
     .sort();
 
-  return { classifications, summary, crossEdges, unlisted, stale, unknownTargets };
+  return { classifications, summary, unlisted, stale, unknownTargets };
+}
+
+/**
+ * Names in the data file that `prisma/models/*.prisma` no longer declares. A
+ * renamed or deleted model would otherwise leave a silent override behind:
+ * the entry stops matching anything and the relation it used to classify is
+ * quietly reclassified.
+ */
+function findUnknownConfigNames(config, declaredModels) {
+  const unknown = [];
+  const collect = (field, names) => {
+    for (const name of names) {
+      if (!declaredModels.has(name)) unknown.push({ field, name });
+    }
+  };
+  collect('owners', Object.keys(config.owners ?? {}));
+  collect('scopeTargets', config.scopeTargets ?? []);
+  collect('keptTargets', config.keptTargets ?? []);
+  return unknown;
 }
 
 export function loadConfig(root) {
   const config = JSON.parse(
     readFileSync(path.join(root, CONFIG_FILE), 'utf8'),
   );
-  for (const key of ['owners']) {
-    if (config[key] === null || typeof config[key] !== 'object') {
-      throw new Error(`${CONFIG_FILE} needs an object "${key}"`);
-    }
+  if (config.version !== 1) {
+    throw new Error(`${CONFIG_FILE} version must be 1`);
+  }
+  if (config.owners === null || typeof config.owners !== 'object') {
+    throw new Error(`${CONFIG_FILE} needs an object "owners"`);
   }
   for (const key of ['scopeTargets', 'keptTargets', 'allowlist']) {
     if (!Array.isArray(config[key])) {
@@ -228,7 +246,16 @@ export function inspectCrossOwnerRelations({ root, config }) {
     unparsed.push(...parsed.unparsed);
   }
 
-  return { ...classifyRelations({ edges, config, modelOwners }), unparsed };
+  const unknownNames = findUnknownConfigNames(
+    config,
+    new Set(modelOwners.keys()),
+  );
+
+  return {
+    ...classifyRelations({ edges, config, modelOwners }),
+    unparsed,
+    unknownNames,
+  };
 }
 
 function main() {
@@ -248,7 +275,8 @@ function main() {
     result.unlisted.length > 0 ||
     result.stale.length > 0 ||
     result.unknownTargets.length > 0 ||
-    result.unparsed.length > 0;
+    result.unparsed.length > 0 ||
+    result.unknownNames.length > 0;
 
   if (hasFailure) {
     console.error('check:cross-owner-fk FAIL');
@@ -263,6 +291,11 @@ function main() {
     for (const key of result.stale) {
       console.error(
         `${CONFIG_FILE}: stale allowlist entry "${key}"; the relation is gone, remove the entry`,
+      );
+    }
+    for (const { field, name } of result.unknownNames) {
+      console.error(
+        `${CONFIG_FILE}: unknown model in ${field}: ${name} (prisma/models/*.prisma does not declare it)`,
       );
     }
     for (const entry of result.unparsed) {
