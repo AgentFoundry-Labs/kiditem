@@ -20,9 +20,15 @@ const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWi
 
 vi.mock('@tanstack/react-query', () => ({
   keepPreviousData: undefined,
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey.includes('targets')) {
       return { data: [], isLoading: false, isError: false, error: null };
+    }
+    // 품절 송신 컨트롤이 읽는 후보. 이 표의 관심사가 아니라 비워 둔다 — 컨트롤은
+    // 후보가 없으면 스스로 서지 않는다.
+    if (queryKey.includes('availability-preview')) {
+      return { data: { candidates: [] }, isLoading: false, isError: false, error: null };
     }
     if (queryKey.includes('listing-matrix')) {
       return {

@@ -842,19 +842,20 @@ function mallFormRegister() {
   return mallFormRegisterInstance;
 }
 
-// 몰 품절 화면 대상 지목. 화면을 열고 줄을 골라 둘 뿐 **제출하지 않는다** — 마지막
-// 버튼은 사람이 누른다. 잘못 보낸 품절은 그동안 팔리지 않으므로 대신 눌러서 얻는
-// 시간보다 잃는 매출이 크다.
-let mallAvailabilityStageInstance = null;
-function mallAvailabilityStage() {
-  if (!mallAvailabilityStageInstance) {
-    mallAvailabilityStageInstance = KidItemMallAvailabilityStage.create({
+// 몰 품절 송신. 상품등록과 달리 **끝까지 보낸다** — 품절은 같은 화면에서 같은 값으로
+// 되돌릴 수 있어서다(매니페스트 supports.resume). 몰의 버튼을 누르는 대신 그 버튼이
+// 만들 폼을 그대로 직렬화해 보내므로 confirm 창이 끼어들 자리가 없다.
+let mallAvailabilitySendInstance = null;
+function mallAvailabilitySend() {
+  if (!mallAvailabilitySendInstance) {
+    mallAvailabilitySendInstance = KidItemMallAvailabilitySend.create({
       chrome,
+      fetch: (...args) => fetch(...args),
       interactiveTabs,
-      tabReason: INTERACTIVE_TAB_REASONS.MALL_AVAILABILITY_STAGE,
+      tabReason: INTERACTIVE_TAB_REASONS.MALL_AVAILABILITY_SEND,
     });
   }
-  return mallAvailabilityStageInstance;
+  return mallAvailabilitySendInstance;
 }
 
 // 몰 로그인 상태 조용히 확인. 몰마다 정해진 읽기 전용 주소를 한 번 읽을 뿐, 로그인하지 않고
@@ -913,9 +914,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(mallFormRegister().listCategories(msg));
   }
 
-  // 몰 품절 화면에서 대상 지목. 제출하지 않으므로 몰에 부작용이 없다.
-  if (msg?.action === "stageMallAvailability") {
-    return respond(mallAvailabilityStage().stage(msg));
+  // 몰 품절 송신. 되돌릴 수 있는 명령이라 끝까지 보낸다(해제는 resume: true).
+  if (msg?.action === "sendMallAvailability") {
+    return respond(mallAvailabilitySend().send(msg));
   }
 
   if (msg?.action === "collectSellpiaManualMatch") {
@@ -7759,9 +7760,9 @@ KidItemDomains.register({
     // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
     mallFormRegister: true,
     mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st", "icecream"],
-    // 몰 품절 화면에서 대상 지목(제출은 사람이 한다).
-    mallAvailabilityStage: true,
-    mallAvailabilityStageMalls: KidItemMallAvailabilityStage.MALL_KEYS,
+    // 몰 품절 송신(끝까지 보낸다. 해제도 같은 액션).
+    mallAvailabilitySend: true,
+    mallAvailabilitySendMalls: KidItemMallAvailabilitySend.MALL_KEYS,
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: ["onch"],

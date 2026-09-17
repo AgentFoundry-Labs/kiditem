@@ -1,16 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { AlertCircle, Ban, Info, Loader2, MousePointerClick, PackageX, RefreshCw, ShieldAlert } from 'lucide-react';
+import { AlertCircle, Ban, Info, Loader2, PackageX, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { MallAvailabilityCandidate } from '@kiditem/shared/mall-publishing';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { mallPublishingApi } from '../_shared/mall-publishing-api';
-import { canStageMallAvailability, stageMallAvailability } from '../_shared/mall-availability-stage';
+import { MallAvailabilitySend } from '../_shared/MallAvailabilitySend';
 
 const PREVIEW_LIMIT = 100;
 
@@ -75,13 +73,14 @@ export default function MallAvailabilityPage() {
       <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
         <Info size={15} className="mt-0.5 flex-none" />
         <div>
-          <strong>대상만 골라 둡니다 — 마지막 버튼은 사장님이 누릅니다.</strong> 몰 버튼을 누르면
-          확장이 그 몰의 품절 화면을 열고 아래 상품 줄을 체크해 둡니다. 저장·변경은 누르지
-          않습니다. 누른 뒤에는 몰을 다시 조회해 반영을 확인한 것만 완료로 셉니다.
+          <strong>몰 버튼을 누르면 그 몰에 품절을 보냅니다.</strong> 사장님이 몰마다 들어가실
+          필요가 없습니다. 해제는 같은 명령이라 재고가 들어오면 같은 자리에서 되돌립니다.
+          보낸 뒤에는 몰을 다시 가져와 반영을 확인한 것만 완료로 셉니다 — 보낸 것과 반영된 것은
+          다른 사실입니다.
         </div>
       </div>
 
-      <MallStageBar candidates={candidates} />
+      <MallAvailabilitySend />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard label="품절 후보" value={preview?.total ?? 0} hint="전체" />
@@ -126,106 +125,6 @@ export default function MallAvailabilityPage() {
         <CandidateTable candidates={candidates} />
       )}
 
-    </div>
-  );
-}
-
-/**
- * 몰마다 "이 몰 화면에서 고르기" 버튼 한 개.
- *
- * 몰을 아는 것은 확장뿐이다. 이 줄은 후보를 몰별로 묶어 개수를 세고, 품절 화면을
- * 아는 몰에만 버튼을 세운다 — 경로가 없는 몰에 버튼을 만들면 눌러도 아무 일이 안
- * 일어나는 화면이 된다.
- */
-function MallStageBar({ candidates }: { candidates: MallAvailabilityCandidate[] }) {
-  const [running, setRunning] = useState<string | null>(null);
-
-  const groups = useMemo(() => {
-    const byMall = new Map<string, { mallName: string; codes: string[] }>();
-    for (const candidate of candidates) {
-      // 보낼 수 없다고 판정된 줄은 고르지 않는다. 화면이 막았는데 확장이 체크해 두면
-      // 사람이 그걸 그대로 저장한다.
-      if (!candidate.sendable || !candidate.mallProductCode) continue;
-      const group = byMall.get(candidate.mallKey)
-        ?? { mallName: candidate.mallName, codes: [] };
-      group.codes.push(candidate.mallProductCode);
-      byMall.set(candidate.mallKey, group);
-    }
-    return [...byMall.entries()]
-      .map(([mallKey, group]) => ({ mallKey, ...group, codes: [...new Set(group.codes)] }))
-      .sort((a, b) => b.codes.length - a.codes.length);
-  }, [candidates]);
-
-  const stageable = groups.filter((group) => canStageMallAvailability(group.mallKey));
-  if (stageable.length === 0) return null;
-
-  const run = async (mallKey: string, mallName: string, codes: string[]) => {
-    setRunning(mallKey);
-    try {
-      if (!canStageMallAvailability(mallKey)) return;
-      const result = await stageMallAvailability(mallKey, codes);
-      for (const warning of result.warnings) toast.warning(warning);
-      // 골라 둔 것은 성공이 아니라 `attention` 이다 — 사람이 이어서 눌러야 끝난다.
-      // 개수와 이유 코드만 남긴다. 상품코드도 이름도 관찰 기록에 넣지 않는다.
-      void recordMallOperationOutcome({
-        mallKey,
-        operation: 'availability_stage',
-        outcome: 'attention',
-        reasonCode: 'manual_submit_required',
-        itemCount: result.staged,
-        failedCount: result.missing,
-        warningCount: result.warnings.length,
-      });
-      // 성공 문구가 "보냈습니다" 가 되면 안 된다. 고른 것과 보낸 것은 다른 사실이다.
-      toast.success(
-        `${mallName} ${formatNumber(result.staged)}건을 골라 뒀습니다. 그 화면에서 [${result.submitLabel}] 을 누르세요.`,
-        { description: result.submitHint || undefined, duration: 10_000 },
-      );
-    } catch (error) {
-      void recordMallOperationOutcome({
-        mallKey,
-        operation: 'availability_stage',
-        outcome: 'failed',
-        reasonCode: 'extension_unavailable',
-        itemCount: codes.length,
-      });
-      toast.error(error instanceof Error ? error.message : '품절 화면을 열지 못했습니다.');
-    } finally {
-      setRunning(null);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-        <MousePointerClick size={13} />
-        몰 화면에서 대상 고르기
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {stageable.map((group) => (
-          <button
-            key={group.mallKey}
-            type="button"
-            onClick={() => void run(group.mallKey, group.mallName, group.codes)}
-            disabled={running !== null}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {running === group.mallKey ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : null}
-            {group.mallName}
-            <span className="tabular-nums text-xs text-slate-400">{formatNumber(group.codes.length)}건</span>
-          </button>
-        ))}
-      </div>
-      {/* 경로가 있는 몰만 버튼이 선다는 사실을 숨기지 않는다. */}
-      {groups.length > stageable.length ? (
-        <p className="mt-3 text-[11px] text-slate-400">
-          {groups.filter((group) => !canStageMallAvailability(group.mallKey))
-            .map((group) => group.mallName).join(' · ')}
-          은 아직 품절 화면 경로가 없어 버튼이 서지 않습니다.
-        </p>
-      ) : null}
     </div>
   );
 }

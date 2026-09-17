@@ -12,6 +12,7 @@ import { mallPublishingApi } from '../_shared/mall-publishing-api';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
 import { MALL_ADMIN_LISTING_MALL_KEYS } from '@kiditem/shared/mall-admin-listings';
 import { MallAdminListingsImport } from '../_shared/MallAdminListingsImport';
+import { MallAvailabilitySend } from '../_shared/MallAvailabilitySend';
 import { MALL_PUBLISH_ADAPTERS } from '../_shared/adapters';
 import { ListingMatrixTable } from './components/ListingMatrixTable';
 import { RegistrationWizard } from './components/RegistrationWizard';
@@ -230,6 +231,10 @@ function ListingStatusView() {
           </button>
         </div>
       </div>
+
+      {/* 품절은 등록의 반대가 아니라 같은 표의 다음 동작이다 — 어느 상품이 어느 몰에
+          올라가 있는지 보는 자리에서 그중 재고가 빈 것을 바로 내린다(사장님 2026-09-18). */}
+      <MallAvailabilitySend />
 
       {matrixQuery.isError ? (
         <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-600">
