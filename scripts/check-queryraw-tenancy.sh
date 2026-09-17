@@ -16,9 +16,11 @@
 #   - `nextval('...')` sequence calls — globally scoped sequence, no tenant data.
 #   - Organization-scoped advisory locks. All three are required, so a comment
 #     alone never exempts a site: a `queryraw-tenancy-exempt:` marker naming the
-#     organization reason, a `pg_advisory_xact_lock` call, and a lock key derived
-#     from organizationId at the lock statement (the 8 lines above the hit cover
-#     the key composition, which normally sits just above the SQL).
+#     organization reason, a `pg_advisory_xact_lock` call, and an
+#     `organizationId`/`organization_id` mention within the 8 lines up to and
+#     including the lock statement, where the key is normally composed.
+#     That mention is corroboration, not proof: a line scanner cannot tell that
+#     the key is derived from it. The marker's reviewer is the real check.
 #   - Exact database-clock reads with the
 #     `queryraw-tenancy-exempt: database clock only` marker and no table access.
 #
@@ -87,11 +89,12 @@ for file in "${FILES[@]}"; do
     [ -z "$lineno" ] && continue
     end=$((lineno + 30))
     window=$(sed -n "${lineno},${end}p" "$file" 2>/dev/null || true)
-    # Advisory-lock keys are composed just above the statement that binds them,
-    # so the lock evidence window reaches a few lines back as well.
+    # Advisory-lock keys are composed just above the statement that binds them.
+    # This slice stops at the lock line: reaching past it would count an
+    # organization mentioned by whatever code happens to follow.
     lock_start=$((lineno - 8))
     [ "$lock_start" -lt 1 ] && lock_start=1
-    lock_window=$(sed -n "${lock_start},${end}p" "$file" 2>/dev/null || true)
+    lock_key_lines=$(sed -n "${lock_start},${lineno}p" "$file" 2>/dev/null || true)
 
     # Compliant: has `organization_id` binding anywhere in the window.
     if echo "$window" | rg -q 'organization_id'; then
@@ -109,13 +112,15 @@ for file in "${FILES[@]}"; do
       continue
     fi
 
-    # Exempt: reviewed organization-scoped advisory lock. The reviewed marker
-    # names the organization reason, the statement takes a transaction advisory
-    # lock, and the lock key is derived from organizationId — so a lock keyed by
-    # anything else, and any other raw SQL wearing the marker, still fails.
+    # Exempt: reviewed organization-scoped advisory lock. All three are needed —
+    # the marker naming the organization reason, a transaction advisory lock,
+    # and an organization mentioned where the key is composed. So raw SQL merely
+    # wearing the marker fails, and so does a lock with no organization in
+    # reach. It does not prove this key is the organization's; the reviewer who
+    # wrote the marker does.
     if echo "$window" | rg -q 'queryraw-tenancy-exempt:.*organization' \
       && echo "$window" | rg -q 'pg_advisory_xact_lock' \
-      && echo "$lock_window" | rg -q 'organizationId|organization_id'; then
+      && echo "$lock_key_lines" | rg -q 'organizationId|organization_id'; then
       continue
     fi
 
@@ -143,7 +148,8 @@ if [ ${#FAILURES[@]} -gt 0 ]; then
   done
   echo ""
   echo "Every raw SQL site must bind WHERE organization_id = \${organizationId}::uuid"
-  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, reviewed advisory lock keyed by organizationId.)"
+  echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, reviewed advisory lock"
+  echo " whose marker names the organization reason, with organizationId in the 8 lines up to the lock.)"
   exit 1
 fi
 
