@@ -11,6 +11,11 @@ domain guide owns marketplace-specific behavior.
 
 - Only `background/service-worker.js` calls `importScripts` and owns load
   order. Domain workers consume registered globals and must not import again.
+- The channel list lives only in the channel registry; the extension reads its
+  committed copy at `shared/channel-registry.js` through
+  `self.KidItemChannelRegistry`. That file is generated from
+  `packages/shared/src/channel-registry.ts` — never edit it, regenerate with
+  `node scripts/generate-channel-registry.mjs`. Mall spec keys are channel keys.
 - Every script shares one global scope. Keep top-level names unique and prefix
   domain instances.
 - `external-dispatch.js` is the sole responder for extension health and source

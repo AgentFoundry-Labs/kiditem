@@ -125,6 +125,11 @@ them — are recorded for a mall that has no row
 ([ADR-0012](../../docs/adr/0012-one-channel-account-row-per-mall.md)).
 _Avoid_: shop, store, seller account, mall account
 
+**Channel registry**:
+몰과 마켓을 아우르는 채널 목록 하나. 키·이름·공유 계정 행·능력(수집·송장·등록 방식·
+검증 여부)을 답한다. 어떻게 로그인하고 어떻게 폼을 채우는지는 답하지 않는다.
+_Avoid_: mall registry, mall list
+
 **Source owner**:
 The single module that owns one external source's collection attempts,
 canonical facts, coverage manifests, current complete snapshot, and terminal

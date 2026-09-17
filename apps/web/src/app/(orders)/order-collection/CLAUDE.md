@@ -8,6 +8,9 @@ convenience history.
 
 ## Collection Contract
 
+- The mall list and which malls the extension collects live only in the channel
+  registry (`@kiditem/shared/channel-registry`); this route reads it instead of
+  repeating the list.
 - All extension IO goes through the shared extension bridge and route adapter.
   The order screen and dashboard share
   `useAllMarketplaceOrderCollection`; do not create a count-only collector.
