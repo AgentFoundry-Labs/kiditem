@@ -149,6 +149,11 @@ test("a login tab stays open without stealing focus when automatic login needs a
       KIDKIDS_ORDER_URL: "https://example.invalid/kidkids",
       KIDSNOTE_ORDER_URL: "https://example.invalid/kidsnote",
       LOTTEON_LOGIN_URL: "https://example.invalid/lotteon-login",
+      COUPANG_DIRECT_LOGIN_URL: "https://example.invalid/coupang-supplier",
+      // 쇼핑몰 계정에 저장된 사이트 주소로 들어가는 갈래(고정 주소가 없는 몰)와,
+      // 우리가 연 탭을 기억해 두는 목록.
+      savedMallLoginUrl: () => null,
+      rememberOrderCollectionTab: () => undefined,
       KKOMANGSE_ORDER_URL: "https://example.invalid/kkomangse",
       ONCHANNEL_ORDER_URL: "https://example.invalid/onch",
       TEACHERVILLE_ORDER_URL: "https://example.invalid/teacher-mall",

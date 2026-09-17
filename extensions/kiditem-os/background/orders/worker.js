@@ -329,6 +329,9 @@ const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.html";
 const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
+// 쿠팡 직배송(사입) 발주 화면. 로그아웃 상태면 Supplier Hub 로그인 화면으로 밀려나므로
+// 자동 로그인도 이 주소로 들어간다 — 로그인돼 있으면 폼이 없어 그대로 지나간다.
+const COUPANG_DIRECT_LOGIN_URL = "https://supplier.coupang.com/po-web/app/purchase-order/list";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 
 // Read-only one-shot actions do not have server attempts. Keep their local
@@ -1121,6 +1124,14 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // 수집이 끝난 몰의 탭을 닫는다. 우리가 연 탭만 닫고, 사람이 열어 둔 탭은 건드리지 않는다.
+  if (msg?.action === "closeOrderCollectionTabs") {
+    const attemptIds = Array.isArray(msg.attemptIds)
+      ? msg.attemptIds.filter((id) => typeof id === "string")
+      : [];
+    return respond(closeOrderCollectionTabs(attemptIds));
+  }
+
   // 로그인 상태만 본다. 몰 키 하나만 받고, 주소는 모듈의 고정 목록에서만 나온다.
   if (msg?.action === "probeMallSession") {
     return respond(mallSessionProbe().probe(typeof msg.mallKey === "string" ? msg.mallKey : ""));
@@ -1332,17 +1343,58 @@ async function attachOrderCollectionTab(collection, tab, owned) {
   }
 }
 
+/**
+ * 주문 수집을 위해 우리가 연 몰 탭. 수집이 끝나면 화면이 이 목록을 보고 한 번에 닫는다 —
+ * 사장님: "수집 끝났으면 창 닫아라". 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰은
+ * 화면이 그 시도를 닫기 목록에서 빼는 방식으로 남긴다.
+ */
+const openedOrderCollectionTabs = new Map();
+
+function rememberOrderCollectionTab(tabId, attemptId) {
+  if (!Number.isInteger(tabId)) return;
+  openedOrderCollectionTabs.set(tabId, typeof attemptId === "string" ? attemptId : null);
+}
+
+function forgetOrderCollectionTab(tabId) {
+  openedOrderCollectionTabs.delete(tabId);
+}
+
+if (chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener((tabId) => forgetOrderCollectionTab(tabId));
+}
+
+/** 이 시도(또는 전부)가 연 탭을 닫는다. 사람이 열어 둔 다른 탭은 건드리지 않는다. */
+async function closeOrderCollectionTabs(attemptIds) {
+  const wanted = Array.isArray(attemptIds) && attemptIds.length > 0
+    ? new Set(attemptIds.filter((id) => typeof id === "string"))
+    : null;
+  let closed = 0;
+  for (const [tabId, attemptId] of [...openedOrderCollectionTabs]) {
+    if (wanted && !(attemptId && wanted.has(attemptId))) continue;
+    forgetOrderCollectionTab(tabId);
+    try {
+      await chrome.tabs.remove(tabId);
+      closed += 1;
+    } catch {
+      /* 이미 닫힘 — 무시 */
+    }
+  }
+  return { success: true, closed };
+}
+
 async function createFreshOrderCollectionTab(collection, url) {
   // A provider page already open in the operator's profile is not evidence
   // that this owner controls it. Every named read collector gets a fresh,
   // inactive page after the local environment/producer fence has held.
   await assertOrderCollectionActive(collection);
   const tab = await chrome.tabs.create({ url, active: false });
+  rememberOrderCollectionTab(tab?.id, collection?.attemptId);
   return { tab, created: true };
 }
 
 async function closeFreshOrderCollectionTab(tab) {
   if (!Number.isInteger(tab?.id)) return;
+  forgetOrderCollectionTab(tab.id);
   if (typeof chrome.tabs.get === "function") {
     try {
       await chrome.tabs.get(tab.id);
@@ -2790,7 +2842,7 @@ async function collectLotteonOrders(collection) {
         success: false,
         pendingLogin: true,
         error:
-          "롯데ON 판매자센터에 로그인되어 있지 않습니다. 방금 열린 롯데ON 탭에서 로그인한 뒤 다시 '수집하기'를 눌러주세요. (롯데ON은 통합회원 로그인이라 자동 로그인은 지원하지 않습니다.)",
+          "롯데ON 판매자센터 로그인이 필요합니다. 쇼핑몰 계정의 아이디·비밀번호를 확인하거나 롯데ON 에 직접 로그인한 뒤 다시 수집해 주세요.",
       };
     }
     return result;
@@ -2809,7 +2861,16 @@ async function collectLotteonOrders(collection) {
 // store.lotteon.com 페이지 컨텍스트: sessionStorage 토큰으로 soapi 3단계(사유등록→엑셀요청→파일다운) 호출.
 async function scrapeLotteonOrders() {
   try {
-    const tok = sessionStorage.getItem("AuthToken");
+    // 판매자센터는 SPA 라서 화면이 뜬 뒤에야 `sessionStorage.AuthToken` 을 채운다. 문서 로드만
+    // 보고 읽으면 사장님이 로그인해 두셨어도 토큰이 아직 없어 "로그인 필요"로 읽힌다.
+    // 로그인 화면으로 밀려난 것이 아니면 토큰이 설 때까지 기다린다(최대 20초).
+    const loginScreen = () => /login/i.test(location.href);
+    let tok = sessionStorage.getItem("AuthToken");
+    const deadline = Date.now() + 20000;
+    while (!tok && !loginScreen() && Date.now() < deadline) {
+      await new Promise((resolve) => { setTimeout(resolve, 500); });
+      tok = sessionStorage.getItem("AuthToken");
+    }
     if (!tok) {
       return { success: false, error: "롯데ON 판매자센터 로그인이 필요합니다. 로그인 후 다시 시도하세요." };
     }
@@ -4679,7 +4740,8 @@ async function collectDomeggookOrders(date, collection) {
         world: "MAIN",
         func: triggerDomeggookExcelGen,
       }),
-      30000,
+      // 도매꾹은 엑셀을 서버에서 비동기로 만든다. 백그라운드 탭 여럿과 함께 돌 때 30초는 모자랐다.
+      60000,
       "도매꾹 생성 요청 시간이 초과되었습니다.",
     );
     const tr = trig[0]?.result;
@@ -5645,9 +5707,10 @@ async function collectIcecreamMallOrders(date, credentials, collection) {
     };
   }
 
+  // 전체 수집은 백그라운드 탭 여럿을 함께 띄운다. 15초는 그 상황에서 자주 모자랐다.
   const deliveryInquiry = await withTimeout(
     openIcecreamMallDeliveryInquiry(tab.id),
-    15000,
+    45000,
     "아이스크림몰 배송조회 화면 이동 시간이 초과되었습니다.",
   );
   if (!deliveryInquiry.success) {
@@ -6184,6 +6247,8 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
     // 롯데ON 은 <form> 없는 WebSquare 화면이지만 사용자ID/비밀번호 input 과
     // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 가능하다(2026-09-01 DOM 확인).
     "lotte-on": LOTTEON_LOGIN_URL,
+    // 쿠팡 직배송은 로켓 계정 행에 저장된 아이디·비밀번호를 쓴다(ADR-0012).
+    "coupang-direct": COUPANG_DIRECT_LOGIN_URL,
     // 카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어 form-fill 자동로그인이
     // 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
   };
@@ -6197,6 +6262,7 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   if (collection) await assertOrderCollectionActive(collection);
   const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
   if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
+  rememberOrderCollectionTab(tab.id, collection?.attemptId);
   if (collection) {
     const attached = await attachOrderCollectionTab(collection, tab, true);
     if (attached === null || attached === false) {
@@ -7477,6 +7543,8 @@ KidItemDomains.register({
     // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
     mallSessionProbeV1: true,
     mallLoginTestV1: true,
+    // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
+    orderCollectionTabCloseV1: true,
     mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "boribori", "lotte-on", "gs-shop", "ssg", "thirtymall", "kkomangse"],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,

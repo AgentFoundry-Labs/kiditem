@@ -23,6 +23,7 @@ import {
   type OrderCollectionMallAccount,
 } from './order-mall-account-api';
 import {
+  COUPANG_DIRECT_MALL_KEY,
   ICECREAM_MALL_KEY,
   isBrowserCollectableMall,
   isNoNewOrdersMessage,
@@ -774,6 +775,9 @@ export function createBrowserMallCollector({
     if (!rocketChannelAccountId) {
       throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
     }
+    // 쿠팡 직배송도 다른 몰과 같다 — 발주 화면에 들어가기 전에 저장된 로켓 계정으로 로그인한다.
+    // 달력이 이미 받아 둔 자료로 만드는 경우에는 들어갈 일이 없으므로 그대로 둔다.
+    if (!capturedData) await ensureMallLogin(COUPANG_DIRECT_MALL_KEY, run);
     const collectedData = capturedData ?? await collectCoupangDirectFromExtension(run);
     // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
     // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.

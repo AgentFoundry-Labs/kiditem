@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fail: vi.fn(),
   readAttempt: vi.fn(),
   collectMall: vi.fn(),
+  closeTabs: vi.fn(),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -26,6 +27,7 @@ vi.mock('@/app/(orders)/order-collection/lib/order-collection-extension', async 
     extensionId: 'order-extension',
     version: '1.0.86',
   }),
+  closeOrderCollectionTabsViaExtension: mocks.closeTabs,
 }));
 vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   createBrowserMallCollector: () => mocks.collectMall,
@@ -354,6 +356,61 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
       expect.objectContaining({ code: 'LOGIN_REQUIRED' }),
     );
     expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String));
+  });
+
+  /**
+   * 사장님: "수집 끝났으면 창 닫아라". 우리가 연 몰 탭은 그 몰의 수집이 끝나는 대로 닫는다.
+   * 남기는 것은 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰뿐이다.
+   */
+  it('⭐ 수집이 끝나면 그 몰의 탭을 닫는다 — 인증이 필요한 몰만 남긴다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 8),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue({ ...attemptFor('kidsnote', 8), state: 'COMPLETE' });
+    mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAccounts([kidsnote]);
+    });
+
+    expect(mocks.closeTabs).toHaveBeenCalledWith('order-extension', attemptFor('kidsnote', 8).attemptId);
+  });
+
+  it('인증이 필요한 몰의 탭은 사람이 끝내야 하므로 닫지 않는다', async () => {
+    const gsshop = mall('gs-shop', 'GS샵');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('gs-shop', 8),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attemptFor('gs-shop', 8));
+    mocks.fail.mockResolvedValue({ ...attemptFor('gs-shop', 8), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(new Error('GS샵 SMS 인증이 필요합니다.'));
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [gsshop],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAccounts([gsshop]);
+    });
+
+    expect(mocks.closeTabs).not.toHaveBeenCalled();
   });
 
   /**

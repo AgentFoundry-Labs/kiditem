@@ -14,7 +14,10 @@ import {
   saveGeneratedOrderFile,
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
-import { type OrderCollectionExtensionRun } from '@/app/(orders)/order-collection/lib/order-collection-extension';
+import {
+  closeOrderCollectionTabsViaExtension,
+  type OrderCollectionExtensionRun,
+} from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import {
   coupangDirectshipCollectionSource,
   type CoupangDirectshipHandoff,
@@ -181,6 +184,9 @@ export function useAllMarketplaceOrderCollection({
       directship?: { eddDates: string[]; data?: CoupangDirectData },
     ) => {
       const activeRun = run;
+      // 인증(본인확인 · OTP · 캡차)만 사람이 그 화면에서 끝낼 수 있다. 그 몰의 탭만 남기고
+      // 나머지는 수집이 끝나는 대로 닫는다(사장님: "수집 끝났으면 창 닫아라").
+      let keepTabsForOperator = false;
       try {
         const collected = await collectBrowserMall(account, activeRun, { directship });
         if (collected.rowCount === 0) {
@@ -224,6 +230,7 @@ export function useAllMarketplaceOrderCollection({
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
+        keepTabsForOperator = failureKind === 'auth';
         const noNewOrders = !stopped && failureKind === 'empty';
         const ownerReconciliationRequired = error instanceof Error &&
           'ownerReconciliationRequired' in error &&
@@ -281,6 +288,9 @@ export function useAllMarketplaceOrderCollection({
         }
         throw error;
       } finally {
+        if (activeRun?.extensionId && !keepTabsForOperator) {
+          void closeOrderCollectionTabsViaExtension(activeRun.extensionId, activeRun.attemptId);
+        }
         if (activeRun) releaseRun(account.key, activeRun.attemptId);
       }
     },

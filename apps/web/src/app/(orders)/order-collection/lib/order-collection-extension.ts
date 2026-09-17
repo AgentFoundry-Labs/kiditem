@@ -148,6 +148,22 @@ export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   method?: string | null;
 }
 
+/**
+ * 수집이 끝난 시도가 연 몰 탭을 닫는다. 사장님: "수집 끝났으면 창 닫아라".
+ * 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰은 부르지 않아 탭이 남는다.
+ * 확장이 오래됐거나 답하지 않아도 수집 결과에는 영향이 없다 — 조용히 지나간다.
+ */
+export async function closeOrderCollectionTabsViaExtension(
+  extensionId: string,
+  attemptId: string,
+): Promise<void> {
+  try {
+    await sendToExtension(extensionId, { action: 'closeOrderCollectionTabs', attemptIds: [attemptId] }, 5_000);
+  } catch {
+    /* 탭 정리는 수집 결과와 무관하다. */
+  }
+}
+
 export async function detectOrderCollectionSessionExtension(): Promise<string | null> {
   const status = await detectOrderCollectionSessionExtensionStatus();
   return status.status === 'ready' ? status.extensionId : null;
