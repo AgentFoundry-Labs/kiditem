@@ -130,6 +130,12 @@ export interface IcecreamRegistrationOptions {
   naverMinPriceUrl?: string;
   /** 조사일(`YYYY-MM-DD`). 없으면 비운다 — 날짜를 지어내지 않는다. */
   naverMinPriceCheckedOn?: string;
+  /**
+   * 셀피아 SKU 코드. 몰의 업체상품코드 칸(`entrGoodsNo`)에 심는다. 사방넷이 `모델명`에
+   * 셀피아 코드를 넣어 보낸 자리와 같다 — 심어 두면 등록 상품을 가져올 때 이름이 아니라
+   * 코드로 정확히 이어진다(KID-246). 목록 조회가 이 칸을 그대로 돌려준다.
+   */
+  sellpiaCode?: string;
 }
 
 export interface IcecreamRegistrationForm {
@@ -280,6 +286,9 @@ export function icecreamFormFromDraft(
       goodsInfo: {
         goodsNm: buildIcecreamProductName(draft.displayName, draft.keywords, quantity),
         saleEndDtm: ICECREAM_SALE_END,
+        ...((options.sellpiaCode ?? '').trim()
+          ? { entrGoodsNo: (options.sellpiaCode ?? '').trim() }
+          : {}),
         ...ICECREAM_SELECTS.goodsInfo,
       },
       priceInfo: {

@@ -38,9 +38,9 @@ function loadSource(files) {
 }
 
 // 키드키즈 상품리스트 다운로드 한 줄 — 엑셀(HTML 표)이라 품절여부 한 칸이 상태를 담는다.
-function downloadRow({ code, name, invoice = "", price = "1,900", sold = "정상" }) {
+function downloadRow({ code, name, invoice = "", price = "1,900", sold = "정상", seller = "" }) {
   return `<tr>
-    <td>거영아이앤디</td><td>${code}</td><td></td><td>${sold}</td><td>과세</td>
+    <td>거영아이앤디</td><td>${code}</td><td>${seller}</td><td>${sold}</td><td>과세</td>
     <td>선물/행사</td><td>완구선물</td><td>액체괴물</td>
     <td>${name}</td><td>${invoice}</td><td></td><td></td>
     <td>1520</td><td>${price}</td><td>3000</td><td>59</td>
@@ -133,14 +133,16 @@ test("키드키즈 — 상품리스트 다운로드로 전체를 한 번에 읽�
     { code: "1078807", name: "[키드아이템] 푸푸 급식용 식판", invoice: "푸푸급식용식판", sold: "일시품절" },
     { code: "1038722", name: "5000방울(킬라)_16mm", invoice: "", sold: "보류" },
     { code: "889504", name: "옛 상품", invoice: "", sold: "영구품절" },
+    // 등록할 때 셀피아 코드를 심어 둔 상품.
+    { code: "1119098", name: "[키드아이템] 도넛츠 왁스팝 1p", invoice: "3500도넛츠왁스팝말랑이", seller: "10454-1" },
   ];
   const { result, requests, decoders } = await runKidkids({
-    serve: ({ kind }) => (kind === "list" ? listPage(4) : downloadTable(rows)),
+    serve: ({ kind }) => (kind === "list" ? listPage(5) : downloadTable(rows)),
   });
   assert.equal(result.success, true, JSON.stringify(result));
   assert.deepEqual(result.snapshot.collection, {
-    totalRecords: 4,
-    recordsRead: 4,
+    totalRecords: 5,
+    recordsRead: 5,
     pagesRead: 1,
     totalPages: 1,
     detailsRead: 0,
@@ -152,6 +154,7 @@ test("키드키즈 — 상품리스트 다운로드로 전체를 한 번에 읽�
     mallProductCode: "1098464",
     productName: "[키드아이템] 왁스팝 말랑이 1p 왁뿌",
     sellpiaName: "3000왁스팝 말랑이",
+    sellerCode: null,
     salePrice: 1900,
     statusWords: ["정상"],
     registeredOn: null,
@@ -160,6 +163,9 @@ test("키드키즈 — 상품리스트 다운로드로 전체를 한 번에 읽�
   assert.deepEqual(byCode.get("1038722").statusWords, ["보류"]);
   assert.equal(byCode.get("1038722").sellpiaName, null);
   assert.deepEqual(byCode.get("889504").statusWords, ["영구품절"]);
+  // ⭐ 자체코드 칸에 심어 둔 셀피아 코드를 그대로 읽어 온다.
+  assert.equal(byCode.get("1119098").sellerCode, "10454-1");
+  assert.equal(byCode.get("1098464").sellerCode, null);
   // 공급가 · 소비자가 · 공급사는 넘기지 않는다.
   assert.equal(JSON.stringify(result).includes("거영아이앤디"), false);
   assert.equal(JSON.stringify(result).includes("1520"), false);
@@ -328,7 +334,7 @@ test("아이스크림몰 — 검색 폼 그대로 기간 없이 목록을 읽고
     list: () => ({
       totalCount: 3,
       payloads: [
-        icecreamItem("11218365", { goodsNm: "피규어 슈팅 낙하산 1p 낙하산 놀이" }),
+        icecreamItem("11218365", { goodsNm: "피규어 슈팅 낙하산 1p 낙하산 놀이", entrGoodsNo: "10292-1" }),
         icecreamItem("889504", { saleStatCd: "40", saleStatNm: "판매종료", dispYn: "N", aprvDt: null }),
         icecreamItem("985846", { dispYn: "N" }),
       ],
@@ -353,6 +359,7 @@ test("아이스크림몰 — 검색 폼 그대로 기간 없이 목록을 읽고
       mallProductCode: "11218365",
       productName: "피규어 슈팅 낙하산 1p 낙하산 놀이",
       sellpiaName: "3000피규어슈팅낙하산",
+      sellerCode: "10292-1",
       salePrice: 1950,
       statusWords: ["판매중", "전시"],
       registeredOn: "2025-12-08",
@@ -361,6 +368,7 @@ test("아이스크림몰 — 검색 폼 그대로 기간 없이 목록을 읽고
       mallProductCode: "889504",
       productName: "상품 889504 1p",
       sellpiaName: null,
+      sellerCode: null,
       salePrice: 1950,
       statusWords: ["판매종료", "전시안함"],
       registeredOn: "2025-11-26",
@@ -369,6 +377,7 @@ test("아이스크림몰 — 검색 폼 그대로 기간 없이 목록을 읽고
       mallProductCode: "985846",
       productName: "상품 985846 1p",
       sellpiaName: "[kiditem] 깜찍이동물조립지우개",
+      sellerCode: null,
       salePrice: 1950,
       statusWords: ["판매중", "전시안함"],
       registeredOn: "2025-12-08",

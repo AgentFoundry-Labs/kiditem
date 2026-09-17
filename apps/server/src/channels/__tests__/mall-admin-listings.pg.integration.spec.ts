@@ -41,6 +41,7 @@ function row(overrides: Partial<MallAdminListingRow> = {}): MallAdminListingRow 
     mallProductCode: '1098464',
     productName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
     sellpiaName: '3000왁스팝 말랑이',
+    sellerCode: null,
     salePrice: 1900,
     statusWords: ['정상'],
     registeredOn: null,
@@ -291,6 +292,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
       listings: 3,
       deactivated: 0,
       missingNames: 0,
+      codedListings: 0,
       statuses: { 판매중: 1, 품절: 1, 보류: 1 },
     });
     // 매칭 가용성 규칙이 이 원천의 완료를 카탈로그로 본다.
@@ -321,6 +323,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
       listings: 2,
       deactivated: 0,
       missingNames: 1,
+      codedListings: 0,
       statuses: { 판매중: 1, 판매종료: 1 },
     });
     await expect(prisma.channelListingOption.findFirstOrThrow({

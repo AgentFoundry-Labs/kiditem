@@ -53,7 +53,7 @@ function startMallAdmin(mallKey: MallAdminListingMallKey): () => Promise<Collect
       detectExtension: async () => {
         const runtime = await detectOrderCollectionExtensionRuntime(1_200, [MALL_ADMIN_LISTINGS_CAPABILITY]);
         if (runtime.status === 'incompatible') {
-          throw new Error('주문수집 확장프로그램이 이전 버전입니다. 확장을 새로고침(1.0.98 이상)한 뒤 다시 가져와 주세요.');
+          throw new Error('주문수집 확장프로그램이 이전 버전입니다. 확장을 새로고침(1.0.99 이상)한 뒤 다시 가져와 주세요.');
         }
         if (runtime.status !== 'ready') {
           throw new Error('주문수집 확장프로그램을 찾지 못했습니다. 확장을 켜고 몰에 로그인한 뒤 다시 가져와 주세요.');

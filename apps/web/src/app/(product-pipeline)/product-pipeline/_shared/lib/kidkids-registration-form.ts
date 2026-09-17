@@ -99,6 +99,12 @@ export interface KidkidsRegistrationOptions {
   kcType?: KidkidsKcType;
   /** 배송 기간 최장일. 등록물이 3(33개) 또는 7(27개). */
   deliveryMaxDays?: number;
+  /**
+   * 셀피아 SKU 코드. 몰의 자체상품코드 칸(`partner_goodscode`, 목록 다운로드의 `P 코드`)에
+   * 심는다. 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 자리와 같다 — 이 값을 심어 두면
+   * 나중에 등록 상품을 가져올 때 이름이 아니라 코드로 정확히 이어진다(KID-246).
+   */
+  sellpiaCode?: string;
 }
 
 export interface KidkidsRegistrationForm {
@@ -255,6 +261,8 @@ export function kidkidsFormFromDraft(
     logis_from_day: '2',
     logis_to_day: String(deliveryMax),
   };
+  const sellpiaCode = (options.sellpiaCode ?? '').trim();
+  if (sellpiaCode) fields.partner_goodscode = sellpiaCode;
   const searchKeywords = buildKidkidsSearchKeywords(draft.keywords);
   if (searchKeywords) fields.search_keyword = searchKeywords;
   if (certNumber) {

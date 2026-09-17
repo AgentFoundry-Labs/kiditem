@@ -212,6 +212,7 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
         listings: products.length,
         deactivated: deactivated.listings,
         missingNames: rows.filter((row) => row.sellpiaName === null).length,
+        codedListings: rows.filter((row) => row.sellerCode !== null).length,
         statuses: mallAdminStatusCounts(products),
       };
       const complete = await tx.sourceImportRun.update({

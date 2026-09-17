@@ -35,6 +35,7 @@ function row(overrides: Partial<MallAdminListingRow> = {}): MallAdminListingRow 
     mallProductCode: '176227',
     productName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
     sellpiaName: '스크림가면',
+    sellerCode: null,
     salePrice: 7260,
     statusWords: ['정상'],
     registeredOn: null,
@@ -167,6 +168,7 @@ describe('mallAdminListingProducts', () => {
         mallKey: 'kidkids',
         statusWords: ['정상'],
         sellpiaName: '스크림가면',
+        sellerCode: null,
         registeredOn: null,
       },
       options: [{
@@ -182,10 +184,20 @@ describe('mallAdminListingProducts', () => {
           mallKey: 'kidkids',
           statusWords: ['정상'],
           sellpiaName: '스크림가면',
+          sellerCode: null,
           registeredOn: null,
         },
       }],
     });
+  });
+
+  it('⭐ 몰에 심어 둔 셀피아 코드는 옵션 sellerSku 로 간다 — 이름 대신 코드로 이어진다', () => {
+    const [product] = mallAdminListingProducts(kidkids, [row({ sellerCode: '792-1' })]);
+    expect(product!.options[0]!.sellerSku).toBe('792-1');
+    expect(product!.options[0]!.raw).toMatchObject({ sellerCode: '792-1' });
+    // 안 심은 상품은 비어 있고, 이름 매칭에 맡긴다.
+    const [plain] = mallAdminListingProducts(kidkids, [row()]);
+    expect(plain!.options[0]!.sellerSku).toBeNull();
   });
 
   it('상태 글자별로 센다', () => {

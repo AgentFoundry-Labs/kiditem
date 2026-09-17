@@ -105,6 +105,8 @@
       const invoiceCol = column("송장용 상품명");
       const priceCol = column("판매가");
       const soldCol = column("품절여부");
+      // 자체상품코드 칸. 등록할 때 셀피아 코드를 심어 두면 여기로 나온다(아직 거의 빈다).
+      const sellerCol = headers.indexOf("P 코드");
 
       const seen = new Set();
       const rows = [];
@@ -123,6 +125,7 @@
           mallProductCode: code,
           productName,
           sellpiaName: text(cells[invoiceCol]?.textContent, 400),
+          sellerCode: sellerCol < 0 ? null : text(cells[sellerCol]?.textContent, 60),
           salePrice: price(cells[priceCol]?.textContent),
           statusWords: [status],
           registeredOn: null,
@@ -223,6 +226,8 @@
         mallProductCode: code,
         productName,
         sellpiaName: null,
+        // 업체상품코드. 등록할 때 셀피아 코드를 심어 두면 목록에 그대로 실려 온다.
+        sellerCode: text(item.entrGoodsNo, 60),
         salePrice: price(item.salePrc),
         statusWords: [saleStatus, item.dispYn === "Y" ? "전시" : "전시안함"],
         registeredOn: isoDate(item.aprvDt) ?? isoDate(item.sysRegDtm),

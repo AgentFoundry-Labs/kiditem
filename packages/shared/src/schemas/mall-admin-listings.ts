@@ -110,6 +110,8 @@ export const MallAdminListingsPublicationSchema = z.object({
   deactivated: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
   /** 셀피아 쪽 이름을 읽지 못한 상품 수. 그 상품은 상품명으로만 잇는다. */
   missingNames: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /** 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수. */
+  codedListings: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
   /** 우리 상태 글자별 상품 수. */
   statuses: z.record(requiredText(20), z.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT))
     .refine((value) => Object.keys(value).length <= 20, 'Too many statuses'),
@@ -146,6 +148,12 @@ export const MallAdminListingRowSchema = z.object({
   productName: requiredText(400),
   /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
   sellpiaName: requiredText(400).nullable(),
+  /**
+   * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
+   * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
+   * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
+   */
+  sellerCode: requiredText(60).nullable(),
   salePrice: z.number().int().nonnegative().max(1_000_000_000).nullable(),
   statusWords: z.array(requiredText(20)).min(1).max(4),
   registeredOn: YYYY_MM_DD.nullable(),

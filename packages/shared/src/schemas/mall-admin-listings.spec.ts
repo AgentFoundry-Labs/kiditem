@@ -30,6 +30,7 @@ function row(overrides: Record<string, unknown> = {}) {
     mallProductCode: '1098464',
     productName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
     sellpiaName: '3000왁스팝 말랑이',
+    sellerCode: null,
     salePrice: 1900,
     statusWords: ['정상'],
     registeredOn: null,
@@ -80,6 +81,12 @@ describe('MallAdminListingsPlanSchema', () => {
 describe('MallAdminListingRowSchema', () => {
   it('셀피아 이름이 없는 상품도 받는다', () => {
     expect(MallAdminListingRowSchema.safeParse(row({ sellpiaName: null })).success).toBe(true);
+  });
+
+  it('몰에 심어 둔 셀피아 코드를 받는다 — 아직 안 심은 상품은 비어 있다', () => {
+    expect(MallAdminListingRowSchema.parse(row({ sellerCode: '10271-1' })).sellerCode).toBe('10271-1');
+    expect(MallAdminListingRowSchema.safeParse(row({ sellerCode: null })).success).toBe(true);
+    expect(MallAdminListingRowSchema.safeParse(row({ sellerCode: 'x'.repeat(61) })).success).toBe(false);
   });
 
   it('상태 글자가 하나도 없거나 목록 원문 칸이 섞이면 거절한다', () => {

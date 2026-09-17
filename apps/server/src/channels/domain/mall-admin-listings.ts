@@ -13,6 +13,9 @@ import {
  * 상품 한 줄이 리스팅 하나이고, 이 몰들은 옵션을 목록에 따로 적지 않으므로 옵션도 몰
  * 상품코드 한 줄이다. 몰에 적어 둔 셀피아 상품 이름은 옵션 이름에 둔다 — 기존 이름 매칭이
  * 옵션 이름만으로도 셀피아 SKU 이름과 맞춰 본다. 수량은 몰 상품명의 `1p` · `[12개]` 가 정한다.
+ *
+ * 몰의 자체코드 칸에 셀피아 코드를 심어 둔 상품은 그 값을 옵션 `sellerSku` 에 둔다. 사방넷이
+ * `모델명`으로 하던 것과 같은 자리라, 이름을 거치지 않고 코드로 정확히 이어진다.
  */
 
 /**
@@ -76,7 +79,8 @@ export type MallAdminListingOption = {
   externalOptionId: string;
   optionName: string | null;
   salePrice: number | null;
-  sellerSku: null;
+  /** 몰에 심어 둔 셀피아 코드. 기존 자동 매칭이 이 칸을 셀피아 SKU 코드와 맞춘다. */
+  sellerSku: string | null;
   barcode: null;
   modelNumber: null;
   skuStatus: string;
@@ -144,6 +148,7 @@ function productFromRow(
     mallKey,
     statusWords: row.statusWords,
     sellpiaName: row.sellpiaName,
+    sellerCode: row.sellerCode,
     registeredOn: row.registeredOn,
   };
   return {
@@ -160,7 +165,7 @@ function productFromRow(
         externalOptionId: row.mallProductCode,
         optionName: row.sellpiaName,
         salePrice: row.salePrice,
-        sellerSku: null,
+        sellerSku: row.sellerCode,
         barcode: null,
         modelNumber: null,
         skuStatus: status,
