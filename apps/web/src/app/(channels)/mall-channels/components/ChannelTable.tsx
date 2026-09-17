@@ -65,6 +65,7 @@ export function ChannelTable({
             <th scope="col" className="px-2 py-2.5 text-center">사용여부</th>
             <th scope="col" className="px-2 py-2.5 text-center">설정</th>
             <th scope="col" className="px-2 py-2.5 text-right">등록 상품</th>
+            <th scope="col" className="px-2 py-2.5 text-right">매칭률</th>
             {CAPABILITY_KEYS.map((key) => (
               <th key={key} scope="col" className="px-1.5 py-2.5 text-center align-top">
                 <CapabilityHeader kind={key} counts={totals[key]} />
@@ -155,12 +156,40 @@ function ChannelRow({
       >
         {channel.imported ? formatNumber(channel.productCount) : <span className="text-slate-300">—</span>}
       </td>
+      <MatchRateCell channel={channel} />
       {CAPABILITY_KEYS.map((key) => (
         <td key={key} className="px-1.5 py-2 text-center">
           <CapabilityCell kind={key} state={capabilities[key]} note={notes?.[key]} label={labels?.[key]} />
         </td>
       ))}
     </tr>
+  );
+}
+
+/**
+ * 매칭률 — 그 몰의 옵션 가운데 셀피아 재고에 이어진 비율.
+ *
+ * 이어져야 품절 판정 · 재고 차감이 된다. 가져오지 않은 몰은 0%가 아니라 `—` 다(모른다).
+ * 옵션이 0개인 몰도 `—` — 나눌 것이 없는데 0% 라고 적으면 못 이은 것처럼 보인다.
+ */
+function MatchRateCell({ channel }: { channel: MallChannelSummary }) {
+  const { optionCount, matchedOptionCount } = channel;
+  if (!channel.imported || optionCount === 0) {
+    return <td className="px-2 py-2 text-right"><span className="text-slate-300">—</span></td>;
+  }
+  const rate = Math.round((matchedOptionCount / optionCount) * 100);
+  return (
+    <td
+      className="px-2 py-2 text-right tabular-nums"
+      title={`옵션 ${formatNumber(optionCount)}개 중 ${formatNumber(matchedOptionCount)}개가 셀피아 재고에 이어졌습니다.`}
+    >
+      <span className={cn('font-semibold', rate >= 70 ? 'text-emerald-700' : rate >= 30 ? 'text-amber-700' : 'text-slate-500')}>
+        {rate}%
+      </span>
+      <span className="ml-1 text-[11px] text-slate-400">
+        {formatNumber(matchedOptionCount)}/{formatNumber(optionCount)}
+      </span>
+    </td>
   );
 }
 

@@ -489,6 +489,8 @@ export class MallPublishingService {
         listingCount,
         orderCount,
         productCount: account?.productCount ?? 0,
+        optionCount: account?.optionCount ?? 0,
+        matchedOptionCount: account?.matchedOptionCount ?? 0,
         readiness: mallReadiness(manifest, mallAccount),
       } satisfies MallChannelSummary];
     });

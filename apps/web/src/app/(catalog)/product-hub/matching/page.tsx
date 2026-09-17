@@ -62,36 +62,6 @@ export default function MatchingPage() {
   };
 
   const accountsQuery = useChannelAccounts();
-  const channelAccounts = useMemo(
-    () => [...(accountsQuery.data ?? [])]
-      .filter((account) => account.channel === 'coupang' || account.channel === 'rocket')
-      .sort((left, right) => {
-        if (left.channel !== right.channel) return left.channel === 'coupang' ? -1 : 1;
-        if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
-        const nameOrder = left.name.localeCompare(right.name, 'ko');
-        return nameOrder !== 0 ? nameOrder : left.id.localeCompare(right.id);
-      }),
-    [accountsQuery.data],
-  );
-  const selectedAccountIds = useMemo(() => {
-    const available = new Set(channelAccounts.map((account) => account.id));
-    if (selectedAccountParam !== null) {
-      const requested = selectedAccountParam
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => available.has(value));
-      if (requested.length > 0) return [...new Set(requested)].sort();
-    }
-    if (available.has(legacySelectedAccountId)) return [legacySelectedAccountId];
-    return channelAccounts.map((account) => account.id).sort();
-  }, [channelAccounts, legacySelectedAccountId, selectedAccountParam]);
-  const selectedAccountIdSet = useMemo(
-    () => new Set(selectedAccountIds),
-    [selectedAccountIds],
-  );
-  const selectedAccounts = channelAccounts.filter((account) =>
-    selectedAccountIdSet.has(account.id));
-  const selectedAccount = selectedAccounts.length === 1 ? selectedAccounts[0]! : null;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(searchText.trim()), SEARCH_DEBOUNCE_MS);
@@ -109,12 +79,54 @@ export default function MatchingPage() {
     setActiveOnly(urlActiveOnly);
   }, [searchParams.toString()]);
 
-  const mappingsQuery = useChannelProductMappings({
-    search: debouncedSearch,
-    enabled: channelAccounts.length > 0,
-  });
+  const mappingsQuery = useChannelProductMappings({ search: debouncedSearch, enabled: true });
   const autoMatch = useRunChannelProductMatching();
   const data = mappingsQuery.data;
+  /**
+   * 리스팅이 있는 몰은 전부 고를 수 있다.
+   *
+   * 예전에는 계정 목록(`/api/channels/accounts`)만 읽어 쿠팡 · 로켓만 보여 줬다. 그 목록은
+   * `status: 'active'` 만 주는데 몰 계정 행은 `configured` 라, 사방넷 · 키드키즈 ·
+   * 아이스크림몰에서 가져온 리스팅은 이어지지 않아도 사람이 확인할 화면이 아예 없었다
+   * (사장님 2026-09-17). 그래서 대기열에 실제로 줄이 있는 계정을 함께 센다 — 가져온 몰은
+   * 상태와 상관없이 선다. 쿠팡을 앞에 두는 순서는 그대로다 — 가장 많이 보는 계정이다.
+   */
+  const channelAccounts = useMemo(() => {
+    const byId = new Map<string, { id: string; channel: string; name: string }>();
+    for (const account of accountsQuery.data ?? []) {
+      byId.set(account.id, { id: account.id, channel: account.channel, name: account.name });
+    }
+    for (const row of [...(data?.products ?? []), ...(data?.options ?? [])]) {
+      if (!byId.has(row.channelAccount.id)) byId.set(row.channelAccount.id, row.channelAccount);
+    }
+    return [...byId.values()].sort((left, right) => {
+      const rank = (channel: string) => (channel === 'coupang' ? 0 : channel === 'rocket' ? 1 : 2);
+      if (rank(left.channel) !== rank(right.channel)) return rank(left.channel) - rank(right.channel);
+      if (left.channel !== right.channel) return left.channel.localeCompare(right.channel);
+      const nameOrder = left.name.localeCompare(right.name, 'ko');
+      return nameOrder !== 0 ? nameOrder : left.id.localeCompare(right.id);
+    });
+  }, [accountsQuery.data, data?.options, data?.products]);
+  const selectedAccountIds = useMemo(() => {
+    const available = new Set(channelAccounts.map((account) => account.id));
+    if (selectedAccountParam !== null) {
+      const requested = selectedAccountParam
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => available.has(value));
+      if (requested.length > 0) return [...new Set(requested)].sort();
+    }
+    if (available.has(legacySelectedAccountId)) return [legacySelectedAccountId];
+    return channelAccounts.map((account) => account.id).sort();
+  }, [channelAccounts, legacySelectedAccountId, selectedAccountParam]);
+  const selectedAccountIdSet = useMemo(
+    () => new Set(selectedAccountIds),
+    [selectedAccountIds],
+  );
+  /** 불러오기 대화상자는 쿠팡 계정 행 그대로를 받는다 — 대기열에서 센 몰 계정은 그 자리에 못 선다. */
+  const selectedAccount = selectedAccountIds.length === 1
+    ? (accountsQuery.data ?? []).find((account) => account.id === selectedAccountIds[0]) ?? null
+    : null;
   const selectedProducts = useMemo(() => (data?.products ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.products, selectedAccountIdSet]);
   const selectedOptions = useMemo(() => (data?.options ?? []).filter((row) =>
@@ -144,6 +156,24 @@ export default function MatchingPage() {
     }
     return counts;
   }, [activeOnly, data?.products, onSaleListingIdSet]);
+  /**
+   * 몰마다 매칭률 — 그 계정의 옵션 가운데 셀피아 재고 레시피가 붙은 비율.
+   *
+   * 어느 몰이 덜 이어졌는지 한눈에 보라고 계정 칩에 적는다. 분모는 지금 화면이 보고 있는
+   * 옵션이다(활성만 보기를 켜면 그 범위로 줄어든다) — 칩의 상품 수와 같은 기준이어야
+   * 둘이 어긋나 보이지 않는다.
+   */
+  const matchRateByAccountId = useMemo(() => {
+    const totals = new Map<string, { total: number; matched: number }>();
+    for (const row of data?.options ?? []) {
+      if (activeOnly && !onSaleListingIdSet.has(row.listing.id)) continue;
+      const current = totals.get(row.channelAccount.id) ?? { total: 0, matched: 0 };
+      current.total += 1;
+      if (row.option.inventoryComponents.length > 0) current.matched += 1;
+      totals.set(row.channelAccount.id, current);
+    }
+    return totals;
+  }, [activeOnly, data?.options, onSaleListingIdSet]);
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
   const optionsByListingId = useMemo(() => {
     const grouped = new Map<string, ChannelOptionMatchingQueueRow[]>();
@@ -250,6 +280,10 @@ export default function MatchingPage() {
             {channelAccounts.map((account) => {
               const checked = selectedAccountIdSet.has(account.id);
               const productCount = visibleProductCountByAccountId.get(account.id) ?? 0;
+              const match = matchRateByAccountId.get(account.id);
+              const matchRate = match && match.total > 0
+                ? Math.round((match.matched / match.total) * 100)
+                : null;
               return (
                 <label
                   key={account.id}
@@ -268,7 +302,20 @@ export default function MatchingPage() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-bold text-slate-800">{account.name}</span>
-                    <span className="mt-0.5 block text-xs text-slate-500">{account.channel} · 상품 {formatCount(productCount)}개</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      {account.channel} · 상품 {formatCount(productCount)}개
+                      {matchRate === null ? null : (
+                        <>
+                          {' · '}
+                          <span
+                            className={`font-bold ${matchRate >= 70 ? 'text-emerald-700' : matchRate >= 30 ? 'text-amber-700' : 'text-rose-700'}`}
+                            title={`옵션 ${formatCount(match!.total)}개 중 ${formatCount(match!.matched)}개가 셀피아 재고에 이어졌습니다.`}
+                          >
+                            매칭 {matchRate}%
+                          </span>
+                        </>
+                      )}
+                    </span>
                   </span>
                 </label>
               );
@@ -329,7 +376,7 @@ export default function MatchingPage() {
       </section>
 
       {accountsQuery.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(accountsQuery.error)}</p> : null}
-      {!accountsQuery.isLoading && !accountsQuery.error && channelAccounts.length === 0 ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">활성화된 coupang 또는 rocket 채널 계정이 없습니다. 계정 설정을 먼저 확인해 주세요.</p> : null}
+      {!accountsQuery.isLoading && !mappingsQuery.isLoading && !accountsQuery.error && channelAccounts.length === 0 ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">리스팅을 가져온 몰 계정이 없습니다. 쇼핑몰 현황에서 몰 상품을 먼저 가져와 주세요.</p> : null}
       {selectedAccountIds.length > 0 && mappingsQuery.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(mappingsQuery.error)}</p> : null}
       {isRefreshing ? <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500"><Loader2 size={13} className="animate-spin text-purple-600" /> 목록 갱신 중</div> : null}
 
@@ -346,7 +393,7 @@ export default function MatchingPage() {
 
       <ChannelCatalogImportDialog
         open={importOpen}
-        accounts={channelAccounts}
+        accounts={accountsQuery.data ?? []}
         defaultAccount={selectedAccount}
         onOpenChange={setImportOpen}
         onSuccess={() => void mappingsQuery.refetch()}

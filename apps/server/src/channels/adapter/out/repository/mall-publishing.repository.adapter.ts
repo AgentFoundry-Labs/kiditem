@@ -207,7 +207,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     });
     if (grouped.length === 0) return [];
 
-    const [accounts, productCounts] = await Promise.all([
+    const [accounts, productCounts, optionCounts] = await Promise.all([
       this.prisma.channelAccount.findMany({
         where: { organizationId, id: { in: grouped.map((row) => row.channelAccountId) } },
         select: { id: true, channel: true, name: true },
@@ -229,11 +229,35 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           ).length,
         })),
       ),
+      // 매칭률 — 활성 옵션 가운데 셀피아 레시피가 붙은 것. 레시피가 매칭의 결과물이다.
+      Promise.all(
+        grouped.map(async (row) => {
+          const scope = {
+            organizationId,
+            isActive: true,
+            listing: {
+              organizationId,
+              channelAccountId: row.channelAccountId,
+              isActive: true,
+            },
+          } satisfies Prisma.ChannelListingOptionWhereInput;
+          const [optionCount, matchedOptionCount] = await Promise.all([
+            this.prisma.channelListingOption.count({ where: scope }),
+            this.prisma.channelListingOption.count({
+              where: { ...scope, inventoryComponents: { some: {} } },
+            }),
+          ]);
+          return { channelAccountId: row.channelAccountId, optionCount, matchedOptionCount };
+        }),
+      ),
     ]);
 
     const countByAccount = new Map(grouped.map((row) => [row.channelAccountId, row._count._all]));
     const productByAccount = new Map(
       productCounts.map((row) => [row.channelAccountId, row.productCount]),
+    );
+    const optionsByAccount = new Map(
+      optionCounts.map((row) => [row.channelAccountId, row]),
     );
 
     return accounts.map((account) => ({
@@ -242,6 +266,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       name: account.name,
       listingCount: countByAccount.get(account.id) ?? 0,
       productCount: productByAccount.get(account.id) ?? 0,
+      optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
+      matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
     }));
   }
 

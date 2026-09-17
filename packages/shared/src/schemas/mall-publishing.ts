@@ -268,6 +268,12 @@ export const MallChannelSummarySchema = z.object({
   orderCount: z.number(),
   /** 이 몰에 올라간 서로 다른 상품 수. */
   productCount: z.number(),
+  /**
+   * 매칭률 — 이 몰의 활성 옵션 가운데 셀피아 재고 레시피가 붙은 비율의 재료다.
+   * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다(그때는 0/0 이라 '—').
+   */
+  optionCount: z.number().default(0),
+  matchedOptionCount: z.number().default(0),
   readiness: MallPublishReadinessSchema,
 });
 export type MallChannelSummary = z.infer<typeof MallChannelSummarySchema>;
