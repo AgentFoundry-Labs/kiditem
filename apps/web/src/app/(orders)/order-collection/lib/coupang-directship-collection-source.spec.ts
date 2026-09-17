@@ -116,7 +116,7 @@ describe('coupangDirectshipCollectionSource', () => {
       }),
     );
 
-    expect(await source.start!(undefined, { status: undefined }))
+    expect(await source.start!({}, { status: undefined }))
       .toEqual({ outcome: 'running', attemptId: RUNNING_ATTEMPT_ID });
     expect(handOff).not.toHaveBeenCalled();
   });
@@ -142,7 +142,7 @@ describe('coupangDirectshipCollectionSource', () => {
       errorMessage: null,
     });
 
-    expect(await source.start!(undefined, { status: undefined }))
+    expect(await source.start!({}, { status: undefined }))
       .toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
     expect(handOff).toHaveBeenCalledWith(expect.objectContaining({
       extensionId: 'order-extension',
@@ -196,5 +196,23 @@ describe('coupangDirectshipCollectionSource', () => {
 
     expect(source.start).toBeUndefined();
     expect(source.statusQuery.enabled).toBe(false);
+  });
+});
+
+/**
+ * 몰 카드는 몰 키가 아니라 원천이 답한 것만 본다(KID-255). 직배송 카드가 무엇을 수집할지
+ * 먼저 고르는 화면을 여는 것도, 로켓 계정이 없을 때 시작을 막는 것도 이 원천의 답이다.
+ */
+describe('coupangDirectshipCollectionSource — 카드가 이 원천을 세우는 법', () => {
+  it('카드를 누르면 무엇을 수집할지 먼저 고르는 화면(입고예정일 달력)이 열린다', () => {
+    expect(adapter().source.card.opensChooser).toBe(true);
+  });
+
+  it('로켓 계정을 고르기 전에는 시작 자리에 그 이유가 선다', () => {
+    expect(coupangDirectshipCollectionSource({
+      channelAccountId: null,
+      handOff: vi.fn(),
+    }).card.startBlockedReason).toBe('쿠팡 로켓 계정을 먼저 선택해 주세요.');
+    expect(adapter().source.card.startBlockedReason).toBeNull();
   });
 });
