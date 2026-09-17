@@ -3636,8 +3636,9 @@ const MANUAL_ACTION_CODE = fs
     "utf8",
   )
   .match(/export const EXECUTION_REPORT_MANUAL_ACTION\s*=\s*'([^']+)'/)?.[1];
+// The server decides which actions those are, so the warning names no type.
 const manualActionWarning = (count) =>
-  `자동 실행하지 않는 승인 액션 ${count}개(키워드 끄기·입찰가·일예산)는 광고센터에 쓰지 않았습니다. 광고센터에서 직접 처리해 주세요.`;
+  `자동 실행하지 않는 승인 액션 ${count}개는 광고센터에 쓰지 않았습니다. 광고센터에서 직접 처리해 주세요.`;
 const WRITE_DEADLINE_MS = 10 * 60 * 1000;
 const WRITE_DEADLINE_FAILURE = "실행 기한(10분)이 지나 광고센터에 쓰지 않았습니다.";
 const CONFIRM_DEADLINE_FAILURE =
