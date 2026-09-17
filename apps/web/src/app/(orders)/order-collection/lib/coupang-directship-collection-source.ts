@@ -23,6 +23,21 @@ import type { OrderCollectionSourceAdapter } from './order-collection-source-ada
 
 const PATH = '/api/orders/collection/coupang-directship';
 
+/**
+ * 쿠팡 직배송 owner 가 수집하는 몰. 주문수집 화면에서 이 키를 아는 곳은 여기 하나다 —
+ * 루프도 화면도 몰 키를 비교하지 않고 `collectsViaCoupangDirectship` 만 묻는다(KID-255).
+ *
+ * 채널 레지스트리(`@kiditem/shared/channel-registry`)는 이 채널을 우리 확장이 수집한다는
+ * 것까지만 답한다(`collector: 'extension'`). 어느 owner 가 수집하는지는 레지스트리의 칸이
+ * 아니므로 — 레지스트리에 칸을 늘리지 않고 — 그 owner 의 파일인 여기가 답한다.
+ */
+export const COUPANG_DIRECT_MALL_KEY = 'coupang-direct';
+
+/** 이 몰의 주문을 쿠팡 직배송 owner 가 수집하는가. */
+export function collectsViaCoupangDirectship(mallKey: string): boolean {
+  return mallKey === COUPANG_DIRECT_MALL_KEY;
+}
+
 /** 로켓 계정을 고르기 전에는 수집할 범위 자체가 없다. */
 const ROCKET_ACCOUNT_REQUIRED = '쿠팡 로켓 계정을 먼저 선택해 주세요.';
 

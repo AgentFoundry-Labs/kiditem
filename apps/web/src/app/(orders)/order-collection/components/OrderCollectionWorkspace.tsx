@@ -35,7 +35,11 @@ import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { ensureMallLoginForRun } from '../lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
-import { coupangDirectshipStartAlreadyRunning } from '../lib/coupang-directship-collection-source';
+import {
+  collectsViaCoupangDirectship,
+  coupangDirectshipStartAlreadyRunning,
+} from '../lib/coupang-directship-collection-source';
+import { sentDirectshipOrderNumbers } from '../lib/coupang-directship-collection';
 import { invalidateMallOrderCollectionSources } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
@@ -43,7 +47,6 @@ import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
 import {
   collectionAttentionNotice,
-  COUPANG_DIRECT_MALL_KEY,
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
   EMPTY_MALL_DRAFT,
@@ -201,18 +204,9 @@ export function OrderCollectionWorkspace() {
   ).length;
   const previewItem = previewId ? history.find((item) => item.id === previewId) ?? null : null;
   const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
-  // 달력에서 소거법으로 뺄 발주번호.
-  //
-  // 기준은 "파일 생성"이 아니라 "셀피아 전송 요청"이다. 파일만 만들고 전송 대기 중인
-  // 발주는 아직 처리해야 할 일이 남아 있는데, 파일 기준으로 빼면 달력에서 사라져
-  // 38건 중 9건만 남는 것처럼 보인다.
+  // 달력에서 소거법으로 뺄 발주번호 — 무엇을 이미 보냈는지는 직배송 원천이 안다.
   const collectedDirectshipSeqs = useMemo(
-    () => new Set(
-      history
-        .filter((item) => item.mallKey === 'coupang-direct'
-          && hasSellpiaTransmissionRequest(item))
-        .flatMap((item) => item.orderNumbers ?? []),
-    ),
+    () => sentDirectshipOrderNumbers(history),
     [history],
   );
   // 셀피아 실측 대조 결과. 버튼을 눌렀을 때만 조회하며, 있으면 몰 카드 "신규"가 이 값을 쓴다.
@@ -449,10 +443,9 @@ export function OrderCollectionWorkspace() {
     return true;
   };
 
-  // 카드 영역 클릭 전용. 쿠팡직배송만 입고예정일 달력을 연다.
-  // 수집 버튼은 이 경로를 타지 않고 곧바로 수집한다.
+  // 카드 영역 클릭 전용 — 카드는 제 원천이 고르는 화면을 연다고 답할 때만 이리로 온다
+  // (KID-255). 수집 버튼은 이 경로를 타지 않고 곧바로 수집한다.
   const handleOpenDirectshipCalendar = async (account: OrderCollectionMallAccount) => {
-    if (account.key !== 'coupang-direct') return;
     const cached = cachedDirectshipPos();
     // 캐시가 있으면 즉시 달력을 띄운다. 없을 때만 로딩을 보여준다.
     setDirectshipModal({
@@ -563,14 +556,14 @@ export function OrderCollectionWorkspace() {
     }
   };
 
-  /** 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. */
+  /**
+   * 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. 화면이 모든 몰에 똑같이 대는
+   * 사유만 여기 있고, 그 원천만의 사유는 원천이 답한다(KID-255).
+   */
   const mallStartBlockedReason = (account: OrderCollectionMallAccount): string | null => {
     if (!account.enabled) return '중지된 계정입니다.';
     if (!isBrowserCollectableMall(account)) return '자동 수집 준비 중';
-    // 직배송은 로켓 계정 범위로 수집한다. 계정이 없으면 시작 자체가 없다.
-    return account.key === COUPANG_DIRECT_MALL_KEY && !selectedRocketAccount
-      ? '쿠팡 로켓 계정을 먼저 선택해 주세요.'
-      : null;
+    return null;
   };
 
   const handleModalUpload = async ({
@@ -956,7 +949,7 @@ export function OrderCollectionWorkspace() {
             children: renderCard,
           };
           // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).
-          return account.key === COUPANG_DIRECT_MALL_KEY
+          return collectsViaCoupangDirectship(account.key)
             ? <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}

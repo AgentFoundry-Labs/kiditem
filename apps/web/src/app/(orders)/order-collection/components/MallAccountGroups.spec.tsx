@@ -37,6 +37,8 @@ function account(
 function collectButton(
   onCollect: (account: OrderCollectionMallAccount) => void,
   running = false,
+  /** 이 카드의 원천이 무엇을 수집할지 먼저 고르는 화면을 여는가(KID-255). */
+  opensChooser = false,
 ) {
   return (
     account: OrderCollectionMallAccount,
@@ -48,6 +50,7 @@ function collectButton(
       </button>
     ),
     running,
+    opensChooser,
   });
 }
 
@@ -113,7 +116,7 @@ describe('MallAccountGroups', () => {
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        renderCollectionControl={collectButton(onCollectMall)}
+        renderCollectionControl={collectButton(onCollectMall, false, true)}
         onOpenCalendar={onOpenCalendar}
         onUploadTracking={vi.fn()}
       />,

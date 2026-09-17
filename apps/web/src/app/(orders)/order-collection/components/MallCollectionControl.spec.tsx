@@ -6,7 +6,10 @@ import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collecti
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { MallCollectionControl } from './MallCollectionControl';
-import { coupangDirectshipCollectionSource } from '../lib/coupang-directship-collection-source';
+import {
+  COUPANG_DIRECT_MALL_KEY,
+  coupangDirectshipCollectionSource,
+} from '../lib/coupang-directship-collection-source';
 import { mallOrderCollectionSource } from '../lib/mall-order-collection-source';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
@@ -66,7 +69,7 @@ function running(): OrderCollectionSourceStatus {
 
 const DIRECT_ACCOUNT: OrderCollectionMallAccount = {
   ...ACCOUNT,
-  key: 'coupang-direct',
+  key: COUPANG_DIRECT_MALL_KEY,
   name: '쿠팡 직배송',
 };
 
