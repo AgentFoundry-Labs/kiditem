@@ -42,6 +42,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import pg from 'pg';
+import { addedColumns, uniqueIndexes } from './_shared/prisma-ddl.mjs';
 
 const asJson = process.argv.includes('--json');
 const url = process.env.DATABASE_URL;
@@ -82,61 +83,34 @@ function plannedStatements() {
   });
 }
 
-/** `CREATE UNIQUE INDEX "name" ON "table"("a", "b");` — partial indexes carry a WHERE. */
-export function uniqueIndexes(sql) {
-  const found = [];
-  const pattern = /CREATE UNIQUE INDEX\s+"([^"]+)"\s+ON\s+"([^"]+)"\s*\(([^)]*)\)([^;]*);/g;
-  for (const match of sql.matchAll(pattern)) {
-    const [, name, table, columnList, tail] = match;
-    const columns = [...columnList.matchAll(/"([^"]+)"/g)].map((column) => column[1]);
-    if (!columns.length) continue;
-    found.push({ name, table, columns, where: tail.trim() || null });
-  }
-  return found;
-}
+/**
+ * `CREATE UNIQUE INDEX "name" ON "table"("a", "b");` — partial indexes carry a
+ * WHERE. Read by the shared reader, which the PR-time coverage check uses too.
+ */
+export { uniqueIndexes };
 
 /**
  * `ALTER TABLE "t" ADD COLUMN "c" TYPE NOT NULL` — including the multi-statement
- * form where one ALTER TABLE carries several ADD COLUMN clauses. A clause with
- * its own DEFAULT is fine: the database can fill existing rows itself.
+ * form where one ALTER TABLE carries several ADD COLUMN clauses, and types such
+ * as `DECIMAL(12,6)` whose comma does not end the clause. A clause with its own
+ * DEFAULT is fine: the database can fill existing rows itself, as it does for a
+ * serial or identity column.
  */
 export function notNullAdditions(sql) {
-  const found = [];
-  for (const statement of sql.split(';')) {
-    const table = statement.match(/ALTER TABLE\s+"([^"]+)"/);
-    if (!table) continue;
-    for (const clause of statement.matchAll(/ADD COLUMN\s+"([^"]+)"\s+([^,\n]*)/g)) {
-      const [, column, rest] = clause;
-      if (!/\bNOT NULL\b/i.test(rest)) continue;
-      if (/\bDEFAULT\b/i.test(rest)) continue;
-      found.push({ table: table[1], column });
-    }
-  }
-  return found;
+  return addedColumns(sql)
+    .filter((addition) => addition.requiredWithoutDefault)
+    .map(({ table, column }) => ({ table, column }));
 }
 
 /**
  * Values PostgreSQL assigns to rows that predate an ADD COLUMN. A nullable
  * column without a database default starts as NULL. A database DEFAULT is
  * applied by PostgreSQL. A required column without a default cannot be
- * represented here because the separate NOT NULL check must block it first.
+ * represented here because the separate NOT NULL check must block it first,
+ * and a serial or identity column has no single value.
  */
 export function columnAdditions(sql) {
-  const found = [];
-  for (const statement of sql.split(';')) {
-    const table = statement.match(/ALTER TABLE\s+"([^"]+)"/);
-    if (!table) continue;
-    for (const clause of statement.matchAll(/ADD COLUMN\s+"([^"]+)"\s+([^,\n]*)/g)) {
-      const [, column, rest] = clause;
-      const defaultValue = rest.match(/\bDEFAULT\s+(.+?)(?:\s+NOT NULL)?\s*$/i)?.[1]?.trim();
-      found.push({
-        table: table[1],
-        column,
-        initialSql: defaultValue ?? (/\bNOT NULL\b/i.test(rest) ? null : 'NULL'),
-      });
-    }
-  }
-  return found;
+  return addedColumns(sql).map(({ table, column, initialSql }) => ({ table, column, initialSql }));
 }
 
 export function predicateWithInitialValues(where, table, additions) {

@@ -70,6 +70,7 @@ npm run test:scripts
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
 | `scripts/ledger-readers.json` | canonical ledger inventory: physical table, Prisma delegate/type, schema-checked reverse relation names, reader, exact owner-publication files, and legacy readers with removal issues |
+| `scripts/_shared/prisma-ddl.mjs` | reader for the SQL `prisma migrate diff --script` prints: statements, `ALTER TABLE` clauses, new-column defaults, constraints, and unique indexes, split only outside parentheses, quotes, and comments; used by `check-cutover-data-blockers.mjs` |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 

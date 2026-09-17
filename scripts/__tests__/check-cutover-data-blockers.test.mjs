@@ -80,6 +80,58 @@ test('passes over a nullable column', () => {
   assert.deepEqual(notNullAdditions('ALTER TABLE "alerts" ADD COLUMN "href" TEXT;'), []);
 });
 
+// Prisma writes a precision's comma inside the clause. Splitting there once
+// read `DECIMAL(12,6) NOT NULL` as `DECIMAL(12` and passed eight required ABC
+// columns over.
+test('blocks a DECIMAL(12,6) NOT NULL column without a default', () => {
+  assert.deepEqual(
+    notNullAdditions('ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL;'),
+    [{ table: 'evaluations', column: 'score' }],
+  );
+  assert.deepEqual(
+    columnAdditions('ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL;'),
+    [{ table: 'evaluations', column: 'score', initialSql: null }],
+  );
+});
+
+test('passes over a DECIMAL(12,6) NOT NULL column with a default', () => {
+  const sql = 'ALTER TABLE "evaluations" ADD COLUMN "score" DECIMAL(12,6) NOT NULL DEFAULT 0;';
+  assert.deepEqual(notNullAdditions(sql), []);
+  assert.deepEqual(columnAdditions(sql), [{ table: 'evaluations', column: 'score', initialSql: '0' }]);
+});
+
+test('passes over a nullable VARCHAR(80) column', () => {
+  const sql = 'ALTER TABLE "evaluations" ADD COLUMN "label" VARCHAR(80);';
+  assert.deepEqual(notNullAdditions(sql), []);
+  assert.deepEqual(columnAdditions(sql), [{ table: 'evaluations', column: 'label', initialSql: 'NULL' }]);
+});
+
+test('reads each clause of an ALTER TABLE that mixes precision types, defaults, and nullability', () => {
+  const sql = `
+-- AlterTable
+ALTER TABLE "evaluations" DROP COLUMN "adjusted_score",
+ADD COLUMN     "consistency_score" DECIMAL(12,6) NOT NULL,
+ADD COLUMN     "margin_score" DECIMAL(12,6),
+ADD COLUMN     "label" VARCHAR(80),
+ADD COLUMN     "weight" DECIMAL(20,6) NOT NULL DEFAULT 0,
+ADD COLUMN     "tags" TEXT[] DEFAULT ARRAY['a', 'b']::TEXT[],
+ADD COLUMN     "profit_score" DECIMAL(12,6) NOT NULL,
+ALTER COLUMN "calculated_at" SET NOT NULL;
+`;
+  assert.deepEqual(notNullAdditions(sql), [
+    { table: 'evaluations', column: 'consistency_score' },
+    { table: 'evaluations', column: 'profit_score' },
+  ]);
+  assert.deepEqual(columnAdditions(sql), [
+    { table: 'evaluations', column: 'consistency_score', initialSql: null },
+    { table: 'evaluations', column: 'margin_score', initialSql: 'NULL' },
+    { table: 'evaluations', column: 'label', initialSql: 'NULL' },
+    { table: 'evaluations', column: 'weight', initialSql: '0' },
+    { table: 'evaluations', column: 'tags', initialSql: "ARRAY['a', 'b']::TEXT[]" },
+    { table: 'evaluations', column: 'profit_score', initialSql: null },
+  ]);
+});
+
 test("does not read an ADD COLUMN out of a different table's statement", () => {
   const additions = notNullAdditions(`
 ALTER TABLE "first" ADD COLUMN "a" TEXT NOT NULL;
