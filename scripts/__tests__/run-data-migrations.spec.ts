@@ -94,9 +94,9 @@ describe("data migration registry", () => {
     ]) {
       expect(migrationIds).not.toContain(retiredId);
     }
-    // Release 0.1.30 has not reached main, so its migrations that cannot run
-    // against the dropped schema leave the registry without inactive lineage,
-    // as 001 and 002 did before them.
+    // Release 0.1.30 reached Office through release/office. Its migrations
+    // that cannot run against the dropped schema leave the registry, and their
+    // inactive lineage now lives in retired.json.
     for (const unregisteredId of [
       "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:002_backfill_profitability_source_freshness",

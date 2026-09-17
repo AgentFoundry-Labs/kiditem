@@ -72,5 +72,69 @@
         "path": "scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows.ts"
       }
     ]
+  },
+  {
+    "id": "v0.1.30:001_reset_legacy_product_abc_grades",
+    "releaseVersion": "0.1.30",
+    "name": "Reset legacy product ABC grades for automatic profitability evaluation",
+    "sourcePath": "scripts/data-migrations/v0.1.30/001_reset_legacy_product_abc_grades.ts",
+    "sourceSha256": "c86a19b0079d9764b11432299eb86b4c97657906c07437b80eac71427e69888a",
+    "baselineCommit": "a3e4794d2e1b1087789c0f7cbadbddfc00045da3",
+    "replacementMigrations": [
+      {
+        "id": "v0.1.31:001_reset_absolute_product_abc",
+        "path": "scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts"
+      },
+      {
+        "id": "v0.1.31:002_initialize_absolute_product_abc_formula",
+        "path": "scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.ts"
+      }
+    ]
+  },
+  {
+    "id": "v0.1.30:002_backfill_profitability_source_freshness",
+    "releaseVersion": "0.1.30",
+    "name": "Backfill independent profitability source freshness",
+    "sourcePath": "scripts/data-migrations/v0.1.30/002_backfill_profitability_source_freshness.ts",
+    "sourceSha256": "31c4780f320f70774d4ebb40d8ae5d1e72bd96b9b4c1bbe6668f17aad6940c58",
+    "baselineCommit": "a3e4794d2e1b1087789c0f7cbadbddfc00045da3",
+    "replacementMigrations": [
+      {
+        "id": "v0.1.31:001_reset_absolute_product_abc",
+        "path": "scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts"
+      },
+      {
+        "id": "v0.1.31:002_initialize_absolute_product_abc_formula",
+        "path": "scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.ts"
+      }
+    ]
+  },
+  {
+    "id": "v0.1.30:004_canonical_master_inventory_identity",
+    "releaseVersion": "0.1.30",
+    "name": "Replace channel-derived product matching with canonical inventory MasterProducts",
+    "sourcePath": "scripts/data-migrations/v0.1.30/004_canonical_master_inventory_identity.ts",
+    "sourceSha256": "353892864ec71f31132789db8e506ba2ef45ca3a7b65e6c1888839c53f1d09d5",
+    "baselineCommit": "a3e4794d2e1b1087789c0f7cbadbddfc00045da3",
+    "replacementMigrations": [
+      {
+        "id": "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
+        "path": "scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows.ts"
+      }
+    ]
+  },
+  {
+    "id": "v0.1.30:006_delete_legacy_channel_derived_master_products",
+    "releaseVersion": "0.1.30",
+    "name": "Delete unreferenced legacy channel-derived MasterProducts",
+    "sourcePath": "scripts/data-migrations/v0.1.30/006_delete_legacy_channel_derived_master_products.ts",
+    "sourceSha256": "2cf0ce1dec0684b83ebcb2fe0547b6ccd3fb2ddaadd1273b2373901b491e8724",
+    "baselineCommit": "2f0625cbcad277db4340f37ed71a5e7e5bdbb4c1",
+    "replacementMigrations": [
+      {
+        "id": "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
+        "path": "scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows.ts"
+      }
+    ]
   }
 ]
