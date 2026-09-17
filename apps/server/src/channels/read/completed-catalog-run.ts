@@ -5,8 +5,8 @@ import {
   CATALOG_DETAILS_SOURCE,
   CATALOG_PARSER,
   CATALOG_SOURCE,
-} from '../adapter/out/repository/channel-catalog-attempt-fence';
-import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../adapter/out/repository/rocket-sellpia-matching-csv.catalog';
+  ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+} from '../domain/catalog-source-identity';
 import {
   ROCKET_PO_CATALOG_PARSER_VERSION,
   ROCKET_PO_CATALOG_SOURCE_TYPE,

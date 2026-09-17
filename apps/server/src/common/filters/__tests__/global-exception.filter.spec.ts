@@ -4,8 +4,14 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  NotFoundException,
 } from '@nestjs/common';
 import { AppException } from '@kiditem/shared/server-errors';
+import {
+  FactConflictError,
+  FactInputError,
+  FactNotFoundError,
+} from '../../errors/fact-errors';
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
 // ── Mocks ──
@@ -161,6 +167,41 @@ describe('GlobalExceptionFilter', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json.mock.calls[0][0].error).toBe('COMMON_DB_ERROR');
+  });
+
+  it.each([
+    ['FactNotFoundError', new FactNotFoundError('One or more SKUs were not found'), new NotFoundException('One or more SKUs were not found'), 404],
+    ['FactConflictError', new FactConflictError('Rocket identity 7 was not persisted'), new ConflictException('Rocket identity 7 was not persisted'), 409],
+    ['FactInputError', new FactInputError('INVALID_DATE_RANGE'), new BadRequestException('INVALID_DATE_RANGE'), 400],
+  ] as const)('%s → the status and body its Nest exception produced', (_name, factError, nestException, status) => {
+    const fact = makeHost('GET', '/api/facts');
+    const nest = makeHost('GET', '/api/facts');
+    filter.catch(factError, fact.host);
+    filter.catch(nestException, nest.host);
+
+    expect(fact.status).toHaveBeenCalledWith(status);
+    expect(nest.status).toHaveBeenCalledWith(status);
+    const { timestamp: _factAt, ...factBody } = fact.json.mock.calls[0][0];
+    const { timestamp: _nestAt, ...nestBody } = nest.json.mock.calls[0][0];
+    expect(factBody).toEqual(nestBody);
+    expect(factBody).toEqual({
+      statusCode: status,
+      error: { 404: 'Not Found', 409: 'Conflict', 400: 'Bad Request' }[status],
+      message: factError.message,
+      path: '/api/facts',
+    });
+  });
+
+  it('fact errors are framework-free Errors that name themselves', () => {
+    for (const error of [
+      new FactNotFoundError('missing'),
+      new FactConflictError('conflict'),
+      new FactInputError('input'),
+    ]) {
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(HttpException);
+      expect(error.name).toBe(error.constructor.name);
+    }
   });
 
   it('plain Error → 500 INTERNAL with error message', () => {

@@ -21,6 +21,7 @@ import {
   readInventoryAvailability,
   readInventorySkuIdentities,
 } from "../../../../../inventory/read/inventory-availability";
+import { lockSellpiaInventory } from "../../../../../inventory/transaction/sellpia-inventory-lock";
 import { readCurrentProductAbcGradeChanges } from "../../../../../products/read/product-abc-publication.reader";
 import { readCurrentReviewListingStats } from "../../../../../orders/read/review-facts.reader";
 import {
@@ -275,7 +276,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
             selector: { kind: "active" },
           }),
         ]);
-        const availability = await readInventoryAvailability(tx, {
+        const inventoryLock = await lockSellpiaInventory(tx, organizationId);
+        const availability = await readInventoryAvailability(tx, inventoryLock, {
           organizationId,
           sellpiaInventorySkuIds: activeIdentities.map(
             (sku) => sku.sellpiaInventorySkuId,

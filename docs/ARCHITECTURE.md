@@ -392,6 +392,8 @@ apps/server/src/{owner}/
   application/service/    orchestration, transactions, organization context
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
+  read/                   pure ledger readers over the caller's transaction client
+  transaction/            lock/fence functions for the caller's transaction (not a port lane)
 ```
 
 Required: module file, `application/service/`, and a port/adapter boundary for
@@ -399,6 +401,17 @@ each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
 Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
+
+`read/` exists when the owner publishes a ledger
+([ADR-0009](adr/0009-one-ledger-one-reader.md)) and `<owner>/transaction/` when
+other code must take the owner's lock or fence inside its own transaction. Both
+export plain functions with no DI or HTTP; `<owner>/transaction/` is not the
+`application/port/out/transaction/` lane. A reader imports no adapter,
+application, or NestJS code and takes no lock: its caller locks and owns the
+transaction, and the reader takes the lock evidence and only verifies it. A
+reader signals a missing, conflicting, or unselectable fact with
+`common/errors/fact-errors`, which the global exception filter maps to 404, 409,
+and 400; an integrity failure stays a plain `Error`.
 
 Agent-facing capabilities use the neutral contract in
 `apps/server/src/common/capability-definition.ts`. Each owner domain owns its
@@ -471,7 +484,9 @@ Task/Attempt recovery loop, or durable provider transcript.
 Outgoing ports use these lane folders when the lane exists:
 
 - `repository/`: Prisma or raw-SQL persistence Interfaces.
-- `transaction/`: unit-of-work or row-lock transaction Interfaces.
+- `transaction/`: unit-of-work or row-lock transaction Interfaces. A plain
+  function that runs inside the caller's transaction goes in the owner's
+  `transaction/` folder instead.
 - `provider/`: external API, SDK, LLM, marketplace, scrape, fetch, or model
   provider Interfaces.
 - `storage/`: object, file, image, or media storage Interfaces.

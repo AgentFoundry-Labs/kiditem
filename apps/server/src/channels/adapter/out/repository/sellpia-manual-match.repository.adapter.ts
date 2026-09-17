@@ -36,6 +36,7 @@ import {
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
 import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
@@ -120,7 +121,7 @@ implements SellpiaManualMatchRepositoryPort {
       requestBody: {},
     });
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventorySource(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const now = new Date();
       const existing = await findAttemptByIdempotency(
@@ -224,7 +225,7 @@ implements SellpiaManualMatchRepositoryPort {
     snapshot: SellpiaManualMatchSnapshot;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventorySource(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -317,7 +318,7 @@ implements SellpiaManualMatchRepositoryPort {
     errorMessage: string;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventorySource(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -367,7 +368,7 @@ implements SellpiaManualMatchRepositoryPort {
     attemptId: string;
   }): Promise<SellpiaManualMatchPublicAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventorySource(tx, input.organizationId);
+      await lockSellpiaInventory(tx, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
@@ -562,18 +563,6 @@ async function findAttempt(
   });
   if (!attempt) throw new NotFoundException('SELLPIA_MANUAL_MATCH_ATTEMPT_NOT_FOUND');
   return attempt;
-}
-
-async function lockSellpiaInventorySource(
-  tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
-  organizationId: string,
-): Promise<void> {
-  await tx.$queryRaw(Prisma.sql`
-    -- queryraw-tenancy-exempt: organization-scoped inventory owner lock.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`inventory-sellpia:${organizationId}:sellpia_inventory`}, 0)
-    )::text AS "lock"
-  `);
 }
 
 async function lockManualMatchSource(

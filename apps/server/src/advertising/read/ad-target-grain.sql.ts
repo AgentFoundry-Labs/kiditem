@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 // The grain rule of `advertising/domain/ad-target-grain.ts`, as SQL, for
 // every reader of `channel_ad_target_daily_snapshots`. Column references are
 // unqualified, so a fragment must be used where the target table is the only
-// relation in scope (or aliased identically). Lives beside the adapters
+// relation in scope (or aliased identically). Lives beside the ledger reader
 // because domain code stays Prisma-free.
 
 /** The stamped grain, whichever meta namespace a writer generation used. */

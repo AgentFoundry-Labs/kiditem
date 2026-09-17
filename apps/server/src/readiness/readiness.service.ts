@@ -16,7 +16,7 @@ import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-impor
 import { PrismaService } from '../prisma/prisma.service';
 import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
-import { dayAfter, readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
+import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {
@@ -150,7 +150,7 @@ export class ReadinessService {
       ? await readAdWindowFacts(tx, {
             organizationId,
             from: adsLookbackStart,
-            to: dayAfter(adsCutoffKst),
+            to: addDays(adsCutoffKst, 1),
           })
       : null;
     const activeWingVendorRows = activeCoupangAccount

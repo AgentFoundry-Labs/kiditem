@@ -137,6 +137,17 @@ describe('channels architecture contract', () => {
       path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
       path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
     ]);
+
+    // Inventory's exported lock, taken by the adapters that read availability
+    // and by the manual-match publication it serializes with.
+    const inventoryLockHits = rg(
+      `--type ts --files-with-matches 'inventory/transaction/sellpia-inventory-lock' ${channels} --glob '!**/__tests__/**'`,
+    );
+    expect(inventoryLockHits.sort()).toEqual([
+      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
+      path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
+      path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
+    ]);
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {

@@ -22,6 +22,7 @@ import {
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -458,7 +459,8 @@ async function assertInventoryGeneration(
       ),
     ),
   ];
-  const current = await readInventoryAvailability(tx, {
+  const inventoryLock = await lockSellpiaInventory(tx, organizationId);
+  const current = await readInventoryAvailability(tx, inventoryLock, {
     organizationId,
     sellpiaInventorySkuIds,
   });
