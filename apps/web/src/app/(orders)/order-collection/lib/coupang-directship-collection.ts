@@ -146,7 +146,9 @@ export function createCoupangDirectshipCollector({
         collectionDate,
         collectionMode: 'browser' as const,
         collectedRows: poCount,
-        mallKey: account.key,
+        // 파일을 찾는 쪽(`sentDirectshipOrderNumbers`, 달력의 소거 목록)과 같은 키를 적는다 —
+        // 계정 행의 키를 따라가면 그 행이 달리 서는 날 이미 보낸 발주가 달력에 남는다.
+        mallKey: COUPANG_DIRECT_MALL_KEY,
         mallName: `쿠팡직배송 ${label}`,
         orderNumbers,
         rocketWorkbookExportId: conversion.rocketWorkbookExportId,

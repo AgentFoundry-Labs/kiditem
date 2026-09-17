@@ -33,8 +33,13 @@ vi.mock('./coupang-directship-api', () => ({
 }));
 
 import { resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
-import { createCoupangDirectshipCollector } from './coupang-directship-collection';
+import {
+  createCoupangDirectshipCollector,
+  sentDirectshipOrderNumbers,
+} from './coupang-directship-collection';
+import type { ConversionHistoryItem } from './order-collection-page-model';
 import type { CoupangDirectData } from './coupang-directship-api';
+import { COUPANG_DIRECT_MALL_KEY } from './coupang-directship-collection-source';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
 
 const ROCKET_CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
@@ -195,7 +200,7 @@ describe('createCoupangDirectshipCollector', () => {
     expect(mocks.convertCoupang).toHaveBeenCalledTimes(2);
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
       id: intentKey,
-      mallKey: ACCOUNT.key,
+      mallKey: COUPANG_DIRECT_MALL_KEY,
       mallName: '쿠팡직배송 밀크런',
     }));
     // 비어 있던 유형은 조용히 넘어가지 않고 이름을 밝혀 알린다.
@@ -297,5 +302,85 @@ describe('createCoupangDirectshipCollector', () => {
     });
 
     await expect(collect(ACCOUNT, RUN)).rejects.toThrow('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
+  });
+});
+
+/**
+ * 달력이 남은 일만 보여 주려면, 수집이 파일에 적은 몰 키와 달력이 그 파일을 찾을 때 쓰는
+ * 몰 키가 같아야 한다. 둘이 어긋나면 이미 보낸 발주가 달력에 계속 남는다.
+ */
+describe('sentDirectshipOrderNumbers', () => {
+  const historyItem = (patch: Partial<ConversionHistoryItem>): ConversionHistoryItem => ({
+    id: 'file-1',
+    fileName: 'shipment.xls',
+    sourceName: '쿠팡직배송 쉽먼트',
+    mimeType: 'application/vnd.ms-excel',
+    blob: 'base64',
+    previewRows: [],
+    convertedAt: Date.UTC(2026, 6, 23, 1, 0),
+    productRows: null,
+    outputRows: null,
+    skippedRows: null,
+    ...patch,
+  } as ConversionHistoryItem);
+
+  /**
+   * 기준은 "파일 생성"이 아니라 "셀피아 전송 요청"이다. 파일만 만들고 전송 대기 중인
+   * 발주는 아직 처리해야 할 일이 남아 있는데, 파일 기준으로 빼면 달력에서 사라져
+   * 38건 중 9건만 남는 것처럼 보인다.
+   */
+  it('⭐ 셀피아 전송을 요청한 파일의 발주만 뺀다 — 파일만 만든 발주는 아직 남은 일이다', () => {
+    const sent = sentDirectshipOrderNumbers([
+      historyItem({
+        id: 'sent',
+        mallKey: COUPANG_DIRECT_MALL_KEY,
+        orderNumbers: ['PO-SENT'],
+        transmissionRequestedAt: Date.UTC(2026, 6, 23, 2, 0),
+      }),
+      historyItem({
+        id: 'waiting',
+        mallKey: COUPANG_DIRECT_MALL_KEY,
+        orderNumbers: ['PO-WAITING'],
+      }),
+    ]);
+
+    expect([...sent]).toEqual(['PO-SENT']);
+  });
+
+  it('다른 몰의 파일은 직배송 발주로 세지 않는다', () => {
+    const sent = sentDirectshipOrderNumbers([
+      historyItem({
+        id: 'other-mall',
+        mallKey: 'kidsnote',
+        orderNumbers: ['ORDER-1'],
+        transmissionRequestedAt: Date.UTC(2026, 6, 23, 2, 0),
+      }),
+    ]);
+
+    expect([...sent]).toEqual([]);
+  });
+
+  /**
+   * 파일에 몰 키를 적는 쪽과 그 파일을 찾는 쪽이 같은 키를 봐야 한다. 적는 쪽이 계정 행의
+   * 키를 따라가면, 그 행이 다른 키로 서는 날 이미 보낸 발주가 달력에 그대로 남는다.
+   */
+  it('⭐ 수집이 적은 몰 키를 달력의 소거 목록이 그대로 찾는다', async () => {
+    mocks.collectCoupang.mockResolvedValue({
+      pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
+      centers: {},
+    });
+    mocks.convertCoupang
+      .mockResolvedValueOnce(conversion())
+      .mockResolvedValueOnce(EMPTY_CONVERSION);
+    const addGeneratedFile = vi.fn();
+
+    await collector(addGeneratedFile)({ ...ACCOUNT, key: 'rocket-supplier-row' }, RUN);
+
+    const written = addGeneratedFile.mock.calls[0]![0] as ConversionHistoryItem;
+    const sent = sentDirectshipOrderNumbers([
+      { ...written, transmissionRequestedAt: Date.UTC(2026, 6, 23, 2, 0) },
+    ]);
+
+    expect([...sent]).toEqual(['PO-1']);
   });
 });
