@@ -355,6 +355,7 @@ export class MallPublishingService {
       return {
         masterProductId: row.masterProductId,
         code: row.code,
+        sellpiaCode: row.sellpiaCode,
         name: row.name,
         imageUrl: row.imageUrl,
         // 카테고리는 마스터에 저장돼 있지 않다. 리스팅이 들고 있는 값을 회수한다.

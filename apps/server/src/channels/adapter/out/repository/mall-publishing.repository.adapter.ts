@@ -404,6 +404,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     const rows = records.map<MallMatrixProductRow>((record) => ({
       masterProductId: record.id,
       code: record.code,
+      sellpiaCode: page.sellpiaCodeById.get(record.id) ?? null,
       name: record.name,
       imageUrl: firstListingImageUrl(record.channelListings),
       // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
@@ -434,22 +435,28 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
    */
   private async matrixPageIds(
     where: Prisma.MasterProductWhereInput,
-  ): Promise<{ ids: string[] }> {
+  ): Promise<{ ids: string[]; sellpiaCodeById: Map<string, string> }> {
     const candidates = await this.prisma.masterProduct.findMany({
       where,
       select: { id: true, inventorySkus: { select: { code: true } } },
     });
+    const ranked = candidates.map((candidate) => {
+      let sequence = -1;
+      let sellpiaCode: string | null = null;
+      for (const sku of candidate.inventorySkus) {
+        const value = sellpiaProductSequence(sku.code);
+        if (value !== null && value > sequence) {
+          sequence = value;
+          sellpiaCode = sku.code;
+        }
+      }
+      return { id: candidate.id, sequence, sellpiaCode };
+    });
+    ranked.sort((left, right) => right.sequence - left.sequence || left.id.localeCompare(right.id));
     return {
-      ids: candidates
-        .map((candidate) => ({
-          id: candidate.id,
-          sequence: Math.max(
-            -1,
-            ...candidate.inventorySkus.map((sku) => sellpiaProductSequence(sku.code) ?? -1),
-          ),
-        }))
-        .sort((left, right) => right.sequence - left.sequence || left.id.localeCompare(right.id))
-        .map((candidate) => candidate.id),
+      ids: ranked.map((candidate) => candidate.id),
+      sellpiaCodeById: new Map(ranked.flatMap((candidate) =>
+        candidate.sellpiaCode ? [[candidate.id, candidate.sellpiaCode] as const] : [])),
     };
   }
 

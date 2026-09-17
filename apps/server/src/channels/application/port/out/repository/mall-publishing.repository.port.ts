@@ -84,6 +84,8 @@ export interface MallMatrixListingRow {
 export interface MallMatrixProductRow {
   masterProductId: string;
   code: string;
+  /** 이 마스터에 이어진 셀피아 상품코드 가운데 번호가 가장 큰 것. 없으면 null. */
+  sellpiaCode: string | null;
   name: string;
   /** 몰 리스팅 콘텐츠에서 회수한 대표 이미지. 없으면 null. */
   imageUrl: string | null;

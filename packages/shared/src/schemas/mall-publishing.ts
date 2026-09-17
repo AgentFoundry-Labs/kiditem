@@ -208,6 +208,12 @@ export const MallListingMatrixRowSchema = z.object({
   name: z.string(),
   code: z.string(),
   /**
+   * 셀피아 상품코드(`10487-1`). 표가 이 번호가 큰 것부터 서므로 화면에 보여야 순서가
+   * 읽힌다 — 마스터 코드(`INV-SELLPIA-<uuid>`)는 아무것도 알려주지 않는다.
+   * 셀피아 재고에 이어지지 않은 마스터는 null.
+   */
+  sellpiaCode: z.string().nullable().default(null),
+  /**
    * 상품 사진.
    *
    * 마스터에는 저장돼 있지 않다. 몰 리스팅에 붙은 콘텐츠 워크스페이스가 가진

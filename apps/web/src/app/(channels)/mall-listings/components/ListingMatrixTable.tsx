@@ -360,8 +360,10 @@ function MatrixRow({
           <ProductThumbnail imageUrl={row.imageUrl} name={row.name} seed={row.masterProductId} />
           <span className="min-w-0 flex-1">
             <span className="block line-clamp-2 font-medium text-slate-900">{row.name}</span>
+            {/* 표는 셀피아 번호가 큰 것부터 선다. 번호가 보여야 순서가 읽힌다 — 마스터 코드는
+                해시라 아무것도 알려주지 않는다(사장님 2026-09-18: "최신상품 순으로 하라니깐"). */}
             <span className="mt-0.5 block truncate text-xs text-slate-400" title={row.code}>
-              {shortCode(row.code)}
+              {row.sellpiaCode ?? shortCode(row.code)}
               {row.category ? ` · ${row.category}` : ''}
             </span>
           </span>
