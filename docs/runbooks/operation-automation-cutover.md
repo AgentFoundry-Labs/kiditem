@@ -79,28 +79,51 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    generic rows, and, while `action_tasks` still exists, verifies that its
    row count did not move. The schema-drop cleanup (`v0.1.31:013`) removes
    account-day KPI rows, the raw scrape rows only they used, and the retired
-   `ads.tier.dailyBudget` setting. The required-column cleanup
-   (`v0.1.31:014`) deletes every row of a listed table while it still lacks
-   the column v0.1.31 requires with no database default, because `db push`
-   cannot add such a column to a table that has rows:
-   - `ingestion_run_id` for `naver_keyword_daily_snapshots`,
+   `ads.tier.dailyBudget` setting. `v0.1.31:014` then removes the rows that
+   would stop `db push` or that v0.1.31 cannot read:
+   - Every row of a listed table while it still lacks the column v0.1.31
+     requires with no database default, because `db push` cannot add such a
+     column to a table that has rows: `ingestion_run_id` for
+     `naver_keyword_daily_snapshots`,
      `naver_popular_keyword_daily_snapshots`, `shorts_trend_daily_snapshots`,
      `live_commerce_broadcast_daily_snapshots`,
      `live_commerce_product_daily_snapshots`, and
      `tiktok_creative_trend_daily_snapshots`, whose old rows name no
-     ingestion run;
-   - `dedupe_key` for `alerts`, so the signal alerts `v0.1.31:005` keeps are
-     deleted too.
+     ingestion run; and `dedupe_key` for `alerts`, so the signal alerts
+     `v0.1.31:005` keeps are deleted too.
+   - Every Office 0.1.30 `sourcing_evidence_ingestion_runs` row (the table
+     has no `is_current_complete` yet), after the rows that point at it:
+     evidence observations, 1688 keyword observations, market facts,
+     recommendation and validation evidence links, and the human-entered
+     review hand-off items, registered supplier offers and their price
+     tiers, launch candidates, decision items that cite an offer or launch,
+     decision evidence, and procurement test intents.
+   - Duplicates under the 16 unique keys v0.1.31 adds to
+     `source_import_runs`, after 007 and 012 have settled every status. The
+     newest run of each key stays (the higher id on a tie). An older run goes
+     with the rows that depend on it: its collected facts, ABC calculations,
+     and Rocket purchase confirmations with their lines, allocations, and
+     transmissions. Carried-forward rows lose only their pointer to it.
 
-   A table that already has its column is left alone. Tables and columns a
-   database no longer has are skipped:
+   The owner approved both deletions of human-entered rows on 2026-09-17;
+   014 records the approval on each entry. An entry still waiting for an
+   approval fails 014 before its first statement. ADR-0010 kept rows are
+   never deleted: a nullable pointer from one is cleared, and a transport
+   receipt or consumption that cites a duplicate run keeps it. A running
+   duplicate that a kept row cites is marked `failed` instead of removed; a
+   duplicated generation that a receipt or consumption cites stops 014.
+
+   A table that already has its column, and a key whose index exists, are
+   left alone. Tables and columns a database no longer has are skipped:
 
    ```powershell
    npm run data:migrate -- up --target office --phase pre-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
    ```
 
    If this step fails, do not continue to schema application. The transaction
-   rolls back; correct the writer-stop or data issue and rerun.
+   rolls back; correct the writer-stop or data issue and rerun. When 014 stops
+   on a pending approval or a kept row, record the owner's decision on a
+   reviewed branch and rerun the cutover from that branch.
 3. Survey what the schema step would hit in this database's data. An empty
    database accepts every schema change, so this is the first point where the
    answer is the real one: the pre-schema migrations have run, and `db push` has

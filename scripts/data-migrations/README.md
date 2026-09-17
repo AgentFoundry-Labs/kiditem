@@ -67,24 +67,72 @@ migration: legacy product, inventory, option, and identity-map rows are not
 read or transformed. The guarded reset creates the final schema, after which
 approved Sellpia and channel sources are replayed through application imports.
 
-## Rows that cannot hold a new required column
+## Rows a schema step cannot take
+
+Under the
+[data-loss policy](../../docs/runbooks/deployment-architecture.md#data-loss-policy),
+a pre-schema migration deletes rows that would stop `db push`, or that the new
+release cannot read, instead of backfilling them. Two declarative helpers do
+the work on one shared engine, `helpers/dependent-row-removal.ts`;
+`v0.1.31/014` uses both.
+
+### Rows that depend on a removed row
+
+An entry may declare `dependents`: every foreign key into a table it deletes
+from, in execution order, as `{ action, table, column, references }`.
+
+- `delete` (with `kind`: `collected`, `derived`, or `human-entered`) removes
+  the rows that point at a removed row first; a step on its own table follows
+  the chain to its end.
+- `unlink` (with optional `alsoClear`) clears the pointer and keeps the row.
+- `keep` refuses the removal while a row points at a removed row.
+
+A step whose foreign key the database does not have is skipped, and a foreign
+key into a deleted table that no step declares stops the run before any
+change. `ADR_0010_KEPT_TABLES`, the tables behind ADR-0010's keep list, are
+never deleted: a step on one may only `unlink` or `keep`. An entry that deletes
+`human-entered` rows must carry `ownerApproval`: `'pending'` stops the
+migration before its first statement, and `{ by, at, scope }` records the
+owner's approval. Scripts record the approver's role; the Linear issue records
+the name.
+
+### Rows that cannot hold a new required column
 
 When a schema step adds a required column with no database default, `db push`
-stops on any table that still has rows. Under the
-[data-loss policy](../../docs/runbooks/deployment-architecture.md#data-loss-policy),
-a pre-schema migration deletes those rows with
-`helpers/required-column-row-cleanup.ts` instead of backfilling them. The
-migration declares only `{ table, requiredColumn, reason }` entries with
+stops on any table that still has rows. A migration declares
+`{ table, requiredColumn, reason, dependents?, ownerApproval? }` entries with
 `defineRequiredColumnCleanups` and runs them with
-`removeRowsBlockingRequiredColumns`, as `v0.1.31/014` does:
+`removeRowsBlockingRequiredColumns` from `helpers/required-column-row-cleanup.ts`:
 
 - A missing table is skipped. A table that already has the column is left
   alone, so a run after `db push` deletes nothing.
-- Any other listed table loses all of its rows. `details` reports each table,
-  and `affectedRows` is the total.
-- The helper refuses a table on `ADR_0010_KEPT_TABLES`, the tables behind
-  ADR-0010's keep list, and a list whose deletes would cascade into one of
-  them or null a reference in one. Both checks run before any delete.
+- Any other listed table loses all of its rows, after its dependents.
+  `details` reports each table with `dependentRows` and `unlinkedRows`, and
+  `affectedRows` is the total.
+- The helper also refuses a listed table on `ADR_0010_KEPT_TABLES`, and a list
+  whose deletes would cascade into a kept table or null a reference in one.
+
+### Rows that duplicate a new unique key
+
+When a schema step adds a unique index over columns a table already has,
+`db push` stops on existing duplicates. A migration declares
+`{ table, index, columns, where, neutralize?, reason, dependents?, ownerApproval? }`
+entries with `defineUniqueKeyCleanups` and runs them with
+`removeRowsBlockingUniqueKeys` from `helpers/unique-key-row-cleanup.ts`.
+`where` spells the partial-index predicate as `equals` and `isNotNull` terms,
+in the schema's order:
+
+- A missing table, or an index that already exists, is skipped. A key,
+  predicate, or `created_at` column the table lacks stops the run.
+- Among rows the index would cover, the newest `created_at` (then the highest
+  `id`) of each key stays. Every other row goes with its dependents.
+- When those dependents reach a kept row, `neutralize` sets a predicate
+  column to a value that takes the row out of the index instead. Without it,
+  kept rows are unlinked, and a kept row that cannot be unlinked stops the run.
+- A key whose column arrives with the schema step needs no entry: without a
+  database default the column is NULL on old rows, which never collide. With a
+  default, evaluate the predicate as the default would; `v0.1.31/014` records
+  each such key and why it needs no entry in `UNIQUE_KEYS_WITHOUT_CLEANUP`.
 
 During an Office cutover, the deployer's survey then stops before `db push`
 if a row still blocks it.

@@ -106,10 +106,13 @@ takes priority over it
 
 - Pre-schema data migrations delete rows that cannot fit the new schema instead
   of stopping. They carry forward users and organizations, channel accounts,
-  confirmed recipes, orders, and transport receipts. The required-column
-  cleanup helper in `scripts/data-migrations/helpers/` refuses to delete from,
-  or cascade into, the tables behind that list. The deployer's survey stops a
-  cutover only for rows those migrations left in the way of `db push`.
+  confirmed recipes, orders, and transport receipts. The row-cleanup helpers
+  in `scripts/data-migrations/helpers/` never delete from, or cascade into,
+  the tables behind that list; a kept row only loses a pointer to a removed
+  row, or keeps that row. Deleting human-entered rows needs an entry that
+  records the owner's approval, and a pending approval stops the migration
+  before any change. The deployer's survey stops a cutover only for rows
+  those migrations left in the way of `db push`.
 - A cutover starts from one `pg_dump` of the Office database. Only a
   successful cutover prunes, and it deletes only dumps older than the previous
   successful cutover's dump: every dump written since then survives, including
