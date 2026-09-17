@@ -5,6 +5,7 @@ import {
 } from '@kiditem/shared/channel-listing';
 import { readLatestListingSaleStatusFacts } from '../../../../channels/read/channel-listing-daily-facts';
 import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 
 const SELLING_CHANNELS = ['coupang', 'rocket'];
 
@@ -74,10 +75,11 @@ export async function listSellingMasterProductIds(
     ))))];
   const availability = sellpiaInventorySkuIds.length === 0
     ? []
-    : (await readInventoryAvailability(transaction, {
-      organizationId,
-      sellpiaInventorySkuIds,
-    })).items;
+    : (await readInventoryAvailability(
+      transaction,
+      await lockSellpiaInventory(transaction, organizationId),
+      { organizationId, sellpiaInventorySkuIds },
+    )).items;
   const availabilityBySkuId = new Map(availability.map((item) => [
     item.sellpiaInventorySkuId,
     item,

@@ -1,5 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
+import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
+import { SellpiaImportRunRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
+import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/service/sellpia-inventory-file.validator';
+import { SellpiaInventoryImportService } from '../../../../../inventory/application/service/sellpia-inventory-import.service';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -7,6 +14,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { MallPublishingRepositoryAdapter } from '../mall-publishing.repository.adapter';
 
@@ -134,6 +142,60 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
     it('never creates an account row', async () => {
       await repository.listMallAccounts(TEST_ORGANIZATION_ID);
       expect(await prisma.channelAccount.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(2);
+    });
+  });
+
+  describe('listMatrixProducts', () => {
+    /** 재고는 Inventory가 발행한 셀피아 스냅샷에서만 온다. 재고 연결이 없는 마스터는 0이 아니라 null이다. */
+    it('reads each master stock from the published Sellpia snapshot and none for an unlinked master', async () => {
+      await prisma.sellpiaInventoryState.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceOrigin: 'https://kiditem.sellpia.com',
+          sourceAccountKey: 'kiditem',
+          requestedGeneration: 0n,
+          verifiedGeneration: 0n,
+          freshnessFence: randomUUID(),
+        },
+      });
+      const alerts = new SourceFailureAlerts(prisma as never);
+      const inventory = new SellpiaInventoryImportService(
+        new SellpiaImportRunRepositoryAdapter(prisma as never, alerts),
+        new SellpiaSnapshotPublicationRepositoryAdapter(prisma as never, alerts),
+        new ConfirmedChannelComponentReferenceRepositoryAdapter(prisma as never),
+        new SellpiaInventoryFileValidator(),
+      );
+      await expect(inventory.importInventory({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        file: {
+          buffer: Buffer.from([
+            '상품코드,상품명,재고,바코드,매입가,판매가',
+            'SP-101,원목 블록,7,8800000000101,100,200',
+          ].join('\n')),
+          fileName: 'sellpia.csv',
+          mimeType: 'text/csv',
+        },
+        execution: { kind: 'manual', manualFreshExportConfirmed: true },
+      })).resolves.toMatchObject({ outcome: 'published' });
+      const publishedSku = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+        where: { organizationId_code: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-101' } },
+      });
+      expect(publishedSku.masterProductId).not.toBeNull();
+      const unlinkedMaster = await prisma.masterProduct.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-NO-STOCK', name: '재고 연결 없음' },
+      });
+
+      const { rows, total } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 10,
+      });
+
+      expect(total).toBe(2);
+      expect(rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ masterProductId: publishedSku.masterProductId, stock: 7 }),
+        expect.objectContaining({ masterProductId: unlinkedMaster.id, stock: null }),
+      ]));
     });
   });
 

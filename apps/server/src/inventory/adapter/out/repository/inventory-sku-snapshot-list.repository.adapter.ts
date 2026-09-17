@@ -8,8 +8,8 @@ import { isSourceImportStatus } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   InventorySkuSnapshotListRepositoryPort,
-  InventorySkuSnapshotRepositoryQuery,
-  SellpiaImportRunRepositoryRow,
+  InventorySkuSnapshotQuery,
+  SellpiaImportRunRow,
 } from '../../../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
 import {
   readInventorySkuSnapshot,
@@ -46,7 +46,7 @@ export class InventorySkuSnapshotListRepositoryAdapter implements InventorySkuSn
 
   listSnapshot(
     organizationId: string,
-    query: InventorySkuSnapshotRepositoryQuery,
+    query: InventorySkuSnapshotQuery,
   ) {
     return this.prisma.$transaction(
       (tx) => readInventorySkuSnapshotList(tx, organizationId, query),
@@ -85,7 +85,7 @@ export class InventorySkuSnapshotListRepositoryAdapter implements InventorySkuSn
   }
 }
 
-function mapImportRun(row: ImportRunRow): SellpiaImportRunRepositoryRow {
+function mapImportRun(row: ImportRunRow): SellpiaImportRunRow {
   if (!isSourceImportStatus(row.status)) {
     throw new InternalServerErrorException(
       `Unknown source import status: ${row.status}`,

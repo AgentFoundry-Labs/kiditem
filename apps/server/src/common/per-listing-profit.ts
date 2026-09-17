@@ -20,12 +20,14 @@ import {
   type KstQueryWindow,
 } from './kst';
 import {
-  adSweepCoversChannelAccount,
   advertisingApplies,
-  advertisingAppliesToSale,
   readAdWindowFacts,
   readListingAdWindowFacts,
 } from '../advertising/read/ad-target-facts';
+import {
+  adSweepCoversChannelAccount,
+  advertisingAppliesToSale,
+} from '../advertising/domain/ad-sweep-coverage';
 import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
 import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
 import {
