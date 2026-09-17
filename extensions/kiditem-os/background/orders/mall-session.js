@@ -45,6 +45,7 @@
     NO_LOGIN_ADDRESS: "no_login_address",
     LOGIN_PAGE_NOT_REACHABLE: "login_page_not_reachable",
     UNSUPPORTED_MALL: "unsupported_mall",
+    NO_LOGIN_FORM: "no_login_form",
     NO_CREDENTIALS: "no_credentials",
     LOGIN_FORM_INCOMPLETE: "login_form_incomplete",
     LOGIN_STATE_UNCONFIRMED: "login_state_unconfirmed",
@@ -325,8 +326,14 @@
       if (!credentials || !credentials.loginId || !credentials.password) {
         return answer("unknown", REASONS.NO_CREDENTIALS, { success: true, submitted: false });
       }
-      if (tab) return fillLoginForm(tab.id, credentials, mallKey);
       const found = specOf(mallKey);
+      // 채울 로그인 폼이 없는 몰(카카오 토큰 · 올웨이즈 브라우저 저장소 JWT). 탭을 열어도 넣을 칸이
+      // 없어 "폼을 못 봤다 = 이미 로그인됨" 으로 새기만 한다 — 아무도 로그인하지 않은 채
+      // 수집이 굴러가 "로그인 필요" 로 끝난다. 스펙의 `fields: null` 을 그대로 말한다.
+      if (found && found.fields === null) {
+        return answer("unknown", REASONS.NO_LOGIN_FORM, { success: true, submitted: false });
+      }
+      if (tab) return fillLoginForm(tab.id, credentials, mallKey);
       // 고정 주소가 있는 몰은 그 주소로, 없는 몰은 사장님이 적어 둔 사이트 주소로 들어간다.
       // 둘 다 없으면 어디로 갈지 모르므로 시도하지 않는다 — 시도하지 않았다는 사실을
       // 호출부가 알아야 "확인됨" 으로 잘못 표시하지 않는다.

@@ -402,9 +402,13 @@ test("탭을 열지 못하면 모른다 — 수집이 취소됐으면 열어 둔
   assert.equal(stopped.errorCode, "COLLECTION_CANCELLED");
 });
 
-test("⭐ 스펙에 적힌 몰은 하나도 빠짐없이 세 답 중 하나를 낸다 (로그인)", async () => {
+/** 채울 로그인 폼이 있는 몰. 나머지 둘은 아래 따로 본다. */
+const FORM_MALLS = MallSession.malls.filter((key) => MallSession.SPECS[key].fields !== null);
+
+test("⭐ 폼이 있는 몰은 하나도 빠짐없이 세 답 중 하나를 낸다 (로그인)", async () => {
   const credentials = { ...CREDENTIALS, siteUrl: "https://saved.example/admin" };
-  for (const mallKey of MallSession.malls) {
+  assert.equal(FORM_MALLS.length, 18);
+  for (const mallKey of FORM_MALLS) {
     const ok = fakeDriver({ fills: [{ state: "submitted", method: "form-submit" }], formRemains: false });
     assert.equal((await ok.session.ensureLoggedIn(mallKey, credentials)).verdict, "ok", `${mallKey} ok`);
     assert.equal(
@@ -426,6 +430,35 @@ test("⭐ 스펙에 적힌 몰은 하나도 빠짐없이 세 답 중 하나를 �
       "unknown",
       `${mallKey} unknown`,
     );
+  }
+});
+
+/**
+ * 카카오(토큰)와 올웨이즈(브라우저 저장소 JWT)는 확장이 채울 로그인 폼이 없다. 탭을 열어도
+ * 넣을 칸이 없어 "폼을 못 봤다 = 이미 로그인됨" 으로 새고, 그러면 아무도 로그인하지 않은 채
+ * 수집이 굴러가 "로그인 필요" 로 끝난다 — 스펙의 `fields: null` 이 그것을 멈췐 세운다.
+ */
+test("⭐ 채울 로그인 폼이 없는 몰은 탭도 열지 않고 그렇게 말한다", async () => {
+  const credentials = { ...CREDENTIALS, siteUrl: "https://saved.example/admin" };
+  for (const mallKey of ["kakao", "always"]) {
+    const driven = fakeDriver({ fills: [{ state: "submitted", method: "form-submit" }] });
+
+    const result = await driven.session.ensureLoggedIn(mallKey, credentials);
+
+    assert.equal(result.verdict, "unknown", `${mallKey} verdict`);
+    assert.equal(result.reason, "no_login_form", `${mallKey} reason`);
+    assert.deepEqual(driven.calls.opened, [], `${mallKey} 탭`);
+    assert.deepEqual(driven.calls.filled, [], `${mallKey} 폼 채움`);
+    // 웹은 이것을 "할 일 없음" 으로 읽고 자동 로그인을 막지 않는다 — 임의로 바꾸지 않는다.
+    assert.equal(result.success, true, `${mallKey} success`);
+    assert.equal(result.submitted, false, `${mallKey} submitted`);
+  }
+
+  // 확인(`checkLogin`)은 그대로다 — 둘 다 관리자 화면을 여전히 열어 본다.
+  for (const mallKey of ["kakao", "always"]) {
+    const looked = fakeDriver({ screens: [{ loginForm: false, verification: false }] });
+    assert.equal((await looked.session.checkLogin(mallKey)).verdict, "in", `${mallKey} check`);
+    assert.equal(looked.calls.opened[0].url, MallSession.SPECS[mallKey].entryUrl, `${mallKey} entryUrl`);
   }
 });
 
