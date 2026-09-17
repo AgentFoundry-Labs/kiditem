@@ -65,6 +65,11 @@ const STATUS_RULES: Record<
     (라이브 2026-09-17: `판매중 / 일시품절`). 끝난 것(단종)이 먼저고, 그다음이 멈춘 것,
     마지막이 팔리는 것이다 — 두 글자가 같이 오면 더 나쁜 쪽이 그 상품의 상태다.
   */
+  // 꼬망세: 노출/판매 칸 한 개 — 판매중 · 판매종료(라이브 2026-09-18).
+  kkomangse: [
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
   onch: [
     ['단종', MALL_ADMIN_LISTING_STATUS.ended],
     ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],

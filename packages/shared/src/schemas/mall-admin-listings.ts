@@ -50,6 +50,16 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 15,
     detailNames: false,
   },
+  /**
+   * 꼬망세(EduPre) 입점관리자. 배송상품 목록이 쪽 크기를 받아 줘 전체가 한 번에 들어온다
+   * (라이브 2026-09-18: 2,602개).
+   */
+  kkomangse: {
+    mallName: '꼬망세',
+    origin: 'https://nstore.edupre.co.kr',
+    pageSize: 10_000,
+    detailNames: false,
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;
