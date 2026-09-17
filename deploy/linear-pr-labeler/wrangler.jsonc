@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "linear-pr-labeler",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "PR_RECONCILER", "class_name": "PrReconciler" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PrReconciler"] }],
+  "vars": {
+    "GITHUB_REPO": "AgentFoundry-Labs/kiditem",
+    "LINEAR_TEAM_KEY": "KID",
+    // The workspace-level "PR" label group in Linear.
+    "PR_LABEL_GROUP_ID": "2a4ae46d-3948-4e41-86f8-3ab7b2504da6",
+    "PR_LABEL_COLOR": "#5e6ad2",
+    "LINEAR_API_URL": "https://api.linear.app/graphql",
+    "GITHUB_API_URL": "https://api.github.com"
+  }
+  // Secrets (wrangler secret put): LINEAR_WEBHOOK_SECRET, LINEAR_API_KEY, GITHUB_TOKEN
+}
