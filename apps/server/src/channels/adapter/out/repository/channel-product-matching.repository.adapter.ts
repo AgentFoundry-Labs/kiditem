@@ -47,6 +47,7 @@ function listingSelect(organizationId: string) {
     status: true,
     rawJson: true,
     channelName: true,
+    imageUrl: true,
     masterProductId: true,
     updatedAt: true,
     isActive: true,
@@ -687,7 +688,8 @@ function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchi
       status: listing.status,
       saleStatus: saleStatusFromListing(listing),
       masterProductId: listing.masterProductId,
-      channelImageUrl: null,
+      // 몰이 들고 있는 사진. 서비스가 콘텐츠 작업물을 찾으면 그쪽으로 덮는다.
+      channelImageUrl: listing.imageUrl ?? null,
       updatedAt: listing.updatedAt,
     },
     linkedProduct: listing.masterProduct ? {

@@ -75,6 +75,7 @@ erDiagram
     String category
     String brand
     String manufacturer
+    String imageUrl
     Json rawJson
     String lastImportRunId FK
     String status

@@ -43,9 +43,15 @@ function sellpiaProductSequence(code: string): number | null {
   return digits ? Number(digits) : null;
 }
 
-/** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
+/**
+ * 상품 한 줄의 대표 이미지.
+ *
+ * 우리가 만든 콘텐츠 작업물이 먼저다 — 우리가 고른 사진이기 때문이다. 없으면 몰이 들고
+ * 있는 사진(`imageUrl`)을 쓴다. 둘 다 없으면 null 이고 화면이 글자 타일을 그린다.
+ */
 function firstListingImageUrl(
   listings: readonly {
+    imageUrl?: string | null;
     contentWorkspaces: readonly {
       contentGenerationGroups: readonly {
         originatingAssets: readonly { url: string }[];
@@ -60,6 +66,9 @@ function firstListingImageUrl(
         if (asset?.url) return asset.url;
       }
     }
+  }
+  for (const listing of listings) {
+    if (listing.imageUrl) return listing.imageUrl;
   }
   return null;
 }
@@ -357,6 +366,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
               externalId: true,
               category: true,
               updatedAt: true,
+              imageUrl: true,
               // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
               // (라이브 실측 2026-09-09: 활성 2,951건 전부 빈 배열), 리스팅에
               // 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.

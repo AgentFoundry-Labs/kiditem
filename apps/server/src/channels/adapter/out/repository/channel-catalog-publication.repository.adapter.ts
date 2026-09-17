@@ -310,6 +310,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
               lastImportRunId: sourceRun.id,
               publicationReference: { type: 'source_import_run', id: sourceRun.id },
             });
+        await publishDiscoveryImages(tx, input.organizationId, chunks);
         const absence = await deactivateCatalogAbsence(tx, input, sourceRun.id, upserted);
         if (upserted.mappingIdentityChanged || absence.deactivatedProductCount > 0 || absence.deactivatedSkuCount > 0) {
           await advanceProductMappingGeneration(tx, input.organizationId);
@@ -502,6 +503,38 @@ async function deactivateCatalogAbsence(
     deactivatedProductCount: deactivatedListings.count,
     deactivatedSkuCount: deactivatedOptions.count,
   };
+}
+
+/**
+ * 몰이 들고 있는 대표 사진을 리스팅에 남긴다.
+ *
+ * Wing 상품 목록은 처음부터 사진 주소를 함께 주는데(`discovery_page` 의 `primaryImageUrl`)
+ * 상세·기본 상품 줄에는 그 값이 없어 저장되지 않았다. 목록 줄은 이미 이 발행이 신원 확인에
+ * 쓰고 있으므로 같은 줄에서 사진만 더 옮긴다 — 다시 수집하지 않는다.
+ *
+ * 우리가 만든 콘텐츠 작업물은 건드리지 않는다. 화면이 그쪽을 먼저 쓰고 이 값은 없을 때의
+ * 자리다.
+ */
+async function publishDiscoveryImages(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  chunks: ReadonlyArray<{ kind: string; payload: unknown }>,
+): Promise<void> {
+  const byExternalId = new Map<string, string>();
+  for (const chunk of chunks) {
+    if (chunk.kind !== 'discovery_page') continue;
+    const parsed = CoupangCatalogDiscoveryPageV1Schema.safeParse(chunk.payload);
+    if (!parsed.success) continue;
+    for (const item of parsed.data.items) {
+      if (item.primaryImageUrl) byExternalId.set(item.externalProductId, item.primaryImageUrl);
+    }
+  }
+  for (const [externalId, imageUrl] of byExternalId) {
+    await tx.channelListing.updateMany({
+      where: { organizationId, externalId, NOT: { imageUrl } },
+      data: { imageUrl },
+    });
+  }
 }
 
 async function assertDetailChunkAgainstDiscovery(

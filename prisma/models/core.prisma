@@ -664,6 +664,8 @@ model ChannelListing {
   category        String?
   brand           String?
   manufacturer    String?
+  /// 몰이 들고 있는 대표 사진. 상품 화면이 콘텐츠 작업물 다음으로 이 값을 쓴다.
+  imageUrl        String? @map("image_url")
   rawJson         Json?   @map("raw_json")
   lastImportRunId String? @map("last_import_run_id") @db.Uuid
 

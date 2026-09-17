@@ -52,7 +52,10 @@ export class ChannelProductMatchingService {
       queue.products.map((row) => row.listing.id),
     );
     const products = queue.products.map((row) => {
-      const channelImageUrl = channelImages.get(row.listing.id)?.url ?? null;
+      // 우리가 만든 콘텐츠 작업물이 먼저고, 없으면 몰이 들고 있는 사진을 쓴다.
+      const channelImageUrl = channelImages.get(row.listing.id)?.url
+        ?? row.listing.channelImageUrl
+        ?? null;
       return {
         ...row,
         listing: { ...row.listing, channelImageUrl },
