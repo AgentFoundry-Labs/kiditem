@@ -554,9 +554,14 @@
         if (!mallProductCode || seen.has(mallProductCode)) continue;
         seen.add(mallProductCode);
         const cells = row.cells;
-        // 상품정보 칸에 상품명과 상품코드가 함께 온다. 코드 줄을 떼고 이름만 남긴다.
+        // 상품정보 칸에 상품명 · 상품코드 · 몰 내부번호가 함께 온다. 이름만 남긴다 —
+        // 끝에 붙는 `[17726127426200]` 를 떼지 않으면 셀피아 이름과 영영 맞지 않는다
+        // (라이브 2026-09-18: 판매중 449개 중 9개만 이어졌다).
         const info = (cells[3]?.textContent || "").replace(/\s+/g, " ").trim();
-        const productName = text(info.replace(mallProductCode, " "), 400);
+        const productName = text(
+          info.replace(mallProductCode, " ").replace(/\[\s*\d{7,20}\s*\]/g, " "),
+          400,
+        );
         if (!productName) drift("goods_name");
         const status = text(cells[2]?.textContent, 20);
         if (!status) drift("status");

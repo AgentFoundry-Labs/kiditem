@@ -8,6 +8,7 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
+import { MALL_ADMIN_LISTING_MALL_KEYS } from '@kiditem/shared/mall-admin-listings';
 import { MallAdminListingsImport } from '../_shared/MallAdminListingsImport';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
 import { ChannelSummary } from './components/ChannelSummary';
@@ -60,8 +61,11 @@ export default function MallChannelsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <MallAdminListingsImport mallKey="kidkids" />
-          <MallAdminListingsImport mallKey="icecream-mall" />
+          {/* 몰을 늘리는 일은 읽기기 하나와 몰 표 한 줄이다. 화면이 몰 이름을 다시 적으면
+              읽기기를 붙여도 누를 자리가 없다(라이브 2026-09-18: 온채널 · 꼬망세). */}
+          {MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => (
+            <MallAdminListingsImport key={mallKey} mallKey={mallKey} />
+          ))}
           <SabangnetListingsImport />
           <Link
             href="/mall-settings"
