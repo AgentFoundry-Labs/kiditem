@@ -3,8 +3,8 @@ import {
   canRetryProviderSideEffect,
   OperationStatusSchema,
   ProviderOutcomeSchema,
-} from '../operation-lifecycle.js';
-import { zIsoDate } from '../schemas/common.js';
+} from './operation-lifecycle.js';
+import { zIsoDate } from './schemas/common.js';
 
 export {
   OPERATION_STATUSES,
@@ -13,9 +13,14 @@ export {
   ProviderOutcomeSchema,
   canRetryProviderSideEffect,
   isOperationTerminal,
-} from '../operation-lifecycle.js';
-export type { OperationStatus, ProviderOutcome } from '../operation-lifecycle.js';
+} from './operation-lifecycle.js';
+export type { OperationStatus, ProviderOutcome } from './operation-lifecycle.js';
 
+/**
+ * 등록 실행 울타리의 한 줄. 채널 계정 하나에 초안 하나를 최대 한 번만 보낸 기록이다.
+ *
+ * Channels 소유라 `sourcing` 하위 경로가 아니라 여기에 있다(ADR-0014).
+ */
 export const ProductRegistrationExecutionSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
