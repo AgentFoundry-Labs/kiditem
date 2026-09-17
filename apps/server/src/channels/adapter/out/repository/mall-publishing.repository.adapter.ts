@@ -39,24 +39,6 @@ const ACCOUNT_ROW_ORDER = [
 ] satisfies Prisma.ChannelAccountOrderByWithRelationInput[];
 
 
-/**
- * 매트릭스와 송신 전 점검이 행으로 세우는 마스터.
- *
- * 정본 재고 마스터(`INV-SELLPIA-*`)의 `isActive` 는 **"재고가 있고 파는 중"** 이라 재고가
- * 0 이 되면 꺼진다(ABC·수익성이 그 뜻으로 쓴다). 그 깃발로 행을 고르면 이미 몰에 올라간
- * 상품이 품절되는 순간 표에서 사라져, 표가 "어느 몰에 무엇이 있나"를 답하지 못한다.
- * 그래서 셀피아 SKU 가 살아 있으면 재고와 무관하게 세우고(품절은 재고 0 으로 보인다),
- * 보낼 수 있는지는 송신 전 점검(`out_of_stock`)이 답한다. SKU 가 스냅샷에서 사라진
- * 단종은 살아 있지 않으므로 내려간다. 셀피아에서 오지 않은 마스터는 종전대로
- * `isActive` 가 조건이다.
- */
-const VISIBLE_MASTER: Prisma.MasterProductWhereInput = {
-  OR: [
-    { isActive: true },
-    { inventorySkus: { some: { isActive: true } } },
-  ],
-};
-
 /** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
 function firstListingImageUrl(
   listings: readonly {
@@ -143,11 +125,12 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     organizationId: string,
     query: PreflightProductQuery,
   ): Promise<{ rows: PreflightProductRow[]; total: number }> {
+    const visible = await this.visibleMasterWhere(organizationId);
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
       ...(query.masterProductIds?.length ? { id: { in: query.masterProductIds } } : {}),
       AND: [
-        VISIBLE_MASTER,
+        visible,
         ...(query.search
           ? [{
               OR: [
@@ -297,12 +280,13 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         : {}),
     };
 
+    const visible = await this.visibleMasterWhere(organizationId);
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
       ...(query.listed === true ? { channelListings: { some: listingScope } } : {}),
       ...(query.listed === false ? { channelListings: { none: listingScope } } : {}),
       AND: [
-        VISIBLE_MASTER,
+        visible,
         ...(query.search
           ? [{
               OR: [
@@ -390,6 +374,45 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     }));
 
     return { rows, total };
+  }
+
+  /**
+   * 매트릭스와 송신 전 점검이 행으로 세우는 마스터.
+   *
+   * 정본 재고 마스터(`INV-SELLPIA-*`)의 `isActive` 는 **"재고가 있고 파는 중"** 이라 재고가
+   * 0 이 되면 꺼진다(ABC·수익성이 그 뜻으로 쓴다). 그 깃발로 행을 고르면 이미 몰에 올라간
+   * 상품이 품절되는 순간 표에서 사라져, 표가 "어느 몰에 무엇이 있나"를 답하지 못한다.
+   * 그래서 셀피아 SKU 가 살아 있으면 재고와 무관하게 세우고(품절은 재고 0 으로 보인다),
+   * 보낼 수 있는지는 송신 전 점검(`out_of_stock`)이 답한다. SKU 가 스냅샷에서 사라진
+   * 단종은 살아 있지 않으므로 내려간다. 셀피아에서 오지 않은 마스터는 종전대로
+   * `isActive` 가 조건이다.
+   */
+  private async visibleMasterWhere(
+    organizationId: string,
+  ): Promise<Prisma.MasterProductWhereInput> {
+    const aliveMasterIds = await this.readAliveInventoryMasterIds(organizationId);
+    return {
+      OR: [
+        { isActive: true },
+        ...(aliveMasterIds.length > 0 ? [{ id: { in: aliveMasterIds } }] : []),
+      ],
+    };
+  }
+
+  /**
+   * 살아 있는(단종되지 않은) 셀피아 SKU 가 붙은 마스터.
+   *
+   * 재고 원장은 Inventory 리더로만 읽는다(ADR-0009) — Prisma 관계로 조인하면 원장 하나에
+   * 리더가 둘이 된다. 여기서 필요한 것은 재고가 아니라 **SKU 가 아직 살아 있는가** 뿐이다.
+   */
+  private async readAliveInventoryMasterIds(organizationId: string): Promise<string[]> {
+    const skus = await readInventorySkuIdentities(this.prisma, {
+      organizationId,
+      selector: { kind: 'active' },
+    });
+    return [...new Set(
+      skus.flatMap((sku) => (sku.masterProductId ? [sku.masterProductId] : [])),
+    )];
   }
 
   /**
