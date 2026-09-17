@@ -1,4 +1,5 @@
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
+import type { CandidateRegistrationState } from '../../../../../channels/read/registration-execution.reader';
 
 export const SOURCING_CANDIDATE_REPOSITORY_PORT = Symbol('SOURCING_CANDIDATE_REPOSITORY_PORT');
 
@@ -151,6 +152,7 @@ export interface SourcingCandidateRepositoryPort {
     images: CandidateImageRow[];
     productPreparation: ProductPreparationRow | null;
     productPreparations: ProductPreparationRow[];
+    registrationState: CandidateRegistrationState;
   }) | null>;
   listSourced(query: {
     organizationId: string;
@@ -164,6 +166,7 @@ export interface SourcingCandidateRepositoryPort {
       images: CandidateImageRow[];
       productPreparation: ProductPreparationRow | null;
       productPreparations: ProductPreparationRow[];
+      registrationState: CandidateRegistrationState;
     }>;
     total: number;
   }>;
