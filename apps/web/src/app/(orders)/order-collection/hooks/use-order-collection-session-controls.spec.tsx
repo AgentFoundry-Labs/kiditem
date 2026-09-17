@@ -289,6 +289,55 @@ describe('useOrderCollectionSessionControls', () => {
     );
   });
 
+  /**
+   * KID-208 파생(원 KID-229). 몰 생성기가 중단 없이 멈춰 있으면 절차의 `finally` 가 돌지 않아
+   * 이 브라우저의 run 항목이 임대가 끝난 뒤에도 남는다. 그 뒤의 중단은 이미 끝난 시도를 겨눈다.
+   */
+  it('drops this browser run once the owner shows the attempt ended', async () => {
+    mocks.readAttempt.mockResolvedValue(attempt('FAILED'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    act(() => {
+      result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    await act(async () => {
+      await result.current.syncRun(ATTEMPT_ID);
+    });
+
+    let stopped: boolean | undefined;
+    await act(async () => {
+      stopped = await result.current.cancelRun(account);
+    });
+
+    expect(stopped).toBe(false);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('keeps this browser run while the owner still shows it running', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    act(() => {
+      result.current.activateOwnerRun(account, control(), 'order-extension');
+    });
+
+    await act(async () => {
+      await result.current.syncRun(ATTEMPT_ID);
+    });
+
+    let stopped: boolean | undefined;
+    await act(async () => {
+      stopped = await result.current.cancelRun(account);
+    });
+
+    expect(stopped).toBe(true);
+  });
+
   it('ends this browser procedure when the shared control stops the attempt', async () => {
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
