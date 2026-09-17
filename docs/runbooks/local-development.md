@@ -112,7 +112,7 @@ worktrees.
 ```bash
 docker compose up -d --wait
 docker compose ps
-npm run db:push
+npm run db:sync:local
 ```
 
 Expected services:
@@ -122,18 +122,135 @@ Expected services:
 - MinIO on `localhost:9000`; console on `localhost:9001`.
 - An idempotent `kiditem` bucket initialization container that exits 0.
 
-`db:push` is explicit because it mutates the selected database. The wrapper
-blocks `--force-reset`. Do not pass `--accept-data-loss` for a developer DB
-without first reviewing the schema diff and getting explicit approval. The
-previous authorization for isolated Testcontainer QA does not apply here. The
-local QA database `kiditem-qa-pg` (port 5434) is disposable for cutover
-rehearsal and QA under the [data-loss policy](deployment-architecture.md#data-loss-policy).
+`db:sync:local` is explicit because it mutates the selected database. On a
+fresh volume it creates the schema and then applies the data migrations
+described [below](#sync-after-pulling-schema-or-data-migration-changes).
+It never passes `--force-reset`. Do not pass `--accept-data-loss` for a
+developer DB without first reviewing the statements it prints and getting
+explicit approval. The previous authorization for isolated Testcontainer QA
+does not apply here. The local QA database `kiditem-qa-pg` (port 5434) is
+disposable for cutover rehearsal and QA under the
+[data-loss policy](deployment-architecture.md#data-loss-policy).
 
 The root and server `DATABASE_URL` values must both be:
 
 ```text
 postgresql://kiditem:kiditem@localhost:5433/kiditem
 ```
+
+### Sync After Pulling Schema Or Data-Migration Changes
+
+Pulling code or generating the Prisma client applies neither schema nor data
+migrations. Run the same command after every pull that changes `prisma/` or
+`scripts/data-migrations/`. It applies the
+[Office cutover order](operation-automation-cutover.md#approved-cutover-sequence)
+to the developer database. Do not run `db push` first: a destructive push
+drops columns that pre-schema migrations still read, and those migrations
+then record `succeeded` over zero rows.
+
+Prerequisites:
+
+- `DATABASE_URL` in the root `.env` names a loopback host. The command refuses
+  any other host, a database name containing `prod` or `staging`, and query
+  parameters that override the host, port, database or credentials.
+- Stop the API, workers and Gateway so nothing writes while the schema
+  changes.
+- For the automatic backup, Docker is running and exactly one container
+  publishes the `DATABASE_URL` port (`kiditem-postgres` for 5433).
+
+```bash
+npm run db:sync:local -- --dry-run   # read-only preview
+npm run db:sync:local
+```
+
+The command runs these steps in order and stops at the first one that fails:
+
+1. Refuse a non-local target, and refuse Windows.
+2. Build the `@kiditem/shared` JavaScript that the migration runner imports.
+   Type declarations are left as they are; run
+   `npm run build --workspace=packages/shared` when you need fresh ones.
+3. Read `npm run data:migrate -- status`.
+4. Apply the pre-schema data migrations of the open release train (the root
+   `VERSION`), with the same `--release-version` filter the Office deployer
+   passes.
+5. Run the cutover survey (`npm run check:cutover-data-blockers`).
+6. Preview the DDL with `prisma migrate diff`, which only reads. An empty
+   diff skips the push.
+7. Back up the database, but only when the DDL drops a table or column or
+   changes a column type and `--accept-data-loss` is given.
+8. Run `npm run db:push`, then `prisma generate`.
+9. Apply the post-schema data migrations of every release.
+10. Read the final status. Every migration of the open release and every
+    post-schema migration must have succeeded.
+
+When step 3 finds no `data_migration_runs` table (a new volume), there is no
+ledger for step 4 to write to yet, so step 4 runs after step 8 instead. A
+database that has rows but an empty ledger, such as one that only ever ran
+`db:push`, takes the normal order and passes the same survey and DDL gates.
+
+Pre-schema migrations of earlier releases never run here. The status lines
+list them as `not applicable to this database`, and the final check leaves
+them out. Such a migration prepared rows for its own release's schema change;
+a database created or pushed past that change cannot run it (for example,
+`v0.1.30:003` reads `product_variant_components`, which the schema no longer
+has). The consequence: a database that skipped an earlier release's pre-schema
+data transformations cannot catch up through this command. Restore it from a
+copy that has been through that release, such as a fresh dump of a database
+that ran it, or recreate it and sync again. When such migrations are pending
+and the DDL is destructive, the preview warns that the dropped tables or
+columns may still hold rows those migrations would have moved.
+
+A second run changes nothing: the migration phases skip every id they have
+already recorded, and an empty diff skips the push.
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | Runs only steps 1, 3, 5 and 6, so nothing is built, migrated, backed up or pushed. The survey then measures the database before any pre-schema migration, so it can report rows those migrations would remove. |
+| `--accept-data-loss` | Confirms DDL that drops a table or column or changes a column type, and is passed on to `db push`. Give it only after reviewing the `DESTRUCTIVE` statements from a previous run. Prisma also asks for it before adding a unique index or primary key to a table that has rows. The survey checks new unique indexes for duplicates first, and no backup is taken for that case alone. |
+| `--no-backup` | Skips step 7. Take your own backup first. |
+| `--help` | Prints the steps, flags, environment and exit codes. |
+
+| Exit | Meaning |
+|---|---|
+| `0` | Done, or already in sync. With `--dry-run`: nothing would stop the real run. |
+| `1` | Stopped for a decision: survey blockers, destructive DDL without `--accept-data-loss`, Prisma data-loss warnings, or missing AI-agent consent. |
+| `2` | Refused target, invalid usage, or a failed step. |
+
+When an AI agent runs the command with `--accept-data-loss`, Prisma refuses
+the push unless `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` holds the
+user's exact consent text. The command reads that variable only from its own
+environment and passes it only to the `db push` process. It never creates,
+defaults or prints the value. A value stored in `.env` is ignored.
+
+Verification after a sync:
+
+```bash
+npm run db:sync:local -- --dry-run   # expect: Result: in sync. Nothing to apply.
+npm run data:migrate -- status
+```
+
+Recovery:
+
+- Survey blockers: do not delete the rows by hand. Report the missing cleanup
+  against the open release train, as KID-239 did for v0.1.31, so that a
+  pre-schema migration removes the rows on every database. Rerun after that
+  migration lands.
+- A failed data migration is recorded as `failed` and runs again on the next
+  sync. Fix the cause, then rerun.
+- The backup is `.data/db-backups/<database>-<UTC time>.dump`, in `pg_dump`
+  custom format (`.data/` is gitignored). To return `kiditem-postgres` to that
+  state, stop the API, workers and anything else connected to the database
+  (Prisma Studio, `psql`), then run:
+
+  ```bash
+  docker exec -i kiditem-postgres pg_restore --clean --if-exists --create --no-owner \
+    --username kiditem --dbname postgres < .data/db-backups/<file>.dump
+  ```
+
+  `--create` drops and recreates the database named in the backup, so tables
+  the push added do not survive. The restored database matches the code that
+  was checked out before the sync. Check that code out again, or rerun the
+  sync.
 
 ## 4. Create A Local Login Identity
 
@@ -302,6 +419,8 @@ node --test scripts/__tests__/developer-onboarding-contract.test.mjs
 npm run test:scripts
 npm run check:scripts-inventory
 docker compose config --quiet
+npm run db:sync:local -- --dry-run
+npm run data:migrate -- status
 npm run build --workspace=packages/shared
 npm run build --workspace=apps/agent-gateway
 npm run build --workspace=apps/server
@@ -338,7 +457,12 @@ private reasoning in verification evidence.
 | `local_development_setup_failed` | preceding setup error | resolve the reported setup blocker, then rerun `npm run dev:all` |
 | `local_development_provider_auth_failed` | preceding provider-auth error | complete `npm run gateway:auth:codex`, then rerun `npm run dev:all` |
 | `user_not_found` from `auth:password` | fresh DB has no identity | run `npm run dev:bootstrap-user` first |
-| Prisma table missing at API boot | local schema is stale | stop API, review and run `npm run db:push`; never force-reset silently |
+| Prisma table missing at API boot | local schema is stale | stop API, run `npm run db:sync:local`; never force-reset silently |
+| `db:sync:local` stops at survey blockers (exit 1) | its `BLOCKER` and `PENDING` lines | do not delete rows by hand; report the missing cleanup against the open release train (as KID-239 did), then rerun after it lands |
+| `db:sync:local` stops at destructive DDL (exit 1) | its `DESTRUCTIVE` lines | review the statements, then rerun with `--accept-data-loss`; the backup is taken first |
+| `db:sync:local` stops at Prisma data-loss warnings (exit 1) | the preview's unique-index or primary-key line and Prisma's warning list | the survey already checked new unique indexes for duplicates; review the warnings, then rerun with `--accept-data-loss` |
+| `db:sync:local` stops at Prisma consent (exit 1) | an AI agent ran `--accept-data-loss` | whoever runs it sets `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION` to the user's exact consent text, then reruns |
+| `db:sync:local` backup fails (exit 2) | Docker is running and exactly one container publishes the port | start Docker or stop the extra container; otherwise take your own backup and rerun with `--no-backup` |
 
 Do not delete `pgdata`, `minio-data`, or the Gateway root as a generic fix.
 Deleting them destroys local data, object assets, provider login, and

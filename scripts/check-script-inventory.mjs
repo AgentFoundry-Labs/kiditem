@@ -42,6 +42,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
+  'sync-local-database.ts',
   'setup-macos-development.mjs',
   'vitest.config.ts',
 ]);
@@ -127,6 +128,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
     missingPackageHooks.push('gateway:login:codex');
+  }
+  if (packageScripts['db:sync:local'] !== 'tsx scripts/sync-local-database.ts') {
+    missingPackageHooks.push('db:sync:local');
   }
   if (packageScripts['dev:bootstrap-user'] !== 'bash bin/bootstrap-local-auth-user.sh') {
     missingPackageHooks.push('dev:bootstrap-user');

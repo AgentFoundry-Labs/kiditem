@@ -564,13 +564,17 @@ Coupang bundle/source-owner verification
 
 ## `0.1.19` Local Inventory Migration And Reconstruction
 
-`develop`을 pull하거나 Prisma schema를 generate하는 것만으로 durable data
-migration이 적용되지는 않는다. 폐기 가능한 로컬 DB인지 확인한 뒤
-`npm run data:migrate -- status`, guarded local `up`, 같은 `up` 재실행, final
-`status` 순서로 `v0.1.19:001_sellpia_inventory_freshness`의 적용과 멱등성을
-확인한다. Migration은 기존 completed Sellpia run의 verification provenance와
-organization freshness row를 backfill하지만 raw workbook이나 credential을
-만들지 않는다.
+`develop`을 pull하거나 Prisma client를 generate해도 스키마와 durable data
+migration은 적용되지 않는다. 로컬 DB는
+[`npm run db:sync:local`](runbooks/local-development.md#sync-after-pulling-schema-or-data-migration-changes)로
+맞춘다. 이 명령은 Office cutover와 같은 순서(현재 릴리스의 pre-schema
+migration → 조사 → `db push` → post-schema migration)로 돌고, 마지막
+`data:migrate -- status`에서 현재 릴리스의 migration과 모든 post-schema
+migration이 성공했는지 확인한다. 이전 릴리스의 pre-schema migration은 실행하지
+않고 "not applicable"로 보고한다. 다시 실행해도 바뀌는 것은 없다.
+bundle pull은 DB에 쓰지 않으므로 이 명령을 대신하지 못한다.
+`v0.1.19:001_sellpia_inventory_freshness`는 이제 `retired.json`에 있는 비활성
+migration이어서 `up`은 실행하지 않고 `status`에만 나온다.
 
 실제 재고 기준이 필요하면
 [Sellpia Inventory Freshness Operations](runbooks/sellpia-inventory-freshness.md)
