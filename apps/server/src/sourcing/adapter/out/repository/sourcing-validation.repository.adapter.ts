@@ -83,13 +83,18 @@ export class SourcingValidationRepositoryAdapter
       if (command.idempotencyKey?.trim()) {
         await advisoryLock(
           tx,
-          `sourcing-validation:${command.organizationId}:${command.idempotencyKey}`,
+          command.organizationId,
+          'sourcing-validation',
+          command.idempotencyKey,
         );
       }
       if (receiptInput) {
         await advisoryLock(
           tx,
-          `sourcing-owner-receipt:${command.organizationId}:${VALIDATION_CAPABILITY_KEY}:${receiptInput.idempotencyKey}`,
+          command.organizationId,
+          'sourcing-owner-receipt',
+          VALIDATION_CAPABILITY_KEY,
+          receiptInput.idempotencyKey,
         );
         const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
           where: {
@@ -268,10 +273,16 @@ async function persistOwnerReceipt(
   });
 }
 
-async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+async function advisoryLock(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  scope: string,
+  ...rest: string[]
+): Promise<void> {
+  const lockKey = [scope, organizationId, ...rest].join(':');
   await tx.$queryRaw(
-    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+    // queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
 }
 

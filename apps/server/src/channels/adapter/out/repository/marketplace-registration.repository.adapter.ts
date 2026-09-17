@@ -419,6 +419,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       input.ownerIdempotencyKey,
     ].join(":");
     await tx.$queryRaw(
+      // queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
     );
     const receipt =

@@ -60,7 +60,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         return await this.prisma.$transaction(async (tx) => {
           await advisoryLock(
             tx,
-            `sourcing-owner-receipt:${input.organizationId}:${input.capabilityKey}:${input.idempotencyKey}`,
+            input.organizationId,
+            'sourcing-owner-receipt',
+            input.capabilityKey,
+            input.idempotencyKey,
           );
           const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
             where: {
@@ -77,7 +80,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
             return receiptCandidateResult(receipt.result);
           }
 
-          await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+          await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
           const candidate = await upsertSourcedCandidateIn(tx, input);
           const result = { candidateId: candidate.id };
           await tx.sourcingOwnerIdempotencyReceipt.create({
@@ -108,7 +111,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     return this.prisma.$transaction(async (tx) => {
       await advisoryLock(
         tx,
-        `sourcing-owner-receipt:${input.organizationId}:${capabilityKey}:${input.idempotencyKey}`,
+        input.organizationId,
+        'sourcing-owner-receipt',
+        capabilityKey,
+        input.idempotencyKey,
       );
       const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
         where: {
@@ -368,7 +374,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
     return this.prisma.$transaction(async (tx) => {
       if (input.idempotencyKey?.trim()) {
-        await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+        await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
       }
       return toRow(await upsertSourcedCandidateIn(tx, input));
     });
@@ -376,10 +382,16 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
 
 }
 
-async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+async function advisoryLock(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  scope: string,
+  ...rest: string[]
+): Promise<void> {
+  const lockKey = [scope, organizationId, ...rest].join(':');
   await tx.$queryRaw(
-    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+    // queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
 }
 

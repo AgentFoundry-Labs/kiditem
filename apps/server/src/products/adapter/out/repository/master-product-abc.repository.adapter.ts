@@ -85,10 +85,10 @@ async function publishTx(
 ): Promise<MasterProductAbcPublicationResult> {
   // Source owners lock source terminality before taking the shared mapping
   // fence. ABC follows the same order, then serializes its own publication.
-  await lockNamed(tx, `kiditem.sellpia-product-profitability:${input.organizationId}`);
-  await lockNamed(tx, `kiditem.coupang-ad-profitability:${input.organizationId}`);
+  await lockNamed(tx, 'kiditem.sellpia-product-profitability', input.organizationId);
+  await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);
   await lockProductMapping(tx, input.organizationId);
-  await lockNamed(tx, `kiditem.master-product-abc:${input.organizationId}`);
+  await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);
 
   const state = await readFormulaState(tx, input.organizationId, true);
   if (!state || !state.activeFormulaVersionId || !state.formulaJson) return inputChanged();
@@ -488,11 +488,13 @@ function sameSaleAgeInputs(
 
 async function lockNamed(
   tx: Prisma.TransactionClient,
-  key: string,
+  scope: string,
+  organizationId: string,
 ): Promise<void> {
+  const lockKey = `${scope}:${organizationId}`;
   await tx.$queryRaw(Prisma.sql`
     -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0::bigint))::text AS "lock"
+    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0::bigint))::text AS "lock"
   `);
 }
 
