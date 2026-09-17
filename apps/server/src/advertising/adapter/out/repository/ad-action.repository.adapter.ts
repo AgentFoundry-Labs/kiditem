@@ -779,10 +779,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       }
       if (decision === 'manual_action' && latest) {
         // An executor may not start a manual action (KID-138 decision A). A
-        // queued attempt, such as one data migration 011 left from an earlier
-        // approval, is closed here so it leaves the executor queue, and the
-        // report is refused once that commits. Compare-and-set on queued: an
-        // attempt that already runs is left to its deadline.
+        // queued attempt, such as one a database that ran data migration 011
+        // before KID-230 still holds from an earlier approval, is closed here so
+        // it leaves the executor queue, and the report is refused once that
+        // commits. Compare-and-set on queued: an attempt that already runs is
+        // left to its deadline.
         if (latest.status === 'queued') {
           await tx.executionTask.updateMany({
             where: { id: latest.id, actionId: action.id, status: 'queued' },
