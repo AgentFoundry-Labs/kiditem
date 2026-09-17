@@ -106,6 +106,7 @@
     "@xmorse/playwright-core": {
       "diff": "8.0.4"
     },
+    "@ai-sdk/google-vertex": "3.0.158",
     "@google/genai": {
       "protobufjs": "7.6.5"
     },
@@ -126,20 +127,23 @@
       "uuid": "13.0.2"
     },
     "basic-ftp": "6.0.1",
+    "deepmerge-ts": "8.0.2",
     "esbuild": "0.28.1",
     "express": "^5.2.0",
     "express-rate-limit": "8.5.1",
     "fast-xml-parser": "5.7.3",
-    "hono": "4.13.0",
+    "hono": "4.13.8",
     "ip-address": "10.4.0",
     "langchain": {
       "langsmith": "0.6.3"
     },
     "langsmith": "0.6.3",
+    "multer": "2.3.0",
+    "mysql2": "3.23.4",
     "postcss": "8.5.26",
     "protobufjs": "7.6.5",
-    "qs": "6.15.2",
-    "sharp": "0.35.3",
+    "qs": "6.16.0",
+    "sharp": "0.35.4",
     "shell-quote": "1.10.0",
     "uuid": "11.1.1",
     "vite": "8.2.0",

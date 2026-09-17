@@ -15,6 +15,11 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 function createNextConfig() {
   return {
+  // Next.js 16.3+ `next dev` appends a generated agent-rules block to this
+  // app's CLAUDE.md (or creates AGENTS.md) when it detects an AI coding agent.
+  // The repository maintains its CLAUDE.md chain by hand and treats AGENTS.md
+  // as a legacy file (`npm run check:agents-hygiene`), so keep that off.
+  agentRules: false,
   allowedDevOrigins: ['127.0.0.1'],
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
@@ -46,6 +51,11 @@ function createNextConfig() {
     // Match the Office API proxy: CopilotKit SSE runs may have long model/tool
     // intervals, but still retain a bounded transport lifetime.
     proxyTimeout: 3_600_000,
+    // Next.js 16.3 defaults `next build` to the `tsc` CLI, which also checks
+    // spec files. Keep the compiler-API checker, which skips `__tests__` and
+    // `*.spec.*`/`*.test.*` diagnostics as `next build` did before 16.3, until
+    // web spec sources type-check (KID-209).
+    useTypeScriptCli: false,
   },
   // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
   // Next forwards it to the ordinary Nest API origin. No API

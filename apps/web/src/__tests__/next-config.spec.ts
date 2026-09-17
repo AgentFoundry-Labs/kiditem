@@ -79,6 +79,22 @@ async function getExperimentalProxyTimeout(): Promise<number | null | 'unset'> {
   return JSON.parse(output) as number | null | 'unset';
 }
 
+async function getConfigValue(path: readonly string[]): Promise<unknown> {
+  const script = [
+    `const mod = await import(${JSON.stringify(nextConfigUrl)});`,
+    "const config = typeof mod.default === 'function' ? mod.default('phase-production-build') : mod.default;",
+    `const path = ${JSON.stringify(path)};`,
+    'const value = path.reduce((node, key) => (node != null && Object.prototype.hasOwnProperty.call(node, key) ? node[key] : undefined), config);',
+    "console.log(JSON.stringify(value === undefined ? 'unset' : value));",
+  ].join('\n');
+  const output = execFileSync(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    { encoding: 'utf8', env: { ...process.env } },
+  );
+  return JSON.parse(output) as unknown;
+}
+
 describe('next.config rewrites — chat runtime same-origin transport', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_API_URL;
@@ -141,6 +157,16 @@ describe('next.config images - 1688 CDN proxying', () => {
       { protocol: 'https', hostname: '**.tbcdn.cn' },
       { protocol: 'https', hostname: '**.taobaocdn.com' },
     ]);
+  });
+});
+
+describe('next.config Next.js 16.3 defaults kept off', () => {
+  it('keeps next dev from writing agent rules into the hand-maintained CLAUDE.md chain', async () => {
+    await expect(getConfigValue(['agentRules'])).resolves.toBe(false);
+  });
+
+  it('keeps the build type check on the compiler API, which skips spec-file diagnostics', async () => {
+    await expect(getConfigValue(['experimental', 'useTypeScriptCli'])).resolves.toBe(false);
   });
 });
 
