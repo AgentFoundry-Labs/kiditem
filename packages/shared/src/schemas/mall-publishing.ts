@@ -274,6 +274,9 @@ export const MallChannelSummarySchema = z.object({
    */
   optionCount: z.number().default(0),
   matchedOptionCount: z.number().default(0),
+  /** 판매중 리스팅의 옵션 수와 그 가운데 이어진 수. 화면이 보여 주는 매칭률이다. */
+  onSaleOptionCount: z.number().default(0),
+  onSaleMatchedOptionCount: z.number().default(0),
   readiness: MallPublishReadinessSchema,
 });
 export type MallChannelSummary = z.infer<typeof MallChannelSummarySchema>;

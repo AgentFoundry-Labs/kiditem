@@ -6,6 +6,7 @@ import {
 } from '../../../../inventory/read/inventory-availability';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { PUBLISHED_LISTING_STATUSES } from '../../../domain/mall/mall-listing-state';
 import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
 import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
 import { MALL_ACCOUNT_ROW_ORDER } from '../../../read/mall-account-rows';
@@ -238,7 +239,13 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           ).length,
         })),
       ),
-      // 매칭률 — 활성 옵션 가운데 셀피아 레시피가 붙은 것. 레시피가 매칭의 결과물이다.
+      /*
+        매칭률 — 활성 옵션 가운데 셀피아 레시피가 붙은 것. 레시피가 매칭의 결과물이다.
+
+        판매중만 따로 센다. 판매종료 · 보류 리스팅은 셀피아에 그 상품이 이미 없어 영원히
+        이어지지 않는데, 섞어 세면 그게 전부를 끌어내린다 — 키드키즈는 전체 19% 인데
+        판매중만 보면 77% 다(라이브 2026-09-17). 지금 할 일을 말하는 숫자는 판매중 쪽이다.
+      */
       Promise.all(
         grouped.map(async (row) => {
           const scope = {
@@ -250,13 +257,25 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
               isActive: true,
             },
           } satisfies Prisma.ChannelListingOptionWhereInput;
-          const [optionCount, matchedOptionCount] = await Promise.all([
-            this.prisma.channelListingOption.count({ where: scope }),
-            this.prisma.channelListingOption.count({
-              where: { ...scope, inventoryComponents: { some: {} } },
-            }),
-          ]);
-          return { channelAccountId: row.channelAccountId, optionCount, matchedOptionCount };
+          const onSale = {
+            ...scope,
+            listing: { ...scope.listing, status: { in: [...PUBLISHED_LISTING_STATUSES] } },
+          } satisfies Prisma.ChannelListingOptionWhereInput;
+          const matched = { inventoryComponents: { some: {} } };
+          const [optionCount, matchedOptionCount, onSaleOptionCount, onSaleMatchedOptionCount] =
+            await Promise.all([
+              this.prisma.channelListingOption.count({ where: scope }),
+              this.prisma.channelListingOption.count({ where: { ...scope, ...matched } }),
+              this.prisma.channelListingOption.count({ where: onSale }),
+              this.prisma.channelListingOption.count({ where: { ...onSale, ...matched } }),
+            ]);
+          return {
+            channelAccountId: row.channelAccountId,
+            optionCount,
+            matchedOptionCount,
+            onSaleOptionCount,
+            onSaleMatchedOptionCount,
+          };
         }),
       ),
     ]);
@@ -277,6 +296,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       productCount: productByAccount.get(account.id) ?? 0,
       optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
       matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
+      onSaleOptionCount: optionsByAccount.get(account.id)?.onSaleOptionCount ?? 0,
+      onSaleMatchedOptionCount: optionsByAccount.get(account.id)?.onSaleMatchedOptionCount ?? 0,
     }));
   }
 

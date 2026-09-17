@@ -491,6 +491,8 @@ export class MallPublishingService {
         productCount: account?.productCount ?? 0,
         optionCount: account?.optionCount ?? 0,
         matchedOptionCount: account?.matchedOptionCount ?? 0,
+        onSaleOptionCount: account?.onSaleOptionCount ?? 0,
+        onSaleMatchedOptionCount: account?.onSaleMatchedOptionCount ?? 0,
         readiness: mallReadiness(manifest, mallAccount),
       } satisfies MallChannelSummary];
     });

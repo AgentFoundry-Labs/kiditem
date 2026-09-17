@@ -50,6 +50,16 @@ export interface MallListingAccountRow {
   optionCount: number;
   /** 그 가운데 셀피아 재고 레시피가 있는 옵션 수. 매칭률의 분자다. */
   matchedOptionCount: number;
+  /**
+   * 판매중 리스팅의 활성 옵션 수. 화면이 보여 주는 매칭률의 분모다.
+   *
+   * 판매종료 · 보류 리스팅은 셀피아에 그 상품이 없어 영원히 이어지지 않는다. 섞어 세면
+   * 지금 손댈 수 있는 몫이 보이지 않는다(사장님 2026-09-17: "판매중인 상품 매칭률
+   * 높이는게 우선").
+   */
+  onSaleOptionCount: number;
+  /** 그 가운데 레시피가 있는 옵션 수. */
+  onSaleMatchedOptionCount: number;
 }
 
 export interface MallMatrixQuery {

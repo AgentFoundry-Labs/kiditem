@@ -185,3 +185,14 @@ export function countPublished(states: readonly MallListingState[]): number {
 export function needsAttention(state: MallListingState): boolean {
   return state === 'error' || state === 'unknown';
 }
+
+/**
+ * 지금 팔리고 있다는 뜻의 몰 원문 상태. 원천마다 글자가 다르다 — 쿠팡 `승인완료`,
+ * 사방넷 `사방넷 공급중`, 몰 관리자 `판매중`, 로켓 `활성`.
+ *
+ * 세는 쪽(판매중 기준 매칭률)이 이 목록을 다시 적지 않게 접는 표에서 뽑는다. 상태 하나를
+ * 더 접으면 세는 곳도 같이 따라온다.
+ */
+export const PUBLISHED_LISTING_STATUSES: readonly string[] = Object.entries(LISTING_STATUS_MAP)
+  .filter(([, state]) => state === 'published')
+  .map(([status]) => status);
