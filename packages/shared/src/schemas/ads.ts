@@ -164,6 +164,55 @@ export const AdKeywordRelevanceSchema = z.enum([
 ]);
 export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 
+/**
+ * The most ids one ad action approve or reject command names. One action
+ * listing page holds at most as many actions, so a listed page is reviewed in
+ * one command.
+ */
+export const AD_ACTION_COMMAND_MAX_IDS = 200;
+
+/**
+ * The review an approve or reject command can require each named action to
+ * still be in. An action in another review is skipped, so a screen read before
+ * another operator's review never undoes that review.
+ */
+export const AdActionExpectedApprovalStatusSchema = z.enum(['pending_review', 'approved']);
+export type AdActionExpectedApprovalStatus = z.infer<typeof AdActionExpectedApprovalStatusSchema>;
+
+/**
+ * What an ad action approve or reject command answers: how many distinct
+ * actions of the organization it changed.
+ */
+export const AdActionCommandResultSchema = z.object({
+  updated: z.number().int().nonnegative(),
+});
+export type AdActionCommandResult = z.infer<typeof AdActionCommandResultSchema>;
+
+/**
+ * A keyword's latest `pause_keyword` proposal. Once that proposal is rejected
+ * the keyword shows none, and an older proposal does not come back. An
+ * approved one stays shown until the operator closes it, since the operator
+ * pauses the keyword in the ad center (KID-138 decision A).
+ */
+export const AdKeywordPauseProposalSchema = z.object({
+  actionId: z.string().uuid(),
+  approvalStatus: z.enum(['pending_review', 'approved']),
+  /**
+   * Execution state read from the proposal's latest attempt. A proposal
+   * awaiting review has no attempt and reads `queued`. An approved one reads
+   * `failed`, since its attempt never runs, unless it was approved before
+   * KID-138 decision A; a running attempt past its execution deadline reads
+   * `failed`.
+   */
+  executeStatus: z.enum(['queued', 'running', 'done', 'failed']),
+  /**
+   * Why the latest attempt failed, such as that the pause is applied by hand or
+   * "실행 기한 초과"; null otherwise.
+   */
+  errorMessage: z.string().nullable(),
+});
+export type AdKeywordPauseProposal = z.infer<typeof AdKeywordPauseProposalSchema>;
+
 export const AdKeywordSnapshotSchema = z.object({
   channelAccountId: z.string().uuid(),
   campaignIdentity: z.string().nullable(),
@@ -193,6 +242,8 @@ export const AdKeywordSnapshotSchema = z.object({
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
+  /** The pause proposal behind an "irrelevant" verdict; null when none is in play. */
+  pauseProposal: AdKeywordPauseProposalSchema.nullable(),
 });
 export type AdKeywordSnapshot = z.infer<typeof AdKeywordSnapshotSchema>;
 

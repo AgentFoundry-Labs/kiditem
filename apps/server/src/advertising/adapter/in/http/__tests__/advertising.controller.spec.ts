@@ -1,6 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
+import 'reflect-metadata';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdvertisingActionsController } from '../advertising-actions.controller';
+import { AdActionCommandDto } from '../dto';
 import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
 import { AdvertisingDiagnosticsController } from '../advertising-diagnostics.controller';
@@ -206,19 +208,39 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     expect(svcs.action.generateActions).toHaveBeenCalledWith(COMPANY);
   });
 
-  it('action=approve → action.approveActions(ids, organizationId)', () => {
+  it('action=approve → action.approveActions(ids, organizationId, the review it expects)', () => {
     ctrl.handleActionCommand({ action: 'approve', ids: ['a', 'b'] } as any, COMPANY);
-    expect(svcs.action.approveActions).toHaveBeenCalledWith(['a', 'b'], COMPANY);
+    expect(svcs.action.approveActions).toHaveBeenCalledWith(['a', 'b'], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
+    ctrl.handleActionCommand(
+      { action: 'approve', ids: ['a'], expectedApprovalStatus: 'pending_review' } as any,
+      COMPANY,
+    );
+    expect(svcs.action.approveActions).toHaveBeenLastCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: 'pending_review',
+    });
   });
 
   it('action=approve (ids 없음) → empty array 전달', () => {
     ctrl.handleActionCommand({ action: 'approve' } as any, COMPANY);
-    expect(svcs.action.approveActions).toHaveBeenCalledWith([], COMPANY);
+    expect(svcs.action.approveActions).toHaveBeenCalledWith([], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
   });
 
-  it('action=reject → action.rejectActions(ids, organizationId)', () => {
+  it('action=reject → action.rejectActions(ids, organizationId, the review it expects)', () => {
     ctrl.handleActionCommand({ action: 'reject', ids: ['a'] } as any, COMPANY);
-    expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY);
+    expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: undefined,
+    });
+    ctrl.handleActionCommand(
+      { action: 'reject', ids: ['a'], expectedApprovalStatus: 'approved' } as any,
+      COMPANY,
+    );
+    expect(svcs.action.rejectActions).toHaveBeenLastCalledWith(['a'], COMPANY, {
+      expectedApprovalStatus: 'approved',
+    });
   });
 
   it('action=markRunning → action.markRunning(id, executionTaskId, beforeJson, organizationId)', () => {
@@ -286,6 +308,57 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     expect(() =>
       ctrl.handleActionCommand({ action: 'nonexistent' } as any, COMPANY),
     ).toThrow(BadRequestException);
+  });
+});
+
+describe('AdvertisingController — POST /actions body validation (KID-211)', () => {
+  // The global pipe main.ts installs, so a refused body is the 400 the route answers.
+  const bodyPipe = new ValidationPipe({ whitelist: true, transform: true });
+  const ACTION_ID = '11111111-1111-4111-8111-111111111111';
+  const TASK_ID = '22222222-2222-4222-8222-222222222222';
+
+  async function statusOf(body: Record<string, unknown>): Promise<number> {
+    try {
+      await bodyPipe.transform(body, { type: 'body', metatype: AdActionCommandDto });
+      return 201;
+    } catch (error) {
+      expect(error).toBeInstanceOf(BadRequestException);
+      return (error as BadRequestException).getStatus();
+    }
+  }
+
+  it('answers 400 when an approve or reject id is not a UUID', async () => {
+    for (const action of ['approve', 'reject']) {
+      expect(await statusOf({ action, ids: [ACTION_ID] })).toBe(201);
+      expect(await statusOf({ action, ids: [ACTION_ID, 'not-a-uuid'] })).toBe(400);
+    }
+  });
+
+  it('answers 400 when an execution report names an action id that is not a UUID', async () => {
+    for (const action of ['markRunning', 'markDone', 'markFailed']) {
+      expect(await statusOf({ action, id: ACTION_ID, executionTaskId: TASK_ID })).toBe(201);
+      expect(await statusOf({ action, id: 'not-a-uuid', executionTaskId: TASK_ID })).toBe(400);
+    }
+  });
+
+  it('answers 400 when an approve or reject names a review it expects other than awaiting review or approved', async () => {
+    for (const action of ['approve', 'reject']) {
+      for (const expectedApprovalStatus of ['pending_review', 'approved']) {
+        expect(await statusOf({ action, ids: [ACTION_ID], expectedApprovalStatus })).toBe(201);
+      }
+      for (const expectedApprovalStatus of ['rejected', '', 'APPROVED']) {
+        expect(await statusOf({ action, ids: [ACTION_ID], expectedApprovalStatus })).toBe(400);
+      }
+    }
+  });
+
+  it('answers 400 for more than 200 ids, the action listing page size', async () => {
+    const ids = (count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+
+    expect(await statusOf({ action: 'approve', ids: ids(200) })).toBe(201);
+    expect(await statusOf({ action: 'approve', ids: ids(201) })).toBe(400);
   });
 });
 

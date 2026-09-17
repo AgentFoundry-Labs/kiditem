@@ -4,6 +4,10 @@
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type { AdAction } from '@prisma/client';
+import type {
+  AdActionExpectedApprovalStatus,
+  AdKeywordPauseProposal,
+} from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
 import type { AdActionExecution } from '../../../../read/ad-action-execution';
 
@@ -109,11 +113,26 @@ export interface ExistingAdActionDedupRow {
   proposedValue: number | null;
 }
 
-/** Open keyword-relevance proposal, used to badge the keyword view. */
-export interface OpenKeywordRelevanceActionRow {
-  targetLabel: string;
+/**
+ * A keyword's latest `pause_keyword` proposal, unless that proposal was
+ * rejected, with the execution state its latest attempt reads. The keyword view
+ * shows it as "연관 없음" and offers its review actions.
+ */
+export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
+  /** The advertised option the proposal pauses the keyword on. */
   externalId: string | null;
+  /** The keyword text. */
+  targetLabel: string;
   reason: string;
+}
+
+/**
+ * How an approve or reject treats the actions it names. With
+ * `expectedApprovalStatus`, only the actions still in that review change, checked
+ * under their row locks; the others are skipped and not counted.
+ */
+export interface AdActionReviewOptions {
+  expectedApprovalStatus?: AdActionExpectedApprovalStatus;
 }
 
 /**
@@ -140,45 +159,86 @@ export interface AdActionRepositoryPort {
 
   findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]>;
 
+  /**
+   * Actions created since `sinceCreatedAt` that are still open work: awaiting
+   * review, or approved with the latest attempt queued or running within its
+   * execution deadline. An approved action of a type the operator applies by
+   * hand (`MANUAL_AD_ACTION_TYPES`) also stays open while its latest attempt
+   * reads failed, which approval records; rejecting it or a done attempt from
+   * before KID-138 decision A releases it.
+   */
   findExistingInflightActions(
     organizationId: string,
     sinceCreatedAt: Date,
   ): Promise<ExistingAdActionDedupRow[]>;
 
   /**
-   * Open (`pending_review` or approved-but-unexecuted) `pause_keyword`
-   * proposals. A keyword with one of these is what the keyword view shows as
-   * "연관 없음"; the verdict itself is not a daily fact and is not stored on the
-   * fact row.
+   * At most one row per keyword (advertised option and keyword text): its
+   * latest `pause_keyword` proposal while its execution state is one of the
+   * lifecycle's words, and none when that latest proposal was rejected, so an
+   * older one does not come back. A
+   * keyword with one is what the keyword view shows as "연관 없음"; the verdict
+   * itself is not a daily fact and is not stored on the fact row.
    */
-  findOpenKeywordRelevanceActions(
+  findKeywordPauseProposals(
     organizationId: string,
-  ): Promise<OpenKeywordRelevanceActionRow[]>;
+  ): Promise<KeywordPauseProposalRow[]>;
 
   // Writes
+  /**
+   * Insert the candidates as proposals awaiting review. A `pause_keyword`
+   * candidate is skipped when its keyword's latest proposal (the one
+   * `findKeywordPauseProposals` returns) is open under the same open-work rule
+   * as `findExistingInflightActions`, so a pause the operator approved is not
+   * proposed again until it is closed. An older proposal behind a rejected one
+   * never blocks.
+   */
   createAdActionsFromCandidates(
     organizationId: string,
     candidates: ActionCandidate[],
   ): Promise<AdActionRecord[]>;
 
   /**
-   * Approve and, in the same $transaction, queue a new ExecutionTask for each
+   * Approve and, in the same $transaction, add a new ExecutionTask for each
    * action whose latest task is not open (queued, or running within its
    * execution deadline). A running task past its deadline is closed as failed
-   * first.
+   * first. The new task is queued for the browser extension, except for an
+   * action of a `MANUAL_AD_ACTION_TYPES` type (KID-138 decision A): approval
+   * records the operator's confirmation, and the task is recorded failed with
+   * `MANUAL_AD_ACTION_MESSAGE` so it never reaches the executor queue. Returns
+   * how many distinct actions of the organization it approved: every one the
+   * ids name, or with `expectedApprovalStatus` only those still in that review.
    */
-  approveAdActions(ids: string[], organizationId: string): Promise<void>;
+  approveAdActions(
+    ids: string[],
+    organizationId: string,
+    options?: AdActionReviewOptions,
+  ): Promise<number>;
 
-  /** Reject + cancel not-yet-started execution tasks inside a single $transaction. */
-  rejectAdActions(ids: string[], organizationId: string): Promise<void>;
+  /**
+   * Reject + cancel not-yet-started execution tasks inside a single
+   * $transaction. Returns how many distinct actions of the organization it
+   * rejected: every one the ids name, or with `expectedApprovalStatus` only
+   * those still in that review. Throws ConflictException and rejects none when
+   * one of them has an attempt running within its execution deadline
+   * (`EXECUTION_TASK_RUNNING`) or a latest attempt that is done
+   * (`EXECUTION_TASK_DONE`).
+   */
+  rejectAdActions(
+    ids: string[],
+    organizationId: string,
+    options?: AdActionReviewOptions,
+  ): Promise<number>;
 
   /**
    * Move the attempt a browser execution report names. Throws
    * NotFoundException for an action outside the organization and
    * ConflictException, with a `code` saying why, when the named attempt is not
    * the action's latest, is running past its execution deadline (it is then
-   * closed as failed), or cannot take the report; repeating the recorded
-   * status changes nothing.
+   * closed as failed), belongs to an action the operator applies by hand and
+   * the report is running or done (`EXECUTION_REPORT_MANUAL_ACTION`; a queued
+   * attempt is then closed as failed with `MANUAL_AD_ACTION_MESSAGE`), or
+   * cannot take the report; repeating the recorded status changes nothing.
    */
   reportActionExecution(
     id: string,
@@ -188,8 +248,8 @@ export interface AdActionRepositoryPort {
 
   /**
    * Look up an open `actionType='create_campaign'` AdAction by campaign label.
-   * Returns the row when its latest task reads queued/running/done so the
-   * caller can throw a deterministic 409 Conflict.
+   * Returns the row when it is not rejected and its latest task reads
+   * queued/running/done so the caller can throw a deterministic 409 Conflict.
    */
   findOpenCreateCampaignAction(
     organizationId: string,

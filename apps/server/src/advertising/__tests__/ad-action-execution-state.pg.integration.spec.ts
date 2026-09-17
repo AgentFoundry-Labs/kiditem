@@ -8,7 +8,9 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
+import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
+import { AdCampaignsService } from '../application/service/ad-campaigns.service';
 
 /**
  * An AdAction's execution words come from its latest ExecutionTask. These
@@ -289,36 +291,55 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     ).toMatchObject({ status: 'running', finishedAt: null, errorMessage: null });
   });
 
-  it('keeps a proposal open for dedupe only while its latest task is queued or running within its deadline', async () => {
-    await seedAction('pending', { approvalStatus: 'pending_review' });
-    await seedTask(await seedAction('queued'), { status: 'queued', createdAt: at(1) });
-    await seedTask(await seedAction('running'), {
-      status: 'running',
-      createdAt: at(1),
-      startedAt: new Date(Date.now() - 60 * 1000),
-    });
-    await seedTask(await seedAction('running-expired'), {
-      status: 'running',
-      createdAt: at(1),
-      startedAt: new Date(Date.now() - 31 * 60 * 1000),
-    });
-    await seedTask(await seedAction('done'), { status: 'done', createdAt: at(1) });
-    await seedTask(await seedAction('failed'), { status: 'failed', createdAt: at(1) });
-    const retried = await seedAction('retried');
-    await seedTask(retried, { status: 'failed', createdAt: at(1) });
-    await seedTask(retried, { status: 'queued', createdAt: at(2) });
-    await seedTask(await seedAction('rejected', { approvalStatus: 'rejected' }), {
-      status: 'cancelled',
-      createdAt: at(1),
-    });
-    await seedAction('stale', {
-      approvalStatus: 'pending_review',
-      createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
-    });
-    await seedAction('foreign', {
-      approvalStatus: 'pending_review',
-      organizationId: OTHER_ORGANIZATION_ID,
-    });
+  it('keeps a proposal open for dedupe while it awaits review or its latest task is queued or running within its deadline, and an approved action applied by hand until it is done or rejected (KID-138)', async () => {
+    // Campaign registration is executed by the extension; a bid change is
+    // applied by hand in the ad center (KID-138 decision A).
+    for (const [prefix, actionType, targetType] of [
+      ['campaign', 'create_campaign', 'campaign'],
+      ['bid', 'change_bid', 'keyword'],
+    ] as const) {
+      const action = (label: string, overrides: Parameters<typeof seedAction>[1] = {}) =>
+        seedAction(`${prefix} ${label}`, { actionType, targetType, ...overrides });
+      await action('pending', { approvalStatus: 'pending_review' });
+      await action('approved-without-attempt');
+      await seedTask(await action('queued'), { status: 'queued', createdAt: at(1) });
+      await seedTask(await action('running'), {
+        status: 'running',
+        createdAt: at(1),
+        startedAt: new Date(Date.now() - 60 * 1000),
+      });
+      await seedTask(await action('running-expired'), {
+        status: 'running',
+        createdAt: at(1),
+        startedAt: new Date(Date.now() - 31 * 60 * 1000),
+      });
+      await seedTask(await action('done'), { status: 'done', createdAt: at(1) });
+      await seedTask(await action('failed'), {
+        status: 'failed',
+        createdAt: at(1),
+        errorMessage: 'row not found',
+      });
+      const retried = await action('retried');
+      await seedTask(retried, { status: 'failed', createdAt: at(1) });
+      await seedTask(retried, { status: 'queued', createdAt: at(2) });
+      // The approval was closed after its attempt failed.
+      await seedTask(await action('rejected-after-failure', { approvalStatus: 'rejected' }), {
+        status: 'failed',
+        createdAt: at(1),
+      });
+      await seedTask(await action('rejected', { approvalStatus: 'rejected' }), {
+        status: 'cancelled',
+        createdAt: at(1),
+      });
+      await action('stale', {
+        approvalStatus: 'pending_review',
+        createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+      await action('foreign', {
+        approvalStatus: 'pending_review',
+        organizationId: OTHER_ORGANIZATION_ID,
+      });
+    }
 
     const inflight = await repository.findExistingInflightActions(
       TEST_ORGANIZATION_ID,
@@ -326,44 +347,223 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     );
 
     expect(inflight.map((row) => row.targetLabel).sort()).toEqual([
-      'pending',
-      'queued',
-      'retried',
-      'running',
+      'bid approved-without-attempt',
+      'bid failed',
+      'bid pending',
+      'bid queued',
+      'bid retried',
+      'bid running',
+      'bid running-expired',
+      'campaign approved-without-attempt',
+      'campaign pending',
+      'campaign queued',
+      'campaign retried',
+      'campaign running',
     ]);
   });
 
-  it('badges only pause_keyword proposals whose latest task is still open', async () => {
-    const pauseKeyword = { actionType: 'pause_keyword', targetType: 'keyword' };
-    await seedAction('콩순이', {
-      ...pauseKeyword,
-      approvalStatus: 'pending_review',
-      externalId: 'VID-1',
-      reason: '캐릭터 키워드',
+  /** One complete keyword collection of a Coupang account holding these keywords. */
+  async function seedKeywordCollection(
+    keywords: Array<[externalOptionId: string, keyword: string]>,
+  ): Promise<void> {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Ads',
+        status: 'active',
+        isPrimary: true,
+      },
+      select: { id: true },
     });
-    await seedTask(
-      await seedAction('타요', { ...pauseKeyword, externalId: 'VID-2', reason: '중지 중' }),
-      { status: 'running', createdAt: at(1), startedAt: new Date(Date.now() - 60 * 1000) },
-    );
-    await seedTask(
-      await seedAction('뽀로로', { ...pauseKeyword, externalId: 'VID-3', reason: '중지함' }),
-      { status: 'done', createdAt: at(1) },
-    );
-    await seedTask(
-      await seedAction('핑크퐁', {
-        ...pauseKeyword,
-        approvalStatus: 'rejected',
-        externalId: 'VID-4',
-      }),
-      { status: 'cancelled', createdAt: at(1) },
-    );
-    await seedAction('입찰가', { approvalStatus: 'pending_review' });
+    const businessDate = '2026-09-14';
+    const capturedAt = new Date().toISOString();
+    const collection = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_ad_keyword',
+        parserVersion: 'ad-keyword-v1',
+        status: 'completed',
+        importedAt: new Date(),
+        plan: { captureMode: 'keyword' },
+        qualityReport: {
+          rosterCapturedAt: capturedAt,
+          keywordCoverage: [
+            { campaignIdentity: 'campaign:1', adGroupId: 'group-1', capturedAt, businessDate },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    await prisma.channelAdTargetDailySnapshot.createMany({
+      data: keywords.map(([externalOptionId, keyword]) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceImportRunId: collection.id,
+        channel: 'coupang',
+        businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+        targetType: 'keyword',
+        targetKey: `account:${account.id}:keyword:campaign:1:${externalOptionId}::${keyword}`,
+        campaignIdentity: 'campaign:1',
+        campaignId: '1',
+        campaignName: 'Campaign',
+        adGroupId: 'group-1',
+        adGroup: 'Group',
+        keyword,
+        externalOptionId,
+        impressions: 100,
+        metaJson: {
+          source: 'advertising.keyword.target',
+          data: { origin: 'smart_targeting', windowDays: 7 },
+        },
+      })),
+    });
+  }
 
-    const open = await repository.findOpenKeywordRelevanceActions(TEST_ORGANIZATION_ID);
+  it("carries each keyword's latest pause proposal with its execution state on the keyword read, and none once that proposal is rejected (KID-138)", async () => {
+    await seedKeywordCollection([
+      ['VID-1', '콩순이'],
+      ['VID-1', '타요'],
+      ['VID-1', '뽀로로'],
+      ['VID-1', '핑크퐁'],
+      ['VID-1', '아기상어'],
+      ['VID-1', '브레드'],
+      ['VID-1', '쥬쥬'],
+      ['VID-1', '캐치'],
+      ['VID-1', '시크릿'],
+      ['VID-1', '입찰가'],
+      ['VID-1', '미미'],
+      ['VID-2', '콩순이'],
+    ]);
+    const pause = (label: string, overrides: Parameters<typeof seedAction>[1] = {}) =>
+      seedAction(label, {
+        actionType: 'pause_keyword',
+        targetType: 'keyword',
+        externalId: 'VID-1',
+        reason: `${label} 연관 없음`,
+        ...overrides,
+      });
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000);
 
-    expect(open.map((row) => [row.externalId, row.targetLabel, row.reason]).sort()).toEqual([
-      ['VID-1', '콩순이', '캐릭터 키워드'],
-      ['VID-2', '타요', '중지 중'],
+    const pending = await pause('콩순이', { approvalStatus: 'pending_review' });
+    const queued = await pause('타요');
+    await seedTask(queued, { status: 'queued', createdAt: at(1) });
+    const running = await pause('뽀로로');
+    await seedTask(running, { status: 'running', createdAt: at(1), startedAt: minutesAgo(1) });
+    const failed = await pause('핑크퐁');
+    await seedTask(failed, { status: 'failed', createdAt: at(1), errorMessage: 'row not found' });
+    const expired = await pause('아기상어');
+    await seedTask(expired, { status: 'running', createdAt: at(1), startedAt: minutesAgo(31) });
+    const done = await pause('브레드');
+    await seedTask(done, { status: 'done', createdAt: at(1), finishedAt: at(2) });
+    // The agent proposed again after the earlier pause finished: the newer proposal is read.
+    await seedTask(await pause('쥬쥬', { createdAt: at(1) }), { status: 'done', createdAt: at(1) });
+    const reproposed = await pause('쥬쥬', { approvalStatus: 'pending_review', createdAt: at(2) });
+    // A rejected proposal is left out.
+    await seedTask(await pause('캐치', { approvalStatus: 'rejected' }), {
+      status: 'cancelled',
+      createdAt: at(1),
+    });
+    // Rejecting the newest proposal leaves the keyword unmarked; an older failed one does not come back.
+    await seedTask(await pause('시크릿', { createdAt: at(1) }), {
+      status: 'failed',
+      createdAt: at(1),
+      errorMessage: 'timeout',
+    });
+    await seedTask(await pause('시크릿', { approvalStatus: 'rejected', createdAt: at(2) }), {
+      status: 'cancelled',
+      createdAt: at(2),
+    });
+    // Neither another kind of action nor another organization's proposal marks a keyword.
+    await seedAction('입찰가', { externalId: 'VID-1', approvalStatus: 'pending_review' });
+    await pause('미미', { approvalStatus: 'pending_review', organizationId: OTHER_ORGANIZATION_ID });
+
+    const service = new AdCampaignsService(
+      new AdCampaignRepositoryAdapter(prisma as never),
+      new AdListingRepositoryAdapter(prisma as never),
+      repository,
+      {} as never,
+    );
+    const { keywords } = await service.getKeywords('7d', TEST_ORGANIZATION_ID);
+
+    const flagged = (
+      label: string,
+      actionId: string,
+      approvalStatus: string,
+      executeStatus: string,
+      errorMessage: string | null = null,
+    ) => ({
+      relevance: 'irrelevant',
+      relevanceReason: `${label} 연관 없음`,
+      pauseProposal: { actionId, approvalStatus, executeStatus, errorMessage },
+    });
+    const unmarked = { relevance: null, relevanceReason: null, pauseProposal: null };
+    expect(Object.fromEntries(keywords.map((row) => [
+      `${row.externalOptionId}:${row.keyword}`,
+      {
+        relevance: row.relevance,
+        relevanceReason: row.relevanceReason,
+        pauseProposal: row.pauseProposal,
+      },
+    ]))).toEqual({
+      'VID-1:콩순이': flagged('콩순이', pending, 'pending_review', 'queued'),
+      'VID-1:타요': flagged('타요', queued, 'approved', 'queued'),
+      'VID-1:뽀로로': flagged('뽀로로', running, 'approved', 'running'),
+      'VID-1:핑크퐁': flagged('핑크퐁', failed, 'approved', 'failed', 'row not found'),
+      'VID-1:아기상어': flagged('아기상어', expired, 'approved', 'failed', '실행 기한 초과'),
+      'VID-1:브레드': flagged('브레드', done, 'approved', 'done'),
+      'VID-1:쥬쥬': flagged('쥬쥬', reproposed, 'pending_review', 'queued'),
+      'VID-1:캐치': unmarked,
+      'VID-1:시크릿': unmarked,
+      'VID-1:입찰가': unmarked,
+      'VID-1:미미': unmarked,
+      'VID-2:콩순이': unmarked,
+    });
+  });
+
+  it('reads an approved keyword pause as failed with the message to pause it by hand, and nothing once the operator closes it (KID-138 decision A)', async () => {
+    await seedKeywordCollection([['VID-1', '콩순이']]);
+    const proposal = await seedAction('콩순이', {
+      actionType: 'pause_keyword',
+      targetType: 'keyword',
+      externalId: 'VID-1',
+      reason: '콩순이 연관 없음',
+      approvalStatus: 'pending_review',
+    });
+    const service = new AdCampaignsService(
+      new AdCampaignRepositoryAdapter(prisma as never),
+      new AdListingRepositoryAdapter(prisma as never),
+      repository,
+      {} as never,
+    );
+    const readKeyword = async () => {
+      const { keywords } = await service.getKeywords('7d', TEST_ORGANIZATION_ID);
+      return keywords.map((row) => ({
+        keyword: row.keyword,
+        relevance: row.relevance,
+        pauseProposal: row.pauseProposal,
+      }));
+    };
+
+    await expect(repository.approveAdActions([proposal], TEST_ORGANIZATION_ID)).resolves.toBe(1);
+    expect(await readKeyword()).toEqual([
+      {
+        keyword: '콩순이',
+        relevance: 'irrelevant',
+        pauseProposal: {
+          actionId: proposal,
+          approvalStatus: 'approved',
+          executeStatus: 'failed',
+          errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
+        },
+      },
+    ]);
+
+    // Closing it on the keyword tab sends a rejection.
+    await expect(repository.rejectAdActions([proposal], TEST_ORGANIZATION_ID)).resolves.toBe(1);
+    expect(await readKeyword()).toEqual([
+      { keyword: '콩순이', relevance: null, pauseProposal: null },
     ]);
   });
 

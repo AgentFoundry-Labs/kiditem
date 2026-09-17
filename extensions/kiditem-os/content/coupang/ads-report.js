@@ -2388,72 +2388,9 @@
     };
   }
 
-  function getActionLabels(action) {
-    const payload = action.payload || {};
-    return [
-      action.targetLabel,
-      payload.keyword,
-      payload.campaignName,
-      payload.productName,
-    ].filter(Boolean).map(normalizeText);
-  }
-
-  function findTargetRow(action) {
-    const labels = getActionLabels(action).map((label) => label.toLowerCase());
-    const rows = Array.from(document.querySelectorAll("table tbody tr"));
-
-    return rows.find((row) => {
-      const text = normalizeText(row.innerText).toLowerCase();
-      return labels.some((label) => label && text.includes(label));
-    }) || null;
-  }
-
-  function clickBestButton(container, patterns) {
-    const nodes = Array.from(container.querySelectorAll("button, a, [role='button']"));
-    for (const node of nodes) {
-      const text = normalizeText(node.innerText).toLowerCase();
-      if (patterns.some((pattern) => text.includes(pattern))) {
-        node.click();
-        return true;
-      }
-    }
-    return false;
-  }
-
   function findDialog() {
     const dialogs = Array.from(document.querySelectorAll("[role='dialog'], .modal, .popup, .layer-popup"));
     return dialogs.find((dialog) => dialog.offsetParent !== null) || null;
-  }
-
-  function findInputInDialog(dialog, labelHints) {
-    const labels = Array.from(dialog.querySelectorAll("label, dt, span, p, div"));
-    for (const labelNode of labels) {
-      const text = normalizeText(labelNode.innerText).toLowerCase();
-      if (labelHints.some((hint) => text.includes(hint))) {
-        const wrapper = labelNode.closest("div, section, li, form") || labelNode.parentElement;
-        const input = (wrapper && wrapper.querySelector("input")) || dialog.querySelector("input[type='number'], input");
-        if (input) return input;
-      }
-    }
-    return dialog.querySelector("input[type='number'], input");
-  }
-
-  async function openEditor(row) {
-    if (clickBestButton(row, ["수정", "변경", "편집", "설정", "관리"])) {
-      await sleep(700);
-      return true;
-    }
-    row.click();
-    await sleep(500);
-    return true;
-  }
-
-  async function submitDialog(dialog) {
-    if (!clickBestButton(dialog, ["저장", "적용", "확인", "완료"])) {
-      throw new Error("저장 버튼을 찾지 못했습니다.");
-    }
-    await sleep(1200);
-    return true;
   }
 
   async function kiditemApiRequest(path, init = {}) {
@@ -2482,13 +2419,16 @@
     // The worker answers every HTTP status with success:true. The server refuses
     // a report with 409 when the attempt is not this executor's to report:
     // another executor started it, a newer attempt replaced it, its execution
-    // deadline passed, or it was cancelled or closed. That must stop the action
-    // before it touches Coupang, and this executor reports nothing more for it.
+    // deadline passed, it was cancelled or closed, or the operator applies the
+    // action by hand. That must stop the action before it touches Coupang, and
+    // this executor reports nothing more for it. The refusal code the server
+    // put on the body travels with the error so the run can tell these apart.
     // Any other status is a failed request, not a refusal.
     if (!result.ok) {
       const refused = result.status === 409;
       const error = new Error(`실행 보고 ${refused ? "거절" : "실패"} (${type}): ${result.status}`);
       error.executionReportRefused = refused;
+      error.executionReportCode = typeof result.body?.code === "string" ? result.body.code : null;
       throw error;
     }
   }
@@ -2725,48 +2665,6 @@
     };
   }
 
-  async function executePauseKeyword(action, row, claim) {
-    const rowText = normalizeText(row.innerText).toLowerCase();
-    if (["off", "중지", "일시중지", "비활성"].some((token) => rowText.includes(token))) {
-      return { success: true, afterJson: { note: "already_paused" } };
-    }
-
-    assertWithinWriteDeadline(claim);
-    if (!clickBestButton(row, ["중지", "off", "일시중지", "끄기", "비활성"])) {
-      throw new Error("키워드 중지 버튼을 찾지 못했습니다.");
-    }
-    await sleep(600);
-    const dialog = findDialog();
-    if (dialog) {
-      assertWithinWriteDeadline(claim, { confirmationStep: true });
-      clickBestButton(dialog, ["확인", "저장", "적용"]);
-      await sleep(1200);
-    }
-    return { success: true, afterJson: { status: "paused_attempted" } };
-  }
-
-  async function executeNumericChange(action, row, labelHints, claim) {
-    // The row's edit control is matched by its label only, so a tab already
-    // past its deadline does not click it at all.
-    assertWithinWriteDeadline(claim);
-    await openEditor(row);
-    const dialog = findDialog() || document.body;
-    const input = findInputInDialog(dialog, labelHints);
-    if (!input) throw new Error("수정 입력창을 찾지 못했습니다.");
-    setNativeValue(input, String(action.proposedValue || ""));
-    await sleep(200);
-    assertWithinWriteDeadline(claim);
-    await submitDialog(dialog);
-    return {
-      success: true,
-      afterJson: {
-        currentValue: action.currentValue,
-        proposedValue: action.proposedValue,
-        status: "submitted",
-      },
-    };
-  }
-
   // The claim (markRunning) is an executor's first report for an action, for
   // every action type. The executor reads the page, touches Coupang or reports
   // an outcome only after the server accepts the claim, so a refused claim ends
@@ -2813,45 +2711,35 @@
     throw error;
   }
 
+  // Campaign registration is the only action this extension applies to
+  // Coupang. The server decides which other types the operator applies by hand
+  // (KID-138 decision A) and refuses their claim. One an older server still
+  // lets through, like any other type without an executor here, is reported
+  // failed without touching the page.
   async function executeClaimedAction(action, claim) {
     if (action.actionType === "create_campaign") {
       return executeCreateCampaign(action, claim);
     }
-
-    const row = findTargetRow(action);
-    if (!row) {
-      return { success: false, errorMessage: `대상 행을 찾지 못했습니다: ${action.targetLabel}` };
-    }
-
-    if (action.actionType === "pause_keyword") {
-      return executePauseKeyword(action, row, claim);
-    }
-    if (action.actionType === "change_bid") {
-      return executeNumericChange(action, row, ["입찰가", "bid"], claim);
-    }
-    if (action.actionType === "change_daily_budget") {
-      return executeNumericChange(action, row, ["일예산", "예산", "budget"], claim);
-    }
-
     return { success: false, errorMessage: `지원하지 않는 액션: ${action.actionType}` };
   }
 
+  // The server refuses the claim of an action the operator applies by hand
+  // (EXECUTION_REPORT_MANUAL_ACTION in
+  // apps/server/src/advertising/domain/execution-task-lifecycle.ts, held equal
+  // by a test) and closes its queued attempt. The extension keeps no list of
+  // those types.
+  const MANUAL_ACTION_REFUSAL_CODE = "EXECUTION_REPORT_MANUAL_ACTION";
+
+  // Every listed action is claimed, whatever page the tab shows: the server
+  // decides which actions an executor may run, and an action never claimed
+  // would stay queued and hold a place in the 20-action queue.
   async function executeApprovedActions(actions) {
-    const pageType = guessPageType(parseCampaignTable().headers);
-    const runnable = actions.filter((action) => {
-      if (action.actionType === "create_campaign") return true;
-      const actionPageType = normalizeText(action?.payload?.pageType || action.targetType || "").toLowerCase();
-      return !actionPageType || actionPageType.includes(pageType);
-    });
-
-    if (runnable.length === 0) {
-      return { success: false, error: `현재 페이지(${pageType})에서 실행 가능한 승인 액션이 없습니다.` };
-    }
-
     let executed = 0;
-    let skipped = actions.length - runnable.length;
+    let skipped = 0;
     // Actions listed without their attempt id, which are never claimed.
     let missingAttemptId = 0;
+    // Claims refused because the operator applies the action by hand.
+    let manual = 0;
     // Reports that did not land. The operator sees each kind as a warning.
     let claimRefused = 0;
     let claimUnreported = 0;
@@ -2860,7 +2748,7 @@
     let doneRefused = 0;
     let doneUnreported = 0;
 
-    for (const action of runnable) {
+    for (const action of actions) {
       // Every report names the attempt it is for. An action listed without one
       // (an older server, or an approved action with no attempt) cannot be
       // fenced to an attempt, so it is not claimed at all.
@@ -2875,11 +2763,13 @@
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
         await reportAction(action, "markRunning", { beforeJson: claimEvidence(action) });
       } catch (error) {
-        // No accepted claim: another executor may own the attempt, so this one
-        // reports nothing for the action and never touches Coupang for it.
+        // No accepted claim: another executor may own the attempt, or the
+        // operator applies the action by hand, so this one reports nothing for
+        // the action and never touches Coupang for it.
         skipped++;
-        if (error?.executionReportRefused) claimRefused++;
-        else claimUnreported++;
+        if (!error?.executionReportRefused) claimUnreported++;
+        else if (error.executionReportCode === MANUAL_ACTION_REFUSAL_CODE) manual++;
+        else claimRefused++;
         console.warn(
           "[KidItem] 실행 선점이 받아들여지지 않아 액션을 건너뜁니다:",
           error instanceof Error ? error.message : error,
@@ -2920,6 +2810,9 @@
     const warnings = [];
     if (missingAttemptId > 0) {
       warnings.push(`실행 시도 id가 없는 승인 액션 ${missingAttemptId}개는 광고센터에 쓰지 않고 건너뛰었습니다. 확장과 서버 버전이 같은지 확인하고 다시 승인해 주세요.`);
+    }
+    if (manual > 0) {
+      warnings.push(`자동 실행하지 않는 승인 액션 ${manual}개는 광고센터에 쓰지 않았습니다. 광고센터에서 직접 처리해 주세요.`);
     }
     if (claimRefused > 0) {
       warnings.push(`실행 보고가 거절된 승인 액션 ${claimRefused}개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.`);
