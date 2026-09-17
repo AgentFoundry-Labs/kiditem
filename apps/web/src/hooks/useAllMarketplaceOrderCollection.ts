@@ -443,6 +443,12 @@ export function useAllMarketplaceOrderCollection({
         else failedCount += 1;
         return;
       }
+      // 시작은 됐는데 절차가 남지 않았다(핸드오프가 수집을 걸지 못함). `await null` 은 그냥
+      // 통과하므로 그대로 두면 아무것도 안 한 몰이 '수집 완료'로 세어진다(KID-228).
+      if (!started.collection) {
+        failedCount += 1;
+        return;
+      }
       try {
         await started.collection;
         successCount += 1;

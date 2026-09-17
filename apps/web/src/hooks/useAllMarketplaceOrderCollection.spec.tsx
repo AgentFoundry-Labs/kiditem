@@ -356,6 +356,38 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String));
   });
 
+  /**
+   * KID-228: owner 가 열어 준 시도가 이미 RUNNING 이 아니면(임대 만료 · 다른 탭의 중단) 넘길
+   * 절차가 없어 핸드오프를 건너뛴다. 그때 남는 수집은 `null` 이고 `await null` 은 그냥
+   * 통과하므로, 아무것도 안 한 몰이 '수집 완료'로 세어지면 안 된다.
+   */
+  it('⭐ 시작만 되고 수집 절차가 남지 않은 몰은 성공으로 세지 않는다', async () => {
+    const kidsnote = mall('kidsnote', '키즈노트');
+    mocks.begin.mockResolvedValue({
+      ...attemptFor('kidsnote', 8),
+      state: 'COMPLETE' as const,
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity: vi.fn(),
+      }),
+      { wrapper },
+    );
+
+    let batch: { successCount: number; failedCount: number } | null = null;
+    await act(async () => {
+      batch = await result.current.collectAccounts([kidsnote]);
+    });
+
+    expect(batch).toMatchObject({ successCount: 0, failedCount: 1 });
+    // 절차가 없으니 수집도 돌지 않았다.
+    expect(mocks.collectMall).not.toHaveBeenCalled();
+  });
+
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {
     const kidsnote = mall('kidsnote', '키즈노트');
     mocks.begin.mockResolvedValue({ ...attemptFor('kidsnote', 8), attemptToken: '33333333-3333-4333-8333-333333333333' });
