@@ -104,7 +104,7 @@ describe('MallAccountGroups', () => {
     const user = userEvent.setup();
     const collectable = account('kakao', { name: '카카오', configured: false });
     const onCollectMall = vi.fn();
-    const onOpenCalendar = vi.fn();
+    const onOpenChooser = vi.fn();
 
     render(
       <MallAccountGroups
@@ -117,17 +117,17 @@ describe('MallAccountGroups', () => {
         autoRunning={false}
         onOpenSettings={vi.fn()}
         renderCollectionControl={collectButton(onCollectMall, false, true)}
-        onOpenCalendar={onOpenCalendar}
+        onOpenChooser={onOpenChooser}
         onUploadTracking={vi.fn()}
       />,
     );
 
     await user.click(screen.getByRole('button', { name: '카카오 수집' }));
     expect(onCollectMall).toHaveBeenCalledWith(collectable);
-    expect(onOpenCalendar).not.toHaveBeenCalled();
+    expect(onOpenChooser).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('article', { name: '카카오 계정 카드' }));
-    expect(onOpenCalendar).toHaveBeenCalledWith(collectable);
+    expect(onOpenChooser).toHaveBeenCalledWith(collectable);
     expect(onCollectMall).toHaveBeenCalledTimes(1);
   });
 

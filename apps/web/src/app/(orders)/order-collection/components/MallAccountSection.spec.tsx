@@ -74,7 +74,7 @@ function renderSection(
     ownerControl?: boolean;
     /** 이 카드의 원천이 무엇을 수집할지 먼저 고르는 화면을 여는가(직배송 달력 같은). */
     opensChooser?: boolean;
-    onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+    onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   } = {},
 ) {
   const callbacks = {
@@ -103,7 +103,7 @@ function renderSection(
       mallLoading={false}
       mallSaving={false}
       browserCollecting={false}
-      onOpenCalendar={options.onOpenCalendar}
+      onOpenChooser={options.onOpenChooser}
       renderCollectionControl={options.ownerControl
         ? (account, renderCard) => (
           <MallCollectionControl
@@ -290,7 +290,7 @@ describe("MallAccountSection", () => {
   it("closes the card's own actions while the owner reports this mall collecting", async () => {
     const user = userEvent.setup();
     const account = mallAccount("kidsnote", { name: "키즈노트" });
-    const onOpenCalendar = vi.fn();
+    const onOpenChooser = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(
       async () => ({ malls: [runningOwnerStatus(account.key)] }),
     );
@@ -298,20 +298,20 @@ describe("MallAccountSection", () => {
     renderSection([account], new Map(), undefined, {
       ownerControl: true,
       opensChooser: true,
-      onOpenCalendar,
+      onOpenChooser,
     });
 
     // 카드는 중단 버튼 하나만 세운다 — 무엇을 수집 중인지는 그 버튼의 설명에 있다.
     expect(await screen.findByRole("button", { name: "수집 중단" })).toHaveAttribute("title", "수집 중 · 키즈노트");
     expect(screen.getByRole("button", { name: "키즈노트 송장 업로드" })).toBeDisabled();
     await user.click(screen.getByRole("article", { name: "키즈노트 계정 카드" }));
-    expect(onOpenCalendar).not.toHaveBeenCalled();
+    expect(onOpenChooser).not.toHaveBeenCalled();
   });
 
   it("keeps the card's own actions open while the owner reports no collection", async () => {
     const user = userEvent.setup();
     const account = mallAccount("kidsnote", { name: "키즈노트" });
-    const onOpenCalendar = vi.fn();
+    const onOpenChooser = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
       malls: [{ ...runningOwnerStatus(account.key), running: null }],
     }));
@@ -319,13 +319,13 @@ describe("MallAccountSection", () => {
     renderSection([account], new Map(), undefined, {
       ownerControl: true,
       opensChooser: true,
-      onOpenCalendar,
+      onOpenChooser,
     });
 
     expect(await screen.findByRole("button", { name: "키즈노트 수집" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "키즈노트 송장 업로드" })).toBeEnabled();
     await user.click(screen.getByRole("article", { name: "키즈노트 계정 카드" }));
-    expect(onOpenCalendar).toHaveBeenCalledWith(account);
+    expect(onOpenChooser).toHaveBeenCalledWith(account);
   });
 
   /**
@@ -336,15 +336,15 @@ describe("MallAccountSection", () => {
   it("⭐ leaves the card click alone for a source that opens no chooser", async () => {
     const user = userEvent.setup();
     const account = mallAccount("kidsnote", { name: "키즈노트" });
-    const onOpenCalendar = vi.fn();
+    const onOpenChooser = vi.fn();
     vi.mocked(apiClient.getParsed).mockImplementation(async () => ({
       malls: [{ ...runningOwnerStatus(account.key), running: null }],
     }));
 
-    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenCalendar });
+    renderSection([account], new Map(), undefined, { ownerControl: true, onOpenChooser });
 
     await user.click(await screen.findByRole("article", { name: "키즈노트 계정 카드" }));
-    expect(onOpenCalendar).not.toHaveBeenCalled();
+    expect(onOpenChooser).not.toHaveBeenCalled();
   });
 
   it("wires source-owner recovery and explicit cancel through the order route", () => {

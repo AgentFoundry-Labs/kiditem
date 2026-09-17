@@ -53,8 +53,11 @@ interface MallAccountGroupsProps {
     account: OrderCollectionMallAccount,
     renderCard: (collection: MallCardCollection) => ReactNode,
   ) => ReactNode;
-  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
-  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+  /**
+   * 카드 영역 클릭으로 무엇을 수집할지 먼저 고르는 화면을 연다(직배송 입고예정일 달력).
+   * 그 화면을 여는지는 카드가 마운트한 원천이 답한다(KID-255).
+   */
+  onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -71,7 +74,7 @@ export function MallAccountGroups({
   autoRunning,
   onOpenSettings,
   renderCollectionControl,
-  onOpenCalendar,
+  onOpenChooser,
   onUploadTracking,
 }: MallAccountGroupsProps) {
   return (
@@ -97,7 +100,7 @@ export function MallAccountGroups({
             autoRunning={autoRunning}
             onOpenSettings={onOpenSettings}
             renderCollectionControl={renderCollectionControl}
-            onOpenCalendar={onOpenCalendar}
+            onOpenChooser={onOpenChooser}
             onUploadTracking={onUploadTracking}
           />
         ))}
@@ -123,8 +126,11 @@ interface MallAccountCardProps {
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   /** 이 몰의 공용 시작 컨트롤과 그 컨트롤이 읽은 owner 진행 중. */
   renderCollectionControl: MallAccountGroupsProps['renderCollectionControl'];
-  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
-  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+  /**
+   * 카드 영역 클릭으로 무엇을 수집할지 먼저 고르는 화면을 연다(직배송 입고예정일 달력).
+   * 그 화면을 여는지는 카드가 마운트한 원천이 답한다(KID-255).
+   */
+  onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -143,7 +149,7 @@ function MallAccountCard({
   autoRunning,
   onOpenSettings,
   renderCollectionControl,
-  onOpenCalendar,
+  onOpenChooser,
   onUploadTracking,
 }: MallAccountCardProps) {
   const collectable = account.enabled && isBrowserCollectableMall(account);
@@ -182,7 +188,7 @@ function MallAccountCard({
    * 원천의 카드는 손 모양 커서도 클릭도 없다. 수집 버튼은 고르는 화면 없이 곧바로 수집한다.
    */
   const opensChooserOnCard = (opensChooser: boolean): boolean =>
-    collectable && opensChooser && Boolean(onOpenCalendar);
+    collectable && opensChooser && Boolean(onOpenChooser);
 
   // 진행 중 판정은 이 카드가 마운트한 공용 컨트롤이 owner에게서 읽어 준다(KID-189).
   return renderCollectionControl(account, ({ control, running, opensChooser }) => (
@@ -217,7 +223,7 @@ function MallAccountCard({
         ? (event) => {
             // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
             if ((event.target as HTMLElement).closest('button')) return;
-            onOpenCalendar?.(account);
+            onOpenChooser?.(account);
           }
         : undefined}
       className={cn(

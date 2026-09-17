@@ -39,7 +39,10 @@ import {
   collectsViaCoupangDirectship,
   coupangDirectshipStartAlreadyRunning,
 } from '../lib/coupang-directship-collection-source';
-import { sentDirectshipOrderNumbers } from '../lib/coupang-directship-collection';
+import {
+  sentDirectshipOrderNumbers,
+  type CoupangDirectshipSelection,
+} from '../lib/coupang-directship-collection';
 import { invalidateMallOrderCollectionSources } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
@@ -521,7 +524,7 @@ export function OrderCollectionWorkspace() {
   const handleCollectDirectship = async (
     account: OrderCollectionMallAccount,
     existingAttemptId?: string,
-    directship?: { eddDates: string[]; data?: CoupangDirectData },
+    directship?: CoupangDirectshipSelection,
   ) => {
     setState('converting');
     let run: OrderCollectionExtensionRun | null = null;
@@ -953,7 +956,7 @@ export function OrderCollectionWorkspace() {
             ? <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
-        onOpenCalendar={(account) => void handleOpenDirectshipCalendar(account)}
+        onOpenChooser={(account) => void handleOpenDirectshipCalendar(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
           if (mallDraft.siteUrl) window.open(mallDraft.siteUrl, '_blank', 'noopener,noreferrer');
