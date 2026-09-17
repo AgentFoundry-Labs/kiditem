@@ -112,9 +112,10 @@ issues and git.
 7. Verify: run `npx wrangler tail` while a PR opens. Expect a
    `"event":"reconciled"` line with `"outcome":"labelled"`.
 
-To store a secret without pasting it into the terminal, copy it with the
-provider's copy button and pipe the clipboard:
-`pbpaste | npx wrangler secret put LINEAR_WEBHOOK_SECRET`. The Worker ignores
+To store a secret, start `npx wrangler secret put <NAME>` first. Only when its
+hidden prompt appears, copy the value from the provider and paste it there.
+Avoid `pbpaste` in a command you copied from somewhere: copying the command
+replaces the clipboard, so the command stores its own text. The Worker ignores
 surrounding whitespace, quotes and terminal paste markers in stored secrets.
 
 Linear shows the labels and label changes as made by the API key's owner.
@@ -146,15 +147,26 @@ Linear shows the labels and label changes as made by the API key's owner.
   | `dispatch_failed` | The Worker could not reach the PR's Durable Object | Check the Cloudflare status; the next delivery retries |
 
 - **Signature mismatch:** usually the stored `LINEAR_WEBHOOK_SECRET` is not
-  this webhook's secret. The log line gives the body size and encoding
-  headers, and the stored secret's length and whether it starts with
-  `lin_wh_`. It never logs the secret itself.
-  1. Open the webhook in Linear and copy its signing secret with the copy
-     button.
-  2. Store it with `pbpaste | npx wrangler secret put LINEAR_WEBHOOK_SECRET`.
-  3. Check that no second Linear webhook points at the same URL with another
-     secret.
-  4. Watch `npx wrangler tail` for the next delivery.
+  the sending webhook's secret. The log line never contains the secret. It
+  gives:
+  - `sendingWebhookId`: the id of the webhook that sent the delivery;
+  - the body size and encoding headers;
+  - `storedSecret`: the stored value's length, whether it starts with
+    `lin_wh_`, and `fingerprint`, the first 8 hex characters of its SHA-256.
+
+  To fix it:
+  1. Make sure `sendingWebhookId` is the only webhook in Linear that points at
+     this URL. Delete any others.
+  2. Run `npx wrangler secret put LINEAR_WEBHOOK_SECRET`. When the prompt
+     appears, copy that webhook's signing secret in Linear and paste it into
+     the prompt.
+  3. To check a value without showing it, run
+     `read -rs S; printf %s "$S" | shasum -a 256 | cut -c1-8; unset S`, paste
+     the value at the hidden prompt, and compare the output with
+     `fingerprint`. A secret change takes effect in a new Worker version;
+     `npx wrangler versions list` shows when that happened.
+  4. Watch `npx wrangler tail` for the next delivery. Editing the PR title is
+     a quick way to make Linear send one.
 - **Expired or revoked token:** runs fail with `reconcile_failed` and
   `HTTP 401`. Create a new token, store it with `wrangler secret put`, then
   revoke the old one.

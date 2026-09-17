@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReconcileJob } from "../src/reconcile";
 import { handleWebhook, MAX_BODY_BYTES, type WebhookEnv } from "../src/webhook";
@@ -158,7 +158,8 @@ describe("handleWebhook", () => {
   it("describes a Linear delivery that fails the check without revealing the secret", async () => {
     const { ctx } = context();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const body = JSON.stringify(attachmentEvent());
+    const webhookId = "53188995-5f3b-44a9-993b-9bb0d37136a5";
+    const body = JSON.stringify(attachmentEvent({ webhookId }));
     const linearDelivery = new Request("https://labeler.example.workers.dev/linear", {
       method: "POST",
       headers: {
@@ -180,9 +181,15 @@ describe("handleWebhook", () => {
         event: "signature_mismatch",
         delivery: `d${"x".repeat(63)}`,
         linearEvent: "Attachment",
+        sendingWebhookId: webhookId,
         bodyBytes: Buffer.byteLength(body),
         contentLength: String(Buffer.byteLength(body)),
-        storedSecret: { length: SECRET.length, linearPrefix: true, cleaned: false },
+        storedSecret: {
+          length: SECRET.length,
+          linearPrefix: true,
+          cleaned: false,
+          fingerprint: createHash("sha256").update(SECRET).digest("hex").slice(0, 8),
+        },
       },
     ]);
     expect(JSON.stringify(logged(warn))).not.toContain(SECRET);

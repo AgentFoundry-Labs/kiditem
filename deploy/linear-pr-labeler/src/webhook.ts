@@ -48,18 +48,20 @@ export async function handleWebhook(
   );
   if (!signed) {
     // A delivery that carries Linear's headers but fails the check usually
-    // means the stored LINEAR_WEBHOOK_SECRET is not the webhook's secret; the
-    // body facts rule out a body the platform changed on the way.
+    // means the stored LINEAR_WEBHOOK_SECRET is not the sending webhook's
+    // secret. The body facts rule out a body changed on the way, and the
+    // (unverified) webhook id names the webhook that sent it.
     if (delivery) {
       log("warn", {
         event: "signature_mismatch",
         delivery,
         linearEvent: header(request, "linear-event", 32),
+        sendingWebhookId: unverifiedWebhookId(raw),
         bodyBytes: raw.byteLength,
         contentLength: header(request, "content-length", 16),
         contentEncoding: header(request, "content-encoding", 32),
         transferEncoding: header(request, "transfer-encoding", 32),
-        storedSecret: webhookSecretShape(env.LINEAR_WEBHOOK_SECRET),
+        storedSecret: await webhookSecretShape(env.LINEAR_WEBHOOK_SECRET),
       });
     }
     return text(401, "bad signature");
@@ -143,6 +145,16 @@ async function readBody(request: Request, limit: number): Promise<ArrayBuffer | 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The body's `webhookId` when it is a UUID; the body is not verified, so nothing else is read. */
+function unverifiedWebhookId(raw: ArrayBuffer): string | undefined {
+  try {
+    const id = (JSON.parse(new TextDecoder().decode(raw)) as { webhookId?: unknown }).webhookId;
+    return typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A request header clipped for logs; anyone can send these headers. */
