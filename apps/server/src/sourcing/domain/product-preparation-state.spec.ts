@@ -1,21 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
   blocksCandidateTerminalTransition,
   canDiscardProviderIdentity,
-  canStartProviderCreate,
-  hasLiveSubmissionLease,
   resolveProviderOutcome,
 } from './product-preparation-state';
 
 describe('ProductPreparation provider state policy', () => {
+  /**
+   * 생성 가능 판정은 이 파일 밖으로 나가지 않는다 — 폐기 가능 여부로만 관찰한다.
+   * 등록 실행의 리스·재시도는 Channels 울타리가 소유한다(ADR-0014).
+   */
   it.each([
     ['not_attempted', true],
     ['definitive_failure', true],
     ['uncertain', false],
     ['succeeded', false],
-  ] as const)('allows provider create only from %s = %s', (outcome, expected) => {
-    expect(canStartProviderCreate(outcome)).toBe(expected);
+  ] as const)('discards a clean identity only from %s = %s', (outcome, expected) => {
+    expect(canDiscardProviderIdentity({
+      outcome,
+      providerSubmissionId: null,
+      registrationResult: null,
+    })).toBe(expected);
   });
 
   it('maps legacy frozen identities conservatively while keeping untouched drafts retryable', () => {
@@ -90,23 +95,5 @@ describe('ProductPreparation provider state policy', () => {
       providerSubmissionId: null,
       registrationResult: null,
     })).toBe(expected);
-  });
-
-  it('uses the fixed lease duration and treats the exact expiry boundary as stale', () => {
-    const now = new Date('2026-07-13T00:10:00.000Z');
-    const exactBoundary = new Date(now.getTime() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS);
-    const stillLive = new Date(exactBoundary.getTime() + 1);
-
-    expect(hasLiveSubmissionLease({
-      token: '11111111-1111-4111-8111-111111111111',
-      claimedAt: stillLive,
-      now,
-    })).toBe(true);
-    expect(hasLiveSubmissionLease({
-      token: '11111111-1111-4111-8111-111111111111',
-      claimedAt: exactBoundary,
-      now,
-    })).toBe(false);
-    expect(hasLiveSubmissionLease({ token: null, claimedAt: stillLive, now })).toBe(false);
   });
 });
