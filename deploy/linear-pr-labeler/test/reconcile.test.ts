@@ -195,6 +195,35 @@ describe("reconcilePullRequest", () => {
     expect(linear.labelsOf("KID-15")).toEqual(["#81 New"]);
   });
 
+  it("labels the other issues when one issue's link lookup fails, and reports the failure", async () => {
+    const unknown = linear.addIssue("KID-22", { labels: ["#85 Older"] });
+    const fine = linear.addIssue("KID-23");
+    linear.attach(prUrl(86), unknown);
+    linear.attach(prUrl(86), fine);
+    github.add(pullRequest({ number: 86, branch: "kid-22-lookup", body: "Fixes KID-22, KID-23" }));
+    linear.linkedAtFailures.add("KID-22");
+
+    const result = await run({ prNumber: 86, issueId: fine });
+
+    expect(result).toMatchObject({
+      outcome: "labelled",
+      added: ["KID-23"],
+      failed: [{ issue: "KID-22", message: "Linear API HTTP 502" }],
+    });
+    expect(linear.labelsOf("KID-22")).toEqual(["#85 Older"]);
+  });
+
+  it("reports a failed link lookup even when nothing else needs work", async () => {
+    const unknown = linear.addIssue("KID-24", { labels: ["#87 Older"] });
+    linear.attach(prUrl(88), unknown);
+    linear.linkedAtFailures.add("KID-24");
+
+    await expect(run({ prNumber: 88, issueId: unknown, action: "update" })).resolves.toMatchObject({
+      outcome: "nothing-to-do",
+      failed: [{ issue: "KID-24", message: "Linear API HTTP 502" }],
+    });
+  });
+
   it("labels the other issues when one issue fails, and reports the failure", async () => {
     const broken = linear.addIssue("KID-17");
     const fine = linear.addIssue("KID-18");

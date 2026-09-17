@@ -52,6 +52,8 @@ export class FakeLinear implements LinearClient {
   createFailures = 0;
   /** Remaining `updateIssueLabels` failures per issue identifier. */
   readonly updateFailures = new Map<string, number>();
+  /** Issue identifiers whose `linkedAt` lookups fail. */
+  readonly linkedAtFailures = new Set<string>();
   /** Runs inside `createPrLabel` before the label is made, to simulate a concurrent writer. */
   beforeCreate?: () => void;
   private clock = 0;
@@ -118,6 +120,8 @@ export class FakeLinear implements LinearClient {
 
   async linkedAt(issueId: string, url: string): Promise<string | null> {
     this.calls.push("linkedAt");
+    const issue = this.issues.get(issueId);
+    if (issue && this.linkedAtFailures.has(issue.identifier)) throw new Error("Linear API HTTP 502");
     const times = this.attachments
       .filter((a) => a.issueId === issueId && a.url === url)
       .map((a) => a.createdAt)

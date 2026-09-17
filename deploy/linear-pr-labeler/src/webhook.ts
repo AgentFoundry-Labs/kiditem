@@ -1,6 +1,7 @@
 import { errorMessage, log } from "./log";
 import { parsePullRequestUrl, pullRequestUrl } from "./pull-request";
 import type { ReconcileJob } from "./reconcile";
+import { cleanSecret, webhookSecretShape } from "./secret-value";
 import { deliveryTiming, verifyLinearSignature } from "./signature";
 
 export const WEBHOOK_PATH = "/linear";
@@ -33,27 +34,32 @@ export async function handleWebhook(
   const { pathname } = new URL(request.url);
   if (pathname !== WEBHOOK_PATH) return text(404, "not found");
   if (request.method !== "POST") return text(405, "method not allowed");
-  if (!env.LINEAR_WEBHOOK_SECRET || !env.LINEAR_API_KEY || !env.GITHUB_TOKEN) {
-    return text(503, "not configured");
-  }
+  const secrets = [env.LINEAR_WEBHOOK_SECRET, env.LINEAR_API_KEY, env.GITHUB_TOKEN];
+  if (secrets.some((secret) => !cleanSecret(secret))) return text(503, "not configured");
 
   const raw = await readBody(request, MAX_BODY_BYTES);
   if (!raw) return text(413, "payload too large");
 
+  const delivery = header(request, "linear-delivery", 64);
   const signed = await verifyLinearSignature(
     raw,
     request.headers.get("linear-signature"),
-    env.LINEAR_WEBHOOK_SECRET,
+    env.LINEAR_WEBHOOK_SECRET ?? "",
   );
   if (!signed) {
     // A delivery that carries Linear's headers but fails the check usually
-    // means the stored LINEAR_WEBHOOK_SECRET is not the webhook's secret.
-    const delivery = request.headers.get("linear-delivery");
+    // means the stored LINEAR_WEBHOOK_SECRET is not the webhook's secret; the
+    // body facts rule out a body the platform changed on the way.
     if (delivery) {
       log("warn", {
         event: "signature_mismatch",
         delivery,
-        linearEvent: request.headers.get("linear-event"),
+        linearEvent: header(request, "linear-event", 32),
+        bodyBytes: raw.byteLength,
+        contentLength: header(request, "content-length", 16),
+        contentEncoding: header(request, "content-encoding", 32),
+        transferEncoding: header(request, "transfer-encoding", 32),
+        storedSecret: webhookSecretShape(env.LINEAR_WEBHOOK_SECRET),
       });
     }
     return text(401, "bad signature");
@@ -67,7 +73,6 @@ export async function handleWebhook(
   }
   if (!isRecord(payload)) return text(400, "bad payload");
 
-  const delivery = request.headers.get("linear-delivery") ?? undefined;
   const timing = deliveryTiming(payload.webhookTimestamp, ctx.now);
   if (timing === "invalid") return text(400, "missing webhookTimestamp");
   if (timing === "stale") {
@@ -138,6 +143,11 @@ async function readBody(request: Request, limit: number): Promise<ArrayBuffer | 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A request header clipped for logs; anyone can send these headers. */
+function header(request: Request, name: string, max: number): string | undefined {
+  return request.headers.get(name)?.slice(0, max);
 }
 
 function text(status: number, body: string): Response {

@@ -146,31 +146,80 @@ describe("handleWebhook", () => {
     expect(pending).toEqual([]);
   });
 
-  it("rejects unsigned and wrongly signed deliveries, and flags Linear's own as a secret mismatch", async () => {
+  it("rejects unsigned and wrongly signed deliveries", async () => {
     const { ctx, jobs } = context();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect((await handleWebhook(delivery(attachmentEvent(), { signature: null }), env, ctx)).status).toBe(401);
     expect((await handleWebhook(delivery(attachmentEvent(), { secret: "other" }), env, ctx)).status).toBe(401);
+    expect(jobs).toEqual([]);
+  });
+
+  it("describes a Linear delivery that fails the check without revealing the secret", async () => {
+    const { ctx } = context();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const body = JSON.stringify(attachmentEvent());
+    const linearDelivery = new Request("https://labeler.example.workers.dev/linear", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(Buffer.byteLength(body)),
+        "Linear-Delivery": `d${"x".repeat(99)}`,
+        "Linear-Event": "Attachment",
+        "Linear-Signature": sign(body, "the-webhook-secret"),
+      },
+      body,
+    });
     const stranger = new Request("https://labeler.example.workers.dev/linear", { method: "POST", body: "{}" });
+
+    expect((await handleWebhook(linearDelivery, env, ctx)).status).toBe(401);
     expect((await handleWebhook(stranger, env, ctx)).status).toBe(401);
 
-    expect(jobs).toEqual([]);
     expect(logged(warn)).toEqual([
-      { event: "signature_mismatch", delivery: "delivery-1", linearEvent: null },
-      { event: "signature_mismatch", delivery: "delivery-1", linearEvent: null },
+      {
+        event: "signature_mismatch",
+        delivery: `d${"x".repeat(63)}`,
+        linearEvent: "Attachment",
+        bodyBytes: Buffer.byteLength(body),
+        contentLength: String(Buffer.byteLength(body)),
+        storedSecret: { length: SECRET.length, linearPrefix: true, cleaned: false },
+      },
     ]);
     expect(JSON.stringify(logged(warn))).not.toContain(SECRET);
   });
 
-  it("ignores whitespace around the stored secret", async () => {
+  it.each([
+    ["surrounding whitespace", `  ${SECRET}\n`],
+    ["bracketed-paste markers", `[200~${SECRET}[201~`],
+    ["quotes", `"${SECRET}"`],
+    ["a zero-width character", `​${SECRET}`],
+  ])("accepts a stored secret with %s", async (_name, stored) => {
     const { ctx, jobs } = context();
 
-    const response = await handleWebhook(
-      delivery(attachmentEvent()),
-      { ...env, LINEAR_WEBHOOK_SECRET: `  ${SECRET}\n` },
-      ctx,
-    );
+    const response = await handleWebhook(delivery(attachmentEvent()), { ...env, LINEAR_WEBHOOK_SECRET: stored }, ctx);
+
+    expect(response.status).toBe(200);
+    expect(jobs).toHaveLength(1);
+  });
+
+  it("verifies a signed body that arrives in many small chunks split inside multi-byte characters", async () => {
+    const { ctx, jobs } = context();
+    const body = JSON.stringify(attachmentEvent({ note: "라벨 🏷️ 테스트 ".repeat(40) }));
+    const bytes = new TextEncoder().encode(body);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7));
+        controller.close();
+      },
+    });
+    const request = new Request("https://labeler.example.workers.dev/linear", {
+      method: "POST",
+      headers: { "Linear-Signature": sign(body), "Linear-Delivery": "delivery-1" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+
+    const response = await handleWebhook(request, env, ctx);
 
     expect(response.status).toBe(200);
     expect(jobs).toHaveLength(1);

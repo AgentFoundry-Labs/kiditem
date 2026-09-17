@@ -112,6 +112,11 @@ issues and git.
 7. Verify: run `npx wrangler tail` while a PR opens. Expect a
    `"event":"reconciled"` line with `"outcome":"labelled"`.
 
+To store a secret without pasting it into the terminal, copy it with the
+provider's copy button and pipe the clipboard:
+`pbpaste | npx wrangler secret put LINEAR_WEBHOOK_SECRET`. The Worker ignores
+surrounding whitespace, quotes and terminal paste markers in stored secrets.
+
 Linear shows the labels and label changes as made by the API key's owner.
 
 ## Development
@@ -131,6 +136,25 @@ Linear shows the labels and label changes as made by the API key's owner.
 
 - **Logs:** `npx wrangler tail`, or the Worker's Observability tab in the
   Cloudflare dashboard.
+- **Worker events:**
+
+  | Event | Meaning | What to do |
+  | --- | --- | --- |
+  | `signature_mismatch` | A delivery with Linear's headers failed the signature check (401) | See "Signature mismatch" below |
+  | `late_delivery` | A signed delivery older than a minute, usually a Linear retry | Nothing |
+  | `stale_delivery` | A signed delivery older than 8 hours or from the future, dropped with 200 | Nothing |
+  | `dispatch_failed` | The Worker could not reach the PR's Durable Object | Check the Cloudflare status; the next delivery retries |
+
+- **Signature mismatch:** usually the stored `LINEAR_WEBHOOK_SECRET` is not
+  this webhook's secret. The log line gives the body size and encoding
+  headers, and the stored secret's length and whether it starts with
+  `lin_wh_`. It never logs the secret itself.
+  1. Open the webhook in Linear and copy its signing secret with the copy
+     button.
+  2. Store it with `pbpaste | npx wrangler secret put LINEAR_WEBHOOK_SECRET`.
+  3. Check that no second Linear webhook points at the same URL with another
+     secret.
+  4. Watch `npx wrangler tail` for the next delivery.
 - **Expired or revoked token:** runs fail with `reconcile_failed` and
   `HTTP 401`. Create a new token, store it with `wrangler secret put`, then
   revoke the old one.

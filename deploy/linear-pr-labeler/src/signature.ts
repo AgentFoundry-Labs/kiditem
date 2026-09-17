@@ -1,6 +1,8 @@
 // Linear signs each delivery with HMAC-SHA256 over the raw body (hex, header
 // `Linear-Signature`) and puts the send time in the signed `webhookTimestamp`.
 
+import { cleanSecret } from "./secret-value";
+
 /** Allowed clock difference for an on-time delivery, and for timestamps ahead of ours. */
 export const MAX_CLOCK_SKEW_MS = 60_000;
 /**
@@ -17,8 +19,7 @@ export async function verifyLinearSignature(
   signatureHeader: string | null,
   secret: string,
 ): Promise<boolean> {
-  // Signing secrets never contain whitespace; a pasted secret may carry some.
-  const key = secret.trim();
+  const key = cleanSecret(secret);
   if (!signatureHeader || !key) return false;
   const signature = hexToBytes(signatureHeader.trim());
   if (!signature || signature.byteLength !== 32) return false;

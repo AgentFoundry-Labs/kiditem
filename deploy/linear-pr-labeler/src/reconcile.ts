@@ -75,15 +75,21 @@ export async function reconcilePullRequest(
 
   const candidates: AttachedIssue[] = [];
   const keptNewerPr: string[] = [];
+  const failed: ReconcileResult["failed"] = [];
   for (const issue of attached) {
     if (issue.prLabels.some((label) => label.name.startsWith(prefix))) continue;
-    if (await linkedAfterCurrentLabels(issue, deps)) candidates.push(issue);
-    else keptNewerPr.push(issue.identifier);
+    try {
+      if (await linkedAfterCurrentLabels(issue, deps)) candidates.push(issue);
+      else keptNewerPr.push(issue.identifier);
+    } catch (error) {
+      failed.push({ issue: issue.identifier, message: errorMessage(error) });
+    }
   }
-  if (candidates.length === 0) return { ...result("nothing-to-do"), keptNewerPr };
+  const partial = { keptNewerPr, failed };
+  if (candidates.length === 0) return { ...result("nothing-to-do"), ...partial };
 
   const pr = await deps.github.getPullRequest(job.prNumber);
-  if (pr.state === "closed" && !pr.merged) return { ...result("pr-closed-unmerged"), keptNewerPr };
+  if (pr.state === "closed" && !pr.merged) return { ...result("pr-closed-unmerged"), ...partial };
 
   const completed = completedIssueIds(pr, teamKey);
   const openedAt = Date.parse(pr.createdAt);
@@ -93,13 +99,12 @@ export async function reconcilePullRequest(
   const closedBeforePr = named.filter(isReference).map((issue) => issue.identifier);
   const targets = named.filter((issue) => !isReference(issue));
   if (targets.length === 0) {
-    return { ...result("no-completed-issues"), keptNewerPr, closedBeforePr };
+    return { ...result("no-completed-issues"), ...partial, closedBeforePr };
   }
 
   const { label, created, orphaned } = await findOrCreateLabel(prefix, pr, deps);
   const added: string[] = [];
   const replaced: string[] = [];
-  const failed: ReconcileResult["failed"] = [];
   for (const issue of targets) {
     const staleIds = issue.prLabels.map((l) => l.id);
     try {

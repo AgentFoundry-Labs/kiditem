@@ -3,6 +3,7 @@ import { createGitHubClient } from "./github";
 import { createLinearClient } from "./linear";
 import { errorMessage, log } from "./log";
 import { reconcilePullRequest, type ReconcileJob } from "./reconcile";
+import { cleanSecret } from "./secret-value";
 import { handleWebhook } from "./webhook";
 
 // The entry module may only export handlers, so constants stay private here.
@@ -42,14 +43,14 @@ export class PrReconciler extends DurableObject<Env> {
         repo: this.env.GITHUB_REPO,
         linear: createLinearClient({
           apiUrl: this.env.LINEAR_API_URL,
-          apiKey: this.env.LINEAR_API_KEY ?? "",
+          apiKey: cleanSecret(this.env.LINEAR_API_KEY),
           prLabelGroupId: this.env.PR_LABEL_GROUP_ID,
           prLabelColor: this.env.PR_LABEL_COLOR,
         }),
         github: createGitHubClient({
           apiUrl: this.env.GITHUB_API_URL,
           repo: this.env.GITHUB_REPO,
-          token: this.env.GITHUB_TOKEN ?? "",
+          token: cleanSecret(this.env.GITHUB_TOKEN),
         }),
       });
       if (result.failed.length > 0) {
