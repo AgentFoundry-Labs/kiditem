@@ -216,6 +216,15 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     expect(screen.queryByRole('button', { name: '다시 실행' })).not.toBeInTheDocument();
   });
 
+  it('keeps chip buttons neutral in the dense keyword grid and the primary color for the product-wide approval', async () => {
+    await renderExpandedProduct();
+
+    for (const button of screen.getAllByRole('group').flatMap((group) => within(group).queryAllByRole('button'))) {
+      expect(button).not.toHaveClass('btn-primary');
+    }
+    expect(screen.getByRole('button', { name: '이 상품 제안 2개 모두 승인' })).toHaveClass('btn-primary');
+  });
+
   it("adds the attempt's recorded message to the chip's hover text, not to the chip", async () => {
     await renderExpandedProduct();
 
