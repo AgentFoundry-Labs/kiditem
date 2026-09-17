@@ -331,7 +331,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: one submission per draft and account, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -342,7 +342,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its reader ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -373,7 +373,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
-| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
+| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; the registration draft is published to the Channels fence through `REGISTRATION_DRAFT_PORT`, which runs inside the fence transaction; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
 | `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
@@ -852,23 +852,26 @@ Actual contextual-bandit or reinforcement learning starts only after immutable
 assignment/exposure and outcome ledgers produce calibrated labels; no such
 training or automatic provider action is enabled by this foundation.
 
-## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
+## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.26`)
 
-Sourcing owns reviewed registration input in `ProductPreparation` and the
-frozen provider-execution/provenance fence in
-`ProductRegistrationExecution`. The Agent-facing mutation terminates at a
-Channels-owned incoming port: it loads that frozen state only through the
-Sourcing read boundary, then Channels owns provider submission, the resulting
-`ChannelListing`, its minimal owner-idempotency receipt, and
-`ChannelListingDeletionOperation`. Provider state is never accepted as Agent
-business input. AI owns candidate/listing content workspaces. Registration no
-longer promotes a candidate into `MasterProduct`.
+Sourcing owns reviewed registration input in `ProductPreparation` and stops
+there. Channels owns the submission fence `ProductRegistrationExecution` —
+frozen payload JSON, SHA-256, idempotency key, lease, provider outcome and
+`externalListingId` — so that one draft reaches one channel account at most
+once, whatever path sends it
+([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)).
+Channels also owns provider submission, the resulting `ChannelListing`, its
+minimal owner-idempotency receipt, and `ChannelListingDeletionOperation`. The
+Agent-facing mutation terminates at a Channels-owned incoming port and loads
+the frozen state only through the fence's read boundary. Provider state is
+never accepted as Agent business input. AI owns candidate/listing content
+workspaces. Registration no longer promotes a candidate into `MasterProduct`.
 
 ```text
 SourcingCandidate (status: sourced | rejected)
-  -> ProductPreparation draft for a selected ChannelAccount
+  -> ProductPreparation draft for a selected ChannelAccount        [Sourcing]
   -> ProductRegistrationExecution freezes canonical payload JSON + SHA-256
-     + stable submission key + actor/account evidence
+     + stable submission key + actor/account evidence              [Channels]
   -> persist executing/uncertain before provider IO and reconcile by key/provider ID
   -> call provider outside the DB tx only when the execution remains
      prepared/not_attempted and reconciliation proves this is new
@@ -878,6 +881,19 @@ SourcingCandidate (status: sourced | rejected)
        ChannelRegistrationOwnerIdempotencyReceipt
      + replays the minimal listing result or rejects changed canonical input
 ```
+
+The fence opens the transaction. Draft transitions that must commit with it
+run inside that transaction through the Sourcing-owned `REGISTRATION_DRAFT_PORT`,
+so Channels never writes draft rows and Sourcing never writes execution rows.
+Sourcing reflects candidate registration state (`none`, `preparing`,
+`confirming`, `failed`, `registered`) by reading
+`channels/read/registration-execution.reader.ts`, not the draft's mirrored
+submission columns ([ADR-0009](adr/0009-one-ledger-one-reader.md)).
+
+A mall form fill or a generated bulk workbook is not a submission: no channel
+account has received anything yet, so those paths stay observations
+(`MallOperationOutcome`) and do not open an execution. A path that starts
+submitting to an account enters the fence first.
 
 No bulk cutover backfill copies legacy preparation or deletion rows into these
 operation ledgers. The registration runtime may import one scoped legacy
@@ -890,8 +906,13 @@ authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
 
-The canonical APIs are candidate preparation create, preparation update,
-submit, and cancel. In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
+The canonical draft APIs are candidate preparation create, preparation update,
+submit, and cancel under `/api/sourcing`. The fence lifecycle — prepare, match
+preview, start, status, unresolved, not-submitted, confirm — is Channels' own
+route family, `/api/channels/candidates/:id/registration-executions/*`, and the
+product-pipeline Wing flow and the mall wizard reach it through the one web
+client `(channels)/_shared/registration-execution-api.ts`.
+In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
 deprecated alias for draft creation and returns only
 `{ preparationId, status: 'draft' }`. Active preparation uniqueness is scoped
 to organization, candidate, and selected channel account. The same candidate
