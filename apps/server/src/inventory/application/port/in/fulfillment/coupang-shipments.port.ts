@@ -7,13 +7,7 @@ import type {
 } from "../../../../read/coupang-shipment-date-summary.reader";
 
 /** Shipment-date facts `read/coupang-shipment-date-summary.reader.ts` returns. */
-export type {
-  CoupangShipmentDateSummaryEntry,
-  ShipmentSummaryAttempt,
-  ShipmentSummaryAttemptRead,
-  ShipmentSummaryPlan,
-  ShipmentSummarySource,
-};
+export type { CoupangShipmentDateSummaryEntry, ShipmentSummaryPlan };
 
 export const COUPANG_SHIPMENTS_PORT = Symbol("CoupangShipmentsPort");
 
