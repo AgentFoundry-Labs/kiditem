@@ -33,6 +33,15 @@ const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
 const SHARED_CERT_NUMBER_KEY = 'certNumber';
 
 
+/**
+ * 셀피아 상품코드(`10468-1`)가 가진 상품번호. 번호가 클수록 나중에 만든 상품이다.
+ * 숫자로 시작하지 않는 코드는 번호가 없다 — 짐작하지 않고 null 이다.
+ */
+function sellpiaProductSequence(code: string): number | null {
+  const digits = /^\s*(\d{1,12})(?![\d])/u.exec(code)?.[1];
+  return digits ? Number(digits) : null;
+}
+
 /** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
 function firstListingImageUrl(
   listings: readonly {
@@ -306,12 +315,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         : {}),
     };
 
-    const [records, total] = await Promise.all([
-      this.prisma.masterProduct.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip: query.offset,
-        take: query.limit,
+    const page = await this.matrixPageIds(where);
+    const records = await this.prisma.masterProduct.findMany({
+      where: { organizationId, id: { in: page.ids.slice(query.offset, query.offset + query.limit) } },
         select: {
           id: true,
           code: true,
@@ -356,9 +362,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             },
           },
         },
-      }),
-      this.prisma.masterProduct.count({ where }),
-    ]);
+    });
+    const rank = new Map(page.ids.map((id, order) => [id, order]));
+    records.sort((left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0));
 
     const stockByMaster = await this.readMatrixStock(
       organizationId,
@@ -381,7 +387,39 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       })),
     }));
 
-    return { rows, total };
+    return { rows, total: page.ids.length };
+  }
+
+  /**
+   * 등록 현황이 세울 순서 — 셀피아 상품번호가 큰 것부터, 곧 **최신 등록순**이다(사장님 2026-09-17).
+   *
+   * 마스터의 `createdAt` · `updatedAt` 으로는 최신을 말할 수 없다. 재고 수집이 마스터를
+   * 통째로 다시 쓰기 때문에 활성 마스터 982개가 전부 같은 시각이다(라이브 확인). 상품이
+   * 언제 생겼는지 아는 값은 셀피아가 매긴 상품번호(`10468-1` 의 `10468`)뿐이라 그걸로 센다.
+   * 번호가 없는 마스터는 뒤에 서고, 같은 번호는 id 로 갈라 늘 같은 자리에 선다.
+   *
+   * Prisma 로는 이어진 SKU 의 숫자 앞자리로 정렬할 수 없어 걸린 마스터의 번호만 먼저 읽는다.
+   * 이 화면의 모수는 조직의 활성 마스터(수천)라 한 번에 읽어도 된다.
+   */
+  private async matrixPageIds(
+    where: Prisma.MasterProductWhereInput,
+  ): Promise<{ ids: string[] }> {
+    const candidates = await this.prisma.masterProduct.findMany({
+      where,
+      select: { id: true, inventorySkus: { select: { code: true } } },
+    });
+    return {
+      ids: candidates
+        .map((candidate) => ({
+          id: candidate.id,
+          sequence: Math.max(
+            -1,
+            ...candidate.inventorySkus.map((sku) => sellpiaProductSequence(sku.code) ?? -1),
+          ),
+        }))
+        .sort((left, right) => right.sequence - left.sequence || left.id.localeCompare(right.id))
+        .map((candidate) => candidate.id),
+    };
   }
 
   /**
