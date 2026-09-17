@@ -509,7 +509,6 @@ erDiagram
 | ProductPreparation | channelListing | references external | Core | ChannelListing |
 | ProductPreparation | createdByUser | references external | Core | User |
 | ProductPreparation | organization | references external | Core | Organization |
-| ProductPreparation | productPreparation | referenced by external | Sourcing | ProductRegistrationExecution |
 | ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |

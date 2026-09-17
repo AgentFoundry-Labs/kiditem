@@ -27,12 +27,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 2 |
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 23 |
+| [Channels](erd/channels.md) | 24 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
 | [Orders](erd/orders.md) | 11 |
-| [Sourcing](erd/sourcing.md) | 35 |
+| [Sourcing](erd/sourcing.md) | 34 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 4 |
 
@@ -82,6 +82,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingTrackedProduct | Channels | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | MallOperationOutcome | Channels | `mall_operation_outcomes` | 쇼핑몰 에이전트의 관찰 기록 — 원천 owner 가 없는 브라우저 몰 작업 결과 한 줄(로그인 확인 · 로그인 테스트 · 등록 폼 채움). 주문 수집 · 송장 전송 결과는 Orders 리더에서 파생하고 여기에 쓰지 않는다. append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
+| ProductRegistrationExecution | Channels | `product_registration_executions` | 채널 계정 하나에 초안 하나를 최대 한 번만 제출하는 등록 실행 울타리. 동결 payload·SHA-256·idempotency key·lease·provider 결과를 보존한다. |
 | RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | SellpiaManualMatchAlias | Channels | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
@@ -127,7 +128,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
 | NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
-| ProductRegistrationExecution | Sourcing | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688OfferKeywordObservation | Sourcing | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
@@ -1280,7 +1280,7 @@ erDiagram
   ProductRegistrationExecution {
     String id PK
     String organizationId FK
-    String productPreparationId FK
+    String productPreparationId
     String channelAccountId FK
     String channelListingId FK
     String executionKind
@@ -2730,7 +2730,6 @@ erDiagram
   Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
   Organization ||--o{ Warehouse : "organization"
-  ProductPreparation ||--o{ ProductRegistrationExecution : "productPreparation"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"

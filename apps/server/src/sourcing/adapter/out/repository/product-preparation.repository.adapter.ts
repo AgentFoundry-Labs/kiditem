@@ -55,7 +55,20 @@ export class ProductPreparationRepositoryAdapter
     },
   ): Promise<number> {
     const tx = transaction as Prisma.TransactionClient;
-    const identities = await tx.productRegistrationExecution.findMany({
+    // 초안은 다른 owner 의 행이다. 관계 join 대신 초안 id 를 먼저 읽고 실행을
+    // 그 id 로 좁힌다(ADR-0013).
+    const preparationIds = await preparationIdsWhere(tx, {
+      organizationId: input.organizationId,
+      sourceCandidateId: input.sourceCandidateId,
+      status: 'submitting',
+      providerOutcome: 'not_attempted',
+      providerSubmissionId: null,
+      registrationResult: { equals: Prisma.DbNull },
+      submissionLeaseToken: null,
+      submissionLeaseClaimedAt: null,
+      isDeleted: false,
+    });
+    const identities = preparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
         executionKind: 'external_wing',
@@ -68,17 +81,7 @@ export class ProductPreparationRepositoryAdapter
         leaseClaimedAt: null,
         startedAt: null,
         completedAt: null,
-        productPreparation: {
-          organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
-          status: 'submitting',
-          providerOutcome: 'not_attempted',
-          providerSubmissionId: null,
-          registrationResult: { equals: Prisma.DbNull },
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-          isDeleted: false,
-        },
+        productPreparationId: { in: preparationIds },
       },
       select: { id: true, productPreparationId: true },
     });
@@ -93,10 +96,14 @@ export class ProductPreparationRepositoryAdapter
           organizationId: input.organizationId,
           productPreparationId: identity.productPreparationId,
         },
-        include: { productPreparation: true },
       });
-      if (!current || !isUnstartedExternalRegistrationIntent(
-        current,
+      const currentPreparation = current
+        ? await tx.productPreparation.findFirst({
+          where: { id: current.productPreparationId, organizationId: input.organizationId },
+        })
+        : null;
+      if (!current || !currentPreparation || !isUnstartedExternalRegistrationIntent(
+        { ...current, productPreparation: currentPreparation },
         input.organizationId,
         input.sourceCandidateId,
       )) {
@@ -162,14 +169,15 @@ export class ProductPreparationRepositoryAdapter
     input: { organizationId: string; sourceCandidateId: string },
   ): Promise<void> {
     const tx = transaction as Prisma.TransactionClient;
-    const executions = await tx.productRegistrationExecution.findMany({
+    const livePreparationIds = await preparationIdsWhere(tx, {
+      organizationId: input.organizationId,
+      sourceCandidateId: input.sourceCandidateId,
+      isDeleted: false,
+    });
+    const executions = livePreparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
-        productPreparation: {
-          sourceCandidateId: input.sourceCandidateId,
-          organizationId: input.organizationId,
-          isDeleted: false,
-        },
+        productPreparationId: { in: livePreparationIds },
       },
       select: {
         status: true,
@@ -357,14 +365,13 @@ export class ProductPreparationRepositoryAdapter
       return await this.prisma.$transaction(async (tx) => {
       const replay = await tx.productRegistrationExecution.findFirst({
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
-        include: { productPreparation: { select: { sourceCandidateId: true } } },
       });
       if (replay) {
         if (replay.requestHash !== frozen.hash) {
           throw new ConflictException('External registration idempotency key was reused with a different payload.');
         }
         if (replay.channelAccountId !== input.channelAccountId
-          || replay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+          || await executionCandidateId(tx, input.organizationId, replay) !== input.sourceCandidateId
           || replay.requestedByUserId !== input.requestedByUserId) {
           throw new ConflictException('External registration execution belongs to another account, candidate, or actor.');
         }
@@ -373,12 +380,11 @@ export class ProductPreparationRepositoryAdapter
       await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
       const lockedReplay = await tx.productRegistrationExecution.findFirst({
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
-        include: { productPreparation: { select: { sourceCandidateId: true } } },
       });
       if (lockedReplay) {
         if (lockedReplay.requestHash !== frozen.hash
           || lockedReplay.channelAccountId !== input.channelAccountId
-          || lockedReplay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+          || await executionCandidateId(tx, input.organizationId, lockedReplay) !== input.sourceCandidateId
           || lockedReplay.requestedByUserId !== input.requestedByUserId) {
           throw new ConflictException('External registration idempotency key belongs to a different request.');
         }
@@ -397,7 +403,12 @@ export class ProductPreparationRepositoryAdapter
       // 브라우저 새로고침/재진입은 새 UI idempotency key를 만들 수 있다. 같은 후보·계정·
       // 사용자·동일 frozen payload의 미종결 외부 실행이 있으면 새 준비를 만들지 않고
       // 그 실행을 돌려줘 수동 완료/정산 UI가 이어받게 한다.
-      const resumable = await tx.productRegistrationExecution.findFirst({
+      const livePreparationIds = await preparationIdsWhere(tx, {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        isDeleted: false,
+      });
+      const resumable = livePreparationIds.length === 0 ? null : await tx.productRegistrationExecution.findFirst({
         where: {
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
@@ -409,11 +420,7 @@ export class ProductPreparationRepositoryAdapter
               ? ['prepared']
               : ['prepared', 'executing', 'reconciling'],
           },
-          productPreparation: {
-            organizationId: input.organizationId,
-            sourceCandidateId: input.sourceCandidateId,
-            isDeleted: false,
-          },
+          productPreparationId: { in: livePreparationIds },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -633,12 +640,11 @@ export class ProductPreparationRepositoryAdapter
       if (!isUniqueConstraintError(error)) throw error;
       const replay = await this.prisma.productRegistrationExecution.findFirst({
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
-        include: { productPreparation: { select: { sourceCandidateId: true } } },
       });
       if (!replay
         || replay.requestHash !== frozen.hash
         || replay.channelAccountId !== input.channelAccountId
-        || replay.productPreparation.sourceCandidateId !== input.sourceCandidateId
+        || await executionCandidateId(this.prisma, input.organizationId, replay) !== input.sourceCandidateId
         || replay.requestedByUserId !== input.requestedByUserId) {
         throw new ConflictException('Concurrent external registration preparation conflicted.');
       }
@@ -653,14 +659,10 @@ export class ProductPreparationRepositoryAdapter
     requestedByUserId: string | null;
   }): Promise<ExternalRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const identity = await tx.productRegistrationExecution.findFirst({
-        where: {
-          id: input.executionId,
-          organizationId: input.organizationId,
-          executionKind: 'external_wing',
-          productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
-        },
-        select: { id: true, productPreparationId: true },
+      const identity = await findCandidateExecutionIdentity(tx, {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        executionId: input.executionId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
       await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
@@ -673,21 +675,24 @@ export class ProductPreparationRepositoryAdapter
           executionKind: 'external_wing',
           productPreparationId: identity.productPreparationId,
         },
-        include: {
-          productPreparation: true,
-        },
       });
+      const loadedPreparation = execution
+        ? await tx.productPreparation.findFirst({
+          where: { id: execution.productPreparationId, organizationId: input.organizationId },
+        })
+        : null;
       if (
         !execution
-        || execution.productPreparation.sourceCandidateId !== input.sourceCandidateId
-        || execution.productPreparation.organizationId !== input.organizationId
+        || !loadedPreparation
+        || loadedPreparation.sourceCandidateId !== input.sourceCandidateId
+        || loadedPreparation.organizationId !== input.organizationId
       ) {
         throw new NotFoundException('External registration execution not found.');
       }
       if (execution.requestedByUserId !== input.requestedByUserId) {
         throw new ConflictException('External registration execution belongs to a different actor.');
       }
-      const preparation = execution.productPreparation;
+      const preparation = loadedPreparation;
       if (
         preparation.isDeleted
         || preparation.status !== 'submitting'
@@ -763,7 +768,12 @@ export class ProductPreparationRepositoryAdapter
         organizationId: input.organizationId,
         executionKind: 'external_wing',
         requestedByUserId: input.requestedByUserId,
-        productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
+        productPreparationId: {
+          in: await preparationIdsWhere(this.prisma, {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+          }),
+        },
       },
     });
     if (!execution) throw new NotFoundException('External registration execution not found.');
@@ -778,15 +788,11 @@ export class ProductPreparationRepositoryAdapter
     evidence: unknown;
   }): Promise<ExternalRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const identity = await tx.productRegistrationExecution.findFirst({
-        where: {
-          id: input.executionId,
-          organizationId: input.organizationId,
-          executionKind: 'external_wing',
-          requestedByUserId: input.requestedByUserId,
-          productPreparation: { sourceCandidateId: input.sourceCandidateId, organizationId: input.organizationId },
-        },
-        select: { id: true, productPreparationId: true },
+      const identity = await findCandidateExecutionIdentity(tx, {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        executionId: input.executionId,
+        requestedByUserId: input.requestedByUserId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
       await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
@@ -799,10 +805,6 @@ export class ProductPreparationRepositoryAdapter
           executionKind: 'external_wing',
           requestedByUserId: input.requestedByUserId,
           productPreparationId: identity.productPreparationId,
-          productPreparation: {
-            sourceCandidateId: input.sourceCandidateId,
-            organizationId: input.organizationId,
-          },
         },
       });
       if (!current) throw new NotFoundException('External registration execution not found.');
@@ -862,18 +864,11 @@ export class ProductPreparationRepositoryAdapter
     evidence: unknown;
   }): Promise<ExternalRegistrationClosedResult> {
     return this.prisma.$transaction(async (tx) => {
-      const identity = await tx.productRegistrationExecution.findFirst({
-        where: {
-          id: input.executionId,
-          organizationId: input.organizationId,
-          executionKind: 'external_wing',
-          requestedByUserId: input.requestedByUserId,
-          productPreparation: {
-            sourceCandidateId: input.sourceCandidateId,
-            organizationId: input.organizationId,
-          },
-        },
-        select: { id: true, productPreparationId: true },
+      const identity = await findCandidateExecutionIdentity(tx, {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        executionId: input.executionId,
+        requestedByUserId: input.requestedByUserId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
       await lockCandidate(tx, input.organizationId, input.sourceCandidateId);
@@ -1537,6 +1532,55 @@ export class ProductPreparationRepositoryAdapter
       };
     }, { timeout: 15_000 });
   }
+}
+
+/**
+ * 초안 id 로 실행을 좁히기 위한 조회. 실행 → 초안은 owner 경계를 넘으므로
+ * `@relation` join 이 없다(ADR-0013): 초안을 먼저 읽고 그 id 로 실행을 찾는다.
+ */
+async function preparationIdsWhere(
+  tx: Prisma.TransactionClient,
+  where: Prisma.ProductPreparationWhereInput,
+): Promise<string[]> {
+  const rows = await tx.productPreparation.findMany({ where, select: { id: true } });
+  return rows.map((row) => row.id);
+}
+
+async function executionCandidateId(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  execution: { productPreparationId: string },
+): Promise<string | null> {
+  const preparation = await tx.productPreparation.findFirst({
+    where: { id: execution.productPreparationId, organizationId },
+    select: { sourceCandidateId: true },
+  });
+  return preparation?.sourceCandidateId ?? null;
+}
+
+async function findCandidateExecutionIdentity(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    sourceCandidateId: string;
+    executionId: string;
+    requestedByUserId?: string | null;
+  },
+): Promise<{ id: string; productPreparationId: string } | null> {
+  const execution = await tx.productRegistrationExecution.findFirst({
+    where: {
+      id: input.executionId,
+      organizationId: input.organizationId,
+      executionKind: 'external_wing',
+      ...(input.requestedByUserId === undefined
+        ? {}
+        : { requestedByUserId: input.requestedByUserId }),
+    },
+    select: { id: true, productPreparationId: true },
+  });
+  if (!execution) return null;
+  const candidateId = await executionCandidateId(tx, input.organizationId, execution);
+  return candidateId === input.sourceCandidateId ? execution : null;
 }
 
 function isUnstartedExternalRegistrationIntent(
