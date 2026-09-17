@@ -66,8 +66,12 @@ function namedWait(error: unknown): number | null {
  * again every 30 seconds, or after that named wait, so a status recovers
  * without operator action, and the global error toast fires once per failure
  * streak; otherwise the caller's own `refetchInterval` (such as the faster
- * poll while an attempt is RUNNING) stays in charge. Every other option,
- * including `meta.suppressGlobalErrorToast`, passes through.
+ * poll while an attempt is RUNNING) stays in charge. Coming back to a tab
+ * re-reads the status, because a collection another tab started or ended is
+ * invisible to this one until then and the idle poll stops while the tab is in
+ * the background (KID-186). Every other option, including
+ * `meta.suppressGlobalErrorToast` and an explicit `refetchOnWindowFocus`,
+ * passes through.
  */
 export function collectionSourceStatusQueryOptions<
   TQueryFnData = unknown,
@@ -95,6 +99,7 @@ export function collectionSourceStatusQueryOptions<
 ): UseQueryOptions<TQueryFnData, TError, TData, TQueryKey> {
   const { refetchInterval } = options;
   return {
+    refetchOnWindowFocus: true,
     ...options,
     // The 30-second re-reads fail again every cycle; the global toast fires once per streak.
     meta: { ...options.meta, globalErrorToastOncePerFailureStreak: true },

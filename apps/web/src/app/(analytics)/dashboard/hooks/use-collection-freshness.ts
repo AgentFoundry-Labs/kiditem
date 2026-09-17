@@ -28,6 +28,9 @@ export function useCollectionFreshness() {
     queryKey: queryKeys.dashboard.collections(),
     queryFn: () => apiClient.getParsed('/api/dashboard/collections', DashboardCollectionsSchema),
     staleTime: 30_000,
+    // 수집은 다른 탭에서 끝나기도 한다. 이 탭의 캐시는 그 완료를 볼 수 없으므로, 돌아와
+    // 창을 다시 보는 순간 읽는다 — 그러지 않으면 '2시간 전'이 계속 서 있다(KID-186).
+    refetchOnWindowFocus: true,
   });
 
   /**
