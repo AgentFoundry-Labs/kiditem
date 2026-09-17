@@ -63,9 +63,11 @@ generic guidance.
   evidence that a query can use it.
 - Manage database objects through Prisma. When a required RLS policy, CHECK
   constraint, expression index, sequence, trigger, extension, or other object
-  cannot be represented there, give it a durable owner and rationale, a
-  versioned migration or cutover path, proof that Prisma workflows preserve it,
-  and a regression gate.
+  cannot be represented there, give it a durable owner and rationale, an ensure
+  step in `scripts/data-migrations/ensure/` that every post-schema
+  `data:migrate -- up` re-applies (rows it would reject first need a pre-schema
+  cleanup migration), proof that Prisma workflows preserve it, and a regression
+  gate.
 - KidItem currently exposes data through NestJS rather than direct database
   clients, so organization isolation is enforced by guards and repository
   predicates. Any direct client, database API, or new bypass path requires an
