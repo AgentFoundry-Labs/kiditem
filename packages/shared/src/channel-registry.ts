@@ -13,16 +13,19 @@
  */
 
 /** 몰인가 마켓 판매자 시스템인가. 마켓은 몰 등록 마법사에 서지 않는다. */
-export type ChannelKind = 'mall' | 'marketplace';
+type ChannelKind = 'mall' | 'marketplace';
 
 /**
- * 이 채널의 주문이 우리에게 오는 길.
+ * 이 채널의 주문이 **지금 실제로** 우리에게 오는 길.
  *
  *  - `extension`: 우리 확장 수집기가 가져온다(쿠팡 로켓은 발주 수집이 그 자리를 채운다).
  *  - `sellpia`: 셀피아가 그 몰에서 직접 가져오고, 주문은 셀피아 주문수집으로 들어온다.
  *  - `none`: 아직 길이 없다.
  *
- * ⚠️ 근거는 **코드에 실제로 있는 경로**다. 문서에 스펙만 적힌 것은 켜지 않는다.
+ * ⚠️ **있는 길을 모두 적는 칸이 아니라 켜 둔 길 하나를 적는 칸이다.** 11번가는 확장
+ * 수집기 코드가 들어와 있지만 셀피아 양식이 확정되지 않아 운영에서 끄고 셀피아로
+ * 받는다(KID-105 Q2) — 그래서 `sellpia` 다. 여기에 `extension` 을 적으면 화면이 되는
+ * 것처럼 말하고 사람이 눌렀을 때 아무 일도 일어나지 않는다.
  */
 export type ChannelCollector = 'extension' | 'sellpia' | 'none';
 
@@ -46,7 +49,20 @@ export interface ChannelRegistryEntry {
   readonly register: ChannelRegisterPath;
   /** 채널의 방식이 문서 · 실측으로 확인됐는가. 확인 전이면 송신 능력을 열지 않는다. */
   readonly verified: boolean;
-  /** `apps/web/public` 아래의 공식 파비콘 경로. 파일이 없으면 null 이고 화면이 머리글자로 대신한다. */
+  /**
+   * `apps/web/public` 아래의 공식 파비콘 경로. 파일이 없으면 null 이고 화면이 머리글자로
+   * 대신한다 — 지금 비어 있는 곳은 원폴라리스뿐이다(사이트 `officeone.co.kr` 가 접속되지
+   * 않는다). 남의 브랜드 자리에 아무 아이콘이나 붙이지 않는다.
+   *
+   * 외부에서 실시간으로 불러오지 않고 파일을 받아 둔다 — 몰이 경로를 바꾸는 날 표가
+   * 통째로 깨지고 우리 화면이 남의 서버 상태에 묶인다.
+   *
+   * `/favicon.ico` 를 안 내주는 몰은 **그 페이지가 선언한 아이콘**을 받았다(2026-09-11).
+   * 지마켓 · 옥션은 봇을 막아 브라우저로 받았고, 키즈노트는 쇼핑(`shop.kidsnote.com`)에
+   * 아이콘이 없어 본사이트(`kidsnote.com`) 것을, 해법몰은 운영 사이트인 지니마켓
+   * (`genimarket.co.kr`) 것을 쓴다. 올웨이즈 판매자센터 파비콘은 React 기본 아이콘이라
+   * 공식 사이트(`alwayz.co`) 로고로 바꿨다.
+   */
   readonly logo: string | null;
 }
 
@@ -85,7 +101,7 @@ const REGISTRY_ROWS = [
   { key: 'yoons', name: '윤선생', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/yoons.ico' },
 
   // ── 마켓 판매자 시스템 — 몰 등록 마법사에 서지 않는다 ──────────────────────
-  { key: 'coupang', name: '쿠팡(마켓플레이스)', kind: 'marketplace', collector: 'sellpia', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/coupang.ico' },
+  { key: 'coupang', name: '쿠팡 WING', kind: 'marketplace', collector: 'sellpia', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/coupang.ico' },
   { key: 'rocket', name: '쿠팡 로켓', kind: 'marketplace', collector: 'extension', uploadTracking: false, register: 'none', verified: true, logo: '/mall-logos/rocket.ico' },
 ] as const satisfies readonly ChannelRegistryEntry[];
 
@@ -102,7 +118,6 @@ export type ChannelKey = ChannelRegistryRow['key'];
 export type MallChannelRow = Extract<ChannelRegistryRow, { kind: 'mall' }>;
 export type MallChannelKey = MallChannelRow['key'];
 export type MarketplaceChannelRow = Extract<ChannelRegistryRow, { kind: 'marketplace' }>;
-export type MarketplaceChannelKey = MarketplaceChannelRow['key'];
 
 const BY_KEY = new Map<string, ChannelRegistryEntry>(
   REGISTRY_ROWS.map((entry) => [entry.key, entry]),

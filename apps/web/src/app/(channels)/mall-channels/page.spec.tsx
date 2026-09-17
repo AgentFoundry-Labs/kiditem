@@ -47,7 +47,7 @@ vi.mock('next/link', () => ({
 function channel(overrides: Record<string, unknown> = {}) {
   return {
     mallKey: 'coupang',
-    mallName: '쿠팡(마켓플레이스)',
+    mallName: '쿠팡 WING',
     channelAccountId: 'acc-1',
     canPublish: true,
     hasCredentials: true,
@@ -211,7 +211,7 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
 
   it('가져온 몰은 등록 상품 수를 보여준다', () => {
     render(<MallChannelsPage />);
-    const coupang = card('쿠팡(마켓플레이스)');
+    const coupang = card('쿠팡 WING');
     expect(within(coupang).getByText('456')).toBeInTheDocument();
     expect(within(coupang).getByTitle('리스팅 1,230개 · 주문 0건')).toBeInTheDocument();
   });
@@ -226,8 +226,8 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
   it('⭐ 되는 일은 초록, 아직은 회색, 개념이 없는 일은 빨강이다', () => {
     overview = fourMalls();
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '상품등록 됨' })).toBeInTheDocument();
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '주문수집 아직' })).toBeInTheDocument();
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '상품등록 됨' })).toBeInTheDocument();
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '주문수집 아직' })).toBeInTheDocument();
     expect(within(card('키즈노트')).getByRole('img', { name: '주문수집 됨' })).toBeInTheDocument();
     expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 불가' })).toBeInTheDocument();
     expect(within(card('토스쇼핑')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
@@ -240,7 +240,7 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
   it('⭐ 상품상태송신은 아직 초록이 없다 — 사입 채널만 불가, 나머지는 아직', () => {
     overview = fourMalls();
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '상품상태송신 아직' })).toHaveAttribute(
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '상품상태송신 아직' })).toHaveAttribute(
       'title',
       '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.',
     );

@@ -54,17 +54,18 @@ export function marketplaceSummaryCards(
     imported: (totals.get(channel) ?? 0) > 0 || (importedByKey.get(channel) ?? false),
   });
 
-  // 마켓 판매자 시스템(쿠팡 마켓플레이스 · 쿠팡 로켓)은 몰 등록 어댑터가 없지만 우리가
-  // 실제로 파는 곳이다. 아는 것이 있으면 맨 앞에 세운다 — 가장 큰 채널이 목록 끝으로
-  // 밀리면 이 대시보드가 답해야 할 질문을 답하지 못한다.
+  // 마켓 판매자 시스템(쿠팡 WING · 쿠팡 로켓)은 몰 등록 어댑터가 없지만 우리가 실제로 파는
+  // 곳이다. 몰 카드와 **같은 규칙**으로 늘 세우고, 아는 것이 없으면 0 이 아니라 '미확인'
+  // 이라고 말한다 — 어떤 카드는 조건부로 서고 어떤 카드는 늘 서면 빈 자리가 "거기엔 없다"
+  // 인지 "아직 안 가져왔다"인지 화면에서 갈리지 않는다. 다만 앞자리는 마켓이다: 가장 큰
+  // 채널이 목록 끝으로 밀리면 이 대시보드가 답해야 할 질문을 답하지 못한다.
   const fromRegistry = [
-    ...MARKETPLACE_CHANNELS
-      .filter((entry) => (totals.get(entry.key) ?? 0) > 0 || importedByKey.get(entry.key) === true)
-      .map((entry) => card(entry.key, entry.name)),
+    ...MARKETPLACE_CHANNELS.map((entry) => card(entry.key, entry.name)),
     ...MALL_PUBLISH_ADAPTERS.map((adapter) => card(adapter.mallKey, adapter.mallName)),
   ];
   const known = new Set(fromRegistry.map((item) => item.channel));
-  // 어댑터도 마켓도 아닌데 실제로 등록된 채널. 데이터가 있으니 숨기지 않는다.
+  // 어댑터도 마켓도 아닌데 실제로 등록된 채널(옛 철자로 저장된 행 등). 데이터가 있으니
+  // 숨기지 않는다 — 이름은 채널 레지스트리가 답한다.
   const extras = [...totals.keys()]
     .filter((channel) => !known.has(channel))
     .sort()

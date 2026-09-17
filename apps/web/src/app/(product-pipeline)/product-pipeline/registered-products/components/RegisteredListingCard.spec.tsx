@@ -42,7 +42,8 @@ describe('RegisteredListingCard', () => {
       />,
     );
 
-    expect(screen.getByText('쿠팡')).toBeInTheDocument();
+    // 채널 이름은 레지스트리가 답한다 — 카드가 제 표를 들고 있지 않다(KID-250).
+    expect(screen.getByText('쿠팡 WING')).toBeInTheDocument();
     expect(screen.getByText('재고 매칭 완료')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '콘텐츠 관리' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /AI 썸네일 생성/ })).not.toBeInTheDocument();

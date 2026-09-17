@@ -36,7 +36,7 @@
     Object.freeze({ "key": "ssg", "name": "신세계(SSG)", "kind": "mall", "collector": "sellpia", "uploadTracking": false, "register": "api", "verified": false, "logo": "/mall-logos/ssg.ico" }),
     Object.freeze({ "key": "thirtymall", "name": "떠리몰", "kind": "mall", "collector": "none", "uploadTracking": false, "register": "api", "verified": false, "logo": "/mall-logos/thirtymall.ico" }),
     Object.freeze({ "key": "yoons", "name": "윤선생", "kind": "mall", "collector": "none", "uploadTracking": false, "register": "none", "verified": false, "logo": "/mall-logos/yoons.ico" }),
-    Object.freeze({ "key": "coupang", "name": "쿠팡(마켓플레이스)", "kind": "marketplace", "collector": "sellpia", "uploadTracking": false, "register": "api", "verified": true, "logo": "/mall-logos/coupang.ico" }),
+    Object.freeze({ "key": "coupang", "name": "쿠팡 WING", "kind": "marketplace", "collector": "sellpia", "uploadTracking": false, "register": "api", "verified": true, "logo": "/mall-logos/coupang.ico" }),
     Object.freeze({ "key": "rocket", "name": "쿠팡 로켓", "kind": "marketplace", "collector": "extension", "uploadTracking": false, "register": "none", "verified": true, "logo": "/mall-logos/rocket.ico" }),
   ]);
 

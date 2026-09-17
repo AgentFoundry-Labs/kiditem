@@ -256,7 +256,7 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
       limit: 25,
       columns: [
         {
-          mallKey: 'coupang', mallName: '쿠팡(마켓플레이스)', channelAccountId: 'acc-1',
+          mallKey: 'coupang', mallName: '쿠팡 WING', channelAccountId: 'acc-1',
           hasAdapter: true, imported: true, listingCount: 1230,
           actions: {
             createListing: true, updateListing: true, soldOut: true, resume: true,
@@ -505,7 +505,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     matrixData = {
       total: 1, page: 1, limit: 25, filter: 'listed',
       columns: [{
-        mallKey: 'coupang', mallName: '쿠팡(마켓플레이스)', channelAccountId: 'acc-1',
+        mallKey: 'coupang', mallName: '쿠팡 WING', channelAccountId: 'acc-1',
         hasAdapter: true, imported: true, listingCount: 10, actions: base,
       }],
       rows: [{
@@ -523,7 +523,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('칸을 누르면 그 몰에서 가능한 작업이 나온다', () => {
     withActions();
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     const panel = screen.getByRole('dialog');
     expect(within(panel).getByText('이 몰에 등록')).toBeInTheDocument();
     expect(within(panel).getByText('품절 처리')).toBeInTheDocument();
@@ -534,7 +534,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('아무 작업도 실행되지 않는다 — 전부 비활성이다', () => {
     withActions();
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     const panel = screen.getByRole('dialog');
     for (const button of within(panel).getAllByRole('button')) {
       expect(button).toBeDisabled();
@@ -544,7 +544,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('몰이 못 하는 작업은 불가로 표시한다', () => {
     withActions({ soldOut: false, resume: false });
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     const panel = screen.getByRole('dialog');
     expect(within(panel).getAllByText('불가')).toHaveLength(2);
   });
@@ -552,7 +552,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('완전품절이 삭제인 몰은 누르기 전에 경고한다', () => {
     withActions({ soldOutDeletesListing: true });
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     const panel = screen.getByRole('dialog');
     expect(within(panel).getByText(/완전품절이 리스팅 삭제입니다/)).toBeInTheDocument();
     expect(within(panel).getByText('품절 처리 (삭제됨)')).toBeInTheDocument();
@@ -561,7 +561,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('승인제 몰은 등록이 아니라 신청이라고 말한다', () => {
     withActions({ requiresOperatorApproval: true });
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     expect(screen.getByText(/등록이 아니라 승인 신청입니다/)).toBeInTheDocument();
   });
 
@@ -578,7 +578,7 @@ describe('액션 UI (화면만, 실행 없음)', () => {
   it('칸 팝오버와 행 메뉴는 동시에 열리지 않는다', () => {
     withActions();
     render(<MallListingsPage />);
-    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡 WING 작업/ }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /작업 메뉴/ }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

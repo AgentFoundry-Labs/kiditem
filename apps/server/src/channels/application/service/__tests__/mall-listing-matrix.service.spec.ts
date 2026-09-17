@@ -61,6 +61,7 @@ function build(overrides: {
   matrixProducts?: MallMatrixProductRow[];
   orderCounts?: { channelAccountId: string; orderCount: number }[];
   masterProductCount?: number;
+  soldOutItems?: unknown[];
 } = {}) {
   const repository = {
     listMallAccounts: async () => overrides.mallAccounts ?? [],
@@ -79,6 +80,13 @@ function build(overrides: {
 
   const availability: ChannelSkuAvailabilityPort = {
     listSoldOutCandidates: async () => ({ candidates: [], total: 0 }),
+    list: async () => ({
+      items: overrides.soldOutItems ?? [],
+      total: (overrides.soldOutItems ?? []).length,
+      page: 1,
+      limit: 25,
+      summary: { total: 0, inStock: 0, outOfStock: 0, unmatched: 0, needsReview: 0 },
+    }),
   } as unknown as ChannelSkuAvailabilityPort;
 
   return new MallPublishingService(repository, availability);
@@ -96,7 +104,7 @@ describe('listingMatrix — 열', () => {
 
     const result = await service.listingMatrix(ORG, { page: 1, limit: 25 });
 
-    // 매니페스트에 29개 몰이 있어도 열은 2개다.
+    // 레지스트리에 29개 채널이 있어도 열은 2개다.
     expect(result.columns).toHaveLength(2);
     expect(result.columns.map((column) => column.mallKey)).toEqual(['coupang', 'rocket']);
     expect(result.columns.every((column) => column.imported)).toBe(true);
@@ -326,6 +334,59 @@ describe('channelOverview', () => {
       .toEqual(expect.arrayContaining(['coupang', 'rocket', 'kidsnote']));
     expect(overview.shop.connectedChannelCount).toBe(3);
     expect(overview.shop.publishableChannelCount).toBe(1);
+  });
+});
+
+/**
+ * 마켓 판매자 시스템은 몰 등록 매니페스트를 떠났다(KID-250). 허브 · 매트릭스 · 품절
+ * 미리보기가 그 사실을 **같은 말로** 해야 한다 — 어느 한 곳이 '보낼 수 있다'고 하면
+ * 사장님이 눌렀을 때 아무 일도 일어나지 않는다.
+ */
+describe('마켓 판매자 시스템 — 등록 경로 없음', () => {
+  it('⭐ 허브에서 쿠팡 윙은 보낼 수 있는 몰이 아니다', async () => {
+    const service = build({
+      listingAccounts: [account()],
+      mallAccounts: [mallAccount()],
+    });
+    const overview = await service.channelOverview(ORG);
+    const coupang = overview.channels.find((channel) => channel.mallKey === 'coupang');
+    expect(coupang?.canPublish).toBe(false);
+    expect(coupang?.readiness).toBe('unsupported');
+    // 그래도 줄은 선다 — 연결된 채널이고 리스팅이 있다.
+    expect(coupang?.listingCount).toBe(1230);
+  });
+
+  it('⭐ 매트릭스 열은 남되 어댑터가 없다 — 가져온 리스팅은 계속 보인다', async () => {
+    const service = build({ listingAccounts: [account()], mallAccounts: [mallAccount()] });
+    const result = await service.listingMatrix(ORG, { page: 1, limit: 25 });
+    expect(result.columns[0]).toMatchObject({ mallKey: 'coupang', hasAdapter: false, imported: true });
+  });
+
+  it('⭐ 품절 미리보기는 "매니페스트가 없습니다" 대신 그 채널의 성질을 말한다', async () => {
+    const service = build({
+      soldOutItems: [{
+        channelAccount: { id: 'acc-coupang', channel: 'coupang', name: 'Coupang Wing' },
+        product: { id: 'p1', externalProductId: 'x', registeredName: '반짝이풀펜', displayName: null, status: null },
+        sku: {
+          id: 's1', externalSkuId: 'sku-1', sellerSku: 'SKU-1', optionName: '단일',
+          barcode: null, modelNumber: null, salePrice: 3000, status: null,
+          mappingStatus: 'matched', sellableStock: 0, updatedAt: new Date().toISOString(),
+        },
+        masterProductId: 'mp-1',
+        recipeStatus: 'matched',
+        components: [],
+        warnings: [],
+      }],
+    });
+
+    const preview = await service.previewAvailability(ORG, 25);
+    const candidate = preview.candidates[0];
+    expect(candidate?.mallKey).toBe('coupang');
+    expect(candidate?.mallName).toBe('쿠팡 WING');
+    expect(candidate?.sendable).toBe(false);
+    expect(candidate?.blockedReason).toBe('쿠팡 WING은(는) 몰 상품등록·품절 송신 대상이 아닙니다.');
+    expect(preview.sendableCount).toBe(0);
+    expect(preview.blockedCount).toBe(1);
   });
 });
 
