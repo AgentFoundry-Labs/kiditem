@@ -55,7 +55,7 @@ export interface ChannelRegistryEntry {
  *
  * 몰의 순서는 주문수집 카탈로그 순서다 — 쇼핑몰 계정 화면의 기본 정렬이 이 순서를 쓴다.
  */
-export const CHANNEL_REGISTRY = [
+const REGISTRY_ROWS = [
   { key: 'one-polaris', name: '원폴라리스', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: null },
   { key: 'icecream-mall', name: '아이스크림몰', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/icecream-mall.png' },
   { key: 'kidkids', name: '키드키즈', kind: 'mall', collector: 'extension', uploadTracking: true, register: 'form', verified: false, logo: '/mall-logos/kidkids.ico' },
@@ -89,7 +89,14 @@ export const CHANNEL_REGISTRY = [
   { key: 'rocket', name: '쿠팡 로켓', kind: 'marketplace', collector: 'extension', uploadTracking: false, register: 'none', verified: true, logo: '/mall-logos/rocket.ico' },
 ] as const satisfies readonly ChannelRegistryEntry[];
 
-export type ChannelRegistryRow = (typeof CHANNEL_REGISTRY)[number];
+/**
+ * 읽는 쪽이 도는 목록. 리터럴 튜플(`REGISTRY_ROWS`)은 키 타입을 좁히는 데만 쓰고,
+ * 밖으로는 넓힌 행 타입으로 내보낸다 — 튜플 그대로 내보내면 한 행에만 있는 칸
+ * (`sharedAccountChannel`)을 읽을 때 합집합 전체에서 그 칸을 찾다 실패한다.
+ */
+export const CHANNEL_REGISTRY: readonly ChannelRegistryEntry[] = REGISTRY_ROWS;
+
+export type ChannelRegistryRow = (typeof REGISTRY_ROWS)[number];
 export type ChannelKey = ChannelRegistryRow['key'];
 
 export type MallChannelRow = Extract<ChannelRegistryRow, { kind: 'mall' }>;
@@ -98,7 +105,7 @@ export type MarketplaceChannelRow = Extract<ChannelRegistryRow, { kind: 'marketp
 export type MarketplaceChannelKey = MarketplaceChannelRow['key'];
 
 const BY_KEY = new Map<string, ChannelRegistryEntry>(
-  CHANNEL_REGISTRY.map((entry) => [entry.key, entry]),
+  REGISTRY_ROWS.map((entry) => [entry.key, entry]),
 );
 
 /** 레지스트리에 있는 채널. 모르는 키면 null. */
@@ -111,12 +118,12 @@ export function isChannelKey(key: string): key is ChannelKey {
 }
 
 /** 몰만. 주문수집 카탈로그와 몰 등록 매니페스트가 이 목록이다. */
-export const MALL_CHANNELS: readonly MallChannelRow[] = CHANNEL_REGISTRY.filter(
+export const MALL_CHANNELS: readonly MallChannelRow[] = REGISTRY_ROWS.filter(
   (entry): entry is MallChannelRow => entry.kind === 'mall',
 );
 
 /** 마켓 판매자 시스템만. 쿠팡 윙과 쿠팡 로켓이다. */
-export const MARKETPLACE_CHANNELS: readonly MarketplaceChannelRow[] = CHANNEL_REGISTRY.filter(
+export const MARKETPLACE_CHANNELS: readonly MarketplaceChannelRow[] = REGISTRY_ROWS.filter(
   (entry): entry is MarketplaceChannelRow => entry.kind === 'marketplace',
 );
 
@@ -134,6 +141,14 @@ export function findMallChannel(key: string): MallChannelRow | null {
  */
 export function channelOutcomeKey(key: string): string {
   return findChannel(key)?.sharedAccountChannel ?? key;
+}
+
+/**
+ * 이 채널의 계정 행을 함께 쓰는 다른 채널. 쿠팡 로켓 행의 로그인은 쿠팡직배송이 저장한다
+ * (ADR-0012) — 화면이 로켓 줄의 계정을 찾을 때 이 관계를 되짚는다.
+ */
+export function channelSharingAccountRow(key: string): ChannelRegistryEntry | null {
+  return CHANNEL_REGISTRY.find((entry) => entry.sharedAccountChannel === key) ?? null;
 }
 
 /** 확장이 이 채널의 폼을 채울 때 여는 스펙 키. 대개 제 키와 같다. */

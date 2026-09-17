@@ -64,7 +64,8 @@ describe('채널 레지스트리 = 아직 남은 사본들', () => {
     expect(shared).toEqual({ ...MALL_OPERATION_OUTCOME_KEY_ALIASES });
   });
 
-  it('⭐ 웹 로고 표가 레지스트리의 로고와 같고, 파일이 실제로 있다', () => {
+  /** 로고 경로는 레지스트리에만 있다. 파일이 없으면 화면이 깨진 이미지를 그린다. */
+  it('⭐ 레지스트리가 가리키는 로고 파일이 웹 public 에 실제로 있다', () => {
     for (const entry of CHANNEL_REGISTRY) {
       if (entry.logo === null) continue;
       expect([entry.key, existsSync(path.join(ROOT, 'apps/web/public', entry.logo))])
@@ -72,15 +73,6 @@ describe('채널 레지스트리 = 아직 남은 사본들', () => {
     }
     expect(CHANNEL_REGISTRY.filter((entry) => entry.logo === null).map((entry) => entry.key))
       .toEqual(['one-polaris']);
-
-    const webTable = readRepoFile('apps/web/src/app/(channels)/_shared/mall-presentation.ts');
-    const fromWeb = [...webTable.matchAll(/^ {2}'([^']+)': '(\/mall-logos\/[^']+)',$/gm)]
-      .map(([, key, logo]) => [key, logo]);
-    expect(Object.fromEntries(fromWeb)).toEqual(
-      Object.fromEntries(
-        CHANNEL_REGISTRY.filter((entry) => entry.logo !== null).map((entry) => [entry.key, entry.logo]),
-      ),
-    );
   });
 
   /**

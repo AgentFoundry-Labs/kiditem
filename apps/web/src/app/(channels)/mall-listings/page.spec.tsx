@@ -10,12 +10,12 @@ import MallListingsPage from './page';
  * 붙일 때 이 파일도 페이지도 고칠 필요가 없다는 뜻이다.
  */
 
-const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWingExcelMock } =
+const { fillKidsnoteMock, prepareKidsnoteMock, fillMallFormMock, prepareMallFormMock } =
   vi.hoisted(() => ({
     fillKidsnoteMock: vi.fn(),
     prepareKidsnoteMock: vi.fn(),
-    generateWingExcelMock: vi.fn(),
-    downloadWingExcelMock: vi.fn(),
+    fillMallFormMock: vi.fn(),
+    prepareMallFormMock: vi.fn(),
   }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -59,12 +59,44 @@ vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registra
   fillKidsnoteRegistrationForm: fillKidsnoteMock,
 }));
 
-vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow', () => ({
-  generateWingExcelForCandidates: generateWingExcelMock,
-  downloadWingExcel: downloadWingExcelMock,
-}));
+vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api', async () => {
+  const actual = await vi.importActual<typeof import('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api')>(
+    '../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api',
+  );
+  return {
+    ...actual,
+    prepareMallRegistration: prepareMallFormMock,
+    fillMallRegistrationForm: fillMallFormMock,
+  };
+});
 
 let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
+
+/** 몰 어댑터가 폼을 조립할 수 있는 최소 초안. */
+function mallDraft() {
+  return {
+    candidateId: 'c1',
+    displayName: '킬러볼 스피너 키링',
+    sellerProductName: '킬러볼 스피너 키링',
+    brand: '키드아이템',
+    maker: '거영I&D',
+    keywords: ['키링'],
+    representativeImageUrl: 'https://cdn.test/main.jpg',
+    additionalImageUrls: [],
+    detailImageUrls: ['https://cdn.test/detail.jpg'],
+    notice: { category: '아동용품', fields: {} },
+    variants: [{
+      options: [],
+      salePrice: 2280,
+      listPrice: 2280,
+      stock: 10,
+      barcode: null,
+      sellerSku: null,
+      representativeImageUrl: 'https://cdn.test/main.jpg',
+    }],
+    sourceCategory: null,
+  };
+}
 
 /** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. */
 function goToWizard() {
@@ -90,7 +122,16 @@ beforeEach(() => {
     warnings: [],
     manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
   });
-  generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
+  // 어댑터의 진짜 폼 조립 코드를 그대로 돌리기 위해 초안은 완성된 모양으로 준다.
+  prepareMallFormMock.mockResolvedValue({ draft: mallDraft(), detailImageUrl: 'x' });
+  fillMallFormMock.mockResolvedValue({
+    ok: true,
+    mall: 'domeggook',
+    submitted: false,
+    steps: [],
+    warnings: [],
+    manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
+  });
 });
 
 describe('상품 등록 (N × M)', () => {
@@ -107,7 +148,7 @@ describe('상품 등록 (N × M)', () => {
     selectProduct('공룡 물총');
     goNext();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '도매꾹 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
 
     expect(screen.getByText('상품 2')).toBeInTheDocument();
@@ -148,13 +189,13 @@ describe('상품 등록 (N × M)', () => {
     expect(screen.getByText('1건')).toBeInTheDocument();
   });
 
-  it('몰마다 다른 단위로 쪼개 순차 송신한다', async () => {
+  it('몰마다 상품 하나씩 순차 송신한다 — 폼 자동채움은 탭을 점유한다', async () => {
     render(<MallListingsPage />);
     goToWizard();
     selectProduct('킬러볼 스피너 키링');
     selectProduct('공룡 물총');
     goNext();
-    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '도매꾹 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
 
@@ -163,10 +204,8 @@ describe('상품 등록 (N × M)', () => {
     await waitFor(() => {
       expect(fillKidsnoteMock).toHaveBeenCalledTimes(2);
     });
-    // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
-    expect(generateWingExcelMock).toHaveBeenCalledWith(['c1', 'c2'], expect.anything());
-    expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(fillMallFormMock).toHaveBeenCalledTimes(2);
+    expect(fillMallFormMock.mock.calls.every(([mall]) => mall === 'domeggook')).toBe(true);
   });
 
   it('보냈다고 등록됐다고 말하지 않는다', async () => {
@@ -195,7 +234,7 @@ describe('상품 등록 (N × M)', () => {
     goToWizard();
     selectProduct('킬러볼 스피너 키링');
     goNext();
-    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '도매꾹 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
     fireEvent.click(screen.getByRole('button', { name: /2건 보내기/ }));
@@ -203,7 +242,7 @@ describe('상품 등록 (N × M)', () => {
     await waitFor(() => {
       expect(screen.getByText('확장을 새로고침하세요')).toBeInTheDocument();
     });
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(fillMallFormMock).toHaveBeenCalledTimes(1);
     // 요약 카드 라벨과 작업 줄의 상태, 둘 다 '실패' 로 나온다.
     expect(screen.getAllByText('실패').length).toBeGreaterThanOrEqual(2);
   });

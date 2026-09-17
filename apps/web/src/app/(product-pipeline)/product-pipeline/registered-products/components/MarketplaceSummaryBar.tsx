@@ -1,5 +1,6 @@
 'use client';
 
+import { MARKETPLACE_CHANNELS } from '@kiditem/shared/channel-registry';
 import { MALL_PUBLISH_ADAPTERS } from '@/app/(channels)/_shared/adapters';
 import { formatNumber } from '@/lib/utils';
 import { channelDisplayName } from './RegisteredListingCard';
@@ -9,7 +10,7 @@ import type { RegisteredMarketCount } from '../lib/channel-listings-api';
 /**
  * 마켓별 등록한 상품 수.
  *
- * 카드 목록을 **어댑터 레지스트리에서 만든다.** 예전에는 다섯 채널이 코드에 박혀 있어
+ * 카드 목록을 **어댑터 레지스트리와 채널 레지스트리에서 만든다.** 예전에는 다섯 채널이 코드에 박혀 있어
  * 우리가 실제로 등록하는 몰(키즈노트·도매꾹·온채널·아트공구·올웨이즈·티처몰)이 하나도
  * 안 보이고, 쓰지도 않는 스마트스토어·ESM Plus 가 빈 칸으로 자리만 차지했다.
  * 몰을 늘리면 이 대시보드에도 저절로 나타나야 한다.
@@ -53,10 +54,17 @@ export function marketplaceSummaryCards(
     imported: (totals.get(channel) ?? 0) > 0 || (importedByKey.get(channel) ?? false),
   });
 
-  const fromRegistry = MALL_PUBLISH_ADAPTERS.map((adapter) =>
-    card(adapter.mallKey, adapter.mallName));
+  // 마켓 판매자 시스템(쿠팡 마켓플레이스 · 쿠팡 로켓)은 몰 등록 어댑터가 없지만 우리가
+  // 실제로 파는 곳이다. 아는 것이 있으면 맨 앞에 세운다 — 가장 큰 채널이 목록 끝으로
+  // 밀리면 이 대시보드가 답해야 할 질문을 답하지 못한다.
+  const fromRegistry = [
+    ...MARKETPLACE_CHANNELS
+      .filter((entry) => (totals.get(entry.key) ?? 0) > 0 || importedByKey.get(entry.key) === true)
+      .map((entry) => card(entry.key, entry.name)),
+    ...MALL_PUBLISH_ADAPTERS.map((adapter) => card(adapter.mallKey, adapter.mallName)),
+  ];
   const known = new Set(fromRegistry.map((item) => item.channel));
-  // 레지스트리에 없는데 실제로 등록된 채널(쿠팡 로켓 등). 데이터가 있으니 숨기지 않는다.
+  // 어댑터도 마켓도 아닌데 실제로 등록된 채널. 데이터가 있으니 숨기지 않는다.
   const extras = [...totals.keys()]
     .filter((channel) => !known.has(channel))
     .sort()

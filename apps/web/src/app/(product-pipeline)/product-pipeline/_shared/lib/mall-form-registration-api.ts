@@ -1,3 +1,4 @@
+import { channelFormSpec, type ChannelKey } from '@kiditem/shared/channel-registry';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { loadMallLoginCredentials } from '@/lib/mall-login-credentials';
 import {
@@ -25,53 +26,14 @@ import {
 /** 이미지 내려받기·화면 로딩·동적 고시 칸 생성까지 감안한다. */
 const MALL_FILL_TIMEOUT_MS = 120_000;
 
-export type MallFormRegisterMall =
-  | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st' | 'icecream'
-  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall' | 'kidkids' | 'ssg' | 'smartstore' | 'gsshop' | 'lotteon';
-
 /**
- * 확장 폼 스펙 이름 → 쇼핑몰 계정 키.
+ * 확장에 넘길 채널 키. 몰 키 하나로 통한다 — 확장 폼 스펙 키도, 저장된 계정 키도 같은 값이다.
  *
- * 둘이 다른 것이 정상이다. 스펙 이름은 확장 안에서 "어느 폼을 채우나" 이고, 계정 키는
- * 서버가 자격증명을 묶어 둔 이름이다. 섞으면 자동 로그인이 조용히 아무것도 안 한다.
- *
- * 11번가·올웨이즈는 채울 로그인 폼이 없다(JWT·토큰 방식). 자격증명을 넘겨도 확장이
- * 로그인하지 못하고 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
+ * 예전에는 확장 스펙 이름(`gsshop`·`artgonggu`·`alwayz` …)과 계정 키가 달라 웹이 번역표를
+ * 들고 있었고, 그 표를 빠뜨린 몰은 자동 로그인이 조용히 아무것도 하지 않았다. 스펠링이
+ * 다를 수 있는 자리는 레지스트리의 `formSpec` 한 칸뿐이다(옥션 → 지마켓 ESM 폼).
  */
-export const MALL_ACCOUNT_KEY: Record<MallFormRegisterMall, string> = {
-  domeggook: 'domeggook',
-  onch: 'onch',
-  artgonggu: 'art09',
-  alwayz: 'always',
-  teacherville: 'teacher-mall',
-  '11st': '11st',
-  icecream: 'icecream-mall',
-  // ESM Plus(G마켓·옥션)는 주문수집에 붙어 있지 않아 저장된 계정이 없다. 그래서 이 키로
-  // 찾으면 `null` 이 나오고, 확장은 예전처럼 지금 열려 있는 세션에 기댄다 — 맞는 동작이다.
-  // 사장님이 나중에 쇼핑몰 계정 설정에 넣으면 그때부터 자동 로그인이 붙는다.
-  esmplus: 'esmplus',
-  // 주문수집에 이미 붙어 있는 몰이라 저장된 계정이 있다 — 자동 로그인이 붙는다.
-  boribori: 'boribori',
-  // 주문수집에 이미 붙어 있다 — 저장된 계정으로 자동 로그인이 붙는다.
-  kkomangse: 'kkomangse',
-  // 쇼핑몰 계정 목록에 이미 있는 키다(주문수집은 아직). 샵바이 로그인 화면은 실측 전이라
-  // 자동 로그인이 못 붙으면 확장이 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
-  thirtymall: 'thirtymall',
-  // 주문수집·송장 등록에 이미 붙어 있는 몰이라 저장된 계정으로 자동 로그인이 붙는다.
-  kidkids: 'kidkids',
-  // 쇼핑몰 계정 목록에 있는 키다. 파트너오피스 로그인 화면은 실측 전이라 자동 로그인이 못
-  // 붙으면 확장이 "직접 로그인하세요" 로 멈춘다.
-  ssg: 'ssg',
-  // 서버 매니페스트 키와 같다. 스마트스토어 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  smartstore: 'smartstore',
-  // 주문수집에 이미 붙어 있는 몰 키다. 파트너스 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  gsshop: 'gs-shop',
-  // 주문수집에 이미 붙어 있는 몰 키다. 롯데ON 로그인은 통합회원 화면이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  lotteon: 'lotte-on',
-};
+export type MallFormRegisterMall = ChannelKey;
 
 export interface MallFormRegistrationResult {
   ok: boolean;
@@ -122,11 +84,12 @@ export async function fillMallRegistrationForm(
   }
 
   // 로그인이 풀려 있으면 확장이 이 값으로 그 탭에서 로그인한 뒤 다시 채운다. 저장해 둔
-  // 계정이 없으면 `null` 이고, 그때는 예전처럼 지금 열려 있는 세션에 기댄다.
+  // 계정이 없으면 `null` 이고, 그때는 예전처럼 지금 열려 있는 세션에 기댄다. 11번가 ·
+  // 올웨이즈는 채울 로그인 폼이 없어(JWT · 토큰) 확장이 "직접 로그인하세요" 로 멈춘다 —
+  // 그게 맞는 동작이다.
   //
   // ⚠️ 비밀번호가 들어 있다. 로그·토스트·오류 메시지에 싣지 말 것.
-  const accountKey = MALL_ACCOUNT_KEY[mall];
-  const credentials = await loadMallLoginCredentials(accountKey);
+  const credentials = await loadMallLoginCredentials(mall);
 
   let response: ExtensionResponse;
   try {
@@ -134,9 +97,10 @@ export async function fillMallRegistrationForm(
       extensionId,
       {
         action: 'registerToMallForm',
-        mall,
+        // 확장이 열 폼. 대개 몰 키와 같고, 옥션만 지마켓 ESM 폼을 함께 쓴다.
+        mall: channelFormSpec(mall),
         form,
-        accountKey,
+        accountKey: mall,
         ...(credentials ? { credentials } : {}),
       },
       MALL_FILL_TIMEOUT_MS,

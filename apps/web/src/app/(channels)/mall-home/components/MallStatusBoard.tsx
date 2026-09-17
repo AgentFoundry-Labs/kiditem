@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { MALL_SESSION_PROBE_CAPABILITY } from '@/lib/mall-session-probe';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
-import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
+import { mallAccentClass, mallMonogram } from '../../_shared/mall-presentation';
 import type { MallStatusTile, MallTileTone, TileLoginState } from '../lib/mall-alerts';
 import type { MallSessionView } from '../lib/mall-session';
 
@@ -183,7 +184,7 @@ function MallTile({
   const { text, Icon } = TONE[tile.tone];
   const login = tile.login ? LOGIN[tile.login] : null;
   const LoginIcon = login?.Icon;
-  const logo = mallLogoPath(tile.mallKey);
+  const logo = channelLogoPath(tile.mallKey);
   // 문제 있는 몰(실패 · 확인 필요 · 로그인 풀림)은 타일 전체를 빨갛게 — 한눈에 골라 보이게.
   const problem = tile.tone === 'failed' || tile.tone === 'attention';
   return (

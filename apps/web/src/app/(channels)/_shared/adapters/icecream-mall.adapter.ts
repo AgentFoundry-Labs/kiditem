@@ -90,7 +90,7 @@ function parsePositive(raw: string | undefined, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }
 
-export const icecreamAdapter: MallPublishAdapter = {
+export const icecreamMallAdapter: MallPublishAdapter = {
   mallKey: 'icecream-mall',
   mallName: '아이스크림몰',
   mode: 'form',
@@ -173,7 +173,7 @@ export const icecreamAdapter: MallPublishAdapter = {
         : {}),
       ...(values.naverMinPriceUrl?.trim() ? { naverMinPriceUrl: values.naverMinPriceUrl.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('icecream', withCert, form);
+    const result = await fillMallRegistrationForm('icecream-mall', withCert, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. 사람이 등록하고 승인요청까지 해야 한다.

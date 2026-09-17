@@ -15,16 +15,15 @@ import {
 describe('몰 등록 어댑터 레지스트리', () => {
   it('등록된 몰 목록이 레지스트리와 같다', () => {
     expect(MALL_PUBLISH_ADAPTERS.map((a) => a.mallKey).sort())
-      .toEqual(['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall']);
+      .toEqual(['11st', 'always', 'art09', 'boribori', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall']);
   });
 
   it('몰키가 서버 매니페스트 키와 같다', () => {
-    // 화면은 이 키로 채널 계정을 찾아 불을 켜고 로고를 고른다. 확장에 넘기는 이름
-    // (`artgonggu`·`alwayz`·`teacherville`)과 다른 것이 정상이다 — 그건 확장 안의
-    // 폼 스펙 이름이다. 여기 키는 `mall-adapter-manifest.ts` 의 `key` 여야 한다.
-    // 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이 통째로 빈다.
+    // 화면은 이 키로 채널 계정을 찾아 불을 켜고 로고를 고른다. 확장 폼 스펙 이름도 이제
+    // 같은 키다(KID-250) — 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이
+    // 통째로 빈다. 마켓 판매자 시스템(쿠팡 마켓플레이스·로켓)에는 어댑터를 두지 않는다.
     const manifestKeys = new Set([
-      'coupang', 'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
+      'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
       'icecream-mall', 'gmarket', 'boribori', 'kkomangse', 'thirtymall', 'kidkids', 'ssg', 'smartstore', 'gs-shop',
       'lotte-on',
     ]);

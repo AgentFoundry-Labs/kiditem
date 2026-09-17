@@ -48,10 +48,20 @@ describe('marketplaceSummaryCards', () => {
     }
   });
 
-  it('레지스트리가 먼저 오고 그 밖의 채널이 뒤에 붙는다', () => {
+  /**
+   * 마켓 판매자 시스템은 몰 등록 어댑터가 없다(KID-250). 숫자가 있으면 맨 앞에 선다 —
+   * 가장 큰 채널이 목록 끝으로 밀리면 이 대시보드가 답해야 할 질문을 답하지 못한다.
+   */
+  it('⭐ 숫자가 있는 마켓이 먼저 오고 그다음이 어댑터 몰이다', () => {
     const cards = marketplaceSummaryCards([count('rocket', 459)], []);
-    expect(cards.at(-1)).toMatchObject({ channel: 'rocket', label: '쿠팡 로켓', count: 459 });
+    expect(cards[0]).toMatchObject({ channel: 'rocket', label: '쿠팡 로켓', count: 459 });
     expect(cards.length).toBe(MALL_PUBLISH_ADAPTERS.length + 1);
+  });
+
+  it('숫자도 리스팅도 없는 마켓은 카드를 만들지 않는다', () => {
+    const cards = marketplaceSummaryCards([], []);
+    expect(cards.map((row) => row.channel)).not.toContain('rocket');
+    expect(cards.length).toBe(MALL_PUBLISH_ADAPTERS.length);
   });
 
   it('같은 채널의 계정별 숫자를 합친다', () => {
@@ -91,7 +101,7 @@ describe('MarketplaceSummaryBar', () => {
 
   it('숫자가 있는 몰은 숫자를 보여 준다', () => {
     renderBar();
-    expect(screen.getByRole('button', { name: '쿠팡 WING 1228개' })).toHaveTextContent('1,228');
+    expect(screen.getByRole('button', { name: '쿠팡(마켓플레이스) 1228개' })).toHaveTextContent('1,228');
   });
 
   it('가져왔는데 0 이면 0 을, 가져온 적 없으면 미확인을 보여 준다', () => {
@@ -109,13 +119,13 @@ describe('MarketplaceSummaryBar', () => {
 
   it('카드를 누르면 그 채널로 거른다', () => {
     const props = renderBar();
-    fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING 1228개' }));
+    fireEvent.click(screen.getByRole('button', { name: '쿠팡(마켓플레이스) 1228개' }));
     expect(props.onSelectChannel).toHaveBeenCalledWith('coupang');
   });
 
   it('고른 카드를 다시 누르면 해제한다', () => {
     const props = renderBar({ activeChannel: 'coupang' });
-    fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING 1228개' }));
+    fireEvent.click(screen.getByRole('button', { name: '쿠팡(마켓플레이스) 1228개' }));
     expect(props.onSelectChannel).toHaveBeenCalledWith(null);
   });
 

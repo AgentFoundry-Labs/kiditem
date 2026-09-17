@@ -88,7 +88,7 @@ function parsePositive(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-export const onchannelAdapter: MallPublishAdapter = {
+export const onchAdapter: MallPublishAdapter = {
   mallKey: 'onch',
   mallName: '온채널',
   mode: 'form',
