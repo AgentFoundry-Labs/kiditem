@@ -48,12 +48,18 @@ export function parseModelOwners(fileName, source) {
   return owners;
 }
 
-/** Every `@relation(fields: …)` a schema file declares, in file order. */
+/**
+ * Every `@relation(fields: …)` a schema file declares, in file order, plus the
+ * `@relation(` lines this reader could not take apart. An unreadable one is
+ * never silently dropped: it would leave the guard counting fewer relations
+ * than the schema has and still printing PASS.
+ */
 export function parseRelationEdges(fileName, source) {
   const defaultOwner = path.basename(fileName, '.prisma');
   const file = `${MODELS_DIR}/${path.basename(fileName)}`;
   const lines = source.split('\n');
   const edges = [];
+  const unparsed = [];
   let model = null;
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -72,8 +78,16 @@ export function parseRelationEdges(fileName, source) {
     }
     if (!model) continue;
 
+    // Wrapped over several lines, preceded by another attribute, or carrying a
+    // `)` inside a quoted argument: read it as nothing and the relation leaves
+    // the count without leaving the schema.
     const relation = RELATION_FIELD.exec(line);
-    if (!relation) continue;
+    if (!relation || !hasBalancedParentheses(line)) {
+      if (line.includes('@relation(')) {
+        unparsed.push({ file, line: index + 1, text: line });
+      }
+      continue;
+    }
     const [, field, target, attributeArguments] = relation;
     if (!/\bfields:\s*\[/.test(attributeArguments)) continue;
 
@@ -87,7 +101,17 @@ export function parseRelationEdges(fileName, source) {
     });
   }
 
-  return edges;
+  return { edges, unparsed };
+}
+
+function hasBalancedParentheses(line) {
+  let depth = 0;
+  for (const character of line) {
+    if (character === '(') depth += 1;
+    else if (character === ')') depth -= 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
 }
 
 function relationKey(sourceOwner, sourceModel, targetOwner, targetModel) {
@@ -193,15 +217,18 @@ export function inspectCrossOwnerRelations({ root, config }) {
 
   const modelOwners = new Map();
   const edges = [];
+  const unparsed = [];
   for (const name of files) {
     const source = readFileSync(path.join(modelsDir, name), 'utf8');
     for (const [model, owner] of parseModelOwners(name, source)) {
       modelOwners.set(model, owner);
     }
-    edges.push(...parseRelationEdges(name, source));
+    const parsed = parseRelationEdges(name, source);
+    edges.push(...parsed.edges);
+    unparsed.push(...parsed.unparsed);
   }
 
-  return classifyRelations({ edges, config, modelOwners });
+  return { ...classifyRelations({ edges, config, modelOwners }), unparsed };
 }
 
 function main() {
@@ -220,7 +247,8 @@ function main() {
   const hasFailure =
     result.unlisted.length > 0 ||
     result.stale.length > 0 ||
-    result.unknownTargets.length > 0;
+    result.unknownTargets.length > 0 ||
+    result.unparsed.length > 0;
 
   if (hasFailure) {
     console.error('check:cross-owner-fk FAIL');
@@ -235,6 +263,11 @@ function main() {
     for (const key of result.stale) {
       console.error(
         `${CONFIG_FILE}: stale allowlist entry "${key}"; the relation is gone, remove the entry`,
+      );
+    }
+    for (const entry of result.unparsed) {
+      console.error(
+        `${entry.file}:${entry.line} could not read this @relation; write it on one line`,
       );
     }
     for (const edge of result.unknownTargets) {

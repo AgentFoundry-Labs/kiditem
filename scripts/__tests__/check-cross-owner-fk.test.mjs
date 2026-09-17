@@ -65,8 +65,45 @@ model OrderItem {
 }
 `;
 
+const UNREADABLE_SOURCE = `/// @namespace Orders
+model Order {
+  id String @id @default(uuid()) @db.Uuid
+
+  channelAccount ChannelAccount @relation(
+    fields: [channelAccountId, organizationId],
+    references: [id, organizationId],
+  )
+  mapped ChannelListing @relation(map: "order_listing)fk", fields: [listingId], references: [id])
+  items  OrderItem[]    @relation("OrderItems")
+
+  @@map("orders")
+}
+`;
+
+test('reports a @relation it cannot read on one line instead of skipping it', () => {
+  const { edges, unparsed } = parseRelationEdges(
+    'orders.prisma',
+    UNREADABLE_SOURCE,
+  );
+
+  assert.deepEqual(edges, []);
+  assert.deepEqual(
+    unparsed.map(({ line, text }) => ({ line, text: text.trim() })),
+    [
+      {
+        line: 5,
+        text: 'channelAccount ChannelAccount @relation(',
+      },
+      {
+        line: 9,
+        text: 'mapped ChannelListing @relation(map: "order_listing)fk", fields: [listingId], references: [id])',
+      },
+    ],
+  );
+});
+
 test('reads the model, field, and target of every @relation that owns fields', () => {
-  const edges = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
+  const { edges } = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
 
   assert.deepEqual(
     edges.map(({ model, field, target }) => ({ model, field, target })),
@@ -84,7 +121,7 @@ test('reads the model, field, and target of every @relation that owns fields', (
 });
 
 test('classifies scope, SourceImportRun, intra-owner, and cross-owner relations', () => {
-  const edges = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
+  const { edges } = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
   const result = classifyRelations({ edges, config: CONFIG });
 
   assert.deepEqual(
@@ -109,7 +146,7 @@ test('classifies scope, SourceImportRun, intra-owner, and cross-owner relations'
 });
 
 test('treats an allowlisted cross-owner relation as satisfied and reports no stale entry', () => {
-  const edges = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
+  const { edges } = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
   const result = classifyRelations({
     edges,
     config: {
@@ -123,7 +160,7 @@ test('treats an allowlisted cross-owner relation as satisfied and reports no sta
 });
 
 test('an allowlist entry covers one relation, so a second one between the same models fails', () => {
-  const edges = parseRelationEdges(
+  const { edges } = parseRelationEdges(
     'orders.prisma',
     ORDERS_SOURCE.replace(
       '  items           OrderItem[]\n',
@@ -147,7 +184,7 @@ test('an allowlist entry covers one relation, so a second one between the same m
 });
 
 test('reports an allowlist entry whose relation no longer exists as stale', () => {
-  const edges = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
+  const { edges } = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
   const result = classifyRelations({
     edges,
     config: {
