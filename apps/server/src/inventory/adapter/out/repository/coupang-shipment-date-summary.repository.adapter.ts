@@ -291,7 +291,10 @@ function checksum(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 async function lock(tx: Tx, organizationId: string) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`inventory:${SOURCE}:${organizationId}`}, 0))`;
+  await tx.$executeRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    SELECT pg_advisory_xact_lock(hashtextextended(${`inventory:${SOURCE}:${organizationId}`}, 0))
+  `;
 }
 async function find(tx: Tx, organizationId: string, id: string) {
   const run = await tx.sourceImportRun.findFirst({
