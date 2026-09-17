@@ -98,6 +98,44 @@ describe('MallOperationOutcomeService', () => {
     expect(item.mallKey).toBe('rocket');
   });
 
+  /**
+   * 몰이 돌려준 문장에는 아이디 · 주문번호가 섞여 들어온다("아이디(abc123)가 존재하지
+   * 않습니다"). 무슨 일인지는 이유 코드가 말하므로 글은 저장하지 않는다 — 웹이 넘기더라도
+   * 표의 주인인 여기서 버린다.
+   */
+  it('⭐ drops the message when a reason code already says what happened', async () => {
+    const { repository, service } = setup();
+    await service.record(ORG, 'user-1', {
+      idempotencyKey: KEY,
+      mallKey: 'kidsnote',
+      operation: 'login_test',
+      outcome: 'failed',
+      reasonCode: 'credentials_rejected',
+      message: '키즈노트: 아이디(abc123)가 존재하지 않습니다',
+    });
+
+    expect(repository.record).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: 'credentials_rejected', message: null }),
+    );
+    expect(JSON.stringify(vi.mocked(repository.record).mock.calls)).not.toContain('abc123');
+  });
+
+  /** 이유 코드가 없으면 그 한 줄이 무슨 일인지 말하는 유일한 것이라 그대로 둔다. */
+  it('keeps a short summary when no reason code says what happened', async () => {
+    const { repository, service } = setup();
+    await service.record(ORG, null, {
+      idempotencyKey: KEY,
+      mallKey: 'onch',
+      operation: 'registration_fill',
+      outcome: 'succeeded',
+      message: '12건 채움',
+    });
+
+    expect(repository.record).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: null, message: '12건 채움' }),
+    );
+  });
+
   it('summarises the latest outcome and counts per mall and operation', async () => {
     const now = new Date('2026-09-12T12:00:00.000Z');
     const { repository, service } = setup({

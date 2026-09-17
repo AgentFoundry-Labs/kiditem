@@ -16,7 +16,9 @@ collection, Sellpia transfer, and tracking upload results are Orders facts and
 never land here. Organization and actor come from the session, the body is a
 strict shared contract, the mall key must be in the adapter manifest, rows hold
 counts and reason codes only, and reads go through
-`read/mall-operation-outcome.reader.ts`.
+`read/mall-operation-outcome.reader.ts`. Rows key on the mall's own channel key,
+with `coupang-direct` folded into the `rocket` row it shares; writers and readers
+both fold through `mallOperationOutcomeKey` from `@kiditem/shared`.
 
 Mall publishing reads one account row per mall (`channel` = mall key,
 ADR-0012) and never creates or edits account rows; the Orders mall account

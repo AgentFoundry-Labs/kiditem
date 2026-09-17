@@ -47,7 +47,7 @@ function toItem(row: MallOperationOutcomeRow): MallOperationOutcomeItem {
  * 조직과 사람은 세션에서만 받는다. 몰 키는 매니페스트가 아는 몰이어야 한다. 같은
  * idempotencyKey 는 한 번만 쓴다. 계정 행을 함께 쓰는 몰(쿠팡직배송 → 로켓)은 그 행의
  * 채널로 접어 쌓는다 — 접는 규칙은 계약(`mallOperationOutcomeKey`)이 가지고, 화면도
- * 같은 함수로 읽는다.
+ * 같은 함수로 읽는다. 이유 코드가 있는 줄은 글을 담지 않는다.
  */
 @Injectable()
 export class MallOperationOutcomeService {
@@ -65,6 +65,10 @@ export class MallOperationOutcomeService {
     if (!getMallAdapterManifest(input.mallKey)) {
       throw new BadRequestException(`알 수 없는 몰입니다: ${input.mallKey}`);
     }
+    // 이유 코드가 무슨 일인지 말하면 글은 담지 않는다. 몰이 돌려준 문장에는 아이디 ·
+    // 주문번호가 섞여 들어오고("아이디(abc123)가 존재하지 않습니다"), 이 표는 개수와 이유
+    // 코드만 갖는다. 부르는 쪽이 넘기더라도 표의 주인인 여기서 버린다.
+    const reasonCode = input.reasonCode ?? null;
     const row = await this.repository.record({
       organizationId,
       actorUserId,
@@ -72,8 +76,8 @@ export class MallOperationOutcomeService {
       mallKey: mallOperationOutcomeKey(input.mallKey),
       operation: input.operation,
       outcome: input.outcome,
-      reasonCode: input.reasonCode ?? null,
-      message: input.message ?? null,
+      reasonCode,
+      message: reasonCode ? null : input.message ?? null,
       itemCount: input.itemCount ?? null,
       failedCount: input.failedCount ?? null,
       warningCount: input.warningCount ?? null,
