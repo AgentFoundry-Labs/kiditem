@@ -79,9 +79,10 @@ function loadMallLogin({
       },
       tabs: {
         async get() {
-          const url = tabUrls[Math.min(urlIndex, tabUrls.length - 1)];
+          const entry = tabUrls[Math.min(urlIndex, tabUrls.length - 1)];
           urlIndex += 1;
-          return { id: 17, url };
+          // 문자열은 머무른 주소, 객체는 크롬이 주는 그대로(가고 있는 주소 포함).
+          return { id: 17, ...(typeof entry === "string" ? { url: entry } : entry) };
         },
       },
     },
@@ -188,6 +189,26 @@ test("kidkids waits through the initial management redirect and submits the even
   assert.equal(result.success, true);
   assert.equal(result.submitted, true);
   assert.equal(getScanCount(), 2);
+});
+
+/**
+ * 키드키즈는 management.htm 을 띄운 뒤 클라이언트 리다이렉트로 로그인 화면을 열기도 한다.
+ * 그래서 "출고관리 화면에 5초 머물렀다" 를 본 뒤에야 이미 로그인됨으로 친다. 그 타이머가
+ * **가고 있는** 주소(`pendingUrl`)로 시작하면, 아직 열리지도 않은 화면에 머물렀다고 읽는 셈이다.
+ */
+test("⭐ 아직 가고 있는 주소로는 키드키즈 정착 타이머가 시작하지 않는다", async () => {
+  const { login } = loadMallLogin({
+    scanResults: [{ state: "no-login-form" }],
+    // management.htm 으로 가는 중일 뿐 아직 머문 것이 아니다.
+    tabUrls: [{ pendingUrl: "https://partner.kidkids.net/new/pages/logis/management.htm" }],
+  });
+
+  const result = await login(17, CREDENTIALS, "kidkids");
+
+  // 머문 주소만 봤다면 정착한 적이 없으므로 제한시간까지 확인하지 못한 채로 끝난다.
+  assert.equal(result.verdict, "unknown");
+  assert.equal(result.reason, "login_state_unconfirmed");
+  assert.equal(result.pendingLogin, true);
 });
 
 test("kidkids personal verification is returned as an operator login requirement", async () => {

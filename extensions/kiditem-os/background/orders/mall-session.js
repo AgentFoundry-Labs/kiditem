@@ -70,6 +70,11 @@
   // ── 로그인 화면인가(탭 주소로) ───────────────────────────────────────────────
   //
   // 권한 밖 도메인(통합 로그인)으로 넘어가 들여다보지 못해도 탭 주소는 읽힌다.
+  //
+  // 아래 `*_PATH` 와 닮았지만 합치지 않는다. 이쪽은 **탭의 전체 주소** 라 호스트로도 가릴 수
+  // 있고(`xauth.coupang.com` · `nid.naver.com`), 경계를 못 박으면 `/login이름` 같은 관리자
+  // 주소까지 로그인 화면으로 읽는다. 저쪽은 조용히 읽은 응답의 pathname 만 보므로 호스트
+  // 규칙이 없고 경계도 느슨하다. 둘 중 하나를 고칠 때 나머지를 따라 고치지 않는다.
   const LOGIN_SCREEN_URL = /\/(?:login|signin|sign-in|signIn)(?:[/?#.]|$)|loginform|partnerlogin|partner_login|login_so|authentication\/login|xauth\.coupang\.com|nid\.naver\.com|accounts\.kakao\.com|accounts\.commerce\.naver\.com/i;
   const VERIFY_SCREEN_URL = /verify_user|\/otp(?:[/?#.]|$)|two-?factor|\/mfa(?:[/?#.]|$)/i;
   const KIDKIDS_VERIFY_URL = /\/security\/verify_user\.htm(?:[?#]|$)/;
@@ -80,6 +85,8 @@
   //
   // 몰마다 글자가 조금씩 다르다 — `sign-in`(GS샵) · `login_SO.wsp`(롯데ON) ·
   // `authentication/login.ssg`(신세계)도 같은 로그인 화면이다.
+  //
+  // 위 `*_SCREEN_URL` 과 짝이지만 따로 둔다 — 이쪽은 pathname 만 받는다.
   const LOGIN_PATH = /\/(?:login|signin|sign-in|signIn)|loginform|partnerlogin|partner_login|login_so|authentication\/login/i;
   const VERIFY_PATH = /\/security\/verify_user\.htm$/i;
   const PASSWORD_INPUT = /<input[^>]*type\s*=\s*["']?password/i;
@@ -147,6 +154,8 @@
    *               계정에 적어 둔 사이트 주소로 들어간다.
    * - `loggedInSignal` 조용히 한 번 읽어 로그인 여부를 가리는 표시. `null` 이면 화면을 연다.
    * - `fields`    그 몰 로그인 폼이 받는 입력칸. `null` 은 채울 폼이 없다는 뜻이다.
+   * - `headers`   조용한 읽기에만 붙이는 요청 헤더. 도매꾹은 `x-requested-with` 가 없으면
+   *               관리자 JSON 대신 화면을 돌려줘 로그인 여부를 가릴 수 없다.
    *
    * 몰 키는 채널 레지스트리의 철자다(KID-250). 데이터를 바꾸거나 감사 기록을 남기는
    * 주소(엑셀 생성 · 다운로드 사유 · 등록 화면)는 넣지 않는다.
@@ -276,7 +285,7 @@
     return Object.prototype.hasOwnProperty.call(SPECS, key) ? SPECS[key] : null;
   }
 
-  /** 이 몰을 확인하러 여는 주소. 조용한 읽기도 같은 주소를 쓴다. */
+  /** 이 몰을 확인하러 여는 주소. 조용한 읽기도 같은 주소를 쓴다 — 모듈 안에서만 쓴다. */
   function entryUrlOf(mallKey) {
     const found = specOf(mallKey);
     return found ? found.entryUrl : null;
@@ -562,7 +571,6 @@
     REASONS,
     malls: MALLS,
     passiveMalls: PASSIVE_MALLS,
-    entryUrlOf,
     savedSiteUrl,
   });
 })(globalThis);

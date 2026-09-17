@@ -892,10 +892,14 @@ function createMallSessionDriver() {
       }
     },
 
+    /**
+     * 로그인 갈래가 보는 탭 주소 — 실제로 **머물러 있는** 주소만 본다. 아직 가고 있는
+     * 주소(`pendingUrl`)까지 보면 키드키즈 정착 타이머가 넘어가는 중인 화면에서 시작하고,
+     * 닿지 못한 호스트 안내가 아직 열리지도 않은 주소를 가리킨다.
+     */
     async tabUrl(tabId) {
       try {
-        const tab = await chrome.tabs.get(tabId);
-        return String(tab?.url || tab?.pendingUrl || "");
+        return String((await chrome.tabs.get(tabId))?.url || "");
       } catch {
         return ""; // 탭 주소가 아직 준비되지 않았다.
       }
@@ -920,7 +924,10 @@ function createMallSessionDriver() {
     },
 
     async inspectScreen(tabId) {
-      const href = await driver.tabUrl(tabId);
+      // 확인 갈래는 가고 있는 주소까지 본다 — 권한 밖 로그인 화면으로 넘어가는 중이면
+      // 그 주소가 곧 답이다. 로그인 갈래와 달라 여기서는 누르거나 기다리지 않는다.
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      const href = String(tab?.url || tab?.pendingUrl || "");
       try {
         const injected = await withTimeout(
           chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectMallLoginScreen }),
