@@ -12,17 +12,84 @@ import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } from '@kiditem/shared/source-import';
 import { lockSellpiaInventoryTransaction } from '../adapter/out/repository/sellpia-inventory-transaction-lock';
-import type { SellpiaInventorySkuReadModel } from '../application/port/in/stock/sellpia-inventory-sku-read.port';
-import type { InventoryAvailabilityCandidate } from '../application/port/in/stock/inventory-availability.port';
 import {
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshReasonSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type {
-  InventorySkuSnapshotRepositoryQuery,
-  InventorySkuSnapshotRepositoryRow,
-  SellpiaImportRunRepositoryRow,
-} from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
+  InventorySkuLinkedChannelOption,
+  InventorySkuLinkedProduct,
+  InventorySkuStockStatus,
+  SellpiaImportRunSummary,
+  SellpiaInventorySkuActiveStatus,
+  SellpiaInventorySkuLinkStatus,
+} from '@kiditem/shared/inventory';
+
+/** A Sellpia inventory SKU's identity; identity carries no stock. */
+export type InventorySkuIdentity = {
+  sellpiaInventorySkuId: string;
+  code: string;
+  name: string;
+  optionName: string | null;
+  barcode: string | null;
+  purchasePrice: number | null;
+  salePrice: number | null;
+  isActive: boolean;
+  masterProductId: string | null;
+};
+
+export type InventoryAvailabilityCandidate = Readonly<{
+  sellpiaInventorySkuId: string;
+  code: string;
+  name: string;
+  optionName: string | null;
+  barcode: string | null;
+  currentStock: number | null;
+}>;
+
+export type InventorySkuSnapshotQuery = {
+  skip: number;
+  take?: number;
+  query?: string;
+  stockStatus: InventorySkuStockStatus;
+  activeStatus: SellpiaInventorySkuActiveStatus;
+  linkStatus?: SellpiaInventorySkuLinkStatus;
+};
+
+export type InventorySkuSnapshotRow = {
+  sellpiaInventorySkuId: string;
+  code: string;
+  name: string;
+  optionName: string | null;
+  barcode: string | null;
+  currentStock: number;
+  purchasePrice: number | null;
+  salePrice: number | null;
+  isActive: boolean;
+  lastImportRunId: string | null;
+  lastImportedAt: Date | null;
+  linkedChannelOptionCount: number;
+  linkedProductCount: number;
+  linkedProducts: InventorySkuLinkedProduct[];
+  linkedChannelOptions: InventorySkuLinkedChannelOption[];
+};
+
+export type SellpiaImportRunRow = Omit<
+  SellpiaImportRunSummary,
+  | 'importedAt'
+  | 'lastVerifiedAt'
+  | 'manualFreshExportConfirmedAt'
+  | 'freshnessGeneration'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
+  importedAt: Date | null;
+  lastVerifiedAt: Date | null;
+  manualFreshExportConfirmedAt: Date | null;
+  freshnessGeneration: bigint | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 const SELLPIA_INVENTORY_SKU_IDENTITY_SELECT = {
   id: true,
@@ -230,7 +297,7 @@ export async function readInventoryAvailabilityCandidates(
 export async function readInventorySkuSnapshotList(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  query: InventorySkuSnapshotRepositoryQuery,
+  query: InventorySkuSnapshotQuery,
 ) {
   const latestImport = await readPublishedInventoryImport(tx, organizationId);
   if (!latestImport) {
@@ -300,7 +367,7 @@ export async function readInventorySkuSnapshotList(
   ]);
   const summary = summaryRows[0] ?? inventoryEmptySummaryRow();
   return {
-    rows: rows.map((row): InventorySkuSnapshotRepositoryRow => {
+    rows: rows.map((row): InventorySkuSnapshotRow => {
       const { linkedProducts, linkedChannelOptions } =
         inventoryLinkedDestinations(
           row.channelListingOptionInventoryComponents,
@@ -352,7 +419,7 @@ export async function readInventorySkuSnapshot(
   tx: Prisma.TransactionClient,
   organizationId: string,
   sellpiaInventorySkuId: string,
-): Promise<InventorySkuSnapshotRepositoryRow | null> {
+): Promise<InventorySkuSnapshotRow | null> {
   const published = await readPublishedInventoryImport(tx, organizationId);
   if (!published) return null;
   const row = await tx.sellpiaInventorySku.findFirst({
@@ -404,7 +471,7 @@ export async function readInventorySkuIdentities(
       | { kind: 'normalized_names'; values: string[] }
       | { kind: 'search'; query: string; limit: number };
   },
-): Promise<SellpiaInventorySkuReadModel[]> {
+): Promise<InventorySkuIdentity[]> {
   const { organizationId, selector } = input;
   if ('values' in selector && selector.values.length === 0) return [];
   if (selector.kind === 'normalized_barcodes') {
@@ -658,7 +725,7 @@ async function readPublishedInventoryImport(
 
 function inventorySnapshotWhere(
   organizationId: string,
-  query: InventorySkuSnapshotRepositoryQuery,
+  query: InventorySkuSnapshotQuery,
   publishedRunId: string,
 ): Prisma.SellpiaInventorySkuWhereInput {
   const search = query.query?.trim();
@@ -712,7 +779,7 @@ function inventoryActiveComponentWhere(organizationId: string) {
 }
 
 function inventoryActiveStatusSql(
-  status: InventorySkuSnapshotRepositoryQuery['activeStatus'],
+  status: InventorySkuSnapshotQuery['activeStatus'],
   publishedRunId: string,
 ): Prisma.Sql {
   const activeSql =
@@ -784,7 +851,7 @@ function mapInventoryImportRun(
   row: Prisma.SourceImportRunGetPayload<{
     select: typeof INVENTORY_IMPORT_RUN_SELECT;
   }>,
-): SellpiaImportRunRepositoryRow {
+): SellpiaImportRunRow {
   if (!isSourceImportStatus(row.status)) {
     throw new InternalServerErrorException(
       `Unknown source import status: ${row.status}`,
@@ -915,7 +982,7 @@ function uncollectedBatch(): InventoryAvailabilityBatch {
 
 function toInventorySkuIdentity(
   row: SelectedSellpiaInventorySkuIdentity,
-): SellpiaInventorySkuReadModel {
+): InventorySkuIdentity {
   return {
     sellpiaInventorySkuId: row.id,
     code: row.code,

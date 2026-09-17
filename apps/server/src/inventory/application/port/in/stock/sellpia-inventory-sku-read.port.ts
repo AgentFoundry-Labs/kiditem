@@ -1,18 +1,11 @@
+import type { InventorySkuIdentity } from '../../../../read/inventory-availability';
+
 export const SELLPIA_INVENTORY_SKU_READ_PORT = Symbol(
   'SELLPIA_INVENTORY_SKU_READ_PORT',
 );
 
-export type SellpiaInventorySkuReadModel = {
-  sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
-  optionName: string | null;
-  barcode: string | null;
-  purchasePrice: number | null;
-  salePrice: number | null;
-  isActive: boolean;
-  masterProductId: string | null;
-};
+/** The identity `read/inventory-availability.ts` returns. */
+export type SellpiaInventorySkuReadModel = InventorySkuIdentity;
 
 export interface SellpiaInventorySkuReadPort {
   listActiveForMatching(

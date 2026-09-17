@@ -1,5 +1,4 @@
 import type {
-  RocketPoCatalogPublication,
   RocketSavedPoSnapshot,
   RocketSavedPoSummary,
   RocketPoSourceBegin,
@@ -7,12 +6,13 @@ import type {
   RocketPoSource,
   RocketPoSourceSubmission,
 } from '@kiditem/shared/rocket-purchase-preview';
+import type {
+  RocketPoCatalogIdentity,
+  RocketPoCompleteCollection,
+} from '../../../read/rocket-po-catalog.reader';
 
-export type RocketPoCatalogIdentity = { poLineId: string; channelSkuId: string };
-export type RocketPoCompleteCollection = RocketSavedPoSnapshot & {
-  catalog: RocketPoCatalogPublication;
-  identities: RocketPoCatalogIdentity[];
-};
+/** The complete collection `read/rocket-po-catalog.reader.ts` returns. */
+export type { RocketPoCatalogIdentity, RocketPoCompleteCollection };
 export interface RocketPoCatalogPort {
   begin(input: {
     organizationId: string;

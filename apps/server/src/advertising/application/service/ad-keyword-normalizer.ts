@@ -108,37 +108,3 @@ export function normalizeAdKeywordTarget(
 
   return input;
 }
-
-const KEYWORD_ADDITIVE_METRICS = [
-  'spend',
-  'revenue',
-  'impressions',
-  'clicks',
-  'conversions',
-  'orders',
-  'adSpend',
-  'adRevenue',
-] as const satisfies readonly (keyof UpsertAdTargetDailyInput)[];
-
-export function mergeKeywordTargets(
-  previous: UpsertAdTargetDailyInput,
-  next: UpsertAdTargetDailyInput,
-): UpsertAdTargetDailyInput {
-  const merged: UpsertAdTargetDailyInput = { ...previous };
-  for (const metric of KEYWORD_ADDITIVE_METRICS) {
-    merged[metric] = (previous[metric] ?? 0) + (next[metric] ?? 0);
-  }
-  // Descriptors only fill gaps: the first row with a value wins so a later
-  // share cannot blank out an identity the earlier one established.
-  merged.status = previous.status ?? next.status;
-  merged.onOff = previous.onOff ?? next.onOff;
-  merged.currentBid = previous.currentBid ?? next.currentBid;
-  merged.campaignName = previous.campaignName ?? next.campaignName;
-  // A keyword shared by several ads is no longer attributable to one option.
-  if (previous.externalOptionId !== next.externalOptionId) {
-    merged.externalOptionId = null;
-    merged.listingId = null;
-    merged.listingOptionId = null;
-  }
-  return merged;
-}

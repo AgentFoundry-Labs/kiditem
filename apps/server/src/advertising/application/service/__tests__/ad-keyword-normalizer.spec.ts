@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  mergeKeywordTargets,
-  normalizeAdKeywordTarget,
-} from '../ad-keyword-normalizer';
+import { normalizeAdKeywordTarget } from '../ad-keyword-normalizer';
+import { mergeKeywordTargets } from '../../../domain/ad-keyword-target-merge';
 import type { ListingMap } from '../../../domain/listing-match';
 
 const map: ListingMap = {

@@ -28,8 +28,6 @@ import {
   CATALOG_LEGACY_LIST_URL,
   CATALOG_STAGED_DETAIL_URL,
   CATALOG_STAGED_LIST_URL,
-  CATALOG_DETAILS_SOURCE,
-  CATALOG_PARSER,
   CATALOG_STAGING_SOURCE,
   catalogSourceForStage,
   assertExpectedDetailsBasis,
@@ -39,6 +37,10 @@ import {
   lockCatalogAttempt,
   latestCompletedCatalogBasics,
 } from './channel-catalog-attempt-fence';
+import {
+  CATALOG_DETAILS_SOURCE,
+  CATALOG_PARSER,
+} from '../../../domain/catalog-source-identity';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
 import {
   CHANNEL_CATALOG_PUBLICATION_PORT,

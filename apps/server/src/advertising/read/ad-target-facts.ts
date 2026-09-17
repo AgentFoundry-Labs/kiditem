@@ -12,10 +12,9 @@ import {
   CONVERSIONS_OBSERVED_SQL,
   IS_CAMPAIGN_GRAIN_SQL,
   IS_PRODUCT_GRAIN_SQL,
-} from '../adapter/out/repository/ad-target-grain.sql';
-import { mergeKeywordTargets } from '../application/service/ad-keyword-normalizer';
+} from './ad-target-grain.sql';
+import { mergeKeywordTargets } from '../domain/ad-keyword-target-merge';
 import { adReportEvidenceCutoff } from '../domain/ad-report-confirmation';
-import type { UpsertAdTargetDailyInput } from '../application/port/out/repository/channel-target-daily.repository.port';
 
 /**
  * The one reader of listing-day advertising values.
@@ -1049,11 +1048,11 @@ export async function readCompleteAdKeywordFacts(
     { fact: AdKeywordFact; observedAt: number; sourceImportRunId: string | null }
   >();
   for (const { contribution, observedAt } of observations) {
-    const target = {
+    const target: AdKeywordFact = {
       ...contribution,
-      targetType: 'keyword' as const,
+      targetType: 'keyword',
       keyword: contribution.keyword!,
-      windowDays: 7 as const,
+      windowDays: 7,
       conversionsObserved: keywordConversionsObserved(contribution.metaJson),
     };
     const key = JSON.stringify([target.channelAccountId, target.targetKey]);
@@ -1074,25 +1073,11 @@ export async function readCompleteAdKeywordFacts(
     rows.set(key, {
       ...previous,
       fact: {
-        ...previous.fact,
-        ...mergeKeywordTargets(
-          {
-            ...previous.fact,
-            metaJson:
-              previous.fact.metaJson as UpsertAdTargetDailyInput['metaJson'],
-          },
-          {
-            ...target,
-            metaJson: target.metaJson as UpsertAdTargetDailyInput['metaJson'],
-          },
-        ),
-        keyword: previous.fact.keyword,
-        targetType: 'keyword',
-        metaJson: previous.fact.metaJson,
-        windowDays: 7,
+        // The earlier contribution keeps its identity, keyword and metadata.
+        ...mergeKeywordTargets(previous.fact, target),
         // A merged count is a measurement only if every contribution observed it.
         conversionsObserved: previous.fact.conversionsObserved && target.conversionsObserved,
-      } as AdKeywordFact,
+      },
     });
   }
   return { attempts, rows: [...rows.values()].map((row) => row.fact) };

@@ -1,3 +1,20 @@
+import type {
+  CoupangShipmentDateSummaryEntry,
+  ShipmentSummaryAttempt,
+  ShipmentSummaryAttemptRead,
+  ShipmentSummaryPlan,
+  ShipmentSummarySource,
+} from "../../../../read/coupang-shipment-date-summary.reader";
+
+/** Shipment-date facts `read/coupang-shipment-date-summary.reader.ts` returns. */
+export type {
+  CoupangShipmentDateSummaryEntry,
+  ShipmentSummaryAttempt,
+  ShipmentSummaryAttemptRead,
+  ShipmentSummaryPlan,
+  ShipmentSummarySource,
+};
+
 export const COUPANG_SHIPMENTS_PORT = Symbol("CoupangShipmentsPort");
 
 export type CoupangShipmentMergedFileKind = "label" | "statement" | "all";
@@ -41,30 +58,6 @@ export type CoupangShipmentResolvedFile = {
   sizeBytes: number;
 };
 
-export type CoupangShipmentDateSummaryEntry = {
-  date: string;
-  count: number | null;
-  boxes: number | null;
-  capturedAt: string;
-  verified: boolean;
-};
-
-export type ShipmentSummaryPlan = {
-  sourceType: "coupang_shipment_summary";
-  parserVersion: "shipment-summary-v1";
-  maxPages: number;
-};
-export type ShipmentSummaryAttempt = {
-  attemptId: string;
-  attemptToken: string;
-  generation: string;
-  state: "RUNNING" | "COMPLETE" | "FAILED";
-  plan: ShipmentSummaryPlan;
-  expiresAt: string;
-  actualCutoffAt: string | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-};
 export type ShipmentSummarySubmission = {
   items: Array<{ date: string; count: number; boxes: number }>;
   scannedPages: number;
@@ -77,15 +70,6 @@ export type ShipmentSummarySubmission = {
     pageRowCounts: number[];
   };
 };
-export type ShipmentSummarySource = {
-  ready: boolean;
-  latestAttempt: Omit<ShipmentSummaryAttempt, "attemptToken"> | null;
-  latestComplete: Omit<ShipmentSummaryAttempt, "attemptToken"> | null;
-  capturedItems: CoupangShipmentDateSummaryEntry[];
-  items: CoupangShipmentDateSummaryEntry[];
-};
-export type ShipmentSummaryAttemptRead = ShipmentSummaryAttempt &
-  Pick<ShipmentSummarySource, "items" | "capturedItems">;
 
 export type CoupangShipmentDateSummaryResult = {
   items: CoupangShipmentDateSummaryEntry[];
