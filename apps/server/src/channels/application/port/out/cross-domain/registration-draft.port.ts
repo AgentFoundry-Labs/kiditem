@@ -190,10 +190,4 @@ export interface RegistrationDraftPort {
       selectedDetailPageGenerationId: string | null;
     },
   ): Promise<{ workspaceId: string }>;
-
-  /** 후보에 살아 있는 초안이 등록을 막는지 본다. 막으면 던진다. */
-  assertNoBlockingDraft(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<void>;
 }

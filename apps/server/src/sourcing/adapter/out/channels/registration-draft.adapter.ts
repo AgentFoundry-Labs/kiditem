@@ -295,23 +295,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     );
   }
 
-  async assertNoBlockingDraft(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<void> {
-    const blocking = await client(tx).productPreparation.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
-        isDeleted: false,
-        status: { in: ['draft', 'submitting'] },
-      },
-      select: { id: true },
-    });
-    if (blocking) {
-      throw new ConflictException('Candidate has an active product preparation.');
-    }
-  }
 }
 
 /** 울타리가 준 전이 값을 Prisma 갱신 데이터로 옮긴다. JSON 널만 따로 다룬다. */
