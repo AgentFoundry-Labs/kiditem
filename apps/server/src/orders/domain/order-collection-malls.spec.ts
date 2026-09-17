@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MALL_OPERATION_OUTCOME_KEY_ALIASES } from '@kiditem/shared/mall-operation-outcomes';
+import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import {
-  ORDER_COLLECTION_MALLS,
   findOrderCollectionMall,
   orderCollectionMallAccountChannels,
   orderCollectionMallAccountFilter,
@@ -43,7 +43,7 @@ describe('주문 수집 몰 계정 행', () => {
   });
 
   it('한 채널을 두 몰이 나눠 쓰지 않는다', () => {
-    const channels = ORDER_COLLECTION_MALLS.map((mall) => orderCollectionMallAccountIdentity(mall).channel);
+    const channels = MALL_CHANNELS.map((mall) => orderCollectionMallAccountIdentity(mall).channel);
     expect(new Set(channels).size).toBe(channels.length);
   });
 
@@ -61,7 +61,7 @@ describe('주문 수집 몰 계정 행', () => {
    */
   it('⭐ 공유 행을 쓰는 몰과 관찰 기록 별칭 표가 서로 어긋나지 않는다', () => {
     const shared: Record<string, string> = {};
-    for (const mall of ORDER_COLLECTION_MALLS as readonly OrderCollectionMallEntry[]) {
+    for (const mall of MALL_CHANNELS as readonly OrderCollectionMallEntry[]) {
       if (mall.sharedAccountChannel) shared[mall.key] = mall.sharedAccountChannel;
     }
     expect(shared).toEqual({ ...MALL_OPERATION_OUTCOME_KEY_ALIASES });

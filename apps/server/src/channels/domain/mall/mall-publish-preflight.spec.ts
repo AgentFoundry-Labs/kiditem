@@ -108,14 +108,14 @@ describe('evaluateMallPreflight', () => {
   });
 
   it('enforces the per-mall option ceiling', () => {
-    const coupang = getMallAdapterManifest('coupang')!;
+    const toss = getMallAdapterManifest('toss')!;
     const result = evaluateMallPreflight({
-      manifest: coupang,
-      product: product({ optionNames: Array.from({ length: 201 }, (_, index) => `옵션${index}`) }),
+      manifest: toss,
+      product: product({ optionNames: Array.from({ length: 301 }, (_, index) => `옵션${index}`) }),
       account: ACCOUNT,
     });
     const violation = result.violations.find((entry) => entry.rule === 'option_count_within_limit');
-    expect(violation?.message).toContain('200');
+    expect(violation?.message).toContain('300');
   });
 
   it('blocks an unverified mall before running any rule', () => {

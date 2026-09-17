@@ -155,12 +155,16 @@ describe('listingMatrix — 열', () => {
     );
   });
 
-  it('리스팅이 있는 몰이 왼쪽, 보낼 수 있는 몰이 그다음이다', async () => {
+  /**
+   * 쿠팡 윙은 리스팅이 있어서 열이 되고, 로켓은 사입 채널이라 열이 되지 않는다. 마켓이
+   * 몰 매니페스트를 떠난 뒤(KID-250)에도 **가져온 리스팅은 계속 보인다** — 다만 보낼 수
+   * 있는 몰로 고를 수는 없다.
+   */
+  it('⭐ 리스팅이 있는 채널이 왼쪽이고, 등록 경로가 없는 마켓은 열을 만들지 않는다', async () => {
     const service = build({
       listingAccounts: [account()],
       mallAccounts: [
         mallAccount(),
-        // rocket 은 사입 채널이라 우리가 등록하는 구조가 아니다.
         mallAccount({ mallKey: 'rocket', channelAccountId: 'acc-rocket' }),
         mallAccount({ mallKey: 'kidsnote', channelAccountId: 'acc-kidsnote' }),
       ],
@@ -169,7 +173,9 @@ describe('listingMatrix — 열', () => {
     const result = await service.listingMatrix(ORG, { page: 1, limit: 25 });
     const keys = result.columns.map((column) => column.mallKey);
     expect(keys[0]).toBe('coupang');
-    expect(keys.indexOf('kidsnote')).toBeLessThan(keys.indexOf('rocket'));
+    expect(result.columns[0]?.hasAdapter).toBe(false);
+    expect(keys).toContain('kidsnote');
+    expect(keys).not.toContain('rocket');
   });
 
   it('매니페스트에 없는 몰키는 열을 만들지 않는다', async () => {
@@ -303,16 +309,22 @@ describe('channelOverview', () => {
     expect(overview.channels[0]?.orderCount).toBe(113);
   });
 
-  it('보낼 수 있는 몰 수를 따로 센다', async () => {
+  /**
+   * 허브는 연결된 채널을 전부 센다 — 마켓도 계정 행이 있으면 줄이 선다. 다만 '보낼 수
+   * 있는 몰' 은 몰 등록 매니페스트가 있는 채널만이라 쿠팡 윙 · 로켓은 0 이다.
+   */
+  it('⭐ 마켓도 연결된 채널로 세지만 보낼 수 있는 몰로는 세지 않는다', async () => {
     const service = build({
       mallAccounts: [
         mallAccount({ mallKey: 'coupang', channelAccountId: 'acc-coupang' }),
-        // 로켓은 사입 채널이라 우리가 등록하는 구조가 아니다.
         mallAccount({ mallKey: 'rocket', channelAccountId: 'acc-rocket' }),
+        mallAccount({ mallKey: 'kidsnote', channelAccountId: 'acc-kidsnote' }),
       ],
     });
     const overview = await service.channelOverview(ORG);
-    expect(overview.shop.connectedChannelCount).toBe(2);
+    expect(overview.channels.map((channel) => channel.mallKey))
+      .toEqual(expect.arrayContaining(['coupang', 'rocket', 'kidsnote']));
+    expect(overview.shop.connectedChannelCount).toBe(3);
     expect(overview.shop.publishableChannelCount).toBe(1);
   });
 });

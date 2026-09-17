@@ -57,8 +57,8 @@ describe('OrderCollectionMallAccountService', () => {
       '보리보리',
       '올웨이즈',
       '웅진클래스몰',
-      '카카오',
-      '토스',
+      '카카오 톡스토어',
+      '토스쇼핑',
       '티쳐몰',
       'GS샵',
       '쿠팡직배송',
@@ -66,7 +66,7 @@ describe('OrderCollectionMallAccountService', () => {
       '옥션',
       '11번가',
       '스마트스토어',
-      '신세계',
+      '신세계(SSG)',
       '떠리몰',
       '윤선생',
     ]);
@@ -89,7 +89,7 @@ describe('OrderCollectionMallAccountService', () => {
 
     expect(accounts.slice(0, 3).map((account) => account.name)).toEqual([
       'GS샵',
-      '카카오',
+      '카카오 톡스토어',
       '원폴라리스',
     ]);
     expect(accounts[0]).toMatchObject({ key: 'gs-shop', sortOrder: 0 });

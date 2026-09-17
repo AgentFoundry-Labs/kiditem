@@ -9,7 +9,15 @@
  * 운영자가 화면에서 고칠 수 있으면 안 되는 값이다.
  */
 
-/** 어떤 실행 경로로 몰에 쓰는가. */
+import {
+  MALL_CHANNELS,
+  channelRegistersListings,
+  findChannel,
+  type ChannelRegistryEntry,
+  type MallChannelKey,
+} from '@kiditem/shared/channel-registry';
+
+/** 어떤 실행 경로로 몰에 쓰는가. 채널 레지스트리의 `register` 를 이 어휘로 옮긴 것이다. */
 export type MallAdapterKind = 'api' | 'extension_form' | 'extension_excel' | 'unknown';
 
 export type MallDifficulty = 'low' | 'medium' | 'high' | 'unknown';
@@ -116,6 +124,9 @@ export interface MallAdapterManifest {
  *  - `uploadsTracking`: 확장에 발송처리(송장 등록) 액션이 있는 몰
  *    (`uploadOnchTracking`·`uploadKidkidsTracking`·`uploadDomeggookTracking`, 3곳).
  *    아이스크림몰·티쳐몰·키즈노트·보리보리·카카오는 **스펙만 있고 미구현**이다.
+ *
+ * 값은 채널 레지스트리(`@kiditem/shared/channel-registry`)의 `collector`·`uploadTracking`
+ * 하나에서 온다. 여기서 다시 세지 않는다.
  */
 export type OrderCollectionVia = 'kiditem' | 'sellpia';
 
@@ -126,35 +137,18 @@ export interface MallInboundSupports {
 }
 
 /**
- * 우리 수집기가 주문을 가져오는 몰. 아트공구는 확장 수집기가 CSV 로 만들고, 쿠팡 로켓은
- * 발주 수집(Supply)이 주문 자리를 채운다(사장님 확인 2026-09-17).
+ * 주문이 이 채널에서 우리에게 오는 길. 판정은 채널 레지스트리 하나가 갖는다 —
+ * 매니페스트가 몰 목록을 따로 들고 있던 동안 확장에 수집기가 있는 카카오를 빠뜨렸다.
  */
-const ORDER_COLLECTING_KEYS: ReadonlySet<string> = new Set([
-  'always', 'art09', 'boribori', 'coupang-direct', 'domeggook', 'gs-shop', 'haebub-mall',
-  'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'rocket',
-  'teacher-mall',
-]);
-
-/**
- * 셀피아가 그 몰에서 주문을 직접 가져오는 몰. 우리 수집기는 없고, 주문은 셀피아
- * 주문수집 화면으로 들어온다(사장님 확인 2026-09-17). 쿠팡은 마켓플레이스(윙) 주문이다 —
- * 로켓 발주와 직배송은 우리 수집기로 들어온다.
- */
-const SELLPIA_ORDER_COLLECTING_KEYS: ReadonlySet<string> = new Set([
-  '11st', 'auction', 'coupang', 'gmarket', 'smartstore', 'ssg',
-]);
-
-/** 발송처리(송장 등록)까지 되는 몰. 조인 키가 깔끔한 셋뿐이다. */
-const TRACKING_UPLOAD_KEYS: ReadonlySet<string> = new Set(['onch', 'kidkids', 'domeggook']);
-
 export function mallInboundSupports(mallKey: string): MallInboundSupports {
-  const orderCollectionVia: OrderCollectionVia | null = ORDER_COLLECTING_KEYS.has(mallKey)
+  const entry = findChannel(mallKey);
+  const orderCollectionVia: OrderCollectionVia | null = entry?.collector === 'extension'
     ? 'kiditem'
-    : SELLPIA_ORDER_COLLECTING_KEYS.has(mallKey) ? 'sellpia' : null;
+    : entry?.collector === 'sellpia' ? 'sellpia' : null;
   return {
     collectsOrders: orderCollectionVia !== null,
     orderCollectionVia,
-    uploadsTracking: TRACKING_UPLOAD_KEYS.has(mallKey),
+    uploadsTracking: entry?.uploadTracking === true,
   };
 }
 
@@ -199,13 +193,12 @@ const NO_LIMIT: MallAdapterLimits = {
   minStockValue: null,
 };
 
+/**
+ * 어댑터 사정만 담는다. 키 · 이름 · 실행 경로 · 검증 여부 · 등록 개념 유무는 채널
+ * 레지스트리가 답한다 — 여기 다시 적으면 둘이 갈라진다.
+ */
 interface ManifestSeed {
-  key: string;
-  name: string;
-  kind?: MallAdapterKind;
   difficulty?: MallDifficulty;
-  unverified?: boolean;
-  applicable?: boolean;
   supports?: Partial<MallAdapterSupports>;
   hazards?: Partial<MallAdapterHazards>;
   limits?: Partial<MallAdapterLimits>;
@@ -214,18 +207,27 @@ interface ManifestSeed {
   note: string;
 }
 
-function manifest(seed: ManifestSeed): MallAdapterManifest {
-  const unverified = seed.unverified ?? false;
-  const applicable = seed.applicable ?? true;
+const MANIFEST_KIND: Record<ChannelRegistryEntry['register'], MallAdapterKind> = {
+  api: 'api',
+  form: 'extension_form',
+  excel: 'extension_excel',
+  // 등록 경로를 아직 모르는 몰과 등록 개념이 없는 채널이 함께 여기 온다. 둘은
+  // `applicable` 이 가른다.
+  none: 'unknown',
+};
+
+function manifest(entry: ChannelRegistryEntry, seed: ManifestSeed): MallAdapterManifest {
+  const unverified = !entry.verified;
+  const applicable = channelRegistersListings(entry);
   // 확인 안 된 몰과 해당 없는 채널은 supports 를 열지 않는다. 시드에 뭐가 적혀
   // 있든 닫는다 — 매니페스트 실수가 몰 송신으로 이어지지 않게 하는 마지막 방어선.
   const supports = unverified || !applicable
     ? NO_SUPPORT
     : { ...NO_SUPPORT, ...seed.supports };
   return {
-    key: seed.key,
-    name: seed.name,
-    kind: seed.kind ?? 'unknown',
+    key: entry.key,
+    name: entry.name,
+    kind: MANIFEST_KIND[entry.register],
     difficulty: seed.difficulty ?? 'unknown',
     unverified,
     applicable,
@@ -238,306 +240,195 @@ function manifest(seed: ManifestSeed): MallAdapterManifest {
   };
 }
 
-const SEEDS: readonly ManifestSeed[] = [
+const SEEDS: Record<MallChannelKey, ManifestSeed> = {
   // ── 공식 API + 품절/해제 대칭이 문서로 확인된 몰 ────────────────────────────
   // 문서로 확인된 것과 우리 코드로 검증된 것은 다르다. PR 501 에서 주문수집에 새로 들어온
   // 몰(신세계 · 지마켓 · 옥션 · 스마트스토어 · 떠리몰)은 검증 전이라 `unverified` 로 닫아 둔다.
-  {
-    key: 'toss',
-    name: '토스쇼핑',
-    kind: 'api',
-    difficulty: 'low',
-    supports: { createListing: true, updateListing: true, setStock: 'option', soldOut: true, resume: true },
-    limits: { ratePerSecond: 30, maxOptionsPerListing: 300 },
-    note: '재고 엔드포인트 하나로 완전 대칭. 원문: "재고 수량을 0으로 설정하면 품절 처리됩니다. 품절 상태의 상품의 재고 수량을 1 이상으로 설정하면 품절 취소됩니다."',
+  toss: {
+      difficulty: 'low',
+      supports: { createListing: true, updateListing: true, setStock: 'option', soldOut: true, resume: true },
+      limits: { ratePerSecond: 30, maxOptionsPerListing: 300 },
+      note: '재고 엔드포인트 하나로 완전 대칭. 원문: "재고 수량을 0으로 설정하면 품절 처리됩니다. 품절 상태의 상품의 재고 수량을 1 이상으로 설정하면 품절 취소됩니다."',
   },
-  {
-    key: 'lotte-on',
-    name: '롯데ON',
-    kind: 'api',
-    difficulty: 'low',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
-    },
-    note: 'product/status/change 의 slStatCd = SALE/SOUT/END. 공식 샘플이 한 요청에 SOUT+SALE 을 동시에 담아 대칭이 명문화돼 있다. 등록은 spdLst 배열이라 fan-out 실증에 적합.',
+  'lotte-on': {
+      difficulty: 'low',
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
+      },
+      note: 'product/status/change 의 slStatCd = SALE/SOUT/END. 공식 샘플이 한 요청에 SOUT+SALE 을 동시에 담아 대칭이 명문화돼 있다. 등록은 spdLst 배열이라 fan-out 실증에 적합.',
   },
-  {
-    key: 'coupang',
-    name: '쿠팡(마켓플레이스)',
-    kind: 'api',
-    difficulty: 'low',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    limits: { maxPerRequest: 1, maxOptionsPerListing: 200 },
-    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가.',
+  kakao: {
+      difficulty: 'medium',
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
+      },
+      hazards: { fullPayloadOnUpdate: true },
+      note: '재고 0=품절 / 1이상=해제에 더해 saleStatus on|off 도 별도 대칭. ⚠️ 수정 시 전체 필드 재전송 필수 — 누락한 필드는 삭제된다.',
   },
-  {
-    key: 'kakao',
-    name: '카카오 톡스토어',
-    kind: 'api',
-    difficulty: 'medium',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    hazards: { fullPayloadOnUpdate: true },
-    note: '재고 0=품절 / 1이상=해제에 더해 saleStatus on|off 도 별도 대칭. ⚠️ 수정 시 전체 필드 재전송 필수 — 누락한 필드는 삭제된다.',
+  ssg: {
+      difficulty: 'medium',
+      // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
+      },
+      limits: { maxPerRequest: 1 },
+      note: 'sales-status 하나에 usablInvQty + optionInventories[].sellStatCd. sellStatCd=20 + 재고>0 으로 복귀. 제약: 85(판매금지)로는 변경 불가, 승인 전 상품은 20 불가. ⚠️ 구버전 API 2026-03-31 종료.',
   },
-  {
-    key: 'ssg',
-    name: '신세계(SSG)',
-    kind: 'api',
-    difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
-    unverified: true,
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
-    },
-    limits: { maxPerRequest: 1 },
-    note: 'sales-status 하나에 usablInvQty + optionInventories[].sellStatCd. sellStatCd=20 + 재고>0 으로 복귀. 제약: 85(판매금지)로는 변경 불가, 승인 전 상품은 20 불가. ⚠️ 구버전 API 2026-03-31 종료.',
+  gmarket: {
+      difficulty: 'medium',
+      // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
+      },
+      hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
+      limits: { minStockValue: 1 },
+      note: 'ESM 1콜로 지마켓+옥션 동시 등록. ⚠️ 옵션 상품은 재고 수정 자체가 불가하고 범위가 1~99,999 라 재고축으로 0(품절)을 만들 수 없다 → 옵션 isSoldOut boolean 축을 쓴다. 사방넷 기준 완전품절=영구삭제 몰.',
   },
-  {
-    key: 'gmarket',
-    name: '지마켓',
-    kind: 'api',
-    difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
-    unverified: true,
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
-    },
-    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
-    limits: { minStockValue: 1 },
-    note: 'ESM 1콜로 지마켓+옥션 동시 등록. ⚠️ 옵션 상품은 재고 수정 자체가 불가하고 범위가 1~99,999 라 재고축으로 0(품절)을 만들 수 없다 → 옵션 isSoldOut boolean 축을 쓴다. 사방넷 기준 완전품절=영구삭제 몰.',
+  auction: {
+      difficulty: 'medium',
+      // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
+      },
+      hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
+      limits: { minStockValue: 1 },
+      note: '지마켓과 같은 ESM 엔드포인트를 공유한다. 등록은 1콜로 양쪽에 동시 반영되므로 중복 송신 방지가 특히 중요하다.',
   },
-  {
-    key: 'auction',
-    name: '옥션',
-    kind: 'api',
-    difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
-    unverified: true,
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
-    },
-    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
-    limits: { minStockValue: 1 },
-    note: '지마켓과 같은 ESM 엔드포인트를 공유한다. 등록은 1콜로 양쪽에 동시 반영되므로 중복 송신 방지가 특히 중요하다.',
+  smartstore: {
+      difficulty: 'medium',
+      // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
+      },
+      hazards: { fullPayloadOnUpdate: true },
+      limits: { ratePerSecond: 2 },
+      note: '⚠️ 재고 전용 API 가 없다(네이버 공식: "현재 재고 수량(stockQuantity)만 수정하는 API는 제공되고 있지 않습니다"). 채널상품 전체 재전송이라 상태 변경에도 현행 규격 검증이 걸려 과거 상품이 400 으로 막힌다. 2 RPS 고정, 상향 불가.',
   },
-  {
-    key: 'smartstore',
-    name: '스마트스토어',
-    kind: 'api',
-    difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
-    unverified: true,
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    hazards: { fullPayloadOnUpdate: true },
-    limits: { ratePerSecond: 2 },
-    note: '⚠️ 재고 전용 API 가 없다(네이버 공식: "현재 재고 수량(stockQuantity)만 수정하는 API는 제공되고 있지 않습니다"). 채널상품 전체 재전송이라 상태 변경에도 현행 규격 검증이 걸려 과거 상품이 400 으로 막힌다. 2 RPS 고정, 상향 불가.',
-  },
-  {
-    key: 'thirtymall',
-    name: '떠리몰',
-    kind: 'api',
-    difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
-    unverified: true,
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
-    },
-    hazards: { irreversibleStates: ['PROHIBITION'] },
-    limits: { maxPerRequest: 100 },
-    note: '샵바이. 옵션 forcedSoldOut 이 true/false 양방향이고 saleStatusType READY↔STOP 도 대칭. 리스팅 단위 soldout 은 "TRUE일 경우만 품절처리"라 단방향이므로 옵션축을 쓴다. ⚠️ PROHIBITION 은 비가역 — 자동화에서 절대 금지.',
+  thirtymall: {
+      difficulty: 'medium',
+      // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
+      },
+      hazards: { irreversibleStates: ['PROHIBITION'] },
+      limits: { maxPerRequest: 100 },
+      note: '샵바이. 옵션 forcedSoldOut 이 true/false 양방향이고 saleStatusType READY↔STOP 도 대칭. 리스팅 단위 soldout 은 "TRUE일 경우만 품절처리"라 단방향이므로 옵션축을 쓴다. ⚠️ PROHIBITION 은 비가역 — 자동화에서 절대 금지.',
   },
 
   // ── API 는 있으나 스펙/엔드포인트가 확인되지 않은 몰 ────────────────────────
-  {
-    key: '11st',
-    name: '11번가',
-    kind: 'api',
-    difficulty: 'medium',
-    unverified: true,
-    hazards: { soldOutDeletesListing: true },
-    note: '셀러 API 존재는 확정("판매자의 경우 셀러 API를 등록 하셔야 상품 등록부터 … 모든 기능을 사용"). 엔드포인트는 셀러오피스 로그인 후 개발가이드에서만 확인 가능해 미확정 — 호출 IP 사전 등록도 필요하다. 화면 대안은 상품정보 대량수정 엑셀(1회 500건, 옵션 재고 포함). 사방넷 기준 완전품절=영구삭제 몰.',
+  '11st': {
+      difficulty: 'medium',
+      hazards: { soldOutDeletesListing: true },
+      note: '셀러 API 존재는 확정("판매자의 경우 셀러 API를 등록 하셔야 상품 등록부터 … 모든 기능을 사용"). 엔드포인트는 셀러오피스 로그인 후 개발가이드에서만 확인 가능해 미확정 — 호출 IP 사전 등록도 필요하다. 화면 대안은 상품정보 대량수정 엑셀(1회 500건, 옵션 재고 포함). 사방넷 기준 완전품절=영구삭제 몰.',
   },
-  {
-    key: 'boribori',
-    name: '보리보리',
-    kind: 'api',
-    difficulty: 'medium',
-    unverified: true,
-    note: 'TRICYCLE 협력사 API 키 발급 경로만 확인됐고 엔드포인트·스펙은 담당 MD 경유 비공개. "상품 수정시 재고수량 0개인 경우 품절상품으로 등록됩니다"는 확인됐으나 해제 대칭은 근거가 없다.',
+  boribori: {
+      difficulty: 'medium',
+      note: 'TRICYCLE 협력사 API 키 발급 경로만 확인됐고 엔드포인트·스펙은 담당 MD 경유 비공개. "상품 수정시 재고수량 0개인 경우 품절상품으로 등록됩니다"는 확인됐으나 해제 대칭은 근거가 없다.',
   },
-  {
-    key: 'art09',
-    name: '아트공구',
-    kind: 'extension_excel',
-    difficulty: 'medium',
-    unverified: true,
-    note: '카페24 공급사. API 는 몰 운영자의 앱 OAuth 가 필요해 공급사 단독으로는 불가하고, 실질 경로는 상품 엑셀(CSV)과 재고 정보 수정 엑셀이다. quantity/display/selling 이 독립 필드라 양방향이 깨끗하지만, 공급사 계정 권한 3종(분류 선택/상품 수정/상품 진열) 부여 여부가 미확인이라 닫아 둔다. ⚠️ "품절표시 사용" 미체크면 재고 0 이어도 품절 처리되지 않는다.',
+  art09: {
+      difficulty: 'medium',
+      note: '카페24 공급사. API 는 몰 운영자의 앱 OAuth 가 필요해 공급사 단독으로는 불가하고, 실질 경로는 상품 엑셀(CSV)과 재고 정보 수정 엑셀이다. quantity/display/selling 이 독립 필드라 양방향이 깨끗하지만, 공급사 계정 권한 3종(분류 선택/상품 수정/상품 진열) 부여 여부가 미확인이라 닫아 둔다. ⚠️ "품절표시 사용" 미체크면 재고 0 이어도 품절 처리되지 않는다.',
   },
 
   // ── 어드민 폼·엑셀 리버스 ──────────────────────────────────────────────────
-  {
-    key: 'kidsnote',
-    name: '키즈노트',
-    kind: 'extension_excel',
-    difficulty: 'high',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    note: 'WISA 스마트윙. 상품 일괄등록 엑셀이 upsert(고유번호 있으면 수정)이고, 재고는 일괄재고 조정(재고조사표.xls, 조정사유 필수)이 따로 있다. 상품조회 목록에서 상태(정상/품절/숨김)를 고쳐 [가격/적립금/상태 수정] 한 버튼으로 일괄 적용 — 27개 몰 중 품절·해제가 가장 깨끗하게 대칭인 몰.',
+  kidsnote: {
+      difficulty: 'high',
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
+      },
+      note: 'WISA 스마트윙. 상품 일괄등록 엑셀이 upsert(고유번호 있으면 수정)이고, 재고는 일괄재고 조정(재고조사표.xls, 조정사유 필수)이 따로 있다. 상품조회 목록에서 상태(정상/품절/숨김)를 고쳐 [가격/적립금/상태 수정] 한 버튼으로 일괄 적용 — 27개 몰 중 품절·해제가 가장 깨끗하게 대칭인 몰.',
   },
-  {
-    key: 'haebub-mall',
-    name: '해법몰',
-    kind: 'extension_excel',
-    difficulty: 'high',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    hazards: { resumeRequiresAlternatePath: true },
-    note: '지니마켓. 엑셀 한 장(prd_excel_up.php)이 등록·재고·품절을 동시에 민다(품절여부 Y=품절/N=무제한/S=수량). ⚠️ 상태 변경 팝업(prd_change_status.php)의 셀렉트가 P(일시품절)/B(보류)뿐이라 되돌리는 값이 없다 — 해제는 prd_change_exposure.php Y↔N 또는 엑셀 품절여부 N/S 로 라우팅한다. "대칭 아닌 몰"의 첫 레퍼런스.',
+  'haebub-mall': {
+      difficulty: 'high',
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
+      },
+      hazards: { resumeRequiresAlternatePath: true },
+      note: '지니마켓. 엑셀 한 장(prd_excel_up.php)이 등록·재고·품절을 동시에 민다(품절여부 Y=품절/N=무제한/S=수량). ⚠️ 상태 변경 팝업(prd_change_status.php)의 셀렉트가 P(일시품절)/B(보류)뿐이라 되돌리는 값이 없다 — 해제는 prd_change_exposure.php Y↔N 또는 엑셀 품절여부 N/S 로 라우팅한다. "대칭 아닌 몰"의 첫 레퍼런스.',
   },
-  {
-    key: 'onch',
-    name: '온채널',
-    kind: 'extension_excel',
-    difficulty: 'high',
-    supports: {
-      createListing: true, updateListing: true,
-      setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
-    },
-    hazards: { requiresOperatorApproval: true },
-    note: '공급사 상품 대량 등록 엑셀(재고 컬럼, 옵션 2개 이상은 ; 구분). 품절·일시품절·단종은 [판매설정] 버튼으로 "요청"하는 방식이라 관리자 승인이 끼어들고 즉시 반영이 보장되지 않는다. 되돌리는 UI 는 같은 [판매설정]에 있어 대칭. ⚠️ 공식 안내상 재고 자동 차감 시스템이 아니다.',
+  onch: {
+      difficulty: 'high',
+      supports: {
+        createListing: true, updateListing: true,
+        setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
+      },
+      hazards: { requiresOperatorApproval: true },
+      note: '공급사 상품 대량 등록 엑셀(재고 컬럼, 옵션 2개 이상은 ; 구분). 품절·일시품절·단종은 [판매설정] 버튼으로 "요청"하는 방식이라 관리자 승인이 끼어들고 즉시 반영이 보장되지 않는다. 되돌리는 UI 는 같은 [판매설정]에 있어 대칭. ⚠️ 공식 안내상 재고 자동 차감 시스템이 아니다.',
   },
-  {
-    key: 'teacher-mall',
-    name: '티쳐몰',
-    kind: 'extension_form',
-    difficulty: 'high',
-    supports: { createListing: true, updateListing: true, setSaleStatus: 'listing', soldOut: true, resume: true },
-    hazards: { updateResetsApproval: true },
-    note: '퍼스트몰 selleradmin. 판매상태는 정상/품절/판매중지/재고확보중. ⚠️ 일반 "정보수정" 경로로 처리하면 미승인+판매중지+미노출로 역행하므로 판매상태 단독 변경 경로여야 한다. goods/excel_upload 의 용도(신규등록인지 수정 전용인지)는 미확정.',
+  'teacher-mall': {
+      difficulty: 'high',
+      supports: { createListing: true, updateListing: true, setSaleStatus: 'listing', soldOut: true, resume: true },
+      hazards: { updateResetsApproval: true },
+      note: '퍼스트몰 selleradmin. 판매상태는 정상/품절/판매중지/재고확보중. ⚠️ 일반 "정보수정" 경로로 처리하면 미승인+판매중지+미노출로 역행하므로 판매상태 단독 변경 경로여야 한다. goods/excel_upload 의 용도(신규등록인지 수정 전용인지)는 미확정.',
   },
-  {
-    key: 'kkomangse',
-    name: '꼬망세',
-    kind: 'extension_form',
-    difficulty: 'high',
-    unverified: true,
-    note: 'EduPre. 등록은 _product.form.php 단일 폼(502=핸들러 존재)이지만 엑셀 핸들러와 재고·품절 전용 핸들러가 전부 404 라 상태 전이 경로가 없다. 등록 폼 역방향으로 추정될 뿐 미검증.',
+  kkomangse: {
+      difficulty: 'high',
+      note: 'EduPre. 등록은 _product.form.php 단일 폼(502=핸들러 존재)이지만 엑셀 핸들러와 재고·품절 전용 핸들러가 전부 404 라 상태 전이 경로가 없다. 등록 폼 역방향으로 추정될 뿐 미검증.',
   },
-  {
-    key: 'always',
-    name: '올웨이즈',
-    kind: 'unknown',
-    difficulty: 'high',
-    unverified: true,
-    note: '공식 대량 등록 경로가 사방넷과 플레이오토 두 솔루션뿐이라고 명시돼 있다("올웨이즈는 사방넷과 플레이오토 두가지 상품 대량 등록을 지원합니다"). 사방넷 기능표상 품절처리는 O 라 비공개 파트너 채널이 있는 것으로 보이나 근거 없음.',
+  always: {
+      difficulty: 'high',
+      note: '공식 대량 등록 경로가 사방넷과 플레이오토 두 솔루션뿐이라고 명시돼 있다("올웨이즈는 사방넷과 플레이오토 두가지 상품 대량 등록을 지원합니다"). 사방넷 기능표상 품절처리는 O 라 비공개 파트너 채널이 있는 것으로 보이나 근거 없음.',
   },
-  {
-    key: 'gs-shop',
-    name: 'GS샵',
-    kind: 'extension_form',
-    difficulty: 'high',
-    unverified: true,
-    note: '파트너스 SPA. 화면 라우트(/product/products/create/, /product/prd-bulk-modify/)와 조회성 BFF 는 번들에서 확인했으나 실제 저장 mutation 은 lazy chunk 라 로그인 후 리버스가 필요하다.',
+  'gs-shop': {
+      difficulty: 'high',
+      note: '파트너스 SPA. 화면 라우트(/product/products/create/, /product/prd-bulk-modify/)와 조회성 BFF 는 번들에서 확인했으나 실제 저장 mutation 은 lazy chunk 라 로그인 후 리버스가 필요하다.',
   },
-  {
-    key: 'domeggook',
-    name: '도매꾹',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '주문 OpenAPI(ssl/api)는 주문수집에서 이미 쓰고 있으나 상품등록·재고 엔드포인트는 조사되지 않았다.',
+  domeggook: {
+      difficulty: 'unknown',
+      note: '주문 OpenAPI(ssl/api)는 주문수집에서 이미 쓰고 있으나 상품등록·재고 엔드포인트는 조사되지 않았다.',
   },
-  {
-    key: 'tekville-edu',
-    name: '테크빌교육',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '상품등록·품절 경로 미조사. 티쳐몰(퍼스트몰)과 같은 운영 주체인지도 확인되지 않았으므로 어댑터를 공유한다고 가정하지 말 것.',
+  'tekville-edu': {
+      difficulty: 'unknown',
+      note: '상품등록·품절 경로 미조사. 티쳐몰(퍼스트몰)과 같은 운영 주체인지도 확인되지 않았으므로 어댑터를 공유한다고 가정하지 말 것.',
   },
-  {
-    key: 'benepia-mul',
-    name: '베네피아물',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '벤더 어드민 경로 미확인. ⚠️ 등록 단계에서 국표원·환경부·식약처 위해상품 정보 검증이 걸려 어린이제품 KC 미비 시 반려 가능성이 27개 몰 중 가장 높다. 사방넷이 7개 기능 전부 커버하므로 자체 어댑터 ROI 재계산 필요.',
+  'benepia-mul': {
+      difficulty: 'unknown',
+      note: '벤더 어드민 경로 미확인. ⚠️ 등록 단계에서 국표원·환경부·식약처 위해상품 정보 검증이 걸려 어린이제품 KC 미비 시 반려 가능성이 27개 몰 중 가장 높다. 사방넷이 7개 기능 전부 커버하므로 자체 어댑터 ROI 재계산 필요.',
   },
-  {
-    key: 'icecream-mall',
-    name: '아이스크림몰',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: 'X2BEE PO. 전 경로가 302(istio-envoy)라 상품·재고 메뉴 이름조차 확인되지 않았다. 계정 확보 전 착수 금지.',
+  'icecream-mall': {
+      difficulty: 'unknown',
+      note: 'X2BEE PO. 전 경로가 302(istio-envoy)라 상품·재고 메뉴 이름조차 확인되지 않았다. 계정 확보 전 착수 금지.',
   },
-  {
-    key: 'kidkids',
-    name: '키드키즈',
-    kind: 'extension_form',
-    difficulty: 'medium',
-    unverified: true,
-    note: '스토어 파트너센터(euc-kr PHP). 등록은 /sales/goods_reg_renewal.htm 단일 폼(multipart → /stdinfo/reg_process_renewal.htm)으로 실측됐다(2026-09-14, 목록 3,478개). 분류 3단 AJAX · 공정위 고시 gs_id 동적 줄 · TinyMCE 상세. 품절관리·재고수량 메뉴는 있으나 상태 전이 경로는 미검증.',
+  kidkids: {
+      difficulty: 'medium',
+      note: '스토어 파트너센터(euc-kr PHP). 등록은 /sales/goods_reg_renewal.htm 단일 폼(multipart → /stdinfo/reg_process_renewal.htm)으로 실측됐다(2026-09-14, 목록 3,478개). 분류 3단 AJAX · 공정위 고시 gs_id 동적 줄 · TinyMCE 상세. 품절관리·재고수량 메뉴는 있으나 상태 전이 경로는 미검증.',
   },
-  {
-    key: 'woongjin-class',
-    name: '웅진클래스몰',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '몰 실체·도메인 자체가 미확정. 샵바이 기반이라는 근거를 찾지 못했다.',
+  'woongjin-class': {
+      difficulty: 'unknown',
+      note: '몰 실체·도메인 자체가 미확정. 샵바이 기반이라는 근거를 찾지 못했다.',
   },
-  {
-    key: 'yoons',
-    name: '윤선생',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: 'SCM 으로 지목됐던 qbscm.qubridge.com 은 실측 결과 아름넷닷컴/큐브릿지 계열이었고 윤선생과의 연결 근거가 없다.',
+  yoons: {
+      difficulty: 'unknown',
+      note: 'SCM 으로 지목됐던 qbscm.qubridge.com 은 실측 결과 아름넷닷컴/큐브릿지 계열이었고 윤선생과의 연결 근거가 없다.',
   },
-  {
-    key: 'one-polaris',
-    name: '원폴라리스',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '최근 120일 매출 비중 6.2% 로 폐쇄몰 1위인데 판매자 어드민 도메인·계정이 모두 미상이다(officeone.co.kr / onepolaris.co.kr 은 DNS 실패). 27개 몰 중 확인 우선순위가 가장 높다.',
+  'one-polaris': {
+      difficulty: 'unknown',
+      note: '최근 120일 매출 비중 6.2% 로 폐쇄몰 1위인데 판매자 어드민 도메인·계정이 모두 미상이다(officeone.co.kr / onepolaris.co.kr 은 DNS 실패). 27개 몰 중 확인 우선순위가 가장 높다.',
   },
 
   // ── 상품등록 개념이 없는 채널 ─────────────────────────────────────────────
-  {
-    key: 'rocket',
-    name: '쿠팡 로켓',
-    applicable: false,
-    note: '쿠팡이 발주하고 우리가 납품하는 사입 채널이다(ChannelAccount channel=\'rocket\'). 리스팅 판매상태를 우리가 바꾸는 구조가 아니라 품절 송신 대상이 아니다. 재고는 발주 확정과 셀피아 재고로 관리한다. 주문수집 카탈로그의 쿠팡직배송(coupang-direct)과 같은 거래 관계를 가리킨다.',
+  'coupang-direct': {
+      note: '사입(발주) 채널이다. 쿠팡이 발주하고 우리가 납품하는 구조라 상품등록·품절 송신 개념이 없다. 마켓플레이스 판매는 별도 쿠팡(coupang) 매니페스트를 쓴다.',
   },
-  {
-    key: 'coupang-direct',
-    name: '쿠팡직배송',
-    applicable: false,
-    note: '사입(발주) 채널이다. 쿠팡이 발주하고 우리가 납품하는 구조라 상품등록·품절 송신 개념이 없다. 마켓플레이스 판매는 별도 쿠팡(coupang) 매니페스트를 쓴다.',
-  },
-];
+};
 
-export const MALL_ADAPTER_MANIFESTS: readonly MallAdapterManifest[] = SEEDS.map(manifest);
+/**
+ * 몰 등록 매니페스트는 **몰만** 담는다. 쿠팡 마켓플레이스와 쿠팡 로켓은 마켓 판매자
+ * 시스템이라 몰 등록 마법사에 서지 않는다(KID-250). 그 채널들의 정체와 능력은 레지스트리가
+ * 계속 답하고, 리스팅은 매트릭스에서 읽기 전용 열로 남는다.
+ */
+export const MALL_ADAPTER_MANIFESTS: readonly MallAdapterManifest[] = MALL_CHANNELS.map(
+  (entry) => manifest(entry, SEEDS[entry.key]),
+);
 
 const BY_KEY = new Map(MALL_ADAPTER_MANIFESTS.map((entry) => [entry.key, entry]));
 

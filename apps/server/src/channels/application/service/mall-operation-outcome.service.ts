@@ -10,7 +10,7 @@ import {
   type RecordMallOperationOutcomeRequest,
 } from '@kiditem/shared/mall-operation-outcomes';
 import { kstInclusiveDaysStart } from '../../../common/kst';
-import { getMallAdapterManifest } from '../../domain/mall/mall-adapter-manifest';
+import { isChannelKey } from '@kiditem/shared/channel-registry';
 import {
   MALL_OPERATION_OUTCOME_REPOSITORY_PORT,
   type MallOperationOutcomeRepositoryPort,
@@ -61,8 +61,10 @@ export class MallOperationOutcomeService {
     actorUserId: string | null,
     input: RecordMallOperationOutcomeRequest,
   ): Promise<MallOperationOutcomeItem> {
-    // 매니페스트는 보낸 키 그대로 확인한다 — 접은 뒤에 확인하면 모르는 몰이 통과한다.
-    if (!getMallAdapterManifest(input.mallKey)) {
+    // 레지스트리는 보낸 키 그대로 확인한다 — 접은 뒤에 확인하면 모르는 몰이 통과한다.
+    // 몰 등록 매니페스트가 아니라 채널 레지스트리로 묻는다: 관찰 기록은 마켓 행
+    // (쿠팡 로켓)에도 쌓이고, 그 행은 몰 등록 마법사에 서지 않는다.
+    if (!isChannelKey(input.mallKey)) {
       throw new BadRequestException(`알 수 없는 몰입니다: ${input.mallKey}`);
     }
     // 이유 코드가 무슨 일인지 말하면 글은 담지 않는다. 몰이 돌려준 문장에는 아이디 ·

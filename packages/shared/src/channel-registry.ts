@@ -92,6 +92,11 @@ export const CHANNEL_REGISTRY = [
 export type ChannelRegistryRow = (typeof CHANNEL_REGISTRY)[number];
 export type ChannelKey = ChannelRegistryRow['key'];
 
+export type MallChannelRow = Extract<ChannelRegistryRow, { kind: 'mall' }>;
+export type MallChannelKey = MallChannelRow['key'];
+export type MarketplaceChannelRow = Extract<ChannelRegistryRow, { kind: 'marketplace' }>;
+export type MarketplaceChannelKey = MarketplaceChannelRow['key'];
+
 const BY_KEY = new Map<string, ChannelRegistryEntry>(
   CHANNEL_REGISTRY.map((entry) => [entry.key, entry]),
 );
@@ -106,14 +111,20 @@ export function isChannelKey(key: string): key is ChannelKey {
 }
 
 /** 몰만. 주문수집 카탈로그와 몰 등록 매니페스트가 이 목록이다. */
-export const MALL_CHANNELS: readonly ChannelRegistryEntry[] = CHANNEL_REGISTRY.filter(
-  (entry) => entry.kind === 'mall',
+export const MALL_CHANNELS: readonly MallChannelRow[] = CHANNEL_REGISTRY.filter(
+  (entry): entry is MallChannelRow => entry.kind === 'mall',
 );
 
 /** 마켓 판매자 시스템만. 쿠팡 윙과 쿠팡 로켓이다. */
-export const MARKETPLACE_CHANNELS: readonly ChannelRegistryEntry[] = CHANNEL_REGISTRY.filter(
-  (entry) => entry.kind === 'marketplace',
+export const MARKETPLACE_CHANNELS: readonly MarketplaceChannelRow[] = CHANNEL_REGISTRY.filter(
+  (entry): entry is MarketplaceChannelRow => entry.kind === 'marketplace',
 );
+
+/** 몰인 채널. 마켓 키와 모르는 키는 null. */
+export function findMallChannel(key: string): MallChannelRow | null {
+  const entry = BY_KEY.get(key);
+  return entry && entry.kind === 'mall' ? (entry as MallChannelRow) : null;
+}
 
 /**
  * 관찰 기록 · 알림 · 타일이 쓰는 키 — 계정 행을 함께 쓰는 채널은 그 행의 채널 하나로 모은다.
