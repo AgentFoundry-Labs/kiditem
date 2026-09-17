@@ -33,6 +33,12 @@ vi.mock('@tanstack/react-query', () => ({
   }),
 }));
 
+// 사방넷 가져오기 컨트롤은 수집 원천 훅(뮤테이션 · 폴링)을 쓴다. 그 동작은 컨트롤 쪽 스펙이
+// 본다 — 여기서는 머리에 서는지만 확인한다.
+vi.mock('../_shared/SabangnetListingsImport', () => ({
+  SabangnetListingsImport: () => <button type="button">사방넷에서 가져오기</button>,
+}));
+
 // 실제 next/link 는 aria-label 을 그대로 넘긴다. 아이콘만 있는 링크의 이름이 거기서 나온다.
 vi.mock('next/link', () => ({
   default: ({
@@ -307,6 +313,11 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     // 몰 목록은 서버 고정 카탈로그다. 새로 만드는 API 가 없다.
     expect(screen.queryByText(/채널 추가/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '계정 설정' })).toHaveAttribute('href', '/mall-settings');
+  });
+
+  it('⭐ 머리에서 사방넷 등록 상품을 한꺼번에 가져온다 — 몰마다 따로 누르지 않는다', () => {
+    render(<MallChannelsPage />);
+    expect(screen.getAllByRole('button', { name: '사방넷에서 가져오기' })).toHaveLength(1);
   });
 
   it('연결된 몰이 없으면 빈 상태를 보여준다', () => {

@@ -54,6 +54,22 @@ describe('resolveMallListingState', () => {
       .toContain('존재만 확인');
   });
 
+  it.each([
+    ['사방넷 공급중', 'published'],
+    ['사방넷 일시중지', 'paused'],
+    ['사방넷 완전품절', 'discontinued'],
+    ['사방넷 대기중', 'reviewing'],
+  ] as const)('사방넷에서 가져온 %s 를 %s 로 접고, 근거가 사방넷이라고 남긴다', (status, expected) => {
+    const result = resolveMallListingState({ hasListing: true, listingStatus: status });
+    expect(result.state).toBe(expected);
+    expect(result.warning).toContain('사방넷 송신 기록 기준');
+  });
+
+  it('사방넷 표시가 붙은 모르는 상태는 확인필요로 둔다', () => {
+    expect(resolveMallListingState({ hasListing: true, listingStatus: '사방넷 처음보는상태' }).state)
+      .toBe('unknown');
+  });
+
   it('모르는 상태 문자열을 발행으로 추측하지 않는다', () => {
     expect(resolveMallListingState({ hasListing: true, listingStatus: '처음보는상태' }).state)
       .toBe('unknown');

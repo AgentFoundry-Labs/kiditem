@@ -7,6 +7,7 @@ import { AlertCircle, Loader2, Settings, Share2 } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
+import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
 import { ChannelSummary } from './components/ChannelSummary';
 import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
@@ -23,6 +24,9 @@ import { CapabilityLegend } from './components/CapabilityPill';
  * **다 되는 몰부터** 둔다. 칸 머리에 몇 곳에서 되는지가 선다 — 초록 됨 · 회색 아직 · 빨강 불가.
  * 판정은 쇼핑몰 홈과 같은 곳(`useMallCapabilityRows`)에서 읽는다. 쇼핑몰 ID · 사용여부는
  * 쇼핑몰 계정 화면의 값을 읽기만 한다.
+ *
+ * '등록 상품' 칸은 몰에 올라간 상품을 가져와야 채워진다. 사방넷을 쓰던 몰은 머리의
+ * '사방넷에서 가져오기'가 사방넷 송신 기록으로 한꺼번에 채운다(KID-246).
  *
  * 몰을 새로 만드는 기능은 없다. 몰 목록은 서버가 가진 고정 카탈로그이고, '연결'은
  * 그 중 하나에 계정을 채우는 일이다. 그래서 여기에 '채널 추가' 버튼을 두지 않고
@@ -54,13 +58,16 @@ export default function MallChannelsPage() {
             연결된 몰과 각 몰로 되는 일입니다.
           </p>
         </div>
-        <Link
-          href="/mall-settings"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <Settings size={14} />
-          계정 설정
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <SabangnetListingsImport />
+          <Link
+            href="/mall-settings"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <Settings size={14} />
+            계정 설정
+          </Link>
+        </div>
       </div>
 
       {overviewQuery.isError ? (

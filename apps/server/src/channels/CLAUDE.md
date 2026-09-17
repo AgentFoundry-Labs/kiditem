@@ -93,6 +93,13 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
+- The Sabangnet listing import (KID-246) is one organization attempt whose
+  plan freezes the mall account rows the hub picks
+  (`read/mall-account-rows.ts`, any status). Completion publishes each mall's
+  send records as listings with one option (`sellerSku` = Sabangnet model =
+  Sellpia SKU code) and turns off only listings this source created that left
+  the list. Its statuses carry the `사방넷 ` prefix and fold with a
+  Sabangnet-basis warning.
 - Rocket PO reads select the latest COMPLETE before filtering rows; an empty
   COMPLETE replaces the current view. Preserve prior snapshots for exact
   source/workbook references. Publication changes source facts and identities,

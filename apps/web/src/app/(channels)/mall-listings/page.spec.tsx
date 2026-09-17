@@ -64,6 +64,11 @@ vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-r
   downloadWingExcel: downloadWingExcelMock,
 }));
 
+// 사방넷 가져오기 컨트롤의 동작은 컨트롤 쪽 스펙이 본다. 여기서는 안 가져온 몰 안내에 서는지만.
+vi.mock('../_shared/SabangnetListingsImport', () => ({
+  SabangnetListingsImport: () => <button type="button">사방넷에서 가져오기</button>,
+}));
+
 let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
 
 /** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. */
@@ -304,6 +309,8 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
       screen.getByText(/키즈노트 은\(는\) 리스팅을 아직 가져오지 않았습니다/),
     ).toBeInTheDocument();
     expect(screen.getByText(/몰에 상품이 없다는 뜻이 아니라 우리가 모른다는 뜻/)).toBeInTheDocument();
+    // 사방넷으로 올린 몰은 그 자리에서 한꺼번에 가져온다.
+    expect(screen.getByRole('button', { name: '사방넷에서 가져오기' })).toBeInTheDocument();
   });
 
   it('재고 없음과 재고 0을 구별한다', () => {

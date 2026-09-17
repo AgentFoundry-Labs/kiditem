@@ -36,6 +36,8 @@ export const ORDERS_WORKER_MODULES = [
   'sellpia-shipment-tracking-source-owner.js',
   'sellpia-manual-match.js',
   'sellpia-manual-match-source-owner.js',
+  'sabangnet-mall-listings.js',
+  'sabangnet-mall-listings-source-owner.js',
   'sellpia-post-processing.js',
   'coupang-po-session.js',
   'rocket-po-collection.js',

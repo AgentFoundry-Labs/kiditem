@@ -573,6 +573,52 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .resolves.toMatchObject({ currentStock: 27 });
   });
 
+  it('leaves an option whose SKU belongs to an inactive product for review and still links the rest (KID-246)', async () => {
+    const active = await createProduct('10162-1', '할로윈 아트 네일팁');
+    const retired = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: '9151-1',
+        name: '할로윈 LED 거미줄',
+        isActive: false,
+      },
+    });
+    const sellpiaSku = (code: string, name: string, masterProductId: string) =>
+      prisma.sellpiaInventorySku.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId,
+          code,
+          name,
+          currentStock: 5,
+          purchasePrice: 100,
+          lastImportRunId: inventoryCompletedRunId,
+        },
+      });
+    const activeSku = await sellpiaSku('10162-1', '할로윈아트네일팁', active.id);
+    const retiredSku = await sellpiaSku('9151-1', '할로윈LED거미줄', retired.id);
+    const linked = await createListing({ displayName: '할로윈 아트 네일팁 1p' });
+    const linkedOption = await createOption(linked.id, {
+      itemName: '할로윈 아트 네일팁 1p',
+      sellerSku: '10162-1',
+    });
+    const held = await createListing({ displayName: '할로윈 LED 거미줄 1p' });
+    const heldOption = await createOption(held.id, {
+      itemName: '할로윈 LED 거미줄 1p',
+      sellerSku: '9151-1',
+    });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toMatchObject({ evaluatedListings: 2, configuredOptions: 1 });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: { in: [linkedOption.id, heldOption.id] } },
+      select: { channelListingOptionId: true, sellpiaInventorySkuId: true },
+    })).resolves.toEqual([
+      { channelListingOptionId: linkedOption.id, sellpiaInventorySkuId: activeSku.id },
+    ]);
+    expect(retiredSku.masterProductId).toBe(retired.id);
+  });
+
   it('rejects incompatible provider and confirmed CSV barcodes without writing recipes or stock changes', async () => {
     const product = await createProduct('KI-BARCODE-REJECT', '퓨어 클리어 슬라임');
     const listing = await createListing({

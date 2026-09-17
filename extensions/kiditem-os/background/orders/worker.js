@@ -113,6 +113,13 @@ const rocketPoSourceOwner = KidItemRocketPoSourceOwner.create({
   request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
   collect: rocketPoCollection.collect,
 });
+const sabangnetMallListings = KidItemSabangnetMallListings.create({ chrome });
+const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: sabangnetMallListings.collect,
+});
 const coupangDirectshipSourceOwner = KidItemCoupangDirectshipSourceOwner.create({
   chrome,
   sessions: collectionSessions,
@@ -281,6 +288,9 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
   }
   if (session?.producer === "orders.sellpia_manual_match") {
     return sellpiaManualMatchSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.sabangnet_mall_listings") {
+    return sabangnetMallListingsSourceOwner.cancel({ attemptId, environmentId });
   }
   if (session?.producer === "orders.mall") {
     return orderCollectionSourceOwner.cancel({ attemptId, environmentId });
@@ -7639,6 +7649,12 @@ KidItemDomains.register({
         sellpiaProductProfitabilitySourceOwner.run({ attemptId, environmentId }),
       ),
     },
+    collectSabangnetMallListings: {
+      validate: KidItemSabangnetMallListingsSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sabangnetMallListingsSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
     collectRocketPoRows: {
       validate: KidItemRocketPoSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -7686,6 +7702,8 @@ KidItemDomains.register({
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,
     sellpiaManualMatchSourceOwnerV1: true,
+    // 사방넷 송신 기록으로 몰 등록 상품을 가져온다(KID-246).
+    sabangnetMallListingsSourceOwnerV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

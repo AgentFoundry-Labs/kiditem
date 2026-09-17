@@ -170,6 +170,11 @@
       "import": "./dist/rocket-purchase-preview.js",
       "require": "./dist/rocket-purchase-preview.cjs"
     },
+    "./sabangnet-mall-listings": {
+      "types": "./dist/sabangnet-mall-listings.d.ts",
+      "import": "./dist/sabangnet-mall-listings.js",
+      "require": "./dist/sabangnet-mall-listings.cjs"
+    },
     "./coupang-catalog-snapshot": {
       "types": "./dist/coupang-catalog-snapshot.d.ts",
       "import": "./dist/coupang-catalog-snapshot.js",
@@ -360,6 +365,9 @@
       ],
       "rocket-purchase-preview": [
         "dist/rocket-purchase-preview.d.ts"
+      ],
+      "sabangnet-mall-listings": [
+        "dist/sabangnet-mall-listings.d.ts"
       ],
       "coupang-catalog-snapshot": [
         "dist/coupang-catalog-snapshot.d.ts"

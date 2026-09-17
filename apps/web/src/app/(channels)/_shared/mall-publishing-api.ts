@@ -12,10 +12,21 @@ import {
   type ChannelDashboardSummary,
 } from '@kiditem/shared/channel-dashboard';
 import type { MallOperationOutcomeSummary } from '@kiditem/shared/mall-operation-outcomes';
+import {
+  ChannelProductAutoMatchResponseSchema,
+  type ChannelProductAutoMatchResponse,
+} from '@kiditem/shared/channel-product-matching';
+import {
+  SabangnetMallListingsAttemptSchema,
+  SabangnetMallListingsSourceSchema,
+  type SabangnetMallListingsAttempt,
+  type SabangnetMallListingsSource,
+} from '@kiditem/shared/sabangnet-mall-listings';
 import { apiClient } from '@/lib/api-client';
 import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
 
 const BASE = '/api/channels/mall-publishing';
+const SABANGNET_BASE = '/api/channels/sabangnet-listings';
 
 function toQuery(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
@@ -89,6 +100,36 @@ export const mallPublishingApi = {
   /** 쇼핑몰 에이전트의 관찰 기록 — 몰 · 작업마다 최근 결과와 결과별 건수. */
   outcomeSummary(days = 7): Promise<MallOperationOutcomeSummary> {
     return mallOperationOutcomesApi.summary(days);
+  },
+
+  /** 사방넷 등록 상품 가져오기의 현재 — 받을 몰, 최근 시도, 최근 완료와 몰별 결과. */
+  sabangnetListingsSource(): Promise<SabangnetMallListingsSource> {
+    return apiClient.getParsed(`${SABANGNET_BASE}/source`, SabangnetMallListingsSourceSchema);
+  },
+
+  /**
+   * 사방넷 가져오기 시도를 연다. 사방넷을 읽는 것은 확장이고, 화면은 쓰기 토큰을 갖지
+   * 않는다 — 응답에서 버린다.
+   */
+  async beginSabangnetListings(idempotencyKey: string): Promise<SabangnetMallListingsAttempt> {
+    const raw = await apiClient.post(`${SABANGNET_BASE}/attempts`, {}, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+    return SabangnetMallListingsAttemptSchema.strip().parse(raw);
+  },
+
+  /** 운영자 중단. 확장의 쓰기 토큰 없이 owner 가 시도를 끝낸다. */
+  cancelSabangnetListings(attemptId: string): Promise<unknown> {
+    return apiClient.post(`${SABANGNET_BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+  },
+
+  /**
+   * 몰 계정 하나의 리스팅을 셀피아 SKU 에 잇는다 — 매칭 owner 의 자동 매칭이다. 비어 있는
+   * 레시피만 채우고, 확정된 레시피는 건드리지 않는다.
+   */
+  async autoMatchAccount(channelAccountId: string): Promise<ChannelProductAutoMatchResponse> {
+    const raw = await apiClient.post('/api/channels/product-mappings/auto-match', { channelAccountId });
+    return ChannelProductAutoMatchResponseSchema.parse(raw);
   },
 
   /** 쿠팡 요약(발주확인 대기 등). 쿠팡 대시보드 API 를 읽기만 한다. */

@@ -8,6 +8,7 @@ import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-f
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
 import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
+import { MALL_ACCOUNT_ROW_ORDER } from '../../../read/mall-account-rows';
 import type {
   MallAccountRow,
   MallListingAccountRow,
@@ -30,12 +31,6 @@ import type {
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
 /** 여러 몰이 함께 쓰는 등록 칸 중 안전인증번호(`mallRegisterShared.certNumber`). */
 const SHARED_CERT_NUMBER_KEY = 'certNumber';
-/** 한 채널에 계정 행이 여럿일 때 고르는 순서 — 대표 계정, 먼저 만든 행. */
-const ACCOUNT_ROW_ORDER = [
-  { isPrimary: 'desc' },
-  { createdAt: 'asc' },
-  { id: 'asc' },
-] satisfies Prisma.ChannelAccountOrderByWithRelationInput[];
 
 
 /** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
@@ -100,7 +95,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
     const rows = await this.prisma.channelAccount.findMany({
       where: { organizationId },
-      orderBy: ACCOUNT_ROW_ORDER,
+      orderBy: MALL_ACCOUNT_ROW_ORDER,
       select: { id: true, name: true, channel: true, status: true, config: true },
     });
 

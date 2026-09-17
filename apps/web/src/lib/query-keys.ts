@@ -297,6 +297,8 @@ export const queryKeys = {
     listingMatrix: (params: Record<string, string>) =>
       [...queryKeys.mallPublishing.all, 'listing-matrix', params] as const,
     channelOverview: () => [...queryKeys.mallPublishing.all, 'channel-overview'] as const,
+    sabangnetListingsSource: () =>
+      [...queryKeys.mallPublishing.all, 'sabangnet-listings-source'] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,

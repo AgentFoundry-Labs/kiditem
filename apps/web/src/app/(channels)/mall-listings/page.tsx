@@ -9,6 +9,7 @@ import { cn, formatNumber } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
 import type { MallMatrixFilter } from '@kiditem/shared/mall-publishing';
 import { mallPublishingApi } from '../_shared/mall-publishing-api';
+import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
 import { MALL_PUBLISH_ADAPTERS } from '../_shared/adapters';
 import { ListingMatrixTable } from './components/ListingMatrixTable';
 import { RegistrationWizard } from './components/RegistrationWizard';
@@ -264,8 +265,9 @@ function ListingStatusView() {
             </strong>
             <p className="mt-1 text-xs leading-relaxed">
               그 열의 &lsquo;미등록&rsquo;은 몰에 상품이 없다는 뜻이 아니라 우리가 모른다는 뜻입니다.
-              이 몰들은 새 등록만 가능하고, 현황은 리스팅 수집이 붙어야 채워집니다.
+              사방넷으로 올린 몰은 사방넷 송신 기록에서 한꺼번에 가져올 수 있습니다.
             </p>
+            <SabangnetListingsImport className="mt-2 justify-start" />
           </div>
         </div>
       ) : null}

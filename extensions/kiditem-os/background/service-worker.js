@@ -64,6 +64,8 @@ importScripts(
   "orders/sellpia-shipment-tracking-source-owner.js",
   "orders/sellpia-manual-match.js",
   "orders/sellpia-manual-match-source-owner.js",
+  "orders/sabangnet-mall-listings.js",
+  "orders/sabangnet-mall-listings-source-owner.js",
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
   "orders/kidsnote-product-register.js",

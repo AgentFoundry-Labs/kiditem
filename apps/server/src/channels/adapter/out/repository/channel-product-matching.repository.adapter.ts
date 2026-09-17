@@ -385,6 +385,20 @@ implements ChannelProductMatchingRepositoryPort {
         activeSkusByCode.set(code, rows);
       }
       const activeSkuById = new Map(activeSkus.map((sku) => [sku.id, sku]));
+      // A proposal whose SKU points at an inactive canonical product is a conflict,
+      // not an automatic link: the Products recipe port rejects the whole batch
+      // for one such target, so it stays for review and the rest still apply.
+      const activeMasterProductIds = new Set((await tx.masterProduct.findMany({
+        where: {
+          organizationId: input.organizationId,
+          isActive: true,
+          id: {
+            in: [...new Set(activeSkus.flatMap((sku) =>
+              sku.masterProductId ? [sku.masterProductId] : []))],
+          },
+        },
+        select: { id: true },
+      })).map(({ id }) => id));
       const mutations: Array<{
         channelListingOptionId: string;
         expectedMasterProductId?: string;
@@ -476,6 +490,7 @@ implements ChannelProductMatchingRepositoryPort {
             ? activeSkuById.get(proposal.sellpiaInventorySkuId)
             : null;
           if (!proposal || !targetSku?.masterProductId
+            || !activeMasterProductIds.has(targetSku.masterProductId)
             || !Number.isSafeInteger(quantity) || (quantity ?? 0) <= 0) continue;
           mutations.push({
             channelListingOptionId: option.id,

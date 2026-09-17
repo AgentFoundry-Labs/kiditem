@@ -60,6 +60,18 @@ registration, and Coupang cookie-overflow recovery.
   range-completeness matrices are executable in
   [the extension order tests](../../../tests/).
 
+## Sabangnet Listing Import
+
+- `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
+  records — one row per mall × product with the mall product code — from the
+  fixed list API on the frozen plan's origin, all pages, in a fresh inactive
+  tab. It never opens send, save, or delete screens.
+- That list response also carries mall login IDs and passwords. Copy only the
+  schema's whitelisted fields; never return, log, or forward the rest. The
+  Sabangnet session token stays inside the injected function.
+- A total that moves between pages, a short page, or an unknown response code
+  stops the run; the owner publishes only a complete list.
+
 ## Sellpia And Rocket Boundaries
 
 - Inventory collection uses the fixed authenticated full-snapshot JSON contract.
