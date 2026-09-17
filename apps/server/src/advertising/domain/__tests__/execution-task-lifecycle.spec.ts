@@ -168,8 +168,9 @@ describe('resolveExecutionReport', () => {
       ) => resolveExecutionReport(manualType, latest, { executionTaskId, status }, NOW);
 
       it.each([
-        // An executor claiming a queued attempt, such as one a database that ran
-        // data migration 011 before KID-230 holds, never gets to write.
+        // An executor claiming a queued attempt, such as one a database cut over
+        // before migration 015 (KID-230) existed still holds from an approval
+        // before decision A, never gets to write.
         ['queued', 'running', 'manual_action'],
         ['queued', 'done', 'manual_action'],
         ['running', 'running', 'manual_action'],

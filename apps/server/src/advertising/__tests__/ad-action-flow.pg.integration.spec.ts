@@ -308,9 +308,9 @@ describe('AdAction flow (PG integration)', () => {
   }
 
   /**
-   * An approved action with one queued attempt, written directly: the shape a
-   * database that ran data migration 011 before KID-230 holds for an approval
-   * made before KID-138 decision A.
+   * An approved action with one queued attempt, written directly: what a
+   * database cut over before migration 015 (KID-230) existed still holds for
+   * an approval made before KID-138 decision A.
    */
   async function legacyQueuedAction(actionType: string, targetLabel: string) {
     const action = await seedPendingAction(targetLabel, TEST_ORGANIZATION_ID, actionType);
