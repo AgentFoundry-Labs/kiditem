@@ -126,8 +126,11 @@ them — are recorded for a mall that has no row
 _Avoid_: shop, store, seller account, mall account
 
 **Channel registry**:
-몰과 마켓을 아우르는 채널 목록 하나. 키·이름·공유 계정 행·능력(수집·송장·등록 방식·
-검증 여부)을 답한다. 어떻게 로그인하고 어떻게 폼을 채우는지는 답하지 않는다.
+The one list of channels, malls and marketplaces together. It answers a
+channel's key, name, shared account row, and capabilities: whether its orders
+are collected and by whom, whether tracking can be sent, how listings are
+registered, and whether that has been verified. It does not answer how to sign
+in or how to fill a form — that is the extension's spec, keyed the same way.
 _Avoid_: mall registry, mall list
 
 **Source owner**:

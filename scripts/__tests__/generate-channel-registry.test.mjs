@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -50,20 +51,41 @@ test('생성물은 확장 전역 하나만 만든다', () => {
   assert.equal(registry.findChannel('order_collection'), null);
 });
 
+/**
+ * 커밋된 파일은 건드리지 않는다. 생성기를 복사한 저장소 사본 위에서 흔들어 본다 —
+ * 테스트가 중간에 죽어도 작업 트리에 흔적이 남지 않는다.
+ */
 test('⭐ 생성물이 원본과 다르면 --check 가 막는다', () => {
-  const committed = readFileSync(TARGET, 'utf8');
-  try {
-    writeFileSync(TARGET, committed.replace('"kakao"', '"kakao-was-renamed"'));
-    assert.throws(
-      () => execFileSync('node', [GENERATOR, '--check'], { stdio: 'pipe' }),
-      /Command failed/,
-    );
-  } finally {
-    writeFileSync(TARGET, committed);
-  }
-  // 되돌린 뒤에는 다시 통과한다 — 검사가 상태를 남기지 않는다.
+  const scratch = mkdtempSync(path.join(tmpdir(), 'kid250-registry-'));
+  const scratchTarget = path.join(scratch, 'extensions/kiditem-os/shared/channel-registry.js');
+  const scratchGenerator = path.join(scratch, 'scripts/generate-channel-registry.mjs');
+  mkdirSync(path.dirname(scratchTarget), { recursive: true });
+  mkdirSync(path.join(scratch, 'packages/shared/src'), { recursive: true });
+  mkdirSync(path.dirname(scratchGenerator), { recursive: true });
+  copyFileSync(GENERATOR, scratchGenerator);
+  copyFileSync(
+    path.join(ROOT, 'packages/shared/src/channel-registry.ts'),
+    path.join(scratch, 'packages/shared/src/channel-registry.ts'),
+  );
+
+  // 같은 내용이면 통과한다.
+  copyFileSync(TARGET, scratchTarget);
   assert.match(
-    execFileSync('node', [GENERATOR, '--check'], { encoding: 'utf8' }),
+    execFileSync('node', [scratchGenerator, '--check'], { encoding: 'utf8' }),
     /29개 채널/,
+  );
+
+  // 한 글자만 어긋나도 막는다.
+  writeFileSync(scratchTarget, readFileSync(scratchTarget, 'utf8').replace('"kakao"', '"kakao-was-renamed"'));
+  assert.throws(
+    () => execFileSync('node', [scratchGenerator, '--check'], { stdio: 'pipe' }),
+    /Command failed/,
+  );
+
+  // 생성물이 아예 없어도 막는다.
+  rmSync(scratchTarget);
+  assert.throws(
+    () => execFileSync('node', [scratchGenerator, '--check'], { stdio: 'pipe' }),
+    /Command failed/,
   );
 });

@@ -12,7 +12,7 @@
  *   node scripts/generate-channel-registry.mjs --check    # 다르면 실패
  *   node scripts/generate-channel-registry.mjs --out FILE # 임시 파일로 뽑기
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -145,6 +145,21 @@ function main(argv) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * 직접 실행됐는가. `process.argv[1]` 과 문자열로 비교하지 않는다 — macOS 의 `/var` 는
+ * `/private/var` 심볼릭 링크라 임시 디렉터리에서 실행하면 두 값이 갈리고, 검사가 아무것도
+ * 하지 않은 채 조용히 성공한다.
+ */
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
   process.exitCode = main(process.argv.slice(2));
 }
