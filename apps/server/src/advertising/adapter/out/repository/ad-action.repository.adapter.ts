@@ -646,19 +646,19 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         actionIds: scopedIds,
       });
       const queuedAttemptIds: string[] = [];
-      for (const latest of latestTasks.values()) {
-        if (!latest) continue;
-        if (latest.status === 'running' && !isExpiredRunningExecutionTask(latest, now)) {
-          throw rejectRunningConflict();
+      const queuedActionIds: string[] = [];
+      for (const [actionId, latest] of latestTasks) {
+        const conflict = rejectionConflict(latest, now);
+        if (conflict) throw conflict;
+        if (latest?.status === 'queued') {
+          queuedAttemptIds.push(latest.id);
+          queuedActionIds.push(actionId);
         }
-        if (latest.status === 'done') throw rejectDoneConflict();
-        if (latest.status === 'queued') queuedAttemptIds.push(latest.id);
       }
       if (queuedAttemptIds.length > 0) {
         // Only an action's latest attempt can be queued. Compare-and-set on the
-        // queued status just read: the executor claims a queued attempt with its
-        // running report, so a claim that commits first leaves its attempt
-        // running and uncancelled, and the rejection is refused.
+        // queued status just read: an executor's report can move a queued
+        // attempt meanwhile, since reports take no lock on the action.
         const cancelled = await tx.executionTask.updateMany({
           where: {
             id: { in: queuedAttemptIds },
@@ -671,7 +671,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             errorMessage: '사용자 보류 처리',
           },
         });
-        if (cancelled.count !== queuedAttemptIds.length) throw rejectRunningConflict();
+        if (cancelled.count !== queuedAttemptIds.length) {
+          // Decide again on what those reports left: a claim that committed
+          // first leaves its attempt running, and a done report leaves it done,
+          // either of which refuses the rejection. An attempt closed as failed
+          // (a refused claim for a manual action, a failure report) needs
+          // nothing more, and only the approval changes.
+          const current = await readLatestExecutionTasks(tx, {
+            organizationId,
+            actionIds: queuedActionIds,
+          });
+          for (const latest of current.values()) {
+            const conflict = rejectionConflict(latest, now);
+            if (conflict) throw conflict;
+          }
+        }
       }
       return scopedIds.length;
     });
@@ -879,6 +893,23 @@ const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION
 // already be changing Coupang, and a done attempt already changed it.
 const EXECUTION_TASK_RUNNING = 'EXECUTION_TASK_RUNNING';
 const EXECUTION_TASK_DONE = 'EXECUTION_TASK_DONE';
+
+/**
+ * Why an action's latest attempt refuses a rejection, if it does: one running
+ * within its execution deadline may already be changing Coupang, and a done one
+ * already changed it.
+ */
+function rejectionConflict(
+  latest: { status: string; startedAt: Date | null } | null,
+  now: Date,
+): ConflictException | null {
+  if (!latest) return null;
+  if (latest.status === 'running' && !isExpiredRunningExecutionTask(latest, now)) {
+    return rejectRunningConflict();
+  }
+  if (latest.status === 'done') return rejectDoneConflict();
+  return null;
+}
 
 function rejectRunningConflict(): ConflictException {
   return new ConflictException({

@@ -1046,6 +1046,66 @@ describe('AdAction flow (PG integration)', () => {
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['running']);
     });
 
+    /**
+     * Rejects `actionId` while `report` commits between the rejection's read of
+     * the queued attempt and its cancellation; resolves to the rejection's result.
+     */
+    async function rejectWhileReported(actionId: string, report: () => Promise<unknown>) {
+      let reported = false;
+      const racing = prisma.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result = await query(args);
+            const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
+            if (!reported && sql.includes('execution_tasks')) {
+              reported = true;
+              await report();
+            }
+            return result;
+          },
+        },
+      });
+      const rejecting = new AdActionRepositoryAdapter(
+        racing as never,
+        new AdListingRepositoryAdapter(prisma as never),
+      );
+      try {
+        return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);
+      } finally {
+        expect(reported).toBe(true);
+      }
+    }
+
+    it('#11e a rejection goes through when the queued attempt it read is closed as failed meanwhile, and is refused when that attempt finished (KID-138 review)', async () => {
+      // An executor's claim for a keyword pause approved before decision A
+      // closes its queued attempt as failed while the rejection decides.
+      const manual = await legacyQueuedAction('pause_keyword', 'KW-LEGACY-REJECT-RACE');
+      const manualAttempt = await attemptOf(manual.id);
+      await expect(rejectWhileReported(manual.id, async () => {
+        expect(await refusal(
+          adActionService.markRunning(manual.id, manualAttempt, undefined, TEST_ORGANIZATION_ID),
+        )).toMatchObject({ code: 'EXECUTION_REPORT_MANUAL_ACTION' });
+      })).resolves.toBe(1);
+      expect(await reviewItem(manual.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
+        executionTaskId: manualAttempt,
+      });
+
+      // An executor reports a campaign registration done while the rejection decides.
+      const campaign = await approvedAction('CAMP-REJECT-DONE-RACE');
+      const campaignAttempt = await attemptOf(campaign.id);
+      expect(await refusal(rejectWhileReported(campaign.id, () =>
+        adActionService.markDone(campaign.id, campaignAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      ))).toMatchObject({ code: 'EXECUTION_TASK_DONE' });
+      expect(await reviewItem(campaign.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'done',
+        executionTaskId: campaignAttempt,
+      });
+    });
+
     it('#12 an action awaiting review has no attempt to report against', async () => {
       const action = await seedPendingAction('CAMP-PENDING');
 
