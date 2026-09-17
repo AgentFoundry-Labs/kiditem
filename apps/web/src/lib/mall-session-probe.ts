@@ -151,6 +151,13 @@ export async function sweepMallSessions(
     .then((summary) => summary.rows)
     .catch(() => [] as MallOperationOutcomeSummaryRow[]);
   const sweep: MallSessionSweep = { ...empty, signedOutKeys: [] };
+  /**
+   * 이번 바퀴에 이미 적은 기록 키. 계정 행을 함께 쓰는 몰들(쿠팡직배송 · 로켓)은 한 줄에
+   * 쌓이는데, 위 기억 요약은 바퀴 처음에 한 번만 읽고 일꾼 셋이 동시에 돈다 — 서로 모르면
+   * 둘 다 '적어야 한다'로 보고 같은 줄을 두 번 쌓는다. 적기 전에(먼저 담고 나서 보낸다)
+   * 담아 두어 한 바퀴에 한 줄로 만든다.
+   */
+  const recordedThisRound = new Set<string>();
   let cursor = 0;
   const worker = async () => {
     while (cursor < keys.length) {
@@ -169,8 +176,12 @@ export async function sweepMallSessions(
         sweep.signedOutKeys.push(key);
       }
       const record = loginCheckRecord(result);
-      if (record && shouldRememberLogin(record, result.checkedAt, remembered)) {
-        await recordMallOperationOutcome(record);
+      if (record) {
+        const outcomeKey = mallOperationOutcomeKey(record.mallKey);
+        if (!recordedThisRound.has(outcomeKey) && shouldRememberLogin(record, result.checkedAt, remembered)) {
+          recordedThisRound.add(outcomeKey);
+          await recordMallOperationOutcome(record);
+        }
       }
     }
   };
