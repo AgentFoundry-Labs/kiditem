@@ -9,8 +9,9 @@ state changes that must run once per shared environment.
 Root `VERSION` is the open deployable release train. Multiple compatible schema
 and data PRs may share it; do not bump it for each migration. A migration added
 before promotion uses the open train version in its directory, `id`, and
-`releaseVersion`. Once that train reaches `main`, its migration set is
-immutable. Fixes use a new idempotent migration in the next train. Follow
+`releaseVersion`. Once that train reaches `release/office` or `main`, its
+migration set is immutable, because Office may already have run it. Fixes use a
+new idempotent migration in the next train. Follow
 [`docs/runbooks/release-train-versioning.md`](../../docs/runbooks/release-train-versioning.md).
 
 An approved hard cutover may make a promoted migration incompatible with the
@@ -19,6 +20,15 @@ registration to `retired.json`. The entry records the exact source SHA-256,
 the promoted baseline commit, and every active replacement migration. Retired
 entries appear separately in `data:migrate -- status`; `data:migrate -- up`
 never selects them and never fabricates an application ledger row for them.
+
+A promoted migration that already left the registry without an entry can get
+one in a later PR. The release contract guard accepts it only when its release
+is at or below the higher `VERSION` of `release/office` and `main` and no base
+or candidate registry still runs it; the byte, baseline, and replacement checks
+still apply. The baseline may be a commit that only `release/office` contains,
+so fetch that branch before running the guard. Registrations removed before
+`retired.json` existed (v0.1.0–v0.1.3 and `v0.1.7:002` in #325, `v0.1.21:001`
+in #481) are exempt and have no entries.
 
 ## Layout
 

@@ -78,8 +78,8 @@ generic guidance.
   `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, run through
   `npm run data:migrate`, and record `data_migration_runs`.
 - Compatible schema changes share the open root release-train `VERSION`. Never
-  append a migration to a train already promoted to `main`; open the next train.
-  Follow
+  append a migration to a train already promoted to `release/office` or `main`;
+  open the next train. Follow
   [`release-train-versioning.md`](../docs/runbooks/release-train-versioning.md).
 - Run `db push` only against an explicitly confirmed disposable or local target.
   Drops, narrowing type changes, or `--accept-data-loss` reach Office only
