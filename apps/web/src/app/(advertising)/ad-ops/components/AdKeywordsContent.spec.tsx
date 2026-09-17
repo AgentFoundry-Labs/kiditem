@@ -9,6 +9,7 @@ import type {
 } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import AdKeywordsContent from './AdKeywordsContent';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
@@ -154,6 +155,7 @@ async function renderExpandedProduct() {
     </QueryClientProvider>,
   );
   fireEvent.click(await screen.findByText(PRODUCT));
+  return client;
 }
 
 function chip(name: string) {
@@ -243,6 +245,21 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     expect(actionRequests()).toEqual([
       { ...pendingReview, action: 'approve', ids: [ACTION.pending] },
     ]);
+    await waitFor(() => expect(keywordReads()).toBe(2));
+  });
+
+  it("marks the keyword list of every period stale after a review, since a proposal's state does not depend on the period", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ updated: 1 });
+    const client = await renderExpandedProduct();
+    // Another period's list, read earlier on this tab.
+    client.setQueryData(queryKeys.ads.keywords('30d'), keywordsData());
+    expect(client.getQueryState(queryKeys.ads.keywords('30d'))?.isInvalidated).toBe(false);
+
+    fireEvent.click(chip('콩순이').getByRole('button', { name: '승인' }));
+
+    await waitFor(() =>
+      expect(client.getQueryState(queryKeys.ads.keywords('30d'))?.isInvalidated).toBe(true),
+    );
     await waitFor(() => expect(keywordReads()).toBe(2));
   });
 

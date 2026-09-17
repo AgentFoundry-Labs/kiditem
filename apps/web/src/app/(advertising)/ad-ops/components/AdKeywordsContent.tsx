@@ -45,7 +45,7 @@ export default function AdKeywordsContent({ period }: Props) {
   const [judgingProduct, setJudgingProduct] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const reviewProposals = useReviewKeywordProposals(period);
+  const reviewProposals = useReviewKeywordProposals();
   const reviewKeywordProposals = (review: PauseProposalReview, ids: string[]) => {
     if (ids.length === 0) return;
     reviewProposals.mutate(

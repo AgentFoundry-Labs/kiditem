@@ -336,12 +336,13 @@ export function useRunKeywordAgent(period: string) {
  * what it changed.
  *
  * The distinct ids go in commands of at most `AD_ACTION_COMMAND_MAX_IDS`, one
- * after another, and `updated` sums what the server counted. A refused command ends the review
- * with its error, and the commands after it are not sent. The keyword list is
- * read again afterwards, after a refusal too: a refusal means a proposal
- * changed state since the list was read.
+ * after another, and `updated` sums what the server counted. A refused command
+ * ends the review with its error, and the commands after it are not sent. The
+ * keyword lists of every period are read again afterwards, after a refusal
+ * too: a refusal means a proposal changed state since the list was read, and a
+ * proposal reads the same in every period.
  */
-export function useReviewKeywordProposals(period: string) {
+export function useReviewKeywordProposals() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
@@ -363,7 +364,7 @@ export function useReviewKeywordProposals(period: string) {
       return { updated } satisfies AdActionCommandResult;
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywords(period) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywordsAll() }),
   });
 }
 
