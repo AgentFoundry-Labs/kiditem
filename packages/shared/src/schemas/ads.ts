@@ -165,6 +165,22 @@ export const AdKeywordRelevanceSchema = z.enum([
 export type AdKeywordRelevance = z.infer<typeof AdKeywordRelevanceSchema>;
 
 /**
+ * The most ids one ad action approve or reject command names. One action
+ * listing page holds at most as many actions, so a listed page is reviewed in
+ * one command.
+ */
+export const AD_ACTION_COMMAND_MAX_IDS = 200;
+
+/**
+ * What an ad action approve or reject command answers: how many distinct
+ * actions of the organization it changed.
+ */
+export const AdActionCommandResultSchema = z.object({
+  updated: z.number().int().nonnegative(),
+});
+export type AdActionCommandResult = z.infer<typeof AdActionCommandResultSchema>;
+
+/**
  * A keyword's latest `pause_keyword` proposal. Once that proposal is rejected
  * the keyword shows none, and an older proposal does not come back. An
  * approved one stays shown until the operator closes it, since the operator

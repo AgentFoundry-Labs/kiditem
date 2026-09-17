@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { AdActionCommandResult } from '@kiditem/shared/advertising';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionQuery,
@@ -163,11 +164,15 @@ export class AdActionService {
    * repeated id, another organization's action or an unknown id adds nothing.
    */
   async approveActions(ids: string[], organizationId: string) {
-    return { updated: await this.repo.approveAdActions(ids, organizationId) };
+    return {
+      updated: await this.repo.approveAdActions(ids, organizationId),
+    } satisfies AdActionCommandResult;
   }
 
   async rejectActions(ids: string[], organizationId: string) {
-    return { updated: await this.repo.rejectAdActions(ids, organizationId) };
+    return {
+      updated: await this.repo.rejectAdActions(ids, organizationId),
+    } satisfies AdActionCommandResult;
   }
 
   async markRunning(

@@ -6,7 +6,10 @@
 
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
-import { AdKeywordPauseProposalSchema } from '@kiditem/shared/advertising';
+import {
+  AD_ACTION_COMMAND_MAX_IDS,
+  AdKeywordPauseProposalSchema,
+} from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readAdTargetRowEvidence,
@@ -156,7 +159,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     query: AdActionQuery,
     organizationId: string,
   ): Promise<AdActionReviewResult> {
-    const limit = Math.min(query.limit || 50, 200);
+    // A page holds at most as many actions as one approve or reject command names.
+    const limit = Math.min(query.limit || 50, AD_ACTION_COMMAND_MAX_IDS);
     // One instant for the execution deadline across the page, its filters and its counts.
     const now = new Date();
 

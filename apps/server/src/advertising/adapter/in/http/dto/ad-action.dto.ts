@@ -1,5 +1,6 @@
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { AD_ACTION_COMMAND_MAX_IDS } from '@kiditem/shared/advertising';
 import { AD_ACTION_TARGET_TYPES } from '../../../../domain/model/strategy-types';
 
 export class AdActionQueryDto {
@@ -31,7 +32,7 @@ export class AdActionQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(AD_ACTION_COMMAND_MAX_IDS)
   limit?: number;
 }
 
@@ -43,7 +44,7 @@ export class AdActionCommandDto {
   /** Actions to approve or reject, at most the action listing's page size. */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(AD_ACTION_COMMAND_MAX_IDS)
   @IsUUID(undefined, { each: true })
   ids?: string[];
 
