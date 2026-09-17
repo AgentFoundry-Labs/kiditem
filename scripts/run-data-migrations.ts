@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -19,17 +20,32 @@ import {
   retiredDataMigrations,
 } from './data-migrations/index';
 import type {
-  DataMigrationContext,
   DataMigrationTarget,
   DataMigration,
-  MigrationResult,
 } from './data-migrations/types';
+import {
+  applyDataMigrations,
+  checkLedgerSources,
+  dataMigrationRunsTableExists,
+  readDataMigrationLedger,
+  requireCurrentSource,
+  sourceDriftExitCode,
+  type SourceDriftEntry,
+} from './data-migrations/ledger';
+import {
+  migrationSourcePath,
+  normalizedSourceSha256,
+  SOURCE_HASH_ALGORITHM,
+  type RunnerSourceIdentity,
+} from './data-migrations/source-identity';
 
 const execFileAsync = promisify(execFile);
 
 export const DATA_MIGRATIONS_SCHEMA_VERSION = 'kiditem.data-migrations.v1';
 export const APPLY_DATA_MIGRATIONS_CONFIRMATION = 'APPLY_DATA_MIGRATIONS';
 export const DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS = 120_000;
+export const FAIL_ON_SOURCE_DRIFT_OPTION = 'fail-on-source-drift';
+export const FAIL_ON_SOURCE_DRIFT_ENV = 'DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT';
 const COMMANDS = ['status', 'up', 'help'] as const;
 const DATA_MIGRATION_PHASES = ['all', 'pre-schema', 'post-schema'] as const;
 type Command = (typeof COMMANDS)[number];
@@ -82,6 +98,82 @@ async function gitSha(): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * Reads a migration source from the checkout this runner belongs to, never
+ * from the working directory, so an exact-SHA worktree hashes its own files.
+ */
+export function migrationSourceIdentity(
+  migrationId: string,
+  root = repoRoot(),
+): RunnerSourceIdentity {
+  const sourcePath = migrationSourcePath(migrationId);
+  return {
+    sourcePath,
+    sourceSha256: normalizedSourceSha256(readFileSync(path.join(root, sourcePath))),
+    hashAlgorithm: SOURCE_HASH_ALGORITHM,
+  };
+}
+
+export function migrationSourceIdentities(
+  migrations: readonly DataMigration[],
+  root = repoRoot(),
+): Map<string, RunnerSourceIdentity> {
+  return new Map(
+    migrations.map((migration) => [migration.id, migrationSourceIdentity(migration.id, root)]),
+  );
+}
+
+const FULL_GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Hashes a migration source as it was at a ledger row's `git_sha`. Commits
+ * this checkout does not have, and any other failure, give null.
+ */
+export function gitSourceSha256Reader(
+  root = repoRoot(),
+): (commit: string, sourcePath: string) => Promise<string | null> {
+  const cache = new Map<string, Promise<string | null>>();
+  return (commit, sourcePath) => {
+    if (!FULL_GIT_OBJECT_ID.test(commit)) return Promise.resolve(null);
+    const object = `${commit}:${sourcePath}`;
+    let pending = cache.get(object);
+    if (!pending) {
+      pending = execFileAsync('git', ['show', object], {
+        cwd: root,
+        encoding: 'buffer',
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 30_000,
+      }).then(({ stdout }) => normalizedSourceSha256(stdout), () => null);
+      cache.set(object, pending);
+    }
+    return pending;
+  };
+}
+
+/**
+ * `--fail-on-source-drift` (bare, or `true`/`1`/`false`/`0`) wins over
+ * `DATA_MIGRATION_FAIL_ON_SOURCE_DRIFT`; both default to warning only.
+ */
+export function failOnSourceDriftSetting(
+  option: string | true | undefined,
+  env: string | undefined,
+): boolean {
+  if (option === true) return true;
+  const raw = (option ?? env ?? '').trim().toLowerCase();
+  if (raw === '' || raw === '0' || raw === 'false') return false;
+  if (raw === '1' || raw === 'true') return true;
+  throw new Error(
+    `--${FAIL_ON_SOURCE_DRIFT_OPTION} and ${FAIL_ON_SOURCE_DRIFT_ENV} accept 1, 0, true, or false.`,
+  );
+}
+
+function failOnSourceDrift(args: CliArgs): boolean {
+  return failOnSourceDriftSetting(
+    args.flags.has(FAIL_ON_SOURCE_DRIFT_OPTION) ? true : value(args, FAIL_ON_SOURCE_DRIFT_OPTION),
+    process.env[FAIL_ON_SOURCE_DRIFT_ENV],
+  );
+}
+
 function databaseUrl(args: CliArgs): string | null {
   return value(args, 'database-url') ?? process.env.DATABASE_URL ?? null;
 }
@@ -130,13 +222,20 @@ export function selectDataMigrationsForRelease(
   return migrations.filter((migration) => migration.releaseVersion === releaseVersion);
 }
 
-export function dataMigrationRegistryStatus() {
+export function dataMigrationRegistryStatus(
+  currentSources: ReadonlyMap<string, RunnerSourceIdentity> = migrationSourceIdentities(dataMigrations),
+) {
   return {
-    migrations: dataMigrations.map((migration) => ({
-      id: migration.id,
-      releaseVersion: migration.releaseVersion,
-      name: migration.name,
-    })),
+    migrations: dataMigrations.map((migration) => {
+      const source = requireCurrentSource(currentSources, migration.id);
+      return {
+        id: migration.id,
+        releaseVersion: migration.releaseVersion,
+        name: migration.name,
+        sourcePath: source.sourcePath,
+        sourceSha256: source.sourceSha256,
+      };
+    }),
     retiredMigrations: retiredDataMigrations.map((migration) => ({
       ...migration,
       execution: 'inactive' as const,
@@ -173,155 +272,23 @@ export function assertMutatingTarget(
   }
 }
 
-async function dataMigrationRunsTableExists(prisma: PrismaClient): Promise<boolean> {
-  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
-    SELECT to_regclass('public.data_migration_runs') IS NOT NULL AS exists
-  `;
-  return rows[0]?.exists === true;
-}
-
-async function findMigrationRun(
-  prisma: PrismaClient,
-  migrationId: string,
-): Promise<{ status: string; affectedRows: number } | null> {
-  const rows = await prisma.$queryRaw<Array<{ status: string; affectedRows: number }>>`
-    SELECT status, affected_rows AS "affectedRows"
-    FROM data_migration_runs
-    WHERE migration_id = ${migrationId}
-  `;
-  return rows[0] ?? null;
-}
-
-async function markMigrationRunning(
-  prisma: PrismaClient,
-  migration: DataMigration,
-  schemaGitSha: string,
-  schemaHash: string,
-): Promise<void> {
-  await prisma.$executeRaw`
-    INSERT INTO data_migration_runs (
-      migration_id,
-      release_version,
-      name,
-      status,
-      git_sha,
-      prisma_schema_hash,
-      affected_rows,
-      details,
-      error,
-      started_at,
-      completed_at,
-      created_at,
-      updated_at
-    )
-    VALUES (
-      ${migration.id},
-      ${migration.releaseVersion},
-      ${migration.name},
-      'running',
-      ${schemaGitSha},
-      ${schemaHash},
-      0,
-      '{}'::jsonb,
-      NULL,
-      now(),
-      NULL,
-      now(),
-      now()
-    )
-    ON CONFLICT (migration_id) DO UPDATE SET
-      name = EXCLUDED.name,
-      release_version = EXCLUDED.release_version,
-      status = 'running',
-      git_sha = EXCLUDED.git_sha,
-      prisma_schema_hash = EXCLUDED.prisma_schema_hash,
-      affected_rows = 0,
-      details = '{}'::jsonb,
-      error = NULL,
-      started_at = now(),
-      completed_at = NULL,
-      updated_at = now()
-  `;
-}
-
-async function markMigrationSucceeded(
-  prisma: PrismaClient,
-  migration: DataMigration,
-  schemaGitSha: string,
-  schemaHash: string,
-  result: MigrationResult,
-): Promise<void> {
-  await prisma.$executeRaw`
-    UPDATE data_migration_runs
-    SET status = 'succeeded',
-        release_version = ${migration.releaseVersion},
-        git_sha = ${schemaGitSha},
-        prisma_schema_hash = ${schemaHash},
-        affected_rows = ${result.affectedRows},
-        details = ${JSON.stringify(result.details)}::jsonb,
-        error = NULL,
-        completed_at = now(),
-        updated_at = now()
-    WHERE migration_id = ${migration.id}
-  `;
-}
-
-async function markMigrationFailed(
-  prisma: PrismaClient,
-  migration: DataMigration,
-  error: unknown,
-): Promise<void> {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  await prisma.$executeRaw`
-    UPDATE data_migration_runs
-    SET status = 'failed',
-        error = ${message},
-        completed_at = now(),
-        updated_at = now()
-    WHERE migration_id = ${migration.id}
-  `;
-}
-
-async function runOneMigration(
-  prisma: PrismaClient,
-  migration: DataMigration,
-  context: DataMigrationContext,
-  schemaGitSha: string,
-  schemaHash: string,
-): Promise<{ migrationId: string; status: 'skipped' | 'succeeded'; affectedRows: number }> {
-  const existing = await findMigrationRun(prisma, migration.id);
-  if (existing?.status === 'succeeded') {
-    return { migrationId: migration.id, status: 'skipped', affectedRows: existing.affectedRows };
-  }
-
-  await markMigrationRunning(prisma, migration, schemaGitSha, schemaHash);
-  try {
-    const result = await prisma.$transaction((tx) => migration.run(tx, context), {
-      timeout: dataMigrationTransactionTimeoutMs(),
-    });
-    await markMigrationSucceeded(prisma, migration, schemaGitSha, schemaHash, result);
-    return { migrationId: migration.id, status: 'succeeded', affectedRows: result.affectedRows };
-  } catch (error) {
-    await markMigrationFailed(prisma, migration, error);
-    throw error;
-  }
-}
-
-async function commandStatus(args: CliArgs): Promise<void> {
+async function commandStatus(args: CliArgs): Promise<number> {
+  const failOnDrift = failOnSourceDrift(args);
   const dbUrl = databaseUrl(args);
   const releaseVersion = await appReleaseVersion();
+  const currentSources = migrationSourceIdentities(dataMigrations);
   const baseReport = {
     schemaVersion: DATA_MIGRATIONS_SCHEMA_VERSION,
     releaseVersion,
     schemaGitSha: await gitSha(),
     prismaSchemaHash: await prismaSchemaHash(),
-    ...dataMigrationRegistryStatus(),
+    ...dataMigrationRegistryStatus(currentSources),
     checkedAt: new Date().toISOString(),
   };
 
   if (!dbUrl) {
     console.log(JSON.stringify({ ...baseReport, database: null }, null, 2));
-    return;
+    return 0;
   }
 
   const prisma = createPrisma(dbUrl);
@@ -329,23 +296,22 @@ async function commandStatus(args: CliArgs): Promise<void> {
     await prisma.$connect();
     const tableExists = await dataMigrationRunsTableExists(prisma);
     if (!tableExists) {
-      console.log(JSON.stringify({ ...baseReport, database: { tableExists, runs: [] } }, null, 2));
-      return;
+      console.log(JSON.stringify({
+        ...baseReport,
+        database: { tableExists, runs: [], sourceDrift: [] },
+      }, null, 2));
+      return 0;
     }
-    const runs = await prisma.$queryRaw`
-      SELECT migration_id AS "migrationId",
-             name,
-             release_version AS "releaseVersion",
-             status,
-             affected_rows AS "affectedRows",
-             git_sha AS "gitSha",
-             prisma_schema_hash AS "prismaSchemaHash",
-             completed_at AS "completedAt",
-             error
-      FROM data_migration_runs
-      ORDER BY started_at, migration_id
-    `;
-    console.log(JSON.stringify({ ...baseReport, database: { tableExists, runs } }, null, 2));
+    const { runs, sourceDrift } = await checkLedgerSources(await readDataMigrationLedger(prisma), {
+      current: currentSources,
+      retiredIds: new Set(retiredDataMigrations.map(({ id }) => id)),
+      deriveSourceSha256: gitSourceSha256Reader(),
+    });
+    console.log(JSON.stringify({
+      ...baseReport,
+      database: { tableExists, runs, sourceDrift },
+    }, null, 2));
+    return sourceDriftExitCode(sourceDrift, failOnDrift);
   } finally {
     await prisma.$disconnect();
   }
@@ -365,6 +331,11 @@ async function commandUp(args: CliArgs): Promise<void> {
     selectDataMigrationsForPhase(dataMigrations, phase),
     releaseVersionFilter,
   );
+  const failOnDrift = failOnSourceDrift(args);
+  const transactionTimeoutMs = dataMigrationTransactionTimeoutMs();
+  // Every selected source is read before connecting: an unreadable file stops the run unwritten.
+  const sourceIdentities = migrationSourceIdentities(selectedMigrations);
+  let sourceDrift: SourceDriftEntry[] = [];
 
   const prisma = createPrisma(dbUrl);
   const releaseVersion = await appReleaseVersion();
@@ -376,15 +347,16 @@ async function commandUp(args: CliArgs): Promise<void> {
     if (!(await dataMigrationRunsTableExists(prisma))) {
       throw new Error('data_migration_runs table is missing. Run `npm run db:push` before `npm run data:migrate -- up`.');
     }
-    for (const migration of selectedMigrations) {
-      results.push(await runOneMigration(
-        prisma,
-        migration,
-        { target },
-        schemaGitSha,
-        schemaHash,
-      ));
-    }
+    const applied = await applyDataMigrations(prisma, selectedMigrations, {
+      context: { target },
+      identity: { schemaGitSha, prismaSchemaHash: schemaHash },
+      currentSources: sourceIdentities,
+      transactionTimeoutMs,
+      failOnSourceDrift: failOnDrift,
+      warn: (message) => console.warn(message),
+    });
+    sourceDrift = applied.sourceDrift;
+    results.push(...applied.results);
   } finally {
     await prisma.$disconnect();
   }
@@ -397,14 +369,26 @@ async function commandUp(args: CliArgs): Promise<void> {
     prismaSchemaHash: schemaHash,
     migrationIds: selectedMigrations.map((migration) => migration.id),
     releaseVersions: [...new Set(selectedMigrations.map((migration) => migration.releaseVersion))],
+    sourceDrift,
     results,
   }, null, 2));
 }
 
 function printHelp(): void {
   console.log(`Usage:
-  npm run data:migrate -- status [--database-url <url>]
-  npm run data:migrate -- up [--phase all|pre-schema|post-schema] [--release-version <version>] --target local|office --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  npm run data:migrate -- status [--database-url <url>] [--${FAIL_ON_SOURCE_DRIFT_OPTION}]
+  npm run data:migrate -- up [--phase all|pre-schema|post-schema] [--release-version <version>] [--${FAIL_ON_SOURCE_DRIFT_OPTION}] --target local|office --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+
+Source drift:
+  Each run stores the migration file it executed in details._runner
+  (sourcePath, sourceSha256, hashAlgorithm ${SOURCE_HASH_ALGORITHM}: SHA-256 after CRLF -> LF).
+  status labels every ledger row with sourceCheck and lists succeeded rows whose
+  source has changed since in database.sourceDrift; it exits 0.
+  up warns on stderr for each already-applied migration whose file changed,
+  still skips it, and exits 0.
+  --${FAIL_ON_SOURCE_DRIFT_OPTION}
+                               status exits 3 when a recorded source hash differs;
+                               up stops before the first migration when one does.
 
 Env:
   DATABASE_URL                 Database URL used when --database-url is omitted.
@@ -415,24 +399,28 @@ Env:
                                Optional exact releaseVersion filter for phased Office promotions.
   DATA_MIGRATION_TRANSACTION_TIMEOUT_MS
                                Interactive transaction timeout in ms. Defaults to ${DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS}.
+  ${FAIL_ON_SOURCE_DRIFT_ENV}
+                               1 behaves like --${FAIL_ON_SOURCE_DRIFT_OPTION}; 0 or unset only warns.
 `);
 }
 
-async function main(): Promise<void> {
+async function main(): Promise<number> {
   const args = parseArgs();
   if (args.command === 'help') {
     printHelp();
-    return;
+    return 0;
   }
   if (args.command === 'status') {
-    await commandStatus(args);
-    return;
+    return commandStatus(args);
   }
   await commandUp(args);
+  return 0;
 }
 
 if (require.main === module) {
-  main().catch((error) => {
+  main().then((exitCode) => {
+    process.exitCode = exitCode;
+  }).catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });
