@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   readInventoryAvailability,
+  readInventoryMasterIdsWithAliveSku,
   readInventorySkuIdentities,
 } from '../../../../inventory/read/inventory-availability';
 import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
@@ -390,29 +391,18 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   private async visibleMasterWhere(
     organizationId: string,
   ): Promise<Prisma.MasterProductWhereInput> {
-    const aliveMasterIds = await this.readAliveInventoryMasterIds(organizationId);
+    // 재고 원장은 Inventory 리더로만 읽는다(ADR-0009) — Prisma 관계로 조인하면 원장
+    // 하나에 리더가 둘이 된다. 여기서 필요한 것은 재고가 아니라 SKU 가 아직 살아
+    // 있는가 뿐이라, 식별자만 돌려주는 좁은 읽기를 쓴다.
+    const aliveMasterIds = await readInventoryMasterIdsWithAliveSku(this.prisma, {
+      organizationId,
+    });
     return {
       OR: [
         { isActive: true },
         ...(aliveMasterIds.length > 0 ? [{ id: { in: aliveMasterIds } }] : []),
       ],
     };
-  }
-
-  /**
-   * 살아 있는(단종되지 않은) 셀피아 SKU 가 붙은 마스터.
-   *
-   * 재고 원장은 Inventory 리더로만 읽는다(ADR-0009) — Prisma 관계로 조인하면 원장 하나에
-   * 리더가 둘이 된다. 여기서 필요한 것은 재고가 아니라 **SKU 가 아직 살아 있는가** 뿐이다.
-   */
-  private async readAliveInventoryMasterIds(organizationId: string): Promise<string[]> {
-    const skus = await readInventorySkuIdentities(this.prisma, {
-      organizationId,
-      selector: { kind: 'active' },
-    });
-    return [...new Set(
-      skus.flatMap((sku) => (sku.masterProductId ? [sku.masterProductId] : [])),
-    )];
   }
 
   /**
