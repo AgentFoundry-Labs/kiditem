@@ -90,7 +90,7 @@ function parsePositive(raw: string | undefined, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }
 
-export const esmplusAdapter: MallPublishAdapter = {
+export const gmarketAdapter: MallPublishAdapter = {
   // 매니페스트의 `gmarket` 과 같은 키다. 옥션(`auction`)은 이 한 번의 등록에 함께 올라간다.
   mallKey: 'gmarket',
   mallName: 'G마켓 · 옥션',
@@ -184,7 +184,7 @@ export const esmplusAdapter: MallPublishAdapter = {
       ...(values.sellerCode?.trim() ? { sellerCode: values.sellerCode.trim() } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('esmplus', withCert, form);
+    const result = await fillMallRegistrationForm('gmarket', withCert, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. 더구나 이건 한 번에 몰 둘이라 사람이 꼭 봐야 한다.

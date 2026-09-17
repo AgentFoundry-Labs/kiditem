@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   domeggookAdapter,
-  elevenstAdapter,
+  elevenStAdapter,
   kidsnoteAdapter,
 } from '@/app/(channels)/_shared/adapters';
 import {
@@ -59,7 +59,7 @@ describe('몰 하나 실행', () => {
 
   it('막힌 몰은 확장을 부르지 않는다', async () => {
     // 11번가 분류는 등록 후 바꾸기 어렵다. 비운 채로 열면 사람이 대충 고른다.
-    const send = vi.spyOn(elevenstAdapter, 'send').mockResolvedValue(ok());
+    const send = vi.spyOn(elevenStAdapter, 'send').mockResolvedValue(ok());
     const outcome = await runOneMallRegistration('11st', item, filled(''));
     expect(outcome.status).toBe('blocked');
     expect(outcome.message).toContain('분류');

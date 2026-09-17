@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { CHANNEL_REGISTRY } from '@kiditem/shared/channel-registry';
 import {
   mallAccentClass,
   mallMonogram,
@@ -83,5 +86,27 @@ describe('몰 준비 상태 표시', () => {
   it('계정이 없는 몰은 여전히 사람을 부른다', () => {
     expect(MALL_READINESS_LABEL.needs_account).toBe('계정 정보 필요');
     expect(MALL_READINESS_TONE.needs_account).not.toBe(MALL_READINESS_TONE.ready);
+  });
+});
+
+/**
+ * 로고 경로는 채널 레지스트리에만 있다(KID-250). 파일이 없으면 표와 타일에 깨진 이미지가
+ * 서므로, 파일이 실제로 있는지는 파일을 가진 쪽에서 지킨다.
+ */
+describe('몰 로고 파일', () => {
+  const PUBLIC_DIR = path.resolve(process.cwd(), 'public');
+
+  it('⭐ 레지스트리가 가리키는 파비콘 파일이 모두 있다', () => {
+    for (const entry of CHANNEL_REGISTRY) {
+      if (entry.logo === null) continue;
+      expect([entry.key, existsSync(path.join(PUBLIC_DIR, entry.logo))]).toEqual([entry.key, true]);
+    }
+  });
+
+  /** 사이트가 접속되지 않아 파비콘을 못 받은 몰. 아무 아이콘이나 붙이지 않고 비워 둔다. */
+  it('파일이 없는 채널은 원폴라리스뿐이고, 화면은 머리글자로 대신한다', () => {
+    expect(CHANNEL_REGISTRY.filter((entry) => entry.logo === null).map((entry) => entry.key))
+      .toEqual(['one-polaris']);
+    expect(mallMonogram('원폴라리스')).toBe('원');
   });
 });

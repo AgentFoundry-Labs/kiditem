@@ -54,6 +54,7 @@ export default defineConfig({
     'src/browser-collection-session.ts',
     'src/collection-start.ts',
     'src/order-collection-source.ts',
+    'src/channel-registry.ts',
     'src/source-readiness.ts',
   ],
   format: ['esm', 'cjs'],

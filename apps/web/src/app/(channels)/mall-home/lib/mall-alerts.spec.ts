@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isChannelKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import {
@@ -325,3 +326,31 @@ function remembered(
     counts: { succeeded: 0, empty: 0, attention: 0, failed: 0, cancelled: 0 },
   };
 }
+
+/**
+ * 알림이 가리키는 몰은 채널 레지스트리의 키여야 한다(KID-250). 레지스트리에 없는 키를 적으면
+ * 그 알림이 어느 타일에도 닿지 못하고, 사장님은 실패를 못 본다.
+ */
+describe('몰 원천 → 채널 키', () => {
+  const SOURCE_TYPES = [
+    'order_collection_mall',
+    'coupang_shipment_summary',
+    'coupang_rocket_po_catalog',
+    'coupang_rocket_final_order',
+    'coupang_direct_order_capture',
+    'coupang_wing_traffic',
+    'coupang_wing_itemwinner',
+  ];
+
+  it('⭐ 몰을 말하는 원천의 몰 키가 모두 레지스트리에 있다', () => {
+    for (const sourceType of SOURCE_TYPES) {
+      const key = mallKeyOfAlert(alert('a', { sourceType }));
+      expect([sourceType, key === null || isChannelKey(key)]).toEqual([sourceType, true]);
+    }
+  });
+
+  it('몰 원천이 아닌 알림은 몰 알림이 아니다', () => {
+    expect(isMallAlert(alert('a', { sourceType: 'coupang_ad_campaign' }))).toBe(false);
+    expect(isMallAlert(alert('a', { sourceType: null }))).toBe(false);
+  });
+});

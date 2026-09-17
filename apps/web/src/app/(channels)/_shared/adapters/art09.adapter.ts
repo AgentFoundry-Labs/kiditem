@@ -71,7 +71,7 @@ function splitCategoryPaths(raw: string | undefined): string[] {
   return (raw ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
-export const artgongguAdapter: MallPublishAdapter = {
+export const art09Adapter: MallPublishAdapter = {
   mallKey: 'art09',
   mallName: '아트공구',
   mode: 'form',
@@ -140,7 +140,7 @@ export const artgongguAdapter: MallPublishAdapter = {
         ? { supplyPrice: parsePositive(values.supplyPrice, 0) }
         : {}),
     });
-    const result = await fillMallRegistrationForm('artgonggu', draft, form);
+    const result = await fillMallRegistrationForm('art09', draft, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. 사람이 제출해야 등록이다.

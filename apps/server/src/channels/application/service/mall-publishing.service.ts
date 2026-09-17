@@ -15,6 +15,7 @@ import type {
   MallPublishReadiness,
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
+import { CHANNEL_REGISTRY, findChannel } from '@kiditem/shared/channel-registry';
 import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
@@ -247,10 +248,11 @@ export class MallPublishingService {
 
     const candidates = page.items.map<MallAvailabilityCandidate>((item) => {
       const manifest = getMallAdapterManifest(item.channelAccount.channel);
+      const channel = findChannel(item.channelAccount.channel);
       const base = {
         channelListingOptionId: item.sku.id,
         mallKey: item.channelAccount.channel,
-        mallName: manifest?.name ?? item.channelAccount.channel,
+        mallName: manifest?.name ?? channel?.name ?? item.channelAccount.channel,
         channelAccountName: item.channelAccount.name,
         productName: item.product.displayName
           ?? item.product.registeredName
@@ -269,7 +271,11 @@ export class MallPublishingService {
           ...base,
           sendable: false,
           effectiveState: null,
-          blockedReason: `${item.channelAccount.channel} 매니페스트가 없습니다.`,
+          // 마켓 판매자 시스템(쿠팡 윙 · 로켓)은 몰 등록 매니페스트를 갖지 않는다. 그건
+          // 빠뜨린 것이 아니라 그 채널의 성질이므로 그렇게 말한다.
+          blockedReason: channel
+            ? `${channel.name}은(는) 몰 상품등록·품절 송신 대상이 아닙니다.`
+            : `${item.channelAccount.channel} 매니페스트가 없습니다.`,
         };
       }
       const resolved = resolveSoldOutCommand(manifest);
@@ -292,8 +298,8 @@ export class MallPublishingService {
   /**
    * 상품 × 몰 등록 현황.
    *
-   * 열은 **우리가 리스팅을 가져온 계정**이다. 매니페스트에 몰이 29개 있어도
-   * 리스팅을 모르는 몰은 칸을 채울 수 없다 — 전부 '미등록'으로 칠하면 그 몰에
+   * 열은 **우리가 리스팅을 가져온 계정**이다. 레지스트리에 채널이 29개 있어도
+   * 리스팅을 모르는 채널은 칸을 채울 수 없다 — 전부 '미등록'으로 칠하면 그 몰에
    * 상품이 1,000개 올라가 있어도 하나도 없는 것처럼 보인다. 그래서 열마다
    * `imported` 를 실어 화면이 그 차이를 말할 수 있게 한다.
    *
@@ -467,31 +473,34 @@ export class MallPublishingService {
       orderCounts.map((row) => [row.channelAccountId, row.orderCount]),
     );
 
-    const channels = MALL_ADAPTER_MANIFESTS.flatMap<MallChannelSummary>((manifest) => {
-      const mallAccount = mallAccountByKey.get(manifest.key) ?? null;
+    // 허브는 몰과 마켓을 함께 센다 — 쿠팡 로켓은 몰 등록 마법사에 서지 않지만 연결된
+    // 채널이고 주문이 들어온다. 목록은 채널 레지스트리, 등록 사정은 매니페스트다.
+    const channels = CHANNEL_REGISTRY.flatMap<MallChannelSummary>((entry) => {
+      const mallAccount = mallAccountByKey.get(entry.key) ?? null;
       const account = mallAccount
         ? listingAccountById.get(mallAccount.channelAccountId) ?? null
         : null;
       const listingCount = account?.listingCount ?? 0;
       const orderCount = mallAccount ? ordersByAccount.get(mallAccount.channelAccountId) ?? 0 : 0;
 
-      // 계정 행이 없는 몰은 허브에 걸지 않는다. 29개를 전부 그리면 실제로 쓰는 몰이
+      // 계정 행이 없는 채널은 허브에 걸지 않는다. 29개를 전부 그리면 실제로 쓰는 몰이
       // 안 보인다.
       if (!mallAccount) return [];
 
+      const manifest = getMallAdapterManifest(entry.key);
       return [{
-        mallKey: manifest.key,
-        mallName: manifest.name,
+        mallKey: entry.key,
+        mallName: entry.name,
         channelAccountId: mallAccount.channelAccountId,
-        canPublish: manifest.applicable && manifest.supports.createListing,
+        canPublish: manifest?.applicable === true && manifest.supports.createListing,
         hasCredentials: mallAccount.hasCredentials,
         imported: listingCount > 0,
-        // 몰 → 우리 방향. 상품등록과 반대라 매니페스트가 따로 들고 있다.
-        ...mallInboundSupports(manifest.key),
+        // 몰 → 우리 방향. 상품등록과 반대라 레지스트리가 따로 들고 있다.
+        ...mallInboundSupports(entry.key),
         listingCount,
         orderCount,
         productCount: account?.productCount ?? 0,
-        readiness: mallReadiness(manifest, mallAccount),
+        readiness: manifest ? mallReadiness(manifest, mallAccount) : 'unsupported',
       } satisfies MallChannelSummary];
     });
 

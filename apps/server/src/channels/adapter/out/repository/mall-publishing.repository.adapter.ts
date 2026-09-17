@@ -201,7 +201,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   /**
    * 리스팅을 실제로 가진 계정.
    *
-   * 매트릭스 열은 여기서 시작한다. 매니페스트의 29개 몰이 아니라 **우리가 리스팅을
+   * 매트릭스 열은 여기서 시작한다. 레지스트리의 29개 채널이 아니라 **우리가 리스팅을
    * 가져온 계정**이 열이다. 매니페스트에 있다는 것과 그 몰의 상품을 우리가 안다는
    * 것은 다르고, 후자만 칸을 채울 수 있다.
    */

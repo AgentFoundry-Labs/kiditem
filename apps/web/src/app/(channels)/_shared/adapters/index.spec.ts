@@ -1,4 +1,7 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { channelFormSpec, isChannelKey } from '@kiditem/shared/channel-registry';
 import {
   MALL_PUBLISH_ADAPTERS,
   getMallPublishAdapter,
@@ -15,16 +18,15 @@ import {
 describe('몰 등록 어댑터 레지스트리', () => {
   it('등록된 몰 목록이 레지스트리와 같다', () => {
     expect(MALL_PUBLISH_ADAPTERS.map((a) => a.mallKey).sort())
-      .toEqual(['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall']);
+      .toEqual(['11st', 'always', 'art09', 'boribori', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall']);
   });
 
   it('몰키가 서버 매니페스트 키와 같다', () => {
-    // 화면은 이 키로 채널 계정을 찾아 불을 켜고 로고를 고른다. 확장에 넘기는 이름
-    // (`artgonggu`·`alwayz`·`teacherville`)과 다른 것이 정상이다 — 그건 확장 안의
-    // 폼 스펙 이름이다. 여기 키는 `mall-adapter-manifest.ts` 의 `key` 여야 한다.
-    // 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이 통째로 빈다.
+    // 화면은 이 키로 채널 계정을 찾아 불을 켜고 로고를 고른다. 확장 폼 스펙 이름도 이제
+    // 같은 키다(KID-250) — 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이
+    // 통째로 빈다. 마켓 판매자 시스템(쿠팡 마켓플레이스·로켓)에는 어댑터를 두지 않는다.
     const manifestKeys = new Set([
-      'coupang', 'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
+      'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
       'icecream-mall', 'gmarket', 'boribori', 'kkomangse', 'thirtymall', 'kidkids', 'ssg', 'smartstore', 'gs-shop',
       'lotte-on',
     ]);
@@ -127,6 +129,78 @@ describe('목록 판매가 판정', () => {
       const values = Object.fromEntries(adapter.fields.map((f) => [f.key, f.defaultValue || '1']));
       const problems = adapter.validate(item(0), values);
       expect(problems.some((p) => p.includes('판매가가 0원'))).toBe(true);
+    }
+  });
+});
+
+/**
+ * 폼 자동채움이 닿는 키는 반드시 확장 스펙에 있어야 한다.
+ *
+ * `fillMallRegistrationForm` 은 **저장된 아이디·비밀번호를 실어 보낸다.** 확장이 그 키의
+ * 스펙을 못 찾으면 던지고 끝나지만(`mall-form-register.js` `specFor`), 그 전에 자격증명은
+ * 이미 메시지에 실려 나간 뒤다. 타입은 채널 29개를 다 받으므로(레지스트리 행에서 "확장
+ * 폼이 있는가"를 가려낼 수 없다) 여기서 값으로 잠근다.
+ *
+ * 확장 파일을 직접 읽는 이유: 웹 테스트가 확장을 목으로 대신하면 철자가 갈라진 그 순간을
+ * 못 잡는다. 이 명세가 잡으려는 것이 정확히 그 순간이다.
+ */
+describe('폼 자동채움 키 = 확장 스펙 키', () => {
+  const ADAPTER_DIR = path.resolve(__dirname);
+  const EXTENSION_FORM_REGISTER = path.resolve(
+    __dirname,
+    '../../../../../../../extensions/kiditem-os/background/orders/mall-form-register.js',
+  );
+
+  /** `const SPECS = { … };` 블록 안의 최상위 키들. */
+  function extensionSpecKeys(): string[] {
+    const source = readFileSync(EXTENSION_FORM_REGISTER, 'utf8');
+    const start = source.indexOf('const SPECS = ');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = source.slice(start).search(/\n {2}\}[);]/);
+    expect(end).toBeGreaterThanOrEqual(0);
+    const block = source.slice(start, start + end);
+    const keys: string[] = [];
+    for (const match of block.matchAll(/^ {4}(?:"([^"]+)"|([A-Za-z0-9_$-]+)): (?:Object\.freeze\()?\{/gm)) {
+      keys.push(match[1] ?? match[2]!);
+    }
+    return keys;
+  }
+
+  /** 어댑터 파일에서 실제로 넘기는 첫 인자. 리터럴이라 값으로 읽는다. */
+  function formFillCalls(): { file: string; mallKey: string }[] {
+    return readdirSync(ADAPTER_DIR)
+      .filter((file) => file.endsWith('.adapter.ts'))
+      .flatMap((file) => {
+        const source = readFileSync(path.join(ADAPTER_DIR, file), 'utf8');
+        return [...source.matchAll(/fillMallRegistrationForm\(\s*'([^']+)'/g)]
+          .map((match) => ({ file, mallKey: match[1]! }));
+      });
+  }
+
+  it('⭐ 폼 자동채움을 부르는 어댑터의 키가 모두 확장 스펙에 있다', () => {
+    const specKeys = new Set(extensionSpecKeys());
+    const calls = formFillCalls();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect([call.file, channelFormSpec(call.mallKey), specKeys.has(channelFormSpec(call.mallKey))])
+        .toEqual([call.file, channelFormSpec(call.mallKey), true]);
+    }
+  });
+
+  it('⭐ 어댑터는 제 몰 키로 부른다 — 다른 몰의 폼을 열지 않는다', () => {
+    const byKey = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
+    for (const call of formFillCalls()) {
+      const adapter = [...byKey.values()].find((entry) => entry.mallKey === call.mallKey);
+      expect([call.file, Boolean(adapter)]).toEqual([call.file, true]);
+    }
+  });
+
+  /** 확장 스펙 키는 모두 채널 키다 — 번역표가 다시 생기지 않는다. */
+  it('⭐ 확장 스펙 키가 모두 채널 키다', () => {
+    const keys = extensionSpecKeys();
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect([key, isChannelKey(key)]).toEqual([key, true]);
     }
   });
 });

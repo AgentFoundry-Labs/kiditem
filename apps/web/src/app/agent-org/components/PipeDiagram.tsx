@@ -3,7 +3,8 @@
 import { memo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Database, Inbox, Maximize2, Minus, NotebookTabs, Plus, Send, ShoppingBag } from 'lucide-react';
-import { mallLogoPath, mallMonogram } from '@/app/(channels)/_shared/mall-presentation';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
+import { mallMonogram } from '@/app/(channels)/_shared/mall-presentation';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
   DIAGRAM_AGENT_BY_ID,
@@ -274,7 +275,7 @@ function MallsNode({ node, snapshot }: { node: DiagramExternalNode; snapshot: Pi
           {/* 가로 · 세로 간격이 같게: 칸이 열 너비를 꽉 채우는 정사각형이고, 테두리는 칸 안쪽에 그린다. */}
           <ul className="grid grid-cols-7 gap-2" aria-label="몰별 로그인 상태">
             {shown.map((mall) => {
-              const logo = mallLogoPath(mall.key);
+              const logo = channelLogoPath(mall.key);
               return (
                 <li
                   key={mall.key}

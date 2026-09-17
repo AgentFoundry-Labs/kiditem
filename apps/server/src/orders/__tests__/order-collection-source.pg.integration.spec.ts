@@ -26,7 +26,7 @@ import { OrderCollectionSourceController } from '../controllers/order-collection
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
-import { ORDER_COLLECTION_MALLS } from '../domain/order-collection-malls';
+import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
@@ -568,7 +568,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     const byKey = new Map(malls.map((mall) => [mall.mallKey, mall]));
 
     expect(malls.map((mall) => mall.mallKey))
-      .toEqual(ORDER_COLLECTION_MALLS.map((mall) => mall.key));
+      .toEqual(MALL_CHANNELS.map((mall) => mall.key));
 
     // 이 조직에 계정 행이 없는 몰은 범위만 비운 채로 한 칸을 차지한다 — 오류가 아니다.
     expect(byKey.get('one-polaris')).toEqual({
@@ -727,7 +727,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     const malls: OrderCollectionSourceStatus[] = (await readSources(OTHER_ORG).expect(200)).body
       .malls.map((mall: unknown) => OrderCollectionSourceStatusSchema.parse(mall));
 
-    expect(malls).toHaveLength(ORDER_COLLECTION_MALLS.length);
+    expect(malls).toHaveLength(MALL_CHANNELS.length);
     expect(malls.every((mall) => mall.channelAccountId === null)).toBe(true);
     expect(JSON.stringify(malls)).not.toContain(mine.attemptId);
   });

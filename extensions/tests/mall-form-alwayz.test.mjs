@@ -30,13 +30,13 @@ function loadModule() {
  */
 test('폼이 없는 화면이라 body 를 기준점으로 쓴다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.alwayz.formSelector, 'body');
-  assert.deepEqual(Array.from(SPECS.alwayz.imageSlots), []);
+  assert.equal(SPECS.always.formSelector, 'body');
+  assert.deepEqual(Array.from(SPECS.always.imageSlots), []);
 });
 
 test('이름 있는 칸이 하나뿐이라 선택자로 잡는다', () => {
   const { SPECS } = loadModule();
-  const keys = SPECS.alwayz.selectorFields.map((f) => f.key);
+  const keys = SPECS.always.selectorFields.map((f) => f.key);
   assert.deepEqual(Array.from(keys), [
     'productName', 'optionName', 'optionDetail',
     'individualPrice', 'teamPrice', 'keyword', 'shippingCompany',
@@ -45,19 +45,19 @@ test('이름 있는 칸이 하나뿐이라 선택자로 잡는다', () => {
 
 test('분류는 검색해서 고른다 — 요청이 나가지 않는다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.alwayz.categorySearch.inputSelector, '#category-search-input');
-  assert.equal(SPECS.alwayz.categorySearch.optionSelector, 'button');
+  assert.equal(SPECS.always.categorySearch.inputSelector, '#category-search-input');
+  assert.equal(SPECS.always.categorySearch.optionSelector, 'button');
 });
 
 test('이미지 칸 셋을 화면 순서로 잡는다', () => {
   const { SPECS } = loadModule();
   assert.deepEqual(
-    Array.from(SPECS.alwayz.imageFileInputs.map((s) => s.key)),
+    Array.from(SPECS.always.imageFileInputs.map((s) => s.key)),
     ['representative', 'additional', 'detail'],
   );
   // 위지윅 에디터가 없다. 상세설명도 이미지 파일이라 편집기 설정이 없어야 한다.
-  assert.equal(SPECS.alwayz.detailRich, undefined);
-  assert.equal(SPECS.alwayz.detailSelfUpload, undefined);
+  assert.equal(SPECS.always.detailRich, undefined);
+  assert.equal(SPECS.always.detailSelfUpload, undefined);
 });
 
 test('값은 프로토타입 setter 로 넣는다 — React 가 알아채야 한다', () => {

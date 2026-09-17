@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { Settings } from 'lucide-react';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { cn, formatNumber } from '@/lib/utils';
-import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
+import { channelLogoPath, channelSharingAccountRow } from '@kiditem/shared/channel-registry';
+import { mallAccentClass, mallMonogram } from '../../_shared/mall-presentation';
 import {
   CAPABILITY_KEYS,
   type CapabilityKey,
@@ -87,14 +88,18 @@ export function ChannelTable({
 }
 
 /**
- * 몰 키로 계정을 찾는다. 쿠팡 로켓 칸은 쇼핑몰 계정에서 '쿠팡직배송' 으로 불린다 — 직배송
- * 자격증명이 로켓 계정 행에 있기 때문이다(ADR-0012).
+ * 몰 키로 계정을 찾는다. 계정 행을 함께 쓰는 채널은 쇼핑몰 계정 화면에서 제 이름으로
+ * 불린다 — 쿠팡 로켓 줄의 자격증명은 '쿠팡직배송' 계정에 있다(ADR-0012). 어느 채널이
+ * 어느 행을 함께 쓰는지는 채널 레지스트리가 답한다.
  */
 function accountFor(
   accounts: ReadonlyMap<string, ChannelAccountInfo>,
   mallKey: string,
 ): ChannelAccountInfo | null {
-  return accounts.get(mallKey) ?? (mallKey === 'rocket' ? accounts.get('coupang-direct') ?? null : null);
+  const direct = accounts.get(mallKey);
+  if (direct) return direct;
+  const sharer = channelSharingAccountRow(mallKey);
+  return (sharer && accounts.get(sharer.key)) ?? null;
 }
 
 function ChannelRow({
@@ -106,7 +111,7 @@ function ChannelRow({
   account: ChannelAccountInfo | null | undefined;
 }) {
   const { channel, capabilities, notes, labels } = row;
-  const logo = mallLogoPath(channel.mallKey);
+  const logo = channelLogoPath(channel.mallKey);
   return (
     <tr className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
       <th scope="row" className="sticky left-0 z-10 bg-white px-3 py-2 text-left font-normal">
