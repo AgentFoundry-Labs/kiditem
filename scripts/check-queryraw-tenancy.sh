@@ -4,11 +4,13 @@
 # Scans apps/server/src for raw SQL sites (excluding tests/specs/docs) and
 # verifies each has an `organization_id` binding within 30 lines after the hit.
 #
-# Scope — every way this repository reaches raw SQL:
+# Scope — the raw SQL forms this gate reads:
 #   - `$queryRaw` tagged template and `$queryRaw<T>` generic tagged template.
 #   - `$queryRaw(...)` / `$executeRaw(...)` call form, normally `Prisma.sql`.
 #   - `$queryRawUnsafe(...)` / `$executeRawUnsafe(...)`, where every argument is
 #     an interpolated string and the tenant binding matters most.
+# The `$executeRaw` tagged template is not read yet; widening to it is tracked
+# separately because it brings its own sites to review.
 #
 # Exemptions (auto-detected within the 30-line window):
 #   - `FOR UPDATE` row locks on UUID primary key (id = ${uuid}::uuid FOR UPDATE) —
