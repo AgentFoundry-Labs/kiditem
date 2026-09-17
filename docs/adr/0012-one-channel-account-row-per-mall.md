@@ -39,9 +39,12 @@ credentials stay in `config.orderCollection`; a mall's listing profile lives in
 `config.listingProfile` on the same row. Observed mall outcomes
 (`MallOperationOutcome`) are the exception: they key on the mall's channel key
 rather than on the account row, because some outcomes — a registration fill
-among them — are recorded for a mall that has no row. Mall registration adds no
-product model: it creates `ChannelListing` rows under the mall's account that
-point at `MasterProduct`, the only canonical product. The seed, the mall account
+among them — are recorded for a mall that has no row. A mall that shares
+another mall's account row records under that row's key (`coupang-direct` under
+`rocket`), a fold that lives in `@kiditem/shared` (`mallOperationOutcomeKey`)
+so writers and readers agree. Mall registration adds no product model: it
+creates `ChannelListing` rows under the mall's account that point at
+`MasterProduct`, the only canonical product. The seed, the mall account
 service and the collection source repository switch from
 `channel: 'order_collection'` to `channel: mallKey`. There is no data migration:
 after the v0.1.31 cutover the operator re-runs the mall account seed
