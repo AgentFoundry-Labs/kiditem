@@ -7,6 +7,8 @@ import { SellpiaImportRunRepositoryAdapter } from '../../../../../inventory/adap
 import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/service/sellpia-inventory-file.validator';
 import { SellpiaInventoryImportService } from '../../../../../inventory/application/service/sellpia-inventory-import.service';
+import { readInventoryAvailabilityCandidates } from '../../../../../inventory/read/inventory-availability';
+import { lockSellpiaInventory } from '../../../../../inventory/transaction/sellpia-inventory-lock';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { getMallAdapterManifest } from '../../../../domain/mall/mall-adapter-manifest';
 import { evaluateMallPreflight } from '../../../../domain/mall/mall-publish-preflight';
@@ -321,6 +323,52 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       expect(rows.map((row) => row.masterProductId)).not.toContain(inactive.id);
+    });
+  });
+
+  /**
+   * 같은 행을 두 리더가 다르게 읽는 것은 둘이 다른 질문에 답하기 때문이다 — 매트릭스는
+   * "어느 몰에 무엇이 있나", 재고 후보 리더는 "지금 보낼 재고가 있나". 매트릭스를 고치면서
+   * 재고 쪽 판정까지 끌려가지 않았는지 같은 행으로 확인한다.
+   */
+  describe('inventory boundary', () => {
+    it('⭐ leaves the sold-out candidate reader unchanged for the row the matrix now shows', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-601,품절 블록,0,8800000000601,100,200',
+        'SP-602,재고 블록,5,8800000000602,100,200',
+      ]);
+      const soldOut = await sellpiaSku('SP-601');
+
+      const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
+        offset: 0,
+        limit: 10,
+      });
+      expect(rows.map((row) => row.masterProductId)).toContain(soldOut.masterProductId);
+
+      const candidates = await prisma.$transaction(async (tx) => {
+        const lock = await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+        return {
+          inStock: await readInventoryAvailabilityCandidates(tx, lock, {
+            organizationId: TEST_ORGANIZATION_ID,
+            query: '블록',
+            limit: 10,
+            stockStatus: 'in_stock',
+          }),
+          all: await readInventoryAvailabilityCandidates(tx, lock, {
+            organizationId: TEST_ORGANIZATION_ID,
+            query: '블록',
+            limit: 10,
+            stockStatus: 'all',
+          }),
+        };
+      });
+
+      // 품절 행은 여전히 '재고 있는 후보'가 아니다.
+      expect(candidates.inStock.map((entry) => entry.sellpiaInventorySkuId)).not.toContain(soldOut.id);
+      expect(candidates.all).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sellpiaInventorySkuId: soldOut.id, currentStock: 0 }),
+      ]));
     });
   });
 
