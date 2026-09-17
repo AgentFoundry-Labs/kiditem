@@ -154,14 +154,15 @@ describe('ensure:absolute_product_abc_formula', () => {
       'apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts',
     );
     const lockOrder = [
-      'await lockNamed(tx, `kiditem.sellpia-product-profitability:${input.organizationId}`);',
-      'await lockNamed(tx, `kiditem.coupang-ad-profitability:${input.organizationId}`);',
+      "await lockNamed(tx, 'kiditem.sellpia-product-profitability', input.organizationId);",
+      "await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);",
       'await lockProductMapping(tx, input.organizationId);',
-      'await lockNamed(tx, `kiditem.master-product-abc:${input.organizationId}`);',
+      "await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);",
     ].map((statement) => publication.indexOf(statement));
     expect(lockOrder.every((index) => index >= 0)).toBe(true);
     expect([...lockOrder].sort((left, right) => left - right)).toEqual(lockOrder);
-    expect(publication).toContain('pg_advisory_xact_lock(hashtextextended(${key}, 0::bigint))');
+    expect(publication).toContain('const lockKey = `${scope}:${organizationId}`;');
+    expect(publication).toContain('pg_advisory_xact_lock(hashtextextended(${lockKey}, 0::bigint))');
   });
 
   it('names every conflicting organization by kind', () => {

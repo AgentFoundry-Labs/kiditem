@@ -388,6 +388,7 @@ async function lockWorkflow(
   organizationId: string,
 ): Promise<void> {
   await tx.$executeRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     SELECT pg_advisory_xact_lock(
       hashtext(${LOCK_NAMESPACE}),
       hashtext(${organizationId})
