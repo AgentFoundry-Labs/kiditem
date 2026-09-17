@@ -1,11 +1,11 @@
-import type { InventorySkuIdentity } from '../../../../read/inventory-availability';
+import type { SellpiaInventorySkuReadModel } from '../../../../read/inventory-availability';
 
 export const SELLPIA_INVENTORY_SKU_READ_PORT = Symbol(
   'SELLPIA_INVENTORY_SKU_READ_PORT',
 );
 
 /** The identity `read/inventory-availability.ts` returns. */
-export type SellpiaInventorySkuReadModel = InventorySkuIdentity;
+export type { SellpiaInventorySkuReadModel };
 
 export interface SellpiaInventorySkuReadPort {
   listActiveForMatching(

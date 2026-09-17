@@ -18,8 +18,8 @@ import {
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT,
   type InventorySkuSnapshotListRepositoryPort,
-  type SellpiaImportRunRepositoryRow,
-  type InventorySkuSnapshotRepositoryRow,
+  type SellpiaImportRunRow,
+  type InventorySkuSnapshotRow,
 } from '../port/out/repository/inventory-sku-snapshot-list.repository.port';
 
 @Injectable()
@@ -102,7 +102,7 @@ function mapSnapshotList(
   } satisfies InventorySkuSnapshotListResponse);
 }
 
-function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSnapshotItem {
+function mapSnapshotRow(row: InventorySkuSnapshotRow): InventorySkuSnapshotItem {
   return {
     sellpiaInventorySkuId: row.sellpiaInventorySkuId,
     code: row.code,
@@ -152,7 +152,7 @@ function normalizeFilters(query: InventorySkuSnapshotFilters): {
   };
 }
 
-function mapImportRun(row: SellpiaImportRunRepositoryRow): SellpiaImportRunSummary {
+function mapImportRun(row: SellpiaImportRunRow): SellpiaImportRunSummary {
   return {
     id: row.id,
     fileName: row.fileName,

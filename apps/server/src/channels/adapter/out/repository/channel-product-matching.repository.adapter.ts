@@ -15,6 +15,7 @@ import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-
 import {
   readActiveInventoryMatchingCandidates,
   readInventorySkuIdentities,
+  type SellpiaInventorySkuReadModel,
 } from '../../../../inventory/read/inventory-availability';
 import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
@@ -88,11 +89,8 @@ type RawListingRow = Prisma.ChannelListingGetPayload<{
 }>;
 type RawOptionRow = RawListingRow['options'][number];
 type RawComponentRow = RawOptionRow['inventoryComponents'][number];
-type InventorySkuReadModel = Awaited<
-  ReturnType<typeof readInventorySkuIdentities>
->[number];
 type InventorySkuIdentity = Omit<
-  InventorySkuReadModel,
+  SellpiaInventorySkuReadModel,
   'sellpiaInventorySkuId'
 > & { id: string };
 type ListingRow = Omit<RawListingRow, 'options'> & {
@@ -636,7 +634,7 @@ implements ChannelProductMatchingRepositoryPort {
 }
 
 function toInventorySkuIdentity(
-  identity: InventorySkuReadModel,
+  identity: SellpiaInventorySkuReadModel,
 ): InventorySkuIdentity {
   const { sellpiaInventorySkuId: id, ...fields } = identity;
   return { id, ...fields };

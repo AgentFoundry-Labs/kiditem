@@ -26,7 +26,7 @@ import type {
 } from '@kiditem/shared/inventory';
 
 /** A Sellpia inventory SKU's identity; identity carries no stock. */
-export type InventorySkuIdentity = {
+export type SellpiaInventorySkuReadModel = {
   sellpiaInventorySkuId: string;
   code: string;
   name: string;
@@ -479,7 +479,7 @@ export async function readInventorySkuIdentities(
       | { kind: 'normalized_names'; values: string[] }
       | { kind: 'search'; query: string; limit: number };
   },
-): Promise<InventorySkuIdentity[]> {
+): Promise<SellpiaInventorySkuReadModel[]> {
   const { organizationId, selector } = input;
   if ('values' in selector && selector.values.length === 0) return [];
   if (selector.kind === 'normalized_barcodes') {
@@ -986,7 +986,7 @@ function uncollectedBatch(): InventoryAvailabilityBatch {
 
 function toInventorySkuIdentity(
   row: SelectedSellpiaInventorySkuIdentity,
-): InventorySkuIdentity {
+): SellpiaInventorySkuReadModel {
   return {
     sellpiaInventorySkuId: row.id,
     code: row.code,
