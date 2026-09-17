@@ -24,6 +24,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
   'check-cutover-data-blockers.mjs',
+  'check-cutover-blocker-coverage.mjs',
   'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
@@ -42,6 +43,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
+  'sync-local-database.ts',
   'setup-macos-development.mjs',
   'vitest.config.ts',
 ]);
@@ -52,6 +54,7 @@ const SUPPORT_FILES = new Set([
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
   'ledger-readers.json',
+  'cutover-blocker-coverage.json',
   'README.md',
 ]);
 
@@ -128,6 +131,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
     missingPackageHooks.push('gateway:login:codex');
   }
+  if (packageScripts['db:sync:local'] !== 'tsx scripts/sync-local-database.ts') {
+    missingPackageHooks.push('db:sync:local');
+  }
   if (packageScripts['dev:bootstrap-user'] !== 'bash bin/bootstrap-local-auth-user.sh') {
     missingPackageHooks.push('dev:bootstrap-user');
   }
@@ -139,6 +145,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
+  }
+  if (packageScripts['check:cutover-blocker-coverage'] !== 'node scripts/check-cutover-blocker-coverage.mjs') {
+    missingPackageHooks.push('check:cutover-blocker-coverage');
   }
   if (packageScripts['check:ledger-readers'] !== 'node scripts/check-ledger-readers.mjs') {
     missingPackageHooks.push('check:ledger-readers');

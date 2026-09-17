@@ -25,9 +25,10 @@ nvm use
 # env 예제, Git hooks, locked npm 의존성, 격리된 Gateway 상태를 준비합니다.
 npm run setup:macos
 
-# PostgreSQL + MinIO를 시작하고 현재 Prisma schema를 적용합니다.
+# PostgreSQL + MinIO를 시작하고 현재 Prisma schema와 데이터 migration을 적용합니다.
+# pull로 prisma/나 scripts/data-migrations/가 바뀌었을 때도 같은 명령을 실행합니다.
 docker compose up -d --wait
-npm run db:push
+npm run db:sync:local
 
 # 새 DB에 로컬 로그인 사용자/조직을 만들고 비밀번호를 안전하게 입력합니다.
 npm run dev:bootstrap-user -- --email you@example.com

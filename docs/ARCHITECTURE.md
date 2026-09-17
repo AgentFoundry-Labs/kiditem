@@ -1065,9 +1065,13 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 ## Data And Tenant Rules
 
 - Prisma schema source of truth lives under `prisma/models/`.
-- Prisma schema is the only DB schema source of truth. `prisma db push`
-  should be sufficient after schema edits; do not add SQL overlays for RLS,
-  CHECK constraints, expression indexes, or standalone sequences.
+- Prisma schema is the only DB schema source of truth. After schema edits,
+  `prisma db push` and a post-schema `data:migrate -- up` bring a database
+  current. A database object Prisma cannot declare needs the owner that
+  [prisma/CLAUDE.md](../prisma/CLAUDE.md#indexes-and-database-objects)
+  requires. The only one is `source_import_runs_status_check`. Its owner is the
+  `ensure:source_import_run_status_check` step, which re-applies it on every
+  post-schema run ([ensure steps](../scripts/data-migrations/README.md#ensure-steps)).
 - NestJS uses the owner DB role and must pass `organizationId` explicitly from
   `@CurrentOrganization()` into tenant-owned reads and writes.
 - Chatbot/agent processes do not receive DB URLs. Business data reaches agents

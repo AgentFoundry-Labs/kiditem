@@ -14,6 +14,14 @@ test('registers the local development orchestrator', () => {
   assert.ok(SCRIPT_INVENTORY.includes('run-local-development.mjs'));
 });
 
+test('registers the local database sync command', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('sync-local-database.ts'));
+});
+
+test('registers the PR-time cutover blocker coverage check', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('check-cutover-blocker-coverage.mjs'));
+});
+
 test('registers the ledger reader scanner', () => {
   assert.ok(SCRIPT_INVENTORY.includes('check-ledger-readers.mjs'));
   assert.ok(!SCRIPT_INVENTORY.includes('check-listing-day-ad-reader.sh'));
@@ -34,9 +42,11 @@ test('accepts complete script inventory metadata', () => {
       'dev:all': 'node scripts/run-local-development.mjs',
       'gateway:auth:codex': 'node scripts/local-agent-gateway.mjs auth codex',
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
+      'db:sync:local': 'tsx scripts/sync-local-database.ts',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'seed:agent-os:browser-qa': 'tsx scripts/seed-agent-os-browser-qa.ts',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
+      'check:cutover-blocker-coverage': 'node scripts/check-cutover-blocker-coverage.mjs',
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
@@ -71,8 +81,10 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
       'dev:all': 'node scripts/run-local-development.mjs',
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
+      'db:sync:local': 'tsx scripts/sync-local-database.ts',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
+      'check:cutover-blocker-coverage': 'node scripts/check-cutover-blocker-coverage.mjs',
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
@@ -114,9 +126,11 @@ test('reports unregistered scripts and missing hooks', () => {
     'dev:all',
     'gateway:auth:codex',
     'gateway:login:codex',
+    'db:sync:local',
     'dev:bootstrap-user',
     'seed:agent-os:browser-qa',
     'check:scripts-inventory',
+    'check:cutover-blocker-coverage',
     'check:ledger-readers',
     'deploy:office:local',
     'deploy:office:status',
