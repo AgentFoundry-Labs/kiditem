@@ -165,6 +165,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany,
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -218,6 +220,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -264,6 +268,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -319,6 +325,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -366,6 +374,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([]) },
         channelListingOptionInventoryComponent: { updateMany },
       })),
@@ -404,6 +414,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -455,6 +467,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -500,6 +514,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([
           {
             id: '00000000-0000-4000-8000-000000000102',
@@ -555,6 +571,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
