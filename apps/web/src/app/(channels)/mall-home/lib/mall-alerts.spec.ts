@@ -243,6 +243,25 @@ describe('mallStatusTiles', () => {
     });
   });
 
+  /**
+   * 쿠팡직배송 원천 알림(발주서 · 직배송 주문 수집)은 로켓 계정 행을 함께 쓰는 몰의 일이다.
+   * 타일은 계정 행의 채널로 서기 때문에 목록에 `coupang-direct` 줄이 없다 — 접지 않으면 이
+   * 알림은 어느 타일에도 닿지 못하고 로켓 타일은 '최근 기록 없음'으로 선다.
+   */
+  it('⭐ 쿠팡직배송 원천 알림이 함께 쓰는 로켓 타일에 닿는다', () => {
+    const direct = alert('direct', {
+      sourceType: 'coupang_direct_order_capture',
+      title: '쿠팡 직배송 주문 수집 실패',
+    });
+    const tile = mallStatusTiles([channel('rocket', '쿠팡 로켓')], [direct], [])[0];
+    expect(tile).toMatchObject({
+      mallKey: 'rocket',
+      tone: 'failed',
+      label: '쿠팡 직배송 주문 수집 실패 실패',
+      attentionCount: 1,
+    });
+  });
+
   it('⭐ 방금 확인한 로그인 상태가 지난 로그인 확인 기록보다 앞선다', () => {
     const lastCheck = remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' });
     const rocketOnly = [channel('rocket', '쿠팡 로켓')];

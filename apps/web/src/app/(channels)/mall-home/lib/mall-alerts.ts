@@ -337,7 +337,10 @@ export function mallStatusTiles(
   for (const alert of alerts) {
     const mallKey = mallKeyOfAlert(alert);
     if (!mallKey) continue;
-    byMall.set(mallKey, [...(byMall.get(mallKey) ?? []), alert]);
+    // 타일은 계정 행의 채널로 선다. 계정 행을 함께 쓰는 몰(쿠팡직배송)의 알림을 제 키로 모으면
+    // 그 키를 가진 타일이 없어 알림이 어느 타일에도 닿지 못한다 — 기록과 같은 키로 접는다.
+    const key = mallOperationOutcomeKey(mallKey);
+    byMall.set(key, [...(byMall.get(key) ?? []), alert]);
   }
   const rememberedByMall = new Map<string, MallOperationOutcomeSummaryRow[]>();
   for (const row of outcomes) {
@@ -345,7 +348,7 @@ export function mallStatusTiles(
   }
   return channels
     .map((channel): MallStatusTile => {
-      const own = [...(byMall.get(channel.mallKey) ?? [])].sort((a, b) =>
+      const own = [...(byMall.get(mallOperationOutcomeKey(channel.mallKey)) ?? [])].sort((a, b) =>
         alertTime(b).localeCompare(alertTime(a)),
       );
       const current = derived.filter((alert) => alert.mallKeys.includes(channel.mallKey));

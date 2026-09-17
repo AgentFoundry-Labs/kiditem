@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowRight, Bell, CheckCircle2, CircleAlert, Loader2, ShieldCheck, X } from 'lucide-react';
 import type { AlertItem } from '@kiditem/shared/alerts';
+import { mallOperationOutcomeKey } from '@kiditem/shared/mall-operation-outcomes';
 import { useDismissAlert } from '@/lib/alerts-api';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
@@ -54,7 +55,13 @@ export function MallAlertPanel({
   mall: { key: string; name: string } | null;
   onClearMall: () => void;
 }) {
-  const inMall = (item: AlertItem) => !mall || mallKeyOfAlert(item) === mall.key;
+  // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 알림은 그 행의 키로 접어 견준다 — 사람이 누르는
+  // 카드는 그 행의 몰(로켓)이라, 접지 않으면 직배송 알림을 어느 카드로도 볼 수 없다.
+  const inMall = (item: AlertItem) => {
+    if (!mall) return true;
+    const key = mallKeyOfAlert(item);
+    return key !== null && mallOperationOutcomeKey(key) === mallOperationOutcomeKey(mall.key);
+  };
   const scopedAlerts = alerts.filter(inMall);
   const scopedDerived = mall ? derived.filter((item) => item.mallKeys.includes(mall.key)) : derived;
   const counts: Record<MallAlertFilter, number> = {
