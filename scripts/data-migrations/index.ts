@@ -21,6 +21,7 @@ import { backfillAdActionExecutionTasksMigration } from "./v0.1.31/011_backfill_
 import { constrainSourceImportRunStatusMigration } from "./v0.1.31/012_constrain_source_import_run_status";
 import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows";
 import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
+import { closeStaleAdApprovalsAtCutoverMigration } from "./v0.1.31/015_close_stale_ad_approvals_at_cutover";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -55,6 +56,7 @@ export const dataMigrations: readonly DataMigration[] = [
   constrainSourceImportRunStatusMigration,
   removeRetiredAccountKpiAndAdTierRowsMigration,
   removeRowsBlockingRequiredColumnsMigration,
+  closeStaleAdApprovalsAtCutoverMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];
