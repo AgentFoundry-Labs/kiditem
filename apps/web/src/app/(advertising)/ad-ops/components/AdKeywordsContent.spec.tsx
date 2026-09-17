@@ -74,12 +74,16 @@ function keyword(text: string, pauseProposal: AdKeywordPauseProposal | null): Ad
   };
 }
 
+/** What the server records on an approved keyword pause (KID-138 decision A). */
+const MANUAL_ACTION_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
+
 const KEYWORDS = [
   keyword('콩순이', proposal(ACTION.pending, 'pending_review', 'queued')),
   keyword('쥬쥬', proposal(ACTION.otherPending, 'pending_review', 'queued')),
+  // Approved before decision A: its attempt still waits in the extension queue.
   keyword('타요', proposal(ACTION.queued, 'approved', 'queued')),
   keyword('뽀로로', proposal(ACTION.running, 'approved', 'running')),
-  keyword('핑크퐁', proposal(ACTION.failed, 'approved', 'failed', '실행 기한 초과')),
+  keyword('핑크퐁', proposal(ACTION.failed, 'approved', 'failed', MANUAL_ACTION_MESSAGE)),
   keyword('브레드', proposal(ACTION.done, 'approved', 'done')),
   keyword('비눗방울', null),
 ];
@@ -181,53 +185,75 @@ beforeEach(() => {
 });
 
 describe('AdKeywordsContent pause proposal review (KID-138)', () => {
-  it('shows each pause proposal state with only the review actions that state allows', async () => {
+  it('shows each pause proposal state with only the review actions that state allows, and no way to run a pause', async () => {
     await renderExpandedProduct();
 
     expect(chip('콩순이').getByText('승인 대기')).toBeInTheDocument();
+    expect(chip('콩순이').queryByText('광고센터에서 직접 꺼 주세요')).not.toBeInTheDocument();
     expect(reviewButtons('콩순이')).toEqual(['승인', '거절']);
-    expect(chip('타요').getByText('실행 대기')).toBeInTheDocument();
-    expect(reviewButtons('타요')).toEqual(['거절']);
+    // An approved pause is the operator's to apply in the ad center, whatever its attempt reads.
+    for (const approved of ['타요', '핑크퐁']) {
+      expect(chip(approved).getByText('승인함')).toBeInTheDocument();
+      expect(chip(approved).getByText('광고센터에서 직접 꺼 주세요')).toBeInTheDocument();
+      expect(reviewButtons(approved)).toEqual(['닫기']);
+    }
     expect(chip('뽀로로').getByText('실행 중')).toBeInTheDocument();
     expect(reviewButtons('뽀로로')).toEqual([]);
-    expect(chip('핑크퐁').getByText('실패')).toBeInTheDocument();
-    expect(chip('핑크퐁').getByText('실행 기한 초과')).toBeInTheDocument();
-    expect(reviewButtons('핑크퐁')).toEqual(['다시 실행', '거절']);
     expect(chip('브레드').getByText('완료')).toBeInTheDocument();
     expect(reviewButtons('브레드')).toEqual([]);
     expect(reviewButtons('비눗방울')).toEqual([]);
+    expect(screen.queryByRole('button', { name: '다시 실행' })).not.toBeInTheDocument();
   });
 
-  it('approves one proposal, reports how many the server updated, and reads the keywords again', async () => {
+  it("adds the attempt's recorded message to the chip's hover text, not to the chip", async () => {
+    await renderExpandedProduct();
+
+    expect(screen.getByRole('group', { name: '핑크퐁' })).toHaveAttribute(
+      'title',
+      `핑크퐁은 상품과 연관이 없습니다\n${MANUAL_ACTION_MESSAGE}`,
+    );
+    expect(chip('핑크퐁').queryByText(MANUAL_ACTION_MESSAGE)).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '타요' })).toHaveAttribute(
+      'title',
+      '타요은 상품과 연관이 없습니다',
+    );
+  });
+
+  it('approves one proposal, tells the operator to pause the keyword in the ad center, and reads the keywords again', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 1 });
     await renderExpandedProduct();
     expect(keywordReads()).toBe(1);
 
     fireEvent.click(chip('콩순이').getByRole('button', { name: '승인' }));
 
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('1개')));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        '제안 1개를 승인했습니다. 키워드 끄기는 자동으로 실행하지 않으니 광고센터에서 직접 꺼 주세요.',
+      ),
+    );
     expect(actionRequests()).toEqual([
       { path: ACTIONS_PATH, action: 'approve', ids: [ACTION.pending] },
     ]);
     await waitFor(() => expect(keywordReads()).toBe(2));
   });
 
-  it('runs a failed proposal again as an approval and rejects a queued one before it runs', async () => {
+  it('closes an approved proposal with a rejection, one at a time', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 1 });
     await renderExpandedProduct();
 
-    fireEvent.click(chip('핑크퐁').getByRole('button', { name: '다시 실행' }));
-    await waitFor(() => expect(chip('타요').getByRole('button', { name: '거절' })).toBeEnabled());
-    fireEvent.click(chip('타요').getByRole('button', { name: '거절' }));
+    fireEvent.click(chip('핑크퐁').getByRole('button', { name: '닫기' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('제안 1개를 닫았습니다.'));
+    await waitFor(() => expect(chip('타요').getByRole('button', { name: '닫기' })).toBeEnabled());
+    fireEvent.click(chip('타요').getByRole('button', { name: '닫기' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
     expect(actionRequests()).toEqual([
-      { path: ACTIONS_PATH, action: 'approve', ids: [ACTION.failed] },
+      { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.failed] },
       { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.queued] },
     ]);
   });
 
-  it('approves every proposal of the expanded product awaiting review and rejects every one it can still reject, counting them whatever the filter shows', async () => {
+  it('approves or rejects every proposal of the expanded product awaiting review, and only those, counting them whatever the filter shows', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 2 });
     await renderExpandedProduct();
     // The filter hides every chip; the product-wide buttons still count and send all of its proposals.
@@ -236,18 +262,15 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 승인' }));
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: '이 상품 제안 4개 모두 거절' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: '이 상품 제안 2개 모두 거절' })).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 4개 모두 거절' }));
+    // An approved proposal is an operator's confirmation, so a product-wide rejection leaves it.
+    fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 거절' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
     expect(actionRequests()).toEqual([
       { path: ACTIONS_PATH, action: 'approve', ids: [ACTION.pending, ACTION.otherPending] },
-      {
-        path: ACTIONS_PATH,
-        action: 'reject',
-        ids: [ACTION.pending, ACTION.otherPending, ACTION.queued, ACTION.failed],
-      },
+      { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.pending, ACTION.otherPending] },
     ]);
   });
 
@@ -296,8 +319,9 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     await renderExpandedProduct();
     expect(keywordReads()).toBe(1);
 
-    // A stale "실행 대기" chip: the extension finished the pause after the list was read.
-    fireEvent.click(chip('타요').getByRole('button', { name: '거절' }));
+    // A stale "승인함" chip: an extension from before decision A finished the
+    // pause after the list was read.
+    fireEvent.click(chip('타요').getByRole('button', { name: '닫기' }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.detail));
     expect(toast.success).not.toHaveBeenCalled();

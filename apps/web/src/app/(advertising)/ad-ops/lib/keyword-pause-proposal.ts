@@ -3,45 +3,66 @@ import type {
   AdKeywordSnapshot,
 } from '@kiditem/shared/advertising';
 
-/** A review request the keyword tab sends for pause proposals. */
-export type PauseProposalReview = 'approve' | 'retry' | 'reject';
+/**
+ * A review request the keyword tab sends for pause proposals. `close` ends an
+ * approved proposal once the operator is done with it; it is sent as a
+ * rejection.
+ */
+export type PauseProposalReview = 'approve' | 'reject' | 'close';
+
+export interface PauseProposalReviewAction {
+  review: PauseProposalReview;
+  /** The button text. */
+  label: string;
+}
 
 export interface PauseProposalState {
   label: string;
-  /** `retry` approves a failed proposal again, which queues a new attempt. */
-  approve: 'approve' | 'retry' | null;
-  /** Rejecting cancels a proposal before it runs, or closes a failed one. */
-  reject: boolean;
+  /** What the operator does next, shown in the chip; null when nothing is left to do. */
+  note: string | null;
+  /** The review requests the proposal offers, in button order. */
+  actions: PauseProposalReviewAction[];
 }
+
+const APPROVE: PauseProposalReviewAction = { review: 'approve', label: '승인' };
+const REJECT: PauseProposalReviewAction = { review: 'reject', label: '거절' };
+const CLOSE: PauseProposalReviewAction = { review: 'close', label: '닫기' };
 
 /**
  * What a keyword's pause proposal shows and which review requests it offers.
  * Approval decides first: a proposal awaiting review reads `queued` only
- * because it has no attempt yet. A running attempt may already be changing
- * Coupang and a done one already did, so neither offers a request.
+ * because it has no attempt yet.
+ *
+ * The extension never pauses a keyword (KID-138 decision A). Approving one
+ * records the operator's confirmation, and the operator pauses the keyword in
+ * the ad center, so an approved proposal offers no way to run it: its attempt
+ * reads failed with the reason the server recorded, or queued when it was
+ * approved before that decision. The operator closes it when done. A running
+ * or done attempt comes from an extension before that decision and may
+ * already have changed Coupang, so it offers nothing.
  */
 export function pauseProposalState(proposal: AdKeywordPauseProposal): PauseProposalState {
   if (proposal.approvalStatus === 'pending_review') {
-    return { label: '승인 대기', approve: 'approve', reject: true };
+    return { label: '승인 대기', note: null, actions: [APPROVE, REJECT] };
   }
   switch (proposal.executeStatus) {
     case 'queued':
-      return { label: '실행 대기', approve: null, reject: true };
-    case 'running':
-      return { label: '실행 중', approve: null, reject: false };
     case 'failed':
-      return { label: '실패', approve: 'retry', reject: true };
+      return { label: '승인함', note: '광고센터에서 직접 꺼 주세요', actions: [CLOSE] };
+    case 'running':
+      return { label: '실행 중', note: null, actions: [] };
     case 'done':
-      return { label: '완료', approve: null, reject: false };
+      return { label: '완료', note: null, actions: [] };
   }
 }
 
 /**
- * Distinct action ids of these keywords' proposals that a product-wide request
- * covers. A keyword served in several ad groups shows a chip per group for one
- * proposal, which counts once. Approving covers only proposals awaiting review:
- * running a failure again changes Coupang again, so that stays a per-keyword
- * decision. Rejecting covers every proposal that offers it.
+ * Distinct action ids of these keywords' proposals that a product-wide
+ * `review` covers. A keyword served in several ad groups shows a chip per group
+ * for one proposal, which counts once. Both product-wide requests cover only
+ * proposals awaiting review: an approved proposal is an operator's
+ * confirmation, so a product-wide rejection never undoes it, and it is closed
+ * one at a time.
  */
 export function proposalIdsFor(
   keywords: readonly AdKeywordSnapshot[],
@@ -49,11 +70,11 @@ export function proposalIdsFor(
 ): string[] {
   const ids = new Set<string>();
   for (const { pauseProposal } of keywords) {
-    if (!pauseProposal) continue;
-    const state = pauseProposalState(pauseProposal);
-    if (review === 'approve' ? state.approve === 'approve' : state.reject) {
-      ids.add(pauseProposal.actionId);
-    }
+    if (!pauseProposal || pauseProposal.approvalStatus !== 'pending_review') continue;
+    const offered = pauseProposalState(pauseProposal).actions.some(
+      (action) => action.review === review,
+    );
+    if (offered) ids.add(pauseProposal.actionId);
   }
   return [...ids];
 }
@@ -62,10 +83,10 @@ export function proposalIdsFor(
 export function pauseProposalReviewMessage(review: PauseProposalReview, updated: number): string {
   switch (review) {
     case 'approve':
-      return `제안 ${updated}개를 승인했습니다. 확장 프로그램에서 승인 액션을 실행하면 광고센터에 반영됩니다.`;
-    case 'retry':
-      return `제안 ${updated}개를 다시 실행 대기로 올렸습니다. 확장 프로그램에서 승인 액션을 실행해 주세요.`;
+      return `제안 ${updated}개를 승인했습니다. 키워드 끄기는 자동으로 실행하지 않으니 광고센터에서 직접 꺼 주세요.`;
     case 'reject':
       return `제안 ${updated}개를 거절했습니다.`;
+    case 'close':
+      return `제안 ${updated}개를 닫았습니다.`;
   }
 }

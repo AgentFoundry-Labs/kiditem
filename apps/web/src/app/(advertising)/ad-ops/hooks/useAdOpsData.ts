@@ -331,8 +331,10 @@ const AD_ACTION_REVIEW_MAX_IDS = 200;
 
 /**
  * Approve or reject keyword pause proposals through the ad action command.
- * Approval queues an attempt the browser extension runs, and approving a failed
- * proposal queues a new one; rejection cancels an attempt that has not started.
+ * Approval records the operator's confirmation; the browser extension never
+ * pauses a keyword (KID-138 decision A), so the operator pauses it in the ad
+ * center. Rejection closes a proposal, and cancels an attempt approved before
+ * that decision that has not started.
  *
  * The distinct ids go in commands of at most 200, one after another, and
  * `updated` sums what the server counted. A refused command ends the review

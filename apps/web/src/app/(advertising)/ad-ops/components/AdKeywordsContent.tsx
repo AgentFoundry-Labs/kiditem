@@ -48,7 +48,8 @@ export default function AdKeywordsContent({ period }: Props) {
   const reviewKeywordProposals = (review: PauseProposalReview, ids: string[]) => {
     if (ids.length === 0) return;
     reviewProposals.mutate(
-      { action: review === 'reject' ? 'reject' : 'approve', ids },
+      // Closing an approved proposal is sent as a rejection.
+      { action: review === 'approve' ? 'approve' : 'reject', ids },
       {
         onSuccess: ({ updated }) => {
           if (updated === 0) {
@@ -446,7 +447,7 @@ function KeywordList({
             onClick={() => onReview('reject', rejectableIds)}
             disabled={reviewing}
             className="btn-secondary btn-sm disabled:opacity-50"
-            title="필터나 검색과 관계없이 이 상품에서 실행 전이거나 실패한 제안을 모두 거절합니다"
+            title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 거절합니다"
           >
             이 상품 제안 {formatNumber(rejectableIds.length)}개 모두 거절
           </button>
@@ -486,15 +487,15 @@ function KeywordChip({
   const isLoose = keyword.relevance === 'loose';
   const proposal = keyword.pauseProposal;
   const proposalState = proposal ? pauseProposalState(proposal) : null;
-  const approve = proposalState?.approve ?? null;
+  const summary =
+    keyword.relevanceReason ??
+    `${keyword.origin === 'registered' ? '직접 등록' : '스마트 타겟팅'} · 노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)}`;
   return (
     <span
       role="group"
       aria-label={keyword.keyword}
-      title={
-        keyword.relevanceReason ??
-        `${keyword.origin === 'registered' ? '직접 등록' : '스마트 타겟팅'} · 노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)}`
-      }
+      // The reason the latest attempt recorded, such as why it did not run, is on hover.
+      title={proposal?.errorMessage ? `${summary}\n${proposal.errorMessage}` : summary}
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]"
       style={{
         borderColor: isIrrelevant ? 'var(--danger)' : isLoose ? 'var(--warning)' : 'var(--border-subtle)',
@@ -511,29 +512,23 @@ function KeywordChip({
       {proposal && proposalState && (
         <>
           <span className="font-semibold">{proposalState.label}</span>
-          {approve === 'retry' && proposal.errorMessage && (
-            <span style={{ color: 'var(--text-secondary)' }}>{proposal.errorMessage}</span>
+          {proposalState.note && (
+            <span style={{ color: 'var(--text-secondary)' }}>{proposalState.note}</span>
           )}
-          {approve && (
+          {proposalState.actions.map(({ review, label }) => (
             <button
+              key={review}
               type="button"
-              onClick={() => onReview(approve, [proposal.actionId])}
+              onClick={() => onReview(review, [proposal.actionId])}
               disabled={reviewing}
-              className="btn-primary btn-sm disabled:opacity-50"
+              className={cn(
+                review === 'approve' ? 'btn-primary' : 'btn-secondary',
+                'btn-sm disabled:opacity-50',
+              )}
             >
-              {approve === 'retry' ? '다시 실행' : '승인'}
+              {label}
             </button>
-          )}
-          {proposalState.reject && (
-            <button
-              type="button"
-              onClick={() => onReview('reject', [proposal.actionId])}
-              disabled={reviewing}
-              className="btn-secondary btn-sm disabled:opacity-50"
-            >
-              거절
-            </button>
-          )}
+          ))}
         </>
       )}
     </span>
