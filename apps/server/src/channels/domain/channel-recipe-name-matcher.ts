@@ -44,12 +44,19 @@ const SALES_UNIT_TOKEN = /(?:\d+\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음
 const LEADING_PRICE = /^\s*\d{3,6}(?=[^\d]|$)/u;
 const SINGLE_UNIT_LABEL = /(?:단품|단일상품|낱개)\s*$/giu;
 
+/**
+ * 우리 브랜드 표기. 몰마다 철자가 달라 상품명 앞에 붙은 채로 남으면 같은 상품을 다른
+ * 이름으로 읽는다 — 아이스크림몰 고시 품명이 `[kiditem] 해피글로우야광꽈배기프로펠라`
+ * 인데 셀피아는 `해피글로우야광꽈배기프로펠라` 라서 안 맞았다(라이브 2026-09-17, 48건).
+ */
+const BRAND_TOKEN = /(?:ky\s*i\s*&\s*d|kiditem|키드아이템)/giu;
+
 export function normalizeChannelRecipeName(value: string | null): string {
   if (!value) return '';
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()
-    .replace(/ky\s*i\s*&\s*d/giu, '')
+    .replace(BRAND_TOKEN, '')
     .replace(LEADING_PRICE, '')
     .replace(/\b(?:pack|box)\b/giu, '')
     .replace(SALES_UNIT_TOKEN, '')
