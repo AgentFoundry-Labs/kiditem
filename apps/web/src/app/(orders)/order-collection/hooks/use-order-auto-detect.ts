@@ -20,7 +20,6 @@ import type { OrderActivityEvent } from '../components/OrderActivityFeed';
 const DEFAULT_AUTO_INTERVAL_MIN = 30;
 const AUTO_BUSINESS_START_HOUR = 9;
 const AUTO_BUSINESS_END_HOUR = 18;
-const AUTO_DETECT_KEY = 'kiditem-order-auto-detect';
 const AUTO_INTERVAL_KEY = 'kiditem-order-auto-interval';
 
 export const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60] as const;
@@ -99,18 +98,16 @@ export function useOrderAutoDetect({
     }
   }, [logActivity, mallAccounts, startMall]);
 
+  // 간격만 기억한다. 켜짐은 기억하지 않는다 — 새로고침 · 탭 복원 · 서버 재시작 뒤에 자동
+  // 감지가 저 혼자 다시 돌면 사장님이 보지 않는 사이에 몰을 연다. 시작은 언제나 사람이
+  // 누른다(KID-106 Q1, KID-187). 자동 운전 고리도 같은 규칙이다.
   useEffect(() => {
     const savedInterval = Number(window.localStorage.getItem(AUTO_INTERVAL_KEY));
-    const nextInterval = AUTO_INTERVAL_OPTIONS_MIN.includes(
+    setIntervalMin(AUTO_INTERVAL_OPTIONS_MIN.includes(
       savedInterval as (typeof AUTO_INTERVAL_OPTIONS_MIN)[number],
     )
       ? savedInterval
-      : DEFAULT_AUTO_INTERVAL_MIN;
-    setIntervalMin(nextInterval);
-    if (window.localStorage.getItem(AUTO_DETECT_KEY) === '1') {
-      setEnabled(true);
-      setNextRunAt(nextAutoRunAt(Date.now(), nextInterval * 60 * 1000));
-    }
+      : DEFAULT_AUTO_INTERVAL_MIN);
   }, []);
 
   useEffect(() => {
@@ -132,7 +129,6 @@ export function useOrderAutoDetect({
     const next = !enabled;
     setEnabled(next);
     setNextRunAt(next ? nextAutoRunAt(Date.now(), intervalMs) : null);
-    window.localStorage.setItem(AUTO_DETECT_KEY, next ? '1' : '0');
     if (next) void run();
   }, [enabled, intervalMs, run]);
 

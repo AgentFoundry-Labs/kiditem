@@ -29,6 +29,45 @@ describe('useOrderAutoDetect', () => {
     vi.useRealTimers();
   });
 
+  /**
+   * KID-187(KID-106 Q1). 자동 감지는 사람이 시작한다. 새로고침 · 탭 복원 뒤에 저 혼자
+   * 다시 돌면 사장님이 보지 않는 사이에 몰을 열고 수집을 건다.
+   */
+  it('⭐ 새로고침해도 자동 감지가 저 혼자 켜지지 않는다 — 간격만 기억한다', () => {
+    window.localStorage.setItem('kiditem-order-auto-detect', '1');
+    window.localStorage.setItem('kiditem-order-auto-interval', '15');
+    const startMall = vi.fn();
+
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      startMall,
+      logActivity: vi.fn(),
+    }));
+
+    expect(result.current.enabled).toBe(false);
+    expect(result.current.nextRunAt).toBeNull();
+    expect(result.current.intervalMin).toBe(15);
+    act(() => {
+      vi.advanceTimersByTime(60 * 60 * 1000);
+    });
+    expect(startMall).not.toHaveBeenCalled();
+  });
+
+  it('운영자가 켠 자동 감지는 저장되지 않는다 — 다음에 열면 다시 꺼져 있다', () => {
+    const { result } = renderHook(() => useOrderAutoDetect({
+      mallAccounts: [ACCOUNT],
+      startMall: vi.fn().mockResolvedValue({ outcome: { outcome: 'running', attemptId: null }, collection: null }),
+      logActivity: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.toggle();
+    });
+
+    expect(result.current.enabled).toBe(true);
+    expect(window.localStorage.getItem('kiditem-order-auto-detect')).toBeNull();
+  });
+
   it('starts each tick through the mall shared control and waits for its collection', async () => {
     const collection = Promise.resolve({ rowCount: 3, masked: false, date: '2026-09-10' });
     const startMall = vi.fn().mockResolvedValue({

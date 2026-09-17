@@ -27,6 +27,8 @@ convenience history.
   A mall that is not blocked still waits out the auto-login retry interval: one
   submit per mall per hour, whatever the result. Our own failures (API throttling,
   extension timeouts, a login we could not confirm) never block a mall.
+- 자동 감지는 운영자가 켤 때만 돈다. 간격만 저장하고 켜짐은 저장하지 않는다 — 새로고침 ·
+  탭 복원 · 서버 재시작 뒤에는 사람이 다시 켠다(KID-106 Q1). 자동 운전 고리도 같다.
 - Discovery distinguishes ready, incompatible, and absent states. Preserve
   versioned failure evidence; only explicit authenticated empty evidence is a
   successful zero.
