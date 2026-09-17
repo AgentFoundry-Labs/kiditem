@@ -28,8 +28,8 @@
 //   3. `toKeywordPauseCandidates` — turning verdicts into `pause_keyword`
 //      proposals, refusing anything the evidence does not support.
 //
-// The model proposes; a human approves; the extension executes. Nothing here
-// pauses a keyword on its own.
+// The model proposes; a human approves and pauses the keyword in the ad center
+// (KID-138 decision A). Nothing here pauses a keyword.
 
 import type { ActionCandidate } from './ad-action-rules';
 

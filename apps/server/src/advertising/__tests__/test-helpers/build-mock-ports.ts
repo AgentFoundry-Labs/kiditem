@@ -80,7 +80,7 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     findAdActionsForReview: vi.fn(),
     findLatestTargetRows: vi.fn(),
     findExistingInflightActions: vi.fn(),
-    findOpenKeywordRelevanceActions: vi.fn().mockResolvedValue([]),
+    findKeywordPauseProposals: vi.fn().mockResolvedValue([]),
     createAdActionsFromCandidates: vi.fn(),
     approveAdActions: vi.fn(),
     rejectAdActions: vi.fn(),

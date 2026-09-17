@@ -7,7 +7,14 @@ import type { AdKeywordSnapshot } from '@kiditem/shared/advertising';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { cardRaised } from '../lib/card-styles';
-import { useAdKeywords, useRunKeywordAgent } from '../hooks/useAdOpsData';
+import {
+  PAUSE_PROPOSAL_REVIEW_COMMANDS,
+  pauseProposalReviewMessage,
+  pauseProposalState,
+  pendingProposalIds,
+  type PauseProposalReview,
+} from '../lib/keyword-pause-proposal';
+import { useAdKeywords, useReviewKeywordProposals, useRunKeywordAgent } from '../hooks/useAdOpsData';
 
 type KeywordFilter = 'all' | 'serving' | 'idle' | 'irrelevant';
 
@@ -37,6 +44,28 @@ export default function AdKeywordsContent({ period }: Props) {
   const runAgent = useRunKeywordAgent(period);
   const [judgingProduct, setJudgingProduct] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const reviewProposals = useReviewKeywordProposals();
+  const reviewKeywordProposals = (review: PauseProposalReview, ids: string[]) => {
+    if (ids.length === 0) return;
+    reviewProposals.mutate(
+      { ...PAUSE_PROPOSAL_REVIEW_COMMANDS[review], ids },
+      {
+        onSuccess: ({ updated }) => {
+          if (updated === 0) {
+            toast.warning('반영된 제안이 없습니다. 목록을 새로 고친 뒤 다시 확인해 주세요.');
+            return;
+          }
+          toast.success(pauseProposalReviewMessage(review, updated));
+        },
+        onError: (mutationError) => {
+          toast.error(
+            isApiError(mutationError) ? mutationError.detail : '제안을 처리하지 못했습니다.',
+          );
+        },
+      },
+    );
+  };
 
   const judgeKeywords = (externalOptionId?: string) => {
     setJudgingProduct(externalOptionId ?? null);
@@ -306,6 +335,8 @@ export default function AdKeywordsContent({ period }: Props) {
                             }
                             judgeDisabled={runAgent.isPending}
                             onJudge={() => judgeKeywords(product.externalOptionId)}
+                            reviewing={reviewProposals.isPending}
+                            onReview={reviewKeywordProposals}
                           />
                         </td>
                       </tr>
@@ -335,6 +366,8 @@ function KeywordList({
   judging,
   judgeDisabled,
   onJudge,
+  reviewing,
+  onReview,
 }: {
   keywords: AdKeywordSnapshot[];
   filter: KeywordFilter;
@@ -343,6 +376,8 @@ function KeywordList({
   judging: boolean;
   judgeDisabled: boolean;
   onJudge: () => void;
+  reviewing: boolean;
+  onReview: (review: PauseProposalReview, ids: string[]) => void;
 }) {
   const q = search.trim().toLowerCase();
   const visible = keywords
@@ -354,6 +389,9 @@ function KeywordList({
       return true;
     })
     .sort((a, b) => b.metrics.impressions - a.metrics.impressions || a.keyword.localeCompare(b.keyword));
+  // A product-wide request covers every proposal of the product awaiting
+  // review, not only the chips the filter shows.
+  const pendingIds = pendingProposalIds(keywords);
 
   return (
     <div className="space-y-2.5">
@@ -392,6 +430,28 @@ function KeywordList({
             </>
           )}
         </button>
+        {pendingIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => onReview('approve', pendingIds)}
+              disabled={reviewing}
+              className="btn-primary btn-sm disabled:opacity-50"
+              title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 승인합니다"
+            >
+              이 상품 제안 {formatNumber(pendingIds.length)}개 모두 승인
+            </button>
+            <button
+              type="button"
+              onClick={() => onReview('reject', pendingIds)}
+              disabled={reviewing}
+              className="btn-secondary btn-sm disabled:opacity-50"
+              title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 거절합니다"
+            >
+              이 상품 제안 {formatNumber(pendingIds.length)}개 모두 거절
+            </button>
+          </>
+        )}
       </div>
 
       {visible.length === 0 ? (
@@ -401,7 +461,12 @@ function KeywordList({
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {visible.map((keyword) => (
-            <KeywordChip key={`${keyword.adGroup ?? ''}:${keyword.keyword}`} keyword={keyword} />
+            <KeywordChip
+              key={`${keyword.adGroup ?? ''}:${keyword.keyword}`}
+              keyword={keyword}
+              reviewing={reviewing}
+              onReview={onReview}
+            />
           ))}
         </div>
       )}
@@ -409,15 +474,28 @@ function KeywordList({
   );
 }
 
-function KeywordChip({ keyword }: { keyword: AdKeywordSnapshot }) {
+function KeywordChip({
+  keyword,
+  reviewing,
+  onReview,
+}: {
+  keyword: AdKeywordSnapshot;
+  reviewing: boolean;
+  onReview: (review: PauseProposalReview, ids: string[]) => void;
+}) {
   const isIrrelevant = keyword.relevance === 'irrelevant';
   const isLoose = keyword.relevance === 'loose';
+  const proposal = keyword.pauseProposal;
+  const proposalState = proposal ? pauseProposalState(proposal) : null;
+  const summary =
+    keyword.relevanceReason ??
+    `${keyword.origin === 'registered' ? '직접 등록' : '스마트 타겟팅'} · 노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)}`;
   return (
     <span
-      title={
-        keyword.relevanceReason ??
-        `${keyword.origin === 'registered' ? '직접 등록' : '스마트 타겟팅'} · 노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)}`
-      }
+      role="group"
+      aria-label={keyword.keyword}
+      // The reason the latest attempt recorded, such as why it did not run, is on hover.
+      title={proposal?.errorMessage ? `${summary}\n${proposal.errorMessage}` : summary}
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]"
       style={{
         borderColor: isIrrelevant ? 'var(--danger)' : isLoose ? 'var(--warning)' : 'var(--border-subtle)',
@@ -431,6 +509,26 @@ function KeywordChip({ keyword }: { keyword: AdKeywordSnapshot }) {
         {formatNumber(keyword.metrics.impressions)}
         {keyword.metrics.clicks > 0 ? ` · 클릭 ${formatNumber(keyword.metrics.clicks)}` : ''}
       </span>
+      {proposal && proposalState && (
+        <>
+          <span className="font-semibold">{proposalState.label}</span>
+          {proposalState.note && (
+            <span style={{ color: 'var(--text-secondary)' }}>{proposalState.note}</span>
+          )}
+          {proposalState.actions.map(({ review, label }) => (
+            <button
+              key={review}
+              type="button"
+              onClick={() => onReview(review, [proposal.actionId])}
+              disabled={reviewing}
+              // An inline small neutral button: the keyword grid holds many chips.
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            >
+              {label}
+            </button>
+          ))}
+        </>
+      )}
     </span>
   );
 }

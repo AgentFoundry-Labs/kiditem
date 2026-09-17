@@ -3,6 +3,7 @@ import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionQuery,
   type AdActionRepositoryPort,
+  type AdActionReviewOptions,
 } from '../port/out/repository/ad-action.repository.port';
 import {
   createActionCandidate,
@@ -14,6 +15,7 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../../../channels/application/port/in/channel-sku-availability.port';
+import type { AdActionCommandResult } from '@kiditem/shared/advertising';
 
 const ACTION_DEDUP_HOURS = 24;
 
@@ -35,6 +37,14 @@ const ACTION_DEDUP_HOURS = 24;
  * markRunning for a running task is another executor and is refused.
  * Approving a failed action queues a new one. A running attempt past its
  * execution deadline reads failed; approving again or a late report closes it.
+ * Rejecting cancels a queued attempt. It is refused while an attempt runs
+ * within its deadline, since that executor may already be changing Coupang,
+ * and once the latest attempt is done, since Coupang already changed.
+ *
+ * Keyword pauses, bid changes and daily budget changes are applied by hand in
+ * the ad center (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A). Approving one
+ * records a failed attempt that says so instead of queuing it, and the
+ * extension's running or done report for one is refused.
  */
 @Injectable()
 export class AdActionService {
@@ -150,14 +160,29 @@ export class AdActionService {
     };
   }
 
-  async approveActions(ids: string[], organizationId: string) {
-    await this.repo.approveAdActions(ids, organizationId);
-    return { updated: ids.length };
+  /**
+   * `updated` is how many distinct actions of the organization changed; a
+   * repeated id, another organization's action, an unknown id, or an action no
+   * longer in the review `options` expects adds nothing.
+   */
+  async approveActions(
+    ids: string[],
+    organizationId: string,
+    options: AdActionReviewOptions = {},
+  ) {
+    return {
+      updated: await this.repo.approveAdActions(ids, organizationId, options),
+    } satisfies AdActionCommandResult;
   }
 
-  async rejectActions(ids: string[], organizationId: string) {
-    await this.repo.rejectAdActions(ids, organizationId);
-    return { updated: ids.length };
+  async rejectActions(
+    ids: string[],
+    organizationId: string,
+    options: AdActionReviewOptions = {},
+  ) {
+    return {
+      updated: await this.repo.rejectAdActions(ids, organizationId, options),
+    } satisfies AdActionCommandResult;
   }
 
   async markRunning(

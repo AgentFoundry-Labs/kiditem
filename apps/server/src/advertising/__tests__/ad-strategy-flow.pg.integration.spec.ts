@@ -6,6 +6,7 @@ import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { periodBounds } from '../domain/ad-metrics';
 import { AdvertisingModule } from '../advertising.module';
+import { AdActionService } from '../application/service/ad-action.service';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
 import { deriveAdActionExecution, readLatestExecutionTasks } from '../read/ad-action-execution';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -27,6 +28,7 @@ import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-hel
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: AdStrategyService;
+  let adActionService: AdActionService;
   let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedOrderWithLineItems(
@@ -285,6 +287,7 @@ describe('AdStrategy flow (PG integration)', () => {
       .useValue(prisma)
       .compile();
     service = m.get(AdStrategyService);
+    adActionService = m.get(AdActionService);
   });
 
   afterAll(async () => {
@@ -994,6 +997,33 @@ describe('AdStrategy flow (PG integration)', () => {
       await expect(
         service.registerCampaign(dto, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(/등록 완료/);
+    });
+
+    it('#11c a rejected registration does not keep the name taken (KID-138)', async () => {
+      const listing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        suffix: 'REJECTED',
+      });
+      const dto: Parameters<AdStrategyService['registerCampaign']>[0] = {
+        campaignName: 'Rejected campaign',
+        adGroupName: 'ag',
+        grade: 'A',
+        dailyBudget: 10000,
+        operationMode: 'manual',
+        listings: [{ listingId: listing.listing.id }],
+      };
+
+      const first = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
+      await expect(adActionService.rejectActions([first.actionId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 1 });
+
+      const second = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
+      expect(second.actionId).not.toBe(first.actionId);
+      // The new registration is queued, so it takes the name again.
+      await expect(
+        service.registerCampaign(dto, TEST_ORGANIZATION_ID),
+      ).rejects.toThrow(/등록 진행 중/);
     });
   });
 
