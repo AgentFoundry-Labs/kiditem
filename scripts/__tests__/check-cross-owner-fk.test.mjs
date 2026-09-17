@@ -259,9 +259,9 @@ test('fails when an allowlist entry no longer matches a relation', () => {
 test('passes on the current schema with the recorded cross-owner allowlist', () => {
   const result = runScanner(repoRoot);
 
+  // Only the cross-owner count is this test's business. Asserting the scope and
+  // intra-owner totals too would turn any unrelated model with an organization
+  // foreign key into a failure of this guard.
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    result.stdout,
-    /check:cross-owner-fk PASS \(372 relations: 163 scope, 31 SourceImportRun, 130 intra-owner, 48 cross-owner allowlisted\)/,
-  );
+  assert.match(result.stdout, /48 cross-owner allowlisted/);
 });
