@@ -220,40 +220,57 @@ describe('coupangDirectshipCollectionSource — 카드가 이 원천을 세우�
 });
 
 describe('coupangDirectshipCollectionSource — 이 몰 키의 주인', () => {
+  const routeRoot = path.resolve(import.meta.dirname, '..');
+  const srcRoot = path.resolve(routeRoot, '../../..');
+  const MALL_KEY_LITERAL = /['"`]coupang-direct['"`]/;
+  const MALL_KEY_NAME = /COUPANG_DIRECT_MALL_KEY/;
+
+  /** 공용 몰 수집 루프와 화면의 코드. 이 키를 문자열로도 이름으로도 부르지 않는다. */
+  const LOOP_AND_SCREEN = [
+    'lib/browser-mall-collection.ts',
+    'lib/order-collection-page-model.ts',
+    'lib/mall-order-collection-source.ts',
+    'lib/order-collection-source-adapter.ts',
+    'components/OrderCollectionWorkspace.tsx',
+    'components/MallAccountSection.tsx',
+    'components/MallAccountGroups.tsx',
+    'components/MallCollectionControl.tsx',
+  ].map((file) => path.join(routeRoot, file))
+    .concat(path.join(srcRoot, 'hooks/useAllMarketplaceOrderCollection.ts'));
+
+  /**
+   * 그 스펙들. 스펙은 이 원천에서 상수를 받아 쓸 수 있다 — 키가 하나라는 사실을 오히려
+   * 보여 준다. 다만 문자열을 제 손으로 다시 적으면 그 키가 코드로 돌아오므로 그것만 막는다.
+   */
+  const LOOP_AND_SCREEN_SPECS = [
+    'lib/browser-mall-collection.spec.ts',
+    'lib/order-collection-page-model.spec.ts',
+    'components/OrderCollectionWorkspace.spec.tsx',
+    'components/MallAccountSection.spec.tsx',
+    'components/MallAccountGroups.spec.tsx',
+    'components/MallCollectionControl.spec.tsx',
+  ].map((file) => path.join(routeRoot, file))
+    .concat(path.join(srcRoot, 'hooks/useAllMarketplaceOrderCollection.spec.tsx'));
+
   /**
    * 이 몰 키를 아는 곳은 이 원천의 파일 하나다. 공용 몰 수집 루프와 화면이 여섯 곳에서
    * 이 키를 특례로 알아보던 동안, 루프를 고칠 때마다 직배송을 따로 검증해야 했다(KID-255).
-   * 루프도 화면도, 그 스펙도 이제 그 키 대신 이 원천이 답한 것만 본다.
+   *
+   * 문자열만 막으면 상수를 받아다 `account.key === COUPANG_DIRECT_MALL_KEY` 로 같은 분기를
+   * 되살릴 수 있다 — 코드에서는 이름도 막는다. 루프와 화면은 그 원천이 답한 것만 본다.
    */
-  it('⭐ 루프도 화면도 이 몰 키를 모른다 — 이 원천만 안다', () => {
-    const routeRoot = path.resolve(import.meta.dirname, '..');
-    const srcRoot = path.resolve(routeRoot, '../../..');
-    const loopAndScreen = [
-      'lib/browser-mall-collection.ts',
-      'lib/order-collection-page-model.ts',
-      'lib/mall-order-collection-source.ts',
-      'lib/order-collection-source-adapter.ts',
-      'components/OrderCollectionWorkspace.tsx',
-      'components/MallAccountSection.tsx',
-      'components/MallAccountGroups.tsx',
-      'components/MallCollectionControl.tsx',
-      // 루프와 화면의 스펙도 같다 — 스펙이 키를 외우면 그 키가 다시 코드로 돌아온다.
-      'lib/browser-mall-collection.spec.ts',
-      'lib/order-collection-page-model.spec.ts',
-      'components/OrderCollectionWorkspace.spec.tsx',
-      'components/MallAccountSection.spec.tsx',
-      'components/MallAccountGroups.spec.tsx',
-      'components/MallCollectionControl.spec.tsx',
-    ].map((file) => path.join(routeRoot, file));
-    loopAndScreen.push(
-      path.join(srcRoot, 'hooks/useAllMarketplaceOrderCollection.ts'),
-      path.join(srcRoot, 'hooks/useAllMarketplaceOrderCollection.spec.tsx'),
-    );
+  it('⭐ 루프도 화면도 이 몰 키를 문자열로도 이름으로도 부르지 않는다', () => {
+    for (const file of LOOP_AND_SCREEN) {
+      const source = readFileSync(file, 'utf8');
+      // `coupang-directship-*` 모듈을 가리키는 import 경로는 그 원천을 부르는 길이지 키 분기가 아니다.
+      expect([file, MALL_KEY_LITERAL.test(source), MALL_KEY_NAME.test(source)])
+        .toEqual([file, false, false]);
+    }
+  });
 
-    for (const file of loopAndScreen) {
-      // 몰 키 문자열만 본다 — `coupang-directship-*` 모듈을 가리키는 import 경로는 그 원천을
-      // 부르는 길이지 키 분기가 아니다.
-      expect([file, /['"`]coupang-direct['"`]/.test(readFileSync(file, 'utf8'))])
+  it('⭐ 그 스펙들도 이 몰 키를 제 손으로 적지 않는다 — 쓸 일이 있으면 이 원천에서 받아 쓴다', () => {
+    for (const file of LOOP_AND_SCREEN_SPECS) {
+      expect([file, MALL_KEY_LITERAL.test(readFileSync(file, 'utf8'))])
         .toEqual([file, false]);
     }
   });
