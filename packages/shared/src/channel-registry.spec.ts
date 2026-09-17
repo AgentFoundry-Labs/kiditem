@@ -39,6 +39,8 @@ describe('채널 레지스트리', () => {
     expect(channelOutcomeKey('kidkids')).toBe('kidkids');
     // 모르는 키는 그대로 둔다 — 짐작해서 남의 줄에 얹지 않는다.
     expect(channelOutcomeKey('sellpia')).toBe('sellpia');
+    // 한 번 접은 키를 다시 접어도 같은 키다 — 쓰는 쪽과 읽는 쪽이 같은 값에 만난다.
+    expect(channelOutcomeKey(channelOutcomeKey('coupang-direct'))).toBe('rocket');
     expect(CHANNEL_REGISTRY.filter((entry) => entry.sharedAccountChannel).map((entry) => entry.key))
       .toEqual(['coupang-direct']);
   });

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { MALL_OPERATION_OUTCOME_KEY_ALIASES } from '@kiditem/shared/mall-operation-outcomes';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import {
   findOrderCollectionMall,
@@ -8,7 +7,6 @@ import {
   orderCollectionMallAccountIdentity,
   orderCollectionMallKeyForAccount,
   pickOrderCollectionMallAccounts,
-  type OrderCollectionMallEntry,
 } from './order-collection-malls';
 
 /**
@@ -52,19 +50,6 @@ describe('주문 수집 몰 계정 행', () => {
     expect(own).toContain('art09');
     expect(own).not.toContain('coupang-direct');
     expect(shared).toEqual(['rocket']);
-  });
-
-  /**
-   * 관찰 기록의 별칭 표(`@kiditem/shared`)는 이 레지스트리의 `sharedAccountChannel` 을 손으로
-   * 베껴 둔 것이다. 공유 행을 쓰는 몰이 늘었는데 별칭을 빠뜨리면 그 몰의 기록만 두 키로
-   * 갈려 쌓이고, 반대로 레지스트리에서 사라진 별칭은 남의 몰 기록을 엉뚱한 줄로 접는다.
-   */
-  it('⭐ 공유 행을 쓰는 몰과 관찰 기록 별칭 표가 서로 어긋나지 않는다', () => {
-    const shared: Record<string, string> = {};
-    for (const mall of MALL_CHANNELS as readonly OrderCollectionMallEntry[]) {
-      if (mall.sharedAccountChannel) shared[mall.key] = mall.sharedAccountChannel;
-    }
-    expect(shared).toEqual({ ...MALL_OPERATION_OUTCOME_KEY_ALIASES });
   });
 
   it('모르는 몰은 null 이다', () => {

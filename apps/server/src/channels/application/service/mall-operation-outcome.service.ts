@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   MALL_OPERATION_OUTCOMES,
-  mallOperationOutcomeKey,
   type MallOperationKind,
   type MallOperationOutcomeCounts,
   type MallOperationOutcomeItem,
@@ -10,7 +9,7 @@ import {
   type RecordMallOperationOutcomeRequest,
 } from '@kiditem/shared/mall-operation-outcomes';
 import { kstInclusiveDaysStart } from '../../../common/kst';
-import { isChannelKey } from '@kiditem/shared/channel-registry';
+import { channelOutcomeKey, isChannelKey } from '@kiditem/shared/channel-registry';
 import {
   MALL_OPERATION_OUTCOME_REPOSITORY_PORT,
   type MallOperationOutcomeRepositoryPort,
@@ -46,7 +45,7 @@ function toItem(row: MallOperationOutcomeRow): MallOperationOutcomeItem {
  *
  * 조직과 사람은 세션에서만 받는다. 몰 키는 매니페스트가 아는 몰이어야 한다. 같은
  * idempotencyKey 는 한 번만 쓴다. 계정 행을 함께 쓰는 몰(쿠팡직배송 → 로켓)은 그 행의
- * 채널로 접어 쌓는다 — 접는 규칙은 계약(`mallOperationOutcomeKey`)이 가지고, 화면도
+ * 채널로 접어 쌓는다 — 접는 규칙은 계약(`channelOutcomeKey`)이 가지고, 화면도
  * 같은 함수로 읽는다. 이유 코드가 있는 줄은 글을 담지 않는다.
  */
 @Injectable()
@@ -75,7 +74,7 @@ export class MallOperationOutcomeService {
       organizationId,
       actorUserId,
       idempotencyKey: input.idempotencyKey,
-      mallKey: mallOperationOutcomeKey(input.mallKey),
+      mallKey: channelOutcomeKey(input.mallKey),
       operation: input.operation,
       outcome: input.outcome,
       reasonCode,
