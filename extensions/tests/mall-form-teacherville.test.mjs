@@ -44,10 +44,10 @@ function loadModule() {
  */
 test('사진은 파일 칸이 아니라 몰 서버에 올린다', () => {
   const { SPECS } = loadModule();
-  assert.deepEqual(Array.from(SPECS.teacherville.imageSlots), []);
-  assert.equal(SPECS.teacherville.imageFileInput, undefined);
-  assert.equal(SPECS.teacherville.imageFileInputs, undefined);
-  const upload = SPECS.teacherville.imageUpload;
+  assert.deepEqual(Array.from(SPECS['teacher-mall'].imageSlots), []);
+  assert.equal(SPECS['teacher-mall'].imageFileInput, undefined);
+  assert.equal(SPECS['teacher-mall'].imageFileInputs, undefined);
+  const upload = SPECS['teacher-mall'].imageUpload;
   assert.equal(upload.endpoint, '/selleradmin/goods_process/upload_file_multi');
   assert.equal(upload.field, 'Filedata');
   assert.equal(upload.addButtonId, 'goodsImageAdd');
@@ -57,7 +57,7 @@ test('사진은 파일 칸이 아니라 몰 서버에 올린다', () => {
 
 test('크기 목록을 우리가 들고 있지 않는다 — 칸 이름에서 읽는다', () => {
   const { SPECS } = loadModule();
-  const upload = SPECS.teacherville.imageUpload;
+  const upload = SPECS['teacher-mall'].imageUpload;
   // `largeGoodsImage[]` → `large`. 몰이 칸을 늘려도 우리 코드가 따라간다.
   assert.equal('largeGoodsImage[]'.slice(0, -upload.slotSuffix.length), 'large');
   assert.equal('thumbScrollGoodsImage[]'.slice(0, -upload.slotSuffix.length), 'thumbScroll');
@@ -65,18 +65,18 @@ test('크기 목록을 우리가 들고 있지 않는다 — 칸 이름에서 �
 
 test('상품정보고시 품목이 방아쇠다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.teacherville.dynamic.trigger, 'goodsSubInfo');
-  assert.equal(SPECS.teacherville.dynamic.waitPrefix, 'subInfoTitle[');
+  assert.equal(SPECS['teacher-mall'].dynamic.trigger, 'goodsSubInfo');
+  assert.equal(SPECS['teacher-mall'].dynamic.waitPrefix, 'subInfoTitle[');
 });
 
 test('고시 줄이 모자라면 늘린다 — 품목이 만들어 주는 것은 다섯 줄뿐이다', () => {
   const { SPECS } = loadModule();
-  const titles = SPECS.teacherville.groupInputs.find((g) => g.key === 'noticeTitles');
+  const titles = SPECS['teacher-mall'].groupInputs.find((g) => g.key === 'noticeTitles');
   assert.equal(titles.grow.buttonId, 'goodsSubInfoAdd');
   assert.ok(titles.grow.maxClicks >= 39, '실측 등록물이 서른아홉 줄이라 그만큼은 눌러야 한다');
   // 제목도 우리가 써넣는다. 자유 입력 칸이라 품목 기본 이름과 달라도 된다.
   assert.equal(titles.selector, '[name="subInfoTitle[]"]');
-  const descs = SPECS.teacherville.groupInputs.find((g) => g.key === 'noticeDescs');
+  const descs = SPECS['teacher-mall'].groupInputs.find((g) => g.key === 'noticeDescs');
   assert.equal(descs.selector, '[name="subInfoDesc[]"]');
   // 줄을 만드는 것은 한 번이면 된다. 두 번 늘리면 칸이 두 배가 된다.
   assert.equal(descs.grow, undefined);
@@ -84,7 +84,7 @@ test('고시 줄이 모자라면 늘린다 — 품목이 만들어 주는 것은
 
 test('분류는 레이어에서 고른 뒤 연결 버튼을 눌러야 폼에 붙는다', () => {
   const { SPECS } = loadModule();
-  const connect = SPECS.teacherville.categoryConnect;
+  const connect = SPECS['teacher-mall'].categoryConnect;
   assert.equal(connect.openButtonId, 'categoryConnectPopup');
   assert.equal(connect.formName, 'categoryConnectFrm');
   assert.equal(connect.connectButtonId, 'categoryConnect');
@@ -94,19 +94,19 @@ test('분류는 레이어에서 고른 뒤 연결 버튼을 눌러야 폼에 붙
 
 test('상세설명은 숨은 칸에 바로 쓴다 — 폼 안에 위지윅이 없다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.teacherville.detailRich, undefined);
-  assert.equal(SPECS.teacherville.detailEditor, undefined);
+  assert.equal(SPECS['teacher-mall'].detailRich, undefined);
+  assert.equal(SPECS['teacher-mall'].detailEditor, undefined);
   // 대신 사람이 보는 미리보기 칸을 같이 맞춰 준다.
-  assert.equal(SPECS.teacherville.detailPreviewSelector, '#goodscontents_view');
+  assert.equal(SPECS['teacher-mall'].detailPreviewSelector, '#goodscontents_view');
   // 우리 산출물은 로컬 주소라 그대로 넣으면 빈 상세페이지가 된다. 올릴 곳이 있어야 한다.
-  assert.equal(SPECS.teacherville.detailHost, 'kidsnote');
+  assert.equal(SPECS['teacher-mall'].detailHost, 'kidsnote');
 });
 
 test('등록화면 주소를 알아본다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.teacherville.origin, 'https://shop.teacherville.co.kr');
-  assert.equal(SPECS.teacherville.pathPrefix, '/selleradmin/goods/regist');
-  assert.equal(SPECS.teacherville.formSelector, '#goodsRegist');
+  assert.equal(SPECS['teacher-mall'].origin, 'https://shop.teacherville.co.kr');
+  assert.equal(SPECS['teacher-mall'].pathPrefix, '/selleradmin/goods/regist');
+  assert.equal(SPECS['teacher-mall'].formSelector, '#goodsRegist');
 });
 
 /**
@@ -165,7 +165,7 @@ function harness() {
 test('상세설명 이미지를 넘기면 상세설명 HTML 이 페이로드에 실린다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'teacherville',
+    mall: 'teacher-mall',
     form: {
       url: 'https://shop.teacherville.co.kr/selleradmin/goods/regist',
       fields: { goodsName: '상품' },
@@ -184,7 +184,7 @@ test('상세설명 이미지를 넘기면 상세설명 HTML 이 페이로드에 
 test('상세설명 이미지를 빼먹으면 넣을 것이 없다 — 이 사고를 여기서 잡는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'teacherville',
+    mall: 'teacher-mall',
     form: {
       url: 'https://shop.teacherville.co.kr/selleradmin/goods/regist',
       fields: { goodsName: '상품' },
@@ -199,7 +199,7 @@ test('상세설명 이미지를 빼먹으면 넣을 것이 없다 — 이 사고
 test('상품 사진을 몰 서버에 올리도록 페이로드에 싣는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'teacherville',
+    mall: 'teacher-mall',
     form: {
       url: 'https://shop.teacherville.co.kr/selleradmin/goods/regist',
       fields: { goodsName: '상품' },

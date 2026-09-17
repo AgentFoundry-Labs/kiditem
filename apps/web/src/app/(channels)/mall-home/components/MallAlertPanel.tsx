@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowRight, Bell, CheckCircle2, CircleAlert, Loader2, ShieldCheck, X } from 'lucide-react';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import { mallOperationOutcomeKey } from '@kiditem/shared/mall-operation-outcomes';
+import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import { useDismissAlert } from '@/lib/alerts-api';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
@@ -60,7 +60,7 @@ export function MallAlertPanel({
   const inMall = (item: AlertItem) => {
     if (!mall) return true;
     const key = mallKeyOfAlert(item);
-    return key !== null && mallOperationOutcomeKey(key) === mallOperationOutcomeKey(mall.key);
+    return key !== null && channelOutcomeKey(key) === channelOutcomeKey(mall.key);
   };
   const scopedAlerts = alerts.filter(inMall);
   const scopedDerived = mall ? derived.filter((item) => item.mallKeys.includes(mall.key)) : derived;

@@ -1,6 +1,6 @@
+import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import {
-  mallOperationOutcomeKey,
   type MallOperationOutcomeSummaryRow,
 } from '@kiditem/shared/mall-operation-outcomes';
 import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
@@ -614,7 +614,7 @@ function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => stri
   for (const account of accounts) {
     const recorded: { at: number; signedIn: boolean }[] = [];
     // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 관찰 기록은 그 행의 키로 쌓인다.
-    const outcomeKey = mallOperationOutcomeKey(account.key);
+    const outcomeKey = channelOutcomeKey(account.key);
     for (const row of rows) {
       if (row.mallKey !== outcomeKey) continue;
       const item = row.latest;
@@ -657,7 +657,7 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
   const accounts = inputs.malls.data ?? [];
   const names = new Map(accounts.map((account) => [account.key, account.name] as const));
   for (const account of accounts) {
-    const outcomeKey = mallOperationOutcomeKey(account.key);
+    const outcomeKey = channelOutcomeKey(account.key);
     if (!names.has(outcomeKey)) names.set(outcomeKey, account.name);
   }
   const mallName = (mallKey: string) => names.get(mallKey) ?? mallKey;

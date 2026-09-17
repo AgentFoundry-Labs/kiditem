@@ -1,3 +1,4 @@
+import { channelRegistersListings, findChannel } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 /**
@@ -10,11 +11,12 @@ import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
  *  - `pending`(회색): 아직 안 된다. 만들면 되는 일이다.
  *  - `unavailable`(빨강): 그 몰에는 그 일이 없다. 만들 수도 없다.
  *
- * 근거는 전부 이미 있는 권위에서 온다. 주문수집·송장전송은 서버 매니페스트
- * (`collectsOrders`·`uploadsTracking`, 주문이 셀피아로 들어오는 몰은 `orderCollectionVia`),
- * 상품등록은 등록 어댑터 레지스트리, '없는 일'은
- * 매니페스트의 `applicable: false`(쿠팡 로켓·쿠팡직배송처럼 우리가 발주를 받는 사입
- * 채널)다. 화면이 몰 이름을 보고 추측하지 않는다 — 추측으로 칠한 초록은 눌러도 안 된다.
+ * 근거는 전부 이미 있는 권위에서 온다. 주문수집·송장전송은 서버가 채널 레지스트리에서
+ * 내려주는 값(`collectsOrders`·`uploadsTracking`, 주문이 셀피아로 들어오는 몰은
+ * `orderCollectionVia`), 상품등록은 등록 어댑터 레지스트리, '없는 일'은 채널
+ * 레지스트리가 '등록 개념이 없다'고 확인한 채널(쿠팡 로켓·쿠팡직배송처럼 우리가 발주를
+ * 받는 사입 채널)이다. 화면이 몰 이름을 보고 추측하지 않는다 — 추측으로 칠한 초록은
+ * 눌러도 안 된다.
  */
 export type CapabilityState = 'ready' | 'pending' | 'unavailable';
 
@@ -33,7 +35,7 @@ export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
 export type MallCapabilities = Record<CapabilityKey, CapabilityState>;
 
-/** 서버 매니페스트에서 이 판정에 쓰는 조각. */
+/** 서버 매니페스트에서 이 판정에 쓰는 조각. 몰 방식(품절)만 답한다. */
 export interface MallManifestFacts {
   applicable: boolean;
   /** 몰 방식이 아직 확인되지 않았다. 이때 `supports` 는 비어 있다(모름). */
@@ -43,7 +45,7 @@ export interface MallManifestFacts {
 }
 
 export function mallCapabilities(
-  channel: Pick<MallChannelSummary, 'collectsOrders' | 'uploadsTracking'>,
+  channel: Pick<MallChannelSummary, 'mallKey' | 'collectsOrders' | 'uploadsTracking'>,
   context: {
     /** 상품등록 어댑터가 있는가(다른 몰 등록에 함께 실리는 경우 포함). */
     hasAdapter: boolean;
@@ -52,7 +54,10 @@ export function mallCapabilities(
   },
 ): MallCapabilities {
   const { manifest } = context;
-  const applicable = manifest ? manifest.applicable : true;
+  // '그 일이 없다' 는 채널 레지스트리가 답한다. 마켓 판매자 시스템(쿠팡 로켓)은 몰 등록
+  // 매니페스트를 갖지 않으므로, 매니페스트 유무로 판정하면 사입 채널의 빨강이 회색이 된다.
+  const entry = findChannel(channel.mallKey);
+  const applicable = entry ? channelRegistersListings(entry) : manifest?.applicable ?? true;
   // 확인된 몰인데 품절을 안 받는다고 하면 없는 일이다. 확인 전이면 모른다.
   const takesSoldOut = !manifest || manifest.unverified || manifest.supports?.soldOut !== false;
   // 발주를 받는 사입 채널(쿠팡 로켓 · 직배송)에는 고객 클레임 · 문의도, 우리가 고칠 상품

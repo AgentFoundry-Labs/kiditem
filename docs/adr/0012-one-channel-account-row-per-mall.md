@@ -27,11 +27,11 @@ was a seeding shortcut, not a model.
 
 ## Consequences
 
-The mall registry (`ORDER_COLLECTION_MALLS` in the Orders domain, with the
-seed's `ORDER_COLLECTION_MALL_ENV`) stays the source of channel keys and names.
-A mall row also keeps the mall key in `externalAccountId`, so the
-`[organizationId, channel, externalAccountId]` unique key admits one row per
-mall. A mall that belongs to an existing marketplace seller system uses that
+The channel registry (`MALL_CHANNELS` in `@kiditem/shared/channel-registry`,
+with the seed's `ORDER_COLLECTION_MALL_ENV_PREFIX`) stays the source of channel
+keys and names. A mall row also keeps the mall key in `externalAccountId`, so
+the `[organizationId, channel, externalAccountId]` unique key admits one row
+per mall. A mall that belongs to an existing marketplace seller system uses that
 row instead of its own: Coupang direct shipping (`coupang-direct`) signs in on
 the `rocket` row, where its orders and attempts already live, and saving that
 login leaves the row's name and status to the marketplace connection. Login
@@ -41,8 +41,8 @@ credentials stay in `config.orderCollection`; a mall's listing profile lives in
 rather than on the account row, because some outcomes — a registration fill
 among them — are recorded for a mall that has no row. A mall that shares
 another mall's account row records under that row's key (`coupang-direct` under
-`rocket`), a fold that lives in `@kiditem/shared` (`mallOperationOutcomeKey`)
-so writers and readers agree. Mall registration adds no product model: it
+`rocket`), a fold that lives in `@kiditem/shared` (`channelOutcomeKey`) so
+writers and readers agree. Mall registration adds no product model: it
 creates `ChannelListing` rows under the mall's account that point at
 `MasterProduct`, the only canonical product. The seed, the mall account
 service and the collection source repository switch from

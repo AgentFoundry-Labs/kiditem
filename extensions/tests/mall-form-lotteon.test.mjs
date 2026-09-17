@@ -106,14 +106,14 @@ test('판매자센터 주소 하나만 받는다 — 로그인·다른 화면·�
     'https://store.lotteon.com/cm/main/index_SO.wsp/extra',
     'https://www.lotteon.com/cm/main/index_SO.wsp',
   ]) {
-    await assert.rejects(() => api.register({ mall: 'lotteon', form: form({ url }) }), /상품등록 주소가 아닙니다/, url);
+    await assert.rejects(() => api.register({ mall: 'lotte-on', form: form({ url }) }), /상품등록 주소가 아닙니다/, url);
   }
   assert.equal(calls.length, 0, '거절한 주소로는 탭도 주입도 하지 않는다');
 });
 
 test('표준카테고리·상품명·판매가가 없거나 모양이 틀리면 채우러 가지 않는다', async () => {
   const { api } = harness();
-  const reject = (lotteon, pattern) => assert.rejects(() => api.register({ mall: 'lotteon', form: form({ lotteon }) }), pattern);
+  const reject = (lotteon, pattern) => assert.rejects(() => api.register({ mall: 'lotte-on', form: form({ lotteon }) }), pattern);
   await reject(lotteonForm({ category: '피젯토이' }), /표준카테고리/);
   await reject(lotteonForm({ category: 'B35012701' }), /표준카테고리/);
   await reject(lotteonForm({ productName: ' ' }), /판매자상품명/);
@@ -124,7 +124,7 @@ test('표준카테고리·상품명·판매가가 없거나 모양이 틀리면 
 test('⭐ 화면처럼 UTF-8 바이트(한글 3)로 상품명 150 을 넘기지 않고, 화면이 막는 모델명은 비운다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'lotteon',
+    mall: 'lotte-on',
     form: form({
       lotteon: lotteonForm({
         category: 'bc55031100',
@@ -150,7 +150,7 @@ test('⭐ 화면처럼 UTF-8 바이트(한글 3)로 상품명 150 을 넘기지 
 test('⭐ 전용 페이지 함수에 값 묶음·사진·상세 이미지(편집기 업로드용 파일)를 MAIN 월드로 넘긴다', async () => {
   const { api, calls } = harness();
   const result = await api.register({
-    mall: 'lotteon',
+    mall: 'lotte-on',
     form: form({ detailUploads: [{ url: 'http://localhost:9000/kiditem/detail-page-images/o/r/wing-server-jpeg-v1-780.jpg' }] }),
   });
   assert.equal(result.submitted, false);
@@ -170,7 +170,7 @@ test('⭐ 전용 페이지 함수에 값 묶음·사진·상세 이미지(편집
 
 test('이미 읽히는 상세 주소(디스크엔)는 편집기 업로드가 막힐 때 쓸 HTML 로도 넘긴다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'lotteon', form: form() });
+  await api.register({ mall: 'lotte-on', form: form() });
   const [payload] = calls[0].args;
   assert.match(payload.detailImage.dataUrl, /^data:image\/jpeg;base64,/);
   assert.equal(payload.detailHtml, '<center><img referrerpolicy="no-referrer" src="https://kiditem.diskn.com/S8brNL1Xs4"></center>');

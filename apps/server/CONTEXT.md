@@ -125,6 +125,14 @@ them — are recorded for a mall that has no row
 ([ADR-0012](../../docs/adr/0012-one-channel-account-row-per-mall.md)).
 _Avoid_: shop, store, seller account, mall account
 
+**Channel registry**:
+The one list of channels, malls and marketplaces together. It answers a
+channel's key, name, shared account row, and capabilities: whether its orders
+are collected and by whom, whether tracking can be sent, how listings are
+registered, and whether that has been verified. It does not answer how to sign
+in or how to fill a form — that is the extension's spec, keyed the same way.
+_Avoid_: mall registry, mall list
+
 **Source owner**:
 The single module that owns one external source's collection attempts,
 canonical facts, coverage manifests, current complete snapshot, and terminal

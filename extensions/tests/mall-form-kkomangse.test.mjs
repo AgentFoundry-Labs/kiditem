@@ -211,7 +211,7 @@ test('에디터는 textarea 의 부모 칸에서 찾는다 — 에디터가 둘�
 
 test('아이스크림몰 상세 이미지 폭 900 은 그대로다 — 옮기기만 했다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.icecream.detailSmartEditor.upload.imgWidth, 900);
+  assert.equal(SPECS['icecream-mall'].detailSmartEditor.upload.imgWidth, 900);
   assert.equal(SPECS.kkomangse.detailSmartEditor.upload.imgWidth, undefined);
 });
 

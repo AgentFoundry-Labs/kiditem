@@ -1,5 +1,5 @@
 /**
- * 주문 수집 몰 레지스트리와 몰마다의 채널 계정 행(ADR-0012).
+ * 몰마다의 채널 계정 행(ADR-0012).
  *
  * 몰·마켓 하나는 `ChannelAccount` 행 하나다. 몰 행은 `channel` 이 몰 키이고
  * `externalAccountId` 도 몰 키로 둔다 — 유니크 `[organizationId, channel, externalAccountId]`
@@ -7,8 +7,21 @@
  *
  * 이미 있는 마켓 판매자 시스템에 속한 몰은 새 행을 두지 않고 그 행을 쓴다. 쿠팡직배송은
  * supplier.coupang.com 의 `rocket` 행이다 — 직배송 주문과 수집 시도가 이미 그 행에 붙는다.
+ *
+ * 몰 목록 자체는 여기 없다. 채널 레지스트리(`@kiditem/shared/channel-registry`)의
+ * `MALL_CHANNELS` 하나뿐이고, 이 파일은 그 몰들이 **어느 계정 행에 붙는지**만 답한다.
  */
+import {
+  MALL_CHANNELS,
+  findMallChannel,
+  type MallChannelKey,
+  type MallChannelRow,
+} from '@kiditem/shared/channel-registry';
 
+export type OrderCollectionMall = MallChannelRow;
+export type OrderCollectionMallKey = MallChannelKey;
+
+/** 계정 행을 고르는 데 필요한 조각. 레지스트리 행 전체를 요구하지 않는다. */
 export interface OrderCollectionMallEntry {
   key: string;
   name: string;
@@ -16,42 +29,9 @@ export interface OrderCollectionMallEntry {
   sharedAccountChannel?: string;
 }
 
-export const ORDER_COLLECTION_MALLS = [
-  { key: 'one-polaris', name: '원폴라리스' },
-  { key: 'icecream-mall', name: '아이스크림몰' },
-  { key: 'kidkids', name: '키드키즈' },
-  { key: 'kidsnote', name: '키즈노트' },
-  { key: 'haebub-mall', name: '해법몰' },
-  { key: 'onch', name: '온채널' },
-  { key: 'kkomangse', name: '꼬망세' },
-  { key: 'art09', name: '아트공구' },
-  { key: 'tekville-edu', name: '테크빌교육' },
-  { key: 'benepia-mul', name: '베네피아물' },
-  { key: 'domeggook', name: '도매꾹' },
-  { key: 'lotte-on', name: '롯데ON' },
-  { key: 'boribori', name: '보리보리' },
-  { key: 'always', name: '올웨이즈' },
-  { key: 'woongjin-class', name: '웅진클래스몰' },
-  { key: 'kakao', name: '카카오' },
-  { key: 'toss', name: '토스' },
-  { key: 'teacher-mall', name: '티쳐몰' },
-  { key: 'gs-shop', name: 'GS샵' },
-  { key: 'coupang-direct', name: '쿠팡직배송', sharedAccountChannel: 'rocket' },
-  { key: 'gmarket', name: '지마켓' },
-  { key: 'auction', name: '옥션' },
-  { key: '11st', name: '11번가' },
-  { key: 'smartstore', name: '스마트스토어' },
-  { key: 'ssg', name: '신세계' },
-  { key: 'thirtymall', name: '떠리몰' },
-  { key: 'yoons', name: '윤선생' },
-] as const satisfies readonly OrderCollectionMallEntry[];
-
-export type OrderCollectionMall = (typeof ORDER_COLLECTION_MALLS)[number];
-export type OrderCollectionMallKey = OrderCollectionMall['key'];
-
-/** 레지스트리에 있는 몰. 모르는 키면 null. */
+/** 레지스트리에 있는 몰. 마켓 키와 모르는 키면 null. */
 export function findOrderCollectionMall(key: string): OrderCollectionMall | null {
-  return ORDER_COLLECTION_MALLS.find((mall) => mall.key === key) ?? null;
+  return findMallChannel(key);
 }
 
 /**
@@ -119,7 +99,7 @@ export function orderCollectionMallAccountChannels(): {
 } {
   const own: OrderCollectionMallKey[] = [];
   const shared = new Set<string>();
-  for (const mall of ORDER_COLLECTION_MALLS) {
+  for (const mall of MALL_CHANNELS) {
     const identity = orderCollectionMallAccountIdentity(mall);
     if (identity.kind === 'own') own.push(mall.key);
     else shared.add(identity.channel);
@@ -136,7 +116,7 @@ export function orderCollectionMallAccountChannels(): {
 export function orderCollectionMallKeyForAccount(account: {
   channel: string;
 }): OrderCollectionMallKey | null {
-  const mall = ORDER_COLLECTION_MALLS.find((entry) => {
+  const mall = MALL_CHANNELS.find((entry) => {
     const identity = orderCollectionMallAccountIdentity(entry);
     return identity.channel === account.channel;
   });

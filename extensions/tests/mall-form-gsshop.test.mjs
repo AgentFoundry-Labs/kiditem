@@ -104,14 +104,14 @@ test('등록 주소 하나만 받는다 — 수정·복사 화면에는 채우�
     'https://partners.gsshop.com/product/products/list',
     'https://gsshop.com/product/products/create',
   ]) {
-    await assert.rejects(() => api.register({ mall: 'gsshop', form: form({ url }) }), /상품등록 주소가 아닙니다/, url);
+    await assert.rejects(() => api.register({ mall: 'gs-shop', form: form({ url }) }), /상품등록 주소가 아닙니다/, url);
   }
   assert.equal(calls.length, 0, '거절한 주소로는 탭도 주입도 하지 않는다');
 });
 
 test('분류·전시·코드·상품명·판매가·브랜드가 없거나 모양이 틀리면 채우러 가지 않는다', async () => {
   const { api } = harness();
-  const reject = (gsshop, pattern) => assert.rejects(() => api.register({ mall: 'gsshop', form: form({ gsshop }) }), pattern);
+  const reject = (gsshop, pattern) => assert.rejects(() => api.register({ mall: 'gs-shop', form: form({ gsshop }) }), pattern);
   await reject(gsshopForm({ category: '완구' }), /상품분류/);
   await reject(gsshopForm({ sectionId: '' }), /전시 카테고리/);
   await reject(gsshopForm({ supplierProductCode: '한글코드' }), /협력사 상품코드/);
@@ -124,7 +124,7 @@ test('분류·전시·코드·상품명·판매가·브랜드가 없거나 모�
 test('⭐ 화면이 막는 글자를 빼고 바이트 상한(송장 30)을 넘기지 않는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'gsshop',
+    mall: 'gs-shop',
     form: form({ gsshop: gsshopForm({ exposureName: '별*모양 "키링" <신상>', invoiceName: "아주아주긴이름의:말랑말랑키링's (1p)" }) }),
   });
   const [{ form: values }] = calls[0].args;
@@ -135,7 +135,7 @@ test('⭐ 화면이 막는 글자를 빼고 바이트 상한(송장 30)을 넘�
 
 test('⭐ 전용 페이지 함수에 값 묶음·사진·기술서 사진을 MAIN 월드로 넘긴다', async () => {
   const { api, calls } = harness();
-  const result = await api.register({ mall: 'gsshop', form: form() });
+  const result = await api.register({ mall: 'gs-shop', form: form() });
   assert.equal(result.submitted, false);
   const [options] = calls;
   assert.equal(options.func.name, 'fillGsshopProductForm');

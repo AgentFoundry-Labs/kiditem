@@ -12,6 +12,7 @@ import vm from 'node:vm';
 // 도메인 워커 디렉터리(background/<domain>/) 기준 상대 경로.
 const SHARED_MODULES = [
   '../domain-registry.js',
+  '../../shared/channel-registry.js',
   '../environment-context.js',
   '../collection-session.js',
   '../interactive-tabs.js',

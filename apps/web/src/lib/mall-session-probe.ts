@@ -1,7 +1,7 @@
 'use client';
 
+import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import {
-  mallOperationOutcomeKey,
   type MallOperationOutcomeSummaryRow,
 } from '@kiditem/shared/mall-operation-outcomes';
 import { detectOrderCollectionExtensionRuntime, sendToExtension } from './extension-bridge';
@@ -104,7 +104,7 @@ export function shouldRememberLogin(
   remembered: readonly MallOperationOutcomeSummaryRow[],
   recordedHere?: RecordedLoginCheck,
 ): boolean {
-  const outcomeKey = mallOperationOutcomeKey(record.mallKey);
+  const outcomeKey = channelOutcomeKey(record.mallKey);
   const latest = remembered.find(
     (row) => row.mallKey === outcomeKey && row.operation === 'login_check',
   )?.latest;
@@ -177,7 +177,7 @@ export async function sweepMallSessions(
       }
       const record = loginCheckRecord(result);
       if (record) {
-        const outcomeKey = mallOperationOutcomeKey(record.mallKey);
+        const outcomeKey = channelOutcomeKey(record.mallKey);
         if (!recordedThisRound.has(outcomeKey) && shouldRememberLogin(record, result.checkedAt, remembered)) {
           recordedThisRound.add(outcomeKey);
           await recordMallOperationOutcome(record);

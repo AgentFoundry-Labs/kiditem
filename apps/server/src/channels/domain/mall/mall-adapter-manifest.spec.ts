@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MALL_CHANNELS, findChannel } from '@kiditem/shared/channel-registry';
 import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
@@ -9,18 +10,23 @@ import {
 } from './mall-adapter-manifest';
 
 describe('MALL_ADAPTER_MANIFESTS', () => {
-  it('declares every order-collection mall plus both Coupang channel identities', () => {
-    // 주문수집 27개 몰 + 마켓플레이스 쿠팡 + 사입 로켓.
-    expect(MALL_ADAPTER_MANIFESTS).toHaveLength(29);
-    expect(getMallAdapterManifest('coupang')?.applicable).toBe(true);
+  it('⭐ 몰 27개만 담고 레지스트리 순서를 그대로 쓴다', () => {
+    expect(MALL_ADAPTER_MANIFESTS.map((entry) => entry.key)).toEqual(
+      MALL_CHANNELS.map((entry) => entry.key),
+    );
+    expect(MALL_ADAPTER_MANIFESTS).toHaveLength(27);
     expect(getMallAdapterManifest('coupang-direct')?.applicable).toBe(false);
   });
 
-  it('covers the channel keys that actually own listings today', () => {
-    // ChannelAccount.channel 이 'coupang' / 'rocket' 이라 품절 화면이 이 두 키로
-    // 매니페스트를 찾는다. 빠지면 "매니페스트가 없습니다"로만 보인다.
+  /**
+   * 쿠팡 마켓플레이스와 쿠팡 로켓은 마켓 판매자 시스템이라 몰 등록 마법사에 서지 않는다
+   * (KID-250). 정체 · 이름 · 능력은 채널 레지스트리가 계속 답하므로, 그 채널의 리스팅과
+   * 품절 후보는 매니페스트 없이도 제 이름으로 보인다.
+   */
+  it('⭐ 마켓 판매자 시스템은 몰 매니페스트에 없고 레지스트리가 답한다', () => {
     for (const key of ['coupang', 'rocket']) {
-      expect(getMallAdapterManifest(key)).not.toBeNull();
+      expect(getMallAdapterManifest(key)).toBeNull();
+      expect(findChannel(key)?.kind).toBe('marketplace');
     }
   });
 
@@ -114,7 +120,7 @@ describe('requiresManualResume', () => {
 
 /**
  * 쇼핑몰 현황의 주문수집 칸. 사장님 확인(2026-09-17): 아트공구는 우리 수집기로, 쿠팡 로켓은
- * 발주 수집으로 들어오고, 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어 · 쿠팡(마켓플레이스)은
+ * 발주 수집으로 들어오고, 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어 · 쿠팡 WING은
  * 셀피아가 가져온다.
  */
 describe('mallInboundSupports', () => {

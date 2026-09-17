@@ -14,11 +14,17 @@ IO. Wing/browser evidence and approved internal sources remain supported.
 holds only `login_check`, `login_test`, and `registration_fill`; order
 collection, Sellpia transfer, and tracking upload results are Orders facts and
 never land here. Organization and actor come from the session, the body is a
-strict shared contract, the mall key must be in the adapter manifest, rows hold
+strict shared contract, the mall key must be in the channel registry, rows hold
 counts and reason codes only, and reads go through
 `read/mall-operation-outcome.reader.ts`. Rows key on the mall's own channel key,
 with `coupang-direct` folded into the `rocket` row it shares; writers and readers
-both fold through `mallOperationOutcomeKey` from `@kiditem/shared`.
+both fold through `channelOutcomeKey`.
+
+The channel list lives only in the channel registry
+(`@kiditem/shared/channel-registry`); the adapter manifest, this domain's
+capability reads, and every consumer read it instead of repeating it. The
+manifest covers malls only — marketplace seller systems (`coupang`, `rocket`)
+have no mall registration path, and their listings stay visible read-only.
 
 Mall publishing reads one account row per mall (`channel` = mall key,
 ADR-0012) and never creates or edits account rows; the Orders mall account

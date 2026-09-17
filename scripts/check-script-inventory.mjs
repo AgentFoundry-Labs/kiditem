@@ -32,6 +32,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-tenant-scope.sh',
   'dev-data-coupang.ts',
   'dev-data.ts',
+  'generate-channel-registry.mjs',
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
   'office-deploy.mjs',
