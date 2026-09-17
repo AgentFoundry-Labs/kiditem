@@ -196,10 +196,24 @@ describe("handleWebhook", () => {
   });
 
   it.each([
+    ["an id that is not a UUID", { webhookId: "-".repeat(36) }],
+    ["a body too large to parse unverified", { webhookId: "53188995-5f3b-44a9-993b-9bb0d37136a5", padding: "x".repeat(70_000) }],
+  ])("leaves the sending webhook out of the mismatch log for %s", async (_name, overrides) => {
+    const { ctx } = context();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const response = await handleWebhook(delivery(attachmentEvent(overrides), { secret: "other" }), env, ctx);
+
+    expect(response.status).toBe(401);
+    expect(logged(warn)).toHaveLength(1);
+    expect(logged(warn)[0]).not.toHaveProperty("sendingWebhookId");
+  });
+
+  it.each([
     ["surrounding whitespace", `  ${SECRET}\n`],
-    ["bracketed-paste markers", `[200~${SECRET}[201~`],
+    ["bracketed-paste markers", `\u001b[200~${SECRET}\u001b[201~`],
     ["quotes", `"${SECRET}"`],
-    ["a zero-width character", `​${SECRET}`],
+    ["a zero-width character", `\u200b${SECRET}`],
   ])("accepts a stored secret with %s", async (_name, stored) => {
     const { ctx, jobs } = context();
 

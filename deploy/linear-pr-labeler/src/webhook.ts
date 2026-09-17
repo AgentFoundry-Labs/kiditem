@@ -147,11 +147,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Linear's payloads are a few kilobytes; larger unsigned bodies are not parsed for logs. */
+const UNVERIFIED_PARSE_LIMIT_BYTES = 64_000;
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
 /** The body's `webhookId` when it is a UUID; the body is not verified, so nothing else is read. */
 function unverifiedWebhookId(raw: ArrayBuffer): string | undefined {
+  if (raw.byteLength > UNVERIFIED_PARSE_LIMIT_BYTES) return undefined;
   try {
     const id = (JSON.parse(new TextDecoder().decode(raw)) as { webhookId?: unknown }).webhookId;
-    return typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
+    return typeof id === "string" && UUID.test(id) ? id : undefined;
   } catch {
     return undefined;
   }

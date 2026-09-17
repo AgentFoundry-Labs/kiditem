@@ -6,10 +6,10 @@ describe("cleanSecret", () => {
   it.each([
     ["lin_wh_abc", "lin_wh_abc"],
     ["  lin_wh_abc\r\n", "lin_wh_abc"],
-    ["[200~lin_wh_abc[201~", "lin_wh_abc"],
+    ["\u001b[200~lin_wh_abc\u001b[201~", "lin_wh_abc"],
     ['"lin_wh_abc"', "lin_wh_abc"],
     ["'lin_wh_abc'\n", "lin_wh_abc"],
-    ["﻿​lin_wh_abc⁠", "lin_wh_abc"],
+    ["\ufeff\u200blin_wh_abc\u2060", "lin_wh_abc"],
     ["github_pat_11AB_cd", "github_pat_11AB_cd"],
   ])("turns %j into %j", (input, expected) => {
     expect(cleanSecret(input)).toBe(expected);
@@ -32,19 +32,17 @@ describe("webhookSecretShape", () => {
       cleaned: false,
       fingerprint: fingerprint("lin_wh_abcdef"),
     });
-    await expect(webhookSecretShape("[200~lin_wh_abcdef[201~")).resolves.toEqual({
+    await expect(webhookSecretShape("\u001b[200~lin_wh_abcdef\u001b[201~")).resolves.toEqual({
       length: 13,
       linearPrefix: true,
       cleaned: true,
       fingerprint: fingerprint("lin_wh_abcdef"),
     });
-    await expect(webhookSecretShape("lin_api_abc")).resolves.toMatchObject({ length: 11, linearPrefix: false });
-    await expect(webhookSecretShape(undefined)).resolves.toEqual({
-      length: 0,
-      linearPrefix: false,
-      cleaned: false,
-      fingerprint: fingerprint(""),
-    });
+  });
+
+  it("gives no fingerprint for values that are not Linear webhook secrets", async () => {
+    await expect(webhookSecretShape("hunter2")).resolves.toEqual({ length: 7, linearPrefix: false, cleaned: false });
+    await expect(webhookSecretShape(undefined)).resolves.toEqual({ length: 0, linearPrefix: false, cleaned: false });
   });
 
   it("matches the fingerprint an operator computes with shasum", async () => {
