@@ -66,11 +66,17 @@ export const CUTOVER_CLOSED_APPROVAL_MESSAGE =
  *
  * It runs in the pre-schema phase after v0.1.31:011, which has carried the
  * stored execution words into the latest tasks and given every approved
- * action a task, so a task that still reads queued never ran. Like 011 it acts
- * only while ad_actions keeps its five stored execution columns, that is on
- * the old schema before `db push` drops them. A database past the schema step,
- * or created from the current schema, records a no-op, so an approval made
- * after the cutover is never closed.
+ * action a task, so a task that still reads queued never ran. That holds only
+ * while nothing writes ad actions between the two. The 0.1.30 app's
+ * markRunning, markDone and markFailed write only the stored columns, so an
+ * outcome it recorded after 011 would never reach the task, and 015 would
+ * close an action that ran. The cutover runs both in one `data:migrate -- up`
+ * with every writer stopped.
+ *
+ * Like 011 it acts only while ad_actions keeps its five stored execution
+ * columns, that is on the old schema before `db push` drops them. A database
+ * past the schema step, or created from the current schema, records a no-op,
+ * so an approval made after the cutover is never closed.
  *
  * It is a new migration rather than an edit to 011 because local and QA
  * databases already ran 011, and an edited 011 reports source drift there.
