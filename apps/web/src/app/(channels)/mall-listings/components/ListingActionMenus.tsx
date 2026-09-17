@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   ArrowUpFromLine,
@@ -42,6 +43,18 @@ function anchoredStyle(rect: DOMRect, width: number): React.CSSProperties {
   return openUpward
     ? { position: 'fixed', left, bottom: viewportHeight - rect.top + 4, width }
     : { position: 'fixed', left, top: rect.bottom + 4, width };
+}
+
+/**
+ * 메뉴를 페이지 맨 위층에 띄운다.
+ *
+ * 화면 좌표(`fixed`)로 띄워도 그리는 자리가 왼쪽 고정 칸(`sticky` + `z-10`) 안이면 그 칸이
+ * 만든 층에 갇힌다. 그러면 아래 줄의 고정 칸이 메뉴 위를 덮어 첫 줄만 보이고 나머지가
+ * 사라진다(라이브 2026-09-18). body 에 그리면 `z-40` 이 페이지 전체에서 통한다.
+ */
+function FloatingLayer({ children }: { children: ReactNode }) {
+  if (typeof document === 'undefined') return null;
+  return createPortal(children, document.body);
 }
 
 /**
@@ -168,75 +181,77 @@ export function CellActionPopover({
   const presentation = MALL_LISTING_STATE_PRESENTATION[state];
 
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={`${column.mallName} 작업`}
-      style={cellStyle}
-      className="z-40 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-lg"
-    >
-      <div className="border-b border-slate-100 pb-2">
-        <div className="text-xs font-semibold text-slate-900">{column.mallName}</div>
-        <div className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{productName}</div>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <span
-            className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-medium', presentation.tone)}
-          >
-            {presentation.label}
-          </span>
-          {rawStatus ? (
-            <span className="text-[10px] text-slate-400">몰 상태 {rawStatus}</span>
-          ) : null}
-        </div>
-      </div>
-
-      <ul className="mt-2 space-y-0.5">
-        {specs.map((spec) => (
-          <li key={spec.key}>
-            <button
-              type="button"
-              disabled
-              title={spec.reason ?? NOT_WIRED}
-              className={cn(
-                'flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
-                spec.available
-                  ? 'bg-slate-50 text-slate-700'
-                  : 'text-slate-400 line-through decoration-slate-300',
-                spec.danger && spec.available && 'bg-red-50 text-red-700',
-              )}
+    <FloatingLayer>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-label={`${column.mallName} 작업`}
+        style={cellStyle}
+        className="z-40 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-lg"
+      >
+        <div className="border-b border-slate-100 pb-2">
+          <div className="text-xs font-semibold text-slate-900">{column.mallName}</div>
+          <div className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{productName}</div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span
+              className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-medium', presentation.tone)}
             >
-              <spec.icon size={12} className="flex-none" />
-              <span className="flex-1 truncate no-underline">{spec.label}</span>
-              {spec.available ? (
-                <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
-                  미연결
-                </span>
-              ) : (
-                <span className="flex-none text-[9px] text-slate-400">불가</span>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {column.actions.soldOutDeletesListing ? (
-        <p className="mt-2 flex items-start gap-1 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-relaxed text-red-700">
-          <ShieldAlert size={11} className="mt-0.5 flex-none" />
-          이 몰은 완전품절이 리스팅 삭제입니다. 되돌릴 수 없습니다.
-        </p>
-      ) : null}
-      {column.actions.requiresOperatorApproval ? (
-        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-800">
-          등록이 아니라 승인 신청입니다. 사람이 몰 화면에서 제출해야 합니다.
-        </p>
-      ) : null}
-
-      {externalId ? (
-        <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] text-slate-400">
-          몰 상품번호 {externalId}
+              {presentation.label}
+            </span>
+            {rawStatus ? (
+              <span className="text-[10px] text-slate-400">몰 상태 {rawStatus}</span>
+            ) : null}
+          </div>
         </div>
-      ) : null}
-    </div>
+
+        <ul className="mt-2 space-y-0.5">
+          {specs.map((spec) => (
+            <li key={spec.key}>
+              <button
+                type="button"
+                disabled
+                title={spec.reason ?? NOT_WIRED}
+                className={cn(
+                  'flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
+                  spec.available
+                    ? 'bg-slate-50 text-slate-700'
+                    : 'text-slate-400 line-through decoration-slate-300',
+                  spec.danger && spec.available && 'bg-red-50 text-red-700',
+                )}
+              >
+                <spec.icon size={12} className="flex-none" />
+                <span className="flex-1 truncate no-underline">{spec.label}</span>
+                {spec.available ? (
+                  <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
+                    미연결
+                  </span>
+                ) : (
+                  <span className="flex-none text-[9px] text-slate-400">불가</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {column.actions.soldOutDeletesListing ? (
+          <p className="mt-2 flex items-start gap-1 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-relaxed text-red-700">
+            <ShieldAlert size={11} className="mt-0.5 flex-none" />
+            이 몰은 완전품절이 리스팅 삭제입니다. 되돌릴 수 없습니다.
+          </p>
+        ) : null}
+        {column.actions.requiresOperatorApproval ? (
+          <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-800">
+            등록이 아니라 승인 신청입니다. 사람이 몰 화면에서 제출해야 합니다.
+          </p>
+        ) : null}
+
+        {externalId ? (
+          <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] text-slate-400">
+            몰 상품번호 {externalId}
+          </div>
+        ) : null}
+      </div>
+    </FloatingLayer>
   );
 }
 
@@ -305,41 +320,43 @@ export function RowActionMenu({
   ];
 
   return (
-    <div
-      ref={ref}
-      role="menu"
-      style={menuStyle}
-      className="z-40 space-y-0.5 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-lg"
-    >
-      <Link
-        href={`/product-hub/${masterProductId}`}
-        role="menuitem"
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+    <FloatingLayer>
+      <div
+        ref={ref}
+        role="menu"
+        style={menuStyle}
+        className="z-40 space-y-0.5 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-lg"
       >
-        <ExternalLink size={12} />
-        상품 상세
-      </Link>
-      <div className="my-1 border-t border-slate-100" />
-      {bulk.map((entry) => (
-        <button
-          key={entry.key}
-          // 비활성이지만 읽혀야 한다. 무엇이 곧 가능해지는지가 이 메뉴의 내용이다.
-          type="button"
+        <Link
+          href={`/product-hub/${masterProductId}`}
           role="menuitem"
-          disabled
-          title={NOT_WIRED}
-          className="flex w-full cursor-not-allowed items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-left text-xs text-slate-600"
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
         >
-          <entry.icon size={12} className="flex-none text-slate-400" />
-          <span className="flex-1 truncate">{entry.label}</span>
-          <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
-            {entry.malls}개 몰
-          </span>
-        </button>
-      ))}
-      <p className="mt-1.5 border-t border-slate-100 px-2 pt-1.5 text-[10px] leading-relaxed text-slate-500">
-        아직 화면만 있습니다. 실행은 몰마다 어댑터가 붙어야 열립니다.
-      </p>
-    </div>
+          <ExternalLink size={12} />
+          상품 상세
+        </Link>
+        <div className="my-1 border-t border-slate-100" />
+        {bulk.map((entry) => (
+          <button
+            key={entry.key}
+            // 비활성이지만 읽혀야 한다. 무엇이 곧 가능해지는지가 이 메뉴의 내용이다.
+            type="button"
+            role="menuitem"
+            disabled
+            title={NOT_WIRED}
+            className="flex w-full cursor-not-allowed items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-left text-xs text-slate-600"
+          >
+            <entry.icon size={12} className="flex-none text-slate-400" />
+            <span className="flex-1 truncate">{entry.label}</span>
+            <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
+              {entry.malls}개 몰
+            </span>
+          </button>
+        ))}
+        <p className="mt-1.5 border-t border-slate-100 px-2 pt-1.5 text-[10px] leading-relaxed text-slate-500">
+          아직 화면만 있습니다. 실행은 몰마다 어댑터가 붙어야 열립니다.
+        </p>
+      </div>
+    </FloatingLayer>
   );
 }
