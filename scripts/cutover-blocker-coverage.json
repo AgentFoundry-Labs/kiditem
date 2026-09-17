@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "kiditem.cutover-blocker-coverage.v1",
+  "entries": [
+    {
+      "train": "0.1.31",
+      "table": "master_product_abc_evaluations",
+      "coveredBy": "v0.1.31:001_reset_absolute_product_abc",
+      "note": "001 deletes every evaluation before db push; the absolute formula computes them again."
+    },
+    {
+      "train": "0.1.31",
+      "table": "master_product_abc_grade_histories",
+      "coveredBy": "v0.1.31:001_reset_absolute_product_abc",
+      "note": "001 deletes every grade history before db push."
+    },
+    {
+      "train": "0.1.31",
+      "table": "naver_keyword_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "naver_popular_keyword_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "shorts_trend_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "live_commerce_broadcast_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "live_commerce_product_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "tiktok_creative_trend_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "alerts",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes every alert written before dedupe_key, after 005 and 008 have run."
+    },
+    {
+      "train": "0.1.31",
+      "table": "sourcing_evidence_ingestion_runs",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes every run written before is_current_complete, with the rows that depend on it."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "unique:source_import_runs_ad_keyword_running_key",
+        "unique:source_import_runs_ad_campaign_running_key",
+        "unique:source_import_runs_ads_daily_running_key",
+        "unique:source_import_runs_wing_itemwinner_running_key",
+        "unique:source_import_runs_sellpia_profitability_running_key",
+        "unique:source_import_runs_sellpia_sales_running_key",
+        "unique:source_import_runs_coupang_ad_profitability_running_key",
+        "unique:source_import_runs_shipment_summary_running_key",
+        "unique:source_import_runs_coupang_reviews_running_key",
+        "unique:source_import_runs_rocket_po_running_key"
+      ],
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 keeps the newest running run per key; an older one goes with its dependent rows, or is marked failed when an ADR-0010 kept row references it."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "unique:source_import_runs_ad_keyword_generation_key",
+        "unique:source_import_runs_ad_campaign_generation_key",
+        "unique:source_import_runs_ads_daily_generation_key",
+        "unique:source_import_runs_wing_itemwinner_generation_key",
+        "unique:source_import_runs_rocket_po_generation_key",
+        "unique:source_import_runs_shipment_summary_generation_key"
+      ],
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 keeps the newest run per shared freshness_generation; an older one goes with its dependent rows."
+    }
+  ]
+}

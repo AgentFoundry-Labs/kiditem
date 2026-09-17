@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   addedColumns,
   alterTableStatements,
+  createdTables,
   splitTopLevel,
   sqlStatements,
   tableConstraint,
@@ -25,6 +26,18 @@ CREATE UNIQUE INDEX "b_key" ON "b"("c") WHERE (label = 'p;q');
       `ALTER TABLE "a" ADD COLUMN "note" TEXT DEFAULT 'x;y'`,
       `CREATE UNIQUE INDEX "b_key" ON "b"("c") WHERE (label = 'p;q')`,
     ],
+  );
+});
+
+test('skips block comments, nested ones included, like the warnings block Prisma writes into migrations', () => {
+  assert.deepEqual(
+    sqlStatements(`/*
+  Warnings:
+  - Added the required column \`slug\` to the \`A\` table; it can't be empty /* nested; */ still a comment.
+*/
+-- AlterTable
+ALTER TABLE "A" ADD COLUMN "slug" TEXT NOT NULL;`),
+    ['ALTER TABLE "A" ADD COLUMN "slug" TEXT NOT NULL'],
   );
 });
 
@@ -135,6 +148,13 @@ test('reads an unnamed constraint and keeps a CHECK expression whole', () => {
     columns: ['a', 'b'],
     definition: '',
   });
+  assert.deepEqual(tableConstraint('CONSTRAINT "strict_key" UNIQUE NULLS NOT DISTINCT ("a")'), {
+    name: 'strict_key',
+    type: 'unique',
+    columns: ['a'],
+    definition: '',
+    nullsNotDistinct: true,
+  });
   assert.deepEqual(tableConstraint(`CONSTRAINT "status_check" CHECK (status IN ('a', 'b'))`), {
     name: 'status_check',
     type: 'check',
@@ -154,6 +174,41 @@ CREATE INDEX "c_idx" ON "c"("x");
     [
       { name: 'a_key', table: 'a', columns: ['x', 'y'], where: `WHERE (kind = 'a,b')` },
       { name: 'b_key', table: 'b', columns: ['lower("name")', 'org'], where: 'NULLS NOT DISTINCT' },
+    ],
+  );
+});
+
+test('reads created tables with their columns and key constraints, inline ones included', () => {
+  assert.deepEqual(
+    createdTables(`
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
+-- CreateTable
+CREATE TABLE "public"."reviews" (
+    "id" UUID NOT NULL,
+    "score" DECIMAL(12,6) NOT NULL DEFAULT 0,
+    "code" TEXT NOT NULL UNIQUE,
+
+    CONSTRAINT "reviews_pkey" PRIMARY KEY ("id", "score")
+);
+
+CREATE TABLE IF NOT EXISTS "tags" ("name" TEXT PRIMARY KEY, "label" TEXT);
+`),
+    [
+      {
+        table: 'reviews',
+        columns: ['id', 'score', 'code'],
+        constraints: [
+          { name: null, type: 'unique', columns: ['code'], definition: '' },
+          { name: 'reviews_pkey', type: 'primary-key', columns: ['id', 'score'], definition: '' },
+        ],
+      },
+      {
+        table: 'tags',
+        columns: ['name', 'label'],
+        constraints: [{ name: null, type: 'primary-key', columns: ['name'], definition: '' }],
+      },
     ],
   );
 });

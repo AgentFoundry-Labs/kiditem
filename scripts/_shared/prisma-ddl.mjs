@@ -4,9 +4,8 @@
  * Every reader of that script decides what it would do to rows that already
  * exist, so they all split it here. A comma or semicolon separates clauses or
  * statements only outside parentheses, brackets, quoted identifiers, string
- * literals, and `--` comments: Prisma writes `"score" DECIMAL(12,6) NOT NULL`
- * as one clause, and a reader that splits it at the comma sees a nullable
- * column.
+ * literals, and comments: Prisma writes `"score" DECIMAL(12,6) NOT NULL` as
+ * one clause, and a reader that splits it at the comma sees a nullable column.
  */
 
 const IDENTIFIER = String.raw`"(?:[^"]|"")+"`;
@@ -34,6 +33,11 @@ const CONSTRAINT_HEAD = new RegExp(
   'i',
 );
 const REFERENCES = new RegExp(String.raw`^\s*REFERENCES\s+${TABLE}\s*`, 'i');
+const CREATE_TABLE = new RegExp(
+  String.raw`^CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?${TABLE}\s*(?=\()`,
+  'i',
+);
+const COLUMN_ELEMENT = new RegExp(String.raw`^(${IDENTIFIER})\s+([\s\S]*)$`);
 const COLUMN_LIST_ENTRY = new RegExp(
   String.raw`^(${IDENTIFIER})(?:\s+(?:[A-Za-z_]\w*|${IDENTIFIER}))*$`,
 );
@@ -42,11 +46,30 @@ function unquote(identifier) {
   return identifier.slice(1, -1).replaceAll('""', '"');
 }
 
+/** The index just past the block comment that opens at `start`. PostgreSQL nests them. */
+function blockCommentEnd(text, start) {
+  let nesting = 0;
+  let index = start;
+  while (index < text.length) {
+    if (text.startsWith('/*', index)) {
+      nesting += 1;
+      index += 2;
+    } else if (text.startsWith('*/', index)) {
+      nesting -= 1;
+      index += 2;
+      if (nesting === 0) return index;
+    } else {
+      index += 1;
+    }
+  }
+  return text.length;
+}
+
 /**
  * Walks `text`, reporting each character outside string literals and quoted
  * identifiers with the parenthesis/bracket depth it sits at (a bracket itself
  * counts as outside), and each character inside quotes, quote marks included.
- * A `--` comment is skipped up to its line end.
+ * Comments are skipped: `--` up to the line end, and block comments whole.
  */
 function scan(text, { onCode, onQuoted = () => {} }) {
   let depth = 0;
@@ -67,6 +90,10 @@ function scan(text, { onCode, onQuoted = () => {} }) {
     if (char === '-' && text[index + 1] === '-') {
       const lineEnd = text.indexOf('\n', index);
       index = (lineEnd === -1 ? text.length : lineEnd) - 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '*') {
+      index = blockCommentEnd(text, index) - 1;
       continue;
     }
     if (char === "'" || char === '"') {
@@ -183,7 +210,8 @@ export function uniqueIndexes(sql) {
  * A table constraint, alone or after `ADD`: its name (null when unnamed), its
  * type, its columns (empty for CHECK and EXCLUDE), and for a foreign key the
  * table and columns it references. `definition` keeps the text after the
- * column list, where options such as `MATCH FULL` and `ON DELETE` sit.
+ * column list, where options such as `MATCH FULL` and `ON DELETE` sit. A
+ * `UNIQUE NULLS NOT DISTINCT` constraint carries `nullsNotDistinct: true`.
  */
 export function tableConstraint(text) {
   const head = text.match(CONSTRAINT_HEAD);
@@ -202,7 +230,16 @@ export function tableConstraint(text) {
     definition: text.slice(head[0].length).trim(),
   };
   if (constraint.type === 'check' || constraint.type === 'exclude') return constraint;
-  const group = parenthesized(text, head[0].length);
+  let open = head[0].length;
+  if (constraint.type === 'unique') {
+    // `UNIQUE NULLS NOT DISTINCT (...)` compares NULLs as equal.
+    const nulls = text.slice(open).match(/^NULLS\s+(NOT\s+)?DISTINCT\s*/i);
+    if (nulls) {
+      open += nulls[0].length;
+      if (nulls[1]) constraint.nullsNotDistinct = true;
+    }
+  }
+  const group = parenthesized(text, open);
   if (!group) return constraint;
   constraint.columns = columnList(group.inner);
   constraint.definition = group.rest.trim();
@@ -300,6 +337,42 @@ export function alterTableStatements(sql) {
       table: unquote(head[1]),
       clauses: splitTopLevel(statement.slice(head[0].length), ',').map(alterTableClause),
     });
+  }
+  return found;
+}
+
+/**
+ * Every `CREATE TABLE` statement: the table, its column names, and its table
+ * constraints (a column's inline `PRIMARY KEY` or `UNIQUE` included), as
+ * `tableConstraint` reads them.
+ */
+export function createdTables(sql) {
+  const found = [];
+  for (const statement of sqlStatements(sql)) {
+    const head = statement.match(CREATE_TABLE);
+    if (!head) continue;
+    const group = parenthesized(statement, head[0].length);
+    if (!group) continue;
+    const columns = [];
+    const constraints = [];
+    for (const element of splitTopLevel(group.inner, ',')) {
+      const constraint = tableConstraint(element);
+      if (constraint) {
+        constraints.push(constraint);
+        continue;
+      }
+      const column = element.match(COLUMN_ELEMENT);
+      if (!column) continue;
+      const name = unquote(column[1]);
+      columns.push(name);
+      const words = topLevelOnly(column[2]);
+      if (/\bPRIMARY\s+KEY\b/i.test(words)) {
+        constraints.push({ name: null, type: 'primary-key', columns: [name], definition: '' });
+      } else if (/\bUNIQUE\b/i.test(words)) {
+        constraints.push({ name: null, type: 'unique', columns: [name], definition: '' });
+      }
+    }
+    found.push({ table: unquote(head[1]), columns, constraints });
   }
   return found;
 }

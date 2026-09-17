@@ -88,6 +88,13 @@ generic guidance.
   through the deployment cutover, which may discard data that no longer fits
   ([data-loss policy](../docs/runbooks/deployment-architecture.md#data-loss-policy)).
   Keep them out of routine post-pull setup.
+- A schema change that existing rows can stop (a required column without a
+  database default, SET NOT NULL, a type change, or a unique, primary, or
+  foreign key on an existing table) needs an entry in
+  `scripts/cutover-blocker-coverage.json`: the pre-schema migration that
+  removes or fixes those rows, or why no row can stop it. PR checks run
+  `npm run check:cutover-blocker-coverage`, which diffs the schema against
+  `origin/release/office` offline.
 
 ## Verification
 
@@ -96,8 +103,9 @@ After Prisma model or schema-consumer changes:
 ```bash
 npx prisma format
 npx prisma validate
-npm run db:push             # confirmed disposable/local target only
+npm run db:sync:local       # local developer database only; see docs/runbooks/local-development.md
 npx prisma generate
 npm run build --workspace=packages/shared
 npm run db:erd
+npm run check:cutover-blocker-coverage   # needs origin/release/office fetched
 ```

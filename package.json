@@ -39,6 +39,7 @@
     "check:pr-reconstruction": "node scripts/check-pr-reconstruction-contract.mjs",
     "check:pr-release-contract": "node scripts/check-pr-release-contract.mjs",
     "check:cutover-data-blockers": "node scripts/check-cutover-data-blockers.mjs",
+    "check:cutover-blocker-coverage": "node scripts/check-cutover-blocker-coverage.mjs",
     "check:scripts-inventory": "node scripts/check-script-inventory.mjs",
     "deploy:office:local": "node scripts/office-deploy.mjs deploy",
     "deploy:office:status": "node scripts/office-deploy.mjs status",

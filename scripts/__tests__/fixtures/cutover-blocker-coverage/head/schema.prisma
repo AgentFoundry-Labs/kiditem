@@ -1,0 +1,41 @@
+// The candidate schema for the cutover blocker coverage golden test. Against
+// ../base it adds one change of each kind the check reports or clears.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model A {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+  // Required without a database default: not-null:A.slug.
+  slug String
+  bs   B[]
+
+  // A_name_key already holds name unique, so this key is cleared.
+  @@unique([name, slug])
+}
+
+model B {
+  id    String  @id @default(uuid()) @db.Uuid
+  // Existing rows may share a code: unique:B_code_key.
+  code  String  @unique
+  // set-not-null:B.label
+  label String
+  // type-change:B.size
+  size  BigInt
+  note  String?
+  // A new nullable column, so its foreign key is cleared.
+  aId   String? @db.Uuid
+  a     A?      @relation(fields: [aId], references: [id], onDelete: SetNull)
+}
+
+// A new table starts empty, so nothing on it is reported.
+model C {
+  id    String @id @default(uuid()) @db.Uuid
+  value String @unique
+}
