@@ -50,6 +50,11 @@ const LISTING_STATUS_MAP: Record<string, MallListingState> = {
   '활성': 'published',
   active: 'published',
   approved: 'published',
+  // Wing 상품 목록 API 가 주는 값. 쿠팡 적재 파일은 같은 뜻을 `승인완료` 라고 적어, 같은 몰이
+  // 원천에 따라 다른 글자를 준다(라이브 2026-09-17: 목록 수집 뒤 1,228건이 통째로 바뀜).
+  on_sale: 'published',
+  // 옵션 일부만 판매중이어도 그 상품은 팔리고 있다.
+  partial_on_sale: 'published',
   '승인반려': 'error',
   rejected: 'error',
   '비활성': 'paused',
@@ -193,6 +198,10 @@ export function needsAttention(state: MallListingState): boolean {
  * 세는 쪽(판매중 기준 매칭률)이 이 목록을 다시 적지 않게 접는 표에서 뽑는다. 상태 하나를
  * 더 접으면 세는 곳도 같이 따라온다.
  */
-export const PUBLISHED_LISTING_STATUSES: readonly string[] = Object.entries(LISTING_STATUS_MAP)
-  .filter(([, state]) => state === 'published')
-  .map(([status]) => status);
+export const PUBLISHED_LISTING_STATUSES: readonly string[] = [
+  ...new Set(Object.entries(LISTING_STATUS_MAP)
+    .filter(([, state]) => state === 'published')
+    // 접는 표는 소문자로 비교하지만 저장된 값은 원문 그대로다(`ON_SALE`). 세는 쪽은 글자를
+    // 그대로 맞춰야 하므로 대문자도 함께 둔다.
+    .flatMap(([status]) => [status, status.toUpperCase()])),
+];
