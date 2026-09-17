@@ -30,7 +30,7 @@ function loadModule() {
  */
 test('대표이미지는 파일로 올린다 — 주소로 넣으면 몰이 못 읽는다', () => {
   const { SPECS } = loadModule();
-  const spec = SPECS.artgonggu;
+  const spec = SPECS.art09;
   // 주소로 넣는 길도 있지만 우리 산출물은 로컬이고 남의 호스팅은 핫링크에 걸린다.
   // 파일을 올리면 Cafe24 가 자기 서버에 네 크기를 만든다(라이브 확인 2026-09-10).
   assert.equal(spec.imageFileInput.selector, '#imageFiles');
@@ -41,14 +41,14 @@ test('대표이미지는 파일로 올린다 — 주소로 넣으면 몰이 못 
 test('상세설명도 몰이 자기 서버에 받는다', () => {
   const { SPECS } = loadModule();
   assert.deepEqual(
-    Array.from(SPECS.artgonggu.detailSelfUpload.editors),
+    Array.from(SPECS.art09.detailSelfUpload.editors),
     ['product_description', 'product_description_mobile'],
   );
 });
 
 test('분류는 이름으로 한 단씩 눌러 들어간 뒤 적용한다', () => {
   const { SPECS } = loadModule();
-  const picker = SPECS.artgonggu.categoryPicker;
+  const picker = SPECS.art09.categoryPicker;
   assert.equal(picker.itemSelector, 'li.category-item');
   assert.equal(picker.applyText, '적용');
   // 앞 단을 누르면 다음 칸이 채워진다. 기다리지 않으면 뒤 단이 비어 있다.

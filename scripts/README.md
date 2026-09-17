@@ -48,6 +48,7 @@ npm run test:scripts
 | `scripts/check-tenant-scope.sh` | mutating service organization-scope scanner | `npm run check:tenant-scope` |
 | `scripts/dev-data-coupang.ts` | coupang domain adapter for dev data bundles | `npm run data:dev:* -- --domain coupang` |
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
+| `scripts/generate-channel-registry.mjs` | copies the channel registry (`packages/shared/src/channel-registry.ts`) into the extension's committed `extensions/kiditem-os/shared/channel-registry.js`; the extension has no build, so the generated file is committed and `--check` fails when it drifts | `npm run check:channel-registry-sync` (in `check:conventions`) |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/local-agent-gateway.mjs` | macOS local Gateway operator entrypoint; starts only the generated protected config or logs a bundled Codex/Claude provider into its isolated home | `npm run dev:gateway`, `npm run gateway:login:codex`, `npm run gateway:login:claude`, `docs/runbooks/local-development.md` |
 | `scripts/office-deploy.mjs` | Windows Office operator entrypoint; final releases use aligned `origin/release/office`, explicitly authorized incident refs are provisional, and status reports release/runtime drift | `npm run deploy:office:local`, `npm run deploy:office:status`, `npm run deploy:office:rollback`, `docs/runbooks/office-deploy.md` |

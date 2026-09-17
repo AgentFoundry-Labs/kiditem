@@ -40,7 +40,7 @@ function loadModule() {
  */
 test('상품등록 주소만 받는다', () => {
   const { SPECS } = loadModule();
-  const spec = SPECS.icecream;
+  const spec = SPECS['icecream-mall'];
   assert.equal(spec.origin, 'https://po.i-screammall.co.kr');
   assert.equal(spec.pathPrefix, '/goods/temporaryGeneralGoods');
   assert.equal(spec.multiForm, true);
@@ -49,17 +49,17 @@ test('상품등록 주소만 받는다', () => {
 test('⭐ 고시를 여는 함수 이름은 몰의 오타 그대로다', () => {
   // `Annoucement` — n 하나가 빠져 있다. 고치면 함수를 못 찾는다.
   const { SPECS } = loadModule();
-  assert.equal(SPECS.icecream.noticeSection.open, 'getAnnoucementItemInfo');
-  assert.equal(SPECS.icecream.noticeSection.owner, 'announcementInfo');
-  assert.equal(SPECS.icecream.noticeSection.tableId, 'announcementInfoTable');
+  assert.equal(SPECS['icecream-mall'].noticeSection.open, 'getAnnoucementItemInfo');
+  assert.equal(SPECS['icecream-mall'].noticeSection.owner, 'announcementInfo');
+  assert.equal(SPECS['icecream-mall'].noticeSection.tableId, 'announcementInfoTable');
 });
 
 test('분류는 코드와 경로 두 칸 모두를 쓴다', () => {
   const { SPECS } = loadModule();
   // 경로만 맞춰 두면 화면은 맞아 보이는데 저장이 빈 분류로 들어간다.
   // vm 안에서 만들어진 객체라 deepEqual 은 realm 이 달라 실패한다. 필드로 본다.
-  assert.equal(SPECS.icecream.categoryFields.code, 'stdCtgNo');
-  assert.equal(SPECS.icecream.categoryFields.path, 'stdCtgHierarchy');
+  assert.equal(SPECS['icecream-mall'].categoryFields.code, 'stdCtgNo');
+  assert.equal(SPECS['icecream-mall'].categoryFields.path, 'stdCtgHierarchy');
 });
 
 function harness() {
@@ -101,7 +101,7 @@ const form = (overrides = {}) => ({
 
 test('폼 id 별 칸을 그대로 실어 보낸다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'icecream', form: form() });
+  await api.register({ mall: 'icecream-mall', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.multiFormFields.priceInfo.supPcost, '1950');
   assert.equal(payload.multiFormFields.goodsInfo.goodsNm, '슈가 귤 쫀득 쫀뜩 주물럭 1p');
@@ -109,7 +109,7 @@ test('폼 id 별 칸을 그대로 실어 보낸다', async () => {
 
 test('분류 코드와 경로를 함께 넘긴다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'icecream', form: form() });
+  await api.register({ mall: 'icecream-mall', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.categoryCode, 'BC0105010200');
   assert.match(payload.categoryPath, /학급운영/);
@@ -117,7 +117,7 @@ test('분류 코드와 경로를 함께 넘긴다', async () => {
 
 test('고시는 품목코드·안전여부·줄을 함께 넘긴다 — 코드가 없으면 행이 안 열린다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'icecream', form: form() });
+  await api.register({ mall: 'icecream-mall', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.noticeItemCode, '023');
   assert.equal(payload.noticeSafeYn, 'Y');
@@ -129,7 +129,7 @@ test('고시는 품목코드·안전여부·줄을 함께 넘긴다 — 코드�
 test('안전인증 대상이 아니면 N 으로 간다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({ notice: { itemCode: '023', safeCertiTgtYn: 'N', kcCertified: 'N', rows: [] } }),
   });
   const [payload] = calls[0].args;
@@ -139,7 +139,7 @@ test('안전인증 대상이 아니면 N 으로 간다', async () => {
 test('제목 없는 고시 줄은 버린다 — 못 찾을 칸을 만들지 않는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({ notice: { itemCode: '023', safeCertiTgtYn: 'N', rows: [{ title: '', value: 'x' }, { value: 'y' }] } }),
   });
   const [payload] = calls[0].args;
@@ -148,7 +148,7 @@ test('제목 없는 고시 줄은 버린다 — 못 찾을 칸을 만들지 않�
 
 test('⭐ 이미지는 그룹 방식 파일칸으로 간다 — 단수 방식은 imageUrls 를 봐서 통째로 빠졌다', () => {
   const { SPECS } = loadModule();
-  const spec = SPECS.icecream;
+  const spec = SPECS['icecream-mall'];
   // `imageFileInput`(단수)은 `form.imageUrls` 를 읽는데 이 몰 빌더는 `imageGroups` 로 보낸다.
   assert.equal(spec.imageFileInput, undefined);
   assert.equal(spec.imageFileInputs.length, 1);
@@ -159,7 +159,7 @@ test('⭐ 이미지는 그룹 방식 파일칸으로 간다 — 단수 방식은
 test('대표이미지를 그룹으로 실어 보낸다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({ imageGroups: { representative: ['https://cdn.example.com/rep.jpg'] } }),
   });
   const [payload] = calls[0].args;
@@ -170,14 +170,14 @@ test('대표이미지를 그룹으로 실어 보낸다', async () => {
 
 test('⭐ SmartEditor 는 구역 안에서 찾는다 — 스킨 iframe 이 둘이라 순서로 집으면 예스24 쪽이다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.icecream.detailSmartEditor.section, 'detailInfo');
-  assert.equal(SPECS.icecream.detailSmartEditor.target, 'detailHtmlEditor');
+  assert.equal(SPECS['icecream-mall'].detailSmartEditor.section, 'detailInfo');
+  assert.equal(SPECS['icecream-mall'].detailSmartEditor.target, 'detailHtmlEditor');
 });
 
 test('⭐⭐ SmartEditor 에는 HTML 탭으로 넣는다 — 편집면에 직접 쓰면 되돌려진다', () => {
   // 라이브 실측 2026-09-11: `body.innerHTML` 에 쓰면 77자 → 1초 뒤 11자(`<p><br></p>`).
   // 사람이 하는 순서(HTML 탭 → 소스 붙여넣기 → Editor 복귀)만 7초 뒤에도 남았다.
-  const se2 = loadModule().SPECS.icecream.detailSmartEditor;
+  const se2 = loadModule().SPECS['icecream-mall'].detailSmartEditor;
   assert.equal(se2.toSourceSelector, 'button.se2_to_html');
   assert.equal(se2.sourceSelector, 'textarea.se2_input_htmlsrc');
   assert.equal(se2.toEditorSelector, 'button.se2_to_editor');
@@ -186,7 +186,7 @@ test('⭐⭐ SmartEditor 에는 HTML 탭으로 넣는다 — 편집면에 직접
 test('상세설명 설정을 주입 인자로 넘긴다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({
       detailUploads: [{ url: 'https://kiditem.diskn.com/x80sp01Z4m' }],
       detailHtmlTarget: 'detailHtmlEditor',
@@ -200,7 +200,7 @@ test('상세설명 설정을 주입 인자로 넘긴다', async () => {
 test('상세설명은 SmartEditor 뒷단 textarea 로 간다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({
       detailUploads: [{ url: 'https://kiditem.diskn.com/x80sp01Z4m' }],
       detailHtmlTarget: 'detailHtmlEditor',
@@ -214,19 +214,19 @@ test('상세설명은 SmartEditor 뒷단 textarea 로 간다', async () => {
 test('⭐ 상세설명 이미지를 올릴 곳이 있다 — 없으면 조용히 빈 채로 등록된다', () => {
   const { SPECS } = loadModule();
   // 우리 산출물은 로컬 MinIO 주소라 몰이 못 읽는다. 실측 등록물도 diskn 주소였다.
-  assert.equal(SPECS.icecream.detailHost, 'kidsnote');
+  assert.equal(SPECS['icecream-mall'].detailHost, 'kidsnote');
 });
 
 test('⭐ 상세이미지는 몰 서버에 올린다 — 에디터 사진 버튼이 쓰는 그 엔드포인트', () => {
   // 실측 2026-09-11: attach_photo.js → POST /common/file/uploadImgEditor.do,
   // 칸 이름 UPLOAD_FILE, 응답 {Val:"sFileURL=/files/editor/…"}.
-  const se2 = loadModule().SPECS.icecream.detailSmartEditor;
+  const se2 = loadModule().SPECS['icecream-mall'].detailSmartEditor;
   assert.equal(se2.upload.endpoint, '/common/file/uploadImgEditor.do');
   assert.equal(se2.upload.field, 'UPLOAD_FILE');
 });
 
 test('⭐ 추가 이미지는 칸을 늘려 가며 넣는다 — 처음엔 칸이 없다', () => {
-  const repeat = loadModule().SPECS.icecream.imageRepeat;
+  const repeat = loadModule().SPECS['icecream-mall'].imageRepeat;
   assert.equal(repeat.addLabel, '+');
   assert.equal(repeat.namePattern, 'imgInfo[{i}][img]');
   assert.equal(repeat.groupKey, 'additional');
@@ -236,7 +236,7 @@ test('⭐ 추가 이미지는 칸을 늘려 가며 넣는다 — 처음엔 칸�
 test('⭐ 추가 이미지도 내려받아 실어 보낸다 — 안 그러면 칸만 생기고 빈 채로 남는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({
       imageGroups: {
         representative: ['https://cdn.example.com/rep.jpg'],
@@ -254,7 +254,7 @@ test('⭐ 상세이미지를 File 로 실어 보낸다 — 몰 업로드의 전�
   // 이게 없으면 몰에 올릴 것이 없어 상세설명이 빈 채로 남는다.
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({
       detailUploads: [{ url: 'https://kiditem.diskn.com/x80sp01Z4m' }],
       detailHtmlTarget: 'detailHtmlEditor',
@@ -268,7 +268,7 @@ test('⭐ 상세이미지를 File 로 실어 보낸다 — 몰 업로드의 전�
 test('폼별 라디오·체크박스도 실어 보낸다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'icecream',
+    mall: 'icecream-mall',
     form: form({
       formRadios: { saleInfo: { stkMgrYn: 'N' }, deliveryInfo: { cmbDeliYn: 'Y' } },
       formChecks: { priceInfo: { 'payWayCd[]': ['11', '12', '32'] } },
@@ -282,7 +282,7 @@ test('폼별 라디오·체크박스도 실어 보낸다', async () => {
 
 test('제출하지 않는다', async () => {
   const { api } = harness();
-  const result = await api.register({ mall: 'icecream', form: form() });
+  const result = await api.register({ mall: 'icecream-mall', form: form() });
   assert.equal(result.submitted, false);
   assert.equal(result.ok, true);
 });
@@ -290,7 +290,7 @@ test('제출하지 않는다', async () => {
 test('다른 몰 주소는 거절한다', async () => {
   const { api } = harness();
   await assert.rejects(
-    () => api.register({ mall: 'icecream', form: form({ url: 'https://shop.teacherville.co.kr/selleradmin/goods/regist' }) }),
+    () => api.register({ mall: 'icecream-mall', form: form({ url: 'https://shop.teacherville.co.kr/selleradmin/goods/regist' }) }),
     /상품등록 주소가 아닙니다/,
   );
 });
