@@ -168,10 +168,19 @@ function reviewButtons(name: string) {
 
 function actionRequests() {
   return vi.mocked(apiClient.post).mock.calls.map(([path, body]) => {
-    const { action, ids } = body as { action: string; ids: string[] };
-    return { path, action, ids: [...ids].sort() };
+    const { action, ids, expectedApprovalStatus } = body as {
+      action: string;
+      ids: string[];
+      expectedApprovalStatus?: string;
+    };
+    return { path, action, ids: [...ids].sort(), expectedApprovalStatus };
   });
 }
+
+/** A request reviewing proposals awaiting review. */
+const pendingReview = { path: ACTIONS_PATH, expectedApprovalStatus: 'pending_review' } as const;
+/** A request closing approved proposals. */
+const approvedReview = { path: ACTIONS_PATH, expectedApprovalStatus: 'approved' } as const;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -232,9 +241,21 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
       ),
     );
     expect(actionRequests()).toEqual([
-      { path: ACTIONS_PATH, action: 'approve', ids: [ACTION.pending] },
+      { ...pendingReview, action: 'approve', ids: [ACTION.pending] },
     ]);
     await waitFor(() => expect(keywordReads()).toBe(2));
+  });
+
+  it('rejects one proposal awaiting review, and only while it still awaits review', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ updated: 1 });
+    await renderExpandedProduct();
+
+    fireEvent.click(chip('콩순이').getByRole('button', { name: '거절' }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('제안 1개를 거절했습니다.'));
+    expect(actionRequests()).toEqual([
+      { ...pendingReview, action: 'reject', ids: [ACTION.pending] },
+    ]);
   });
 
   it('closes an approved proposal with a rejection, one at a time', async () => {
@@ -247,9 +268,10 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     fireEvent.click(chip('타요').getByRole('button', { name: '닫기' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
+    // Closing names the review it expects, so a proposal no longer approved is left alone.
     expect(actionRequests()).toEqual([
-      { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.failed] },
-      { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.queued] },
+      { ...approvedReview, action: 'reject', ids: [ACTION.failed] },
+      { ...approvedReview, action: 'reject', ids: [ACTION.queued] },
     ]);
   });
 
@@ -268,9 +290,10 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 거절' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
+    // Both name the review they expect, so a proposal approved or closed meanwhile is skipped.
     expect(actionRequests()).toEqual([
-      { path: ACTIONS_PATH, action: 'approve', ids: [ACTION.pending, ACTION.otherPending] },
-      { path: ACTIONS_PATH, action: 'reject', ids: [ACTION.pending, ACTION.otherPending] },
+      { ...pendingReview, action: 'approve', ids: [ACTION.pending, ACTION.otherPending] },
+      { ...pendingReview, action: 'reject', ids: [ACTION.pending, ACTION.otherPending] },
     ]);
   });
 
@@ -289,11 +312,14 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     expect(toast.success).toHaveBeenCalledWith('제안 201개를 거절했습니다.');
     const requests = vi.mocked(apiClient.post).mock.calls.map(([path, body]) => ({
       path,
-      ...(body as { action: string; ids: string[] }),
+      ...(body as { action: string; ids: string[]; expectedApprovalStatus: string }),
     }));
-    expect(requests.map(({ path, action, ids }) => [path, action, ids.length])).toEqual([
-      [ACTIONS_PATH, 'reject', 200],
-      [ACTIONS_PATH, 'reject', 1],
+    expect(
+      requests.map(({ path, action, ids, expectedApprovalStatus }) =>
+        [path, action, ids.length, expectedApprovalStatus]),
+    ).toEqual([
+      [ACTIONS_PATH, 'reject', 200, 'pending_review'],
+      [ACTIONS_PATH, 'reject', 1, 'pending_review'],
     ]);
     expect(new Set(requests.flatMap(({ ids }) => ids)).size).toBe(201);
   });

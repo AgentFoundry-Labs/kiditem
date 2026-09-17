@@ -1,11 +1,10 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
 import {
   AD_ACTION_COMMAND_MAX_IDS,
   type AdActionCommandResult,
+  type AdActionExpectedApprovalStatus,
   type AdCampaignSnapshot,
   type AdExtensionStatus,
   type AdKeywordsData,
@@ -14,6 +13,8 @@ import {
   type AdWeeklyPlan,
   type AdTrendsData,
 } from '@kiditem/shared/advertising';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -330,7 +331,9 @@ export function useRunKeywordAgent(period: string) {
  * Approval records the operator's confirmation; the browser extension never
  * pauses a keyword (KID-138 decision A), so the operator pauses it in the ad
  * center. Rejection closes a proposal, and cancels an attempt approved before
- * that decision that has not started.
+ * that decision that has not started. Every command names the review its
+ * proposals must still be in; the server skips the others and counts only
+ * what it changed.
  *
  * The distinct ids go in commands of at most `AD_ACTION_COMMAND_MAX_IDS`, one
  * after another, and `updated` sums what the server counted. A refused command ends the review
@@ -341,13 +344,18 @@ export function useRunKeywordAgent(period: string) {
 export function useReviewKeywordProposals(period: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { action: 'approve' | 'reject'; ids: readonly string[] }) => {
+    mutationFn: async (input: {
+      action: 'approve' | 'reject';
+      expectedApprovalStatus: AdActionExpectedApprovalStatus;
+      ids: readonly string[];
+    }) => {
       const ids = [...new Set(input.ids)];
       let updated = 0;
       for (let start = 0; start < ids.length; start += AD_ACTION_COMMAND_MAX_IDS) {
         // A refusal throws here, before the next command is sent.
         const result = await apiClient.post<AdActionCommandResult>('/api/ads/actions', {
           action: input.action,
+          expectedApprovalStatus: input.expectedApprovalStatus,
           ids: ids.slice(start, start + AD_ACTION_COMMAND_MAX_IDS),
         });
         updated += result.updated;

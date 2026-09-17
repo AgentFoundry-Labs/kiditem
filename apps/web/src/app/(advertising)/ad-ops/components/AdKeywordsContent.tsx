@@ -8,9 +8,10 @@ import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { cardRaised } from '../lib/card-styles';
 import {
+  PAUSE_PROPOSAL_REVIEW_COMMANDS,
   pauseProposalReviewMessage,
   pauseProposalState,
-  proposalIdsFor,
+  pendingProposalIds,
   type PauseProposalReview,
 } from '../lib/keyword-pause-proposal';
 import { useAdKeywords, useReviewKeywordProposals, useRunKeywordAgent } from '../hooks/useAdOpsData';
@@ -48,8 +49,7 @@ export default function AdKeywordsContent({ period }: Props) {
   const reviewKeywordProposals = (review: PauseProposalReview, ids: string[]) => {
     if (ids.length === 0) return;
     reviewProposals.mutate(
-      // Closing an approved proposal is sent as a rejection.
-      { action: review === 'approve' ? 'approve' : 'reject', ids },
+      { ...PAUSE_PROPOSAL_REVIEW_COMMANDS[review], ids },
       {
         onSuccess: ({ updated }) => {
           if (updated === 0) {
@@ -389,9 +389,9 @@ function KeywordList({
       return true;
     })
     .sort((a, b) => b.metrics.impressions - a.metrics.impressions || a.keyword.localeCompare(b.keyword));
-  // A product-wide request covers every proposal of the product, not only the chips the filter shows.
-  const approvableIds = proposalIdsFor(keywords, 'approve');
-  const rejectableIds = proposalIdsFor(keywords, 'reject');
+  // A product-wide request covers every proposal of the product awaiting
+  // review, not only the chips the filter shows.
+  const pendingIds = pendingProposalIds(keywords);
 
   return (
     <div className="space-y-2.5">
@@ -430,27 +430,27 @@ function KeywordList({
             </>
           )}
         </button>
-        {approvableIds.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onReview('approve', approvableIds)}
-            disabled={reviewing}
-            className="btn-primary btn-sm disabled:opacity-50"
-            title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 승인합니다"
-          >
-            이 상품 제안 {formatNumber(approvableIds.length)}개 모두 승인
-          </button>
-        )}
-        {rejectableIds.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onReview('reject', rejectableIds)}
-            disabled={reviewing}
-            className="btn-secondary btn-sm disabled:opacity-50"
-            title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 거절합니다"
-          >
-            이 상품 제안 {formatNumber(rejectableIds.length)}개 모두 거절
-          </button>
+        {pendingIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => onReview('approve', pendingIds)}
+              disabled={reviewing}
+              className="btn-primary btn-sm disabled:opacity-50"
+              title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 승인합니다"
+            >
+              이 상품 제안 {formatNumber(pendingIds.length)}개 모두 승인
+            </button>
+            <button
+              type="button"
+              onClick={() => onReview('reject', pendingIds)}
+              disabled={reviewing}
+              className="btn-secondary btn-sm disabled:opacity-50"
+              title="필터나 검색과 관계없이 이 상품에서 승인 대기 중인 제안을 모두 거절합니다"
+            >
+              이 상품 제안 {formatNumber(pendingIds.length)}개 모두 거절
+            </button>
+          </>
         )}
       </div>
 

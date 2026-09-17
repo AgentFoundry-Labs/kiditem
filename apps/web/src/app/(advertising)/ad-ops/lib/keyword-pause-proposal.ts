@@ -1,14 +1,28 @@
 import type {
+  AdActionExpectedApprovalStatus,
   AdKeywordPauseProposal,
   AdKeywordSnapshot,
 } from '@kiditem/shared/advertising';
 
-/**
- * A review request the keyword tab sends for pause proposals. `close` ends an
- * approved proposal once the operator is done with it; it is sent as a
- * rejection.
- */
+/** A review request the keyword tab sends for pause proposals. */
 export type PauseProposalReview = 'approve' | 'reject' | 'close';
+
+/**
+ * The ad action command each review sends. Each names the review the proposal
+ * must still be in, so a list read before another operator's review never
+ * undoes that review. `close` ends an approved proposal once the operator is
+ * done with it, which the server records as a rejection.
+ */
+export const PAUSE_PROPOSAL_REVIEW_COMMANDS: Readonly<
+  Record<
+    PauseProposalReview,
+    { action: 'approve' | 'reject'; expectedApprovalStatus: AdActionExpectedApprovalStatus }
+  >
+> = {
+  approve: { action: 'approve', expectedApprovalStatus: 'pending_review' },
+  reject: { action: 'reject', expectedApprovalStatus: 'pending_review' },
+  close: { action: 'reject', expectedApprovalStatus: 'approved' },
+};
 
 export interface PauseProposalReviewAction {
   review: PauseProposalReview;
@@ -57,24 +71,16 @@ export function pauseProposalState(proposal: AdKeywordPauseProposal): PausePropo
 }
 
 /**
- * Distinct action ids of these keywords' proposals that a product-wide
- * `review` covers. A keyword served in several ad groups shows a chip per group
- * for one proposal, which counts once. Both product-wide requests cover only
- * proposals awaiting review: an approved proposal is an operator's
- * confirmation, so a product-wide rejection never undoes it, and it is closed
- * one at a time.
+ * Distinct action ids of these keywords' proposals awaiting review, which is
+ * all a product-wide approval or rejection covers: an approved proposal is an
+ * operator's confirmation, so a product-wide request never undoes it, and it
+ * is closed one at a time. A keyword served in several ad groups shows a chip
+ * per group for one proposal, which counts once.
  */
-export function proposalIdsFor(
-  keywords: readonly AdKeywordSnapshot[],
-  review: 'approve' | 'reject',
-): string[] {
+export function pendingProposalIds(keywords: readonly AdKeywordSnapshot[]): string[] {
   const ids = new Set<string>();
   for (const { pauseProposal } of keywords) {
-    if (!pauseProposal || pauseProposal.approvalStatus !== 'pending_review') continue;
-    const offered = pauseProposalState(pauseProposal).actions.some(
-      (action) => action.review === review,
-    );
-    if (offered) ids.add(pauseProposal.actionId);
+    if (pauseProposal?.approvalStatus === 'pending_review') ids.add(pauseProposal.actionId);
   }
   return [...ids];
 }
