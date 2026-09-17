@@ -81,6 +81,12 @@ describes. A failure after database work begins leaves API, web, nginx, and
 Gateway stopped. Runtime-only rollback is intentionally blocked for an
 immediate schema/data cutover.
 
+After a schema/data cutover, update the Office Chrome extension from the
+deployed release's `office-v<VERSION>` bundle
+([Install Or Update](extension-releases.md#install-or-update)) before the first
+"승인 액션 실행" in the extension popup. Extension builds from before #515
+(KID-90) write to Coupang even when the server refuses their report.
+
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.
 
