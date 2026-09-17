@@ -109,6 +109,44 @@ describe('useMallLoginTest', () => {
     }));
   });
 
+  /**
+   * 몰은 대개 알림 창으로 답한다("아이디 또는 비밀번호가 일치하지 않습니다"). 백그라운드 탭의
+   * 알림 창은 사장님께 보이지 않아, 값만 채워진 로그인 화면이 남고 "버튼을 안 눌렀다"처럼 보였다.
+   */
+  it('⭐ 몰이 아이디·비밀번호를 거부했다고 말하면 그 말을 보여 주고 자동 로그인을 막는다', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('failed');
+    expect(result?.detail).toContain('아이디 또는 비밀번호가 일치하지 않습니다.');
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failed',
+      reasonCode: 'credentials_rejected',
+    }));
+  });
+
+  it('몰이 다른 말을 남기면 그대로 보여 주되 막지는 않는다', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '시스템 점검 중입니다.',
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('unverified');
+    expect(result?.detail).toContain('시스템 점검 중입니다.');
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
   it('never sends the password anywhere but the extension call', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({ success: true, submitted: true, verified: true });
 

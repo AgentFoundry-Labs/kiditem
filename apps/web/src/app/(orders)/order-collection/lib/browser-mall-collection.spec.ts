@@ -779,6 +779,36 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * 키즈노트처럼 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
+   * 않고 몰의 말을 그대로 보여 주고, 아이디·비밀번호를 거부한 것이면 더 두드리지 않는다.
+   */
+  it('⭐ 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의 자동 로그인을 막는다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
+    });
+
+    await collect();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+  });
+
+  it('몰이 다른 말을 남기면 막지 않는다 — 점검 중 · 세션 만료는 자격증명 문제가 아니다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '서비스 점검 중입니다.',
+    });
+
+    await collect();
+
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {
     mocks.ensureLogin.mockResolvedValue({
       success: false,

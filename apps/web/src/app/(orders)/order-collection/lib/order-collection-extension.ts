@@ -137,6 +137,11 @@ export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   verified?: boolean;
   /** `verified: false` 인 이유 코드. */
   verifyReason?: string;
+  /**
+   * 로그인 뒤 몰이 알림 창으로 남긴 답("아이디 또는 비밀번호가 일치하지 않습니다" 등).
+   * 왜 안 됐는지는 몰이 가장 잘 안다 — 그 말을 그대로 사장님께 보여 준다.
+   */
+  mallMessage?: string;
   /** submitted 가 false 인 이유. 저장된 비밀번호를 검증하지 못한 경우다. */
   reason?: 'unsupported_mall' | 'already_signed_in' | 'no_credentials';
   /** 로그인 버튼을 어떤 방법으로 눌렀는가. 몰별로 어느 경로가 먹는지 진단에 쓴다. */
@@ -218,6 +223,8 @@ export interface MallLoginTestResponse {
   /** 누른 뒤 로그인 화면이 사라졌는가. `false` 면 확인하지 못한 것이다. */
   verified?: boolean;
   verifyReason?: string;
+  /** 로그인 뒤 몰이 알림 창으로 남긴 답. */
+  mallMessage?: string;
   reason?: MallLoginEnsureResult['reason'];
   method?: string | null;
   pendingLogin?: boolean;

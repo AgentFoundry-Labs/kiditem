@@ -3,6 +3,7 @@ import {
   blockMallAutoLogin,
   isCredentialFailureReason,
   mallAutoLoginRetryAt,
+  mallRejectedCredentials,
   markMallAutoLoginAttempt,
   clearMallAutoLoginBlock,
   mallAutoLoginBlock,
@@ -160,8 +161,19 @@ export function createBrowserMallCollector({
       // 확장이 로그인 화면이 사라진 것까지 봤을 때만 '됐다'로 친다. 확인하지 못했으면 차단을
       // 풀지 않고 그대로 둔다 — 다음 시도는 위 간격이 막는다.
       if (result.submitted && result.verified === false) {
+        // 몰이 알림 창으로 남긴 답이 있으면 그 말이 먼저다 — 왜 안 됐는지는 몰이 가장 잘 안다.
+        // 그 말이 "아이디·비밀번호가 다르다"면 더 두드리지 않는다(계정이 잠긴다).
+        if (mallRejectedCredentials(result.mallMessage)) {
+          blockMallAutoLogin(mallKey, result.mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
+          toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, {
+            description: `${mallName}: ${result.mallMessage}`,
+          });
+          return;
+        }
         toast.warning(`${mallName} 로그인했는지 확인하지 못했습니다`, {
-          description: '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭을 확인해 주세요.',
+          description: result.mallMessage
+            ? `${mallName}: ${result.mallMessage}`
+            : '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭을 확인해 주세요.',
         });
         return;
       }

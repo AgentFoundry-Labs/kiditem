@@ -7,6 +7,7 @@ import {
   clearMallAutoLoginAttempt,
   clearMallAutoLoginBlock,
   isCredentialFailureReason,
+  mallRejectedCredentials,
 } from '@/lib/mall-login-block';
 import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { testMallLoginViaExtension } from '../../order-collection/lib/order-collection-extension';
@@ -122,7 +123,21 @@ export function useMallLoginTest() {
       // 눌렀지만 로그인 화면이 남아 확인하지 못한 경우. 몰마다 로그인 뒤 화면이 달라 이것만으로
       // 비밀번호가 틀렸다고 단정하지 않는다 — 차단하지 않고 사람에게 확인만 청한다.
       if (result.success && result.submitted && result.verified === false) {
-        const detail = '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭에서 확인해 주세요.';
+        // 몰이 알림 창으로 답을 남겼으면 그 말이 먼저다. "아이디·비밀번호가 다르다"는 말이면
+        // 판정이 끝난 것이므로 자동 로그인을 막는다 — 같은 값을 다시 넣으면 계정이 잠긴다.
+        if (mallRejectedCredentials(result.mallMessage)) {
+          const detail = `${mallName}: ${result.mallMessage}`;
+          record(mallKey, { outcome: 'failed', detail, at: Date.now() });
+          remember(mallKey, 'failed', 'credentials_rejected', detail);
+          blockMallAutoLogin(mallKey, result.mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
+          toast.error(`${mallName} 아이디·비밀번호가 맞지 않습니다`, {
+            description: `${detail} — 저장된 값을 고친 뒤 다시 테스트해 주세요.`,
+          });
+          return;
+        }
+        const detail = result.mallMessage
+          ? `${mallName}: ${result.mallMessage}`
+          : '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭에서 확인해 주세요.';
         record(mallKey, { outcome: 'unverified', detail, at: Date.now() });
         remember(mallKey, 'attention', 'login_form_remains', detail);
         toast.warning(`${mallName} 확인 못 함`, { description: detail });

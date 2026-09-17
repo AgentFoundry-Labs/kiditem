@@ -29,7 +29,13 @@ const NO_ANSWER = Symbol("no answer");
  * `checkResults` 는 제출 뒤 로그인 폼 확인(`detectOnly`)이 차례로 받을 답이다. `NO_ANSWER` 는
  * 알림 창이 떠 확인 스크립트가 돌아오지 않는 경우다.
  */
-function loadEnsureMallLogin({ scanResults, tabUrls, checkResults = [{ state: "no-login-form" }] }) {
+function loadEnsureMallLogin({
+  scanResults,
+  tabUrls,
+  checkResults = [{ state: "no-login-form" }],
+  // 몰이 알림 창으로 남긴 문장. 페이지 컨텍스트(MAIN)에서 읽어 온다.
+  dialogs = [],
+}) {
   let scanIndex = 0;
   let checkIndex = 0;
   let urlIndex = 0;
@@ -38,6 +44,11 @@ function loadEnsureMallLogin({ scanResults, tabUrls, checkResults = [{ state: "n
     chrome: {
       scripting: {
         async executeScript(options) {
+          if (options?.world === "MAIN") {
+            return options.func?.name === "readMallLoginDialogs"
+              ? [{ result: dialogs }]
+              : [{ result: true }];
+          }
           if (options?.args?.[1]?.detectOnly) {
             const result = checkResults[Math.min(checkIndex, checkResults.length - 1)];
             checkIndex += 1;
@@ -65,6 +76,11 @@ function loadEnsureMallLogin({ scanResults, tabUrls, checkResults = [{ state: "n
   const asyncSource = (name) => extractFunction(source, name).replace(/^function /, "async function ");
   vm.runInContext(extractFunction(source, "withTimeout"), context);
   vm.runInContext(asyncSource("loginFormRemainsAfterSubmit"), context);
+  vm.runInContext(extractFunction(source, "installMallLoginDialogRecorder"), context);
+  vm.runInContext(extractFunction(source, "readMallLoginDialogs"), context);
+  // 이 둘은 worker 에서 `async function` 이라 추출한 뒤 다시 async 로 되살린다.
+  vm.runInContext(asyncSource("recordMallLoginDialogs"), context);
+  vm.runInContext(asyncSource("takeMallLoginDialog"), context);
   const ensureMallLogin = vm.runInContext(`(${asyncSource("ensureMallLogin")})`, context);
   return { ensureMallLogin, getScanCount: () => scanIndex, getCheckCount: () => checkIndex };
 }
@@ -152,4 +168,36 @@ test("kidkids personal verification is returned as an operator login requirement
   assert.equal(result.success, false);
   assert.equal(result.pendingLogin, true);
   assert.match(result.error, /본인 인증/);
+});
+
+/**
+ * 키즈노트처럼 알림 창으로 답하는 몰이 많다. 백그라운드 탭의 알림 창은 사장님께 보이지 않으므로,
+ * 그 문장을 결과에 실어 "왜 안 됐는지"를 화면이 말할 수 있게 한다.
+ */
+test("⭐ the mall's own answer comes back with the unverified login", async () => {
+  const { ensureMallLogin } = loadEnsureMallLogin({
+    scanResults: [{ state: "submitted", method: "exact-text" }],
+    tabUrls: ["https://shop.kidsnote.com/_manage/?body=3010"],
+    checkResults: [{ state: "login-form" }],
+    dialogs: ["아이디 또는 비밀번호가 일치하지 않습니다."],
+  });
+
+  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.verified, false);
+  assert.equal(result.mallMessage, "아이디 또는 비밀번호가 일치하지 않습니다.");
+});
+
+test("a login with nothing to say carries no message", async () => {
+  const { ensureMallLogin } = loadEnsureMallLogin({
+    scanResults: [{ state: "submitted", method: "exact-text" }],
+    tabUrls: ["https://shop.kidsnote.com/_manage/?body=3010"],
+    checkResults: [{ state: "no-login-form" }],
+  });
+
+  const result = await ensureMallLogin(17, CREDENTIALS, "kidsnote");
+
+  assert.equal(result.verified, true);
+  assert.equal(result.mallMessage, undefined);
 });

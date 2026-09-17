@@ -5898,6 +5898,75 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 몰이 로그인 결과를 알림 창(`alert`)으로 말하는 화면이 많다(키즈노트 · 대부분의 WISA 관리자).
+ * 백그라운드 탭에 알림 창이 뜨면 그 탭의 스크립트가 멈춰 우리가 확인도 못 하고, 사장님 화면에는
+ * 값만 채워진 로그인 화면이 남아 "버튼을 안 눌렀다"처럼 보인다. 그래서 우리 로그인 동안에는
+ * 알림 창 대신 문장을 모아 두고, 그 문장을 결과에 실어 사장님께 그대로 보여 준다.
+ *
+ * 페이지 컨텍스트(MAIN)에서 돌아야 페이지의 `alert` 을 대신할 수 있다.
+ */
+function installMallLoginDialogRecorder() {
+  if (!window.__kiditemLoginDialogs) {
+    window.__kiditemLoginDialogs = [];
+    const nativeAlert = window.alert;
+    window.alert = function (message) {
+      window.__kiditemLoginDialogs.push(String(message === undefined ? "" : message));
+    };
+    window.__kiditemRestoreLoginDialogs = function () {
+      window.alert = nativeAlert;
+      delete window.__kiditemRestoreLoginDialogs;
+      delete window.__kiditemLoginDialogs;
+    };
+  }
+  return true;
+}
+
+/** 모아 둔 문장을 돌려주고 원래 `alert` 으로 되돌린다. */
+function readMallLoginDialogs() {
+  const messages = Array.isArray(window.__kiditemLoginDialogs)
+    ? window.__kiditemLoginDialogs.slice()
+    : [];
+  if (typeof window.__kiditemRestoreLoginDialogs === "function") {
+    window.__kiditemRestoreLoginDialogs();
+  }
+  return messages;
+}
+
+async function recordMallLoginDialogs(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: "MAIN",
+      func: installMallLoginDialogRecorder,
+    });
+  } catch {
+    /* 프레임이 아직 없거나 주입이 막힌 화면 — 알림 문장 없이 진행한다. */
+  }
+}
+
+/** 로그인 뒤 몰이 알림 창으로 남긴 첫 문장. 없으면 null. */
+async function takeMallLoginDialog(tabId) {
+  try {
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        world: "MAIN",
+        func: readMallLoginDialogs,
+      }),
+      5000,
+      "login-dialog-read-no-answer",
+    );
+    const messages = (injected || [])
+      .flatMap((item) => (Array.isArray(item?.result) ? item.result : []))
+      .map((message) => String(message).replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    return messages[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 // 제네릭 자동 로그인: 탭에 로그인 폼(ID/비밀번호칸)이 보이면 저장된 계정으로 채워 제출한다.
 // credentials 없으면 아무것도 안 함(세션에 의존 = 기존 동작). autoSubmitIcecreamMallLogin 휴리스틱 재사용.
 async function ensureMallLogin(tabId, credentials, mallKey = null) {
@@ -5908,6 +5977,8 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
   let sawIncompleteLoginForm = false;
   let lastIncompleteReason = null;
   let kidkidsManagementStableSince = null;
+  // 몰이 알림 창으로 말하는 답("아이디 또는 비밀번호가 일치하지 않습니다")을 받아 둔다.
+  await recordMallLoginDialogs(tabId);
   while (Date.now() < expiresAt) {
     let results = [];
     try {
@@ -5929,12 +6000,15 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
       // 몰마다 로그인 뒤 화면이 달라(알림 창이 뜨거나 관리자 화면에 비밀번호 칸이 남는다) 이것만으로
       // 비밀번호가 틀렸다고 단정하지 않는다 — 판정은 웹이 하고, 같은 비밀번호를 다시 넣는 것은
       // 웹의 재시도 간격이 막는다.
+      const mallMessage = await takeMallLoginDialog(tabId);
       const loginFormRemains = await loginFormRemainsAfterSubmit(tabId);
       return {
         success: true,
         submitted: true,
         verified: !loginFormRemains,
         ...(loginFormRemains ? { verifyReason: "login_form_remains" } : {}),
+        // 몰이 알림 창으로 남긴 답. 왜 안 됐는지는 몰이 가장 잘 안다.
+        ...(mallMessage ? { mallMessage } : {}),
         method: submitted.method || null,
       };
     }

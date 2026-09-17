@@ -70,3 +70,41 @@ test("the login test carries the saved address through and checks its type", () 
   assert.match(block, /credentials\.siteUrl === undefined \|\| typeof credentials\.siteUrl === "string"/);
   assert.match(block, /\.\.\.\(credentials\.siteUrl \? \{ siteUrl: credentials\.siteUrl \} : \{\}\)/);
 });
+
+/**
+ * 몰은 대개 알림 창(`alert`)으로 답한다. 백그라운드 탭의 알림 창은 그 탭의 스크립트를 멈춰
+ * 우리가 확인도 못 하게 만들고, 사장님께는 값만 채워진 로그인 화면만 남는다. 그래서 우리 로그인
+ * 동안에는 알림 창 대신 문장을 모아 결과에 싣는다.
+ */
+test("⭐ the mall's own answer is captured instead of a dialog nobody sees", () => {
+  const install = extractFunction(workerSource, "installMallLoginDialogRecorder");
+  const read = extractFunction(workerSource, "readMallLoginDialogs");
+  const context = { window: { alert: () => { throw new Error("native alert would block the tab"); } } };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(`${install}
+${read}
+installMallLoginDialogRecorder();`, context);
+
+  context.window.alert("아이디 또는 비밀번호가 일치하지 않습니다.");
+  const messages = vm.runInContext("readMallLoginDialogs()", context);
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0], "아이디 또는 비밀번호가 일치하지 않습니다.");
+  // 읽고 나면 원래 alert 으로 돌려놓는다 — 우리 로그인이 끝난 뒤의 화면은 몰의 것이다.
+  assert.throws(() => context.window.alert("x"), /native alert/);
+});
+
+test("the login path records dialogs before filling and carries the first line back", () => {
+  const ensure = extractFunction(workerSource, "ensureMallLogin");
+  assert.match(ensure, /await recordMallLoginDialogs\(tabId\);/);
+  assert.match(ensure, /const mallMessage = await takeMallLoginDialog\(tabId\);/);
+  assert.match(ensure, /\.\.\.\(mallMessage \? \{ mallMessage \} : \{\}\)/);
+});
+
+test("the dialog recorder runs in the page world — an isolated override would not be seen", () => {
+  const record = extractFunction(workerSource, "recordMallLoginDialogs");
+  const take = extractFunction(workerSource, "takeMallLoginDialog");
+  assert.match(record, /world: "MAIN"/);
+  assert.match(take, /world: "MAIN"/);
+});
