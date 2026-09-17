@@ -96,8 +96,10 @@ test("the collection tab helpers register and unregister the tabs we open", () =
   const close = extractFunction(workerSource, "closeFreshOrderCollectionTab");
   assert.match(create, /rememberOrderCollectionTab\(tab\?\.id, collection\?\.attemptId\)/);
   assert.match(close, /forgetOrderCollectionTab\(tab\.id\)/);
-  const ensure = extractFunction(workerSource, "ensureMallLoggedIn");
-  assert.match(ensure, /rememberOrderCollectionTab\(tab\.id, collection\?\.attemptId\)/);
+  // 자동 로그인 탭은 몰 세션 드라이버가 연다(KID-254) — 같은 목록에 같은 규칙으로 올린다.
+  const driver = extractFunction(workerSource, "createMallSessionDriver");
+  assert.match(driver, /rememberOrderCollectionTab\(tab\.id, collection\?\.attemptId\)/);
+  assert.match(driver, /forgetOrderCollectionTab\(tab\?\.id\)/);
 });
 
 test("the worker advertises the tab-close capability and validates the request", () => {

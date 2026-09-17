@@ -127,87 +127,104 @@ test("art09 automatic login fills the Cafe24 shop ID and supplier ID separately"
   assert.equal(loginButton.clicked, true);
 });
 
-test("a login tab stays open without stealing focus when automatic login needs attention", async () => {
-  const source = readFileSync(
+/**
+ * 자동 로그인이 끝나지 못하면(누렸는데 로그인 화면이 남았다) 그 화면은 사람이 봐야 한다 —
+ * 탭을 남기되 앞으로 끌어오지는 않는다. 탭을 열고 수집 시도에 매달고 닫는 일은 몰 세션
+ * 드라이버(worker.js)가 하고, 남길지 말지는 모듈이 정한다(KID-254) — 둘을 붙여 돌린다.
+ */
+function loadMallSessionWithWorkerDriver(overrides = {}) {
+  const workerSource = readFileSync(
     new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
-  const calls = { attached: [], detached: [], removed: [] };
-  const ensureMallLoggedInSource = extractFunction(source, "ensureMallLoggedIn").replace(
-    /^function /,
-    "async function ",
-  );
-  const ensureMallLoggedIn = vm.runInNewContext(
-    `(${ensureMallLoggedInSource})`,
-    {
-      ART09_ORDER_URL: "https://example.invalid/art09",
-      BORIBORI_ORDER_URL: "https://example.invalid/boribori",
-      DOMEGGOOK_LIST_URL: "https://example.invalid/domeggook",
-      GSSHOP_ORDER_URL: "https://example.invalid/gs-shop",
-      HAEBEOP_ORDER_URL: "https://example.invalid/haebeop",
-      ICECREAM_MALL_URL: "https://example.invalid/icecream",
-      KIDKIDS_ORDER_URL: "https://example.invalid/kidkids",
-      KIDSNOTE_ORDER_URL: "https://example.invalid/kidsnote",
-      LOTTEON_LOGIN_URL: "https://example.invalid/lotteon-login",
-      COUPANG_DIRECT_LOGIN_URL: "https://example.invalid/coupang-supplier",
-      // 쇼핑몰 계정에 저장된 사이트 주소로 들어가는 갈래(고정 주소가 없는 몰)와,
-      // 우리가 연 탭을 기억해 두는 목록.
-      savedMallLoginUrl: () => null,
-      rememberOrderCollectionTab: () => undefined,
-      KKOMANGSE_ORDER_URL: "https://example.invalid/kkomangse",
-      ONCHANNEL_ORDER_URL: "https://example.invalid/onch",
-      TEACHERVILLE_ORDER_URL: "https://example.invalid/teacher-mall",
-      chrome: {
-        tabs: {
-          create: async () => ({ id: 17, windowId: 5 }),
-          remove: async (...args) => calls.removed.push(args),
-        },
-      },
-      assertOrderCollectionActive: async (collection) => {
-        if (typeof collection?.assertActive !== "function") return true;
-        const active = await collection.assertActive();
-        if (active === false || active === null) {
-          const error = new Error("Order collection is no longer active.");
-          error.code = "COLLECTION_CANCELLED";
-          throw error;
-        }
-        return true;
-      },
-      attachOrderCollectionTab: async (collection, tab, owned) => {
-        if (!collection?.attachTab) return true;
-        return collection.attachTab(tab, { owned });
-      },
-      closeFreshOrderCollectionTab: async (tab) => {
-        if (Number.isInteger(tab?.id)) await chrome.tabs.remove(tab.id);
-      },
-      orderCollectionCancelledResult: (error) => ({
-        success: false,
-        errorCode: "COLLECTION_CANCELLED",
-        error: String(error?.message || "Order collection is no longer active."),
-      }),
-      orderCollectionNeedsAttention: (result) => Boolean(
-        result?.pendingLogin === true ||
-        result?.pendingAuth === true ||
-        result?.loginRequired === true ||
-        result?.attentionRequired === true,
-      ),
-      delay: async () => undefined,
-      ensureMallLogin: async () => ({
-        success: false,
-        submitted: false,
-        pendingLogin: true,
-        error: "manual verification required",
-      }),
-      getMallLoginUrl: () => "https://example.invalid/login",
-      waitForTabReady: async () => undefined,
-      withTimeout: (promise) => promise,
-      Error,
+  const calls = { attached: [], detached: [], removed: [], remembered: [], forgotten: [], active: 0 };
+  const context = {
+    URL, Date, Object, Array, JSON, Error, RegExp, Promise, Number, String, Boolean,
+    setTimeout, clearTimeout, TextDecoder, AbortController,
+    fetch: async () => {
+      throw new Error("unexpected fetch");
     },
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 17, windowId: 5 }),
+        remove: async (tabId) => calls.removed.push(tabId),
+        get: async () => ({ id: 17, url: "https://example.invalid/art09" }),
+      },
+      permissions: { contains: async () => true },
+      scripting: { executeScript: async () => [] },
+    },
+    delay: async () => undefined,
+    waitForTabReady: async () => undefined,
+    withTimeout: (promise) => promise,
+    rememberOrderCollectionTab: (tabId) => calls.remembered.push(tabId),
+    forgetOrderCollectionTab: (tabId) => calls.forgotten.push(tabId),
+    assertOrderCollectionActive: async (collection) => {
+      calls.active += 1;
+      if (typeof collection?.assertActive !== "function") return true;
+      const active = await collection.assertActive();
+      if (active === false || active === null) {
+        const error = new Error("Order collection is no longer active.");
+        error.code = "COLLECTION_CANCELLED";
+        throw error;
+      }
+      return true;
+    },
+    attachOrderCollectionTab: async (collection, tab, owned) => {
+      if (!collection?.attachTab) return true;
+      return collection.attachTab(tab, { owned });
+    },
+    closeFreshOrderCollectionTab: async (tab) => {
+      if (Number.isInteger(tab?.id)) calls.removed.push(tab.id);
+    },
+    orderCollectionCancelledResult: (error) => ({
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: String(error?.message || "Order collection is no longer active."),
+    }),
+    // 폼을 채우고 알림 창을 읽는 주입은 각본으로 대신한다 — 여기서 보는 것은 탭의 생애다.
+    recordMallLoginDialogs: async () => undefined,
+    takeMallLoginDialog: async () => null,
+    loginFormRemainsAfterSubmit: async () => true,
+    autoSubmitIcecreamMallLogin: () => undefined,
+    inspectMallLoginScreen: () => undefined,
+    ...overrides,
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  for (const file of ["mall-session-probe.js", "mall-session.js"]) {
+    vm.runInContext(
+      readFileSync(new URL(`../kiditem-os/background/orders/${file}`, import.meta.url), "utf8"),
+      context,
+    );
+  }
+  vm.runInContext(extractFunction(workerSource, "createMallSessionDriver"), context);
+  const session = vm.runInContext(
+    "KidItemMallSession.create({ driver: createMallSessionDriver() })",
+    context,
   );
+  return { session, calls };
+}
 
+test("a login tab stays open without stealing focus when automatic login needs attention", async () => {
+  const { session, calls } = loadMallSessionWithWorkerDriver({
+    chrome: {
+      tabs: {
+        create: async (properties) => {
+          assert.equal(properties.active, false, "앞으로 끌어오지 않는다");
+          return { id: 17, windowId: 5 };
+        },
+        remove: async () => {
+          throw new Error("closed a tab the operator still has to look at");
+        },
+        get: async () => ({ id: 17, url: "https://example.invalid/art09" }),
+      },
+      permissions: { contains: async () => true },
+      // 누른 뒤에도 로그인 화면이 남았다 — 사람이 보야 무슨 일인지 안다.
+      scripting: { executeScript: async () => [{ result: { state: "submitted", method: "exact-text" } }] },
+    },
+  });
   const collection = {
     async assertActive() {
-      calls.active = (calls.active || 0) + 1;
       return true;
     },
     async attachTab(tab, attachment) {
@@ -217,24 +234,23 @@ test("a login tab stays open without stealing focus when automatic login needs a
       calls.detached.push([tab, attachment]);
     },
   };
-  const result = await ensureMallLoggedIn(
+
+  const result = await session.ensureLoggedIn(
     "art09",
-    {
-      loginId: "fake-shop-id",
-      supplierLoginId: "fake-supplier-id",
-      password: "fake-password",
-    },
-    collection,
+    { loginId: "fake-shop-id", supplierLoginId: "fake-supplier-id", password: "fake-password" },
+    { collection },
   );
 
-  assert.equal(result.pendingLogin, true);
+  assert.equal(result.verdict, "rejected");
+  assert.equal(result.verified, false);
   assert.equal(calls.attached.length, 1);
   assert.equal(calls.attached[0][0].id, 17);
   assert.equal(calls.attached[0][0].windowId, 5);
   assert.equal(calls.attached[0][1].owned, true);
+  // 탭을 열기 전과 스크립트를 넣기 직전, 두 번 소유권을 확인한다.
   assert.equal(calls.active, 2);
   assert.deepEqual(calls.detached, []);
-  assert.equal(calls.removed.length, 0);
+  assert.deepEqual(calls.removed, []);
 });
 
 test("login preflight runs inside the matching order collection lifecycle", async () => {
@@ -249,10 +265,12 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
       KidItemOrderCollectionLifecycle: {
         createIdentity: (mallKey, date) => ({ mallKey, date }),
       },
-      ensureMallLoggedIn: async (mallKey, credentials, collection) => {
-        calls.push(["ensure", mallKey, credentials, collection]);
-        return { success: false, pendingLogin: true };
-      },
+      mallSession: () => ({
+        ensureLoggedIn: async (mallKey, credentials, options) => {
+          calls.push(["ensure", mallKey, credentials, options]);
+          return { verdict: "unknown", success: false, pendingLogin: true };
+        },
+      }),
       orderCollectionLifecycle: {
         async run(message, identity, operation) {
           calls.push(["run", message, identity]);
@@ -278,7 +296,8 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
   ]);
   assert.equal(calls[1][0], "ensure");
   assert.equal(calls[1][1], "art09");
-  assert.deepEqual(calls[1][3], { runId: message.runId });
+  // vm 안에서 만든 객체라 모양만 맞춰 본다.
+  assert.deepEqual({ ...calls[1][3].collection }, { runId: message.runId });
 });
 
 test("art09 collection ignores visible orders outside the 배송준비전 state", async () => {

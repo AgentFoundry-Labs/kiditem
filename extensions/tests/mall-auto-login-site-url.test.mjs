@@ -16,6 +16,18 @@ const workerSource = readFileSync(
   new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
   "utf8",
 );
+const moduleSource = readFileSync(
+  new URL("../kiditem-os/background/orders/mall-session.js", import.meta.url),
+  "utf8",
+);
+
+function loadMallSession() {
+  const sandbox = { URL, Date, Object, Array, JSON, Error, RegExp, Promise };
+  vm.runInNewContext(moduleSource, sandbox);
+  return sandbox.KidItemMallSession;
+}
+
+const MallSession = loadMallSession();
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -32,15 +44,8 @@ function extractFunction(source, name) {
   throw new Error(`${name} closing brace not found`);
 }
 
-function savedMallLoginUrl() {
-  const context = { URL };
-  vm.createContext(context);
-  vm.runInContext(`${extractFunction(workerSource, "savedMallLoginUrl")}\nglobalThis.call = savedMallLoginUrl;`, context);
-  return context.call;
-}
-
 test("⭐ a mall without a fixed login address uses the site address saved in its account", () => {
-  const call = savedMallLoginUrl();
+  const call = MallSession.savedSiteUrl;
 
   assert.equal(call({ siteUrl: "https://alwayzseller.ilevit.com/login" }), "https://alwayzseller.ilevit.com/login");
   assert.equal(call({ siteUrl: " https://partner.shopby.co.kr/login " }), "https://partner.shopby.co.kr/login");
@@ -48,7 +53,7 @@ test("⭐ a mall without a fixed login address uses the site address saved in it
 });
 
 test("only an address the operator saved is opened — anything else is no address at all", () => {
-  const call = savedMallLoginUrl();
+  const call = MallSession.savedSiteUrl;
 
   for (const siteUrl of [undefined, null, "", "   ", "shop.example.com", "javascript:alert(1)", "data:text/html,x", 42]) {
     assert.equal(call({ siteUrl }), null, `refused: ${String(siteUrl)}`);
@@ -57,11 +62,53 @@ test("only an address the operator saved is opened — anything else is no addre
   assert.equal(call({}), null);
 });
 
-test("the login path falls back to that address and still refuses when there is none", () => {
-  const ensure = extractFunction(workerSource, "ensureMallLoggedIn");
-  assert.match(ensure, /const url = urls\[mallKey\] \|\| savedMallLoginUrl\(credentials\);/);
-  assert.match(ensure, /if \(!url\) return \{ success: true, submitted: false, reason: "unsupported_mall" \};/);
+/**
+ * 고정 로그인 주소가 없는 몰은 이제 스펙의 `loginUrl: null` 로 적힌다(KID-254).
+ * 그 몰은 저장된 사이트 주소로 들어가고, 그것도 없으면 시도하지 않는다.
+ */
+test("the login path falls back to that address and still refuses when there is none", async () => {
+  const opened = [];
+  const driver = fakeLoginDriver(opened);
+  const session = MallSession.create({ driver });
+  const credentials = { loginId: "id", password: "pw", siteUrl: "https://partner.shopby.co.kr/login" };
+
+  await session.ensureLoggedIn("thirtymall", credentials);
+  assert.deepEqual(opened, ["https://partner.shopby.co.kr/login"]);
+
+  const nowhere = await session.ensureLoggedIn("thirtymall", { loginId: "id", password: "pw" });
+  assert.equal(nowhere.reason, "unsupported_mall");
+  assert.equal(nowhere.success, true);
+  assert.equal(nowhere.submitted, false);
+  assert.deepEqual(opened, ["https://partner.shopby.co.kr/login"], "주소가 없으면 탭도 열지 않는다");
 });
+
+/** 주소를 고르는 것만 보는 가짜 드라이버 — 화면은 이미 로그인된 것으로 둔다. */
+function fakeLoginDriver(opened) {
+  let clock = 0;
+  return {
+    now: () => clock,
+    delay: async (ms) => {
+      clock += ms;
+    },
+    withTimeout: async (promise) => promise,
+    waitReady: async () => undefined,
+    ensureActive: async () => undefined,
+    cancelledResult: async () => ({ success: false, errorCode: "COLLECTION_CANCELLED" }),
+    hasPermission: async () => true,
+    openTab: async (url) => {
+      opened.push(url);
+      return { tab: { id: 1 } };
+    },
+    closeTab: async () => undefined,
+    tabUrl: async () => "",
+    watchDialogs: async () => undefined,
+    takeDialog: async () => null,
+    fillLoginForm: async () => ({ frames: [{ state: "no-login-form" }] }),
+    loginFormRemains: async () => false,
+    inspectScreen: async () => ({ href: "", frames: [] }),
+    probe: async () => ({ verdict: "unknown", reason: "no_passive_check" }),
+  };
+}
 
 test("the login test carries the saved address through and checks its type", () => {
   const start = workerSource.indexOf('if (msg?.action === "testMallLogin")');
@@ -95,11 +142,34 @@ installMallLoginDialogRecorder();`, context);
   assert.throws(() => context.window.alert("x"), /native alert/);
 });
 
-test("the login path records dialogs before filling and carries the first line back", () => {
-  const ensure = extractFunction(workerSource, "ensureMallLogin");
-  assert.match(ensure, /await recordMallLoginDialogs\(tabId\);/);
-  assert.match(ensure, /const mallMessage = await takeMallLoginDialog\(tabId\);/);
-  assert.match(ensure, /\.\.\.\(mallMessage \? \{ mallMessage \} : \{\}\)/);
+test("⭐ the login path swallows dialogs before filling and carries the first line back", async () => {
+  const order = [];
+  const driver = {
+    ...fakeLoginDriver([]),
+    watchDialogs: async () => order.push("watch"),
+    fillLoginForm: async () => {
+      order.push("fill");
+      return { frames: [{ state: "submitted", method: "exact-text" }] };
+    },
+    takeDialog: async () => {
+      order.push("take");
+      return "아이디 또는 비밀번호가 일치하지 않습니다.";
+    },
+  };
+
+  const result = await MallSession.create({ driver })
+    .ensureLoggedIn("onch", { loginId: "id", password: "pw" });
+
+  // 채우기 전에 삼켜 두지 않으면 알림 창이 그 탭을 멈춰 확인조차 못 한다.
+  assert.deepEqual(order, ["watch", "fill", "take"]);
+  assert.equal(result.mallMessage, "아이디 또는 비밀번호가 일치하지 않습니다.");
+});
+
+/** 알림 창을 삼키고 되돌리는 일은 여전히 드라이버(worker.js)의 일이다. */
+test("the driver swallows dialogs before filling and reads them back", () => {
+  const driver = extractFunction(workerSource, "createMallSessionDriver");
+  assert.match(driver, /watchDialogs: \(tabId\) => recordMallLoginDialogs\(tabId\)/);
+  assert.match(driver, /takeDialog: \(tabId\) => takeMallLoginDialog\(tabId\)/);
 });
 
 test("the dialog recorder runs in the page world — an isolated override would not be seen", () => {
