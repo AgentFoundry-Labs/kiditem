@@ -50,13 +50,17 @@ const CALL_FORMS = {
   \`);`,
 };
 
-// The two forms the scanner already covered; they must keep working.
+// Tagged-template forms. `$queryRaw` and `$queryRaw<T>` were covered from the
+// start; `$executeRaw` is the last form KID-222 brought under the same rule.
 const TAGGED_FORMS = {
   'query-raw-tagged.ts': (where) => `await tx.$queryRaw\`
     SELECT id FROM channel_listings ${where}
   \`;`,
   'query-raw-generic.ts': (where) => `await tx.$queryRaw<{ id: string }>\`
     SELECT id FROM channel_listings ${where}
+  \`;`,
+  'execute-raw-tagged.ts': (where) => `await tx.$executeRaw\`
+    UPDATE channel_listings SET synced_at = now() ${where}
   \`;`,
 };
 
