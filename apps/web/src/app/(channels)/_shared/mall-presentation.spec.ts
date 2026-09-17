@@ -4,6 +4,8 @@ import {
   mallMonogram,
   productMonogram,
   MALL_LISTING_STATE_PRESENTATION,
+  MALL_READINESS_LABEL,
+  MALL_READINESS_TONE,
 } from './mall-presentation';
 
 describe('mallAccentClass', () => {
@@ -64,5 +66,21 @@ describe('productMonogram', () => {
 
   it('몰 이름 규칙과는 다르다 — 11번가는 몰에서 숫자를 지키다', () => {
     expect(mallMonogram('11번가')).toBe('1');
+  });
+});
+
+describe('몰 준비 상태 표시', () => {
+  /**
+   * 등록 기본값을 저장하는 화면이 아직 없다(KID-235). 사람이 할 수 있는 일이 없는 것을 할 일로
+   * 부르면 몰 카드가 영원히 호박색으로 선다 — 이유만 적고 색은 '보낼 수 있다'와 같이 둔다.
+   */
+  it('⭐ 등록 기본값 없음은 할 일이 아니라 이유만 적는다', () => {
+    expect(MALL_READINESS_LABEL.needs_profile).toBe('등록 기본값을 저장하는 화면이 아직 없음');
+    expect(MALL_READINESS_TONE.needs_profile).toBe(MALL_READINESS_TONE.ready);
+  });
+
+  it('계정이 없는 몰은 여전히 사람을 부른다', () => {
+    expect(MALL_READINESS_LABEL.needs_account).toBe('계정 정보 필요');
+    expect(MALL_READINESS_TONE.needs_account).not.toBe(MALL_READINESS_TONE.ready);
   });
 });

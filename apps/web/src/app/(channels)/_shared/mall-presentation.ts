@@ -5,16 +5,23 @@ import type {
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
 
+/**
+ * 몰 카드의 준비 상태 한 줄.
+ *
+ * `needs_profile` 은 막는 것이 아니다 — 등록 기본값(`config.listingProfile`)을 저장하는 화면이
+ * 아직 없어서(KID-235) 사람이 지금 할 수 있는 일이 없다. 송신 전 점검도 이것으로는 막지
+ * 않는다. 그래서 할 일을 부르는 호박색이 아니라 '보낼 수 있다'와 같은 색으로 둔다.
+ */
 export const MALL_READINESS_LABEL: Record<MallPublishTarget['readiness'], string> = {
   ready: '송신 준비됨',
-  needs_profile: '등록 기본값 필요',
+  needs_profile: '등록 기본값을 저장하는 화면이 아직 없음',
   needs_account: '계정 정보 필요',
   unsupported: '경로 미확인',
 };
 
 export const MALL_READINESS_TONE: Record<MallPublishTarget['readiness'], string> = {
   ready: 'bg-emerald-500',
-  needs_profile: 'bg-amber-400',
+  needs_profile: 'bg-emerald-500',
   needs_account: 'bg-slate-300',
   unsupported: 'bg-slate-200',
 };

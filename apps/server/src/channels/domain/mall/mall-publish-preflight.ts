@@ -140,11 +140,17 @@ const CHECKS: Record<MallPreflightRule, RuleCheck> = {
     return `옵션이 ${product.optionNames.length}개인데 ${manifest.name} 상한은 ${limit}개입니다.`;
   },
 
+  /**
+   * 등록 기본값 게이트.
+   *
+   * 문서가 통째로 없는 것은 막지 않는다 — `config.listingProfile` 을 저장하는 화면이 아직
+   * 없어서(KID-235) 사람이 만들 길이 없다. 만들 수 없는 것을 게이트로 두면 어느 몰도 열리지
+   * 않고, 그 사실은 몰 카드의 `needs_profile` 이 이미 말한다. 문서가 있는데 필수 항목이 빈
+   * 것은 사람이 고칠 수 있으므로 계속 막는다.
+   */
   profile_selected: ({ account, manifest }) => {
     if (!account) return `${manifest.name} 계정이 없습니다. 쇼핑몰 계정 화면에서 먼저 연결하세요.`;
-    if (!account.listingProfileFields) {
-      return `${manifest.name} 계정에 등록 기본값(배송·반품·출고지)이 없습니다.`;
-    }
+    if (!account.listingProfileFields) return null;
     const filled = new Set(account.listingProfileFields);
     const missing = manifest.requiredProfileFields.filter((field) => !filled.has(field));
     return missing.length === 0

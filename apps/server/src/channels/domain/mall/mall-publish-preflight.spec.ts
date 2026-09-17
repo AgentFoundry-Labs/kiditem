@@ -82,12 +82,22 @@ describe('evaluateMallPreflight', () => {
     expect(violation?.message).toContain('반품지');
   });
 
-  it('tells a missing listing profile apart from a missing account', () => {
-    const noProfile = evaluate({}, { listingProfileFields: null }).violations
-      .find((entry) => entry.rule === 'profile_selected');
+  /**
+   * 등록 기본값 문서를 저장하는 화면이 아직 없다(KID-235). 사람이 만들 길이 없는 것을 게이트로
+   * 두면 어느 몰도 열리지 않는다 — 문서가 통째로 없는 것은 막지 않고, 계정이 없는 것은 막는다.
+   */
+  it('⭐ 등록 기본값 문서가 없는 것은 막지 않는다 — 저장할 화면이 아직 없다', () => {
+    expect(evaluate({}, { listingProfileFields: null }).violations
+      .find((entry) => entry.rule === 'profile_selected')).toBeUndefined();
+
     const noAccount = evaluate({}, null).violations.find((entry) => entry.rule === 'profile_selected');
-    expect(noProfile?.message).toContain('등록 기본값');
     expect(noAccount?.message).toContain('계정이 없습니다');
+  });
+
+  /** 문서가 있는데 필수 항목이 빈 것은 사람이 고칠 수 있다 — 그건 계속 막는다. */
+  it('문서가 있는데 필수 항목이 비면 계속 막는다', () => {
+    expect(evaluate({}, { listingProfileFields: ['shipping'] }).violations
+      .map((violation) => violation.rule)).toContain('profile_selected');
   });
 
   it('collects every violation instead of stopping at the first', () => {
