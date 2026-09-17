@@ -196,34 +196,64 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     })).toBe(1);
   });
 
-  it('proposes a keyword again once the earlier proposal was executed or rejected', async () => {
+  it('keeps an approved keyword pause open until the operator closes it, and proposes the keyword again once it is closed (KID-138 decision A)', async () => {
     const candidate = pauseCandidate((await seedKeywordTarget()).id);
     const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
 
-    const [executed] = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
-    await repository.approveAdActions([executed.id], TEST_ORGANIZATION_ID);
-    const { id: executionTaskId } = await observerPrisma.executionTask.findFirstOrThrow({
-      where: { actionId: executed.id },
-    });
-    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, {
-      status: 'running',
-      executionTaskId,
-    });
-    await expect(
-      repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]),
-    ).resolves.toEqual([]);
-    await repository.reportActionExecution(executed.id, TEST_ORGANIZATION_ID, {
-      status: 'done',
-      executionTaskId,
-    });
+    const [confirmed] = await propose();
+    await repository.approveAdActions([confirmed.id], TEST_ORGANIZATION_ID);
+    // The operator confirmed the pause and applies it in the ad center, so
+    // another judgement run proposes nothing for the keyword.
+    await expect(propose()).resolves.toEqual([]);
 
-    const [rejected] = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
-    expect(rejected).toBeDefined();
-    await repository.rejectAdActions([rejected.id], TEST_ORGANIZATION_ID);
+    // Closing it on the keyword tab is a rejection, which releases the keyword.
+    await repository.rejectAdActions([confirmed.id], TEST_ORGANIZATION_ID);
+    const [reproposed] = await propose();
+    expect(reproposed).toMatchObject({
+      approvalStatus: 'pending_review',
+      externalId: candidate.externalId,
+      targetLabel: candidate.targetLabel,
+    });
+    expect(reproposed.id).not.toBe(confirmed.id);
 
-    await expect(
-      repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]),
-    ).resolves.toHaveLength(1);
+    // Rejecting a proposal before approval releases the keyword too.
+    await repository.rejectAdActions([reproposed.id], TEST_ORGANIZATION_ID);
+    await expect(propose()).resolves.toHaveLength(1);
+  });
+
+  it('releases a keyword whose approved pause ran before decision A, and keeps one whose earlier attempt failed', async () => {
+    const adTargetDailyId = (await seedKeywordTarget()).id;
+    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const paused = { ...pauseCandidate(adTargetDailyId), targetLabel: '이미 끈 키워드' };
+    const unpaused = { ...pauseCandidate(adTargetDailyId), targetLabel: '못 끈 키워드' };
+    // Before decision A the extension still executed keyword pauses. Executors
+    // can no longer report, so these attempts are written directly.
+    for (const [candidate, attempt] of [
+      [paused, { status: 'done', finishedAt: new Date() }],
+      [unpaused, { status: 'failed', finishedAt: new Date(), errorMessage: '대상 행을 찾지 못했습니다' }],
+    ] as const) {
+      await observerPrisma.adAction.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          actionType: candidate.actionType,
+          targetType: candidate.targetType,
+          externalId: candidate.externalId,
+          targetLabel: candidate.targetLabel,
+          reason: candidate.reason,
+          approvalStatus: 'approved',
+          approvedAt: new Date(),
+          executionTasks: { create: attempt },
+        },
+      });
+    }
+
+    const created = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [
+      paused,
+      unpaused,
+    ]);
+
+    expect(created.map((action) => action.targetLabel)).toEqual(['이미 끈 키워드']);
   });
 });
 

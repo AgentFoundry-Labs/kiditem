@@ -1,13 +1,15 @@
 /**
  * ExecutionTask lifecycle of an approved ad action. The action's execution
  * state is its latest task (`read/ad-action-execution.ts`); this policy decides
- * which browser execution reports may move that task.
+ * which browser execution reports may move that task, and which action types
+ * the extension never applies (`MANUAL_AD_ACTION_TYPES`).
  *
  * - `queued`: approved and waiting for the browser extension.
  * - `running`: the extension reported that it started. It stays open only
  *   until its execution deadline.
  * - `done` / `failed`: the extension reported the outcome, or the attempt was
- *   closed after its deadline passed.
+ *   closed after its deadline passed. An approved manual action's attempt is
+ *   recorded `failed` with `MANUAL_AD_ACTION_MESSAGE` and never queued.
  * - `cancelled`: the action was rejected before its attempt started.
  */
 export const EXECUTION_TASK_STATUSES = [
@@ -36,6 +38,34 @@ export const EXECUTION_TASK_RUNNING_DEADLINE_MS = 30 * 60 * 1000;
 
 /** The failure message of a running attempt closed after its deadline. */
 export const EXECUTION_DEADLINE_EXCEEDED_MESSAGE = '실행 기한 초과';
+
+/**
+ * Ad actions the browser extension never applies to Coupang (KID-138 decision
+ * A, 2026-09-17). Approving one records the operator's confirmation that the
+ * proposal is right; the operator applies the change in the Coupang ad center
+ * by hand. Approval therefore queues no attempt for these types, and the server
+ * refuses an executor's running or done report for one.
+ *
+ * Why: the executor could not locate these targets in the ad center. The
+ * campaign list it opened is a div grid with campaign-level switches only, and
+ * it matched table rows by text containment, so every such action ended "대상
+ * 행을 찾지 못했습니다" and a match could have hit the wrong row.
+ *
+ * A new executor for one of these types is added by removing its type here.
+ */
+export const MANUAL_AD_ACTION_TYPES = [
+  'pause_keyword',
+  'change_bid',
+  'change_daily_budget',
+] as const;
+
+/** The failure message a manual action's attempt carries. */
+export const MANUAL_AD_ACTION_MESSAGE =
+  '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
+
+export function isManualAdActionType(actionType: string): boolean {
+  return (MANUAL_AD_ACTION_TYPES as readonly string[]).includes(actionType);
+}
 
 export interface ExecutionTaskTiming {
   status: string;
@@ -83,15 +113,23 @@ export interface ExecutionReportTarget {
 }
 
 /**
- * - `apply`: move the latest task to the reported status.
- * - `replay`: the latest task already has that outcome; a repeated done or
- *   failed report changes nothing.
+ * Decided in this order:
+ *
  * - `not_latest_attempt`: the report names an attempt that is not the action's
  *   latest. A newer attempt replaced it (or the action never had one), and a
  *   report for the old attempt must not move the new one.
  * - `expired`: the report names the latest attempt, but it is running past its
  *   deadline. The report is refused and the attempt is closed as failed, so
- *   approving the action again queues a new one.
+ *   approving the action again adds a new one.
+ * - `manual_action`: a running or done report for an action of a
+ *   `MANUAL_AD_ACTION_TYPES` type. No executor may apply it, so the report is
+ *   refused, and a queued attempt (one left from an approval before KID-138
+ *   decision A) is closed as failed with `MANUAL_AD_ACTION_MESSAGE`. A failure
+ *   report for such an action changes nothing in the ad center and follows the
+ *   rules below.
+ * - `apply`: move the latest task to the reported status.
+ * - `replay`: the latest task already has that outcome; a repeated done or
+ *   failed report changes nothing.
  * - `invalid_transition`: the report names the latest attempt but is not the
  *   executor's to make — the attempt was cancelled, a different outcome is
  *   already recorded, or it is already running. The extension never repeats a
@@ -104,9 +142,11 @@ export type ExecutionReportDecision =
   | 'replay'
   | 'not_latest_attempt'
   | 'expired'
+  | 'manual_action'
   | 'invalid_transition';
 
 export function resolveExecutionReport(
+  actionType: string,
   latestTask: ({ id: string } & ExecutionTaskTiming) | null,
   report: ExecutionReportTarget,
   now: Date,
@@ -115,6 +155,9 @@ export function resolveExecutionReport(
     return 'not_latest_attempt';
   }
   if (isExpiredRunningExecutionTask(latestTask, now)) return 'expired';
+  if (isManualAdActionType(actionType) && report.status !== 'failed') {
+    return 'manual_action';
+  }
   if (latestTask.status === 'queued') return 'apply';
   if (latestTask.status === 'running') {
     return report.status === 'running' ? 'invalid_transition' : 'apply';

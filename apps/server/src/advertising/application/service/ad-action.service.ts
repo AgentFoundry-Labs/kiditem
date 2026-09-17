@@ -38,6 +38,11 @@ const ACTION_DEDUP_HOURS = 24;
  * Rejecting cancels a queued attempt. It is refused while an attempt runs
  * within its deadline, since that executor may already be changing Coupang,
  * and once the latest attempt is done, since Coupang already changed.
+ *
+ * Keyword pauses, bid changes and daily budget changes are applied by hand in
+ * the ad center (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A). Approving one
+ * records a failed attempt that says so instead of queuing it, and the
+ * extension's running or done report for one is refused.
  */
 @Injectable()
 export class AdActionService {

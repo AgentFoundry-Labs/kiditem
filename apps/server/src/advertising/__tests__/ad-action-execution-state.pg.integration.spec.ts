@@ -291,36 +291,55 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     ).toMatchObject({ status: 'running', finishedAt: null, errorMessage: null });
   });
 
-  it('keeps a proposal open for dedupe only while its latest task is queued or running within its deadline', async () => {
-    await seedAction('pending', { approvalStatus: 'pending_review' });
-    await seedTask(await seedAction('queued'), { status: 'queued', createdAt: at(1) });
-    await seedTask(await seedAction('running'), {
-      status: 'running',
-      createdAt: at(1),
-      startedAt: new Date(Date.now() - 60 * 1000),
-    });
-    await seedTask(await seedAction('running-expired'), {
-      status: 'running',
-      createdAt: at(1),
-      startedAt: new Date(Date.now() - 31 * 60 * 1000),
-    });
-    await seedTask(await seedAction('done'), { status: 'done', createdAt: at(1) });
-    await seedTask(await seedAction('failed'), { status: 'failed', createdAt: at(1) });
-    const retried = await seedAction('retried');
-    await seedTask(retried, { status: 'failed', createdAt: at(1) });
-    await seedTask(retried, { status: 'queued', createdAt: at(2) });
-    await seedTask(await seedAction('rejected', { approvalStatus: 'rejected' }), {
-      status: 'cancelled',
-      createdAt: at(1),
-    });
-    await seedAction('stale', {
-      approvalStatus: 'pending_review',
-      createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
-    });
-    await seedAction('foreign', {
-      approvalStatus: 'pending_review',
-      organizationId: OTHER_ORGANIZATION_ID,
-    });
+  it('keeps a proposal open for dedupe while it awaits review or its latest task is queued or running within its deadline, and an approved action applied by hand until it is done or rejected (KID-138)', async () => {
+    // Campaign registration is executed by the extension; a bid change is
+    // applied by hand in the ad center (KID-138 decision A).
+    for (const [prefix, actionType, targetType] of [
+      ['campaign', 'create_campaign', 'campaign'],
+      ['bid', 'change_bid', 'keyword'],
+    ] as const) {
+      const action = (label: string, overrides: Parameters<typeof seedAction>[1] = {}) =>
+        seedAction(`${prefix} ${label}`, { actionType, targetType, ...overrides });
+      await action('pending', { approvalStatus: 'pending_review' });
+      await action('approved-without-attempt');
+      await seedTask(await action('queued'), { status: 'queued', createdAt: at(1) });
+      await seedTask(await action('running'), {
+        status: 'running',
+        createdAt: at(1),
+        startedAt: new Date(Date.now() - 60 * 1000),
+      });
+      await seedTask(await action('running-expired'), {
+        status: 'running',
+        createdAt: at(1),
+        startedAt: new Date(Date.now() - 31 * 60 * 1000),
+      });
+      await seedTask(await action('done'), { status: 'done', createdAt: at(1) });
+      await seedTask(await action('failed'), {
+        status: 'failed',
+        createdAt: at(1),
+        errorMessage: 'row not found',
+      });
+      const retried = await action('retried');
+      await seedTask(retried, { status: 'failed', createdAt: at(1) });
+      await seedTask(retried, { status: 'queued', createdAt: at(2) });
+      // The approval was closed after its attempt failed.
+      await seedTask(await action('rejected-after-failure', { approvalStatus: 'rejected' }), {
+        status: 'failed',
+        createdAt: at(1),
+      });
+      await seedTask(await action('rejected', { approvalStatus: 'rejected' }), {
+        status: 'cancelled',
+        createdAt: at(1),
+      });
+      await action('stale', {
+        approvalStatus: 'pending_review',
+        createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+      await action('foreign', {
+        approvalStatus: 'pending_review',
+        organizationId: OTHER_ORGANIZATION_ID,
+      });
+    }
 
     const inflight = await repository.findExistingInflightActions(
       TEST_ORGANIZATION_ID,
@@ -328,10 +347,18 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     );
 
     expect(inflight.map((row) => row.targetLabel).sort()).toEqual([
-      'pending',
-      'queued',
-      'retried',
-      'running',
+      'bid approved-without-attempt',
+      'bid failed',
+      'bid pending',
+      'bid queued',
+      'bid retried',
+      'bid running',
+      'bid running-expired',
+      'campaign approved-without-attempt',
+      'campaign pending',
+      'campaign queued',
+      'campaign retried',
+      'campaign running',
     ]);
   });
 
@@ -493,6 +520,51 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       'VID-1:미미': unmarked,
       'VID-2:콩순이': unmarked,
     });
+  });
+
+  it('reads an approved keyword pause as failed with the message to pause it by hand, and nothing once the operator closes it (KID-138 decision A)', async () => {
+    await seedKeywordCollection([['VID-1', '콩순이']]);
+    const proposal = await seedAction('콩순이', {
+      actionType: 'pause_keyword',
+      targetType: 'keyword',
+      externalId: 'VID-1',
+      reason: '콩순이 연관 없음',
+      approvalStatus: 'pending_review',
+    });
+    const service = new AdCampaignsService(
+      new AdCampaignRepositoryAdapter(prisma as never),
+      new AdListingRepositoryAdapter(prisma as never),
+      repository,
+      {} as never,
+    );
+    const readKeyword = async () => {
+      const { keywords } = await service.getKeywords('7d', TEST_ORGANIZATION_ID);
+      return keywords.map((row) => ({
+        keyword: row.keyword,
+        relevance: row.relevance,
+        pauseProposal: row.pauseProposal,
+      }));
+    };
+
+    await expect(repository.approveAdActions([proposal], TEST_ORGANIZATION_ID)).resolves.toBe(1);
+    expect(await readKeyword()).toEqual([
+      {
+        keyword: '콩순이',
+        relevance: 'irrelevant',
+        pauseProposal: {
+          actionId: proposal,
+          approvalStatus: 'approved',
+          executeStatus: 'failed',
+          errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
+        },
+      },
+    ]);
+
+    // Closing it on the keyword tab sends a rejection.
+    await expect(repository.rejectAdActions([proposal], TEST_ORGANIZATION_ID)).resolves.toBe(1);
+    expect(await readKeyword()).toEqual([
+      { keyword: '콩순이', relevance: null, pauseProposal: null },
+    ]);
   });
 
   it('treats a create_campaign name as taken while its latest task is queued, running within its deadline, or done', async () => {

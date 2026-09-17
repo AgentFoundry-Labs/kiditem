@@ -29,7 +29,10 @@ import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber
 import {
   EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
   isExpiredRunningExecutionTask,
+  isManualAdActionType,
   isOpenExecutionTask,
+  MANUAL_AD_ACTION_MESSAGE,
+  MANUAL_AD_ACTION_TYPES,
   resolveExecutionReport,
   type ExecutionReportDecision,
 } from '../../../domain/execution-task-lifecycle';
@@ -53,6 +56,31 @@ const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
 const OPEN_ACTION_APPROVAL_STATUS_VALUES = Prisma.join(
   OPEN_ACTION_APPROVAL_STATUSES.map((status) => Prisma.sql`${status}`),
 );
+const MANUAL_AD_ACTION_TYPE_VALUES = Prisma.join(
+  MANUAL_AD_ACTION_TYPES.map((actionType) => Prisma.sql`${actionType}`),
+);
+
+/**
+ * An `ad_actions action` row still open as work, which a new proposal for the
+ * same target must not duplicate: awaiting review, or approved with its latest
+ * attempt queued or running within its deadline. An approved manual action
+ * (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A) is applied by hand in the ad
+ * center, so it stays open until the operator closes it by rejecting it; only
+ * a done attempt from before decision A, or a rejection, releases it. No
+ * failure message is compared. Requires `LATEST_EXECUTION_TASK_JOIN`.
+ */
+function openActionCondition(now: Date): Prisma.Sql {
+  return Prisma.sql`(
+    action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+    AND (
+      ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
+      OR (
+        action.action_type IN (${MANUAL_AD_ACTION_TYPE_VALUES})
+        AND NOT (${derivedExecuteStatusIn(['done'], now)})
+      )
+    )
+  )`;
+}
 
 /** Every AdAction column except the execution words its latest task supplies. */
 const AD_ACTION_ROW_SELECT = {
@@ -348,8 +376,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       ${LATEST_EXECUTION_TASK_JOIN}
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.created_at >= ${sinceCreatedAt}::timestamptz
-        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
+        AND ${openActionCondition(new Date())}
     `);
   }
 
@@ -432,6 +459,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       if (pauseKeywordCandidates.length > 0) {
         // Prevent two concurrent strategy runs from both seeing "no open action"
         // and inserting duplicate pause_keyword proposals for the same tenant.
+        // An approved pause stays open until the operator closes it
+        // (`openActionCondition`), so a confirmed keyword is not proposed again.
         await tx.$queryRaw(
           Prisma.sql`
             SELECT pg_advisory_xact_lock(
@@ -450,8 +479,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           WHERE action.organization_id = ${organizationId}::uuid
             AND action.action_type = 'pause_keyword'
             AND action.target_type = 'keyword'
-            AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-            AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
+            AND ${openActionCondition(now)}
             AND (${Prisma.join(
               pauseKeywordCandidates.map((candidate) => Prisma.sql`(
                 action.external_id IS NOT DISTINCT FROM ${candidate.externalId}::text
@@ -520,16 +548,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
       const scopedActions = await tx.adAction.findMany({
         where: { id: { in: ids }, organizationId },
-        select: { id: true },
+        select: { id: true, actionType: true },
       });
       const scopedIds = scopedActions.map((a) => a.id);
       if (scopedIds.length === 0) return 0;
 
-      // Approval queues a new attempt unless the latest one is still open. A
-      // failed or done attempt stays as evidence and the new queued task
-      // becomes the latest, so a failed action reads queued again. A running
-      // attempt past its execution deadline is closed as failed first: its
-      // executor stopped, and the extension never writes to Coupang that late.
+      // Approval adds a new attempt unless the latest one is still open. A
+      // failed or done attempt stays as evidence and the new task becomes the
+      // latest. A running attempt past its execution deadline is closed as
+      // failed first: its executor stopped, and the extension never writes to
+      // Coupang that late.
+      // The new attempt is queued for the browser extension, so a failed
+      // action reads queued again, except for a manual action
+      // (KID-138 decision A): the operator applies it in the ad center, so its
+      // attempt is recorded failed with the message saying so and never enters
+      // the executor queue.
       const now = new Date();
       const latestTasks = await readLatestExecutionTasks(tx, {
         organizationId,
@@ -551,9 +584,13 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           data: expiredAttemptClosure(now),
         });
       }
-      const toCreate = scopedIds
-        .filter((id) => !isOpenExecutionTask(latestTasks.get(id) ?? null, now))
-        .map((id) => ({ actionId: id, status: 'queued' }));
+      const toCreate: Prisma.ExecutionTaskCreateManyInput[] = scopedActions
+        .filter(({ id }) => !isOpenExecutionTask(latestTasks.get(id) ?? null, now))
+        .map(({ id, actionType }) =>
+          isManualAdActionType(actionType)
+            ? { actionId: id, ...manualAttemptClosure(now) }
+            : { actionId: id, status: 'queued' },
+        );
 
       if (toCreate.length > 0) {
         await tx.executionTask.createMany({ data: toCreate });
@@ -684,7 +721,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const now = new Date();
       const action = await tx.adAction.findFirst({
         where: { id, organizationId },
-        select: { id: true },
+        select: { id: true, actionType: true },
       });
       if (!action) throw new NotFoundException('AdAction not found');
 
@@ -696,7 +733,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       // A report moves only the attempt it names, and only while that attempt
       // is the action's latest: an older attempt's late report never moves a
       // retry queued or running after it.
-      const decision = resolveExecutionReport(latest, report, now);
+      const decision = resolveExecutionReport(action.actionType, latest, report, now);
       if (decision === 'replay') return null;
       if (decision === 'expired' && latest) {
         // The executor reports after its attempt's deadline. The attempt is
@@ -705,6 +742,20 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           where: { id: latest.id, actionId: action.id, status: 'running' },
           data: expiredAttemptClosure(now),
         });
+        return executionReportConflict(decision, latest, report);
+      }
+      if (decision === 'manual_action' && latest) {
+        // No executor applies a manual action (KID-138 decision A). A queued
+        // attempt, such as one data migration 011 left from an earlier
+        // approval, is closed here so it leaves the executor queue, and the
+        // report is refused once that commits. Compare-and-set on queued: an
+        // attempt that already runs is left to its deadline.
+        if (latest.status === 'queued') {
+          await tx.executionTask.updateMany({
+            where: { id: latest.id, actionId: action.id, status: 'queued' },
+            data: manualAttemptClosure(now),
+          });
+        }
         return executionReportConflict(decision, latest, report);
       }
       if (decision !== 'apply' || !latest) {
@@ -800,9 +851,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
 // 409 codes of a refused execution report, so the executor and an operator can
 // tell a report for a replaced attempt, one for an attempt past its deadline,
-// and one the attempt cannot take apart.
+// one for an action applied by hand, and one the attempt cannot take apart.
 const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
 const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
+// The action is applied by hand in the ad center (KID-138 decision A); the extension counts this refusal apart.
+const EXECUTION_REPORT_MANUAL_ACTION = 'EXECUTION_REPORT_MANUAL_ACTION';
 const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
 // 409 codes of a refused rejection: an attempt running within its deadline may
 // already be changing Coupang, and a done attempt already changed it.
@@ -833,6 +886,22 @@ function expiredAttemptClosure(now: Date): Prisma.ExecutionTaskUpdateManyMutatio
   };
 }
 
+/**
+ * How a manual action's attempt is recorded: the one an approval adds, and a
+ * queued one an executor tried to claim. It never started.
+ */
+function manualAttemptClosure(now: Date): {
+  status: 'failed';
+  finishedAt: Date;
+  errorMessage: string;
+} {
+  return {
+    status: 'failed',
+    finishedAt: now,
+    errorMessage: MANUAL_AD_ACTION_MESSAGE,
+  };
+}
+
 function executionReportConflict(
   decision: ExecutionReportDecision,
   latest: { status: string } | null,
@@ -848,6 +917,12 @@ function executionReportConflict(
     return new ConflictException({
       code: EXECUTION_TASK_EXPIRED,
       message: '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.',
+    });
+  }
+  if (decision === 'manual_action') {
+    return new ConflictException({
+      code: EXECUTION_REPORT_MANUAL_ACTION,
+      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
     });
   }
   return new ConflictException({

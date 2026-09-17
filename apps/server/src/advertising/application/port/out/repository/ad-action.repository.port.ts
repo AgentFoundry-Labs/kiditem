@@ -161,6 +161,13 @@ export interface AdActionRepositoryPort {
 
   findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]>;
 
+  /**
+   * Actions created since `sinceCreatedAt` that are still open work: awaiting
+   * review, or approved with the latest attempt queued or running within its
+   * execution deadline. An approved action of a type the operator applies by
+   * hand (`MANUAL_AD_ACTION_TYPES`) stays open until it is rejected or its
+   * latest attempt is done.
+   */
   findExistingInflightActions(
     organizationId: string,
     sinceCreatedAt: Date,
@@ -178,16 +185,26 @@ export interface AdActionRepositoryPort {
   ): Promise<KeywordPauseProposalRow[]>;
 
   // Writes
+  /**
+   * Insert the candidates as proposals awaiting review. A `pause_keyword`
+   * candidate is skipped when its keyword already has an open proposal, under
+   * the same open-work rule as `findExistingInflightActions`, so a pause the
+   * operator approved is not proposed again until it is rejected.
+   */
   createAdActionsFromCandidates(
     organizationId: string,
     candidates: ActionCandidate[],
   ): Promise<AdActionRecord[]>;
 
   /**
-   * Approve and, in the same $transaction, queue a new ExecutionTask for each
+   * Approve and, in the same $transaction, add a new ExecutionTask for each
    * action whose latest task is not open (queued, or running within its
    * execution deadline). A running task past its deadline is closed as failed
-   * first. Returns how many distinct actions of the organization the ids name.
+   * first. The new task is queued for the browser extension, except for an
+   * action of a `MANUAL_AD_ACTION_TYPES` type (KID-138 decision A): approval
+   * records the operator's confirmation, and the task is recorded failed with
+   * `MANUAL_AD_ACTION_MESSAGE` so it never reaches the executor queue. Returns
+   * how many distinct actions of the organization the ids name.
    */
   approveAdActions(ids: string[], organizationId: string): Promise<number>;
 
@@ -205,8 +222,10 @@ export interface AdActionRepositoryPort {
    * NotFoundException for an action outside the organization and
    * ConflictException, with a `code` saying why, when the named attempt is not
    * the action's latest, is running past its execution deadline (it is then
-   * closed as failed), or cannot take the report; repeating the recorded
-   * status changes nothing.
+   * closed as failed), belongs to an action the operator applies by hand and
+   * the report is running or done (`EXECUTION_REPORT_MANUAL_ACTION`; a queued
+   * attempt is then closed as failed with `MANUAL_AD_ACTION_MESSAGE`), or
+   * cannot take the report; repeating the recorded status changes nothing.
    */
   reportActionExecution(
     id: string,
