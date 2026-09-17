@@ -27,6 +27,7 @@ npm run test:scripts
 | `scripts/check-agents-hygiene.mjs` | CLAUDE instruction hygiene gate and legacy AGENTS detector | `npm run check:agents-hygiene` |
 | `scripts/check-business-date-arithmetic.mjs` | server business dates come from `apps/server/src/common/kst.ts`: millisecond-day arithmetic elsewhere in non-test server code fails unless the file records it as a non-business-date duration or a named follow-up, with a line ceiling that only ratchets down | `npm run check:business-date-arithmetic` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
+| `scripts/check-cross-owner-fk.mjs` | ADR-0013 cross-owner reference gate: a `@relation` between two domain owners must be on the allowlist in `scripts/cross-owner-fk.json`, and an allowlist entry whose relation is gone fails as stale. Organization/user scope, relations inside one owner, and `SourceImportRun` keep their foreign keys | `npm run check:cross-owner-fk` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-identifier-contracts.mjs` | canonical resource-name and identifier-class boundary gate | `npm run check:identifier-contracts` |
