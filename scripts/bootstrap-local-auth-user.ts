@@ -2,11 +2,12 @@
 import 'dotenv/config';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { hashAuthPassword } from '../apps/server/src/auth/domain/auth-credentials';
 import { assertLocalDevelopmentDatabase } from './_shared/local-development-database';
+import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export type LocalAuthBootstrapArgs = Readonly<{
   email: string;
@@ -38,6 +39,20 @@ type LocalAuthTransaction = {
 type LocalAuthPrisma = {
   $transaction<T>(callback: (tx: LocalAuthTransaction) => Promise<T>): Promise<T>;
 };
+
+/** Initializes an organization inside the bootstrap transaction. */
+export type LocalAuthOrganizationInitializer = (
+  tx: LocalAuthTransaction,
+  organizationId: string,
+) => Promise<unknown>;
+
+// main() passes a real PrismaClient, so the transaction is a full
+// Prisma.TransactionClient; LocalAuthTransaction only narrows it for tests.
+const installCurrentAbcFormula: LocalAuthOrganizationInitializer = (tx, organizationId) =>
+  ensureAbsoluteProductAbcFormulaForOrganization(
+    tx as unknown as Prisma.TransactionClient,
+    organizationId,
+  );
 
 export function parseLocalAuthBootstrapArgs(argv: readonly string[]): LocalAuthBootstrapArgs {
   if (argv.includes('--password')) throw new Error('password argv values are forbidden');
@@ -100,6 +115,7 @@ export function buildLocalAuthBootstrapPlan(
 export async function bootstrapLocalAuthUser(
   prisma: LocalAuthPrisma,
   plan: LocalAuthBootstrapPlan,
+  initializeOrganization: LocalAuthOrganizationInitializer = installCurrentAbcFormula,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const organization = await tx.organization.upsert({
@@ -134,6 +150,7 @@ export async function bootstrapLocalAuthUser(
         ...plan.membership,
       },
     });
+    await initializeOrganization(tx, organization.id);
     await tx.authSession.updateMany({
       where: { userId: user.id, revokedAt: null },
       data: { revokedAt: plan.membership.lastSelectedAt },

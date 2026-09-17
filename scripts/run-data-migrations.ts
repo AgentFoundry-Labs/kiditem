@@ -19,6 +19,10 @@ import {
   dataMigrations,
   retiredDataMigrations,
 } from './data-migrations/index';
+import {
+  runEnsureSteps,
+  selectEnsureStepsForPhase,
+} from './data-migrations/ensure/index';
 import type {
   DataMigrationTarget,
   DataMigration,
@@ -341,7 +345,7 @@ async function commandUp(args: CliArgs): Promise<void> {
   const releaseVersion = await appReleaseVersion();
   const schemaGitSha = await gitSha();
   const schemaHash = await prismaSchemaHash();
-  const results: Array<{ migrationId: string; status: string; affectedRows: number }> = [];
+  const results: Array<{ migrationId: string; status: string; affectedRows: number; details?: Record<string, unknown> }> = [];
   try {
     await prisma.$connect();
     if (!(await dataMigrationRunsTableExists(prisma))) {
@@ -357,6 +361,14 @@ async function commandUp(args: CliArgs): Promise<void> {
     });
     sourceDrift = applied.sourceDrift;
     results.push(...applied.results);
+    // Ensure steps follow every post-schema or `all` run, whatever the release filter selected.
+    // They are not ledger rows, so they have no source identity and never count as source drift.
+    results.push(...await runEnsureSteps(
+      prisma,
+      selectEnsureStepsForPhase(phase),
+      { target },
+      transactionTimeoutMs,
+    ));
   } finally {
     await prisma.$disconnect();
   }

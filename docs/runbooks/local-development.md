@@ -148,8 +148,12 @@ It creates or updates exactly:
 
 - one active `Organization` (default name `KidItem Dev` and slug
   `kiditem-dev`);
-- one active human `User` with a scrypt password hash; and
-- one active admin `OrganizationMembership` selected for the user.
+- one active human `User` with a scrypt password hash;
+- one active admin `OrganizationMembership` selected for the user; and
+- when the organization has none, the current absolute ABC formula and a
+  formula state attached to it, the same rows `data:migrate -- up` ensures
+  for every organization
+  ([ensure steps](../../scripts/data-migrations/README.md#ensure-steps)).
 
 Rerunning with the same email/organization is idempotent and revokes that
 user's prior sessions. It does not create an `AuthSession`; a session is created
