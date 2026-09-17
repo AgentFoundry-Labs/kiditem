@@ -100,7 +100,7 @@ function supplierCodeProblem(raw: string | undefined): string | null {
     : 'GS샵 협력사 상품코드는 영문·숫자·-_() 20자 이내여야 합니다.';
 }
 
-export const gsshopAdapter: MallPublishAdapter = {
+export const gsShopAdapter: MallPublishAdapter = {
   mallKey: 'gs-shop',
   mallName: 'GS샵',
   mode: 'form',
@@ -205,7 +205,7 @@ export const gsshopAdapter: MallPublishAdapter = {
       ...(supplierProductCode ? { supplierProductCode } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('gsshop', draft, form);
+    const result = await fillMallRegistrationForm('gs-shop', draft, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. [전체저장] 은 사람이 누르고, 그 뒤 GS MD 승인이 남는다.

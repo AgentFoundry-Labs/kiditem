@@ -47,7 +47,7 @@ vi.mock('next/link', () => ({
 function channel(overrides: Record<string, unknown> = {}) {
   return {
     mallKey: 'coupang',
-    mallName: '쿠팡(마켓플레이스)',
+    mallName: '쿠팡 WING',
     channelAccountId: 'acc-1',
     canPublish: true,
     hasCredentials: true,
@@ -211,7 +211,7 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
 
   it('가져온 몰은 등록 상품 수를 보여준다', () => {
     render(<MallChannelsPage />);
-    const coupang = card('쿠팡(마켓플레이스)');
+    const coupang = card('쿠팡 WING');
     expect(within(coupang).getByText('456')).toBeInTheDocument();
     expect(within(coupang).getByTitle('리스팅 1,230개 · 주문 0건')).toBeInTheDocument();
   });
@@ -226,8 +226,8 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
   it('⭐ 되는 일은 초록, 아직은 회색, 개념이 없는 일은 빨강이다', () => {
     overview = fourMalls();
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '상품등록 됨' })).toBeInTheDocument();
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '주문수집 아직' })).toBeInTheDocument();
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '상품등록 됨' })).toBeInTheDocument();
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '주문수집 아직' })).toBeInTheDocument();
     expect(within(card('키즈노트')).getByRole('img', { name: '주문수집 됨' })).toBeInTheDocument();
     expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 불가' })).toBeInTheDocument();
     expect(within(card('토스쇼핑')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
@@ -240,7 +240,7 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
   it('⭐ 상품상태송신은 아직 초록이 없다 — 사입 채널만 불가, 나머지는 아직', () => {
     overview = fourMalls();
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '상품상태송신 아직' })).toHaveAttribute(
+    expect(within(card('쿠팡 WING')).getByRole('img', { name: '상품상태송신 아직' })).toHaveAttribute(
       'title',
       '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.',
     );
@@ -290,16 +290,23 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     expect(order).toEqual(['온채널', '키즈노트', '토스쇼핑']);
   });
 
-  it('매니페스트를 못 받으면 없는 일로 단정하지 않는다 — 빨강 대신 회색', () => {
+  /**
+   * '그 일이 없다'(빨강)는 채널 레지스트리가 답한다 — 매니페스트를 못 받아도 사입 채널은
+   * 사입 채널이다(KID-250). 못 받아서 모르는 것은 몰 방식(품절 사연)뿐이고, 등록 경로가
+   * 확인 전인 몰은 여전히 '아직' 이다.
+   */
+  it('⭐ 매니페스트를 못 받아도 사입 채널은 빨강, 확인 전 몰은 회색이다', () => {
     manifests = undefined;
     overview = {
-      shop: { productCount: 1, connectedChannelCount: 1, publishableChannelCount: 0 },
-      channels: [idle('rocket', '쿠팡 로켓')],
+      shop: { productCount: 1, connectedChannelCount: 2, publishableChannelCount: 0 },
+      channels: [idle('rocket', '쿠팡 로켓'), idle('toss', '토스쇼핑')],
     };
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품상태송신 아직' })).toBeInTheDocument();
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '재고송신 아직' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 불가' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '재고송신 불가' })).toBeInTheDocument();
+    expect(within(card('토스쇼핑')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
+    expect(within(card('토스쇼핑')).getByRole('img', { name: '상품상태송신 아직' })).toBeInTheDocument();
+    expect(within(card('토스쇼핑')).getByRole('img', { name: '재고송신 아직' })).toBeInTheDocument();
   });
 
   it('없는 기능을 버튼으로 만들지 않는다 — 채널 추가 대신 계정 설정으로 보낸다', () => {

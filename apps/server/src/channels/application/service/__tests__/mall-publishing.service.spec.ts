@@ -91,17 +91,19 @@ describe('MallPublishingService.listTargets', () => {
     expect(elevenSt?.readiness).toBe('unsupported');
   });
 
-  it('resolves a marketplace by its own channel row', async () => {
+  /**
+   * 마켓 판매자 시스템은 몰 등록 마법사에 서지 않는다(KID-250). 계정 행이 있어도 몰 카드가
+   * 생기지 않아야, 고를 수 없는 몰을 고르게 되는 화면이 되지 않는다.
+   */
+  it('⭐ 마켓 판매자 시스템은 몰 카드가 되지 않는다', async () => {
     const service = buildService({
       mallAccounts: [mallAccount({
         mallKey: 'coupang', channelAccountId: 'wing-1', name: 'Coupang Wing', listingProfile: null,
       })],
     });
-    const coupang = (await service.listTargets(ORG))
-      .find((target) => target.manifest.key === 'coupang');
-    expect(coupang?.readiness).toBe('needs_profile');
-    expect(coupang?.channelAccountId).toBe('wing-1');
-    expect(coupang?.hasListingProfile).toBe(false);
+    const targets = await service.listTargets(ORG);
+    expect(targets.map((target) => target.manifest.key)).not.toContain('coupang');
+    expect(targets.map((target) => target.manifest.key)).not.toContain('rocket');
   });
 
   it('becomes ready only once the account carries a listing profile', async () => {

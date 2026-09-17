@@ -55,7 +55,7 @@ function parsePositive(raw: string | undefined, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }
 
-export const alwayzAdapter: MallPublishAdapter = {
+export const alwaysAdapter: MallPublishAdapter = {
   mallKey: 'always',
   mallName: '올웨이즈',
   mode: 'form',
@@ -110,7 +110,7 @@ export const alwayzAdapter: MallPublishAdapter = {
       teamPrice: parsePositive(values.teamPrice, 0),
       ...(values.categoryPath?.trim() ? { categoryPath: values.categoryPath.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('alwayz', draft, form);
+    const result = await fillMallRegistrationForm('always', draft, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. 사람이 제출해야 등록이다.

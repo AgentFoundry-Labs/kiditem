@@ -107,7 +107,7 @@ export interface MallPublishAdapter {
    * `always`, `teacher-mall` …).
    *
    * 화면은 이 키로 계정을 찾아 불을 켜고 로고를 고른다. 확장에 넘기는 키
-   * (`fillMallRegistrationForm('artgonggu', …)`)와는 다른 이름일 수 있다 —
+   * (`fillMallRegistrationForm('art09', …)`)와는 다른 이름일 수 있다 —
    * 그건 확장 안의 폼 스펙 이름이다. 둘을 섞으면 계정이 있는데도 카드가
    * 빨강으로 남고, 등록현황 표에서 그 몰의 열이 통째로 비어 보인다.
    */

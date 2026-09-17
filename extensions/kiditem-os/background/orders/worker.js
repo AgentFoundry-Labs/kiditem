@@ -7701,7 +7701,15 @@ KidItemDomains.register({
     kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
     // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
     mallFormRegister: true,
-    mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st", "icecream"],
+    // 실제로 채울 수 있는 폼 목록 그대로. 손으로 적어 두면 몰을 붙인 날 이 줄만 옛말이
+    // 되고, 웹은 "이 확장은 그 몰을 모른다"고 읽는다(KID-250).
+    //
+    // 조심스럽게 읽는 이유: 확장에서는 서비스워커가 `mall-form-register.js` 를 먼저 싣지만,
+    // 이 파일만 올리는 테스트 하니스도 있다. 그때는 빈 목록이 되고, 그건 없는 능력을
+    // 광고하지 않는 것이라 거짓말이 아니다.
+    mallFormRegisterMalls: Object.keys(
+      (typeof KidItemMallFormRegister !== "undefined" && KidItemMallFormRegister.SPECS) || {},
+    ),
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: ["onch"],

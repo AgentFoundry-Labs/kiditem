@@ -9,10 +9,10 @@ import type {
   MallListingState,
 } from '@kiditem/shared/mall-publishing';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
 import {
   MALL_LISTING_STATE_PRESENTATION,
   mallAccentClass,
-  mallLogoPath,
   mallMonogram,
   productMonogram,
 } from '../../_shared/mall-presentation';
@@ -286,7 +286,7 @@ function MallHeader({ column }: { column: MallListingMatrixColumn }) {
  * 열을 잘못 짚으면 엉뚱한 몰에 상품을 보내게 된다.
  */
 function MallIcon({ mallKey, mallName }: { mallKey: string; mallName: string }) {
-  const logo = mallLogoPath(mallKey);
+  const logo = channelLogoPath(mallKey);
   if (logo) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- public 정적 파일이라 최적화 대상이 아니다

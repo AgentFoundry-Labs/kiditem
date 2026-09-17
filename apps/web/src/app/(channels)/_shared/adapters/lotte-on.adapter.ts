@@ -66,7 +66,7 @@ function categoryFrom(raw: string | undefined): string | null {
   return (raw ?? '').trim() ? parseLotteonCategory(raw) : LOTTEON_DEFAULT_CATEGORY.code;
 }
 
-export const lotteonAdapter: MallPublishAdapter = {
+export const lotteOnAdapter: MallPublishAdapter = {
   mallKey: 'lotte-on',
   mallName: '롯데ON',
   mode: 'form',
@@ -155,7 +155,7 @@ export const lotteonAdapter: MallPublishAdapter = {
       category,
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('lotteon', draft, form);
+    const result = await fillMallRegistrationForm('lotte-on', draft, form);
     return {
       ok: result.ok,
       // 폼을 채운 것은 등록이 아니다. [저장] 은 사람이 누르고, 그 뒤 롯데ON 승인이 남는다.

@@ -118,7 +118,7 @@
       // 동작이었다. 이제 아무 창도 열리지 않으므로 사람이 켜고 끌 이유도 없다.
       detailHost: "kidsnote",
     },
-    artgonggu: {
+    art09: {
       label: "아트공구",
       origin: "https://zzogzzog1.cafe24.com",
       pathPrefix: "/disp/admin/shop1/product/ProductRegister",
@@ -163,7 +163,7 @@
         applyWaitMs: 1500,
       },
     },
-    alwayz: {
+    always: {
       label: "올웨이즈",
       origin: "https://alwayzseller.ilevit.com",
       pathPrefix: "/items/registrations",
@@ -540,7 +540,7 @@
      * 사진은 화면의 사진 칸 처리(`imgInfo.uploadPrdImg`)로, 기술서 사진은 편집기가 쓰는 임시 업로드로 GS 서버에
      * 올린다. `임시저장`·`전체저장` 은 부르지 않는다. 확인창은 거절한다.
      */
-    gsshop: {
+    "gs-shop": {
       label: "GS샵",
       origin: "https://partners.gsshop.com",
       pathPrefix: "/product/products/create",
@@ -572,7 +572,7 @@
      * 콜백을 그대로 부른다. 상세 이미지는 편집기(CKEditor)의 사진 업로드 — 편집기 안내대로 사진을 끌어다
      * 놓을 때 도는 그 길 — 로 넣는다. `저장`·`임시저장` 은 부르지 않고, 확인창은 거절한다.
      */
-    lotteon: {
+    "lotte-on": {
       label: "롯데ON",
       origin: "https://store.lotteon.com",
       pathPrefix: "/cm/main/index_SO.wsp",
@@ -707,7 +707,7 @@
      * 판매사이트(G마켓·옥션) 체크박스는 둘 다 켜진 채로 열린다 — 건드리지 않는다.
      * 배송(택배사·발송정책·출고지·배송비·반품지)도 계정 템플릿으로 이미 차 있다.
      */
-    esmplus: {
+    gmarket: {
       label: "ESM Plus(G마켓·옥션)",
       origin: "https://item.esmplus.com",
       pathPrefix: "/goods/new",
@@ -805,7 +805,7 @@
       // ⚠️ `detailHost` 를 두지 않는다. 두면 키즈노트에 먼저 올리려다 그 몰 로그인이
       // 풀렸을 때 ESM 등록까지 막힌다 — 실제로 그렇게 막혔다(라이브 2026-09-11).
     },
-    icecream: {
+    "icecream-mall": {
       label: "아이스크림몰",
       origin: "https://po.i-screammall.co.kr",
       pathPrefix: "/goods/temporaryGeneralGoods",
@@ -872,7 +872,7 @@
       detailHost: "kidsnote",
     },
 
-    teacherville: {
+    "teacher-mall": {
       label: "티처몰",
       origin: "https://shop.teacherville.co.kr",
       pathPrefix: "/selleradmin/goods/regist",
@@ -1132,8 +1132,14 @@
     return /kakaocdn\.net|diskn\.com|onch3\.co\.kr|coupangcdn\.com/.test(String(url || ""));
   }
 
+  /**
+   * 채울 폼을 고른다. 스펙 키는 채널 키와 같고(KID-250), 다른 몰의 폼을 함께 쓰는 채널만
+   * 레지스트리가 그 폼을 가리킨다 — 옥션은 지마켓 ESM 폼 하나로 함께 올라간다.
+   */
   function specFor(mall) {
-    const spec = SPECS[mall];
+    const registry = root.KidItemChannelRegistry;
+    const key = registry ? registry.channelFormSpec(mall) : mall;
+    const spec = Object.prototype.hasOwnProperty.call(SPECS, key) ? SPECS[key] : null;
     if (!spec) throw new Error(`지원하지 않는 몰입니다 — ${mall}`);
     return spec;
   }

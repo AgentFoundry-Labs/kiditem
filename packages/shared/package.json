@@ -260,6 +260,11 @@
       "import": "./dist/source-readiness.js",
       "require": "./dist/source-readiness.cjs"
     },
+    "./channel-registry": {
+      "types": "./dist/channel-registry.d.ts",
+      "import": "./dist/channel-registry.js",
+      "require": "./dist/channel-registry.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -412,6 +417,9 @@
       "order-collection-source": [
         "dist/order-collection-source.d.ts"
       ],
+      "channel-registry": [
+        "dist/channel-registry.d.ts"
+      ],
       "source-readiness": [
         "dist/source-readiness.d.ts"
       ]
@@ -426,6 +434,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

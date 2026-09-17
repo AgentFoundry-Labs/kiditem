@@ -21,8 +21,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { businessDateKey } from '../../../../common/kst';
+import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import {
-  ORDER_COLLECTION_MALLS,
   ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
   findOrderCollectionMall,
   orderCollectionMallAccountChannels,
@@ -321,7 +321,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         [...new Set(accountByMallKey.values())],
       );
 
-      return ORDER_COLLECTION_MALLS.map((mall) => {
+      return MALL_CHANNELS.map((mall) => {
         const id = accountByMallKey.get(mall.key);
         return id === undefined
           ? {

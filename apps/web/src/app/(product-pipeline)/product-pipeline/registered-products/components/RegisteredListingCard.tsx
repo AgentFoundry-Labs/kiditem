@@ -1,5 +1,6 @@
 'use client';
 
+import { findChannel } from '@kiditem/shared/channel-registry';
 import { ExternalLink, Store, Trash2 } from 'lucide-react';
 import { formatKRW } from '@/lib/utils';
 import { ProductInboxCardShell } from '../../_shared/components/inbox/ProductInboxCardShell';
@@ -113,13 +114,24 @@ function mappingStatusLabel(status: RegisteredChannelListing['mappingStatus']): 
   return '재고 매칭 필요';
 }
 
+/**
+ * 저장된 채널 문자열 → 채널 키.
+ *
+ * 이 표가 있는 이유는 **오래된 행이 남긴 철자** 때문이다. 스마트스토어를 `naver` 로,
+ * 지마켓 ESM 을 `esm`·`esmplus` 로 적어 둔 리스팅이 아직 있다. 새 이름을 여기 더하지
+ * 않는다 — 몰이 늘어도 채널 레지스트리에 한 줄이면 화면이 따라온다.
+ *
+ * 쿠팡 로켓은 WING(`coupang`)과 별개 채널이라 접지 않는다. 합치면 사입/로켓 매출이 섞인다.
+ */
+const LEGACY_CHANNEL_SPELLING: Readonly<Record<string, string>> = {
+  naver: 'smartstore',
+  esm: 'gmarket',
+  esmplus: 'gmarket',
+};
+
+/** 화면에 적을 채널 이름. 이름의 권위는 채널 레지스트리 하나다. */
 export function channelDisplayName(channel: string): string {
   const key = channel.toLowerCase();
-  if (key === 'coupang') return '쿠팡';
-  if (key === 'naver' || key === 'smartstore') return '스마트스토어';
-  if (key === '11st') return '11번가';
-  if (key === 'esm' || key === 'esmplus') return 'ESM Plus';
-  // 쿠팡 로켓은 WING(`coupang`)과 별개 채널이다. 합치면 사입/로켓 매출이 섞인다.
-  if (key === 'rocket') return '쿠팡 로켓';
-  return channel;
+  const canonical = LEGACY_CHANNEL_SPELLING[key] ?? key;
+  return findChannel(canonical)?.name ?? channel;
 }

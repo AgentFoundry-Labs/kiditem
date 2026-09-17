@@ -8,6 +8,9 @@ import { z } from 'zod';
  * 비밀번호 · 받는 사람 · 주소 · 주문번호 같은 값은 담지 않는다 — 개수와 이유 코드, 짧은
  * 요약만. 요청은 `.strict()` 라 모르는 키(예: organizationId, password)는 거절된다. 조직과
  * 사람은 서버가 세션에서 붙인다.
+ *
+ * 줄이 쌓이는 키는 계정 행을 함께 쓰는 채널을 접은 값이다 — 쓰는 쪽과 읽는 쪽이 채널
+ * 레지스트리의 `channelOutcomeKey` 하나를 함께 쓴다(`@kiditem/shared/channel-registry`).
  */
 export const MALL_OPERATION_KINDS = ['login_check', 'login_test', 'registration_fill'] as const;
 export const MallOperationKindSchema = z.enum(MALL_OPERATION_KINDS);
@@ -20,28 +23,6 @@ export type MallOperationKind = z.infer<typeof MallOperationKindSchema>;
 export const MALL_OPERATION_OUTCOMES = ['succeeded', 'empty', 'attention', 'failed', 'cancelled'] as const;
 export const MallOperationOutcomeValueSchema = z.enum(MALL_OPERATION_OUTCOMES);
 export type MallOperationOutcomeValue = z.infer<typeof MallOperationOutcomeValueSchema>;
-
-/**
- * 관찰 기록의 몰 키 — 계정 행을 함께 쓰는 몰은 그 행의 채널 하나로 모은다.
- *
- * 쿠팡직배송(`coupang-direct`)은 제 계정 행이 없고 로켓(`rocket`) 행을 함께 쓴다
- * (`orders/domain/order-collection-malls.ts` 의 `sharedAccountChannel`, ADR-0012).
- * 관찰 기록은 계정 행이 아니라 몰 키로 쌓이므로, 접지 않으면 같은 계정의 로그인 상태가
- * 두 키로 갈린다. 서버만 접으면 화면은 계속 `coupang-direct` 줄을 찾아 한 바퀴마다 같은
- * 줄을 새로 쌓는다 — 쓰는 쪽과 읽는 쪽이 이 함수 하나를 함께 쓴다.
- */
-export const MALL_OPERATION_OUTCOME_KEY_ALIASES = {
-  'coupang-direct': 'rocket',
-} as const;
-
-const OUTCOME_KEY_ALIASES = new Map<string, string>(
-  Object.entries(MALL_OPERATION_OUTCOME_KEY_ALIASES),
-);
-
-/** 몰 계정 키를 관찰 기록에 쓰고 읽을 키로 옮긴다. 모르는 키는 그대로 둔다. */
-export function mallOperationOutcomeKey(accountKey: string): string {
-  return OUTCOME_KEY_ALIASES.get(accountKey) ?? accountKey;
-}
 
 const CountSchema = z.number().int().min(0).max(1_000_000);
 
