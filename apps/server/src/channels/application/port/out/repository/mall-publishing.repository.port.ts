@@ -28,6 +28,8 @@ export interface PreflightProductRow {
   optionNames: string[];
   /** 이 상품에 이어진 수집상품의 `rawData.manualBasics` KC 입력값. 이어진 수집상품이 없으면 null. */
   kc: PreflightKc | null;
+  /** 발행된 셀피아 스냅샷의 재고. 재고 연결이 없으면 null(0 이 아니라 모른다). */
+  stock: number | null;
 }
 
 export interface PreflightProductQuery {

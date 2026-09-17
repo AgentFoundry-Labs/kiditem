@@ -189,6 +189,10 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       this.prisma.masterProduct.count({ where }),
     ]);
 
+    const stockByMaster = await this.readMatrixStock(
+      organizationId,
+      records.map((record) => record.id),
+    );
     const rows = records.map<PreflightProductRow>((record) => {
       const options = record.channelListings.flatMap((listing) => listing.options);
       const optionNames = [
@@ -212,6 +216,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
         kc: candidate ? readManualKc(candidate.rawData) : null,
+        // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
+        stock: stockByMaster.get(record.id) ?? null,
       };
     });
 

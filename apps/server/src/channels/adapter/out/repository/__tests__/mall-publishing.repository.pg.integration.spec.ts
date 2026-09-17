@@ -8,6 +8,8 @@ import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inve
 import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/service/sellpia-inventory-file.validator';
 import { SellpiaInventoryImportService } from '../../../../../inventory/application/service/sellpia-inventory-import.service';
 import { PrismaService } from '../../../../../prisma/prisma.service';
+import { getMallAdapterManifest } from '../../../../domain/mall/mall-adapter-manifest';
+import { evaluateMallPreflight } from '../../../../domain/mall/mall-publish-preflight';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -446,6 +448,41 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const candidates = rows.map((row) => row.masterProductId);
       expect(candidates).toContain(soldOut.masterProductId);
       expect(candidates).not.toContain(discontinued.masterProductId);
+      expect(rows.find((row) => row.masterProductId === soldOut.masterProductId)?.stock).toBe(0);
+    });
+
+    /** 목록에 서는 것과 보내도 되는 것은 다르다. 후자는 송신 전 점검이 이유와 함께 답한다. */
+    it('⭐ hands the sold-out row to preflight, which blocks it with out_of_stock', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot(['SP-501,품절 블록,0,8800000000501,100,200']);
+      const soldOut = await sellpiaSku('SP-501');
+      await prisma.masterProduct.update({
+        where: { id: soldOut.masterProductId! },
+        data: { imageUrls: ['a.jpg'] },
+      });
+
+      const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, {
+        limit: 10,
+        offset: 0,
+      });
+      const row = rows.find((entry) => entry.masterProductId === soldOut.masterProductId)!;
+      const result = evaluateMallPreflight({
+        manifest: getMallAdapterManifest('kidsnote')!,
+        product: {
+          masterProductId: row.masterProductId,
+          name: row.name,
+          salePrice: row.salePrice,
+          imageCount: row.imageCount,
+          optionNames: row.optionNames,
+          hasMallCategory: true,
+          kc: { status: 'none', number: null },
+          stock: row.stock,
+        },
+        account: { listingProfileFields: ['shipping', 'releaseAddress', 'returnAddress'] },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.violations.map((violation) => violation.rule)).toContain('out_of_stock');
     });
   });
 });

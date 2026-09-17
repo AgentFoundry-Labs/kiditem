@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CHANNEL_REGISTRY } from '@kiditem/shared/channel-registry';
+import { MallPreflightRuleSchema } from '@kiditem/shared/mall-publishing';
 import {
   mallAccentClass,
   mallMonogram,
@@ -9,6 +10,7 @@ import {
   MALL_LISTING_STATE_PRESENTATION,
   MALL_READINESS_LABEL,
   MALL_READINESS_TONE,
+  PREFLIGHT_RULE_LABEL,
 } from './mall-presentation';
 
 describe('mallAccentClass', () => {
@@ -33,6 +35,19 @@ describe('mallMonogram', () => {
 
   it('빈 이름도 깨지지 않는다', () => {
     expect(mallMonogram('   ')).toBe('?');
+  });
+});
+
+describe('PREFLIGHT_RULE_LABEL', () => {
+  it('막힌 이유마다 사람이 읽을 이름이 있다 — 규칙 키를 화면에 내보내지 않는다', () => {
+    for (const rule of MallPreflightRuleSchema.options) {
+      expect(PREFLIGHT_RULE_LABEL[rule]?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  /** 품절은 "보낼 수 없다"가 아니라 "지금은 보내지 않는다"다. 재고 칸의 이름으로 부른다. */
+  it('⭐ 품절 차단에도 이름이 있다', () => {
+    expect(PREFLIGHT_RULE_LABEL.out_of_stock).toBe('재고');
   });
 });
 

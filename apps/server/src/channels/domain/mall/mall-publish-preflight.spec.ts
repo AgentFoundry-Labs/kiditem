@@ -16,6 +16,7 @@ function product(overrides: Partial<PreflightProduct> = {}): PreflightProduct {
     optionNames: ['기본'],
     hasMallCategory: true,
     kc: { status: 'exists', number: 'CB061R1234-1001' },
+    stock: 12,
     ...overrides,
   };
 }
@@ -50,6 +51,23 @@ describe('evaluateMallPreflight', () => {
     const violation = evaluate({ kc: { status: 'exists', number: null } }).violations
       .find((entry) => entry.rule === 'kc_certification');
     expect(violation?.message).toContain('인증번호');
+  });
+
+  /**
+   * 품절은 목록에서 지울 일이 아니라 "지금은 보내지 않는다"고 말할 일이다. 매트릭스는
+   * 품절 상품도 재고 0 으로 세우고(어느 몰에 무엇이 있나), 보낼 수 있는지는 여기가 답한다.
+   */
+  it('⭐ blocks a sold-out product with out_of_stock', () => {
+    const result = evaluate({ stock: 0 });
+    expect(result.ok).toBe(false);
+    const violation = result.violations.find((entry) => entry.rule === 'out_of_stock');
+    expect(violation?.message).toContain('품절');
+  });
+
+  /** 재고 연결이 없는 것(null)은 재고 0 이 아니라 모른다는 뜻이다. 모른다고 막지 않는다. */
+  it('⭐ does not block a product with no inventory link', () => {
+    expect(evaluate({ stock: null }).violations.map((entry) => entry.rule))
+      .not.toContain('out_of_stock');
   });
 
   /** 수집상품이 이어지지 않은 정본 상품은 KC 를 입력할 곳이 없었다. 통과로 치지 않는다. */

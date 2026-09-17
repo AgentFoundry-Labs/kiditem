@@ -34,6 +34,13 @@ export interface PreflightProduct {
   hasMallCategory: boolean;
   /** 이 상품에 이어진 수집상품의 KC 입력값. 이어진 수집상품이 없으면 null. */
   kc: PreflightKc | null;
+  /**
+   * 발행된 셀피아 스냅샷의 재고. 재고 연결이 없거나 스냅샷에 없으면 null 이다.
+   *
+   * ⚠️ `null` 은 0 이 아니라 **모른다**는 뜻이다. 모른다고 막으면 재고를 우리가 들지 않는
+   * 상품까지 어느 몰에도 못 보낸다.
+   */
+  stock: number | null;
 }
 
 /** 이 몰의 계정 행. 계정이 없으면 null 로 넘긴다. */
@@ -139,6 +146,16 @@ const CHECKS: Record<MallPreflightRule, RuleCheck> = {
     if (limit === null || product.optionNames.length <= limit) return null;
     return `옵션이 ${product.optionNames.length}개인데 ${manifest.name} 상한은 ${limit}개입니다.`;
   },
+
+  /**
+   * 품절 게이트.
+   *
+   * 매트릭스는 품절 상품도 재고 0 으로 세운다 — 그 표가 답하는 것은 "어느 몰에 무엇이
+   * 있나"이기 때문이다. "지금 보내도 되나"는 여기가 답한다. 둘을 한 조건으로 합치면
+   * 품절되는 순간 상품이 화면에서 사라져 사장님이 몰에 뭐가 올라가 있는지 모르게 된다.
+   */
+  out_of_stock: ({ product }) =>
+    product.stock === 0 ? '품절이라 보내지 않습니다. 재고가 0 입니다.' : null,
 
   /**
    * 등록 기본값 게이트.

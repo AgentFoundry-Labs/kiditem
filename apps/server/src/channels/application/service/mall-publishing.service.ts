@@ -205,6 +205,7 @@ export class MallPublishingService {
             // 몰 카테고리를 직접 지정한 경우만 매핑된 것으로 센다.
             hasMallCategory: Boolean(account?.listingProfile?.categoryCode),
             kc: row.kc,
+            stock: row.stock,
           },
           account: toPreflightAccount(account),
         });
