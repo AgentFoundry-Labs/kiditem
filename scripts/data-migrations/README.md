@@ -27,6 +27,7 @@ scripts/data-migrations/
   v<VERSION>/
     001_<name>.ts
     002_<name>.ts
+  helpers/
   index.ts
   retired.json
   types.ts
@@ -65,3 +66,25 @@ Release `0.1.8` is a schema-only database rebuild. It deliberately has no data
 migration: legacy product, inventory, option, and identity-map rows are not
 read or transformed. The guarded reset creates the final schema, after which
 approved Sellpia and channel sources are replayed through application imports.
+
+## Rows that cannot hold a new required column
+
+When a schema step adds a required column with no database default, `db push`
+stops on any table that still has rows. Under the
+[data-loss policy](../../docs/runbooks/deployment-architecture.md#data-loss-policy),
+a pre-schema migration deletes those rows with
+`helpers/required-column-row-cleanup.ts` instead of backfilling them. The
+migration declares only `{ table, requiredColumn, reason }` entries with
+`defineRequiredColumnCleanups` and runs them with
+`removeRowsBlockingRequiredColumns`, as `v0.1.31/014` does:
+
+- A missing table is skipped. A table that already has the column is left
+  alone, so a run after `db push` deletes nothing.
+- Any other listed table loses all of its rows. `details` reports each table,
+  and `affectedRows` is the total.
+- The helper refuses a table on `ADR_0010_KEPT_TABLES`, the tables behind
+  ADR-0010's keep list, and a list whose deletes would cascade into one of
+  them or null a reference in one. Both checks run before any delete.
+
+During an Office cutover, the deployer's survey then stops before `db push`
+if a row still blocks it.

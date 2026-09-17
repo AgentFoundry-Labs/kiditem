@@ -220,6 +220,7 @@ test('schema/data cutover dumps the database after writers stop and before any d
     '$cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha',
     '$cutoverDatabaseWorkStarted = $true',
     'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema',
+    'Invoke-ExactShaCutoverDataSurvey -WorktreePath $SourceWorktree',
     'npx prisma db push --accept-data-loss',
     'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema',
   ]) {
@@ -232,6 +233,90 @@ test('schema/data cutover dumps the database after writers stop and before any d
   assert.match(
     install,
     /Stop-OfficeRuntimeFailClosed 'schema\/data cutover candidate failed'\s+if \(-not \$cutoverDatabaseWorkStarted\) \{\s+throw [^\n]*stopped before database work began/,
+  );
+});
+
+test('the cutover survey gates db push and fails closed after the pre-schema phase committed', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const functionBody = (name) => {
+    const start = script.indexOf(`function ${name} {`);
+    assert.ok(start > 0, `${name} must exist`);
+    return script.slice(start, script.indexOf('\nfunction ', start));
+  };
+  const survey = functionBody('Invoke-ExactShaCutoverDataSurvey');
+  const migrations = functionBody('Invoke-ExactShaDataMigrations');
+
+  // The survey is the read-only package entrypoint, run like the data
+  // migrations: same exact-SHA worktree, same protected DATABASE_URL, same
+  // restoration of the operator's location and environment.
+  assert.equal(
+    JSON.parse(read('package.json')).scripts['check:cutover-data-blockers'],
+    'node scripts/check-cutover-data-blockers.mjs',
+  );
+  for (const shared of [
+    'Set-Location -LiteralPath $WorktreePath',
+    "$env:DATABASE_URL = Get-ProtectedServerEnvValue 'DATABASE_URL'",
+    'Set-Location -LiteralPath $priorLocation',
+    'if ($null -eq $priorDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $priorDatabaseUrl }',
+  ]) {
+    assert.ok(migrations.includes(shared), `data migrations: ${shared}`);
+    assert.ok(survey.includes(shared), `survey: ${shared}`);
+  }
+  let previous = -1;
+  for (const step of [
+    '$surveyExitCode = 1',
+    'try {',
+    "$env:DATABASE_URL = Get-ProtectedServerEnvValue 'DATABASE_URL'",
+    '& npm.cmd run check:cutover-data-blockers | ForEach-Object { Write-Host $_ }',
+    '$surveyExitCode = $LASTEXITCODE',
+    'finally {',
+    'if ($surveyExitCode -ne 0) {',
+    "Write-Warning 'Cutover data survey did not pass; prisma db push was not run.'",
+    'throw "Cutover data survey exited with code $surveyExitCode before prisma db push."',
+  ]) {
+    const position = survey.indexOf(step);
+    assert.ok(position > previous, `the survey must run "${step}" after the previous step`);
+    previous = position;
+  }
+  assert.doesNotMatch(survey, /\bcatch\b/, 'a survey failure reaches the fail-closed cutover handler');
+  assert.doesNotMatch(survey, /--json|2>&1|\$null = & npm/, 'the operator sees the survey report as printed');
+  // The URL is only ever assigned; nothing the survey prints names it.
+  for (const line of survey.split('\n').filter((text) => /Write-|throw /.test(text))) {
+    assert.doesNotMatch(line, /DATABASE_URL|priorDatabaseUrl/, line.trim());
+  }
+  // The message says what already happened and how to recover.
+  const warnings = survey.split('\n').filter((text) => text.includes('Write-Warning')).join('\n');
+  assert.match(warnings, /pre-schema data migrations already committed/);
+  assert.match(warnings, /writers stay stopped/i);
+  assert.match(warnings, /docs\/runbooks\/operation-automation-cutover\.md/);
+  assert.match(warnings, /fix forward/);
+  assert.match(warnings, /restore the pre-cutover database dump/);
+
+  const install = functionBody('Install-Deployment');
+  assert.equal(script.match(/Invoke-ExactShaCutoverDataSurvey -WorktreePath/g)?.length, 1, 'the survey has one call site');
+  assert.equal(script.match(/npx prisma db push/g)?.length, 1, 'db push has one call site');
+  const workStarted = install.indexOf('$cutoverDatabaseWorkStarted = $true');
+  const preSchema = install.indexOf('Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema');
+  const surveyCall = install.indexOf('Invoke-ExactShaCutoverDataSurvey -WorktreePath $SourceWorktree');
+  const dbPush = install.indexOf('npx prisma db push --accept-data-loss');
+  assert.ok(
+    workStarted > 0 && workStarted < preSchema && preSchema < surveyCall && surveyCall < dbPush,
+    'dump -> pre-schema -> survey -> db push',
+  );
+  const dbPushLine = install.lastIndexOf('\n', dbPush) + 1;
+  assert.deepEqual(
+    install.slice(preSchema, dbPushLine).split('\n').map((line) => line.trim()).filter(Boolean),
+    [
+      'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema -ReleaseVersion $manifest.appVersion',
+      'Invoke-ExactShaCutoverDataSurvey -WorktreePath $SourceWorktree',
+    ],
+    'nothing runs between the pre-schema phase, the survey, and db push',
+  );
+  // A survey failure is a failure after database work began: runtime stays
+  // stopped, the dump path is printed, and the cause reaches the final error.
+  assert.match(
+    install,
+    /Stop-OfficeRuntimeFailClosed 'schema\/data cutover candidate failed'[\s\S]*Write-Warning "Database dump taken before this cutover: \$cutoverDatabaseDumpPath"\s+throw [^\n]*failed after database work began[^\n]*Cause: \$\(\$deploymentError\.Exception\.Message\)/,
   );
 });
 

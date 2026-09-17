@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   columnAdditions,
   notNullAdditions,
   predicateWithInitialValues,
+  prismaDiffCommand,
   surveyExitCode,
   uniqueIndexes,
 } from '../check-cutover-data-blockers.mjs';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const surveyPath = join(repoRoot, 'scripts', 'check-cutover-data-blockers.mjs');
 
 /**
  * The survey's correctness rests on reading Prisma's own DDL faithfully. Missing
@@ -124,4 +132,49 @@ test('blocks a schema cutover while any survey item is still pending', () => {
   assert.equal(surveyExitCode([], []), 0);
   assert.equal(surveyExitCode([{}], []), 1);
   assert.equal(surveyExitCode([], [{}]), 1);
+});
+
+/**
+ * The Office deployer runs this survey on the Windows host between the
+ * pre-schema migrations and `db push`, and any non-zero exit stops the cutover.
+ * A survey that cannot start there would stop every cutover.
+ */
+test("runs this checkout's Prisma CLI with the current Node executable, from the repository root", () => {
+  const command = prismaDiffCommand();
+  assert.equal(command.file, process.execPath);
+  assert.match(command.args[0], /[\\/]node_modules[\\/]prisma[\\/]build[\\/]index\.js$/);
+  assert.ok(command.args[0].startsWith(repoRoot), 'the Prisma CLI comes from this checkout');
+  assert.deepEqual(command.args.slice(1), [
+    'migrate',
+    'diff',
+    '--from-config-datasource',
+    '--to-schema=prisma',
+    '--script',
+  ]);
+  assert.equal(command.cwd, repoRoot);
+
+  const source = readFileSync(surveyPath, 'utf8');
+  assert.doesNotMatch(source, /['"]npx(?:\.cmd)?['"]/, 'npx is a .cmd shim on Windows');
+  assert.doesNotMatch(source, /\bshell\s*:/, 'no shell parses the command');
+});
+
+test('issues only SELECT statements against the surveyed database', () => {
+  const source = readFileSync(surveyPath, 'utf8');
+  const statements = [...source.matchAll(/client\.query\(\s*`\s*(\w+)/g)].map((match) => match[1]);
+  assert.ok(statements.length >= 3, 'the scan finds the survey queries');
+  assert.deepEqual([...new Set(statements)], ['SELECT']);
+  assert.equal(source.match(/client\.query\(/g)?.length, statements.length, 'every query is a template literal the scan can read');
+});
+
+test('exits non-zero without a database URL, before reaching any database', () => {
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  const result = spawnSync(process.execPath, [surveyPath], {
+    cwd: repoRoot,
+    env,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /DATABASE_URL is required/);
 });

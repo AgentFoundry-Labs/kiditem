@@ -89,10 +89,14 @@ npm run deploy:office:local -- --ref origin/release/office --cutover --confirm A
 
 The deployer stops writers, writes a custom-format `pg_dump` to
 `C:\ProgramData\KidItem\deployments\database-dumps`, runs exact-SHA pre-schema
-migrations, applies Prisma with `--accept-data-loss`, runs exact-SHA
-post-schema migrations, and then starts the candidate. The runtime manifest
-records the changed paths and approval. `deploy:office:rollback` refuses an
-immediate runtime-only rollback from that cutover.
+migrations, runs the read-only cutover data survey
+(`scripts/check-cutover-data-blockers.mjs`) from the same worktree against the
+same database, applies Prisma with `--accept-data-loss`, runs exact-SHA
+post-schema migrations, and then starts the candidate. A survey that finds a
+blocker or a pending backfill decision, or cannot finish, stops the cutover
+before Prisma runs; writers stay stopped. The runtime manifest records the
+changed paths and approval. `deploy:office:rollback` refuses an immediate
+runtime-only rollback from that cutover.
 
 ### Data-loss policy
 
@@ -102,7 +106,10 @@ takes priority over it
 
 - Pre-schema data migrations delete rows that cannot fit the new schema instead
   of stopping. They carry forward users and organizations, channel accounts,
-  confirmed recipes, orders, and transport receipts.
+  confirmed recipes, orders, and transport receipts. The required-column
+  cleanup helper in `scripts/data-migrations/helpers/` refuses to delete from,
+  or cascade into, the tables behind that list. The deployer's survey stops a
+  cutover only for rows those migrations left in the way of `db push`.
 - A cutover starts from one `pg_dump` of the Office database. Only a
   successful cutover prunes, and it deletes only dumps older than the previous
   successful cutover's dump: every dump written since then survives, including
@@ -142,6 +149,7 @@ is required.
 `scripts/__tests__/office-deployment-contract.test.mjs` enforces the three
 commands, final release/live-checkout alignment, provisional hotfix reporting,
 safe remote-ref/worktree contract, local identity labels, schema/data gate,
-runtime snapshot/restore, current-profile Gateway, archived-payload reuse and
-fallback, target identity rebinding, status/rollback, and absence of the retired
-GitHub Office workflows.
+the pre-schema, survey, Prisma, post-schema order with its fail-closed survey
+gate, runtime snapshot/restore, current-profile Gateway, archived-payload
+reuse and fallback, target identity rebinding, status/rollback, and absence of
+the retired GitHub Office workflows.

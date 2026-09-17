@@ -70,10 +70,16 @@ npm run deploy:office:local -- --ref origin/release/office --cutover --confirm A
 ```
 
 That operation stops writers, writes a custom-format `pg_dump` to
-`C:\ProgramData\KidItem\deployments\database-dumps`, and runs pre-schema
-migration, Prisma push, and post-schema migration. A failure after database
-work begins leaves API, web, nginx, and Gateway stopped. Runtime-only rollback
-is intentionally blocked for an immediate schema/data cutover.
+`C:\ProgramData\KidItem\deployments\database-dumps`, and runs the pre-schema
+migrations, the read-only cutover data survey
+(`npm run check:cutover-data-blockers`), Prisma push, and the post-schema
+migrations. The survey stops the cutover before Prisma push when a row would
+still block it or the survey cannot finish. The pre-schema migrations have
+committed by then; recover as the
+[cutover runbook](operation-automation-cutover.md#irreversible-boundary-and-recovery)
+describes. A failure after database work begins leaves API, web, nginx, and
+Gateway stopped. Runtime-only rollback is intentionally blocked for an
+immediate schema/data cutover.
 
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.

@@ -20,7 +20,7 @@ import { backfillThumbnailTrackingInconclusiveMarkMigration } from "./v0.1.31/01
 import { backfillAdActionExecutionTasksMigration } from "./v0.1.31/011_backfill_ad_action_execution_tasks";
 import { constrainSourceImportRunStatusMigration } from "./v0.1.31/012_constrain_source_import_run_status";
 import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows";
-import { removeUnlinkedSourcingTrendSnapshotsMigration } from "./v0.1.31/014_remove_unlinked_sourcing_trend_snapshots";
+import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -54,7 +54,7 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillAdActionExecutionTasksMigration,
   constrainSourceImportRunStatusMigration,
   removeRetiredAccountKpiAndAdTierRowsMigration,
-  removeUnlinkedSourcingTrendSnapshotsMigration,
+  removeRowsBlockingRequiredColumnsMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];

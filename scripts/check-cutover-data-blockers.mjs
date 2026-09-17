@@ -22,11 +22,13 @@
  * WHERE THIS MUST BE RUN FROM. It surveys the database exactly as it stands, so
  * the answer is only the cutover's answer at the point `db push` would run: that
  * is *after* the pre-schema data migrations, which is step 3 of
- * `docs/runbooks/operation-automation-cutover.md`. Run it before those
- * migrations and it reports work they already do — `v0.1.31/001` empties the ABC
- * evaluation and grade-history tables, so every NOT NULL column added to them
- * looks like a blocker while the rows are still there. To scope backfill work
- * ahead of a window, restore a copy, apply the pre-schema phase, then run this.
+ * `docs/runbooks/operation-automation-cutover.md`. The Office deployer runs it
+ * there during a schema/data cutover and stops before `db push` on any non-zero
+ * exit. Run it before those migrations and it reports work they already do —
+ * `v0.1.31/001` empties the ABC evaluation and grade-history tables, so every
+ * NOT NULL column added to them looks like a blocker while the rows are still
+ * there. To scope backfill work ahead of a window, restore a copy, apply the
+ * pre-schema phase, then run this.
  *
  * Usage:
  *   DATABASE_URL=<target> node scripts/check-cutover-data-blockers.mjs
@@ -36,27 +38,48 @@
  * Exit 0 when the cutover is clear, 1 when something would block it, 2 on error.
  */
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import pg from 'pg';
 
 const asJson = process.argv.includes('--json');
 const url = process.env.DATABASE_URL;
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Importing this module for its parsers must not require a database, so the
 // survey only runs when the file is the entrypoint.
 const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 
+/**
+ * This checkout's Prisma CLI, run by the Node executable running the survey,
+ * from the repository root. The Office deployer runs the survey on Windows,
+ * where `npx` is a `.cmd` shim that Node does not spawn without a shell, and
+ * `npx` could also fetch a Prisma other than the one this SHA pins.
+ */
+export function prismaDiffCommand() {
+  const require = createRequire(import.meta.url);
+  return {
+    file: process.execPath,
+    args: [
+      require.resolve('prisma/build/index.js'),
+      'migrate',
+      'diff',
+      '--from-config-datasource',
+      '--to-schema=prisma',
+      '--script',
+    ],
+    cwd: repoRoot,
+  };
+}
+
 function plannedStatements() {
-  const out = execFileSync(
-    'npx',
-    ['prisma', 'migrate', 'diff', '--from-config-datasource', '--to-schema=prisma', '--script'],
-    {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, DATABASE_URL: url },
-    },
-  );
-  return out;
+  const { file, args, cwd } = prismaDiffCommand();
+  return execFileSync(file, args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, DATABASE_URL: url },
+  });
 }
 
 /** `CREATE UNIQUE INDEX "name" ON "table"("a", "b");` — partial indexes carry a WHERE. */

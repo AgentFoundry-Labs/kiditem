@@ -79,16 +79,21 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    generic rows, and, while `action_tasks` still exists, verifies that its
    row count did not move. The schema-drop cleanup (`v0.1.31:013`) removes
    account-day KPI rows, the raw scrape rows only they used, and the retired
-   `ads.tier.dailyBudget` setting. The sourcing trend snapshot cleanup
-   (`v0.1.31:014`) deletes every row of `naver_keyword_daily_snapshots`,
-   `naver_popular_keyword_daily_snapshots`, `shorts_trend_daily_snapshots`,
-   `live_commerce_broadcast_daily_snapshots`,
-   `live_commerce_product_daily_snapshots`, and
-   `tiktok_creative_trend_daily_snapshots` while that table still lacks
-   `ingestion_run_id`. Those rows name no ingestion run, and `db push` cannot
-   add the required column to a table that has rows. A table that already
-   has the column is left alone. Tables and columns a database no longer
-   has are skipped:
+   `ads.tier.dailyBudget` setting. The required-column cleanup
+   (`v0.1.31:014`) deletes every row of a listed table while it still lacks
+   the column v0.1.31 requires with no database default, because `db push`
+   cannot add such a column to a table that has rows:
+   - `ingestion_run_id` for `naver_keyword_daily_snapshots`,
+     `naver_popular_keyword_daily_snapshots`, `shorts_trend_daily_snapshots`,
+     `live_commerce_broadcast_daily_snapshots`,
+     `live_commerce_product_daily_snapshots`, and
+     `tiktok_creative_trend_daily_snapshots`, whose old rows name no
+     ingestion run;
+   - `dedupe_key` for `alerts`, so the signal alerts `v0.1.31:005` keeps are
+     deleted too.
+
+   A table that already has its column is left alone. Tables and columns a
+   database no longer has are skipped:
 
    ```powershell
    npm run data:migrate -- up --target office --phase pre-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
@@ -103,6 +108,12 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    something would halt the next step. A unique index over existing duplicates,
    or a NOT NULL column added with no database default against a table that
    still has rows, stops `db push` mid-flight; resolve those before continuing.
+
+   The Office deployer runs this survey itself, between the pre-schema
+   migrations and `db push`, from the exact-SHA worktree with the same
+   protected `DATABASE_URL` as the data migrations. Any non-zero exit (a
+   blocker, a pending backfill decision, or a survey error) stops the cutover
+   before `db push`, with writers still stopped. When rehearsing by hand, run:
 
    ```powershell
    npm run check:cutover-data-blockers
@@ -134,7 +145,10 @@ the writer-stopped target after its dump. Rehearse on the local QA database
 ### Irreversible boundary and recovery
 
 Before step 4, stop if the pre-schema result, writer state, or SHA identity
-is not exact. Step 4 is destructive: this
+is not exact. A failed step 3 survey leaves the pre-schema deletions committed
+and the schema unchanged: keep writers stopped, then fix forward and rerun the
+cutover, or restore the cutover dump and redeploy the previously approved
+exact SHA. Step 4 is destructive: this
 runbook does not define an in-place rollback or recreate deleted generic rows.
 After schema application, recover by fixing forward, or by restoring the
 cutover dump and redeploying the previously approved exact SHA through the
