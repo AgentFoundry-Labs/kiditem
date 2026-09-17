@@ -49,7 +49,7 @@ export default function MallAvailabilityPage() {
             품절 관리
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            판매 가능 재고가 0인 옵션을 몰에 반영합니다. 해제는 품절과 같은 명령입니다.
+            판매 가능 재고가 0인 옵션을 골라 둡니다. 해제는 품절과 같은 명령입니다.
           </p>
         </div>
         <button
@@ -63,9 +63,29 @@ export default function MallAvailabilityPage() {
         </button>
       </div>
 
+      {/*
+        송신 경로는 어느 몰에도 없다(2026-09-17 확인: 이 도메인의 HTTP 경로는 전부 읽기,
+        등록 어댑터에 품절 메서드 없음, 확장에 품절 액션 없음). 그래서 이 안내가 표 아래가
+        아니라 숫자 **위**에 선다 — 100줄 밑에 적힌 "미리보기만 합니다"는 읽히지 않는다.
+      */}
+      <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+        <Info size={15} className="mt-0.5 flex-none" />
+        <div>
+          <strong>아직 보내지 않습니다 — 품절 송신 경로가 어느 몰에도 없습니다.</strong> 아래 숫자는
+          경로가 생겼을 때 <em>무엇을 어떤 상태로</em> 보낼지 미리 고른 것입니다. 보낼 버튼은 몰별
+          송신 경로가 붙을 때 열리고, 그때도 이 표를 먼저 확인하는 순서는 그대로입니다. 보낸 뒤에는
+          몰을 다시 조회해 반영을 확인한 것만 완료로 셉니다.
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard label="품절 후보" value={preview?.total ?? 0} hint="전체" />
-        <SummaryCard label="보낼 수 있음" value={preview?.sendableCount ?? 0} tone="emerald" hint={windowHint} />
+        {/*
+          ⚠️ 여기 초록을 칠하지 않는다. 보낼 경로가 없는데 '보낼 수 있음' 을 초록으로 적으면
+          눌러도 아무 일이 안 일어나는 숫자를 다 된 일처럼 읽는다. 쇼핑몰 현황의 품절 송신 칸도
+          같은 상황을 '아직'(회색)으로 칠한다 — 두 화면이 같은 말을 해야 한다.
+        */}
+        <SummaryCard label="규칙상 막힘 없음" value={preview?.sendableCount ?? 0} hint={windowHint} />
         <SummaryCard label="판매중지로 강등" value={downgraded} tone="amber" hint={windowHint} />
         <SummaryCard label="차단됨" value={preview?.blockedCount ?? 0} tone="red" hint={windowHint} />
         {/* 레시피가 없는 옵션은 재고로 판정할 수 없어 후보에 오르지 않는다. 0 으로 숨기지 않고 센다. */}
@@ -101,14 +121,6 @@ export default function MallAvailabilityPage() {
         <CandidateTable candidates={candidates} />
       )}
 
-      <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-        <Info size={15} className="mt-0.5 flex-none" />
-        <div>
-          <strong>지금은 미리보기만 합니다.</strong> 실제 송신은 몰별 어댑터가 붙는 다음 단계에
-          열리고, 그때도 보내기 전에 이 표를 먼저 확인하는 순서는 그대로입니다. 보낸 뒤에는
-          몰을 다시 조회해 반영을 확인한 것만 완료로 셉니다.
-        </div>
-      </div>
     </div>
   );
 }
