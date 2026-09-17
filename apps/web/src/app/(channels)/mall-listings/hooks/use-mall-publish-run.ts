@@ -27,7 +27,12 @@ function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'message' | 'warningCount'>;
+/**
+ * 기록 한 줄이 담는 것 — 결과 · 이유 코드 · 개수뿐이다. 어댑터가 돌려준 오류 문장에는 몰이
+ * 돌려준 말(아이디 · 주문번호가 섞인다)이 그대로 실릴 수 있어 싣지 않는다. 그 말은 작업 줄의
+ * `error` 로 화면에 남는다.
+ */
+type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'warningCount'>;
 
 /**
  * 폼을 채운 것은 등록이 아니다 — 사람이 제출해야 하므로 '확인 필요'로 남긴다. 몰에서 다시
@@ -36,10 +41,10 @@ type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 
 function sendRecord(outcome: MallSendOutcome): PublishRecord {
   const warningCount = outcome.warnings.length;
   if (!outcome.ok) {
-    return { outcome: 'failed', reasonCode: 'send_failed', message: outcome.error ?? null, warningCount };
+    return { outcome: 'failed', reasonCode: 'send_failed', warningCount };
   }
-  if (outcome.confirmed) return { outcome: 'succeeded', reasonCode: null, message: null, warningCount };
-  return { outcome: 'attention', reasonCode: 'manual_submit_required', message: null, warningCount };
+  if (outcome.confirmed) return { outcome: 'succeeded', reasonCode: null, warningCount };
+  return { outcome: 'attention', reasonCode: 'manual_submit_required', warningCount };
 }
 
 function recordTask(task: PublishTask, record: PublishRecord): void {
@@ -86,7 +91,7 @@ export function useMallPublishRun() {
           const adapter = getMallPublishAdapter(task.mallKey);
           if (!adapter) {
             patch(task.id, { status: 'failed', error: `${task.mallName} 어댑터가 없습니다.` });
-            recordTask(task, { outcome: 'failed', reasonCode: 'adapter_missing', message: null, warningCount: null });
+            recordTask(task, { outcome: 'failed', reasonCode: 'adapter_missing', warningCount: null });
             continue;
           }
           patch(task.id, { status: 'running', error: null });
@@ -100,7 +105,7 @@ export function useMallPublishRun() {
             recordTask(task, sendRecord(outcome));
           } catch (error) {
             patch(task.id, { status: 'failed', error: toMessage(error) });
-            recordTask(task, { outcome: 'failed', reasonCode: 'send_error', message: toMessage(error), warningCount: null });
+            recordTask(task, { outcome: 'failed', reasonCode: 'send_error', warningCount: null });
           }
         }
       } finally {

@@ -126,10 +126,15 @@ describe('useMallLoginTest', () => {
     expect(result?.outcome).toBe('failed');
     expect(result?.detail).toContain('아이디 또는 비밀번호가 일치하지 않습니다.');
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
-    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith(expect.objectContaining({
+    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith({
+      mallKey: 'kidsnote',
+      operation: 'login_test',
       outcome: 'failed',
       reasonCode: 'credentials_rejected',
-    }));
+    });
+    // 몰의 말은 화면에만 — 관찰 기록은 개수와 이유 코드만 담는다.
+    expect(JSON.stringify(outcomes.recordMallOperationOutcome.mock.calls))
+      .not.toContain('아이디 또는 비밀번호가 일치하지 않습니다.');
   });
 
   it('몰이 다른 말을 남기면 그대로 보여 주되 막지는 않는다', async () => {
@@ -145,6 +150,30 @@ describe('useMallLoginTest', () => {
     expect(result?.outcome).toBe('unverified');
     expect(result?.detail).toContain('시스템 점검 중입니다.');
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  /**
+   * 몰 문장에는 아이디가 섞인다. 관찰 기록은 개수와 이유 코드만 담는다 — 그 말은 화면에만 둔다.
+   */
+  it('⭐ 몰이 돌려준 말은 화면에만 두고 관찰 기록에는 싣지 않는다', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: true,
+      verified: false,
+      mallMessage: '아이디(abc123)가 존재하지 않습니다.',
+    });
+
+    const result = await runTest();
+
+    expect(result?.detail).toContain('아이디(abc123)가 존재하지 않습니다.');
+    // 결과 · 이유 코드뿐이다. 글 칸 자체를 넘기지 않는다.
+    expect(outcomes.recordMallOperationOutcome).toHaveBeenCalledWith({
+      mallKey: 'kidsnote',
+      operation: 'login_test',
+      outcome: 'attention',
+      reasonCode: 'login_form_remains',
+    });
+    expect(JSON.stringify(outcomes.recordMallOperationOutcome.mock.calls)).not.toContain('abc123');
   });
 
   it('never sends the password anywhere but the extension call', async () => {

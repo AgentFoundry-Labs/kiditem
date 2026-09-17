@@ -42,14 +42,20 @@ export function sanitizeOutcomeMessage(message: string | null | undefined): stri
  *
  * 계정 행을 함께 쓰는 몰(쿠팡직배송 → 로켓)은 여기서 그 행의 채널로 접는다. 읽는 쪽도 같은
  * `mallOperationOutcomeKey` 를 쓰므로 쓴 줄과 읽는 줄이 언제나 같은 키다.
+ *
+ * 이유 코드가 있으면 글은 싣지 않는다. 몰이 돌려준 문장에는 아이디 · 주문번호가 그대로
+ * 섞여 있고("아이디(abc123)가 존재하지 않습니다"), 무슨 일인지는 이미 이유 코드가 말한다.
+ * 몰의 말은 그 자리 화면과 토스트에만 둔다 — 부르는 쪽이 넘겨도 여기서 버린다.
  */
 export async function recordMallOperationOutcome(input: MallOperationOutcomeInput): Promise<void> {
   try {
+    const reasonCode = input.reasonCode ?? null;
     const body = RecordMallOperationOutcomeRequestSchema.parse({
       ...input,
       idempotencyKey: input.idempotencyKey ?? createSecureRandomUuid(),
       mallKey: mallOperationOutcomeKey(input.mallKey),
-      message: sanitizeOutcomeMessage(input.message),
+      reasonCode,
+      message: reasonCode ? null : sanitizeOutcomeMessage(input.message),
     });
     await apiClient.post(BASE, body, { suppressNetworkErrorLog: true, timeoutMs: 10_000 });
   } catch (error) {

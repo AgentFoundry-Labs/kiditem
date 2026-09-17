@@ -54,7 +54,10 @@ export const RecordMallOperationOutcomeRequestSchema = z
     outcome: MallOperationOutcomeValueSchema,
     /** 기계가 읽는 이유 — `login_required`, `manual_submit_required` 같은 snake_case. */
     reasonCode: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).nullable().optional(),
-    /** 사람이 읽는 짧은 요약. 개인 정보를 넣지 않는다. */
+    /**
+     * 사람이 읽는 짧은 요약. 개인 정보를 넣지 않는다. 이유 코드가 있으면 비운다 — 무슨 일인지는
+     * 코드가 말하고, 몰이 돌려준 문장에는 아이디 · 주문번호가 섞여 들어온다.
+     */
     message: z.string().trim().max(300).nullable().optional(),
     itemCount: CountSchema.nullable().optional(),
     failedCount: CountSchema.nullable().optional(),

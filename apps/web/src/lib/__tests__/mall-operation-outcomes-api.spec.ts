@@ -39,7 +39,6 @@ describe('recordMallOperationOutcome', () => {
       mallKey: 'onch',
       operation: 'registration_fill',
       outcome: 'failed',
-      reasonCode: 'send_failed',
       message: '실패 https://x.test/a?b=c',
     });
 
@@ -71,6 +70,42 @@ describe('recordMallOperationOutcome', () => {
     expect(mockPost).toHaveBeenCalledWith(
       '/api/channels/mall-operation-outcomes',
       expect.objectContaining({ mallKey: 'rocket' }),
+      expect.anything(),
+    );
+  });
+
+  /**
+   * 몰이 돌려준 문장에는 아이디 · 주문번호가 섞인다("아이디(abc123)가 존재하지 않습니다").
+   * 이유 코드가 이미 무슨 일인지 말하므로 글은 싣지 않는다 — 몰의 말은 화면과 토스트에만.
+   */
+  it('⭐ drops the message when a reason code already says what happened', async () => {
+    await recordMallOperationOutcome({
+      mallKey: 'kidsnote',
+      operation: 'login_test',
+      outcome: 'failed',
+      reasonCode: 'credentials_rejected',
+      message: '키즈노트: 아이디(abc123)가 존재하지 않습니다',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/channels/mall-operation-outcomes',
+      expect.objectContaining({ reasonCode: 'credentials_rejected', message: null }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(mockPost.mock.calls)).not.toContain('abc123');
+  });
+
+  it('keeps a short summary when nothing else says what happened', async () => {
+    await recordMallOperationOutcome({
+      mallKey: 'onch',
+      operation: 'registration_fill',
+      outcome: 'succeeded',
+      message: '12건 채움',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/channels/mall-operation-outcomes',
+      expect.objectContaining({ message: '12건 채움' }),
       expect.anything(),
     );
   });
