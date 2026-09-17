@@ -114,6 +114,8 @@ export function useMallLoginTest() {
         loginId: account.loginId,
         ...(account.supplierLoginId ? { supplierLoginId: account.supplierLoginId } : {}),
         password,
+        // 확장에 고정 로그인 주소가 없는 몰은 저장된 사이트 주소로 들어가 로그인한다.
+        ...(account.siteUrl ? { siteUrl: account.siteUrl } : {}),
       });
       // success 만 보면 안 된다. 로그인 폼을 못 만나 아무것도 입력하지 않은 경우도
       // success 로 돌아오므로, 실제로 제출한 경우만 검증된 것으로 센다.

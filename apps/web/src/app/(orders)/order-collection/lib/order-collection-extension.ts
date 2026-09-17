@@ -22,6 +22,11 @@ export interface IcecreamMallExtensionCredentials {
   loginId: string;
   supplierLoginId?: string;
   password: string;
+  /**
+   * 쇼핑몰 계정에 저장한 사이트 주소. 확장에 고정 로그인 주소가 없는 몰은 이 주소를 열어
+   * 같은 폼 자동 로그인을 돌린다 — 없으면 어디로 갈지 몰라 로그인을 시도하지 않는다.
+   */
+  siteUrl?: string;
 }
 
 export type OrderCollectionFailureCode =

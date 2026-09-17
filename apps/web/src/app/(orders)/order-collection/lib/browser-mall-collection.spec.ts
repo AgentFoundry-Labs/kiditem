@@ -133,9 +133,10 @@ describe('createBrowserMallCollector', () => {
 
     await expect(collector(ACCOUNT, RUN)).rejects.toThrow('로그인 확인이 필요합니다.');
 
+    // 확장에 고정 로그인 주소가 없는 몰은 이 주소로 들어가 로그인 버튼까지 누른다.
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kidsnote',
-      { loginId: 'operator', password: 'secret' },
+      { loginId: 'operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
       expect.objectContaining(RUN),
     );
     expect(mocks.collectKidsnote).not.toHaveBeenCalled();
@@ -175,7 +176,7 @@ describe('createBrowserMallCollector', () => {
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kidsnote',
-      { loginId: 'fresh-operator', password: 'secret' },
+      { loginId: 'fresh-operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
       expect.objectContaining(RUN),
     );
   });
@@ -378,6 +379,7 @@ describe('createBrowserMallCollector', () => {
         loginId: 'operator',
         supplierLoginId: 'supplier-operator',
         password: 'secret',
+        siteUrl: 'https://shop.kidsnote.com',
       },
       expect.objectContaining(RUN),
     );

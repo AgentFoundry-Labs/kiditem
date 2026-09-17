@@ -1137,7 +1137,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     const validRequest = typeof msg.mallKey === "string"
       && typeof credentials?.loginId === "string"
       && typeof credentials?.password === "string"
-      && (credentials.supplierLoginId === undefined || typeof credentials.supplierLoginId === "string");
+      && (credentials.supplierLoginId === undefined || typeof credentials.supplierLoginId === "string")
+      && (credentials.siteUrl === undefined || typeof credentials.siteUrl === "string");
     if (!validRequest) {
       sendResponse({ success: false, errorCode: "invalid_request", error: "로그인 테스트 요청이 올바르지 않습니다." });
       return true;
@@ -1148,6 +1149,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         loginId: credentials.loginId,
         password: credentials.password,
         ...(credentials.supplierLoginId ? { supplierLoginId: credentials.supplierLoginId } : {}),
+        ...(credentials.siteUrl ? { siteUrl: credentials.siteUrl } : {}),
       },
       null,
     ));
@@ -6073,6 +6075,22 @@ function ensureMallLoginWithLifecycle(message) {
   );
 }
 
+/**
+ * 쇼핑몰 계정에 저장된 사이트 주소. 고정 로그인 주소가 없는 몰은 여기로 들어가 같은 폼
+ * 자동 로그인을 돌린다. 주소는 사장님이 적은 것만 쓰고(http · https 만), 그 밖의 값은 없는
+ * 것으로 본다 — 확장이 임의의 주소를 열지 않는다.
+ */
+function savedMallLoginUrl(credentials) {
+  const raw = typeof credentials?.siteUrl === "string" ? credentials.siteUrl.trim() : "";
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   if (!credentials || !credentials.loginId || !credentials.password) {
     return { success: true, submitted: false, reason: "no_credentials" };
@@ -6095,9 +6113,10 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
     // 카카오(토큰)·올웨이즈(JWT localStorage)는 채울 로그인 폼이 없어 form-fill 자동로그인이
     // 불가능하다. 각 collector 가 미로그인을 감지해 "로그인 필요"로 안내한다.
   };
-  const url = urls[mallKey];
-  // 폼 자동 로그인이 불가능한 몰. 시도하지 않았다는 사실을 호출부가 알아야
-  // "확인됨" 으로 잘못 표시하지 않는다.
+  // 고정 주소가 있는 몰은 그 주소로, 없는 몰은 사장님이 쇼핑몰 계정에 적어 둔 사이트 주소로
+  // 들어간다. 주소가 둘 다 없으면 어디로 갈지 모르므로 시도하지 않는다 — 시도하지 않았다는
+  // 사실을 호출부가 알아야 "확인됨" 으로 잘못 표시하지 않는다.
+  const url = urls[mallKey] || savedMallLoginUrl(credentials);
   if (!url) return { success: true, submitted: false, reason: "unsupported_mall" };
   // Managed collection login owns a fresh tab. Fence the owner before opening
   // it so a cancelled attempt cannot create an orphan login page.

@@ -31,7 +31,9 @@ describe('useMallLoginTest', () => {
     resetMallLoginBlocksForTest();
     window.localStorage.clear();
     accounts.password.mockResolvedValue({ key: 'kidsnote', password: 'secret-pw' });
-    accounts.list.mockResolvedValue([{ key: 'kidsnote', loginId: 'seller' }]);
+    accounts.list.mockResolvedValue([
+      { key: 'kidsnote', loginId: 'seller', siteUrl: 'https://shop.kidsnote.com' },
+    ]);
   });
 
   it('⭐ does not block auto-login when the test never reached the extension', async () => {
@@ -115,6 +117,7 @@ describe('useMallLoginTest', () => {
     expect(extension.testMallLoginViaExtension).toHaveBeenCalledWith('kidsnote', {
       loginId: 'seller',
       password: 'secret-pw',
+      siteUrl: 'https://shop.kidsnote.com',
     });
     expect(JSON.stringify(outcomes.recordMallOperationOutcome.mock.calls)).not.toContain('secret-pw');
   });

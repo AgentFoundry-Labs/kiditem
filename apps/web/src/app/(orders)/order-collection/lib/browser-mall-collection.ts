@@ -106,7 +106,9 @@ export function createBrowserMallCollector({
 
   const tryLoadMallCredentials = async (
     mallKey: string,
-  ): Promise<{ loginId: string; supplierLoginId?: string; password: string } | null> => {
+  ): Promise<
+    { loginId: string; supplierLoginId?: string; password: string; siteUrl?: string } | null
+  > => {
     try {
       const account = currentMallAccountByKey.get(mallKey);
       if (!account?.loginId || !account.hasPassword) return null;
@@ -116,6 +118,8 @@ export function createBrowserMallCollector({
             loginId: account.loginId,
             ...(account.supplierLoginId ? { supplierLoginId: account.supplierLoginId } : {}),
             password,
+            // 확장에 고정 로그인 주소가 없는 몰은 이 주소로 들어가 로그인한다.
+            ...(account.siteUrl ? { siteUrl: account.siteUrl } : {}),
           }
         : null;
     } catch {
