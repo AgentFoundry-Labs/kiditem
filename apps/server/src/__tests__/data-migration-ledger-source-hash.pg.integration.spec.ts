@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTestPrisma, resetDb } from '../test-helpers/real-prisma';
+import { ENSURE_STEP_IDS } from '../../../../scripts/data-migrations/ensure/index';
 import {
   applyDataMigration,
   applyDataMigrations,
@@ -529,6 +530,10 @@ describe('data migration ledger source hash (PostgreSQL)', () => {
       expect(versionedResults(warnedReport.results)).toEqual([
         { migrationId: DRIFTED_ID, status: 'skipped', affectedRows: 0 },
       ]);
+      // The same `up` runs the ensure steps after its migrations. They are not
+      // ledger rows, so they are never checked for drift and never reach `status`.
+      expect(warnedReport.results.filter(({ migrationId }: { migrationId: string }) => !migrationId.startsWith('v')))
+        .toEqual(ENSURE_STEP_IDS.map((migrationId) => expect.objectContaining({ migrationId, status: 'ensured' })));
       expect(await ledgerRows()).toEqual(seeded);
 
       const refusals = [
@@ -573,6 +578,7 @@ describe('data migration ledger source hash (PostgreSQL)', () => {
         [UNREGISTERED_ID]: 'unregistered',
         [RETIRED_ID]: 'retired',
       });
+      expect(statusReport.migrations.some(({ id }: { id: string }) => id.startsWith('ensure:'))).toBe(false);
       expect(runs.find((run) => run.migrationId === PENDING_ID)?.runner).toEqual(pendingSource);
       expect(statusReport.migrations).toContainEqual(expect.objectContaining({
         id: DRIFTED_ID,
