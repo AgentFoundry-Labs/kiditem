@@ -65,9 +65,11 @@ const MANUAL_AD_ACTION_TYPE_VALUES = Prisma.join(
  * same target must not duplicate: awaiting review, or approved with its latest
  * attempt queued or running within its deadline. An approved manual action
  * (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A) is applied by hand in the ad
- * center, so it stays open until the operator closes it by rejecting it; only
- * a done attempt from before decision A, or a rejection, releases it. No
- * failure message is compared. Requires `LATEST_EXECUTION_TASK_JOIN`.
+ * center, so it also stays open while its attempt reads failed, until the
+ * operator closes it by rejecting it; a done attempt from before decision A,
+ * or a rejection, releases it. No failure message is compared, and a task
+ * status outside the lifecycle, which no read offers for review, keeps nothing
+ * open. Requires `LATEST_EXECUTION_TASK_JOIN`.
  */
 function openActionCondition(now: Date): Prisma.Sql {
   return Prisma.sql`(
@@ -76,10 +78,37 @@ function openActionCondition(now: Date): Prisma.Sql {
       ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
       OR (
         action.action_type IN (${MANUAL_AD_ACTION_TYPE_VALUES})
-        AND NOT (${derivedExecuteStatusIn(['done'], now)})
+        AND ${derivedExecuteStatusIn(['failed'], now)}
       )
     )
   )`;
+}
+
+/**
+ * Each keyword's newest `pause_keyword` proposal, whatever its review: one row
+ * per advertised option (`external_id`) and keyword text (`target_label`).
+ * The keyword read shows it and the pause dedupe tests it, so the proposal an
+ * operator sees is the only one that can block a new proposal for the keyword.
+ * Rejecting it is the last word on the keyword: an older proposal neither shows
+ * nor blocks. Use it as a CTE aliased `action`, with its own organization
+ * predicate at each use.
+ */
+function latestPauseKeywordProposals(organizationId: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT DISTINCT ON (proposal.external_id, proposal.target_label)
+      proposal.id,
+      proposal.organization_id,
+      proposal.action_type,
+      proposal.external_id,
+      proposal.target_label,
+      proposal.reason,
+      proposal.approval_status
+    FROM ad_actions proposal
+    WHERE proposal.organization_id = ${organizationId}::uuid
+      AND proposal.action_type = 'pause_keyword'
+      AND proposal.target_type = 'keyword'
+    ORDER BY proposal.external_id, proposal.target_label,
+      proposal.created_at DESC, proposal.id DESC`;
 }
 
 /** Every AdAction column except the execution words its latest task supplies. */
@@ -392,26 +421,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       reason: string;
       approvalStatus: string;
     } & LatestExecutionTaskColumns>>(Prisma.sql`
-      WITH latest_proposal AS (
-        -- Each keyword's newest proposal, whatever its review. Rejecting it is
-        -- the last word on the keyword, so an older proposal does not come back.
-        SELECT DISTINCT ON (proposal.external_id, proposal.target_label)
-          proposal.id,
-          proposal.external_id,
-          proposal.target_label,
-          proposal.reason,
-          proposal.approval_status
-        FROM ad_actions proposal
-        WHERE proposal.organization_id = ${organizationId}::uuid
-          AND proposal.action_type = 'pause_keyword'
-        ORDER BY proposal.external_id, proposal.target_label,
-          proposal.created_at DESC, proposal.id DESC
-      ),
-      open_proposal AS (
-        SELECT * FROM latest_proposal
-        WHERE latest_proposal.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-      )
-      -- Attempts are joined only for the newest proposals still in play.
+      WITH latest_proposal AS (${latestPauseKeywordProposals(organizationId)})
+      -- Attempts are joined only for the newest proposals still in review.
       SELECT
         action.id AS "actionId",
         action.external_id AS "externalId",
@@ -419,8 +430,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         action.reason,
         action.approval_status AS "approvalStatus",
         ${LATEST_EXECUTION_TASK_COLUMNS}
-      FROM open_proposal action
+      FROM latest_proposal action
       ${LATEST_EXECUTION_TASK_JOIN}
+      WHERE action.organization_id = ${organizationId}::uuid
+        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
     `);
     return rows.flatMap((row) => {
       const execution = deriveAdActionExecution(latestExecutionTaskOf(row), now);
@@ -459,8 +472,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       if (pauseKeywordCandidates.length > 0) {
         // Prevent two concurrent strategy runs from both seeing "no open action"
         // and inserting duplicate pause_keyword proposals for the same tenant.
-        // An approved pause stays open until the operator closes it
-        // (`openActionCondition`), so a confirmed keyword is not proposed again.
+        // Only a keyword's newest proposal, the one the keyword read shows, can
+        // block it, and an approved pause stays open until the operator closes
+        // it (`openActionCondition`), so a confirmed keyword is not proposed again.
         await tx.$queryRaw(
           Prisma.sql`
             SELECT pg_advisory_xact_lock(
@@ -473,12 +487,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         const openActions = await tx.$queryRaw<
           Array<{ externalId: string | null; targetLabel: string }>
         >(Prisma.sql`
+          WITH latest_proposal AS (${latestPauseKeywordProposals(organizationId)})
           SELECT action.external_id AS "externalId", action.target_label AS "targetLabel"
-          FROM ad_actions action
+          FROM latest_proposal action
           ${LATEST_EXECUTION_TASK_JOIN}
           WHERE action.organization_id = ${organizationId}::uuid
-            AND action.action_type = 'pause_keyword'
-            AND action.target_type = 'keyword'
             AND ${openActionCondition(now)}
             AND (${Prisma.join(
               pauseKeywordCandidates.map((candidate) => Prisma.sql`(

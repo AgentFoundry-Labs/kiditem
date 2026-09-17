@@ -222,6 +222,128 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     await expect(propose()).resolves.toHaveLength(1);
   });
 
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000);
+
+  it('blocks a keyword only with the proposal the keyword read shows: an older approved pause behind a newer rejected proposal neither shows nor blocks (KID-138 review)', async () => {
+    const candidate = pauseCandidate((await seedKeywordTarget()).id);
+    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
+    const shown = async () =>
+      (await repository.findKeywordPauseProposals(TEST_ORGANIZATION_ID)).map(
+        ({ actionId, approvalStatus, executeStatus }) => ({ actionId, approvalStatus, executeStatus }),
+      );
+    const proposal = {
+      organizationId: TEST_ORGANIZATION_ID,
+      actionType: candidate.actionType,
+      targetType: candidate.targetType,
+      externalId: candidate.externalId,
+      targetLabel: candidate.targetLabel,
+      reason: candidate.reason,
+    };
+    // Approved before decision A; the row executor could not find the keyword.
+    // Written directly, since executors can no longer report for a pause.
+    const older = await observerPrisma.adAction.create({
+      data: {
+        ...proposal,
+        approvalStatus: 'approved',
+        approvedAt: minutesAgo(60),
+        createdAt: minutesAgo(60),
+        executionTasks: {
+          create: {
+            status: 'failed',
+            createdAt: minutesAgo(59),
+            finishedAt: minutesAgo(59),
+            errorMessage: '대상 행을 찾지 못했습니다: 콩순이 비눗방울',
+          },
+        },
+      },
+    });
+    expect(await shown()).toEqual([
+      { actionId: older.id, approvalStatus: 'approved', executeStatus: 'failed' },
+    ]);
+    await expect(propose()).resolves.toEqual([]);
+
+    // Before decision A a failed pause released the keyword, so a newer proposal followed it.
+    const newer = await observerPrisma.adAction.create({
+      data: { ...proposal, approvalStatus: 'pending_review', createdAt: minutesAgo(1) },
+    });
+    expect(await shown()).toEqual([
+      { actionId: newer.id, approvalStatus: 'pending_review', executeStatus: 'queued' },
+    ]);
+    await expect(propose()).resolves.toEqual([]);
+
+    // The operator rejects the proposal the keyword tab shows. Nothing is shown
+    // any more, so nothing blocks the keyword.
+    await repository.rejectAdActions([newer.id], TEST_ORGANIZATION_ID);
+    expect(await shown()).toEqual([]);
+    const [again] = await propose();
+    expect(again).toMatchObject({ approvalStatus: 'pending_review', targetLabel: candidate.targetLabel });
+    expect(await shown()).toEqual([
+      { actionId: again.id, approvalStatus: 'pending_review', executeStatus: 'queued' },
+    ]);
+  });
+
+  it('never blocks a keyword the keyword read does not show, whatever its latest proposal holds (KID-138 review)', async () => {
+    const adTargetDailyId = (await seedKeywordTarget()).id;
+    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const keywordProposal = async (
+      targetLabel: string,
+      approvalStatus: string,
+      attempt: { status: string; startedAt?: Date; finishedAt?: Date; errorMessage?: string } | null,
+      createdAt = minutesAgo(10),
+    ) => {
+      const base = pauseCandidate(adTargetDailyId);
+      await observerPrisma.adAction.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          actionType: base.actionType,
+          targetType: base.targetType,
+          externalId: base.externalId,
+          targetLabel,
+          reason: base.reason,
+          approvalStatus,
+          createdAt,
+          ...(attempt ? { executionTasks: { create: { ...attempt, createdAt } } } : {}),
+        },
+      });
+    };
+    await keywordProposal('승인 대기', 'pending_review', null);
+    await keywordProposal('승인함', 'approved', {
+      status: 'failed',
+      errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
+    });
+    // Approvals from before decision A.
+    await keywordProposal('옛 실행 대기', 'approved', { status: 'queued' });
+    await keywordProposal('옛 실행 중', 'approved', { status: 'running', startedAt: minutesAgo(1) });
+    await keywordProposal('옛 기한 초과', 'approved', { status: 'running', startedAt: minutesAgo(31) });
+    await keywordProposal('옛 완료', 'approved', { status: 'done', finishedAt: minutesAgo(1) });
+    // A task status outside the lifecycle, which the keyword read does not offer.
+    await keywordProposal('모르는 상태', 'approved', { status: 'paused' });
+    // An older approved pause behind a newer rejected proposal.
+    await keywordProposal('닫은 키워드', 'approved', { status: 'failed' }, minutesAgo(60));
+    await keywordProposal('닫은 키워드', 'rejected', { status: 'cancelled' }, minutesAgo(1));
+    const labels = [
+      '승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과', '옛 완료', '모르는 상태', '닫은 키워드',
+    ];
+
+    const shownLabels = (await repository.findKeywordPauseProposals(TEST_ORGANIZATION_ID))
+      .map((row) => row.targetLabel);
+    const created = await repository.createAdActionsFromCandidates(
+      TEST_ORGANIZATION_ID,
+      labels.map((targetLabel) => ({ ...pauseCandidate(adTargetDailyId), targetLabel })),
+    );
+    const blocked = labels.filter((label) => !created.some((action) => action.targetLabel === label));
+
+    expect([...shownLabels].sort()).toEqual(
+      ['승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과', '옛 완료'].sort(),
+    );
+    // A pause that already ran before decision A is shown as done and releases the keyword.
+    expect([...blocked].sort()).toEqual(
+      ['승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과'].sort(),
+    );
+    expect(blocked.filter((label) => !shownLabels.includes(label))).toEqual([]);
+  });
+
   it('releases a keyword whose approved pause ran before decision A, and keeps one whose earlier attempt failed', async () => {
     const adTargetDailyId = (await seedKeywordTarget()).id;
     const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
