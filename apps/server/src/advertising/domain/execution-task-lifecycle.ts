@@ -2,7 +2,7 @@
  * ExecutionTask lifecycle of an approved ad action. The action's execution
  * state is its latest task (`read/ad-action-execution.ts`); this policy decides
  * which browser execution reports may move that task, and which action types
- * the extension never applies (`MANUAL_AD_ACTION_TYPES`).
+ * the operator applies by hand (`MANUAL_AD_ACTION_TYPES`).
  *
  * - `queued`: approved and waiting for the browser extension.
  * - `running`: the extension reported that it started. It stays open only
@@ -40,11 +40,12 @@ export const EXECUTION_TASK_RUNNING_DEADLINE_MS = 30 * 60 * 1000;
 export const EXECUTION_DEADLINE_EXCEEDED_MESSAGE = '실행 기한 초과';
 
 /**
- * Ad actions the browser extension never applies to Coupang (KID-138 decision
- * A, 2026-09-17). Approving one records the operator's confirmation that the
- * proposal is right; the operator applies the change in the Coupang ad center
- * by hand. Approval therefore queues no attempt for these types, and the server
- * refuses an executor's running or done report for one.
+ * Ad actions the operator applies by hand in the Coupang ad center (KID-138
+ * decision A, 2026-09-17). Approving one records the operator's confirmation
+ * that the proposal is right. Approval therefore queues no attempt for these
+ * types, and the server refuses every executor claim (running report) and done
+ * report for one; extension builds since #515 (KID-90) write to Coupang only
+ * after an accepted claim.
  *
  * Why: the executor could not locate these targets in the ad center. The
  * campaign list it opened is a div grid with campaign-level switches only, and
@@ -52,6 +53,9 @@ export const EXECUTION_DEADLINE_EXCEEDED_MESSAGE = '실행 기한 초과';
  * 행을 찾지 못했습니다" and a match could have hit the wrong row.
  *
  * A new executor for one of these types is added by removing its type here.
+ * Then revisit what assumes an approved keyword pause is applied by hand: the
+ * keyword tab's proposal states and its approve and close messages
+ * (`apps/web/src/app/(advertising)/ad-ops/lib/keyword-pause-proposal.ts`).
  */
 export const MANUAL_AD_ACTION_TYPES = [
   'pause_keyword',

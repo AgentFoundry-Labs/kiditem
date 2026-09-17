@@ -47,13 +47,17 @@ const CLOSE: PauseProposalReviewAction = { review: 'close', label: '닫기' };
  * Approval decides first: a proposal awaiting review reads `queued` only
  * because it has no attempt yet.
  *
- * The extension never pauses a keyword (KID-138 decision A). Approving one
- * records the operator's confirmation, and the operator pauses the keyword in
- * the ad center, so an approved proposal offers no way to run it: its attempt
- * reads failed with the reason the server recorded, or queued when it was
- * approved before that decision. The operator closes it when done. A running
- * or done attempt comes from an extension before that decision and may
+ * Approving a keyword pause records the operator's confirmation and queues
+ * nothing for the extension (KID-138 decision A); the operator pauses the
+ * keyword in the ad center. So an approved proposal offers no way to run it:
+ * its attempt reads failed with the reason the server recorded, or queued when
+ * it was approved before that decision. The operator closes it when done. A
+ * running or done attempt comes from an extension before that decision and may
  * already have changed Coupang, so it offers nothing.
+ *
+ * These states and the approve and close messages assume a pause is applied by
+ * hand (`MANUAL_AD_ACTION_TYPES` in
+ * `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).
  */
 export function pauseProposalState(proposal: AdKeywordPauseProposal): PauseProposalState {
   if (proposal.approvalStatus === 'pending_review') {

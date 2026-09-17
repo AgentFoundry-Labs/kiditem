@@ -328,9 +328,9 @@ export function useRunKeywordAgent(period: string) {
 
 /**
  * Approve or reject keyword pause proposals through the ad action command.
- * Approval records the operator's confirmation; the browser extension never
- * pauses a keyword (KID-138 decision A), so the operator pauses it in the ad
- * center. Rejection closes a proposal, and cancels an attempt approved before
+ * Approval records the operator's confirmation and queues nothing for the
+ * browser extension (KID-138 decision A), so the operator pauses the keyword
+ * in the ad center. Rejection closes a proposal, and cancels an attempt approved before
  * that decision that has not started. Every command names the review its
  * proposals must still be in; the server skips the others and counts only
  * what it changed.

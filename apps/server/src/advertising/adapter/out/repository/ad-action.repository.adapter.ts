@@ -778,8 +778,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         return executionReportConflict(decision, latest, report);
       }
       if (decision === 'manual_action' && latest) {
-        // No executor applies a manual action (KID-138 decision A). A queued
-        // attempt, such as one data migration 011 left from an earlier
+        // An executor may not start a manual action (KID-138 decision A). A
+        // queued attempt, such as one data migration 011 left from an earlier
         // approval, is closed here so it leaves the executor queue, and the
         // report is refused once that commits. Compare-and-set on queued: an
         // attempt that already runs is left to its deadline.

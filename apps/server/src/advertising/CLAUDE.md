@@ -13,10 +13,11 @@ throughout.
 
 - Advertising owns Coupang ad facts, keyword/SERP evidence, competitor
   observations, strategy proposals, and approved ad-action execution.
-- Approving `pause_keyword`, `change_bid`, or `change_daily_budget` records the
-  operator's confirmation; the operator applies the change in the ad center,
-  and the browser extension never applies it. Keep that list in
-  `MANUAL_AD_ACTION_TYPES` (`domain/execution-task-lifecycle.ts`).
+- Approving an action of a `MANUAL_AD_ACTION_TYPES` type
+  (`domain/execution-task-lifecycle.ts`) records the operator's confirmation,
+  and the operator applies the change in the ad center. The server refuses
+  every executor claim for those types; extension builds since #515 (KID-90)
+  write to Coupang only after an accepted claim.
 - Raw scrape evidence and daily fact projections remain organization-scoped and
   auditable. Advertising is the canonical writer for its own facts; consumers
   use its read contracts rather than mutating channel tables directly.
