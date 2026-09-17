@@ -45,7 +45,19 @@ export async function handleWebhook(
     request.headers.get("linear-signature"),
     env.LINEAR_WEBHOOK_SECRET,
   );
-  if (!signed) return text(401, "bad signature");
+  if (!signed) {
+    // A delivery that carries Linear's headers but fails the check usually
+    // means the stored LINEAR_WEBHOOK_SECRET is not the webhook's secret.
+    const delivery = request.headers.get("linear-delivery");
+    if (delivery) {
+      log("warn", {
+        event: "signature_mismatch",
+        delivery,
+        linearEvent: request.headers.get("linear-event"),
+      });
+    }
+    return text(401, "bad signature");
+  }
 
   let payload: unknown;
   try {

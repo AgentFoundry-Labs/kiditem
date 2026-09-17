@@ -146,12 +146,34 @@ describe("handleWebhook", () => {
     expect(pending).toEqual([]);
   });
 
-  it("rejects unsigned and wrongly signed deliveries", async () => {
+  it("rejects unsigned and wrongly signed deliveries, and flags Linear's own as a secret mismatch", async () => {
     const { ctx, jobs } = context();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect((await handleWebhook(delivery(attachmentEvent(), { signature: null }), env, ctx)).status).toBe(401);
     expect((await handleWebhook(delivery(attachmentEvent(), { secret: "other" }), env, ctx)).status).toBe(401);
+    const stranger = new Request("https://labeler.example.workers.dev/linear", { method: "POST", body: "{}" });
+    expect((await handleWebhook(stranger, env, ctx)).status).toBe(401);
+
     expect(jobs).toEqual([]);
+    expect(logged(warn)).toEqual([
+      { event: "signature_mismatch", delivery: "delivery-1", linearEvent: null },
+      { event: "signature_mismatch", delivery: "delivery-1", linearEvent: null },
+    ]);
+    expect(JSON.stringify(logged(warn))).not.toContain(SECRET);
+  });
+
+  it("ignores whitespace around the stored secret", async () => {
+    const { ctx, jobs } = context();
+
+    const response = await handleWebhook(
+      delivery(attachmentEvent()),
+      { ...env, LINEAR_WEBHOOK_SECRET: `  ${SECRET}\n` },
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(jobs).toHaveLength(1);
   });
 
   it("processes Linear's late retries and logs how late they are", async () => {

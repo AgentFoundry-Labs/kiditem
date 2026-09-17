@@ -17,18 +17,20 @@ export async function verifyLinearSignature(
   signatureHeader: string | null,
   secret: string,
 ): Promise<boolean> {
-  if (!signatureHeader || !secret) return false;
+  // Signing secrets never contain whitespace; a pasted secret may carry some.
+  const key = secret.trim();
+  if (!signatureHeader || !key) return false;
   const signature = hexToBytes(signatureHeader.trim());
   if (!signature || signature.byteLength !== 32) return false;
-  const key = await crypto.subtle.importKey(
+  const hmacKey = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(secret),
+    encoder.encode(key),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["verify"],
   );
   // subtle.verify compares in constant time.
-  return crypto.subtle.verify("HMAC", key, signature, rawBody);
+  return crypto.subtle.verify("HMAC", hmacKey, signature, rawBody);
 }
 
 export type DeliveryTiming = "on-time" | "late" | "stale" | "invalid";
