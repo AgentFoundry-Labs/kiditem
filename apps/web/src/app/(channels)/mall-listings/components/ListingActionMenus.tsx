@@ -3,9 +3,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   ArrowUpFromLine,
   ExternalLink,
+  Loader2,
   PackageX,
   PlayCircle,
   RefreshCw,
@@ -14,7 +17,13 @@ import {
 } from 'lucide-react';
 import type { MallListingMatrixColumn, MallListingState } from '@kiditem/shared/mall-publishing';
 import { cn } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
+import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation';
+import {
+  canSendMallAvailability,
+  sendMallAvailability,
+} from '../../_shared/mall-availability-send';
 
 /**
  * 액션 메뉴.
@@ -93,6 +102,14 @@ interface ActionSpec {
   /** 못 하는 이유. 가능하면 null. */
   reason: string | null;
   danger?: boolean;
+  /**
+   * 지금 이 칸에서 눌러 실행할 수 있는가.
+   *
+   * `available` 과 다르다 — 그건 "몰이 이 일을 지원하는가"(매니페스트)이고, 이건
+   * "우리에게 보낼 길이 있는가"다. 둘을 하나로 합치면 지원하는데 길이 없는 몰의
+   * 메뉴가 눌리는 것처럼 보인다.
+   */
+  run?: 'soldOut' | 'resume';
 }
 
 /** 한 몰에서 가능한 일. 매니페스트가 유일한 근거다. */
@@ -120,6 +137,11 @@ export function mallActionSpecs(column: MallListingMatrixColumn): ActionSpec[] {
       available: actions.soldOut,
       reason: actions.soldOut ? null : '이 몰은 품절 송신을 지원하지 않습니다.',
       danger: actions.soldOutDeletesListing,
+      // 삭제되는 몰에서는 칸에서 바로 누르게 두지 않는다. 되돌릴 수 없는 일에
+      // 한 번 누르면 끝나는 길을 만들지 않는다.
+      ...(actions.soldOut && !actions.soldOutDeletesListing && canSendMallAvailability(column.mallKey)
+        ? { run: 'soldOut' as const }
+        : {}),
     },
     {
       key: 'resume',
@@ -127,6 +149,9 @@ export function mallActionSpecs(column: MallListingMatrixColumn): ActionSpec[] {
       icon: PlayCircle,
       available: actions.resume,
       reason: actions.resume ? null : '이 몰은 재개 경로가 확인되지 않았습니다.',
+      ...(actions.resume && canSendMallAvailability(column.mallKey)
+        ? { run: 'resume' as const }
+        : {}),
     },
     {
       key: 'stock',
@@ -179,6 +204,45 @@ export function CellActionPopover({
   const cellStyle = useAnchoredStyle(anchor, 256);
   const specs = mallActionSpecs(column);
   const presentation = MALL_LISTING_STATE_PRESENTATION[state];
+  const queryClient = useQueryClient();
+  const [running, setRunning] = useState<string | null>(null);
+
+  /**
+   * 이 칸 하나를 몰에 보낸다.
+   *
+   * 칸이 곧 (상품 × 몰)이라 보낼 단위가 그대로 여기 있다. 몰 상품코드가 없으면
+   * 어느 줄인지 짚을 수 없으므로 아예 누르지 못하게 둔다.
+   */
+  const run = async (spec: ActionSpec) => {
+    if (!spec.run || !externalId || !canSendMallAvailability(column.mallKey)) return;
+    const resume = spec.run === 'resume';
+    setRunning(spec.key);
+    try {
+      const result = await sendMallAvailability(column.mallKey, [externalId], { resume });
+      for (const warning of result.warnings) toast.warning(warning);
+      if (result.sent === 0) throw new Error(`${column.mallName}이 이 상품을 받지 않았습니다.`);
+      // 보낸 것은 성공이 아니라 `attention` 이다 — 반영은 몰 재조회가 답한다.
+      void recordMallOperationOutcome({
+        mallKey: column.mallKey,
+        operation: 'availability_stage',
+        outcome: 'attention',
+        reasonCode: result.requestOnly ? 'awaiting_mall_approval' : 'awaiting_mall_recheck',
+        itemCount: result.sent,
+      });
+      toast.success(`${column.mallName} · ${resume ? '판매 재개' : '품절'}을 보냈습니다.`, {
+        description: result.requestOnly
+          ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
+          : '반영은 몰을 다시 가져와야 확인됩니다.',
+        duration: 8_000,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
+    } finally {
+      setRunning(null);
+    }
+  };
 
   return (
     <FloatingLayer>
@@ -205,32 +269,50 @@ export function CellActionPopover({
         </div>
 
         <ul className="mt-2 space-y-0.5">
-          {specs.map((spec) => (
-            <li key={spec.key}>
-              <button
-                type="button"
-                disabled
-                title={spec.reason ?? NOT_WIRED}
-                className={cn(
-                  'flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
-                  spec.available
-                    ? 'bg-slate-50 text-slate-700'
-                    : 'text-slate-400 line-through decoration-slate-300',
-                  spec.danger && spec.available && 'bg-red-50 text-red-700',
-                )}
-              >
-                <spec.icon size={12} className="flex-none" />
-                <span className="flex-1 truncate no-underline">{spec.label}</span>
-                {spec.available ? (
-                  <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
-                    미연결
-                  </span>
-                ) : (
-                  <span className="flex-none text-[9px] text-slate-400">불가</span>
-                )}
-              </button>
-            </li>
-          ))}
+          {specs.map((spec) => {
+            // 몰이 지원하고(available) 우리에게 길이 있고(run) 이 몰에서 이 상품을
+            // 부르는 코드까지 있어야(externalId) 누를 수 있다. 셋 중 하나라도 없으면
+            // 왜 못 누르는지 title 이 말한다.
+            const runnable = Boolean(spec.run) && spec.available && Boolean(externalId);
+            const busy = running === spec.key;
+            return (
+              <li key={spec.key}>
+                <button
+                  type="button"
+                  disabled={!runnable || running !== null}
+                  onClick={runnable ? () => void run(spec) : undefined}
+                  title={
+                    spec.reason
+                    ?? (spec.run && !externalId ? '이 몰의 상품코드를 아직 모릅니다. 먼저 이 몰의 리스팅을 가져오세요.' : null)
+                    ?? (runnable ? spec.label : NOT_WIRED)
+                  }
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
+                    runnable
+                      ? 'cursor-pointer bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:cursor-wait'
+                      : 'cursor-not-allowed',
+                    !runnable && spec.available && 'bg-slate-50 text-slate-700',
+                    !runnable && !spec.available && 'text-slate-400 line-through decoration-slate-300',
+                    spec.danger && spec.available && 'bg-red-50 text-red-700',
+                  )}
+                >
+                  {busy ? (
+                    <Loader2 size={12} className="flex-none animate-spin" />
+                  ) : (
+                    <spec.icon size={12} className="flex-none" />
+                  )}
+                  <span className="flex-1 truncate no-underline">{spec.label}</span>
+                  {runnable ? null : spec.available ? (
+                    <span className="flex-none rounded bg-white px-1 text-[9px] font-medium text-slate-500">
+                      미연결
+                    </span>
+                  ) : (
+                    <span className="flex-none text-[9px] text-slate-400">불가</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
 
         {column.actions.soldOutDeletesListing ? (
