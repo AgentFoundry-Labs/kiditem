@@ -20,26 +20,33 @@ registration, and Coupang cookie-overflow recovery.
   Coupang cookie recovery is limited to named/path cookies for the supplier
   origin and must warn that shared Coupang sessions will be signed out; never
   read or return cookie values.
-- A login check (`checkMallLogin`) answers one of `signed_in`,
-  `verification_required`, or `signed_out` — never "unknown". It first uses
-  `mall-session-probe.js` (one fixed, read-only GET per mall with the operator's
-  cookies; `signed_in` needs a positive admin marker and `signed_out` a login
-  signal). When that cannot tell, it opens the mall's admin screen (the probe
-  URL, a fixed check URL, or the operator's saved site address inside
-  `host_permissions`) in an inactive tab, looks for a login form or a
-  verification-code screen, and closes the tab. No credentials, no typing, no
-  clicks, and no URL, body, or header in the answer; a screen it cannot reach is
-  `signed_out` with its reason. Never add export, audit-logging, or mutating
-  URLs, and never reuse `ensureMallLogin` for checks.
-- Stored-credential login (`ensureMallLogin`) reports what it did, not a verdict:
-  `submitted` for the click and `verified` for whether the login form was gone
-  afterwards. A form that stays, or a page that stops answering (a dialog), is
-  `verified: false` — not a wrong password, because mall screens after a login
-  differ too much to judge from the page. The web decides what to do with that
-  and limits how often the same mall is tried. The account screen's login test
-  uses `testMallLogin`, which runs outside a collection attempt and sends nothing
-  to KidItem. Registration form fill logs in only when the form is absent
-  (`noForm`); a form that fails to fill is never a login prompt.
+- Mall login and session checks go through `mall-session.js` only: `ensureLoggedIn`
+  (`ok` · `rejected` · `unknown`) and `checkLogin` (`in` · `out` · `unknown`),
+  answering from one shared set of reason codes. Its one-row-per-mall spec
+  (`entryUrl` · `loginUrl` · `loggedInSignal` · `fields` · `headers`) is the only
+  place a mall's login address and logged-in signal are written — add a mall
+  there, never in a second table. Tabs, frame injection, dialog swallowing, and
+  the one quiet read are its driver seam (`worker.js`, `mall-session-probe.js`).
+  Retry spacing and blocking a rejected mall stay in the web.
+- A `loggedInSignal` answers `in` only on a positive admin marker and `out` only
+  on a login signal; anything else stays `unknown`, so an unrecognized page never
+  reads as signed in. When the quiet read cannot tell, the module opens the admin
+  screen — the spec's `entryUrl` or the operator's saved site address, and only
+  when that origin is inside `host_permissions` — in an inactive tab, and closes
+  it. Never add export, audit-logging, or mutating URLs to a spec.
+- The check the web sees (`checkMallLogin`) answers one of `signed_in`,
+  `verification_required`, or `signed_out` — never "unknown"; a mall the module
+  could not tell about is `signed_out` with its reason. It never fills, types,
+  clicks, or returns a URL, body, or header, and never runs the login path.
+- Stored-credential login reports what it did, not a verdict: `submitted` for the
+  click and `verified` for whether the login form was gone afterwards. A form that
+  stays, or a page that stops answering (a dialog), is `verified: false` — not a
+  wrong password, because mall screens after a login differ too much to judge from
+  the page. The web decides what to do with that and limits how often the same
+  mall is tried. The account screen's login test uses `testMallLogin`, which runs
+  outside a collection attempt and sends nothing to KidItem. Registration form
+  fill logs in only when the form is absent (`noForm`); a form that fails to fill
+  is never a login prompt.
 
 ## Collection Contract
 
