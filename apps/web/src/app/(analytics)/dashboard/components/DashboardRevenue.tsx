@@ -141,7 +141,9 @@ export function DashboardRevenue({
   isLoading,
   isError,
   salesHref,
+  className,
 }: {
+  className?: string;
   summary: SellpiaSalesSummary | undefined;
   isLoading: boolean;
   isError: boolean;
@@ -215,7 +217,7 @@ export function DashboardRevenue({
   const mallsFull = view.malls.length >= MALL_SLOTS.length;
 
   return (
-    <section aria-label="매출 추이" className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="dashboard-revenue">
+    <section aria-label="매출 추이" className={cn('flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white', className)} data-testid="dashboard-revenue">
       <header className="flex items-center justify-between gap-2 h-10 border-b border-slate-100 px-4">
         <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-800">
           <LineChartIcon size={14} className="flex-none text-slate-500" aria-hidden />
@@ -334,7 +336,7 @@ export function DashboardRevenue({
       ) : series.length === 0 ? (
         <p className="px-4 py-16 text-center text-sm text-slate-400">설정에서 볼 그래프를 고르세요.</p>
       ) : (
-        <div className="px-4 py-3">
+        <div className="flex flex-1 flex-col px-4 py-3">
           {/* 범례 — 선마다 이름과 금액. 올리면 그 선만 또렷해진다. */}
           <ul className="flex flex-wrap gap-x-4 gap-y-1.5" aria-label="표시 중인 그래프">
             {series.map((item) => (
@@ -362,8 +364,9 @@ export function DashboardRevenue({
             ))}
           </ul>
 
-          <div className="mt-3" style={{ height: CHART_HEIGHT }}>
-            <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={{ width: 800, height: CHART_HEIGHT }}>
+          {/* 줄 높이에 맞춰 차트가 자란다 — 옆 칸(에이전트 · 긴급)과 아래 선이 맞는다. */}
+          <div className="mt-3 flex-1" style={{ minHeight: CHART_HEIGHT }}>
+            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 800, height: CHART_HEIGHT }}>
               <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="#f1f5f9" vertical={false} />
                 <XAxis

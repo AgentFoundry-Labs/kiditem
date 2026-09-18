@@ -174,7 +174,10 @@ function AgentRow({ agent, work }: { agent: AgentLine; work: string }) {
   );
 }
 
-export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNode } = {}) {
+/** 세 장을 페이지에 넘긴다 — 페이지가 줄마다 왼쪽 칸과 짝지어 아래 선을 맞춘다. */
+export type DashboardAgentStatusParts = { agents: ReactNode; urgent: ReactNode; recent: ReactNode };
+
+export function DashboardAgentStatus({ children }: { children: (parts: DashboardAgentStatusParts) => ReactNode }) {
   const { snapshot, now } = useAgentOrg();
   const agents = useMemo(() => {
     const byGroup = new Map(buildPipeAgents(snapshot).map((agent) => [agent.group.id, agent]));
@@ -201,9 +204,8 @@ export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNod
   const feed = useMemo(() => snapshot.feed.slice(0, FEED_LIMIT), [snapshot.feed]);
   const nowDate = new Date(now);
 
-  return (
-    <aside aria-label="에이전트 실시간 상태" className="space-y-3" data-testid="dashboard-agent-status">
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  const agentsCard = (
+      <section aria-label="에이전트 실시간 상태" className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="dashboard-agent-status">
         <header className="flex items-center justify-between h-10 border-b border-slate-100 px-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <Radio size={14} className="text-violet-600" aria-hidden />
@@ -236,11 +238,11 @@ export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNod
           ))}
         </p>
       </section>
-
-      {/* 긴급 — 바탕을 붉게 해 에이전트 표와 한눈에 갈린다. 줄을 누르면 그 일을 처리하는 화면으로
-          바로 간다(주문 수집 실패 → 주문수집, 셀피아 재고 → 재고 관리). 주소는 Agent Org 모델이
-          단계마다 정한 것이라 두 화면이 같은 곳을 가리킨다. */}
-      <section aria-label="긴급" className="overflow-hidden rounded-xl border border-red-200 bg-red-50">
+  );
+  // 긴급 — 바탕을 붉게 해 에이전트 표와 한눈에 갈린다. 줄을 누르면 그 일을 처리하는 화면으로
+  // 바로 간다. 주소는 Agent Org 모델이 단계마다 정한 것이라 두 화면이 같은 곳을 가리킨다.
+  const urgentCard = (
+      <section aria-label="긴급" className="flex-1 overflow-hidden rounded-xl border border-red-200 bg-red-50">
         <header className="flex h-10 items-center justify-between border-b border-red-100 px-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-red-800">
             <AlertTriangle size={14} className="text-red-600" aria-hidden />
@@ -294,12 +296,10 @@ export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNod
           </Link>
         ) : null}
       </section>
-
-      {beforeRecent}
-
-      {/* 방금 한 일. 에이전트가 무엇을 하고 있는지의 나머지 절반이다. */}
-      {feed.length > 0 ? (
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  );
+  // 방금 한 일. 에이전트가 무엇을 하고 있는지의 나머지 절반이다.
+  const recentCard = feed.length > 0 ? (
+        <section className="flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
           <header className="flex h-10 items-center border-b border-slate-100 px-4">
             <h2 className="text-sm font-semibold text-slate-800">방금</h2>
           </header>
@@ -315,7 +315,7 @@ export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNod
             ))}
           </ul>
         </section>
-      ) : null}
-    </aside>
-  );
+      ) : null;
+
+  return <>{children({ agents: agentsCard, urgent: urgentCard, recent: recentCard })}</>;
 }

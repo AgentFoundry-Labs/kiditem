@@ -622,28 +622,44 @@ export default function Dashboard() {
 
       <DashboardReadFailures failures={readFailures} />
 
-      {/* 바깥 두 칸 — 왼쪽은 매출 · 광고와 매출 추이, 오른쪽은 에이전트 실시간.
-          겹치던 것(기간 지표 = 매출 카드, 광고 성과 = 광고 카드, 알림 = 긴급)은 걷었다(사장님 2026-09-18). */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px] items-start">
-        <div className="min-w-0 space-y-3">
-          <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} inventory={headlineInventory} salesHref={salesAnalysisHref} />
-          <DashboardRevenue
-            summary={channelSales.summary}
-            isLoading={channelSales.isLoading}
-            isError={channelSales.isError}
-            salesHref={salesAnalysisHref}
-          />
-          {topProductsHasErr ? (
-            <DashboardSectionUnavailable label="Top Revenue Products" />
-          ) : topProductsLoading ? (
-            <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
-          ) : !effectiveSales ? (
-            <DashboardSectionEmpty label="Top Revenue Products" />
-          ) : (
-            <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
+      {/* 두 줄. 줄마다 왼쪽 · 오른쪽 칸의 마지막 카드가 늘어나 아래 선이 맞는다 —
+          매출 추이 ↔ 긴급, Top 상품 ↔ 방금(사장님 2026-09-18). */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <DashboardAgentStatus>
+          {({ agents, urgent, recent }) => (
+            <>
+              <div className="flex min-w-0 flex-col gap-3">
+                <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} inventory={headlineInventory} salesHref={salesAnalysisHref} />
+                <DashboardRevenue
+                  className="flex-1"
+                  summary={channelSales.summary}
+                  isLoading={channelSales.isLoading}
+                  isError={channelSales.isError}
+                  salesHref={salesAnalysisHref}
+                />
+              </div>
+              <div className="flex min-w-0 flex-col gap-3">
+                {agents}
+                {urgent}
+              </div>
+              <div className="flex min-w-0 flex-col gap-3">
+                {topProductsHasErr ? (
+                  <DashboardSectionUnavailable label="Top Revenue Products" />
+                ) : topProductsLoading ? (
+                  <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
+                ) : !effectiveSales ? (
+                  <DashboardSectionEmpty label="Top Revenue Products" />
+                ) : (
+                  <DashboardTopProducts className="flex-1" products={topProducts} basis={topProductsBasis} />
+                )}
+              </div>
+              <div className="flex min-w-0 flex-col gap-3">
+                {abcPanel}
+                {recent}
+              </div>
+            </>
           )}
-        </div>
-        <DashboardAgentStatus beforeRecent={abcPanel} />
+        </DashboardAgentStatus>
       </div>
 
     </div>

@@ -28,7 +28,9 @@ const GRADE_CLASS: Record<ProductAbcGrade, string> = {
 export function DashboardTopProducts({
   products,
   basis,
+  className,
 }: {
+  className?: string;
   products: DashboardSalesSummary['topProducts'];
   basis?: DashboardMetricBasis | null;
 }) {
@@ -36,7 +38,7 @@ export function DashboardTopProducts({
   const blanks = Math.max(0, ROW_SLOTS - rows.length);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className={cn('overflow-hidden rounded-xl border border-slate-200 bg-white', className)}>
       <div className="flex h-10 items-center justify-between gap-2 border-b border-slate-100 px-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={13} className="text-slate-500" />
