@@ -2,7 +2,7 @@
   "use strict";
 
   // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈·
-  // 아트공구(판매안함)·롯데ON(판매상태 품절). 아이스크림몰은 경로 대기.
+  // 아트공구(판매안함)·롯데ON(판매상태 품절)·티쳐몰(재고 0). 아이스크림몰은 경로 대기.
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -41,6 +41,12 @@
   const LIST_RECHECK_TIMES = 6;
   /** 상품목록 문서가 뜬 뒤 목록(검색 결과)이 그려질 때까지. */
   const LIST_RENDER_MS = 3500;
+  /**
+   * 롯데ON 상품 조회는 바꾼 판매상태를 늦게 보여 준다(실측 2026-09-19: 보낸 직후와 몇 초 뒤엔 옛 값, 10여 초 뒤 새 값).
+   * 보낸 뒤 이 간격으로 다시 읽어 바뀐 상태가 보일 때까지 기다린다.
+   */
+  const LOTTEON_RECHECK_MS = 3000;
+  const LOTTEON_RECHECK_TIMES = 8;
 
   /**
    * 몰마다 다른 것 전부.
@@ -240,6 +246,32 @@
      *  - 롯데ON이 판매중지(STP)했거나 판매종료(END)한 상품은 바꾸지 않는다.
      *  - 보낸 뒤 상품 조회로 판매상태를 다시 읽어 확인한다.
      */
+    /**
+     * 티쳐몰(퍼스트몰 selleradmin). 품절 = **재고 0**, 판매 재개 = **재고 999** — 판매상품 > [실물] 일괄 업데이트의
+     * "상품코드/무게/재고 직접 업데이트"(batch_modify?mode=goodsetc)에서 [업데이트하기]가 보내는 요청 그대로다
+     * (2026-09-19 실측, 화면 코드 `batch_goods_save_submit`).
+     *
+     *  - 상품번호로 검색한 일괄 업데이트 화면의 폼 `goodsBatchUpdateForm` 을 그대로 모아 그 상품의 `stock[옵션번호]` 만 바꾸고,
+     *    화면의 검색 조건(`get_search_field`: page · mode · keyword · goods_kind · orderby · sort · perpage · provider_seq)을
+     *    붙여 POST `/selleradmin/goods_process/batch_goods_modify` 로 보낸다. [업데이트하기]가 먼저 띄우는 역마진 확인
+     *    창(goods_batch_permit)은 보여 주기만 하는 창이라 거치지 않는다.
+     *  - 퍼스트몰은 재고 0 이면 저절로 품절이다(판매상태에 '품절'만 고르는 값이 없다). 정보수정(goods/regist)으로 바꾸면
+     *    승인이 풀려 판매중지 · 미노출로 돌아가므로 그 길은 쓰지 않는다.
+     *  - 보낸 뒤 재고를 다시 읽고 상품목록(catalog?keyword=)의 상태가 "승인 품절"(재개면 "승인 정상")인지 본다. "미승인"이면
+     *    확인하지 않고 알린다.
+     *  - 옵션이 여럿인 상품은 옵션마다 재고라 보내지 않고 알린다.
+     */
+    "teacher-mall": {
+      label: "티쳐몰",
+      origin: "https://shop.teacherville.co.kr",
+      batchStock: {
+        pageUrl: "https://shop.teacherville.co.kr/selleradmin/goods/catalog",
+        batchPath: "/selleradmin/goods/batch_modify",
+        savePath: "/selleradmin/goods_process/batch_goods_modify",
+        catalogPath: "/selleradmin/goods/catalog",
+        resumeStock: 999,
+      },
+    },
     "lotte-on": {
       label: "롯데ON",
       origin: "https://store.lotteon.com",
@@ -364,6 +396,68 @@
       return { status: answer.status, loggedOut, json: answer.json };
     } catch (error) {
       return { status: 0, json: null, loggedOut: false, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 티쳐몰 [실물] 일괄 업데이트(상품코드/무게/재고)를 상품번호로 검색해 그 폼이 보낼 값을 모은다. 읽기만 한다.
+   * 워커가 인자로만 넘긴다. 체크박스는 이 상품만 고른다. `search` 는 [업데이트하기]가 폼에 덧붙이는 검색 조건이다.
+   * 로그인이 풀렸으면 일괄 업데이트 화면이 아닌 곳에 닿는다.
+   */
+  async function teacherBatchFormOnPage(batchPath, code) {
+    try {
+      const params = new URLSearchParams({ page: "1", mode: "goodsetc", keyword: code });
+      const response = await fetch(`${batchPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || landed.pathname !== batchPath) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const form = doc.querySelector("form#goodsBatchUpdateForm");
+      if (!form) return { loggedOut: true };
+      const box = [...form.querySelectorAll('input[name="goods_seq[]"]')].find((input) => input.value === code);
+      if (!box) return { found: false };
+      const pairs = [];
+      for (const element of form.elements) {
+        if (!element.name || element.disabled) continue;
+        if (element.type === "button" || element.type === "submit" || element.type === "file") continue;
+        if (element.name === "goods_seq[]") {
+          if (element.value === code) pairs.push([element.name, element.value]);
+          continue;
+        }
+        if (element.type === "checkbox" || element.type === "radio") {
+          if (element.checked) pairs.push([element.name, element.value]);
+          continue;
+        }
+        pairs.push([element.name, element.value]);
+      }
+      // 이 상품의 옵션 = default_option_seq[옵션번호] 가 이 상품번호인 옵션.
+      const options = pairs.filter(([name, value]) => /^default_option_seq\[\d+\]$/.test(name) && value === code)
+        .map(([name]) => name.slice("default_option_seq[".length, -1));
+      const stocks = options.map((option) => [option, pairs.find(([name]) => name === `stock[${option}]`)?.[1] ?? ""]);
+      const search = [...html.matchAll(/get_search_field\[\d+\]\s*=\s*\[\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\]/g)]
+        .map((match) => [match[1], match[2]]);
+      return { found: true, pairs, stocks, search };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /** 티쳐몰 상품목록에서 그 상품의 승인 · 판매 상태("승인정상" · "승인품절" · "미승인…")를 읽는다. 읽기만 한다. */
+  async function teacherCatalogStatusOnPage(catalogPath, code) {
+    try {
+      const response = await fetch(`${catalogPath}?keyword=${encodeURIComponent(code)}`, { credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || landed.pathname !== catalogPath) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      const box = [...doc.querySelectorAll('input[name="goods_seq[]"]')].find((input) => input.value === code);
+      if (!box) return { found: false };
+      const text = (box.closest("tr")?.textContent || "").replace(/\s+/g, " ");
+      const match = /(미승인|승인)\s*(정상|품절|재고확보중|판매중지)/.exec(text);
+      return { found: true, approval: match ? match[1] : null, state: match ? match[2] : null };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
     }
   }
 
@@ -1254,6 +1348,114 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /**
+     * 티쳐몰 재고. 상품마다 [실물] 일괄 업데이트 화면을 상품번호로 검색해 폼 값을 모으고, [업데이트하기]와 같은 요청으로
+     * 재고만 바꿔 보낸 뒤 재고와 상품목록 상태(승인 품절 · 승인 정상)를 다시 읽어 확인한다.
+     */
+    async function sendByTeacherBatchStock(spec, codes, resume) {
+      const api = spec.batchStock;
+      const wanted = resume ? String(api.resumeStock) : "0";
+      const expectedState = resume ? "정상" : "품절";
+      const warnings = [];
+      let sent = 0;
+      let failed = 0;
+      let confirmed = 0;
+      let already = 0;
+      let missing = 0;
+      let withOptions = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        for (let index = 0; index < codes.length; index += 1) {
+          const code = codes[index];
+          if (index > 0) await sleep(PACE_MS);
+          const form = await run(teacherBatchFormOnPage, [api.batchPath, code]);
+          if (form?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!form?.found) {
+            if (form?.error) {
+              failed += 1;
+              warnings.push(`${code}: ${spec.label} 일괄 업데이트 화면을 읽지 못했습니다(${form.error}).`);
+            } else {
+              missing += 1;
+            }
+            continue;
+          }
+          if (form.stocks.length !== 1) {
+            withOptions += 1;
+            failed += 1;
+            continue;
+          }
+          const [[option, stock]] = form.stocks;
+          const soldOut = String(stock).trim() !== "" && Number(stock) === 0;
+          if (resume ? !soldOut : soldOut) {
+            already += 1;
+            continue;
+          }
+          // [업데이트하기]가 보내는 모양 그대로 — 폼 값에서 이 상품의 재고만 바꾸고 검색 조건을 덧붙인다.
+          const pairs = form.pairs.map(([name, value]) => [name, name === `stock[${option}]` ? wanted : value]);
+          for (const pair of form.search) pairs.push(pair);
+          const answer = await run(requestOnPage, [
+            api.savePath, "POST", "application/x-www-form-urlencoded; charset=UTF-8", new URLSearchParams(pairs).toString(),
+          ]);
+          if (answer.status < 200 || answer.status >= 400 || /login|로그인/i.test(`${answer.url || ""}`)) {
+            failed += 1;
+            warnings.push(`${code}: ${spec.label}이 재고 변경을 받지 않았습니다(HTTP ${answer.status}).`);
+            continue;
+          }
+          sent += 1;
+          const after = await run(teacherBatchFormOnPage, [api.batchPath, code]);
+          const status = await run(teacherCatalogStatusOnPage, [api.catalogPath, code]);
+          const stockChanged = after?.found && after.stocks.length === 1 && String(Number(after.stocks[0][1])) === wanted;
+          if (status?.approval === "미승인") {
+            warnings.push(`${code}: ${spec.label} 승인이 풀렸습니다(미승인) — 티쳐몰에서 확인하세요.`);
+          } else if (stockChanged) {
+            confirmed += 1;
+            if (status?.found && status.state && status.state !== expectedState) {
+              warnings.push(`${code}: 재고는 바뀌었는데 ${spec.label} 상품목록 상태가 아직 '${status.approval || ""}${status.state}'입니다.`);
+            }
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (missing > 0) {
+        failed += missing;
+        warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+      }
+      if (withOptions > 0) {
+        warnings.push(`옵션이 여럿인 상품 ${withOptions}개는 옵션마다 재고라 보내지 않았습니다 — ${spec.label}에서 옵션 재고를 고쳐 주세요.`);
+      }
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 티쳐몰 지금 재고. 상품마다 일괄 업데이트 화면 검색 한 번. 재고 0 이면 품절(0), 아니면 판매 가능(모름). 읽기만 한다. */
+    async function readByTeacherBatchStock(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{1,12}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      const found = [];
+      const missing = [];
+      const halted = await withSellerPage(spec, spec.batchStock.pageUrl, async (run) => {
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const form = await run(teacherBatchFormOnPage, [spec.batchStock.batchPath, products[index]]);
+          if (form?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!form?.found || form.stocks.length === 0) {
+            missing.push(products[index]);
+            continue;
+          }
+          found.push({
+            code: products[index],
+            options: form.stocks.map(([option, stock]) => ({
+              optionCode: option,
+              stock: String(stock).trim() !== "" && Number(stock) === 0 ? 0 : null,
+              rocket: false,
+            })),
+          });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
     /** 꼬망세 지금 재고. 상품마다 설정 화면 검색 한 번. 재고 0 이면 품절(0), 아니면 판매 가능(모름). 읽기만 한다. */
     async function readByKkomangseDirect(spec, codes) {
       const products = [...new Set(codes)].slice(0, READ_LIMIT);
@@ -1394,9 +1596,21 @@
           await sleep(PACE_MS);
         }
         if (sent === 0) return null;
-        const after = await readLotteonRows(spec, run, targets);
-        if (after.rows) confirmed += targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
-        else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 조회/수정에서 확인하세요.`);
+        // 상품 조회가 늦게 따라온다 — 바뀐 상태가 보일 때까지 몇 번 더 읽는다.
+        let seen = null;
+        for (let attempt = 0; attempt <= LOTTEON_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(LOTTEON_RECHECK_MS);
+          const after = await readLotteonRows(spec, run, targets);
+          if (!after.rows) continue;
+          seen = targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
+          if (seen >= sent) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 조회/수정에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < sent) warnings.push(`${spec.label} 상품 조회가 아직 옛 상태를 보여 줍니다 — 잠시 뒤 다시 확인하세요.`);
+        }
         return null;
       });
       if (halted) return halted;
@@ -1430,14 +1644,15 @@
       }
 
       // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼, 아트공구는 상품목록의
-      // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정]과
-      // 같은 요청이다.
-      if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange) {
+      // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정],
+      // 티쳐몰은 [실물] 일괄 업데이트의 [업데이트하기]와 같은 요청이다.
+      if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock) {
         try {
           if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
           if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
           if (spec.saleStatus) return await sendByLotteonStatus(spec, codes, resume);
           if (spec.directChange) return await sendByKkomangseDirect(spec, codes, resume);
+          if (spec.batchStock) return await sendByTeacherBatchStock(spec, codes, resume);
           return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
@@ -1671,7 +1886,7 @@
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
       if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
-        && !spec?.directChange) {
+        && !spec?.directChange && !spec?.batchStock) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -1683,6 +1898,7 @@
         if (spec.sellingState) return await readBySellingState(spec, codes);
         if (spec.saleStatus) return await readByLotteonStatus(spec, codes);
         if (spec.directChange) return await readByKkomangseDirect(spec, codes);
+        if (spec.batchStock) return await readByTeacherBatchStock(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -1700,7 +1916,7 @@
     // 지금 재고(품절 여부)를 몰에서 바로 읽을 수 있는 몰.
     READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(
       SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
-        || SPECS[key].saleStatus || SPECS[key].directChange,
+        || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock,
     )),
     SEND_TIMEOUT_MS,
   };

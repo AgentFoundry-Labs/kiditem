@@ -232,7 +232,7 @@ const NO_LIMIT: MallAdapterLimits = {
  *    눌렀을 때 아무 일도 안 일어난다.
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
-  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on',
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
 ]);
 
 /**
@@ -492,7 +492,7 @@ const SEEDS: readonly ManifestSeed[] = [
     difficulty: 'high',
     supports: { createListing: true, updateListing: true, setSaleStatus: 'listing', soldOut: true, resume: true },
     hazards: { updateResetsApproval: true },
-    note: '퍼스트몰 selleradmin. 판매상태는 정상/품절/판매중지/재고확보중. ⚠️ 일반 "정보수정" 경로로 처리하면 미승인+판매중지+미노출로 역행하므로 판매상태 단독 변경 경로여야 한다. goods/excel_upload 의 용도(신규등록인지 수정 전용인지)는 미확정.',
+    note: '퍼스트몰 selleradmin. 판매상태는 정상/품절/판매중지/재고확보중 — "품절"만 고르는 값이 없고 재고 0 이면 저절로 품절이다. ⚠️ 일반 "정보수정" 경로로 처리하면 미승인+판매중지+미노출로 역행한다. 우리 품절 길은 판매상품 > [실물] 일괄 업데이트(batch_modify?mode=goodsetc&keyword=상품번호)의 [업데이트하기]가 보내는 요청이다(2026-09-19 실측): 폼 goodsBatchUpdateForm 에서 그 상품의 stock[옵션번호]만 바꾸고 검색 조건(get_search_field)을 붙여 POST goods_process/batch_goods_modify — 품절 0, 판매 재개 999. 보낸 뒤 상품목록(catalog?keyword=)의 "승인 품절/정상"을 보고, "미승인"이면 알린다. 옵션이 여럿인 상품은 보내지 않는다. goods/excel_upload 의 용도(신규등록인지 수정 전용인지)는 미확정.',
   },
   {
     key: 'kkomangse',

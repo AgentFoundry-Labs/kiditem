@@ -55,6 +55,7 @@ describe('품절 송신 결과', () => {
 
   it('도매꾹 · 쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON 은 품절을 보낼 수 있는 몰이다', () => {
     expect(canSendMallAvailability('lotte-on')).toBe(true);
+    expect(canSendMallAvailability('teacher-mall')).toBe(true);
     expect(canSendMallAvailability('domeggook')).toBe(true);
     expect(canSendMallAvailability('coupang')).toBe(true);
     expect(canSendMallAvailability('kakao')).toBe(true);
@@ -189,6 +190,7 @@ describe('몰 지금 재고', () => {
   it('쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON 은 지금 재고를 읽는다', () => {
     expect(canReadMallAvailability('lotte-on')).toBe(true);
     expect(canReadMallAvailability('kkomangse')).toBe(true);
+    expect(canReadMallAvailability('teacher-mall')).toBe(true);
     expect(canReadMallAvailability('coupang')).toBe(true);
     expect(canReadMallAvailability('kakao')).toBe(true);
     expect(canReadMallAvailability('always')).toBe(true);

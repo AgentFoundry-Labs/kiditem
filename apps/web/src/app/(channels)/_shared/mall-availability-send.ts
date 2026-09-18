@@ -30,7 +30,7 @@ const READ_TIMEOUT_MS = 90_000;
  * 끝나지 않아 웹이 먼저 포기하고, 확장 서비스워커도 한 요청을 5분 넘게 붙잡지 못한다(2026-09-18: 20개쯤 보내고
  * 멈췄다). 나눠 보내고 사이사이 진행을 알린다. 꼬망세도 상품마다 설정 화면을 검색 · 저장 · 다시 검색한다.
  */
-const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kkomangse: 20 };
+const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kkomangse: 20, 'teacher-mall': 20 };
 
 /**
  * 품절을 보낼 수 있는 몰.
@@ -38,7 +38,9 @@ const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kk
  * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
  * 버튼이 서지 않는다 — 눌러도 아무 일이 안 일어나는 버튼을 만들지 않는다.
  */
-export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on'] as const;
+export const MALL_AVAILABILITY_SEND_MALLS = [
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
+] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
 
@@ -62,6 +64,7 @@ export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를
 const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
   kkomangse: 'mallAvailabilityKkomangseDirectV1',
 };
+// 티쳐몰 · 롯데ON · 아트공구는 옛 확장이 모르는 몰이라 확장이 "품절 경로를 아는 몰이 아닙니다"로 거절한다.
 
 export function canSendMallAvailability(mallKey: string): mallKey is MallAvailabilitySendMall {
   return (MALL_AVAILABILITY_SEND_MALLS as readonly string[]).includes(mallKey);
@@ -73,7 +76,7 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  * 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이라, 가져온 상태만으로는 품절인지 모른다. 등록현황 칸의 창이
  * 열릴 때 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐").
  */
-export const MALL_AVAILABILITY_READ_MALLS = ['coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse'] as const;
+export const MALL_AVAILABILITY_READ_MALLS = ['coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall'] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
   return (MALL_AVAILABILITY_READ_MALLS as readonly string[]).includes(mallKey);

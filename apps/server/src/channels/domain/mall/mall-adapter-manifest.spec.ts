@@ -153,6 +153,16 @@ describe('resolveSoldOutCommand', () => {
     expect(getMallAdapterManifest('rocket')!.resumeRoute).toBeNull();
   });
 
+  /** 티쳐몰 품절 = [실물] 일괄 업데이트의 재고 0(2026-09-19 실측) — 정보수정은 승인이 풀려 쓰지 않는다. 상품 단위다. */
+  it('sends sold_out to 티쳐몰 as stock 0 through the batch update, not the approval-resetting edit', () => {
+    const teacher = getMallAdapterManifest('teacher-mall')!;
+    expect(resolveSoldOutCommand(teacher)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(teacher.soldOutRoute).toBe('mall_admin');
+    expect(teacher.resumeRoute).toBe('mall_admin');
+    expect(teacher.hazards.updateResetsApproval).toBe(true);
+    expect(soldOutSendsByOption('teacher-mall')).toBe(false);
+  });
+
   it('refuses malls with no sold-out path at all', () => {
     const boribori = getMallAdapterManifest('boribori')!;
     expect(resolveSoldOutCommand(boribori).allowed).toBe(false);

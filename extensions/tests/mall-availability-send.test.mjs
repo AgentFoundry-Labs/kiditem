@@ -797,7 +797,7 @@ test('지금 재고 읽기 — 카카오는 재고 수, 올웨이즈는 품절�
     missing: [],
   });
   const module = loadModule();
-  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'art09', 'coupang', 'kakao', 'kkomangse', 'lotte-on']);
+  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'art09', 'coupang', 'kakao', 'kkomangse', 'lotte-on', 'teacher-mall']);
   assert.ok(module.MALL_KEYS.includes('kakao') && module.MALL_KEYS.includes('always'));
 });
 
@@ -962,10 +962,12 @@ test('아트공구 지금 상태 읽기 — 판매안함이면 품절(0), 판매
  * {spdNo, trNo, lrtrNo, trGrpCd, dvPdTypCd, code:"07", ctrtTypCd/dvProcTypCd/dmstOvsDvDvsCd:"all", reqTxt:"spdSlStatCd", spdSlStatCd}
  * 를 보낸다. 요청 머리는 화면 함수 `gcm._sbm_setRequestHeader` 가 붙인다 — 화면 안(MAIN)에서만 돈다.
  */
-function lotteonMall({ products = {}, loggedOut = false, updateAnswer = null } = {}) {
+function lotteonMall({ products = {}, loggedOut = false, updateAnswer = null, lagReads = 0 } = {}) {
   const state = new Map(Object.entries(products).map(([no, product]) => [no, {
     spdNo: no, slStatCd: 'SALE', trNo: 'LO10014931', lrtrNo: null, trGrpCd: 'SR', dvPdTypCd: 'GNRL', ctrtTypCd: 'A', ...product,
   }]));
+  // 상품 조회가 바뀐 상태를 늦게 보여 준다(실측): 저장 뒤 `lagReads` 번은 옛 상태를 준다.
+  const lag = new Map();
   const log = { tabs: [], removed: [], lists: [], updates: [], worlds: [], headers: [] };
   class FakeXhr {
     constructor() { this.headers = {}; }
@@ -980,11 +982,23 @@ function lotteonMall({ products = {}, loggedOut = false, updateAnswer = null } =
       if (path === '/soapi/v1/product/information/selectProductList') {
         const nos = parsed.spdNo.split('\n');
         log.lists.push(nos);
-        const data = nos.filter((no) => state.has(no)).map((no) => ({ ...state.get(no), pdNm: '상품', sitmJsn: '[]' }));
+        const data = nos.filter((no) => state.has(no)).map((no) => {
+          const pending = lag.get(no);
+          if (pending && pending.reads > 0) {
+            pending.reads -= 1;
+            return { ...state.get(no), slStatCd: pending.old, pdNm: '상품', sitmJsn: '[]' };
+          }
+          return { ...state.get(no), pdNm: '상품', sitmJsn: '[]' };
+        });
         json = { returnCode: 'SUCCESS', dataCount: data.length, data };
       } else if (path === '/soapi/v1/product/registration/updateProductBatch') {
         log.updates.push(parsed);
-        if (!updateAnswer) for (const param of parsed) state.get(param.spdNo).slStatCd = param.spdSlStatCd;
+        if (!updateAnswer) {
+          for (const param of parsed) {
+            if (lagReads > 0) lag.set(param.spdNo, { old: state.get(param.spdNo).slStatCd, reads: lagReads });
+            state.get(param.spdNo).slStatCd = param.spdSlStatCd;
+          }
+        }
         json = updateAnswer ?? { returnCode: 'SUCCESS', data: [JSON.stringify({ successCnt: parsed.length, failCnt: 0, productLst: [] })] };
       } else {
         throw new Error(`unexpected ${this.url}`);
@@ -1074,6 +1088,24 @@ test('롯데ON 판매 재개는 품절(SOUT)인 상품만 판매중(SALE)으로 
   assert.deepEqual(log.updates.map((params) => params.map((param) => [param.spdNo, param.spdSlStatCd])), [[['LO11110000', 'SALE']]]);
   assert.equal(resumed.confirmed, 2);
   assert.equal(resumed.already, 1);
+});
+
+test('⭐ 롯데ON 상품 조회가 늦게 따라와도 바뀐 상태가 보일 때까지 다시 읽어 확인한다', async () => {
+  const { api, log } = lotteonMall({ products: { LO11110000: {} }, lagReads: 3 });
+  const result = await api.send({ mallKey: 'lotte-on', codes: ['LO11110000'] });
+  assert.equal(result.sent, 1);
+  assert.equal(result.confirmed, 1);
+  assert.deepEqual(plain(result.warnings), []);
+  // 처음 조회 1 + 저장 뒤 옛 상태 3번 + 새 상태 1번.
+  assert.equal(log.lists.length, 5);
+});
+
+test('롯데ON — 끝내 옛 상태면 확인하지 못한 것으로 두고 알린다', async () => {
+  const { api } = lotteonMall({ products: { LO11110000: {} }, lagReads: 50 });
+  const result = await api.send({ mallKey: 'lotte-on', codes: ['LO11110000'] });
+  assert.equal(result.sent, 1);
+  assert.equal(result.confirmed, 0);
+  assert.ok(result.warnings.some((warning) => /아직 옛 상태/.test(warning)));
 });
 
 test('롯데ON — 저장이 일부만 됐다고 답하면 그만큼 실패로 세고, 확인은 다시 읽은 것만', async () => {
@@ -1236,6 +1268,175 @@ test('꼬망세 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 �
       { code: 'A0000-A0000-A0002', options: [{ optionCode: 'A0000-A0000-A0002', stock: null, rocket: false }] },
     ],
     missing: ['A0000-A0000-A0003'],
+  });
+  assert.equal(log.posts.length, 0, '읽기만 한다');
+});
+
+/**
+ * 티쳐몰 품절 = 재고 0, 재개 = 재고 999(실측 2026-09-19). [실물] 일괄 업데이트(batch_modify?mode=goodsetc)의 [업데이트하기]가
+ * 폼 `goodsBatchUpdateForm` 에 검색 조건(get_search_field)을 붙여 goods_process/batch_goods_modify 로 보낸다.
+ * 정보수정(goods/regist)은 승인이 풀려 쓰지 않는다. 화면 안 함수를 실제로 돌린다.
+ */
+const TEACHER = 'https://shop.teacherville.co.kr';
+
+function teacherBatchHtml(code, product) {
+  const options = product.options.map((option) => `
+    <input type="hidden" name="default_option_seq[${option.seq}]" value="${code}">
+    <input type="text" name="weight[${option.seq}]" value="0">
+    <input type="text" name="stock[${option.seq}]" value="${option.stock}">
+    <input type="text" name="badstock[${option.seq}]" value="0">
+    <input type="text" name="safe_stock[${option.seq}]" value="">`).join('');
+  return `<html><body>
+    <form id="goodsBatchUpdateForm" name="goodsBatchUpdateForm">
+      <select name="batchmodify_selector"><option value="goodsetc" selected>상품코드/무게/재고</option></select>
+      <select name="orderby"><option value="goods_seq" selected>상품번호</option></select>
+      <select name="perpage"><option value="50" selected>50</option></select>
+      <input type="text" name="all_weight" value=""><input type="text" name="all_stock" value="">
+      <input type="text" name="all_badstock" value=""><input type="text" name="all_safe_stock" value="">
+      <table><tr>
+        <td><input type="checkbox" class="chk" name="goods_seq[]" value="${code}"></td>
+        <td><input type="hidden" name="tmpcode[${code}]" value=""><input type="text" name="code[${code}]" value="${code}">${options}</td>
+      </tr></table>
+      <button type="button" name="update_goods">업데이트하기</button>
+    </form>
+    <script>
+get_search_field	= new Array();
+get_search_field[0] = ["page","1"];
+get_search_field[1] = ["mode","goodsetc"];
+get_search_field[2] = ["keyword","${code}"];
+get_search_field[3] = ["goods_kind","goods,coupon"];
+get_search_field[4] = ["orderby","goods_seq"];
+get_search_field[5] = ["sort","desc"];
+get_search_field[6] = ["perpage","50"];
+get_search_field[7] = ["provider_seq","708"];
+    </script></body></html>`;
+}
+
+function teacherMall({ products = {}, loggedOut = false, loseApproval = false } = {}) {
+  const state = new Map(Object.entries(products).map(([code, product]) => [code, {
+    approval: '승인', options: [{ seq: '2176308', stock: '999' }], ...product,
+  }]));
+  const log = { tabs: [], removed: [], batches: [], catalogs: [], posts: [] };
+  const fetch = async (path, init = {}) => {
+    const url = new URL(path, TEACHER);
+    if (loggedOut && init.method !== 'POST') {
+      return { url: `${TEACHER}/selleradmin/login/index`, ok: true, status: 200, text: async () => '<html><body>로그인</body></html>' };
+    }
+    if (url.pathname === '/selleradmin/goods/batch_modify') {
+      assert.equal(url.searchParams.get('mode'), 'goodsetc');
+      const code = url.searchParams.get('keyword');
+      log.batches.push(code);
+      const html = state.has(code) ? teacherBatchHtml(code, state.get(code)) : '<html><body><form id="goodsBatchUpdateForm"></form></body></html>';
+      return { url: url.href, ok: true, status: 200, text: async () => html };
+    }
+    if (url.pathname === '/selleradmin/goods/catalog') {
+      const code = url.searchParams.get('keyword');
+      log.catalogs.push(code);
+      const product = state.get(code);
+      const soldOut = product && product.options.every((option) => Number(option.stock) === 0);
+      const row = product ? `<tr><td><input type="checkbox" class="chk" name="goods_seq[]" value="${code}"></td><td>[상품번호: ${code}] 상품</td><td>${product.approval}${soldOut ? '품절' : '정상'}</td><td>노출</td></tr>` : '';
+      return { url: url.href, ok: true, status: 200, text: async () => `<html><body><table>${row}</table></body></html>` };
+    }
+    if (url.pathname === '/selleradmin/goods_process/batch_goods_modify' && init.method === 'POST') {
+      assert.match(init.headers['Content-Type'], /^application\/x-www-form-urlencoded/);
+      const body = [...new URLSearchParams(init.body).entries()];
+      log.posts.push(body);
+      for (const [name, value] of body) {
+        const match = /^stock\[(\d+)\]$/.exec(name);
+        if (!match) continue;
+        for (const product of state.values()) {
+          const option = product.options.find((candidate) => candidate.seq === match[1]);
+          if (option) option.stock = value;
+        }
+      }
+      if (loseApproval) for (const product of state.values()) product.approval = '미승인';
+      return { url: url.href, ok: true, status: 200, text: async () => '<script>parent.openDialogAlert("변경 되었습니다.")</script>' };
+    }
+    throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+  };
+  const module = loadModule({ fetch, DOMParser: PageDOMParser, location: new URL(`${TEACHER}/selleradmin/goods/catalog`) });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 51 }; },
+      get: async () => ({ id: 51, url: `${TEACHER}/selleradmin/goods/catalog` }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(51, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 티쳐몰 품절은 [실물] 일괄 업데이트의 [업데이트하기]와 같은 요청으로 — 그 상품 재고만 0, 검색 조건을 붙여 보낸다', async () => {
+  const { api, log, state } = teacherMall({ products: { 1207830: {} } });
+  const result = await api.send({ mallKey: 'teacher-mall', codes: ['1207830', '1111111'] });
+  assert.deepEqual(plain(log.posts), [[
+    ['batchmodify_selector', 'goodsetc'], ['orderby', 'goods_seq'], ['perpage', '50'],
+    ['all_weight', ''], ['all_stock', ''], ['all_badstock', ''], ['all_safe_stock', ''],
+    ['goods_seq[]', '1207830'], ['tmpcode[1207830]', ''], ['code[1207830]', '1207830'],
+    ['default_option_seq[2176308]', '1207830'], ['weight[2176308]', '0'], ['stock[2176308]', '0'],
+    ['badstock[2176308]', '0'], ['safe_stock[2176308]', ''],
+    ['page', '1'], ['mode', 'goodsetc'], ['keyword', '1207830'], ['goods_kind', 'goods,coupon'],
+    ['orderby', 'goods_seq'], ['sort', 'desc'], ['perpage', '50'], ['provider_seq', '708'],
+  ]]);
+  assert.equal(state.get('1207830').options[0].stock, '0');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 1);
+  assert.equal(result.confirmed, 1);
+  assert.equal(result.failed, 1, '없는 상품 1');
+  assert.deepEqual(plain(result.warnings.filter((warning) => /상품목록 상태/.test(warning))), []);
+  assert.deepEqual(log.catalogs, ['1207830'], '보낸 뒤 상품목록에서 승인 · 판매 상태를 본다');
+  assert.deepEqual(log.tabs, [[`${TEACHER}/selleradmin/goods/catalog`, false]]);
+  assert.deepEqual(log.removed, [51]);
+});
+
+test('티쳐몰 판매 재개는 재고 0 인 상품만 재고 999 로 되돌린다', async () => {
+  const { api, log } = teacherMall({ products: { 1: { options: [{ seq: '11', stock: '0' }] }, 2: { options: [{ seq: '22', stock: '999' }] } } });
+  const result = await api.send({ mallKey: 'teacher-mall', codes: ['1', '2'], resume: true });
+  assert.deepEqual(log.posts.map((post) => post.find(([name]) => name.startsWith('stock['))), [['stock[11]', '999']]);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+});
+
+test('⭐ 티쳐몰 — 보낸 뒤 승인이 풀렸으면(미승인) 확인으로 세지 않고 알린다', async () => {
+  const { api } = teacherMall({ products: { 1207830: {} }, loseApproval: true });
+  const result = await api.send({ mallKey: 'teacher-mall', codes: ['1207830'] });
+  assert.equal(result.sent, 1);
+  assert.equal(result.confirmed, 0);
+  assert.ok(result.warnings.some((warning) => /승인이 풀렸습니다/.test(warning)));
+});
+
+test('티쳐몰 — 옵션이 여럿인 상품은 보내지 않고, 로그인이 풀렸으면 아무것도 보내지 않는다', async () => {
+  const multi = teacherMall({ products: { 5: { options: [{ seq: '51', stock: '999' }, { seq: '52', stock: '999' }] } } });
+  const skipped = await multi.api.send({ mallKey: 'teacher-mall', codes: ['5'] });
+  assert.equal(multi.log.posts.length, 0);
+  assert.equal(skipped.failed, 1);
+  assert.ok(skipped.warnings.some((warning) => /옵션이 여럿인 상품 1개/.test(warning)));
+
+  const loggedOut = teacherMall({ products: { 1207830: {} }, loggedOut: true });
+  const refused = await loggedOut.api.send({ mallKey: 'teacher-mall', codes: ['1207830'] });
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /티쳐몰 로그인이 풀렸습니다/);
+  assert.equal(loggedOut.log.posts.length, 0);
+});
+
+test('티쳐몰 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 모름', async () => {
+  const { api, log } = teacherMall({ products: { 1: { options: [{ seq: '11', stock: '0' }] }, 2: {} } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'teacher-mall', codes: ['1', '2', '3'] })), {
+    success: true,
+    products: [
+      { code: '1', options: [{ optionCode: '11', stock: 0, rocket: false }] },
+      { code: '2', options: [{ optionCode: '2176308', stock: null, rocket: false }] },
+    ],
+    missing: ['3'],
   });
   assert.equal(log.posts.length, 0, '읽기만 한다');
 });
