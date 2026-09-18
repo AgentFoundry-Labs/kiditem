@@ -100,10 +100,15 @@ the issue. Backlog and Todo stay empty.
   `wayfinder:prototype`, `wayfinder:grilling`, and `wayfinder:task` under
   those exact names; and the `PR` group. Each label's description is its rule;
   read them with `list_issue_labels`.
-- When a PR opens, create its `PR` child label `#<number> <short title>` with
-  the PR URL and who drives it (person or session) as the description, and
-  apply it to every
-  issue that PR completes: one PR label per issue.
+- Every issue a PR completes carries that PR's `PR` child label
+  `#<number> <short title>`: one PR label per issue. The label description
+  gives the PR URL, title, and author; the session driving the PR may add its
+  name. The [PR labeler](../../deploy/linear-pr-labeler/README.md) creates and
+  applies the label when the GitHub integration links the PR. When the PR
+  opens, check that every issue it completes carries the label. Where one is
+  missing, apply the existing `#<number> ` label, and create the label by hand
+  only when none exists. To change its title, rename that label instead of
+  adding another.
 
 ## Orchestration
 
@@ -149,7 +154,7 @@ sessions.
    `Fixes KID-nnn` for every issue the merge completes and `Refs KID-nnn` for
    issues that still need verification after merge (QA, a workflow run). The
    Linear GitHub integration moves `Fixes` issues to In Review on open and Done
-   on merge; do not move those by hand. When the PR opens, apply its `PR` label
+   on merge; do not move those by hand. When the PR opens, confirm its `PR` label
    and update the live state; after merge, record the merge commit there and
    mark `Refs` issues Done only with their evidence.
 

@@ -1,0 +1,4 @@
+# Local `wrangler dev` only. Copy to .dev.vars (git-ignored) and fill in.
+LINEAR_WEBHOOK_SECRET=
+LINEAR_API_KEY=
+GITHUB_TOKEN=
