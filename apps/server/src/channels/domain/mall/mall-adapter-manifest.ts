@@ -233,8 +233,15 @@ const NO_LIMIT: MallAdapterLimits = {
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
-  'icecream-mall', 'kidsnote',
+  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
 ]);
+
+/**
+ * 품절을 **판매중지**로 보내는 몰. 그 몰 관리자의 품절 길이 판매중지다 — ESM(지마켓 · 옥션)은 재고를 1 이상만 받아
+ * 재고 0 으로 품절을 못 만들고, 11번가 · 스마트스토어는 목록의 판매상태 변경이 판매중지 · 판매중이다(사방넷도 이 몰들의
+ * 일시중지를 판매중지로 보냈다). 화면이 "품절"이 아니라 "판매중지"로 말하게 한다.
+ */
+const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore']);
 
 /**
  * 품절을 **옵션 단위**로 보내는 몰. 쿠팡 윙은 옵션 재고를 0 으로 둔다(윙에서 품절 = 재고 0, 판매중지와 다르다).
@@ -276,12 +283,18 @@ interface ManifestSeed {
 function manifest(seed: ManifestSeed): MallAdapterManifest {
   const unverified = seed.unverified ?? false;
   const applicable = seed.applicable ?? true;
+  const soldOutRoute = soldOutRouteFor(seed.key, applicable);
   // 확인 안 된 몰과 해당 없는 채널은 supports 를 열지 않는다. 시드에 뭐가 적혀
   // 있든 닫는다 — 매니페스트 실수가 몰 송신으로 이어지지 않게 하는 마지막 방어선.
-  const supports = unverified || !applicable
+  // 단, 몰 API 는 확인 전이어도 우리가 그 몰 관리자 화면에 품절 길을 만든 몰(`soldOutRoute`)은 그 축만 연다 —
+  // 확장이 쓰는 요청은 그 화면에서 확인했다. 등록 · 수정 · 재고는 계속 닫는다.
+  const supports = !applicable
     ? NO_SUPPORT
-    : { ...NO_SUPPORT, ...seed.supports };
-  const soldOutRoute = soldOutRouteFor(seed.key, applicable);
+    : unverified
+      ? soldOutRoute === 'mall_admin'
+        ? { ...NO_SUPPORT, setSaleStatus: 'listing' as const, soldOut: true, resume: seed.supports?.resume === true }
+        : NO_SUPPORT
+      : { ...NO_SUPPORT, ...seed.supports };
   return {
     key: seed.key,
     name: seed.name,
@@ -367,37 +380,40 @@ const SEEDS: readonly ManifestSeed[] = [
     name: '지마켓',
     kind: 'api',
     difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2). 품절 · 재개만
+    // ESM 관리자 화면의 요청으로 연다(`soldOutRoute`, 사장님 2026-09-19 "옥션이랑 지마켓도 해봐 품절관리랑 재개").
     unverified: true,
     supports: {
       createListing: true, updateListing: true,
       setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
     },
-    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
+    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 395 },
     limits: { minStockValue: 1 },
-    note: 'ESM 1콜로 지마켓+옥션 동시 등록. ⚠️ 옵션 상품은 재고 수정 자체가 불가하고 범위가 1~99,999 라 재고축으로 0(품절)을 만들 수 없다 → 옵션 isSoldOut boolean 축을 쓴다. 사방넷 기준 완전품절=영구삭제 몰.',
+    note: 'ESM 1콜로 지마켓+옥션 동시 등록. ⚠️ 재고 범위가 1~99,999 라 재고축으로 0(품절)을 만들 수 없다. 우리 품절 길은 ESM 상품 조회/수정의 [판매 상태 변경] → 판매중지(21) · 판매가능(11) 창이 상품마다 보내는 요청 그대로다(2026-09-19 실측): PUT item.esmplus.com/api/ea/goods/{마스터상품번호}/sellStatus {isSell:{gmkt:false|true}} + 머리 X-G-SELLER-ID · X-A-SELLER-ID. 지금 상태는 POST /api/ea/goods/search {query:{goodsIds}}. 우리 상품코드(사방넷)는 {사이트상품번호}_{마스터상품번호}. 지마켓 · 옥션 통합상품은 보내지 않는다. ⚠️ 판매중지 후 13개월(옥션 90일) 동안 상품정보를 안 고치면 몰이 상품을 지운다(최근 3년 상품평이 있으면 제외). 사방넷 기준 완전품절=영구삭제 몰.',
   },
   {
     key: 'auction',
     name: '옥션',
     kind: 'api',
     difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2). 품절 · 재개만
+    // 지마켓과 같은 ESM 관리자 화면의 요청으로 연다(`soldOutRoute`, 2026-09-19).
     unverified: true,
     supports: {
       createListing: true, updateListing: true,
       setStock: 'listing', setSaleStatus: 'option', soldOut: true, resume: true,
     },
-    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 30 },
+    hazards: { soldOutDeletesListing: true, suspendAutoDeletesAfterDays: 90 },
     limits: { minStockValue: 1 },
-    note: '지마켓과 같은 ESM 엔드포인트를 공유한다. 등록은 1콜로 양쪽에 동시 반영되므로 중복 송신 방지가 특히 중요하다.',
+    note: '지마켓과 같은 ESM 엔드포인트를 공유한다. 등록은 1콜로 양쪽에 동시 반영되므로 중복 송신 방지가 특히 중요하다. 우리 품절 길은 지마켓과 같은 [판매 상태 변경] 요청의 옥션(iac) 쪽이다. 옛 옥션 상품번호(사방넷이 뒷자리 없이 준 C·D…)도 검색으로 찾는다. ⚠️ 판매중지 후 90일 동안 상품정보를 안 고치면 자동 삭제.',
   },
   {
     key: 'smartstore',
     name: '스마트스토어',
     kind: 'api',
     difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2). 품절 · 재개만
+    // 스마트스토어센터 화면의 요청으로 연다(`soldOutRoute`, 사장님 2026-09-19 "네이버스토어도 해줘").
     unverified: true,
     supports: {
       createListing: true, updateListing: true,
@@ -405,7 +421,7 @@ const SEEDS: readonly ManifestSeed[] = [
     },
     hazards: { fullPayloadOnUpdate: true },
     limits: { ratePerSecond: 2 },
-    note: '⚠️ 재고 전용 API 가 없다(네이버 공식: "현재 재고 수량(stockQuantity)만 수정하는 API는 제공되고 있지 않습니다"). 채널상품 전체 재전송이라 상태 변경에도 현행 규격 검증이 걸려 과거 상품이 400 으로 막힌다. 2 RPS 고정, 상향 불가.',
+    note: '⚠️ 재고 전용 API 가 없다(네이버 공식: "현재 재고 수량(stockQuantity)만 수정하는 API는 제공되고 있지 않습니다"). 채널상품 전체 재전송이라 상태 변경에도 현행 규격 검증이 걸려 과거 상품이 400 으로 막힌다. 2 RPS 고정, 상향 불가. 우리 품절 길은 스마트스토어센터 원상품 목록의 판매상태 변경 그대로다(2026-09-19, 공개 번들 app.js 로 확인 — naver.com 은 조사 도구가 막혀 라이브 화면은 못 봤다): PATCH /api/products/bulk-update?_action=updateProductStatusType {productNos:[원상품번호], productStatusType: SUSPENSION(판매중지) | SALE}, 비동기라 getBulkUpdateProgressResult 로 결과를 묻는다. 요청은 화면 자신의 Angular $http 로 보낸다(인터셉터 머리 그대로). 지금 상태는 POST /api/products/list/search(채널상품번호 → 원상품번호 순으로 찾음). 품절(OUTOFSTOCK)은 재고 0 이면 저절로 되는 상태라 쓰지 않는다.',
   },
   {
     key: 'thirtymall',
@@ -429,9 +445,12 @@ const SEEDS: readonly ManifestSeed[] = [
     name: '11번가',
     kind: 'api',
     difficulty: 'medium',
+    // 셀러 API 는 미확정이라 확인 전으로 둔다. 품절 · 재개만 셀러오피스 화면의 요청으로 연다(`soldOutRoute`,
+    // 사장님 2026-09-19 "11번가도 해놔") — 화면에 판매중지 · 판매중지 해제가 있다.
     unverified: true,
+    supports: { setSaleStatus: 'listing', soldOut: true, resume: true },
     hazards: { soldOutDeletesListing: true },
-    note: '셀러 API 존재는 확정("판매자의 경우 셀러 API를 등록 하셔야 상품 등록부터 … 모든 기능을 사용"). 엔드포인트는 셀러오피스 로그인 후 개발가이드에서만 확인 가능해 미확정 — 호출 IP 사전 등록도 필요하다. 화면 대안은 상품정보 대량수정 엑셀(1회 500건, 옵션 재고 포함). 사방넷 기준 완전품절=영구삭제 몰.',
+    note: '셀러 API 존재는 확정("판매자의 경우 셀러 API를 등록 하셔야 상품 등록부터 … 모든 기능을 사용"). 엔드포인트는 셀러오피스 로그인 후 개발가이드에서만 확인 가능해 미확정 — 호출 IP 사전 등록도 필요하다. 화면 대안은 상품정보 대량수정 엑셀(1회 500건, 옵션 재고 포함). 사방넷 기준 완전품절=영구삭제 몰. 우리 품절 길은 상품조회/수정의 [판매중지] · [판매중지 해제]가 여는 확인 창의 [적용] 그대로다(2026-09-19 실측): POST /product/SellProductAction.tmall?method=updateProductSelStat&prdStatCd=SELL_STOP|SELL_RELEASE {chkPrdNoCount, trgtPrdNos(쉼표), content}. selStatCd 103 판매중 · 104 품절(재고 0) · 105 판매중지. 해제는 재고가 있어야 된다(화면도 막음). 지금 상태는 getSellProductListJSON(상품번호를 줄바꿈으로 잇고 한 번 인코딩).',
   },
   {
     key: 'boribori',
@@ -641,7 +660,7 @@ export function resolveSoldOutCommand(
   if (!manifest.supports.soldOut) {
     return { allowed: false, reason: `${manifest.name} 품절 송신 경로가 아직 없습니다.` };
   }
-  if (!manifest.hazards.soldOutDeletesListing) {
+  if (!manifest.hazards.soldOutDeletesListing && !SUSPENSION_SOLD_OUT_KEYS.has(manifest.key)) {
     return { allowed: true, downgradedTo: 'sold_out' };
   }
   if (manifest.supports.setSaleStatus === null) {

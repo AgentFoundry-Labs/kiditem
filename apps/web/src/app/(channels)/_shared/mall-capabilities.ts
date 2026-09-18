@@ -187,10 +187,11 @@ export function registerNoteFor(
  */
 export function soldOutNoteFor(manifest: MallManifestFacts | null): string | null {
   if (!manifest || !manifest.applicable) return null;
+  // 경로가 있는 몰에 "경로가 아직 없다" · "확인 전"을 적으면 초록 칸이 거짓말을 한다. 그때는 칸의 기본 설명을 쓴다 —
+  // 몰 API 는 확인 전이어도(지마켓 · 옥션 · 11번가 · 스마트스토어) 관리자 화면의 품절 길은 확인했다.
+  if (manifest.soldOutRoute === 'mall_admin') return null;
   if (manifest.unverified) return '이 몰의 품절 방식은 아직 확인 전입니다.';
   if (manifest.supports?.soldOut === false) return null;
-  // 경로가 있는 몰에 "경로가 아직 없다"를 적으면 초록 칸이 거짓말을 한다. 그때는 칸의 기본 설명을 쓴다.
-  if (manifest.soldOutRoute === 'mall_admin') return null;
   return manifest.hazards?.soldOutDeletesListing
     ? '몰은 품절을 받지만 완전품절이 영구삭제라 판매중지로 보내야 합니다. 우리 송신 경로는 아직 없습니다.'
     : '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.';
@@ -202,11 +203,11 @@ export function soldOutNoteFor(manifest: MallManifestFacts | null): string | nul
  */
 export function resumeNoteFor(manifest: MallManifestFacts | null): string | null {
   if (!manifest || !manifest.applicable) return null;
+  if (manifest.resumeRoute === 'mall_admin') return null;
   if (manifest.unverified) return '이 몰의 판매재개 방식은 아직 확인 전입니다.';
   if (manifest.supports?.soldOut === false) return null;
   if (manifest.supports?.resume === false) {
     return '몰이 품절 해제를 자동으로 받지 않습니다 — 몰 관리자에서 직접 풀어야 합니다.';
   }
-  if (manifest.resumeRoute === 'mall_admin') return null;
   return '몰은 판매재개를 받습니다. 우리 송신 경로가 아직 없습니다.';
 }

@@ -26,6 +26,10 @@ const channel = (overrides: Partial<MallChannelSummary> = {}): MallChannelSummar
   listingCount: 0,
   orderCount: 0,
   productCount: 0,
+  optionCount: 0,
+  matchedOptionCount: 0,
+  onSaleOptionCount: 0,
+  onSaleMatchedOptionCount: 0,
   readiness: 'unsupported',
   ...overrides,
 });
@@ -240,6 +244,10 @@ describe('soldOutNoteFor', () => {
   /** 초록 칸에 "경로가 아직 없다"를 적으면 칸이 거짓말을 한다(2026-09-19 전에는 그렇게 적혔다). */
   it('⭐ 우리 길이 있는 몰에는 "경로가 없다" 사연을 붙이지 않는다', () => {
     expect(soldOutNoteFor(manifest({ soldOutRoute: 'mall_admin' }))).toBeNull();
+    // 몰 API 는 확인 전이어도 관리자 화면의 품절 길은 확인했다(지마켓 · 옥션 · 11번가 · 스마트스토어) — "확인 전" 도 아니다.
+    expect(soldOutNoteFor(manifest({ unverified: true, soldOutRoute: 'mall_admin' }))).toBeNull();
+    expect(resumeNoteFor(manifest({ unverified: true, supports: { soldOut: true, resume: true }, resumeRoute: 'mall_admin' })))
+      .toBeNull();
   });
 });
 

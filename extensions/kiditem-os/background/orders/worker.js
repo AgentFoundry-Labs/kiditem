@@ -7818,6 +7818,8 @@ KidItemDomains.register({
     // 옛 확장은 경로가 없다고 거절한다 — 웹은 이 값이 없는 확장으로 두 몰을 보내지 않는다.
     mallAvailabilityIcecreamSaleStateV1: true,
     mallAvailabilityKidsnoteStateV1: true,
+    // 지마켓 · 옥션(ESM) · 11번가 · 스마트스토어 판매중지 · 해제(1.2.19). 옛 확장은 이 몰들을 모른다.
+    mallAvailabilityMarketsV1: true,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

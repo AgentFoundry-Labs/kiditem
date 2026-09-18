@@ -64,6 +64,7 @@ describe('품절 송신 결과', () => {
     expect(canSendMallAvailability('art09')).toBe(true);
     expect(canSendMallAvailability('icecream-mall')).toBe(true);
     expect(canSendMallAvailability('kidsnote')).toBe(true);
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) expect(canSendMallAvailability(mall)).toBe(true);
     expect(canSendMallAvailability('gs-shop')).toBe(false);
   });
 });
@@ -200,6 +201,7 @@ describe('몰 지금 재고', () => {
     expect(canReadMallAvailability('art09')).toBe(true);
     expect(canReadMallAvailability('icecream-mall')).toBe(true);
     expect(canReadMallAvailability('kidsnote')).toBe(true);
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) expect(canReadMallAvailability(mall)).toBe(true);
     expect(canReadMallAvailability('domeggook')).toBe(false);
   });
 
@@ -212,6 +214,11 @@ describe('몰 지금 재고', () => {
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'lotte-on')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'kidsnote')).toEqual({ tone: 'sold_out', label: '품절' });
+    // ESM · 11번가 · 스마트스토어는 품절을 판매중지로 보낸다 — 그 몰의 말 그대로 적는다.
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) {
+      expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], mall)).toEqual({ tone: 'sold_out', label: '판매중지' });
+    }
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }], 'smartstore')).toEqual({ tone: 'on_sale', label: '판매 가능' });
   });
 
   it('롯데ON 은 보낸 직후 다시 읽지 않는다 — 조회가 옛 판매상태를 섞어 준다', () => {
@@ -285,6 +292,15 @@ describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
     });
     await expect(sendMallAvailability('icecream-mall', ['11411122'])).rejects.toThrow(/1\.2\.17.*새로고침/);
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityIcecreamSaleStateV1']);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('지마켓 · 옥션 · 11번가 · 스마트스토어도 이 몰들을 아는 확장으로만 보낸다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible', extensionId: 'ext', version: '1.2.18', missingCapabilities: ['mallAvailabilityMarketsV1'],
+    });
+    await expect(sendMallAvailability('smartstore', ['13720932232'])).rejects.toThrow(/1\.2\.18.*새로고침/);
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityMarketsV1']);
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 

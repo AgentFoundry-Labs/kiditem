@@ -178,7 +178,7 @@ function CandidateTable({ candidates }: { candidates: MallAvailabilityCandidate[
                     title={
                       candidate.effectiveState === candidate.desiredState
                         ? undefined
-                        : '완전품절이 영구삭제인 몰이라 판매중지로 강등했습니다.'
+                        : '이 몰은 품절을 판매중지로 보냅니다(완전품절이 영구삭제이거나, 관리자 화면의 품절 길이 판매중지인 몰).'
                     }
                   >
                     {STATE_LABEL[candidate.effectiveState]}

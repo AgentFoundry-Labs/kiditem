@@ -30,7 +30,11 @@ const READ_TIMEOUT_MS = 90_000;
  * 끝나지 않아 웹이 먼저 포기하고, 확장 서비스워커도 한 요청을 5분 넘게 붙잡지 못한다(2026-09-18: 20개쯤 보내고
  * 멈췄다). 나눠 보내고 사이사이 진행을 알린다. 꼬망세도 상품마다 설정 화면을 검색 · 저장 · 다시 검색한다.
  */
-const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kkomangse: 20, 'teacher-mall': 20 };
+const SEND_CHUNK: Partial<Record<string, number>> = {
+  coupang: 10, kakao: 20, kkomangse: 20, 'teacher-mall': 20,
+  // ESM 은 상품마다 한 번씩 보내고, 스마트스토어는 일괄변경 결과를 기다린다.
+  gmarket: 50, auction: 50, smartstore: 50,
+};
 
 /**
  * 품절을 보낼 수 있는 몰.
@@ -40,7 +44,7 @@ const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kk
  */
 export const MALL_AVAILABILITY_SEND_MALLS = [
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
-  'icecream-mall', 'kidsnote',
+  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
 ] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
@@ -66,6 +70,11 @@ const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
   // 새로고침하라고 먼저 말한다.
   'icecream-mall': 'mallAvailabilityIcecreamSaleStateV1',
   kidsnote: 'mallAvailabilityKidsnoteStateV1',
+  // 1.2.19 전 확장은 지마켓 · 옥션 · 11번가 · 스마트스토어를 모른다.
+  gmarket: 'mallAvailabilityMarketsV1',
+  auction: 'mallAvailabilityMarketsV1',
+  '11st': 'mallAvailabilityMarketsV1',
+  smartstore: 'mallAvailabilityMarketsV1',
 };
 // 티쳐몰 · 롯데ON · 아트공구는 옛 확장이 모르는 몰이라 확장이 "품절 경로를 아는 몰이 아닙니다"로 거절한다.
 
@@ -81,6 +90,7 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  */
 export const MALL_AVAILABILITY_READ_MALLS = [
   'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall', 'icecream-mall', 'kidsnote',
+  'gmarket', 'auction', '11st', 'smartstore',
 ] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
@@ -159,7 +169,12 @@ export interface MallLiveSummary {
  * 아이스크림몰 판매상태(품절 · 판매종료), 키즈노트 상태(품절 · 숨김). 품절이면 재고 0 으로 오지만 몰의 재고가 0 인 것은
  * 아니라 '재고 0' 이라고 적지 않는다.
  */
-const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set(['always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote']);
+const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set([
+  'always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
+]);
+
+/** 품절을 판매중지로 보내는 몰(ESM · 11번가 · 스마트스토어) — 칸은 '품절' 이 아니라 그 몰의 말 그대로 '판매중지' 라고 적는다. */
+const SUSPENSION_MALLS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore']);
 
 /** 지금 재고 → 한 줄. 품절은 재고 0 이다(판매상태와 다르다). 로켓그로스 옵션은 쿠팡 재고라 세지 않는다. */
 export function summarizeLiveAvailability(options: readonly MallLiveOption[], mallKey?: string): MallLiveSummary {
@@ -167,6 +182,7 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[], ma
   if (editable.length === 0) return { tone: 'rocket', label: '로켓그로스 상품 — 쿠팡 재고입니다' };
   const soldOut = editable.filter((option) => option.stock === 0).length;
   if (soldOut === editable.length) {
+    if (mallKey && SUSPENSION_MALLS.has(mallKey)) return { tone: 'sold_out', label: '판매중지' };
     if (mallKey && SOLD_OUT_FLAG_MALLS.has(mallKey)) return { tone: 'sold_out', label: '품절' };
     return { tone: 'sold_out', label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0` };
   }

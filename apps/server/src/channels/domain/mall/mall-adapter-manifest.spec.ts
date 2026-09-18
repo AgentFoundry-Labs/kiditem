@@ -37,15 +37,43 @@ describe('MALL_ADAPTER_MANIFESTS', () => {
     }
   });
 
-  it('closes every write path on unverified malls regardless of the seed', () => {
-    for (const entry of MALL_ADAPTER_MANIFESTS.filter((candidate) => candidate.unverified)) {
+  /**
+   * 지마켓 · 옥션 · 11번가 · 스마트스토어는 몰 API 는 확인 전이지만, 품절 · 재개만 그 몰 관리자 화면의 요청으로 열었다
+   * (사장님 2026-09-19). 등록 · 수정 · 재고는 여전히 닫혀 있다.
+   */
+  it('⭐ opens only the sold-out axis on the four marketplaces', () => {
+    for (const key of ['gmarket', 'auction', '11st', 'smartstore']) {
+      const entry = getMallAdapterManifest(key)!;
+      expect(entry.unverified).toBe(true);
       expect(entry.supports).toEqual({
         createListing: false,
         updateListing: false,
         setStock: null,
-        setSaleStatus: null,
-        soldOut: false,
-        resume: false,
+        setSaleStatus: 'listing',
+        soldOut: true,
+        resume: true,
+      });
+      expect(entry.soldOutRoute).toBe('mall_admin');
+      expect(entry.resumeRoute).toBe('mall_admin');
+      expect(soldOutSendsByOption(key)).toBe(false);
+      // 이 몰들의 품절 길은 판매중지다 — 화면이 "판매중지"로 말한다.
+      expect(resolveSoldOutCommand(entry)).toEqual({ allowed: true, downgradedTo: 'suspended' });
+    }
+    // 판매중지를 오래 두면 지운다 — 지마켓 13개월 · 옥션 90일.
+    expect(getMallAdapterManifest('gmarket')!.hazards.suspendAutoDeletesAfterDays).toBe(395);
+    expect(getMallAdapterManifest('auction')!.hazards.suspendAutoDeletesAfterDays).toBe(90);
+  });
+
+  it('closes every write path on unverified malls regardless of the seed — only our admin sold-out route opens its axis', () => {
+    for (const entry of MALL_ADAPTER_MANIFESTS.filter((candidate) => candidate.unverified)) {
+      const adminRoute = entry.soldOutRoute === 'mall_admin';
+      expect(entry.supports).toEqual({
+        createListing: false,
+        updateListing: false,
+        setStock: null,
+        setSaleStatus: adminRoute ? 'listing' : null,
+        soldOut: adminRoute,
+        resume: adminRoute ? entry.supports.resume : false,
       });
     }
   });
@@ -84,9 +112,9 @@ describe('resolveSoldOutCommand', () => {
     expect(resolveSoldOutCommand(deletesOnSoldOut)).toEqual({ allowed: true, downgradedTo: 'suspended' });
   });
 
-  it('refuses an unverified mall even where the documented path would downgrade', () => {
-    const gmarket = getMallAdapterManifest('gmarket')!;
-    expect(resolveSoldOutCommand(gmarket).allowed).toBe(false);
+  it('refuses an unverified mall', () => {
+    const ssg = getMallAdapterManifest('ssg')!;
+    expect(resolveSoldOutCommand(ssg).allowed).toBe(false);
   });
 
   /** 도매꾹 품절 = 목록 [수정저장] 의 진열안함(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */

@@ -2,7 +2,8 @@
   "use strict";
 
   // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈·
-  // 아트공구(판매안함)·롯데ON(판매상태 품절)·티쳐몰(재고 0)·아이스크림몰(판매상태 품절)·키즈노트(상태 품절).
+  // 아트공구(판매안함)·롯데ON(판매상태 품절)·티쳐몰(재고 0)·아이스크림몰(판매상태 품절)·키즈노트(상태 품절)·
+  // 지마켓/옥션(ESM 판매중지)·11번가(판매중지)·스마트스토어(판매중지).
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -57,6 +58,12 @@
   const KIDSNOTE_PAGE_PACE_MS = 200;
   const KIDSNOTE_RECHECK_MS = 2000;
   const KIDSNOTE_RECHECK_TIMES = 2;
+  /** ESM 은 상품마다 한 번씩 보낸다(화면도 상품마다 PUT 한다). 그 사이 간격. 보낸 뒤 다시 읽는 간격 · 횟수. */
+  const ESM_PACE_MS = 300;
+  const MARKET_RECHECK_MS = 2000;
+  const MARKET_RECHECK_TIMES = 3;
+  /** 스마트스토어 일괄변경은 비동기다 — 결과가 나올 때까지 화면처럼 1초 · 3초 · 5초 간격으로 묻는다(최대 이만큼). */
+  const SMARTSTORE_PROGRESS_WAITS_MS = [1000, 1000, 1000, 3000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
 
   /**
    * 몰마다 다른 것 전부.
@@ -345,6 +352,91 @@
         // 목록 한 쪽 최대(화면의 '100개씩'). 보낼 때도 한 번에 이만큼 — 화면에서 한 쪽을 다 골라 누른 것과 같다.
         pageSize: 100,
         maxPages: 60,
+      },
+    },
+    /**
+     * 지마켓 · 옥션(ESM Plus 상품 조회/수정, item.esmplus.com). 품절 = **판매중지(21)**, 판매 재개 = **판매가능(11)** —
+     * 목록의 [판매 상태 변경] → 판매중지 · 판매가능 창의 [변경]이 보내는 요청 그대로다(2026-09-19 실측, 화면 코드
+     * `sellStatusChangeModal`). ESM 은 재고를 1~99,999 로만 받아 재고 0 으로는 품절을 못 만든다.
+     *
+     *  - 상품마다 PUT `/api/ea/goods/{마스터상품번호}/sellStatus` 에 `{isSell:{gmkt|iac: false|true}}`, 머리
+     *    `X-G-SELLER-ID` · `X-A-SELLER-ID`(그 상품의 사이트별 판매자 아이디, 없으면 빈 값)를 싣는다. 답은
+     *    `{resultCode, data:{gmkt|iac:{resultCode, message}}}` — 사이트 결과가 0(또는 5300)이면 받은 것이다.
+     *  - 지금 상태는 목록 검색 POST `/api/ea/goods/search`(상품번호 여럿을 쉼표로)로 읽는다. 우리 상품코드는 사방넷이 준
+     *    `{사이트상품번호}_{마스터상품번호}` — 앞쪽 사이트상품번호로 찾는다.
+     *  - 판매가능 · 판매중지 상품만 바꾼다(판매불가 · SKU품절 · 등록대기는 화면도 막는다). 지마켓 · 옥션을 한 상품으로
+     *    묶은 통합상품은 한쪽만 바꾸는 요청을 확인하지 못해 보내지 않는다.
+     *  - ⚠️ 판매중지를 오래 두면 몰이 상품을 지운다(지마켓 13개월 · 옥션 90일 동안 상품정보를 안 고치면, 최근 3년 상품평이
+     *    있으면 제외).
+     */
+    gmarket: {
+      label: "지마켓",
+      origin: "https://item.esmplus.com",
+      esmSellStatus: {
+        site: "gmkt",
+        pageUrl: "https://item.esmplus.com/goods/list",
+        searchPath: "/api/ea/goods/search",
+        goodsPath: "/api/ea/goods/",
+        batchSize: 100,
+      },
+    },
+    auction: {
+      label: "옥션",
+      origin: "https://item.esmplus.com",
+      esmSellStatus: {
+        site: "iac",
+        pageUrl: "https://item.esmplus.com/goods/list",
+        searchPath: "/api/ea/goods/search",
+        goodsPath: "/api/ea/goods/",
+        batchSize: 100,
+      },
+    },
+    /**
+     * 11번가 셀러오피스(상품조회/수정). 품절 = **판매중지(105)**, 판매 재개 = **판매중지 해제** — 목록의 [판매중지] ·
+     * [판매중지 해제]가 여는 확인 창(`getSelStatList`)의 [적용]이 보내는 요청 그대로다(2026-09-19 실측, 창 코드
+     * `applySelStat`).
+     *
+     *  - POST `/product/SellProductAction.tmall?method=updateProductSelStat&prdStatCd=SELL_STOP|SELL_RELEASE` 에
+     *    `chkPrdNoCount` · `trgtPrdNos`(상품번호를 쉼표로) · `content`(사유, 비움)를 싣는다. 답은 창 화면이고
+     *    `msg = "SAVE_OK"` 와 "총 N건 중 M건" 을 담는다.
+     *  - 지금 상태는 목록 조회 `SellProductAjaxAction.tmall?method=getSellProductListJSON`(상품번호 여럿을 줄바꿈으로 잇고
+     *    화면처럼 한 번 더 인코딩)로 읽는다. selStatCd 103 판매중 · 104 품절(재고 0) · 105 판매중지 · 102 전시전.
+     *  - 판매중인 상품만 멈추고, 해제는 판매중지이면서 재고가 있는 상품만 푼다(화면도 재고 0 이면 막는다).
+     */
+    "11st": {
+      label: "11번가",
+      origin: "https://soffice.11st.co.kr",
+      st11SellStatus: {
+        pageUrl: "https://soffice.11st.co.kr/view/8006",
+        listPath: "/product/SellProductAjaxAction.tmall",
+        savePath: "/product/SellProductAction.tmall",
+        batchSize: 100,
+      },
+    },
+    /**
+     * 네이버 스마트스토어센터(상품 조회/수정, 원상품 목록). 품절 = **판매중지(SUSPENSION)**, 판매 재개 = **판매중(SALE)** —
+     * 목록의 판매상태 변경이 보내는 요청 그대로다(2026-09-19, 공개 번들 app.js 로 확인 — naver.com 은 조사 도구가 막혀
+     * 라이브 화면은 못 봤다).
+     *
+     *  - PATCH `/api/products/bulk-update?_action=updateProductStatusType` 에 `{productNos:[원상품번호], productStatusType,
+     *    productBulkUpdateType}`. 답이 `STARTED` 면 비동기라 `getBulkUpdateProgressResult` 를 끝날 때까지 묻는다
+     *    (`completed`, `productBulkUpdateResultVO.successIds`). `ALREADY_PROGRESS` · `BUSY` 는 받지 않은 것이다.
+     *  - 요청은 화면 자신의 Angular `$http` 로 보낸다 — 화면 인터셉터가 붙이는 머리(x-current-state 등)가 그대로 실린다.
+     *    그래서 화면 안(MAIN)에서 부른다.
+     *  - 지금 상태는 목록 검색 POST `/api/products/list/search`(상품번호 여럿을 쉼표로)로 읽는다. 우리 상품코드가 채널상품번호인지
+     *    원상품번호인지 몰라서 채널상품번호로 먼저 찾고, 못 찾은 것은 원상품번호로 찾는다.
+     *  - 판매중인 상품만 멈추고(품절 · 판매중지는 이미 못 산다), 해제는 판매중지인 상품만 푼다 — 재고가 없으면 네이버가
+     *    품절로 둔다.
+     */
+    smartstore: {
+      label: "스마트스토어",
+      origin: "https://sell.smartstore.naver.com",
+      naverStatus: {
+        pageUrl: "https://sell.smartstore.naver.com/#/products/origin-list",
+        searchPath: "/api/products/list/search",
+        updatePath: "/api/products/bulk-update?_action=updateProductStatusType",
+        progressPath: "/api/products/bulk-update?_action=getBulkUpdateProgressResult",
+        batchSize: 50,
       },
     },
   };
@@ -693,6 +785,237 @@
       }
       const alerted = /alert\(\s*(['"])((?:(?!\1).){1,200})\1/.exec(text);
       return { status: response.status, alert: alerted ? alerted[2].slice(0, 160) : null };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * ESM 상품 조회/수정 목록을 상품번호 여럿으로 검색한다(화면의 검색과 같은 몸통, 쉼표로 이은 번호). 읽기만 한다.
+   * 워커가 인자로만 넘긴다. 우리가 쓰는 칸만 추린다 — 사이트상품번호 · 마스터상품번호 · 판매상태 · 판매자 아이디.
+   */
+  async function esmSearchOnPage(searchPath, ids) {
+    try {
+      const body = {
+        query: { goodsIds: ids.join(","), sellStatus: [], category: {}, registrationDate: {}, shipping: {}, additionalService: [] },
+        pageIndex: 1,
+        pageSize: Math.max(20, ids.length),
+      };
+      const response = await fetch(searchPath, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login|signin/i.test(landed.pathname)) return { loggedOut: true };
+      if (response.status === 401 || response.status === 403) return { loggedOut: true };
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        return /password|login/i.test(text) ? { loggedOut: true } : { error: `HTTP ${response.status}` };
+      }
+      const items = json?.data?.items;
+      if (!Array.isArray(items)) return { error: json?.message ? String(json.message).slice(0, 120) : `HTTP ${response.status}` };
+      const pair = (value) => ({ gmkt: value?.gmkt ?? null, iac: value?.iac ?? null });
+      return {
+        items: items.map((item) => ({
+          goodsNo: item?.goodsNo === undefined || item?.goodsNo === null ? "" : String(item.goodsNo),
+          siteGoodsNo: pair(item?.siteGoodsNo),
+          sellStatus: pair(item?.sellStatus),
+          siteSellerId: pair(item?.siteSellerId),
+        })),
+      };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * ESM [판매 상태 변경] 창의 [변경]과 같은 요청 하나(상품 하나)를 보낸다. 워커가 인자로만 넘긴다. 답은 결과 코드와 몰이 준
+   * 글뿐이다.
+   */
+  async function esmSellStatusOnPage(goodsPath, goodsNo, body, sellerHeaders) {
+    try {
+      const response = await fetch(`${goodsPath}${encodeURIComponent(goodsNo)}/sellStatus`, {
+        method: "PUT",
+        credentials: "include",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "Content-Type": "application/json",
+          "X-G-SELLER-ID": sellerHeaders?.gmkt ?? "",
+          "X-A-SELLER-ID": sellerHeaders?.iac ?? "",
+        },
+        body: JSON.stringify(body),
+      });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || response.status === 401 || response.status === 403) {
+        return { status: response.status, loggedOut: true };
+      }
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      const site = (key) => {
+        const entry = json?.data?.[key];
+        return entry && typeof entry === "object"
+          ? { resultCode: entry.resultCode ?? null, message: entry.message ? String(entry.message).slice(0, 160) : null }
+          : null;
+      };
+      return {
+        status: response.status,
+        resultCode: json?.resultCode ?? null,
+        message: json?.message ? String(json.message).slice(0, 160) : null,
+        gmkt: site("gmkt"),
+        iac: site("iac"),
+      };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 11번가 상품조회/수정 목록을 상품번호 여럿으로 읽는다. 화면의 그리드가 부르는 JSON 조회와 같고, 상품번호 칸은 화면처럼
+   * 줄바꿈으로 잇고 한 번 인코딩한 값을 싣는다(쉼표는 "상품번호가 잘못 입력됐습니다"). 읽기만 한다.
+   */
+  async function st11ListOnPage(listPath, prdNos) {
+    try {
+      const params = new URLSearchParams({
+        method: "getSellProductListJSON", srchTyp: "prdNew", start: "0", limit: String(Math.max(30, prdNos.length)),
+        prdNo: encodeURIComponent(prdNos.join("\r\n")), prdNm: "", searchType: "PRDNO", dateType: "CREATE",
+        category1: "", category2: "", category3: "", category4: "", chkSelStatCds: "", selMthdCd: "", createDt: "",
+        createDtTo: "", stckQty: "", remainSelDt: "", premiumAplDt: "", dlvCstInstBasiCd: "", dlvCstPayTypCd: "",
+        premiumPlusAplDt: "", dlvClf: "", dlvClfDtl: "", data: "", searchListingItemClsf: "", mobilePrdYn: "", shopNo: "",
+        prdTypCd: "", omPrdYn: "", svcAreaCd: "", isPaging: "Y", reglDlvYn: "N", mnbdClfCd: "", stdPrdYn: "",
+        sendClfCd: "ALL", selStopRsnCd: "",
+      });
+      const response = await fetch(`${listPath}?${params.toString()}`, { method: "POST", credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname)) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const text = (await response.text()).trim();
+      if (!/^[({]/.test(text)) {
+        return /login|로그인/i.test(text) ? { loggedOut: true } : { error: text.slice(0, 80) };
+      }
+      let json = null;
+      try {
+        json = JSON.parse(text.replace(/^\(/, "").replace(/\)$/, ""));
+      } catch {
+        return { error: "json" };
+      }
+      if (!Array.isArray(json?.DATA_LIST)) return { error: "DATA_LIST" };
+      return {
+        rows: json.DATA_LIST.map((row) => ({
+          prdNo: row?.prdNo === undefined || row?.prdNo === null ? "" : String(row.prdNo),
+          selStatCd: row?.selStatCd === undefined || row?.selStatCd === null ? "" : String(row.selStatCd),
+          stckQty: Number(row?.stckQty),
+          setTypCd: row?.setTypCd ?? null,
+        })),
+      };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 11번가 [판매중지] · [판매중지 해제] 확인 창의 [적용]과 같은 요청을 보낸다(창의 폼 그대로 — 건수 · 상품번호 · 사유).
+   * 답은 창 화면(EUC-KR)이라 `msg` 와 "총 N건 중 M건" 만 읽어 돌려준다. 워커가 인자로만 넘긴다.
+   */
+  async function st11SaveOnPage(savePath, mode, prdNos) {
+    try {
+      const body = new URLSearchParams({ chkPrdNoCount: String(prdNos.length), trgtPrdNos: prdNos.join(","), content: "" });
+      const response = await fetch(`${savePath}?method=updateProductSelStat&prdStatCd=${encodeURIComponent(mode)}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname)) return { status: response.status, loggedOut: true };
+      const buffer = await response.arrayBuffer();
+      let text = "";
+      try {
+        text = new TextDecoder("euc-kr").decode(buffer);
+      } catch {
+        text = new TextDecoder().decode(buffer);
+      }
+      const msg = /var\s+msg\s*=\s*["']([^"']*)["']/.exec(text);
+      const counted = /총\s*(\d+)\s*건\s*중\s*(\d+)\s*건/.exec(text)
+        || /constructReleaseMessage\(\s*Number\((\d*)\)\s*,\s*Number\((\d*)\)/.exec(text);
+      const alerted = /alert\(\s*(["'])((?:(?!\1).){1,200})\1/.exec(text);
+      return {
+        status: response.status,
+        msg: msg ? msg[1].slice(0, 80) : null,
+        total: counted && counted[1] !== "" ? Number(counted[1]) : null,
+        done: counted && counted[2] !== "" ? Number(counted[2]) : null,
+        alert: alerted ? alerted[2].slice(0, 160) : null,
+      };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 스마트스토어센터 화면 안(MAIN)에서 화면 자신의 Angular `$http` 로 요청 하나를 보낸다 — 화면 인터셉터가 붙이는 머리가
+   * 그대로 실린다. `kind` 는 search(목록 검색) · status(판매상태 변경) · progress(일괄변경 결과). 우리가 쓰는 칸만 추린다.
+   * 화면이 다 뜰 때까지(Angular 가 설 때까지) 잠시 기다린다. 워커가 인자로만 넘긴다.
+   */
+  async function smartstoreApiOnPage(kind, url, payload) {
+    try {
+      const deadline = Date.now() + 20000;
+      let injector = null;
+      while (!injector) {
+        try {
+          injector = window.angular ? window.angular.element(document.body).injector() : null;
+        } catch {
+          injector = null;
+        }
+        if (injector) break;
+        if (location.hostname !== "sell.smartstore.naver.com" || Date.now() > deadline) return { status: 401, loggedOut: true };
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      const $http = injector.get("$http");
+      const method = kind === "progress" ? "GET" : kind === "status" ? "PATCH" : "POST";
+      let response;
+      try {
+        response = await $http(kind === "progress" ? { method, url } : { method, url, data: payload });
+      } catch (failure) {
+        const status = Number(failure?.status) || 0;
+        const said = failure?.data?.message || failure?.data?.errorMessage || null;
+        return { status, loggedOut: status === 401 || status === 403, message: said ? String(said).slice(0, 160) : null };
+      }
+      const data = response?.data;
+      if (kind === "search") {
+        if (!Array.isArray(data?.content)) return { status: response.status, error: "content" };
+        return {
+          status: response.status,
+          rows: data.content.map((row) => ({
+            id: row?.id === undefined || row?.id === null ? "" : String(row.id),
+            productStatusType: row?.productStatusType ?? null,
+            channelProductNos: Array.isArray(row?.singleChannelProducts)
+              ? row.singleChannelProducts.map((channel) => String(channel?.channelProductNo ?? "")).filter(Boolean)
+              : [],
+          })),
+        };
+      }
+      if (kind === "status") return { status: response.status, state: data?.status ?? null };
+      const result = data?.productBulkUpdateResultVO || null;
+      const failures = result?.resultMessage && typeof result.resultMessage === "object"
+        ? Object.values(result.resultMessage).map((value) => String(value).slice(0, 120)).slice(0, 3)
+        : [];
+      return {
+        status: response.status,
+        completed: data?.completed === undefined ? null : data.completed === true,
+        state: data?.status ?? null,
+        errorMessage: data?.errorMessage ? String(data.errorMessage).slice(0, 160) : null,
+        successIds: Array.isArray(result?.successIds) ? result.successIds.map(String) : null,
+        failures,
+      };
     } catch (error) {
       return { status: 0, error: String(error?.message || error).slice(0, 200) };
     }
@@ -2069,6 +2392,389 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /** ESM 상품코드(사방넷: `{사이트상품번호}_{마스터상품번호}`)에서 사이트상품번호. 모양이 틀리면 null. */
+    function esmSiteNo(spec, code) {
+      const siteNo = String(code || "").split("_")[0];
+      const pattern = spec.esmSellStatus.site === "gmkt" ? /^\d{6,12}$/ : /^[A-Z]\d{6,12}$/;
+      return pattern.test(siteNo) ? siteNo : null;
+    }
+
+    /** ESM 목록을 사이트상품번호로 찾는다(묶음마다 한 번). 이 사이트 번호로 모은다. 로그인이 풀렸으면 { loggedOut }. */
+    async function readEsmItems(spec, run, siteNos) {
+      const api = spec.esmSellStatus;
+      const items = new Map();
+      for (let start = 0; start < siteNos.length; start += api.batchSize) {
+        if (start > 0) await sleep(PACE_MS);
+        const answer = await run(esmSearchOnPage, [api.searchPath, siteNos.slice(start, start + api.batchSize)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.items)) return { error: answer?.error || "목록 검색 실패" };
+        for (const item of answer.items) {
+          const siteNo = item?.siteGoodsNo?.[api.site];
+          if (siteNo) items.set(String(siteNo), item);
+        }
+      }
+      return { items };
+    }
+
+    /**
+     * 지마켓 · 옥션 판매상태. 목록 검색으로 지금 상태를 읽고, [판매 상태 변경] 창과 같은 요청을 상품마다 보낸 뒤 다시 읽어
+     * 확인한다.
+     */
+    async function sendByEsmSellStatus(spec, codes, resume) {
+      const api = spec.esmSellStatus;
+      const site = api.site;
+      const wanted = resume ? "11" : "21";
+      const from = resume ? "21" : "11";
+      const warnings = [];
+      const bySite = new Map();
+      for (const code of codes) {
+        const siteNo = esmSiteNo(spec, code);
+        if (siteNo) bySite.set(siteNo, code);
+      }
+      let failed = codes.length - bySite.size;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        const siteNos = [...bySite.keys()];
+        if (siteNos.length === 0) return null;
+        const before = await readEsmItems(spec, run, siteNos);
+        if (before.loggedOut) return { success: false, error: `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.items) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = siteNos.filter((no) => before.items.has(no));
+        const missing = siteNos.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}(ESM)에서 찾지 못했습니다.`);
+        }
+        const combined = found.filter((no) => before.items.get(no).siteGoodsNo.gmkt && before.items.get(no).siteGoodsNo.iac);
+        if (combined.length > 0) {
+          failed += combined.length;
+          warnings.push(`${combined.length}건은 지마켓 · 옥션 통합상품이라 보내지 않았습니다 — ESM 에서 사이트를 골라 바꾸세요.`);
+        }
+        const single = found.filter((no) => !combined.includes(no));
+        const locked = single.filter((no) => ![from, wanted].includes(before.items.get(no).sellStatus[site])).length;
+        if (locked > 0) {
+          failed += locked;
+          warnings.push(`${locked}건은 판매불가 · SKU품절 · 등록대기라 ${spec.label} 화면도 판매상태를 못 바꿉니다.`);
+        }
+        const targets = single.filter((no) => before.items.get(no).sellStatus[site] === from);
+        already += single.filter((no) => before.items.get(no).sellStatus[site] === wanted).length;
+        const accepted = [];
+        for (const no of targets) {
+          const item = before.items.get(no);
+          // 창이 만드는 모양 그대로 — 그 사이트 판매 여부 하나, 머리에는 사이트별 판매자 아이디(없으면 빈 값).
+          const answer = await run(esmSellStatusOnPage, [
+            api.goodsPath,
+            item.goodsNo,
+            { isSell: { [site]: resume } },
+            { gmkt: encodeURIComponent(item.siteSellerId.gmkt ?? ""), iac: encodeURIComponent(item.siteSellerId.iac ?? "") },
+          ]);
+          if (answer?.loggedOut) return { success: false, error: `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          const siteResult = answer?.[site];
+          const ok = answer?.status === 200 && (answer.resultCode === 5300 || siteResult?.resultCode === 0);
+          if (ok) {
+            sent += 1;
+            accepted.push(no);
+          } else {
+            failed += 1;
+            const said = siteResult?.message || answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+            warnings.push(`${spec.label}이 ${no} 판매상태 변경을 받지 않았습니다: ${said}`);
+          }
+          await sleep(ESM_PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= MARKET_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(MARKET_RECHECK_MS);
+          const after = await readEsmItems(spec, run, accepted);
+          if (!after.items) continue;
+          seen = accepted.filter((no) => after.items.get(no)?.sellStatus?.[site] === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. ESM 상품 조회/수정에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다 — ESM 에서 확인하세요.`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 11번가 목록을 상품번호로 읽는다(묶음마다 한 번). 로그인이 풀렸으면 { loggedOut }. */
+    async function readSt11Rows(spec, run, prdNos) {
+      const api = spec.st11SellStatus;
+      const rows = new Map();
+      for (let start = 0; start < prdNos.length; start += api.batchSize) {
+        if (start > 0) await sleep(PACE_MS);
+        const answer = await run(st11ListOnPage, [api.listPath, prdNos.slice(start, start + api.batchSize)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.error || "목록 조회 실패" };
+        for (const row of answer.rows) if (row?.prdNo) rows.set(row.prdNo, row);
+      }
+      return { rows };
+    }
+
+    /**
+     * 11번가 판매중지 / 해제. 목록으로 지금 상태 · 재고를 읽고, 확인 창의 [적용]과 같은 요청을 묶음마다 보낸 뒤 다시 읽어
+     * 확인한다.
+     */
+    async function sendBySt11SellStatus(spec, codes, resume) {
+      const api = spec.st11SellStatus;
+      const mode = resume ? "SELL_RELEASE" : "SELL_STOP";
+      const wanted = resume ? "103" : "105";
+      const warnings = [];
+      const products = codes.filter((code) => /^\d{6,12}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readSt11Rows(spec, run, products);
+        if (before.loggedOut) return { success: false, error: `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((no) => before.rows.has(no));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다(지운 상품일 수 있습니다).`);
+        }
+        const stat = (no) => before.rows.get(no).selStatCd;
+        let targets;
+        if (resume) {
+          // 해제는 판매중지이면서 재고가 있는 상품만 — 화면도 재고 0 이면 "재고수량 등록 후" 라며 막는다.
+          const stopped = found.filter((no) => stat(no) === "105");
+          const empty = stopped.filter((no) => !(before.rows.get(no).stckQty > 0) && before.rows.get(no).setTypCd !== "02");
+          if (empty.length > 0) {
+            failed += empty.length;
+            warnings.push(`${empty.length}건은 ${spec.label} 재고가 0 이라 판매중지를 풀지 못합니다 — 재고를 넣은 뒤 다시 보내세요.`);
+          }
+          targets = stopped.filter((no) => !empty.includes(no));
+          already += found.filter((no) => stat(no) === "103").length;
+          const other = found.filter((no) => !["103", "105"].includes(stat(no))).length;
+          if (other > 0) {
+            failed += other;
+            warnings.push(`${other}건은 ${spec.label}에서 판매중지가 아니라(품절 · 전시전 등) 풀 것이 없습니다.`);
+          }
+        } else {
+          targets = found.filter((no) => stat(no) === "103");
+          // 품절(104, 재고 0)과 판매중지(105)는 이미 못 산다.
+          already += found.filter((no) => ["104", "105"].includes(stat(no))).length;
+          const other = found.filter((no) => !["103", "104", "105"].includes(stat(no))).length;
+          if (other > 0) {
+            failed += other;
+            warnings.push(`${other}건은 ${spec.label}에서 판매중이 아니라(전시전 · 승인대기 등) 멈추지 않았습니다.`);
+          }
+        }
+        const accepted = [];
+        for (let start = 0; start < targets.length; start += api.batchSize) {
+          const group = targets.slice(start, start + api.batchSize);
+          const answer = await run(st11SaveOnPage, [api.savePath, mode, group]);
+          if (answer?.loggedOut) return { success: false, error: `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.status !== 200 || answer.msg !== "SAVE_OK") {
+            failed += group.length;
+            const said = answer?.alert || answer?.msg || answer?.error || `HTTP ${answer?.status ?? 0}`;
+            warnings.push(`${spec.label}이 ${resume ? "판매중지 해제" : "판매중지"}를 받지 않았습니다: ${said}`);
+          } else {
+            sent += group.length;
+            accepted.push(...group);
+            if (answer.total !== null && answer.done !== null && answer.done < answer.total) {
+              warnings.push(`${spec.label}이 ${answer.total}건 중 ${answer.done}건만 처리했다고 답했습니다.`);
+            }
+          }
+          await sleep(PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= MARKET_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(MARKET_RECHECK_MS);
+          const after = await readSt11Rows(spec, run, accepted);
+          if (!after.rows) continue;
+          seen = accepted.filter((no) => after.rows.get(no)?.selStatCd === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품조회/수정에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다 — 상품조회/수정에서 확인하세요.`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /**
+     * 스마트스토어 목록을 상품번호로 찾는다 — 채널상품번호로 먼저, 못 찾은 것은 원상품번호로. 우리 코드마다 그 원상품 줄을
+     * 모은다. 로그인이 풀렸으면 { loggedOut }.
+     */
+    async function readSmartstoreRows(spec, run, codes) {
+      const api = spec.naverStatus;
+      const rows = new Map();
+      for (const keywordType of ["CHANNEL_PRODUCT_NO", "PRODUCT_NO"]) {
+        const left = codes.filter((code) => !rows.has(code));
+        for (let start = 0; start < left.length; start += api.batchSize) {
+          const group = left.slice(start, start + api.batchSize);
+          const answer = await run(smartstoreApiOnPage, ["search", api.searchPath, {
+            searchKeywordType: keywordType,
+            searchKeyword: group.join(","),
+            searchOrderType: "REG_DATE",
+            page: 0,
+            size: Math.max(20, group.length),
+          }], "MAIN");
+          if (answer?.loggedOut) return { loggedOut: true };
+          if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+          for (const row of answer.rows) {
+            for (const code of group) {
+              if (row.id === code || row.channelProductNos.includes(code)) rows.set(code, row);
+            }
+          }
+          await sleep(PACE_MS);
+        }
+      }
+      return { rows };
+    }
+
+    /**
+     * 스마트스토어 판매중지 / 판매중. 목록으로 지금 상태를 읽고, 판매상태 변경과 같은 요청을 묶음마다 보내 비동기 결과를
+     * 기다린 뒤 다시 읽어 확인한다.
+     */
+    async function sendBySmartstoreStatus(spec, codes, resume) {
+      const api = spec.naverStatus;
+      const wanted = resume ? "SALE" : "SUSPENSION";
+      const warnings = [];
+      const products = [...new Set(codes)].filter((code) => /^\d{6,15}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readSmartstoreRows(spec, run, products);
+        if (before.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((code) => before.rows.has(code));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+        }
+        const stat = (code) => before.rows.get(code).productStatusType;
+        let targets;
+        if (resume) {
+          targets = found.filter((code) => stat(code) === "SUSPENSION");
+          already += found.filter((code) => stat(code) === "SALE").length;
+          const other = found.filter((code) => !["SALE", "SUSPENSION"].includes(stat(code))).length;
+          if (other > 0) {
+            failed += other;
+            warnings.push(`${other}건은 ${spec.label}에서 판매중지가 아니라(품절 · 판매대기 · 판매종료 등) 풀 것이 없습니다.`);
+          }
+        } else {
+          targets = found.filter((code) => stat(code) === "SALE");
+          // 품절(재고 0)과 판매중지는 이미 못 산다.
+          already += found.filter((code) => ["OUTOFSTOCK", "SUSPENSION"].includes(stat(code))).length;
+          const other = found.filter((code) => !["SALE", "OUTOFSTOCK", "SUSPENSION"].includes(stat(code))).length;
+          if (other > 0) {
+            failed += other;
+            warnings.push(`${other}건은 ${spec.label}에서 판매중이 아니라(판매대기 · 판매종료 등) 멈추지 않았습니다.`);
+          }
+        }
+        // 원상품번호로 보낸다. 같은 원상품을 가리키는 코드가 여럿이면 한 번만.
+        const origin = new Map();
+        for (const code of targets) origin.set(before.rows.get(code).id, code);
+        const originNos = [...origin.keys()];
+        const accepted = [];
+        for (let start = 0; start < originNos.length; start += api.batchSize) {
+          const group = originNos.slice(start, start + api.batchSize);
+          const answer = await run(smartstoreApiOnPage, ["status", api.updatePath, {
+            productNos: group,
+            productStatusType: wanted,
+            productBulkUpdateType: wanted,
+          }], "MAIN");
+          if (answer?.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.state !== "STARTED") {
+            failed += group.length;
+            const said = answer?.state === "ALREADY_PROGRESS"
+              ? "이미 수정중인 상품이 있습니다. 잠시 후 다시 보내세요."
+              : answer?.state === "BUSY"
+                ? "스마트스토어에 진행중 작업이 많습니다. 잠시 후 다시 보내세요."
+                : answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+            warnings.push(`${spec.label}이 판매상태 변경을 받지 않았습니다: ${said}`);
+            continue;
+          }
+          // 비동기 결과 — 화면처럼 끝날 때까지 묻는다.
+          let result = null;
+          for (const waitMs of SMARTSTORE_PROGRESS_WAITS_MS) {
+            await sleep(waitMs);
+            const progress = await run(smartstoreApiOnPage, ["progress", api.progressPath, null], "MAIN");
+            if (progress?.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            if (progress?.completed === true) {
+              result = progress;
+              break;
+            }
+            if (progress?.completed === null || progress?.state === "ALREADY_PROGRESS") break;
+          }
+          if (!result) {
+            warnings.push(`${spec.label} 일괄변경 결과를 끝까지 받지 못했습니다 — 목록을 다시 읽어 확인합니다.`);
+            accepted.push(...group.map((no) => origin.get(no)));
+            sent += group.length;
+            continue;
+          }
+          if (result.errorMessage) {
+            failed += group.length;
+            warnings.push(`${spec.label}: ${result.errorMessage}`);
+            continue;
+          }
+          const ok = Array.isArray(result.successIds) ? group.filter((no) => result.successIds.includes(no)) : group;
+          sent += ok.length;
+          accepted.push(...ok.map((no) => origin.get(no)));
+          if (ok.length < group.length) {
+            failed += group.length - ok.length;
+            const said = result.failures?.length ? ` — ${result.failures.join(" / ")}` : "";
+            warnings.push(`${spec.label}이 ${group.length}건 중 ${group.length - ok.length}건을 바꾸지 않았습니다${said}.`);
+          }
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= MARKET_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(MARKET_RECHECK_MS);
+          const after = await readSmartstoreRows(spec, run, accepted);
+          if (!after.rows) continue;
+          seen = accepted.filter((code) => after.rows.get(code)?.productStatusType === wanted).length;
+          if (resume) {
+            const outOfStock = accepted.filter((code) => after.rows.get(code)?.productStatusType === "OUTOFSTOCK").length;
+            if (outOfStock > 0 && attempt === MARKET_RECHECK_TIMES) {
+              warnings.push(`${outOfStock}건은 재고가 없어 ${spec.label}이 판매중 대신 품절로 두었습니다.`);
+            }
+          }
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 조회/수정에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다 — 상품 조회/수정에서 확인하세요.`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
     /**
      * 한 몰에 품절(또는 해제)을 보낸다.
      *
@@ -2098,9 +2804,10 @@
       // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼, 아트공구는 상품목록의
       // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정],
       // 티쳐몰은 [실물] 일괄 업데이트의 [업데이트하기], 아이스크림몰은 단품 판매상태 일괄 변경 창의 [적용], 키즈노트는
-      // [상태/노출일괄수정]의 [확인]과 같은 요청이다.
+      // [상태/노출일괄수정]의 [확인], 지마켓 · 옥션은 ESM [판매 상태 변경], 11번가는 [판매중지] · [판매중지 해제] 확인 창,
+      // 스마트스토어는 판매상태 변경과 같은 요청이다.
       if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock
-        || spec.goodsSaleState || spec.stateBatch) {
+        || spec.goodsSaleState || spec.stateBatch || spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus) {
         try {
           if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
           if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
@@ -2109,6 +2816,9 @@
           if (spec.batchStock) return await sendByTeacherBatchStock(spec, codes, resume);
           if (spec.goodsSaleState) return await sendByIcecreamSaleState(spec, codes, resume);
           if (spec.stateBatch) return await sendByKidsnoteState(spec, codes, resume);
+          if (spec.esmSellStatus) return await sendByEsmSellStatus(spec, codes, resume);
+          if (spec.st11SellStatus) return await sendBySt11SellStatus(spec, codes, resume);
+          if (spec.naverStatus) return await sendBySmartstoreStatus(spec, codes, resume);
           return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
@@ -2385,12 +3095,59 @@
       return { success: true, products: found, missing };
     }
 
-    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세 · 티쳐몰 · 아이스크림몰 · 키즈노트). 읽기만 한다. */
+    /**
+     * 지마켓 · 옥션 · 11번가 · 스마트스토어 지금 판매상태. 재고 수는 주지 않고, 판매중이 아니면(판매중지 · 품절 등) 살 수
+     * 없으니 0, 판매중이면 모름(null)이다. 읽기만 한다.
+     */
+    async function readByMarketStatus(spec, codes) {
+      const valid = [...new Set(codes)].filter((code) => {
+        if (spec.esmSellStatus) return Boolean(esmSiteNo(spec, code));
+        if (spec.st11SellStatus) return /^\d{6,12}$/.test(code);
+        return /^\d{6,15}$/.test(code);
+      }).slice(0, READ_LIMIT);
+      if (valid.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      const pageUrl = (spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus).pageUrl;
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, pageUrl, async (run) => {
+        let selling;
+        if (spec.esmSellStatus) {
+          const bySite = new Map(valid.map((code) => [esmSiteNo(spec, code), code]));
+          const read = await readEsmItems(spec, run, [...bySite.keys()]);
+          if (read.loggedOut) return { success: false, error: `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.items) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+          selling = new Map([...bySite].filter(([siteNo]) => read.items.has(siteNo))
+            .map(([siteNo, code]) => [code, read.items.get(siteNo).sellStatus[spec.esmSellStatus.site] === "11"]));
+        } else if (spec.st11SellStatus) {
+          const read = await readSt11Rows(spec, run, valid);
+          if (read.loggedOut) return { success: false, error: `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+          selling = new Map(valid.filter((code) => read.rows.has(code)).map((code) => [code, read.rows.get(code).selStatCd === "103"]));
+        } else {
+          const read = await readSmartstoreRows(spec, run, valid);
+          if (read.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+          selling = new Map(valid.filter((code) => read.rows.has(code))
+            .map((code) => [code, read.rows.get(code).productStatusType === "SALE"]));
+        }
+        found = valid.filter((code) => selling.has(code)).map((code) => ({
+          code,
+          options: [{ optionCode: code, stock: selling.get(code) ? null : 0, rocket: false }],
+        }));
+        missing = valid.filter((code) => !selling.has(code));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세 · 티쳐몰 · 아이스크림몰 · 키즈노트 · 지마켓 · 옥션 · 11번가 · 스마트스토어). 읽기만 한다. */
     async function read(msg) {
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
       if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
-        && !spec?.directChange && !spec?.batchStock && !spec?.goodsSaleState && !spec?.stateBatch) {
+        && !spec?.directChange && !spec?.batchStock && !spec?.goodsSaleState && !spec?.stateBatch && !spec?.esmSellStatus
+        && !spec?.st11SellStatus && !spec?.naverStatus) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -2405,6 +3162,7 @@
         if (spec.batchStock) return await readByTeacherBatchStock(spec, codes);
         if (spec.goodsSaleState) return await readByIcecreamSaleState(spec, codes);
         if (spec.stateBatch) return await readByKidsnoteState(spec, codes);
+        if (spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus) return await readByMarketStatus(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -2423,7 +3181,7 @@
     READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(
       SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
         || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock || SPECS[key].goodsSaleState
-        || SPECS[key].stateBatch,
+        || SPECS[key].stateBatch || SPECS[key].esmSellStatus || SPECS[key].st11SellStatus || SPECS[key].naverStatus,
     )),
     SEND_TIMEOUT_MS,
   };
