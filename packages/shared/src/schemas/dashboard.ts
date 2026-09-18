@@ -239,10 +239,26 @@ export const PlanAchievementSchema = z.object({
   achieveRate: z.number(),
 });
 
+/** Products that entered and left one grade under the current publication. */
+export const GradeFlowSchema = z.object({
+  in: z.number().int().nonnegative(),
+  out: z.number().int().nonnegative(),
+});
+
+/** One grade transition under the current publication; `null` is unclassified. */
+export const GradeMoveSchema = z.object({
+  from: ProductAbcGradeSchema.nullable(),
+  to: ProductAbcGradeSchema.nullable(),
+  count: z.number().int().positive(),
+});
+
 export const GradeChangesSchema = z.object({
   upgraded: z.number(),
   downgraded: z.number(),
   total: z.number(),
+  byGrade: z.object({ A: GradeFlowSchema, B: GradeFlowSchema, C: GradeFlowSchema }).optional(),
+  /** Largest first. */
+  moves: z.array(GradeMoveSchema).optional(),
 });
 
 export const WarningsSchema = z.object({

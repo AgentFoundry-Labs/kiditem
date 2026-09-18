@@ -395,10 +395,33 @@ export class DashboardInventoryService {
       (g) => gradeIndex(g.newGrade) < gradeIndex(g.oldGrade),
     ).length;
 
+    // Where each change went, so a reader can say "3 moved into A, 2 of them
+    // from B" without recounting the history rows.
+    const asGrade = (grade: string | null): 'A' | 'B' | 'C' | null =>
+      grade === 'A' || grade === 'B' || grade === 'C' ? grade : null;
+    const byGrade = { A: { in: 0, out: 0 }, B: { in: 0, out: 0 }, C: { in: 0, out: 0 } };
+    const moves = new Map<string, { from: 'A' | 'B' | 'C' | null; to: 'A' | 'B' | 'C' | null; count: number }>();
+    for (const row of rows) {
+      const from = asGrade(row.oldGrade);
+      const to = asGrade(row.newGrade);
+      if (from === to) continue;
+      if (to) byGrade[to].in += 1;
+      if (from) byGrade[from].out += 1;
+      const key = `${from ?? '-'}>${to ?? '-'}`;
+      const move = moves.get(key) ?? { from, to, count: 0 };
+      move.count += 1;
+      moves.set(key, move);
+    }
+
     return {
       upgraded,
       downgraded,
       total: rows.length,
+      byGrade,
+      moves: [...moves.values()].sort((left, right) =>
+        right.count - left.count
+        || gradeIndex(right.to) - gradeIndex(left.to)
+        || gradeIndex(right.from) - gradeIndex(left.from)),
     } satisfies GradeChanges;
   }
 }

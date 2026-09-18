@@ -710,7 +710,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       TEST_ORGANIZATION_ID,
     );
 
-    expect(result.gradeChanges).toEqual({ upgraded: 1, downgraded: 0, total: 1 });
+    expect(result.gradeChanges).toMatchObject({ upgraded: 1, downgraded: 0, total: 1 });
   });
 
   async function createFormula(organizationId: string) {
