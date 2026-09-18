@@ -539,7 +539,7 @@ Kinds:
 | Path | Kind | Routes / Notes |
 |---|---|---|
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
-| `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
+| `apps/web/src/app/(analytics)` | Route Group | `dashboard`, `agents/[agent]` (agent home: AI cost) |
 | `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신(사이드바 '쇼핑몰 에이전트'). `/mall-home`(쇼핑몰 에이전트 홈 — 대시보드 3 : 쇼핑몰 알림판 1(몰별 상태 높이까지), 몰별 로그인 상태(확장이 조용히 확인), 그 아래 에이전트 파이프라인과 단계별 일 · 미션), `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
 | `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |

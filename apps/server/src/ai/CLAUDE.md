@@ -55,6 +55,16 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 - Product-less operator generation uses a direct workspace, not a synthetic
   sourcing candidate.
 
+## Usage Metering
+
+- Every Gemini call reports its `usageMetadata` to `aiUsageMeter`; it never
+  throws into a model call. `AiUsageService` prices it once at record time into
+  `ai_usage_records`; a model without a listed price records tokens with a null
+  cost, never a guessed one.
+- Attribution comes from context, not callers: `AiUsageContextInterceptor`
+  maps the request's `/api/<segment>` to an agent, and a direct job runs as the
+  상품 agent under its own organization. A call with no context goes unmetered.
+
 ## Ports And Boundaries
 
 - Controllers schedule image edit, thumbnail, and detail-page work through

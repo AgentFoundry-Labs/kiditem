@@ -24,7 +24,8 @@ was removed.
 - Top 상품 under the chart. For a whole month the server ranks
   Sellpia's per-product sales (every channel, options summed); other windows
   rank collected orders. The table renders what the server ranked.
-- Right column: agent status (에이전트 | 지금 진행 중인 일, in the sidebar's
+- Right column: 에이전트 비용 (this month's estimated AI cost per agent, each
+  row opening that agent's home at `/agents/<key>`), agent status (에이전트 | 지금 진행 중인 일, in the sidebar's
   order; one 40px row each, a traffic-light dot — green running, amber needs a
   person, red failed, gray idle, hollow no record — and 확인 필요 N), 긴급 (links
   straight to the screen that handles each item), 수익성 ABC (A/B/C with each

@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AiUsageContextInterceptor } from './ai/adapter/in/http/ai-usage-context.interceptor';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdvertisingModule } from './advertising/advertising.module';
@@ -71,6 +72,8 @@ function apiThrottleLimitPerMinute(): number {
     { provide: APP_GUARD, useClass: RebuildReadinessGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Guards have resolved the organization by the time interceptors run.
+    { provide: APP_INTERCEPTOR, useClass: AiUsageContextInterceptor },
   ],
 })
 export class ApiApplicationModule implements NestModule {

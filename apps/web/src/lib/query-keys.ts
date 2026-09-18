@@ -102,6 +102,9 @@ export const queryKeys = {
     sellpiaProductProfitabilitySource: () =>
       [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
+  aiUsage: {
+    summary: (params: Record<string, string>) => ['ai-usage', 'summary', params] as const,
+  },
   dashboard: {
     all: ['dashboard'] as const,
     // Sales

@@ -13,6 +13,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/dashboard', '대시보드'],
       ]],
       ['소싱 에이전트', [
+        ['/agents/sourcing', '에이전트 홈'],
         ['/sourcing-ai', '소싱 홈'],
         ['/sourcing-ai/market', '시장 분석'],
         ['/sourcing-ai/keywords', '키워드 분석'],
@@ -29,6 +30,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/sourcing-ai/settings', '소싱 설정'],
       ]],
       ['상품 에이전트', [
+        ['/agents/product', '에이전트 홈'],
         ['/product-pipeline/productgenerate', '상품 생성'],
         ['/product-pipeline/collected-products', '수집 상품'],
         ['/product-pipeline/registered-products', '등록 상품'],
@@ -39,6 +41,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub/matching', '상품 매칭'],
       ]],
       ['쇼핑몰 에이전트', [
+        ['/agents/mall', '에이전트 홈'],
         ['/mall-home', '쇼핑몰 홈'],
         ['/mall-channels', '쇼핑몰 현황'],
         ['/mall-settings', '쇼핑몰 계정'],
@@ -50,17 +53,21 @@ describe('Sidebar product pipeline navigation', () => {
         ['/coupang-shipments', '쿠팡 쉽먼트'],
       ]],
       ['재고관리 에이전트', [
+        ['/agents/inventory', '에이전트 홈'],
         ['/inventory-hub', '재고 관리'],
         ['/stock-ops', '재고 분석'],
       ]],
       ['마케팅 에이전트', [
+        ['/agents/marketing', '에이전트 홈'],
         ['/ad-ops', '광고전략 AI'],
         ['/rank-tracking', '쿠팡 순위추적'],
       ]],
       ['CS 에이전트', [
+        ['/agents/cs', '에이전트 홈'],
         ['/reviews', '리뷰 관리'],
       ]],
       ['재무분석 에이전트', [
+        ['/agents/finance', '에이전트 홈'],
         ['/profit-loss', '손익 분석'],
         ['/sales-analysis', '매출 분석'],
       ]],

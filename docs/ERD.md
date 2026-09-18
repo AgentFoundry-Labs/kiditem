@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 2 |
 | [AgentOS](erd/agentos.md) | 1 |
-| [AI](erd/ai.md) | 22 |
+| [AI](erd/ai.md) | 23 |
 | [Channels](erd/channels.md) | 23 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
@@ -44,6 +44,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
+| AiUsageRecord | AI | `ai_usage_records` | Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | AI | `content_generations` | - |
 | ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
@@ -217,6 +218,18 @@ erDiagram
     String lastErrorMessage
     DateTime createdAt
     DateTime updatedAt
+  }
+  AiUsageRecord {
+    String id PK
+    String organizationId FK
+    String agentKey
+    String provider
+    String model
+    String operation
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicroUsd
+    DateTime createdAt
   }
   Alert {
     String id PK
@@ -2605,6 +2618,7 @@ erDiagram
   Order ||--o{ OrderLineItem : "order"
   Organization ||--o{ AdAction : "organization"
   Organization ||--o{ AiDirectJob : "organization"
+  Organization ||--o{ AiUsageRecord : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ CandidateImage : "organization"
   Organization ||--o{ CapabilityInvocation : "organization"

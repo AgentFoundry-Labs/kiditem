@@ -1,3 +1,4 @@
+import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
@@ -35,6 +36,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
         httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
+    aiUsageMeter.recordGemini({ model: input.model, operation: 'detail_page_image', usage: response.usageMetadata });
 
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
@@ -67,6 +69,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
         httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
+    aiUsageMeter.recordGemini({ model: input.model, operation: 'detail_page_vision', usage: response.usageMetadata });
 
     const text = response.candidates?.[0]?.content?.parts
       ?.map((part) => part.text ?? '')

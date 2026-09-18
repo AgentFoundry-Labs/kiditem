@@ -1,3 +1,4 @@
+import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
 import {
@@ -114,6 +115,7 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
       }),
       signal,
     );
+    aiUsageMeter.recordGemini({ model: requireGeminiVisionModel(), operation: 'thumbnail_vision', usage: response.usageMetadata });
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     return parts.find((p) => p.text)?.text?.trim() ?? null;
   }
@@ -157,6 +159,7 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
       }),
       signal,
     );
+    aiUsageMeter.recordGemini({ model: requireGeminiVisionModel(), operation: 'thumbnail_vision', usage: response.usageMetadata });
     return response.text ?? '';
   }
 

@@ -25,6 +25,7 @@ import { DashboardReadFailures, type DashboardReadFailure } from './components/D
 import { DashboardHeadlineCards, type HeadlineMetric } from './components/DashboardHeadlineCards';
 import { DashboardRevenue } from './components/DashboardRevenue';
 import { DashboardAgentStatus } from './components/DashboardAgentStatus';
+import { DashboardAgentCost } from './components/DashboardAgentCost';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import {
@@ -641,6 +642,7 @@ export default function Dashboard() {
                 />
               </div>
               <div className="flex min-w-0 flex-col gap-3">
+                <DashboardAgentCost />
                 {agents}
                 {urgent}
               </div>

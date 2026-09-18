@@ -52,6 +52,7 @@ model Organization {
   detailPageImageArtifacts            DetailPageImageArtifact[]
   detailPageImageRenderIntents        DetailPageImageRenderIntent[]
   aiDirectJobs                        AiDirectJob[]
+  aiUsageRecords                      AiUsageRecord[]
 
   // Agent OS — exact capability mutation admission and replay receipts.
   capabilityInvocations CapabilityInvocation[]

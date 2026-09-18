@@ -373,6 +373,7 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
+| Organization | organization | referenced by external | AI | AiUsageRecord |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
 | Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |

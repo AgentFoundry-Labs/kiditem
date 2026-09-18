@@ -1,5 +1,6 @@
 import {
   Bot,
+  Gauge,
   Workflow,
   BrainCircuit,
   Boxes,
@@ -61,6 +62,7 @@ export const menuSections: MenuSection[] = [
     label: '소싱 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/sourcing', label: '에이전트 홈', icon: Gauge },
       { href: '/sourcing-ai', label: '소싱 홈', icon: Compass },
       { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp, groupLabel: '리서치' },
       { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
@@ -81,6 +83,7 @@ export const menuSections: MenuSection[] = [
     label: '상품 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/product', label: '에이전트 홈', icon: Gauge },
       { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
       { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
@@ -95,6 +98,7 @@ export const menuSections: MenuSection[] = [
     label: '쇼핑몰 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/mall', label: '에이전트 홈', icon: Gauge },
       { href: '/mall-home', label: '쇼핑몰 홈', icon: Target },
       { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
       { href: '/mall-settings', label: '쇼핑몰 계정', icon: Store },
@@ -110,6 +114,7 @@ export const menuSections: MenuSection[] = [
     label: '재고관리 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/inventory', label: '에이전트 홈', icon: Gauge },
       { href: '/inventory-hub', label: '재고 관리', icon: Warehouse },
       { href: '/stock-ops', label: '재고 분석', icon: Boxes },
     ],
@@ -118,6 +123,7 @@ export const menuSections: MenuSection[] = [
     label: '마케팅 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/marketing', label: '에이전트 홈', icon: Gauge },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
     ],
@@ -126,6 +132,7 @@ export const menuSections: MenuSection[] = [
     label: 'CS 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/cs', label: '에이전트 홈', icon: Gauge },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
     ],
   },
@@ -133,6 +140,7 @@ export const menuSections: MenuSection[] = [
     label: '재무분석 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/finance', label: '에이전트 홈', icon: Gauge },
       { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },
       { href: '/sales-analysis', label: '매출 분석', icon: LineChart },
     ],

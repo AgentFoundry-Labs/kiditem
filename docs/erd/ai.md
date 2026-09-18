@@ -10,6 +10,7 @@
 | Model | Table | Description |
 |---|---|---|
 | AiDirectJob | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
+| AiUsageRecord | `ai_usage_records` | Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price. |
 | ContentAsset | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | `content_generations` | - |
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
@@ -55,6 +56,18 @@ erDiagram
     String lastErrorMessage
     DateTime createdAt
     DateTime updatedAt
+  }
+  AiUsageRecord {
+    String id PK
+    String organizationId FK
+    String agentKey
+    String provider
+    String model
+    String operation
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicroUsd
+    DateTime createdAt
   }
   ContentAsset {
     String id PK
@@ -479,6 +492,7 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | AiDirectJob | organization | references external | Core | Organization |
+| AiUsageRecord | organization | references external | Core | Organization |
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |
 | ContentGeneration | organization | references external | Core | Organization |

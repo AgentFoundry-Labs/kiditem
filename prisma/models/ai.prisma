@@ -875,3 +875,24 @@ model ContentGenerationAssetUsage {
   @@index([organizationId, contentGenerationId])
   @@map("content_generation_asset_usages")
 }
+
+/// @namespace AI
+/// @describe Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price.
+model AiUsageRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// sourcing · product · mall · inventory · marketing · cs · finance; null when no agent owns the caller.
+  agentKey       String?  @map("agent_key")
+  provider       String
+  model          String
+  operation      String
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  costMicroUsd   BigInt?  @map("cost_micro_usd")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("ai_usage_records")
+}
