@@ -187,23 +187,6 @@ describe('Dashboard page (RTL)', () => {
     });
   });
 
-  it('shows factual Sellpia zero-stock and channel mapping-attention counts', async () => {
-    getParsedMock.mockImplementation((path: string) => {
-      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
-      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      return Promise.resolve(null);
-    });
-
-    renderPage();
-
-    expect(await screen.findByText('셀피아 재고 0')).toBeInTheDocument();
-    expect(screen.getByText('매칭 확인 필요')).toBeInTheDocument();
-    expect(screen.getByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeInTheDocument();
-    expect(screen.getByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeInTheDocument();
-  });
-
   it('never renders a client-derived revenue goal when the server publishes none', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
@@ -217,52 +200,25 @@ describe('Dashboard page (RTL)', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeTruthy());
     // 1.15 * previous, floored at 1,000,000 / 100,000, was the removed goal.
-    expect(screen.getByTestId('dashboard-primary-revenue')).not.toHaveTextContent('목표');
+    expect(screen.getByTestId('dashboard-headline-cards')).not.toHaveTextContent('목표');
     expect(screen.queryByText(/목표 1,000,000원/)).toBeNull();
     expect(screen.queryByText(/목표 100,000원/)).toBeNull();
   });
 
-  it('renders warning counts as unavailable when the card has no basis', async () => {
+  it('T3: 502 on a non-sales read (ads) → the read is named, the transport is not', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(unverifiedWarningInv);
-      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      return Promise.resolve(null);
-    });
-
-    renderPage();
-
-    expect(await screen.findByText('셀피아 재고 0')).toBeInTheDocument();
-    for (const key of [
-      'minus-products',
-      'low-profit-products',
-      'high-ad-products',
-      'out-of-stock',
-      'mapping-attention',
-    ]) {
-      expect(document.querySelector(`[data-warning-count="${key}"]`)).toHaveTextContent('—');
-    }
-    expect(screen.queryByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeNull();
-    expect(screen.queryByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeNull();
-  });
-
-  it('T3: 502 on non-baseline (trend) → the read is named, the transport is not', async () => {
-    getParsedMock.mockImplementation((path: string) => {
-      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
-      if (path.startsWith('/api/dashboard/trend')) {
+      if (path === '/api/dashboard/ad') {
         return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '502 Bad Gateway'));
       }
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       return Promise.resolve(null);
     });
     renderPage();
     // T4 forbids the same string on a baseline failure, and PRODUCT.md forbids
-    // an English reason code anywhere. One page-level notice cannot both show
-    // and hide it, so it never shows it: the read is named, the retry is there.
+    // an English reason code anywhere: the read is named, the retry is there.
     const notice = await screen.findByTestId('dashboard-read-failure');
-    expect(notice).toHaveTextContent('매출 추이');
+    expect(notice).toHaveTextContent('쿠팡 광고');
     expect(screen.queryByText('502 Bad Gateway')).toBeNull();
   });
 
@@ -293,16 +249,15 @@ describe('Dashboard page (RTL)', () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
-      if (path.startsWith('/api/dashboard/trend')) {
-        return Promise.reject(new ZodError([{ code: 'invalid_type', expected: 'number', received: 'string', path: [0, 'revenue'], message: 'Expected number' } as never]));
+      if (path === '/api/dashboard/inventory') {
+        return Promise.reject(new ZodError([{ code: 'invalid_type', expected: 'number', received: 'string', path: ['totalProducts'], message: 'Expected number' } as never]));
       }
       return Promise.resolve(null);
     });
     renderPage();
 
     const failure = await screen.findByTestId('dashboard-read-failure');
-    expect(failure).toHaveTextContent('매출 추이');
+    expect(failure).toHaveTextContent('상품·재고');
     expect(failure).toHaveTextContent('읽기 실패');
     // The schema-drift sentinel reads "개발팀에 문의하세요". It is addressed to
     // us, and whoever is looking at this dashboard can do nothing with it, so it
@@ -337,7 +292,7 @@ describe('Dashboard page (RTL)', () => {
     // now carries the retry, so replacing it would strand the only way back.
     const unavailable = screen.getAllByTestId('dashboard-section-unavailable');
     expect(unavailable.map((section) => section.getAttribute('data-section')))
-      .toEqual(['경고', '수익성 ABC']);
+      .toEqual(['수익성 ABC']);
     unavailable.forEach((section) => {
       expect(section).toHaveTextContent('읽기 실패');
       expect(section).not.toHaveTextContent('데이터가 없습니다');
@@ -350,36 +305,37 @@ describe('Dashboard page (RTL)', () => {
   it('gives each failed read its own retry, and it refetches that read', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') {
         return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '재고 읽기 실패'));
       }
-      if (path.startsWith('/api/dashboard/trend')) {
-        return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '추이 읽기 실패'));
+      if (path === '/api/dashboard/ad') {
+        return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '광고 읽기 실패'));
       }
       return Promise.resolve(null);
     });
     renderPage();
 
-    const rows = await screen.findAllByTestId('dashboard-read-failure');
-    expect(rows.map((row) => row.getAttribute('data-read-failure')))
-      .toEqual(['상품·재고', '매출 추이']);
+    await waitFor(() => {
+      expect(screen.getAllByTestId('dashboard-read-failure').map((row) => row.getAttribute('data-read-failure')))
+        .toEqual(['쿠팡 광고', '상품·재고']);
+    });
+    const rows = screen.getAllByTestId('dashboard-read-failure');
 
     const callsFor = (match: string) =>
       getParsedMock.mock.calls.filter((call) => String(call[0]).startsWith(match)).length;
-    const before = { inventory: callsFor('/api/dashboard/inventory'), trend: callsFor('/api/dashboard/trend') };
+    const before = { inventory: callsFor('/api/dashboard/inventory'), ad: callsFor('/api/dashboard/ad') };
 
     // One button per failed read rather than one for the page: retrying the
-    // trend must not re-run a read that did not fail.
-    fireEvent.click(within(rows[1]!).getByRole('button', { name: '다시 시도' }));
+    // ads must not re-run a read that did not fail.
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: '다시 시도' }));
 
     await waitFor(() => {
-      expect(callsFor('/api/dashboard/trend')).toBeGreaterThan(before.trend);
+      expect(callsFor('/api/dashboard/ad')).toBeGreaterThan(before.ad);
     });
     expect(callsFor('/api/dashboard/inventory')).toBe(before.inventory);
   });
 
-  it('names the collection to run instead of explaining the state', async () => {
+  it('starts no collection and keeps the basis behind one affordance per panel', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
@@ -390,13 +346,11 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
 
     await screen.findByText('Kiditem Foundry');
-    // The operator does not need the state of every source spelled out; they
-    // need to know which collection to run, and the 데이터 수집 button to run
-    // it. The basis is never painted across the page — it is reached through
-    // one affordance per panel, which is a different thing from a badge on
-    // every value and is why the count here is bounded by panels rather than
-    // by how many numbers happen to be on screen.
-    expect(screen.getByRole('button', { name: /데이터 수집/ })).toBeInTheDocument();
+    // Collections start from their owner screens; failures reach the operator
+    // through 긴급. The basis is never painted across the page — it is reached
+    // through one affordance per panel, bounded by panels rather than by how
+    // many numbers happen to be on screen.
+    expect(screen.queryByRole('button', { name: /데이터 수집/ })).toBeNull();
     expect(screen.queryAllByTestId('dashboard-data-basis')).toHaveLength(0);
     const disclosures = screen.queryAllByRole('button', { name: /근거 안내$/ });
     expect(disclosures.length).toBeGreaterThan(0);
@@ -422,21 +376,6 @@ describe('Dashboard page (RTL)', () => {
     const parsedPaths = getParsedMock.mock.calls.map((c) => c[0]);
     expect(parsedPaths).not.toContain('/api/action-tasks');
     expect(getMock).not.toHaveBeenCalledWith('/api/action-tasks');
-  });
-
-  it('T8: renders the current department quick-action board', async () => {
-    getParsedMock.mockImplementation((path: string) => {
-      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
-      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
-      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
-      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      return Promise.resolve(null);
-    });
-
-    renderPage();
-    expect(await screen.findByText('시장분석')).toBeInTheDocument();
-    expect(screen.getByText('몰 주문수집')).toBeInTheDocument();
-    expect(screen.getByText('쿠팡 쉽먼트')).toBeInTheDocument();
   });
 
   it('T6: pipeline-stats endpoint is NOT called', async () => {

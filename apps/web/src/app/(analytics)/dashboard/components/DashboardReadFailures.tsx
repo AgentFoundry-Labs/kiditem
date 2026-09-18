@@ -16,27 +16,28 @@ export type DashboardReadFailure = {
 
 export function DashboardReadFailures({ failures }: { failures: readonly DashboardReadFailure[] }) {
   if (failures.length === 0) return null;
+  // One row per failed read, each with its own retry: retrying refetches that
+  // read alone, and the name says which read it was, not what the transport said.
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-[13px]"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-[13px]"
     >
-      <span className="flex items-center gap-1.5 font-semibold text-red-700">
-        <AlertTriangle size={14} aria-hidden />
-        읽기 실패
-      </span>
       {failures.map((failure) => (
         <span
           key={failure.key}
-          className="inline-flex items-center gap-1 text-red-800"
+          className="inline-flex items-center gap-1.5 text-red-800"
           data-testid="dashboard-read-failure"
           data-read-failure={failure.label}
         >
+          <AlertTriangle size={13} className="text-red-500" aria-hidden />
+          <span className="font-semibold text-red-700">읽기 실패</span>
+          <span aria-hidden>·</span>
           {failure.label}
           <button
             type="button"
-            aria-label={`${failure.label} 다시 시도`}
-            title="다시 시도"
+            aria-label="다시 시도"
+            title={`${failure.label} 다시 시도`}
             onClick={failure.retry}
             className="rounded p-0.5 text-red-400 transition hover:bg-red-100 hover:text-red-700"
           >
