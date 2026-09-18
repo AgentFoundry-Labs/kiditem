@@ -5801,6 +5801,7 @@ async function collectIcecreamMallOrders(date, credentials, collection) {
     return {
       success: false,
       pendingLogin: false,
+      ...(icecreamHasNoPendingOrders(results) ? { errorCode: "NO_NEW_ORDERS" } : {}),
       url: tab.url || ICECREAM_MALL_URL,
       error: failure || "아이스크림몰 배송조회 화면은 열었지만 배송목록 표를 찾지 못했습니다.",
     };
@@ -5856,6 +5857,20 @@ function detectIcecreamMallDeliveryFrame() {
     score,
     href,
   };
+}
+
+/**
+ * 배송목록에 출고 전 주문이 하나도 없는 날인가. 표는 읽었는데 주문번호(YYYYMMDDM…) 행이 없거나 —
+ * 나머지 행은 화면 틀과 검색 조건이다 — 있던 주문이 전부 이미 출고 · 완료다. 실패가 아니라
+ * '신규 주문 없음'이다(2026-09-18: 주문 없는 한 주가 unknown_failure 로 남아 실패 몰로 셌다).
+ * 형식이 맞는데 읽지 못한 주문 행이 있으면 여기에 들지 않는다 — 그건 진짜 실패다.
+ */
+function icecreamHasNoPendingOrders(results) {
+  const dataFail = results.find((item) => item?.reason === "data rows not found");
+  if (!dataFail) return false;
+  const orderRows = dataFail.orderRows || 0;
+  if (orderRows === 0) return (dataFail.candidateRows || 0) > 0;
+  return (dataFail.doneExcluded || 0) >= orderRows;
 }
 
 function summarizeScrapeFailures(results) {

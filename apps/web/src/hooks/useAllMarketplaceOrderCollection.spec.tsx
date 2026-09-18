@@ -289,6 +289,89 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     expect(logActivity).not.toHaveBeenCalled();
   });
 
+  /**
+   * 라이브(2026-09-18): 카카오 · 올웨이즈가 확장의 답을 잃은 뒤 30분 임대 내내 '중단'으로 서 있었고,
+   * 전체 수집을 다시 눌러도 그 두 몰은 시작되지 않았다. 확장이 곧 끝낼 수도 있어 잠깐 지켜보되,
+   * 그래도 '수집 중'이면 끝낸다.
+   */
+  it('⭐ 확장이 답을 잃은 수집은 잠깐 지켜본 뒤 끝낸다 — 카드가 30분 동안 서 있지 않게', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const kakao = mall('kakao', '카카오');
+      mocks.begin.mockResolvedValue({
+        ...attemptFor('kakao', 7),
+        attemptToken: '33333333-3333-4333-8333-333333333333',
+      });
+      mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 7));
+      mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 7), state: 'FAILED' });
+      mocks.collectMall.mockRejectedValue(Object.assign(
+        new Error('카카오 주문 수집 응답을 확인하지 못했습니다.'),
+        { ownerReconciliationRequired: true },
+      ));
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({
+          mallAccounts: [kakao],
+          rocketChannelAccountId: null,
+          addGeneratedFile: vi.fn(),
+        }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await result.current.collectAll();
+      });
+      // The extension may still finish: nothing is failed at once.
+      expect(mocks.fail).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(mocks.fail).toHaveBeenCalledWith(
+        expect.objectContaining({ attemptId: attemptFor('kakao', 7).attemptId }),
+        expect.objectContaining({
+          code: 'COLLECTION_FAILED',
+          message: expect.stringContaining('확장 응답이 끊겨'),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('⭐ 지켜보는 사이 확장이 끝낸 수집은 다시 닫지 않는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const kakao = mall('kakao', '카카오');
+      mocks.begin.mockResolvedValue({
+        ...attemptFor('kakao', 8),
+        attemptToken: '33333333-3333-4333-8333-333333333333',
+      });
+      mocks.readAttempt.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'COMPLETE' });
+      mocks.collectMall.mockRejectedValue(Object.assign(
+        new Error('카카오 주문 수집 응답을 확인하지 못했습니다.'),
+        { ownerReconciliationRequired: true },
+      ));
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({
+          mallAccounts: [kakao],
+          rocketChannelAccountId: null,
+          addGeneratedFile: vi.fn(),
+        }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await result.current.collectAll();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(mocks.fail).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('중단이 아닌 진짜 실패는 그대로 COLLECTION_FAILED 로 닫고 활동에 남긴다', async () => {
     const kidsnote = mall('kidsnote', '키즈노트');
     const logActivity = vi.fn();

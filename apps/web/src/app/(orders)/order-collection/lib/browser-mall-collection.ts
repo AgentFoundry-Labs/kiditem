@@ -167,7 +167,12 @@ export async function ensureMallLoginForRun(
   const reason = result.error ?? '자동 로그인을 완료하지 못했습니다.';
   const timedOut = reason === EXTENSION_TIMEOUT_MESSAGE;
   const unreachable = result.loginPageUnreachable === true;
-  if (!result.pendingLogin && !timedOut && !unreachable && isCredentialFailureReason(reason)) {
+  // 확장이 답을 못 한 것(시간 초과)은 로그인 실패가 아니다. 위의 차단 규칙과 같다 — 세션이
+  // 살아 있으면 로그인 없이도 수집되고, 세션이 죽었으면 수집기가 '로그인 필요'로 정확히
+  // 알린다. 여기서 던지면 로그인된 몰이 '파일 생성 실패'로 끝났다(2026-09-18 도매꾹 · GS샵).
+  // 로그인 화면에 닿지 못한 것은 다르다 — 사람이 로그인해야 하는 화면이라 멈춘다(차단은 안 한다).
+  if (timedOut) return;
+  if (!result.pendingLogin && !unreachable && isCredentialFailureReason(reason)) {
     blockMallAutoLogin(mallKey, reason);
     toast.error(`${mallName} 자동 로그인 실패 — 직접 로그인해 주세요`, {
       description: '다음부터는 자동 로그인을 시도하지 않습니다. 몰에 직접 로그인한 뒤 수집해 주세요.',

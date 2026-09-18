@@ -1,7 +1,6 @@
 'use client';
 
 import { safeStorageGet, safeStorageSet } from './browser-storage';
-import { EXTENSION_TIMEOUT_MESSAGE } from './extension-bridge';
 
 /**
  * 자동 로그인 차단과 재시도 간격 — 같은 몰을 계속 두드려 계정이 잠기지 않게 한다.
@@ -28,22 +27,15 @@ const ATTEMPT_STORAGE_KEY = 'kiditem.mall-auto-login-attempt.v1';
 export const AUTO_LOGIN_RETRY_INTERVAL_MS = 60 * 60_000;
 
 /**
- * 우리 쪽이 답하지 못해 생긴 실패 문구. 자격증명 문제가 아니라서 차단하지 않는다.
- * 저장된 옛 차단도 읽을 때 이 목록으로 걸러 낸다.
+ * 이 실패가 자격증명 문제인가 — 몰이 아이디·비밀번호를 거부했다고 **말했을 때만** 그렇다.
+ *
+ * 전에는 반대로 '우리 쪽 사정' 문구를 적어 두고 그 밖의 모든 실패를 자격증명 문제로 봤다. 그러자
+ * 새로 생긴 우리 쪽 오류(서버의 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND`, 확장의 "message channel
+ * closed")가 그대로 차단이 되어, 로그인된 쿠팡직배송 · 키즈노트가 '자동 멈춤 · 직접 로그인'으로
+ * 굳었다(2026-09-18). 몰이 한 말만 믿는다.
  */
-const NON_CREDENTIAL_REASONS = [
-  'ThrottlerException',
-  'Too Many Requests',
-  '확장프로그램을 찾',
-  '로그인 화면이 남아 있습니다',
-] as const;
-
-/** 이 실패가 자격증명 문제인가 — 아니면 우리 쪽 사정인가. */
 export function isCredentialFailureReason(reason: string): boolean {
-  // 확장 시간 초과 문구는 쓰는 자리에서 읽는다 — 모듈을 불러오는 순간에 읽으면 이 모듈을 쓰지
-  // 않는 화면의 테스트가 `extension-bridge` 를 가짜로 바꿀 때 함께 깨진다.
-  if (reason.includes(EXTENSION_TIMEOUT_MESSAGE)) return false;
-  return !NON_CREDENTIAL_REASONS.some((phrase) => reason.includes(phrase));
+  return mallRejectedCredentials(reason);
 }
 
 /**
@@ -120,7 +112,9 @@ function hydrate(): void {
     // 뒤 화면 확인 실패). 비밀번호가 틀린 게 아니라서 지금은 새로 만들지 않지만, 그 규칙이 생기기
     // 전에 만든 차단이 남아 멀쩡히 로그인된 몰을 '직접 로그인'으로 붙들고 있었다. 한 번 걸러
     // 저장해 두면 다시 읽히지 않는다.
-    const kept = valid.filter(([, value]) => isCredentialFailureReason(value.reason));
+    // 인증(캡차 · 본인확인) 차단은 몰 화면의 일이라 그대로 두고, 로그인 차단만 몰의 거부로 거른다.
+    const kept = valid.filter(([, value]) =>
+      value.kind === 'verification' || isCredentialFailureReason(value.reason));
     blocks = Object.fromEntries(kept);
     snapshot = Object.values(blocks).sort((a, b) => b.at - a.at);
     if (kept.length !== valid.length) persist();

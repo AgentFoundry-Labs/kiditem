@@ -717,8 +717,24 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       error: EXTENSION_TIMEOUT_MESSAGE,
     });
 
-    await expect(collect()).rejects.toThrow(EXTENSION_TIMEOUT_MESSAGE);
+    await collect();
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  /**
+   * 2026-09-18 라이브: 전체 수집 중 도매꾹 · GS샵이 로그인된 채로 '파일 생성 실패: 익스텐션 응답
+   * 시간이 초과되었습니다'로 끝났다. 로그인 확인에 답을 못 들은 것일 뿐이라, 수집은 그대로 한다 —
+   * 세션이 살아 있으면 수집되고, 죽었으면 수집기가 '로그인 필요'로 알린다.
+   */
+  it('⭐ 로그인 확인이 시간 초과여도 수집은 그대로 한다', async () => {
+    mocks.ensureLogin.mockResolvedValue({
+      success: false,
+      pendingLogin: false,
+      error: EXTENSION_TIMEOUT_MESSAGE,
+    });
+
+    await expect(collect()).resolves.toBeDefined();
+    expect(mocks.collectKidsnote).toHaveBeenCalledTimes(1);
   });
 
   it('비밀번호가 거부되면 차단한다 — 또 두드리면 계정이 잠긴다', async () => {

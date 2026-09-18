@@ -42,6 +42,7 @@ export const ORDERS_WORKER_MODULES = [
   'mall-admin-listings-source-owner.js',
   'sellpia-post-processing.js',
   'coupang-po-session.js',
+  'mall-availability-send.js',
   'rocket-po-collection.js',
   'rocket-po-source-owner.js',
   'coupang-directship-source-owner.js',
