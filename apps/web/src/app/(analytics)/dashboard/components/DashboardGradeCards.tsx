@@ -34,10 +34,16 @@ type DashboardGradeCardsProps = Pick<
 
 const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
+const GRADE_NAME = (grade: ProductAbcGrade | null) => grade ?? '미분류';
+
 export function DashboardGradeCards({
   gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
+  gradeChanges, changesMeasured = false,
   basis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
+  /** The current publication's grade movement, as the server counted it. */
+  gradeChanges?: DashboardInventorySummary['gradeChanges'];
+  changesMeasured?: boolean;
   basis?: DashboardMetricBasis | null;
   contributionBasis?: DashboardMetricBasis | null;
   /** The dashboard reads this panel renders, refetched after a publication. */
@@ -105,6 +111,7 @@ export function DashboardGradeCards({
             total={gradeMeasured ? classifiedProductCount : null}
             contribution={abcContributionProfit.amountByGrade[grade]}
             contributionMeasured={basisHasValues(contributionBasis ?? null)}
+            flow={changesMeasured ? gradeChanges?.byGrade?.[grade] ?? null : null}
           />
         ))}
       </div>
@@ -117,6 +124,16 @@ export function DashboardGradeCards({
         <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">
           계산 완료 {gradeMeasured ? `${formatNumber(abcStatusCount.READY)}개` : '—'}
         </Link>
+        {/* 이번 계산에서 등급이 옮겨 간 길 — 큰 것부터 넷. */}
+        {changesMeasured && gradeChanges?.moves ? (
+          <span data-testid="abc-grade-moves">
+            이동{' '}
+            {gradeChanges.moves.length === 0
+              ? '없음'
+              : gradeChanges.moves.slice(0, 4).map((move) =>
+                `${GRADE_NAME(move.from)}→${GRADE_NAME(move.to)} ${formatNumber(move.count)}`).join(' · ')}
+          </span>
+        ) : null}
       </div>
       {feedback && (
         <p
@@ -141,12 +158,15 @@ function GradeCell({
   total,
   contribution,
   contributionMeasured,
+  flow,
 }: {
   grade: ProductAbcGrade;
   count: number | null;
   total: number | null;
   contribution: number;
   contributionMeasured: boolean;
+  /** Products that came into and left this grade in the current publication. */
+  flow: { in: number; out: number } | null;
 }) {
   const percent = count !== null && total !== null && total > 0
     ? Math.round((count / total) * 100)
@@ -162,6 +182,18 @@ function GradeCell({
       <p className="text-xs font-semibold text-slate-500">{grade}</p>
       <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">
         {count === null ? '—' : formatNumber(count)}
+      </p>
+      <p
+        className="text-[11px] font-semibold tabular-nums"
+        title={flow ? `이번 계산에서 ${grade}등급으로 ${flow.in}개 들어오고 ${flow.out}개 나감` : '등급 이동 기록 없음'}
+        data-testid={`abc-flow-${grade}`}
+      >
+        {flow ? (
+          <>
+            <span className={flow.in > 0 ? 'text-emerald-600' : 'text-slate-300'}>▲{formatNumber(flow.in)}</span>{' '}
+            <span className={flow.out > 0 ? 'text-red-500' : 'text-slate-300'}>▼{formatNumber(flow.out)}</span>
+          </>
+        ) : <span className="text-slate-300">—</span>}
       </p>
       <div className="mx-auto mt-0.5 h-1 w-full overflow-hidden rounded-full bg-slate-100">
         <div

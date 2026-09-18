@@ -11,14 +11,18 @@ was removed.
 
 - Header: identity, catalog counts, and the period control (월 · 주 · 일 · 기간).
   The period governs everything below it, so it sits above all of it.
-- Headline cards: 매출 (월 매출 · 월 순이익 · 오늘 매출 · 광고비율) and 광고 (ROAS ·
-  CTR · 광고 전환매출 · 광고비) — the first dashboard's two KPI rows. They render
-  values the page resolves from the server read models; they compute nothing.
+- Headline cards: 매출 (월 매출 · 월 순이익 · 오늘 매출 · 광고비율), 광고 (ROAS ·
+  CTR · 광고 전환매출 · 광고비) and 재고 (품절 임박 · 품절 상품 · 매칭 확인 필요 ·
+  적자 상품). They render values the page resolves from the server read models;
+  they compute nothing. 재고 reads Products' own summary — the product hub's
+  overview read, same params and cache — and each count links to the hub
+  filtered to it; 적자 without contribution evidence is unknown, not 0.
 - 매출 추이: one line chart. By default 총 매출 · 쿠팡 · 쿠팡 외 몰, 일별; a
   settings panel switches 일별 / 누적 and adds up to three non-Coupang malls as
   their own lines, remembered in this browser only. Lines, not stacks — the
   series overlap in meaning, so stacking would count revenue twice.
-- Top 상품 beside 수익성 ABC (A/B/C 현황). For a whole month the server ranks
+- 수익성 ABC (A/B/C 현황, with each grade's ▲in ▼out and the largest moves the
+  server counted), then Top 상품 below it. For a whole month the server ranks
   Sellpia's per-product sales (every channel, options summed); other windows
   rank collected orders. The table renders what the server ranked.
 - Right column: agent status (에이전트 | 지금 진행 중인 일, in the sidebar's

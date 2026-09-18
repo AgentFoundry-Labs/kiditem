@@ -11,6 +11,7 @@ import {
 } from '@kiditem/shared/dashboard';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
+import { MasterProductOperationsListResponseSchema } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
@@ -69,6 +70,15 @@ function DashboardSectionUnavailable({ label, className }: { label: string; clas
     </div>
   );
 }
+
+/** 상품 관리 첫 화면의 요약 읽기와 같은 인자 — 같은 캐시를 쓴다. */
+const PRODUCT_OVERVIEW_PARAMS = {
+  page: '1',
+  limit: '1',
+  periodDays: '30',
+  activeStatus: 'active',
+  adStatus: 'all',
+} as const satisfies Record<string, string>;
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -175,6 +185,18 @@ export default function Dashboard() {
 
   // Keep the dashboard shell visible while individual read models load or
   // fail. Only the all-three initial request state uses the page skeleton.
+  // 재고 칸은 상품 관리가 내는 요약을 그대로 읽는다 — 상품 관리 첫 화면과 같은 읽기라 캐시도,
+  // 숫자도 같다. 대시보드는 세지 않는다.
+  const productOverview = useQuery({
+    queryKey: queryKeys.products.operations.list(PRODUCT_OVERVIEW_PARAMS),
+    queryFn: () => apiClient.getParsed(
+      `/api/products/masters?${new URLSearchParams(PRODUCT_OVERVIEW_PARAMS).toString()}`,
+      MasterProductOperationsListResponseSchema,
+    ),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+
   if (inventoryLoading && salesBaselineLoading && adBaselineLoading) {
     return <PageSkeleton variant="dashboard" />;
   }
@@ -314,6 +336,7 @@ export default function Dashboard() {
     'abcContributionProfit.amountByGrade.B',
     'abcContributionProfit.amountByGrade.C',
   ]);
+  const changesBasis = readFirstMetricBasis(inventoryData, ['gradeChanges.total']);
   const topProductsBasis = readFirstMetricBasis(effectiveSales, [
     'topProducts.revenue',
     'topProducts.netProfit',
@@ -359,6 +382,7 @@ export default function Dashboard() {
     if (failed) readFailures.push({ key, label, retry });
   };
   addReadFailure('sales-baseline', '주문 매출', salesBaselineHasErr, salesBaselineError, () => { void refetchSalesBaseline(); });
+  addReadFailure('products-overview', '재고 요약', productOverview.isError, productOverview.error, () => { void productOverview.refetch(); });
   addReadFailure('ad-baseline', '쿠팡 광고', adBaselineHasErr, adBaselineError, () => { void refetchAdBaseline(); });
   addReadFailure('sales-range', `선택 기간 매출(${rangeLabel})`, salesRangeHasErr, salesRangeError, () => { void refetchSalesRange(); });
   addReadFailure('ad-range', `선택 기간 광고(${rangeLabel})`, adRangeHasErr, adRangeError, () => { void refetchAdRange(); });
@@ -436,6 +460,34 @@ export default function Dashboard() {
       value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend), unit: '원',
       note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),
       higherIsWorse: true,
+    },
+  ];
+
+  const stock = productOverview.data?.summary ?? null;
+  const count = (value: number | undefined) => (stock && value !== undefined ? formatNumber(value) : null);
+  const headlineInventory: HeadlineMetric[] = [
+    {
+      key: 'stockSoon', label: '품절 임박',
+      value: count(stock?.reorderProductCount), unit: '개', note: '지금 발주해야 할 상품',
+      alert: (stock?.reorderProductCount ?? 0) > 0, href: '/product-hub?inventoryFocus=reorder',
+    },
+    {
+      key: 'stockOut', label: '품절 상품',
+      value: count(stock?.inventoryStatusCounts.out_of_stock), unit: '개',
+      alert: (stock?.inventoryStatusCounts.out_of_stock ?? 0) > 0, href: '/product-hub?inventoryFocus=out_of_stock',
+    },
+    {
+      // 상품 관리의 '재고 설정 확인'과 같은 두 무리(설정 필요 · 검토 필요)다.
+      key: 'stockMatching', label: '매칭 확인 필요',
+      value: stock ? formatNumber(stock.inventoryStatusCounts.configuration_required + stock.inventoryStatusCounts.review_required) : null,
+      unit: '개', href: '/product-hub?inventoryFocus=attention',
+    },
+    {
+      // 손익을 셀 근거(기여이익)가 없으면 적자 0 개가 아니라 모름이다.
+      key: 'lossProducts', label: '적자 상품',
+      value: stock?.contributionOverview ? count(stock.negativeProfitCount) : null, unit: '개',
+      note: stock && !stock.contributionOverview ? '손익 근거 없음' : null,
+      higherIsWorse: true, href: '/product-hub',
     },
   ];
 
@@ -554,45 +606,41 @@ export default function Dashboard() {
           겹치던 것(기간 지표 = 매출 카드, 광고 성과 = 광고 카드, 알림 = 긴급)은 걷었다(사장님 2026-09-18). */}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px] items-start">
         <div className="min-w-0 space-y-3">
-          <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} salesHref={salesAnalysisHref} />
+          <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} inventory={headlineInventory} salesHref={salesAnalysisHref} />
           <DashboardRevenue
             summary={channelSales.summary}
             isLoading={channelSales.isLoading}
             isError={channelSales.isError}
             salesHref={salesAnalysisHref}
           />
-          {/* Top 상품과 A/B/C 현황을 한 줄에 — 무엇이 잘 팔리는지와 그 등급을 나란히 본다(사장님 2026-09-18). */}
-          <div className="grid grid-cols-1 items-start gap-3 2xl:grid-cols-5">
-            <div className="min-w-0 2xl:col-span-3">
-              {topProductsHasErr ? (
-                <DashboardSectionUnavailable label="Top Revenue Products" />
-              ) : topProductsLoading ? (
-                <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
-              ) : !effectiveSales ? (
-                <DashboardSectionEmpty label="Top Revenue Products" />
-              ) : (
-                <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
-              )}
-            </div>
-            <div className="min-w-0 2xl:col-span-2">
-              {inventoryHasErr ? (
-                <DashboardSectionUnavailable label="수익성 ABC" />
-              ) : !inventoryData ? (
-                <DashboardSectionEmpty label="수익성 ABC" />
-              ) : (
-                <DashboardGradeCards
-                  gradeCount={inventoryData.gradeCount}
-                  classifiedProductCount={inventoryData.classifiedProductCount}
-                  abcStatusCount={inventoryData.abcStatusCount}
-                  abcContributionProfit={inventoryData.abcContributionProfit}
-                  abcFormula={inventoryData.abcFormula}
-                  basis={inventoryBasis}
-                  contributionBasis={contributionBasis}
-                  refetchReads={async () => { await refetchInventory(); }}
-                />
-              )}
-            </div>
-          </div>
+          {/* A/B/C 현황 아래에 그 상품들의 매출 순위 — 등급을 먼저, 무엇이 팔리는지를 그 밑에(사장님 2026-09-18). */}
+          {inventoryHasErr ? (
+            <DashboardSectionUnavailable label="수익성 ABC" />
+          ) : !inventoryData ? (
+            <DashboardSectionEmpty label="수익성 ABC" />
+          ) : (
+            <DashboardGradeCards
+              gradeCount={inventoryData.gradeCount}
+              classifiedProductCount={inventoryData.classifiedProductCount}
+              abcStatusCount={inventoryData.abcStatusCount}
+              abcContributionProfit={inventoryData.abcContributionProfit}
+              abcFormula={inventoryData.abcFormula}
+              gradeChanges={inventoryData.gradeChanges}
+              changesMeasured={basisHasValues(changesBasis)}
+              basis={inventoryBasis}
+              contributionBasis={contributionBasis}
+              refetchReads={async () => { await refetchInventory(); }}
+            />
+          )}
+          {topProductsHasErr ? (
+            <DashboardSectionUnavailable label="Top Revenue Products" />
+          ) : topProductsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
+          ) : !effectiveSales ? (
+            <DashboardSectionEmpty label="Top Revenue Products" />
+          ) : (
+            <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
+          )}
         </div>
         <DashboardAgentStatus />
       </div>

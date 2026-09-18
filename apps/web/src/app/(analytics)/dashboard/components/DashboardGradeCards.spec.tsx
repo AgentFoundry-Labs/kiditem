@@ -69,6 +69,37 @@ describe('DashboardGradeCards', () => {
     expect(screen.queryByText(/자동 계산|자동 평가|NaN/)).not.toBeInTheDocument();
   });
 
+  it("shows how many products came into and left each grade, and the largest moves", () => {
+    render(
+      <DashboardGradeCards
+        {...summary}
+        gradeChanges={{
+          upgraded: 3, downgraded: 1, total: 4,
+          byGrade: { A: { in: 2, out: 0 }, B: { in: 1, out: 2 }, C: { in: 0, out: 1 } },
+          moves: [
+            { from: 'B', to: 'A', count: 2 },
+            { from: 'C', to: 'B', count: 1 },
+            { from: 'B', to: null, count: 1 },
+          ],
+        }}
+        changesMeasured
+        refetchReads={async () => {}}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByTestId('abc-flow-A')).toHaveTextContent('▲2 ▼0');
+    expect(screen.getByTestId('abc-flow-B')).toHaveTextContent('▲1 ▼2');
+    expect(screen.getByTestId('abc-grade-moves')).toHaveTextContent('이동 B→A 2 · C→B 1 · B→미분류 1');
+  });
+
+  it('shows no movement it cannot vouch for', () => {
+    render(<DashboardGradeCards {...summary} gradeChanges={{ upgraded: 1, downgraded: 0, total: 1 }} refetchReads={async () => {}} />, { wrapper });
+
+    expect(screen.getByTestId('abc-flow-A')).toHaveTextContent('—');
+    expect(screen.queryByTestId('abc-grade-moves')).toBeNull();
+  });
+
   it('shows the fixed formula version without an invented activation timestamp', () => {
     render(<DashboardGradeCards {...summary} abcFormula={PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD} refetchReads={async () => {}} asOf="상품 관리에서 새로고침한 시점" />, { wrapper });
 

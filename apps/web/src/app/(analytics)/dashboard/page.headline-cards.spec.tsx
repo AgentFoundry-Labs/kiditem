@@ -229,6 +229,44 @@ async function openProfitDetail(): Promise<HTMLElement> {
 describe('Dashboard headline cards keep unknown values unknown', () => {
 
 
+  /**
+   * The stock card reads Products' own summary — the same read as the product
+   * hub's first screen — and each count opens the hub filtered to it. Profit
+   * contribution that was never computed is not "0 loss-making products".
+   */
+  it("renders the stock card from Products' summary and links each count to its list", async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path.startsWith('/api/products/masters?')) {
+        return Promise.resolve({
+          summary: {
+            reorderProductCount: 78,
+            imminentProductCount: 36,
+            negativeProfitCount: 0,
+            contributionOverview: null,
+            inventoryStatusCounts: {
+              sellable: 500, out_of_stock: 4, configuration_required: 1, review_required: 2, uncollected: 0,
+            },
+          },
+        });
+      }
+      if (path === '/api/dashboard/sales') return Promise.resolve(salesResponse);
+      if (path === '/api/dashboard/ad') return Promise.resolve(adResponse);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(inventoryResponse);
+      return Promise.resolve(null);
+    });
+
+    renderDashboard();
+
+    const soon = await screen.findByTestId('headline-stockSoon');
+    await waitFor(() => expect(soon).toHaveTextContent('78'));
+    expect(soon.closest('a')).toHaveAttribute('href', '/product-hub?inventoryFocus=reorder');
+    expect(screen.getByTestId('headline-stockOut')).toHaveTextContent('4');
+    expect(screen.getByTestId('headline-stockMatching')).toHaveTextContent('3');
+    const loss = screen.getByTestId('headline-lossProducts');
+    expect(loss).toHaveTextContent('—');
+    expect(loss).toHaveTextContent('손익 근거 없음');
+  });
+
   it('renders an uncovered Today read as unavailable rather than zero', async () => {
     salesResponse = {
       ...sales,

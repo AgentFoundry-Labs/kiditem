@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowUpRight, Megaphone, Wallet, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, Megaphone, Package, Wallet, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -28,6 +28,8 @@ export interface HeadlineMetric {
   higherIsWorse?: boolean;
   /** 오르면 경고색으로 칠할 문턱(광고비율 15% 등). */
   alert?: boolean;
+  /** 이 숫자를 처리하는 화면. 있으면 칸이 그리로 바로 간다. */
+  href?: string;
 }
 
 interface HeadlineCardProps {
@@ -66,12 +68,14 @@ function HeadlineCard({ title, icon: Icon, href, hrefLabel, metrics }: HeadlineC
       {/* 두 줄 두 칸. 오른쪽에 에이전트 칸이 서서 폭이 줄었다 — 네 칸을 한 줄에 세우면
           '135,385,452원' 같은 값이 칸을 넘는다. */}
       <dl className="grid grid-cols-2 gap-px bg-slate-100">
-        {metrics.map((metric) => (
-          <div key={metric.key} className="flex flex-col bg-white px-4 py-3" data-testid={`headline-${metric.key}`}>
+        {metrics.map((metric) => {
+          const className = cn('flex flex-col bg-white px-3.5 py-3', metric.href && 'transition-colors hover:bg-slate-50');
+          const body = (
+          <>
             <dt className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{metric.label}</dt>
             <dd
               className={cn(
-                'mt-0.5 whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums',
+                'mt-0.5 whitespace-nowrap text-lg font-bold leading-tight tracking-tight tabular-nums',
                 metric.alert ? 'text-red-600' : 'text-slate-900',
               )}
             >
@@ -91,8 +95,14 @@ function HeadlineCard({ title, icon: Icon, href, hrefLabel, metrics }: HeadlineC
                 {metric.note}
               </dd>
             ) : null}
-          </div>
-        ))}
+          </>
+          );
+          return metric.href ? (
+            <Link key={metric.key} href={metric.href} className={className} data-testid={`headline-${metric.key}`}>{body}</Link>
+          ) : (
+            <div key={metric.key} className={className} data-testid={`headline-${metric.key}`}>{body}</div>
+          );
+        })}
       </dl>
     </section>
   );
@@ -101,16 +111,23 @@ function HeadlineCard({ title, icon: Icon, href, hrefLabel, metrics }: HeadlineC
 export function DashboardHeadlineCards({
   revenue,
   ads,
+  inventory,
   salesHref,
 }: {
   revenue: readonly HeadlineMetric[];
   ads: readonly HeadlineMetric[];
+  inventory?: readonly HeadlineMetric[];
   salesHref: string;
 }) {
+  // 세 장이 한 줄에 서려면 칸마다 아홉 자리 매출이 들어갈 폭이 있어야 한다. 그보다 좁으면
+  // 재고가 다음 줄로 내려간다 — 숫자를 자르지 않는다.
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="dashboard-headline-cards">
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 min-[1440px]:grid-cols-3" data-testid="dashboard-headline-cards">
       <HeadlineCard title="매출" icon={Wallet} href={salesHref} hrefLabel="매출 분석" metrics={revenue} />
       <HeadlineCard title="광고" icon={Megaphone} href="/ad-ops" hrefLabel="광고전략 AI" metrics={ads} />
+      {inventory ? (
+        <HeadlineCard title="재고" icon={Package} href="/product-hub" hrefLabel="상품 관리" metrics={inventory} />
+      ) : null}
     </div>
   );
 }
