@@ -651,6 +651,12 @@ export const SellpiaSalesSummarySchema = z.object({
   range: z.object({ from: z.string(), to: z.string() }).nullable(),
   rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
+  // 쿠팡에서 판 것 전부(로켓 + 윙)와 그 나머지. 위 로켓/그 외 버킷과 다른 자르기이고,
+  // 이 둘을 쌓으면 totalRevenue 다. 이 필드가 없던 서버의 응답도 읽히도록 비어 있을 수 있다.
+  coupang: SellpiaSalesGroupSchema.optional(),
+  nonCoupang: SellpiaSalesGroupSchema.optional(),
+  // 모든 판매처 하나로. `daily` 가 날마다의 총 매출 선이다(revenue 는 totalRevenue 와 같다).
+  total: SellpiaSalesGroupSchema.optional(),
   totalRevenue: z.number(),
   totalCost: z.number(), // 셀피아 매입금액 합계
   // 광고 계정 범위가 완전히 수집되지 않으면 광고비를 0으로 추정하지 않는다.
