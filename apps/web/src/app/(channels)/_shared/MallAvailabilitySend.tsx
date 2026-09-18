@@ -34,9 +34,20 @@ import {
  */
 const PREVIEW_LIMIT = 3_000;
 
+/** 경고는 앞의 몇 개만 띄운다. 나머지는 개수로 말한다 — 상품마다 한 장씩 띄우면 화면이 덮인다. */
+const WARNING_TOASTS = 3;
+
+export function showAvailabilityWarnings(warnings: readonly string[]) {
+  for (const warning of warnings.slice(0, WARNING_TOASTS)) toast.warning(warning);
+  if (warnings.length > WARNING_TOASTS) {
+    toast.warning(`그 밖에 경고 ${formatNumber(warnings.length - WARNING_TOASTS)}건이 더 있습니다.`);
+  }
+}
+
 export function MallAvailabilitySend({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const previewQuery = useQuery({
     queryKey: queryKeys.mallPublishing.availabilityPreview({ limit: String(PREVIEW_LIMIT) }),
@@ -76,9 +87,13 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
   ) => {
     if (!canSendMallAvailability(mallKey)) return;
     setRunning(mallKey);
+    setProgress(null);
     try {
-      const result = await sendMallAvailability(mallKey, codes, { optionCodes });
-      for (const warning of result.warnings) toast.warning(warning);
+      const result = await sendMallAvailability(mallKey, codes, {
+        optionCodes,
+        onProgress: (done, total) => setProgress({ done, total }),
+      });
+      showAvailabilityWarnings(result.warnings);
       // 보낸 것은 성공이 아니라 `attention` 이다 — 몰을 다시 읽어 확인된 것만 성공이다.
       const recorded = availabilityOutcome(result);
       void recordMallOperationOutcome({
@@ -113,6 +128,7 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
       toast.error(error instanceof Error ? error.message : '품절을 보내지 못했습니다.');
     } finally {
       setRunning(null);
+      setProgress(null);
     }
   };
 
@@ -133,7 +149,11 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
           >
             {running === group.mallKey ? <Loader2 size={14} className="animate-spin" /> : null}
             {group.mallName}
-            <span className="tabular-nums text-xs text-slate-400">{formatNumber(group.codes.length)}건</span>
+            <span className="tabular-nums text-xs text-slate-400">
+              {running === group.mallKey && progress
+                ? `${formatNumber(progress.done)}/${formatNumber(progress.total)}건`
+                : `${formatNumber(group.codes.length)}건`}
+            </span>
           </button>
         ))}
         {sendable.length === 0 ? (

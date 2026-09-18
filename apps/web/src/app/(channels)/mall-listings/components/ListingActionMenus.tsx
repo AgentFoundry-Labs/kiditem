@@ -21,9 +21,11 @@ import { queryKeys } from '@/lib/query-keys';
 import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation';
 import {
+  availabilityOutcome,
   canSendMallAvailability,
   sendMallAvailability,
 } from '../../_shared/mall-availability-send';
+import { showAvailabilityWarnings } from '../../_shared/MallAvailabilitySend';
 
 /**
  * 액션 메뉴.
@@ -219,20 +221,25 @@ export function CellActionPopover({
     setRunning(spec.key);
     try {
       const result = await sendMallAvailability(column.mallKey, [externalId], { resume });
-      for (const warning of result.warnings) toast.warning(warning);
+      showAvailabilityWarnings(result.warnings);
       if (result.sent === 0) throw new Error(`${column.mallName}이 이 상품을 받지 않았습니다.`);
-      // 보낸 것은 성공이 아니라 `attention` 이다 — 반영은 몰 재조회가 답한다.
+      // 보낸 것은 성공이 아니다 — 몰을 다시 읽어 바뀐 것이 확인된 것만 성공이다(도매꾹 · 쿠팡 윙).
+      const recorded = availabilityOutcome(result);
       void recordMallOperationOutcome({
         mallKey: column.mallKey,
         operation: 'availability_stage',
-        outcome: 'attention',
-        reasonCode: result.requestOnly ? 'awaiting_mall_approval' : 'awaiting_mall_recheck',
+        outcome: recorded.outcome,
+        reasonCode: recorded.reasonCode,
         itemCount: result.sent,
+        failedCount: result.failed,
+        warningCount: result.warnings.length,
       });
       toast.success(`${column.mallName} · ${resume ? '판매 재개' : '품절'}을 보냈습니다.`, {
         description: result.requestOnly
           ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
-          : '반영은 몰을 다시 가져와야 확인됩니다.',
+          : recorded.outcome === 'succeeded'
+            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : '품절로 바뀐'} 것을 확인했습니다.`
+            : '반영은 몰을 다시 가져와야 확인됩니다.',
         duration: 8_000,
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });

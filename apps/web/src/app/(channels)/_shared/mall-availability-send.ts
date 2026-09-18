@@ -17,6 +17,15 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 const SEND_TIMEOUT_MS = 180_000;
 
 /**
+ * 확장에 한 번에 넘기는 상품 수. 없는 몰은 한 번에 넘긴다.
+ *
+ * 쿠팡 윙은 상품마다 윙을 세 번 부르고(읽기 · 보내기 · 다시 읽기) 쉬어 가며 보낸다. 253개를 한 번에 넘기면 3분 안에
+ * 끝나지 않아 웹이 먼저 포기하고, 확장 서비스워커도 한 요청을 5분 넘게 붙잡지 못한다(2026-09-18: 20개쯤 보내고
+ * 멈췄다). 나눠 보내고 사이사이 진행을 알린다.
+ */
+const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10 };
+
+/**
  * 품절을 보낼 수 있는 몰.
  *
  * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
@@ -80,18 +89,28 @@ interface SendResponse {
   failed?: number;
   requestOnly?: boolean;
   confirmed?: number;
+  /** 이미 원하는 재고였던 옵션 수(쿠팡 윙). 문장은 여기서 만든다 — 나눠 보내면 합쳐서 한 줄이어야 한다. */
+  already?: number;
+  /** 쿠팡 재고라 건너뛴 로켓그로스 옵션 수(쿠팡 윙). */
+  rocket?: number;
+  /** 몰이 막아 도중에 멈췄다(쿠팡 윙 429). 남은 상품은 보내지 않았다. */
+  stopped?: string;
   warnings?: string[];
   error?: string;
+}
+
+interface SendOptions {
+  resume?: boolean;
+  /** 상품코드 → 그 상품의 품절 옵션코드. 옵션 단위로 보내는 몰(쿠팡 윙)만 쓴다. 없으면 상품 전체다. */
+  optionCodes?: Readonly<Record<string, readonly string[]>>;
+  /** 나눠 보내는 몰에서 한 묶음이 끝날 때마다. `done` 은 끝낸 상품 수다. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export async function sendMallAvailability(
   mallKey: MallAvailabilitySendMall,
   mallProductCodes: readonly string[],
-  options: {
-    resume?: boolean;
-    /** 상품코드 → 그 상품의 품절 옵션코드. 옵션 단위로 보내는 몰(쿠팡 윙)만 쓴다. 없으면 상품 전체다. */
-    optionCodes?: Readonly<Record<string, readonly string[]>>;
-  } = {},
+  options: SendOptions = {},
 ): Promise<MallAvailabilitySendResult> {
   const codes = [...new Set(mallProductCodes.map((code) => code.trim()).filter(Boolean))];
   if (codes.length === 0) {
@@ -106,6 +125,65 @@ export async function sendMallAvailability(
     );
   }
 
+  const chunkSize = SEND_CHUNK[mallKey] ?? codes.length;
+  const optionCount = (list: readonly string[]) =>
+    list.reduce((sum, code) => sum + (options.optionCodes?.[code]?.length ?? 1), 0);
+  const total = { sent: 0, failed: 0, confirmed: 0, already: 0, rocket: 0, confirmedKnown: true, requestOnly: false };
+  const warnings: string[] = [];
+  for (let start = 0; start < codes.length; start += chunkSize) {
+    const chunk = codes.slice(start, start + chunkSize);
+    let response: SendResponse;
+    try {
+      response = await sendChunk(extensionId, mallKey, chunk, options);
+    } catch (error) {
+      // 앞 묶음은 이미 몰에 갔다. 버리지 않고 멈춘 자리를 말한다.
+      if (start === 0) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      total.failed += optionCount(codes.slice(start));
+      warnings.push(`${codes.length}개 중 ${start}개까지 보내고 멈췄습니다 — ${message}`);
+      break;
+    }
+    total.sent += response.sent ?? 0;
+    total.failed += response.failed ?? 0;
+    total.already += response.already ?? 0;
+    total.rocket += response.rocket ?? 0;
+    total.requestOnly ||= response.requestOnly === true;
+    if (typeof response.confirmed === 'number') total.confirmed += response.confirmed;
+    else total.confirmedKnown = false;
+    warnings.push(...(response.warnings ?? []));
+    const done = Math.min(start + chunk.length, codes.length);
+    options.onProgress?.(done, codes.length);
+    if (response.stopped) {
+      // 몰이 막았다. 더 보내면 더 막힌다 — 남은 상품은 보내지 않은 채로 둔다.
+      total.failed += optionCount(codes.slice(done));
+      break;
+    }
+  }
+
+  const summary: string[] = [];
+  if (total.already > 0) {
+    summary.push(`${total.already}개 옵션은 이미 ${options.resume ? '재고가 있었습니다' : '재고 0이었습니다'}.`);
+  }
+  if (total.rocket > 0) summary.push(`로켓그로스 옵션 ${total.rocket}개는 쿠팡 재고라 건너뛰었습니다.`);
+
+  return {
+    sent: total.sent,
+    failed: total.failed,
+    requestOnly: total.requestOnly,
+    confirmed: total.confirmedKnown ? total.confirmed : null,
+    warnings: [...summary, ...new Set(warnings)],
+  };
+}
+
+async function sendChunk(
+  extensionId: string,
+  mallKey: MallAvailabilitySendMall,
+  codes: readonly string[],
+  options: SendOptions,
+): Promise<SendResponse> {
+  const optionCodes = options.optionCodes
+    ? Object.fromEntries(codes.flatMap((code) => (options.optionCodes?.[code] ? [[code, options.optionCodes[code]]] : [])))
+    : null;
   let response: SendResponse;
   try {
     response = await sendToExtension<SendResponse>(
@@ -115,7 +193,7 @@ export async function sendMallAvailability(
         mallKey,
         codes,
         resume: options.resume === true,
-        ...(options.optionCodes ? { options: options.optionCodes } : {}),
+        ...(optionCodes ? { options: optionCodes } : {}),
       },
       SEND_TIMEOUT_MS,
     );
@@ -135,12 +213,5 @@ export async function sendMallAvailability(
   if (response?.success !== true) {
     throw new Error(response?.error ?? '품절을 보내지 못했습니다.');
   }
-
-  return {
-    sent: response.sent ?? 0,
-    failed: response.failed ?? 0,
-    requestOnly: response.requestOnly === true,
-    confirmed: typeof response.confirmed === 'number' ? response.confirmed : null,
-    warnings: response.warnings ?? [],
-  };
+  return response;
 }
