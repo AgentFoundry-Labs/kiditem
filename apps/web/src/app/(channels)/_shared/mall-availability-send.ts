@@ -22,7 +22,7 @@ const SEND_TIMEOUT_MS = 180_000;
  * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
  * 버튼이 서지 않는다 — 눌러도 아무 일이 안 일어나는 버튼을 만들지 않는다.
  */
-export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch'] as const;
+export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook'] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
 
@@ -49,7 +49,29 @@ export interface MallAvailabilitySendResult {
   failed: number;
   /** 보낸 것이 관리자 승인 요청인 몰(온채널). 반영은 승인 뒤다. */
   requestOnly: boolean;
+  /**
+   * 보낸 뒤 몰을 다시 읽어 원하는 상태로 확인된 건수(도매꾹). 다시 읽지 않는 몰은 `null` 이다.
+   */
+  confirmed: number | null;
   warnings: string[];
+}
+
+export interface MallAvailabilityOutcome {
+  outcome: 'succeeded' | 'attention' | 'failed';
+  reasonCode: 'mall_rechecked' | 'awaiting_mall_approval' | 'awaiting_mall_recheck';
+}
+
+/**
+ * 보낸 결과를 관찰 기록 한 줄로. 몰을 다시 읽어 **보낸 것이 전부 확인된 것만** 성공이다 — 보냈다는
+ * 것만으로는 `attention` 이다(반영은 몰 재조회가 답한다).
+ */
+export function availabilityOutcome(result: MallAvailabilitySendResult): MallAvailabilityOutcome {
+  const reasonCode = result.requestOnly ? 'awaiting_mall_approval' : 'awaiting_mall_recheck';
+  if (result.failed > 0) return { outcome: 'failed', reasonCode };
+  if (!result.requestOnly && result.confirmed !== null && result.sent > 0 && result.confirmed >= result.sent) {
+    return { outcome: 'succeeded', reasonCode: 'mall_rechecked' };
+  }
+  return { outcome: 'attention', reasonCode };
 }
 
 interface SendResponse {
@@ -57,6 +79,7 @@ interface SendResponse {
   sent?: number;
   failed?: number;
   requestOnly?: boolean;
+  confirmed?: number;
   warnings?: string[];
   error?: string;
 }
@@ -107,6 +130,7 @@ export async function sendMallAvailability(
     sent: response.sent ?? 0,
     failed: response.failed ?? 0,
     requestOnly: response.requestOnly === true,
+    confirmed: typeof response.confirmed === 'number' ? response.confirmed : null,
     warnings: response.warnings ?? [],
   };
 }

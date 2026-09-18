@@ -223,7 +223,7 @@ const NO_LIMIT: MallAdapterLimits = {
  *    눌렀을 때 아무 일도 안 일어난다.
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
-  'kkomangse', 'kidkids', 'onch',
+  'kkomangse', 'kidkids', 'onch', 'domeggook',
 ]);
 
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
@@ -496,10 +496,13 @@ const SEEDS: readonly ManifestSeed[] = [
   {
     key: 'domeggook',
     name: '도매꾹',
-    kind: 'unknown',
-    difficulty: 'unknown',
-    unverified: true,
-    note: '주문 OpenAPI(ssl/api)는 주문수집에서 이미 쓰고 있으나 상품등록·재고 엔드포인트는 조사되지 않았다.',
+    kind: 'extension_form',
+    difficulty: 'medium',
+    supports: {
+      createListing: true,
+      setSaleStatus: 'listing', soldOut: true, resume: true,
+    },
+    note: '상품공급사센터(PHP). 등록은 /sc/item/regFrm 폼을 확장이 채운다(2026-09-10 실측, 제출은 사람). 품절 축은 상품조회/수정 목록(/sc/item/lstAll) [수정저장] 이 /sc/item/editOnList 에 dat=[{no, disp, title, loq, useOpt}] 로 보내는 진열여부다 — 품절=진열안함, 해제=진열함(2026-09-18 실측). ⚠️ 목록에서는 재고를 못 고친다(재고 칸 편집이 막혀 있다). 사방넷도 도매꾹은 일시중지·완전품절 둘 다 숨김으로 보낸다. 주문 OpenAPI(ssl/api)는 주문수집에서 쓴다.',
   },
   {
     key: 'tekville-edu',

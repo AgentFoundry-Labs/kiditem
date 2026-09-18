@@ -1,7 +1,7 @@
 (function initializeMallAvailabilitySend(root) {
   "use strict";
 
-  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·아이스크림몰.
+  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹(아이스크림몰은 경로 대기).
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -87,6 +87,28 @@
       },
       // ⚠️ 이건 관리자에게 가는 **요청**이다. 200 이 와도 승인 전까지 반영이 아니다.
       requestOnly: true,
+    },
+    /**
+     * 도매꾹 상품공급사센터. 상품조회/수정 목록(`/sc/item/lstAll`)의 [수정저장] 이 보내는 것과 같은
+     * 요청이다(실측 2026-09-18).
+     *
+     *  - 품절 = 진열안함, 해제 = 진열함. 도매꾹 목록에서는 재고를 못 고친다(재고 칸 편집이 막혀 있다).
+     *    사방넷도 도매꾹은 일시중지 · 완전품절 둘 다 `숨김중` 으로 보낸다(쇼핑몰특이사항).
+     *  - [수정저장] 은 고친 줄마다 `{no, disp, title, loq, useOpt}` 를 모아 `dat=` 한 번으로 보낸다. 상품명 ·
+     *    최대판매수량 · 옵션 사용도 같이 가므로 **지금 값을 그대로** 실어야 한다 — 먼저 목록 조회
+     *    (`/sc/item/lst`, 상품번호 500개까지)로 그 줄을 읽는다. 목록의 검색 폼이 보내는 기본값 그대로다.
+     *  - 보낸 뒤 같은 조회로 진열여부를 다시 읽어 반영을 확인한다(`confirmed`).
+     */
+    domeggook: {
+      label: "도매꾹",
+      origin: "https://www.domeggook.com",
+      listEdit: {
+        lookupPath: "/sc/item/lst",
+        editPath: "/sc/item/editOnList",
+        // 상품번호 검색 칸이 받는 최대 개수.
+        maxCodes: 500,
+        shown: { hide: "진열안함", show: "진열함" },
+      },
     },
   };
 
@@ -190,6 +212,116 @@
       return { status, accepted: status >= 200 && status < 400 && !failed, failed };
     }
 
+    /** 몰이 JSON 으로 답하면 읽는다. 아니면 null. 본문은 남기지 않는다. */
+    async function readJson(response) {
+      const text = await response.text().catch(() => "");
+      try {
+        return { json: JSON.parse(text), text };
+      } catch {
+        return { json: null, text };
+      }
+    }
+
+    /** 도매꾹 목록 조회 — 상품번호로. 목록 검색 폼이 보내는 기본값에 번호만 넣는다. 읽기만 한다. */
+    async function lookupListRows(spec, codes) {
+      const params = new URLSearchParams();
+      for (const [key, value] of [
+        ["ktype", "no"], ["nos", codes.join(",")], ["ttl", ""], ["st", ""],
+        ["chn[]", "dome"], ["chn[]", "supply"], ["sec[]", "sell"], ["sec[]", "shop"],
+        ["ca1", "00"], ["ca2", "00"], ["ca3", "00"], ["ca4", "00"],
+        ["idx", ""], ["qty", ""], ["disp", ""], ["rmp", ""], ["format", "grid"],
+        ["pg", "1"], ["sz", String(spec.listEdit.maxCodes)], ["so", "rd"],
+      ]) params.append(key, value);
+      const response = await fetchApi(`${spec.origin}${spec.listEdit.lookupPath}?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: { accept: "application/json", "x-requested-with": "XMLHttpRequest" },
+      });
+      const { json, text } = await readJson(response);
+      if (!response.ok || !json || json.res !== true || !Array.isArray(json.dat)) {
+        const loggedOut = /로그인|login/i.test(`${json?.msg || ""} ${text.slice(0, 300)}`);
+        throw new Error(loggedOut
+          ? `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 보내세요.`
+          : `${spec.label} 상품 목록을 읽지 못했습니다.`);
+      }
+      return json.dat;
+    }
+
+    /**
+     * 목록 수정 한 방으로 진열여부를 바꾸는 몰(도매꾹).
+     *
+     * 줄을 먼저 읽어 지금 값(상품명 · 최대판매수량 · 옵션 사용)을 그대로 싣고 진열여부만 바꾼다. 이미
+     * 원하는 상태인 줄은 보내지 않는다. 보낸 뒤 다시 읽어 바뀐 줄을 센다.
+     */
+    async function sendByListEdit(spec, codes, resume) {
+      const edit = spec.listEdit;
+      const wanted = resume ? edit.shown.show : edit.shown.hide;
+      const warnings = [];
+      let sent = 0;
+      let failed = 0;
+      let confirmed = 0;
+      let already = 0;
+      const missing = [];
+      for (let start = 0; start < codes.length; start += edit.maxCodes) {
+        const group = codes.slice(start, start + edit.maxCodes);
+        const rows = new Map((await lookupListRows(spec, group)).map((row) => [String(row.no), row]));
+        const found = group.filter((code) => rows.has(code));
+        missing.push(...group.filter((code) => !rows.has(code)));
+        const targets = found.filter((code) => rows.get(code).disp !== wanted);
+        already += found.length - targets.length;
+        if (targets.length > 0) {
+          // [수정저장] 이 만드는 모양 그대로다(`loq` 는 첫 쉼표만 뗀다 — 화면 코드가 그렇게 한다).
+          const dat = targets.map((code) => {
+            const row = rows.get(code);
+            return {
+              no: row.no,
+              disp: resume,
+              title: row.title,
+              loq: String(row.loq ?? "").replace(",", ""),
+              useOpt: row.useOpt !== "N",
+            };
+          });
+          const response = await fetchApi(`${spec.origin}${edit.editPath}`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+              accept: "application/json",
+              "x-requested-with": "XMLHttpRequest",
+            },
+            body: `dat=${encodeURIComponent(JSON.stringify(dat))}`,
+          });
+          const { json } = await readJson(response);
+          if (!response.ok || !json || json.res !== true) {
+            failed += targets.length;
+            warnings.push(`${spec.label}이 수정을 받지 않았습니다${json?.msg ? `: ${String(json.msg).slice(0, 120)}` : ""}.`);
+          } else {
+            const ok = Number.isFinite(Number(json.success)) ? Math.min(Number(json.success), targets.length) : targets.length;
+            sent += ok;
+            failed += targets.length - ok;
+            if (ok < targets.length) warnings.push(`${spec.label}이 ${targets.length}건 중 ${ok}건만 바꿨다고 답했습니다.`);
+          }
+          await sleep(PACE_MS);
+        }
+        // 반영 확인 — 같은 조회로 진열여부를 다시 읽는다. 못 읽으면 확인하지 못한 것으로 둔다.
+        const after = found.length > 0 ? await lookupListRows(spec, found).catch(() => null) : [];
+        if (after) confirmed += after.filter((row) => row.disp === wanted).length;
+        else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 목록에서 확인하세요.`);
+      }
+      if (already > 0) warnings.push(`${already}건은 이미 ${wanted}이었습니다.`);
+      if (missing.length > 0) warnings.push(`${missing.length}건은 ${spec.label} 상품번호로 찾지 못했습니다.`);
+      return {
+        success: true,
+        // 이미 원하는 상태인 줄은 보낼 것이 없었을 뿐 끝난 일이다.
+        sent: sent + already,
+        failed: failed + missing.length,
+        confirmed,
+        requestOnly: false,
+        warnings,
+      };
+    }
+
     async function postForm(origin, action, pairs, encoding) {
       const params = new URLSearchParams();
       for (const [name, value] of pairs) params.append(name, value);
@@ -219,6 +351,15 @@
         .map((code) => String(code || "").trim()).filter(Boolean))];
       if (codes.length === 0) return { success: false, error: "품절로 보낼 상품코드가 없습니다." };
       const resume = msg?.resume === true;
+
+      // 도매꾹은 화면을 열 필요가 없다. 목록 조회로 줄을 읽고 목록 수정 한 방으로 보낸다.
+      if (spec.listEdit) {
+        try {
+          return await sendByListEdit(spec, codes, resume);
+        } catch (error) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      }
 
       const sent = [];
       const failed = [];

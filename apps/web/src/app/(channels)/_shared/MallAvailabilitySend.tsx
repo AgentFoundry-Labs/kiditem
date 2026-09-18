@@ -11,6 +11,7 @@ import { mallPublishingApi } from './mall-publishing-api';
 import {
   MALL_AVAILABILITY_NO_ROUTE,
   MALL_AVAILABILITY_PENDING,
+  availabilityOutcome,
   canSendMallAvailability,
   sendMallAvailability,
 } from './mall-availability-send';
@@ -68,12 +69,13 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
     try {
       const result = await sendMallAvailability(mallKey, codes);
       for (const warning of result.warnings) toast.warning(warning);
-      // 보낸 것은 성공이 아니라 `attention` 이다 — 반영은 몰 재조회가 답한다.
+      // 보낸 것은 성공이 아니라 `attention` 이다 — 몰을 다시 읽어 확인된 것만 성공이다.
+      const recorded = availabilityOutcome(result);
       void recordMallOperationOutcome({
         mallKey,
         operation: 'availability_stage',
-        outcome: result.failed > 0 ? 'failed' : 'attention',
-        reasonCode: result.requestOnly ? 'awaiting_mall_approval' : 'awaiting_mall_recheck',
+        outcome: recorded.outcome,
+        reasonCode: recorded.reasonCode,
         itemCount: result.sent,
         failedCount: result.failed,
         warningCount: result.warnings.length,
@@ -83,7 +85,9 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
         {
           description: result.requestOnly
             ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
-            : '반영은 몰을 다시 가져와야 확인됩니다.',
+            : recorded.outcome === 'succeeded'
+              ? `${mallName}에서 다시 읽어 ${formatNumber(result.confirmed ?? 0)}건 모두 품절로 바뀐 것을 확인했습니다.`
+              : '반영은 몰을 다시 가져와야 확인됩니다.',
           duration: 10_000,
         },
       );

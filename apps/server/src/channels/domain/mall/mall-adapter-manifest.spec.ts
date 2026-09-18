@@ -88,6 +88,15 @@ describe('resolveSoldOutCommand', () => {
     expect(resolveSoldOutCommand(gmarket).allowed).toBe(false);
   });
 
+  /** 도매꾹 품절 = 목록 [수정저장] 의 진열안함(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */
+  it('sends sold_out to 도매꾹 through its own admin list', () => {
+    const domeggook = getMallAdapterManifest('domeggook')!;
+    expect(resolveSoldOutCommand(domeggook)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(domeggook.soldOutRoute).toBe('mall_admin');
+    expect(domeggook.supports.resume).toBe(true);
+    expect(domeggook.supports.setStock).toBeNull();
+  });
+
   it('refuses malls with no sold-out path at all', () => {
     const alwayz = getMallAdapterManifest('always')!;
     expect(resolveSoldOutCommand(alwayz).allowed).toBe(false);
