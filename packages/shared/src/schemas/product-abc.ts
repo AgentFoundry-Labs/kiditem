@@ -226,13 +226,26 @@ export const PRODUCT_ABC_ALLOCATION_POLICY_BODY = {
 export const PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH =
   '5c612a721e1a6a7177cec1f8155149f390f8fc6073c90efdd577a33ddfcd84fc';
 
+/**
+ * The same canonical form with advertising excluded — formula version 3, which
+ * grades on Sellpia sales and purchase cost alone (owner decision 2026-09-18:
+ * grade now, while no advertising generation has ever been collected).
+ */
+export const PRODUCT_ABC_ABSOLUTE_AD_FREE_AD_SOURCE_POLICY_HASH =
+  '3a3400e40c0b75dd4d187f304b1c4c6d9b05174aa47b1e4127a1b177c47d2e63';
+
+const AD_SOURCE_POLICY_HASH_BY_POLICY = {
+  COUPANG_AD_EVIDENCE_V1: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
+  EXCLUDED_V1: PRODUCT_ABC_ABSOLUTE_AD_FREE_AD_SOURCE_POLICY_HASH,
+} as const;
+
 const FormulaPayloadShape = {
   formulaKey: z.literal('PRODUCT_ABC_ABSOLUTE'),
-  version: z.literal(2),
+  version: z.union([z.literal(2), z.literal(3)]),
   currency: z.literal('KRW'),
   operatingProfit: z.literal('OPERATING_PROFIT_V1'),
   currentSellingPolicy: z.literal('CURRENT_SELLING_MAPPING_V1'),
-  historicalAdvertisingPolicy: z.literal('COUPANG_AD_EVIDENCE_V1'),
+  historicalAdvertisingPolicy: z.enum(['COUPANG_AD_EVIDENCE_V1', 'EXCLUDED_V1']),
   allocationPolicy: z.literal('LISTING_DAY_LARGEST_REMAINDER_V1'),
   halfLifeDays: z.literal(90),
   velocityPeriodDays: z.literal(30),
@@ -282,11 +295,19 @@ export const ProductAbcFormulaPayloadSchema = z.object(FormulaPayloadShape)
         message: 'PRODUCT_ABC_ABSOLUTE anchors are immutable',
       });
     }
-    if (payload.adSourcePolicyHash !== PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH) {
+    if (payload.adSourcePolicyHash !== AD_SOURCE_POLICY_HASH_BY_POLICY[payload.historicalAdvertisingPolicy]) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['adSourcePolicyHash'],
         message: 'adSourcePolicyHash must match the canonical policy literals',
+      });
+    }
+    // Version 3 is the advertising-free formula and nothing else.
+    if ((payload.version === 3) !== (payload.historicalAdvertisingPolicy === 'EXCLUDED_V1')) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['historicalAdvertisingPolicy'],
+        message: 'formula version 3 excludes advertising; version 2 includes it',
       });
     }
   });
@@ -335,6 +356,27 @@ export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON =
 export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH =
   '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f';
 
+/** Version 3: the same formula with advertising excluded from operating profit. */
+export const PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD = {
+  ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  version: 3,
+  historicalAdvertisingPolicy: 'EXCLUDED_V1',
+  adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_AD_FREE_AD_SOURCE_POLICY_HASH,
+} as const satisfies ProductAbcFormulaPayload;
+
+export const PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_JSON =
+  JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD);
+// Keep this value adjacent to the payload. FormulaVersion uses it for idempotency.
+export const PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH =
+  '256a0fa3b3724e5a3283a1bb0a0ae5d828d7af3b70485aaf8be828a130287a35';
+
+/** Whether a formula grades without advertising — no ad generation, no ad spend. */
+export function productAbcExcludesAdvertising(
+  formula: Pick<ProductAbcFormulaPayload, 'historicalAdvertisingPolicy'> | null | undefined,
+): boolean {
+  return formula?.historicalAdvertisingPolicy === 'EXCLUDED_V1';
+}
+
 export const ProductAbcMappingFactsSchema = z.object({
   valid: z.boolean(),
   currentMappingGeneration: GenerationSchema,
@@ -347,15 +389,21 @@ export const ProductAbcSourceFreshnessSchema = z.object({
   sellpia: SourceReadinessSchema,
   advertising: SourceReadinessSchema,
   mapping: ProductAbcMappingFactsSchema,
+  /**
+   * False under a formula that excludes advertising: its readiness is still
+   * reported, but a grade no longer waits on it. Absent means required.
+   */
+  advertisingRequired: z.boolean().optional(),
 }).strict();
 export type ProductAbcSourceFreshness = z.infer<typeof ProductAbcSourceFreshnessSchema>;
 
 export const ProductAbcEvaluationProvenanceSchema = z.object({
   gradeBasisCutoffDate: CalendarDateSchema,
   sellpiaSourceImportRunId: UuidSchema,
-  advertisingSourceImportRunId: UuidSchema,
+  /** Null only under a formula that excludes advertising. */
+  advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
-  advertisingGeneration: GenerationSchema,
+  advertisingGeneration: GenerationSchema.nullable(),
   mappingGeneration: GenerationSchema,
 }).strict();
 export type ProductAbcEvaluationProvenance = z.infer<
@@ -384,12 +432,22 @@ export const ProductAbcEvaluationSchema = z.object({
   gradeBasisCutoffDate: CalendarDateSchema,
   saleStartDate: CalendarDateSchema.nullable(),
   sellpiaSourceImportRunId: UuidSchema,
-  advertisingSourceImportRunId: UuidSchema,
+  /** Null only under a formula that excludes advertising. */
+  advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
-  advertisingGeneration: GenerationSchema,
+  advertisingGeneration: GenerationSchema.nullable(),
   mappingGeneration: GenerationSchema,
   calculatedAt: zIsoDate,
 }).strict().superRefine((evaluation, context) => {
+  const adFree = evaluation.formula.historicalAdvertisingPolicy === 'EXCLUDED_V1';
+  if (adFree !== (evaluation.advertisingSourceImportRunId === null)
+    || adFree !== (evaluation.advertisingGeneration === null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['advertisingSourceImportRunId'],
+      message: 'advertising provenance is absent exactly when the formula excludes advertising',
+    });
+  }
   if (
     evaluation.weightedOperatingProfit > 0
     && evaluation.operatingMargin === null

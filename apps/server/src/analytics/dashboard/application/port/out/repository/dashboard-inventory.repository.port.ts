@@ -57,6 +57,11 @@ export interface DashboardAbcFacts {
   contributionRows: AbcContributionRow[];
   withheldContributionProductCount: number;
   unclassifiedProductCount: number;
+  /**
+   * Ungraded products younger than the formula's minimum sale age — 신상품.
+   * Counted with Products' own sale-age rule, never graded here.
+   */
+  newProductCount: number;
   formula: ProductAbcFormulaPayload | null;
   evaluatedAsOf: AbcEvaluationAsOf;
   publication: {
@@ -64,7 +69,7 @@ export interface DashboardAbcFacts {
     officialCutoffDate: string;
     publishedAt: string;
     sellpiaSourceImportRunId: string;
-    advertisingSourceImportRunId: string;
+    advertisingSourceImportRunId: string | null;
     mappingGeneration: string;
   } | null;
   gradeChanges: GradeChangeRow[];

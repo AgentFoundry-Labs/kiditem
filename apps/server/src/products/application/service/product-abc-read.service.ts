@@ -8,6 +8,7 @@ import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type ProductAbcRepositoryPort,
 } from '../port/out/repository/master-product-abc.repository.port';
+import { productAbcExcludesAdvertising } from '@kiditem/shared/product-abc';
 import { productAbcEvidenceCutoff } from '../../domain/product-abc-display-status';
 import {
   buildProductAbcReadModel,
@@ -43,12 +44,22 @@ export class ProductAbcReadService implements ProductAbcReadPort {
     masterProductIds: readonly string[];
   }): Promise<ProductAbcSnapshot> {
     const targetCutoff = productAbcEvidenceCutoff(new Date());
+    // The active formula decides whether a grade waits on advertising.
+    const state = await this.repository.getFormulaState(input.organizationId);
+    const advertisingExcluded = productAbcExcludesAdvertising(state.formula);
     const [published, snapshot] = await Promise.all([
       this.repository.readPublication(input.organizationId, input.masterProductIds),
-      this.evidence.load({ organizationId: input.organizationId, targetCutoff }),
+      this.evidence.load({
+        organizationId: input.organizationId,
+        targetCutoff,
+        advertising: advertisingExcluded ? 'excluded' : 'required',
+      }),
     ]);
 
-    const evidence = evidenceView(snapshot);
+    const evidence = {
+      ...evidenceView(snapshot),
+      ...(advertisingExcluded ? { advertisingRequired: false } : {}),
+    };
     const publication = published.publication;
     const formulaStateView: ProductAbcFormulaStateView = {
       formulaRevision: publication?.formulaRevision ?? published.currentFormulaRevision,
@@ -63,6 +74,7 @@ export class ProductAbcReadService implements ProductAbcReadPort {
     const products = published.products.map((record) => ({
       masterProductId: record.masterProductId,
       contributionEligible: record.contributionEligible,
+      saleStartDate: evidenceByProduct.get(record.masterProductId)?.saleStartDate ?? null,
       abc: buildProductAbcReadModel({
         evaluation: record.evaluation,
         mappingValid: evidenceByProduct.get(record.masterProductId)?.mappingValid ?? false,

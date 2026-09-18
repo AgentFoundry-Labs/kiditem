@@ -35,7 +35,7 @@ export function productAbcEvaluation(
     sellpiaSourceImportRunId: row.sellpiaSourceImportRunId,
     advertisingSourceImportRunId: row.advertisingSourceImportRunId,
     sellpiaGeneration: row.sellpiaGeneration.toString(),
-    advertisingGeneration: row.advertisingGeneration.toString(),
+    advertisingGeneration: row.advertisingGeneration?.toString() ?? null,
     mappingGeneration: row.mappingGeneration.toString(),
     calculatedAt: row.calculatedAt,
   });

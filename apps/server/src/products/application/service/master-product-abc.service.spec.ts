@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import {
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+} from '@kiditem/shared/product-abc';
 import { MasterProductAbcService } from './master-product-abc.service';
 import type {
   ProductAbcPublicationInput,
@@ -260,6 +263,7 @@ describe('MasterProductAbcService', () => {
     expect(profitability.load).toHaveBeenCalledWith({
       organizationId,
       targetCutoff: expect.any(String),
+      advertising: 'required',
     });
     expect(products.publish).toHaveBeenCalledTimes(1);
     const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
@@ -268,6 +272,66 @@ describe('MasterProductAbcService', () => {
       .toEqual([productA, productB]);
     expect(publication.candidates.map((candidate) => candidate.abcGrade))
       .toEqual(['A', 'B']);
+  });
+
+  /**
+   * Formula version 3 grades without advertising (owner decision 2026-09-18).
+   * No advertising generation had ever been collected, so under version 2
+   * nothing could publish; version 3 pairs Sellpia alone and records no
+   * advertising provenance rather than inventing one.
+   */
+  it('publishes an advertising-free formula from Sellpia alone, with no advertising provenance', async () => {
+    const products = repository({
+      getFormulaState: vi.fn().mockResolvedValue({ ...state, formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD }),
+      listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA]),
+    });
+    const noAdvertising = snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }]);
+    const { service, profitability } = serviceWith(products, {
+      ...noAdvertising,
+      sourceVector: {
+        ...noAdvertising.sourceVector,
+        advertising: {
+          sourceImportRunId: null,
+          publicationSequence: null,
+          mappingGeneration: null,
+          coverageStartDate: null,
+          coverageEndDate: null,
+          capturedAt: null,
+        },
+      },
+    });
+
+    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({ outcome: 'PUBLISHED' });
+    expect(profitability.load).toHaveBeenCalledWith(expect.objectContaining({ advertising: 'excluded' }));
+    const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
+    expect(publication.sourceFences.advertising).toBeNull();
+    expect(publication.candidates[0]).toMatchObject({
+      advertisingSourceImportRunId: null,
+      advertisingGeneration: null,
+      sellpiaSourceImportRunId: sellpiaRunId,
+    });
+  });
+
+  it('still refuses a formula that counts advertising when no advertising generation exists', async () => {
+    const products = repository();
+    const noAdvertising = snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }]);
+    const { service } = serviceWith(products, {
+      ...noAdvertising,
+      sourceVector: {
+        ...noAdvertising.sourceVector,
+        advertising: {
+          sourceImportRunId: null,
+          publicationSequence: null,
+          mappingGeneration: null,
+          coverageStartDate: null,
+          coverageEndDate: null,
+          capturedAt: null,
+        },
+      },
+    });
+
+    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({ outcome: 'SOURCE_NOT_READY' });
+    expect(products.publish).not.toHaveBeenCalled();
   });
 
   it('publishes mapped candidates while excluding a stable invalid mapping', async () => {

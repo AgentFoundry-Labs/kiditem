@@ -38,9 +38,11 @@ const GRADE_NAME = (grade: ProductAbcGrade | null) => grade ?? '미분류';
 
 export function DashboardGradeCards({
   gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
-  gradeChanges, changesMeasured = false,
+  gradeChanges, changesMeasured = false, newProductCount = null,
   basis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
+  /** Ungraded because younger than the minimum sale age — 신상품; null when unmeasured. */
+  newProductCount?: number | null;
   /** The current publication's grade movement, as the server counted it. */
   gradeChanges?: DashboardInventorySummary['gradeChanges'];
   changesMeasured?: boolean;
@@ -102,7 +104,8 @@ export function DashboardGradeCards({
           grades, and 원천 확인 필요 published the same number as the ABC 미분류
           row in the attention rail two columns to the left. The rail is where a
           count an operator has to act on belongs. */}
-      <div className="grid grid-cols-3 gap-px bg-slate-200">
+      {/* A · B · C, and 신상품 beside them — a product too young to grade is new, not a C. */}
+      <div className="grid grid-cols-4 gap-px bg-slate-200">
         {(['A', 'B', 'C'] as const).map(grade => (
           <GradeCell
             key={grade}
@@ -114,6 +117,17 @@ export function DashboardGradeCards({
             flow={changesMeasured ? gradeChanges?.byGrade?.[grade] ?? null : null}
           />
         ))}
+        <div
+          className="bg-white px-2 py-3.5 text-center"
+          title={`판매 ${abcFormula?.minimumSaleAgeDays ?? 30}일이 안 돼 아직 등급을 매기지 않는 상품`}
+          data-testid="abc-new-products"
+        >
+          <p className="text-xs font-semibold text-sky-600">신상품</p>
+          <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">
+            {newProductCount === null ? '—' : formatNumber(newProductCount)}
+          </p>
+          <p className="mt-1.5 text-[11px] text-slate-400">등급 전</p>
+        </div>
       </div>
 
       {/* The panel says what the grades are now. Movement over seven days is a
@@ -177,7 +191,7 @@ function GradeCell({
       href={`/product-hub?abcGrade=${grade}`}
       aria-label={`${grade}등급 ${GRADE_LABELS[grade]} ${countLabel} 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
       title={`${GRADE_LABELS[grade]} · 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
-      className="bg-white px-4 py-3.5 text-center transition-colors hover:bg-slate-50"
+      className="bg-white px-2 py-3.5 text-center transition-colors hover:bg-slate-50"
     >
       <p className="text-xs font-semibold text-slate-500">{grade}</p>
       <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">
@@ -232,6 +246,9 @@ function AbcCriteria({
   const { gradeThresholds: t, weights: w, halfLifeDays, minimumSaleAgeDays } = formula;
   return (
     <>
+      {formula.historicalAdvertisingPolicy === 'EXCLUDED_V1' ? (
+        <p className="font-semibold">광고비 제외 판(v{formula.version}): 셀피아 매출과 매입가만으로 이익을 셉니다.</p>
+      ) : null}
       <p>
         경제점수 = 이익 {Math.round(w.profit * 100)}% + 마진 {Math.round(w.margin * 100)}% +
         판매 일관성 {Math.round(w.consistency * 100)}%. 오래된 실적일수록 가볍게 세며, 반감기는 {halfLifeDays}일입니다.

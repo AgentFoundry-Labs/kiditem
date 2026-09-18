@@ -190,6 +190,7 @@ export class DashboardInventoryService {
         ),
         classifiedProductCount,
         unclassifiedProductCount: abcFacts.unclassifiedProductCount,
+        newProductCount: abcFacts.newProductCount,
         gradeCount,
         abcStatusCount,
         abcContributionProfit,
@@ -347,6 +348,7 @@ export class DashboardInventoryService {
       'gradeCount.A': abc,
       'gradeCount.B': abc,
       'gradeCount.C': abc,
+      newProductCount: abc,
       classifiedProductCount: abc,
       // Products' current active snapshot can say that a product is not yet
       // classified even when there is no ABC publication to grade it from.

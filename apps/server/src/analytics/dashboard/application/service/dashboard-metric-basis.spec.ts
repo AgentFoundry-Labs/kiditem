@@ -694,6 +694,7 @@ describe('dashboard inventory metricBasis', () => {
     'gradeCount.A',
     'gradeCount.B',
     'gradeCount.C',
+    'newProductCount',
     'classifiedProductCount',
     'unclassifiedProductCount',
     'abcStatusCount.READY',

@@ -14,7 +14,11 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from "@kiditem/shared/channel-listing";
-import { productAbcDisplayStatus } from "@kiditem/shared/product-abc";
+import {
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  productAbcDisplayStatus,
+  productAbcSaleAgeDays,
+} from "@kiditem/shared/product-abc";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
 import {
@@ -82,6 +86,9 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     const contributionRows: DashboardAbcFacts["contributionRows"] = [];
     const aGradeMasterProductIds: string[] = [];
     let classifiedProductCount = 0;
+    let newProductCount = 0;
+    // The active formula's minimum; a product younger than it is not graded yet.
+    const minimumSaleAgeDays = (snapshot.publication?.formula ?? PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD).minimumSaleAgeDays;
     let withheldContributionProductCount = 0;
     for (const product of snapshot.products) {
       const displayStatus = productAbcDisplayStatus(product.abc);
@@ -90,6 +97,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         (statusCounts.get(displayStatus) ?? 0) + 1,
       );
       const evaluation = product.abc.evaluation;
+      const saleAge = productAbcSaleAgeDays(product.saleStartDate, snapshot.actualCutoff);
+      if (!evaluation && saleAge !== null && saleAge < minimumSaleAgeDays) newProductCount += 1;
       if (evaluation) {
         classifiedProductCount += 1;
         gradeCounts.set(
@@ -122,6 +131,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
       withheldContributionProductCount,
       unclassifiedProductCount:
         snapshot.products.length - classifiedProductCount,
+      newProductCount,
       formula: snapshot.publication?.formula ?? null,
       evaluatedAsOf: {
         targetCutoff: snapshot.targetCutoff,

@@ -15,7 +15,7 @@ import {
   type ProductAbcRepositoryPort,
   type ProductAbcPublicationInput,
 } from '../port/out/repository/master-product-abc.repository.port';
-import { productAbcSaleAgeDays } from '@kiditem/shared/product-abc';
+import { productAbcExcludesAdvertising, productAbcSaleAgeDays } from '@kiditem/shared/product-abc';
 import { productAbcEvidenceCutoff } from '../../domain/product-abc-display-status';
 import type {
   MasterProductAbcRecalculationInput,
@@ -52,9 +52,12 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
     const targetProductIds = uniqueSorted(
       await this.repository.listCurrentAbcTargetIds(input.organizationId),
     );
+    // A formula that excludes advertising grades on Sellpia alone.
+    const advertisingExcluded = productAbcExcludesAdvertising(state.formula);
     const snapshot = await this.profitability.load({
       organizationId: input.organizationId,
       targetCutoff,
+      advertising: advertisingExcluded ? 'excluded' : 'required',
     });
     // The load reads the mapping generation again. A pair on another generation
     // means the mapping moved after this calculation read its state: the input
@@ -64,8 +67,8 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       && snapshot.mappingGeneration !== state.mappingGeneration) {
       throw new ConflictException({ code: 'INPUT_CHANGED' });
     }
-    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)) {
-      const pairing = unpairedSourceEnds(snapshot);
+    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration, advertisingExcluded)) {
+      const pairing = advertisingExcluded ? null : unpairedSourceEnds(snapshot);
       return {
         outcome: 'SOURCE_NOT_READY',
         publicationRevision: state.publicationRevision,
@@ -101,6 +104,7 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
         }),
         snapshot,
         state.mappingGeneration,
+        advertisingExcluded,
       ));
     }
 
@@ -116,9 +120,9 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
         sellpia: {
           selectedComplete: snapshot.sourceVector.sellpia,
         },
-        advertising: {
-          selectedComplete: snapshot.sourceVector.advertising,
-        },
+        advertising: advertisingExcluded
+          ? null
+          : { selectedComplete: snapshot.sourceVector.advertising },
       },
       saleAgeInputs: targetProductIds.map((masterProductId) => ({
         masterProductId,
@@ -150,23 +154,23 @@ function candidateRecord(
   candidate: MasterProductAbcCandidate,
   snapshot: ProfitabilityEvidenceSnapshot,
   mappingGeneration: string,
+  advertisingExcluded: boolean,
 ): MasterProductAbcCandidateRecord {
   const sellpia = snapshot.sourceVector.sellpia;
   const advertising = snapshot.sourceVector.advertising;
   if (
     !sellpia.sourceImportRunId
     || !sellpia.publicationSequence
-    || !advertising.sourceImportRunId
-    || !advertising.publicationSequence
+    || (!advertisingExcluded && (!advertising.sourceImportRunId || !advertising.publicationSequence))
   ) {
     throw new ConflictException({ code: 'SOURCE_NOT_READY' });
   }
   return {
     ...candidate,
     sellpiaSourceImportRunId: sellpia.sourceImportRunId,
-    advertisingSourceImportRunId: advertising.sourceImportRunId,
+    advertisingSourceImportRunId: advertisingExcluded ? null : advertising.sourceImportRunId,
     sellpiaGeneration: sellpia.publicationSequence,
-    advertisingGeneration: advertising.publicationSequence,
+    advertisingGeneration: advertisingExcluded ? null : advertising.publicationSequence,
     mappingGeneration,
   };
 }
@@ -203,11 +207,15 @@ function isEligibleEvidence(
 function hasCompatibleCompleteEvidence(
   snapshot: ProfitabilityEvidenceSnapshot,
   mappingGeneration: string,
+  advertisingExcluded: boolean,
 ): boolean {
   const actualCutoff = snapshot.actualCutoff;
   if (actualCutoff === null || snapshot.mappingGeneration !== mappingGeneration) return false;
 
-  for (const source of [snapshot.sourceVector.sellpia, snapshot.sourceVector.advertising]) {
+  const required = advertisingExcluded
+    ? [snapshot.sourceVector.sellpia]
+    : [snapshot.sourceVector.sellpia, snapshot.sourceVector.advertising];
+  for (const source of required) {
     if (!source.sourceImportRunId
       || !source.publicationSequence
       || source.mappingGeneration !== mappingGeneration

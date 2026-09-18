@@ -337,6 +337,7 @@ export default function Dashboard() {
     'abcContributionProfit.amountByGrade.C',
   ]);
   const changesBasis = readFirstMetricBasis(inventoryData, ['gradeChanges.total']);
+  const newProductsBasis = readFirstMetricBasis(inventoryData, ['newProductCount']);
   const topProductsBasis = readFirstMetricBasis(effectiveSales, [
     'topProducts.revenue',
     'topProducts.netProfit',
@@ -566,6 +567,7 @@ export default function Dashboard() {
       abcFormula={inventoryData.abcFormula}
       gradeChanges={inventoryData.gradeChanges}
       changesMeasured={basisHasValues(changesBasis)}
+      newProductCount={basisHasValues(newProductsBasis) ? inventoryData.newProductCount ?? null : null}
       basis={inventoryBasis}
       contributionBasis={contributionBasis}
       refetchReads={async () => { await refetchInventory(); }}

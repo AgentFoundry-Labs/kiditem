@@ -43,9 +43,10 @@ export type MasterProductAbcCandidateRecord = Readonly<{
   consistencyScore: number;
   economicScore: number;
   sellpiaSourceImportRunId: string;
-  advertisingSourceImportRunId: string;
+  /** Null only under a formula that excludes advertising. */
+  advertisingSourceImportRunId: string | null;
   sellpiaGeneration: string;
-  advertisingGeneration: string;
+  advertisingGeneration: string | null;
   mappingGeneration: string;
 }>;
 
@@ -63,7 +64,8 @@ export type ProductAbcPublicationInput = Readonly<{
   mappingGeneration: string;
   sourceFences: Readonly<{
     sellpia: MasterProductAbcSourceFence;
-    advertising: MasterProductAbcSourceFence;
+    /** Null under a formula that excludes advertising. */
+    advertising: MasterProductAbcSourceFence | null;
   }>;
   saleAgeInputs: readonly Readonly<{
     masterProductId: string;

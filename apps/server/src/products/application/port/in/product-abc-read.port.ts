@@ -10,6 +10,8 @@ export type ProductAbcView = Readonly<{
   abc: ProductAbcReadModel;
   /** The evaluation matches every fact fence of the current publication. */
   contributionEligible: boolean;
+  /** First sale day the evidence knows; `null` when it knows none. */
+  saleStartDate: string | null;
 }>;
 
 /**
@@ -28,7 +30,7 @@ export type ProductAbcSnapshot = Readonly<{
     officialCutoffDate: string;
     publishedAt: string;
     sellpiaSourceImportRunId: string;
-    advertisingSourceImportRunId: string;
+    advertisingSourceImportRunId: string | null;
     mappingGeneration: string;
     formulaRevision: number | null;
     formula: ProductAbcFormulaPayload | null;

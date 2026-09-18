@@ -316,7 +316,7 @@ erDiagram
   Organization ||--o{ SourceImportRun : "organization"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
-  SourceImportRun ||--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
   SourceImportRun ||--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"

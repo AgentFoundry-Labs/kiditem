@@ -487,6 +487,8 @@ export const DashboardInventorySummarySchema = z.object({
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
+  /** Ungraded because younger than the formula's minimum sale age — 신상품. */
+  newProductCount: z.number().int().nonnegative().optional(),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),

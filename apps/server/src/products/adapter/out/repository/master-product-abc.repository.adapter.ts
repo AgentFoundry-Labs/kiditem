@@ -40,7 +40,7 @@ type ExistingAbcRow = Readonly<{
   masterProductId: string;
   evaluationGrade: string;
   sellpiaSourceImportRunId: string;
-  advertisingSourceImportRunId: string;
+  advertisingSourceImportRunId: string | null;
 }>;
 
 @Injectable()
@@ -104,7 +104,10 @@ async function publishTx(
   // drives readProductSaleAgeEvidence below.
   const actualCutoff = minCalendarDate(
     dateKey(input.sourceFences.sellpia.selectedComplete.coverageEndDate),
-    dateKey(input.sourceFences.advertising.selectedComplete.coverageEndDate),
+    // No advertising fence under a formula that excludes advertising.
+    input.sourceFences.advertising
+      ? dateKey(input.sourceFences.advertising.selectedComplete.coverageEndDate)
+      : input.targetCutoff,
     input.targetCutoff,
   );
   if (actualCutoff !== input.actualCutoff) {
@@ -150,7 +153,7 @@ async function publishTx(
     SET publication_revision = ${nextPublicationRevision},
         official_cutoff_date = ${atUtcDate(actualCutoff)}::date,
         published_sellpia_source_import_run_id = ${input.sourceFences.sellpia.selectedComplete.sourceImportRunId}::uuid,
-        published_advertising_source_import_run_id = ${input.sourceFences.advertising.selectedComplete.sourceImportRunId}::uuid,
+        published_advertising_source_import_run_id = ${input.sourceFences.advertising?.selectedComplete.sourceImportRunId ?? null}::uuid,
         published_mapping_generation = ${BigInt(input.mappingGeneration)}::bigint,
         published_at = ${input.calculatedAt}::timestamptz,
         updated_at = NOW()
@@ -214,7 +217,9 @@ async function insertEvaluations(
       sellpiaSourceImportRunId: candidate.sellpiaSourceImportRunId,
       advertisingSourceImportRunId: candidate.advertisingSourceImportRunId,
       sellpiaGeneration: BigInt(candidate.sellpiaGeneration),
-      advertisingGeneration: BigInt(candidate.advertisingGeneration),
+      advertisingGeneration: candidate.advertisingGeneration === null
+        ? null
+        : BigInt(candidate.advertisingGeneration),
       mappingGeneration: BigInt(candidate.mappingGeneration),
       calculatedAt: input.calculatedAt,
     }));
@@ -232,7 +237,7 @@ type GradeTransition = Readonly<{
   previousSellpiaSourceImportRunId: string | null;
   previousAdvertisingSourceImportRunId: string | null;
   nextSellpiaSourceImportRunId: string;
-  nextAdvertisingSourceImportRunId: string;
+  nextAdvertisingSourceImportRunId: string | null;
 }>;
 
 function gradeTransitions(
@@ -383,7 +388,10 @@ function stateMatches(row: FormulaStateRow, input: ProductAbcPublicationInput): 
 }
 
 function sourceSelectionsMatchMapping(input: ProductAbcPublicationInput): boolean {
-  return [input.sourceFences.sellpia, input.sourceFences.advertising].every(({ selectedComplete }) =>
+  const fences = input.sourceFences.advertising
+    ? [input.sourceFences.sellpia, input.sourceFences.advertising]
+    : [input.sourceFences.sellpia];
+  return fences.every(({ selectedComplete }) =>
     selectedComplete.sourceImportRunId !== null
     && selectedComplete.publicationSequence !== null
     && selectedComplete.mappingGeneration === input.mappingGeneration);
@@ -401,14 +409,16 @@ function candidateSetIsValid(
   const saleAgeById = new Map(input.saleAgeInputs.map((row) => [row.masterProductId, row]));
   if (input.candidates.some((candidate) =>
     candidate.sellpiaSourceImportRunId.length === 0
-    || candidate.advertisingSourceImportRunId.length === 0
     || candidate.sellpiaSourceImportRunId
       !== input.sourceFences.sellpia.selectedComplete.sourceImportRunId
+    // Advertising provenance is present exactly when there is an advertising fence.
     || candidate.advertisingSourceImportRunId
-      !== input.sourceFences.advertising.selectedComplete.sourceImportRunId
+      !== (input.sourceFences.advertising?.selectedComplete.sourceImportRunId ?? null)
+    || (input.sourceFences.advertising !== null && !candidate.advertisingSourceImportRunId)
     || validGrade(candidate.abcGrade) === null
     || candidate.sellpiaGeneration !== input.sourceFences.sellpia.selectedComplete.publicationSequence
-    || candidate.advertisingGeneration !== input.sourceFences.advertising.selectedComplete.publicationSequence
+    || candidate.advertisingGeneration
+      !== (input.sourceFences.advertising?.selectedComplete.publicationSequence ?? null)
     || candidate.mappingGeneration !== input.mappingGeneration
     || candidate.gradeBasisCutoffDate !== input.actualCutoff
     || saleAgeById.get(candidate.masterProductId)?.mappingValid !== true

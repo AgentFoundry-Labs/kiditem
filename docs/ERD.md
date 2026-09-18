@@ -2762,7 +2762,7 @@ erDiagram
   SourceImportRun o|--o{ CoupangKeywordSerpDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"
   SourceImportRun o|--o{ CoupangWingSalesRankDailySnapshot : "sourceImportRun"
-  SourceImportRun ||--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
   SourceImportRun ||--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"

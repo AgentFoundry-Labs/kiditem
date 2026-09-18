@@ -584,9 +584,10 @@ model MasterProductAbcEvaluation {
   /// always provide it.
   saleStartDate                DateTime? @map("sale_start_date") @db.Date
   sellpiaSourceImportRunId     String    @map("sellpia_source_import_run_id") @db.Uuid
-  advertisingSourceImportRunId String    @map("advertising_source_import_run_id") @db.Uuid
+  /// Null only under an ABC formula that excludes advertising (formula version 3).
+  advertisingSourceImportRunId String?   @map("advertising_source_import_run_id") @db.Uuid
   sellpiaGeneration            BigInt    @map("sellpia_generation") @db.BigInt
-  advertisingGeneration        BigInt    @map("advertising_generation") @db.BigInt
+  advertisingGeneration        BigInt?   @map("advertising_generation") @db.BigInt
   mappingGeneration            BigInt    @map("mapping_generation") @db.BigInt
   calculatedAt                 DateTime  @default(now()) @map("calculated_at") @db.Timestamptz
 
@@ -594,7 +595,7 @@ model MasterProductAbcEvaluation {
   masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
   formulaVersion             MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sellpiaSourceImportRun     SourceImportRun                @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  advertisingSourceImportRun SourceImportRun                @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  advertisingSourceImportRun SourceImportRun?               @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, formulaVersionId])
