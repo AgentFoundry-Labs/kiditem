@@ -6,6 +6,7 @@ import {
   mallInboundSupports,
   requiresManualResume,
   resolveSoldOutCommand,
+  soldOutSendsByOption,
 } from './mall-adapter-manifest';
 
 describe('MALL_ADAPTER_MANIFESTS', () => {
@@ -98,10 +99,13 @@ describe('resolveSoldOutCommand', () => {
   });
 
   /** 쿠팡 윙 품절 = 상품목록 일괄적용의 판매상태 변경(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */
-  it('sends sold_out to 쿠팡 through the Wing product list', () => {
+  it('sends sold_out to 쿠팡 as option stock 0 through the Wing product list', () => {
     const coupang = getMallAdapterManifest('coupang')!;
     expect(resolveSoldOutCommand(coupang)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
     expect(coupang.soldOutRoute).toBe('mall_admin');
+    // 윙에서 품절 = 옵션 재고 0 이라 옵션 단위로 보낸다. 도매꾹(진열안함)은 상품 단위다.
+    expect(soldOutSendsByOption('coupang')).toBe(true);
+    expect(soldOutSendsByOption('domeggook')).toBe(false);
   });
 
   it('refuses malls with no sold-out path at all', () => {

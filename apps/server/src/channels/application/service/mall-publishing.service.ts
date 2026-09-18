@@ -19,6 +19,7 @@ import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
   resolveSoldOutCommand,
+  soldOutSendsByOption,
   type MallAdapterManifest,
   mallInboundSupports,
 } from '../../domain/mall/mall-adapter-manifest';
@@ -268,6 +269,7 @@ export class MallPublishingService {
         optionName: item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
         sellerSku: item.sku.sellerSku,
         mallProductCode: item.product.externalProductId,
+        mallOptionCode: item.sku.externalSkuId,
         sellableStock: item.sku.sellableStock,
         bottleneckCodes: item.components
           .filter((component) => component.isBottleneck)
@@ -287,7 +289,8 @@ export class MallPublishingService {
       if (!resolved.allowed) {
         return { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
       }
-      const live = liveOptions.get(item.product.id) ?? 0;
+      // 옵션 단위로 보내는 몰(쿠팡 윙 = 옵션 재고 0)은 품절 옵션만 바뀌어 막을 까닭이 없다.
+      const live = soldOutSendsByOption(manifest.key) ? 0 : liveOptions.get(item.product.id) ?? 0;
       if (live > 0) {
         return {
           ...base,

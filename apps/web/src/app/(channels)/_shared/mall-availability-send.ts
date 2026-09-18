@@ -87,7 +87,11 @@ interface SendResponse {
 export async function sendMallAvailability(
   mallKey: MallAvailabilitySendMall,
   mallProductCodes: readonly string[],
-  options: { resume?: boolean } = {},
+  options: {
+    resume?: boolean;
+    /** 상품코드 → 그 상품의 품절 옵션코드. 옵션 단위로 보내는 몰(쿠팡 윙)만 쓴다. 없으면 상품 전체다. */
+    optionCodes?: Readonly<Record<string, readonly string[]>>;
+  } = {},
 ): Promise<MallAvailabilitySendResult> {
   const codes = [...new Set(mallProductCodes.map((code) => code.trim()).filter(Boolean))];
   if (codes.length === 0) {
@@ -106,7 +110,13 @@ export async function sendMallAvailability(
   try {
     response = await sendToExtension<SendResponse>(
       extensionId,
-      { action: 'sendMallAvailability', mallKey, codes, resume: options.resume === true },
+      {
+        action: 'sendMallAvailability',
+        mallKey,
+        codes,
+        resume: options.resume === true,
+        ...(options.optionCodes ? { options: options.optionCodes } : {}),
+      },
       SEND_TIMEOUT_MS,
     );
   } catch (error) {

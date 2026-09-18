@@ -151,12 +151,22 @@ test('도매꾹이 품절을 보낼 수 있는 몰로 알려진다', () => {
 });
 
 /**
- * 쿠팡 윙 품절 = 상품목록 [선택한 상품 일괄적용 → 판매상태 변경] 의 판매중지(실측 2026-09-18, `app/listV3.js`).
- * 등록상품ID 25개씩 `sale-status-change/request` 에 `{vendorInventoryIds, saleStatus}` JSON 으로 보내고, 윙이
- * 상품마다 `{vendorInventoryId, success}` 로 답한다. 윙 화면 안에서 보낸다(리뷰 수집과 같은 길).
+ * 쿠팡 윙 품절 = 옵션 재고수량 0(실측 2026-09-18, `app/listV3.js` 의 재고수량 칸). 윙에서 품절과 판매중지는 다르다 —
+ * 품절은 판매중인 채로 '품절' 로 보이고 재고를 넣으면 다시 팔린다. 옵션 목록을 읽어 `vendorInventoryItemId` 를
+ * 얻고, 품절 옵션만 `stock-manager/remain-change/request` 에 `stockManageItems={dtos}` 로 보낸 뒤 다시 읽는다.
  */
-function wingMall({ tabUrl = 'https://wing.coupang.com/tenants/cs/product/review', failIds = [], status = 200 } = {}) {
-  const log = { tabs: [], removed: [], posts: [] };
+const ITEMS_PATH = '/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/';
+const CHANGE_PATH = '/tenants/seller-web/vendorinventory/stock-manager/remain-change/request';
+
+function wingMall({ tabUrl = 'https://wing.coupang.com/tenants/cs/product/review', products = {}, reject = {}, itemsStatus = 200 } = {}) {
+  // products: 등록상품ID → [{ vendorItemId, stockQuantity, registrationType }]
+  const state = new Map(Object.entries(products).map(([id, items]) => [id, items.map((item, index) => ({
+    vendorInventoryItemId: Number(`7${id.slice(-6)}${index}`),
+    registrationType: 'NORMAL',
+    status: 'APPROVED',
+    ...item,
+  }))]));
+  const log = { tabs: [], removed: [], reads: [], changes: [] };
   const chrome = {
     tabs: {
       get: async () => ({ id: 7, url: tabUrl }),
@@ -168,17 +178,33 @@ function wingMall({ tabUrl = 'https://wing.coupang.com/tenants/cs/product/review
     },
     scripting: {
       executeScript: async ({ func, args }) => {
-        assert.equal(func.name, 'postJsonOnPage');
-        const [path, body] = args;
-        log.posts.push({ path, body: plain(body) });
-        const json = status === 200
-          ? body.vendorInventoryIds.map((id) => ({
-            vendorInventoryId: id,
-            success: !failIds.includes(id),
-            ...(failIds.includes(id) ? { message: '쿠팡 모니터링 상품은 변경할 수 없습니다' } : {}),
-          }))
-          : null;
-        return [{ result: { status, json, preview: json ? '' : '<html>', url: `https://wing.coupang.com${path}` } }];
+        assert.equal(func.name, 'requestOnPage');
+        const [path, method, contentType, body] = args;
+        if (method === 'GET' && path.startsWith(ITEMS_PATH)) {
+          const id = path.slice(ITEMS_PATH.length).split('?')[0];
+          log.reads.push(id);
+          const items = state.get(id);
+          const json = itemsStatus === 200 && items ? { success: true, data: items.map((item) => ({ ...item })) } : null;
+          return [{ result: { status: itemsStatus === 200 && !items ? 404 : itemsStatus, json, preview: json ? '' : '<html>', url: `https://wing.coupang.com${path}` } }];
+        }
+        if (method === 'POST' && path === CHANGE_PATH) {
+          assert.match(contentType, /^application\/x-www-form-urlencoded/);
+          assert.ok(body.startsWith('stockManageItems='));
+          const { dtos } = JSON.parse(decodeURIComponent(body.slice('stockManageItems='.length)));
+          log.changes.push(dtos);
+          const results = dtos.map((dto) => {
+            const refused = reject[String(dto.vendorItemId)];
+            if (!refused) {
+              for (const items of state.values()) {
+                const item = items.find((candidate) => candidate.vendorItemId === dto.vendorItemId);
+                if (item) item.stockQuantity = dto.inventoryQuantity;
+              }
+            }
+            return { vendorItemId: dto.vendorItemId, success: !refused, message: refused || null, inventoryQuantity: dto.inventoryQuantity };
+          });
+          return [{ result: { status: 200, json: results, preview: '', url: `https://wing.coupang.com${path}` } }];
+        }
+        throw new Error(`unexpected ${method} ${path}`);
       },
     },
   };
@@ -189,51 +215,78 @@ function wingMall({ tabUrl = 'https://wing.coupang.com/tenants/cs/product/review
     interactiveTabs: { createTab: async ({ url }) => { log.tabs.push(url); return { id: 7 }; } },
     tabReason: 'test',
   });
-  return { api, log };
+  return { api, log, state };
 }
 
-test('⭐ 쿠팡 윙 품절은 윙 화면 안에서 등록상품ID 25개씩 판매중지(INVALID)를 보내고, 윙이 답한 줄로 센다', async () => {
-  const codes = Array.from({ length: 30 }, (_, i) => String(13712531000 + i));
-  const { api, log } = wingMall({ failIds: [13712531003] });
-  const result = await api.send({ mallKey: 'coupang', codes: [...codes, 'ABC-1'] });
+test('⭐ 쿠팡 윙 품절은 짚은 옵션만 재고 0 으로 — 윙 재고수량 칸이 보내는 모양 그대로, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = wingMall({
+    products: {
+      15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }, { vendorItemId: 94489536459, stockQuantity: 998 }],
+      16389409095: [{ vendorItemId: 96075239894, stockQuantity: 0 }],
+    },
+  });
+  const result = await api.send({
+    mallKey: 'coupang',
+    codes: ['15966710321', '16389409095', 'ABC-1'],
+    options: { 15966710321: ['94489536455'] },
+  });
 
   assert.deepEqual(log.tabs, ['https://wing.coupang.com/tenants/cs/product/review']);
-  assert.deepEqual(log.posts.map((post) => post.path), [
-    '/tenants/seller-web/vendor-inventories/sale-status-change/request',
-    '/tenants/seller-web/vendor-inventories/sale-status-change/request',
-  ]);
-  assert.deepEqual(log.posts.map((post) => post.body.vendorInventoryIds.length), [25, 5]);
-  assert.equal(log.posts[0].body.saleStatus, 'INVALID');
-  assert.equal(typeof log.posts[0].body.vendorInventoryIds[0], 'number', '윙 화면처럼 숫자로 보낸다');
+  // 옵션을 짚은 상품은 그 옵션만, 짚지 않은 상품은 옵션 전부다. 이미 0 인 옵션은 보내지 않는다.
+  assert.deepEqual(plain(log.changes), [[
+    { vendorInventoryItemId: 77103210, vendorItemId: 94489536455, inventoryQuantity: 0 },
+  ]]);
+  assert.equal(state.get('15966710321')[1].stockQuantity, 998, '짚지 않은 옵션은 그대로다');
   assert.equal(result.success, true);
-  assert.equal(result.sent, 29);
-  assert.equal(result.failed, 2);
-  assert.equal(result.confirmed, undefined, '윙은 다시 읽지 않는다 — 확인 대기로 남는다');
+  assert.equal(result.sent, 2);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.failed, 1);
   assert.ok(result.warnings.includes('1건은 쿠팡 윙 등록상품ID 모양이 아니라 보내지 않았습니다.'), result.warnings.join(' / '));
-  assert.ok(result.warnings.some((warning) => warning.includes('쿠팡 모니터링 상품은 변경할 수 없습니다')), result.warnings.join(' / '));
+  assert.ok(result.warnings.includes('1개 옵션은 이미 재고 0이었습니다.'), result.warnings.join(' / '));
   assert.deepEqual(log.removed, [7], '연 탭은 닫는다');
 });
 
-test('해제는 같은 길로 판매재개(VALID)를 보낸다', async () => {
-  const { api, log } = wingMall();
-  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060'], resume: true });
-  assert.equal(log.posts[0].body.saleStatus, 'VALID');
-  assert.equal(result.sent, 1);
+test('해제는 같은 칸에 재고 999 를 넣는다', async () => {
+  const { api, log } = wingMall({ products: { 15966710321: [{ vendorItemId: 94489536455, stockQuantity: 0 }] } });
+  const result = await api.send({ mallKey: 'coupang', codes: ['15966710321'], resume: true });
+  assert.equal(log.changes[0][0].inventoryQuantity, 999);
+  assert.equal(result.confirmed, 1);
+});
+
+test('윙이 거절한 옵션은 실패로 세고 윙이 한 말을 싣는다 — 로켓그로스 옵션은 건너뛴다', async () => {
+  const { api } = wingMall({
+    products: {
+      15966710321: [
+        { vendorItemId: 94489536455, stockQuantity: 999 },
+        { vendorItemId: 94489536459, stockQuantity: 999, registrationType: 'RFM' },
+      ],
+    },
+    reject: { 94489536455: '판매중지된 옵션은 재고를 바꿀 수 없습니다' },
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['15966710321'] });
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 1);
+  assert.equal(result.confirmed, 0);
+  assert.ok(result.warnings.some((warning) => warning.includes('판매중지된 옵션은 재고를 바꿀 수 없습니다')), result.warnings.join(' / '));
+  assert.ok(result.warnings.includes('로켓그로스 옵션 1개는 쿠팡 재고라 건너뛰었습니다.'), result.warnings.join(' / '));
 });
 
 test('윙 로그인이 풀려 로그인 화면으로 넘어가면 아무것도 보내지 않는다', async () => {
-  const { api, log } = wingMall({ tabUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth' });
-  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060'] });
+  const { api, log } = wingMall({
+    tabUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth',
+    products: { 15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }] },
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['15966710321'] });
   assert.equal(result.success, false);
   assert.match(result.error, /쿠팡 윙에 로그인되어 있지 않습니다/);
-  assert.equal(log.posts.length, 0);
+  assert.equal(log.changes.length, 0);
   assert.deepEqual(log.removed, [7]);
 });
 
-test('윙이 요청을 받지 않으면(JSON 아님) 그 묶음을 실패로 센다', async () => {
-  const { api } = wingMall({ status: 403 });
-  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060', '13712531061'] });
-  assert.equal(result.sent, 0);
-  assert.equal(result.failed, 2);
-  assert.ok(result.warnings.some((warning) => warning.includes('HTTP 403')), result.warnings.join(' / '));
+test('윙에 없는 옵션코드는 실패로 센다', async () => {
+  const { api, log } = wingMall({ products: { 15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }] } });
+  const result = await api.send({ mallKey: 'coupang', codes: ['15966710321'], options: { 15966710321: ['11111111111'] } });
+  assert.equal(log.changes.length, 0);
+  assert.equal(result.failed, 1);
+  assert.ok(result.warnings.some((warning) => warning.includes('옵션 1개가 쿠팡 윙에 없습니다')), result.warnings.join(' / '));
 });

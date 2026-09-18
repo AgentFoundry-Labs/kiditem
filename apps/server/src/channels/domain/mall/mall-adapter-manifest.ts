@@ -226,6 +226,16 @@ const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang',
 ]);
 
+/**
+ * 품절을 **옵션 단위**로 보내는 몰. 쿠팡 윙은 옵션 재고를 0 으로 둔다(윙에서 품절 = 재고 0, 판매중지와 다르다).
+ * 나머지는 몰 관리자에서 상품 줄을 멈추므로, 옵션 일부만 품절인 상품은 보내지 않는다.
+ */
+const OPTION_LEVEL_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['coupang']);
+
+export function soldOutSendsByOption(key: string): boolean {
+  return OPTION_LEVEL_SOLD_OUT_KEYS.has(key);
+}
+
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
   if (!applicable) return null;
   return MALL_ADMIN_SOLD_OUT_KEYS.has(key) ? 'mall_admin' : null;
@@ -305,7 +315,7 @@ const SEEDS: readonly ManifestSeed[] = [
       setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
     limits: { maxPerRequest: 1, maxOptionsPerListing: 200 },
-    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가. 우리 품절 길은 OpenAPI 가 아니라 윙 상품목록 [선택한 상품 일괄적용 → 판매상태 변경] 과 같은 요청이다(POST /tenants/seller-web/vendor-inventories/sale-status-change/request, {vendorInventoryIds 25개씩, saleStatus INVALID↔VALID}, 2026-09-18 실측). 상품 단위라 옵션 일부만 품절이면 보내지 않고, 로켓그로스(RFM) 상품은 윙 화면도 거른다.',
+    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가. 우리 품절 길은 OpenAPI 가 아니라 윙 상품목록의 재고수량 칸이 보내는 요청이다 — 윙에서 품절 = 옵션 재고 0(판매중지와 다르다). 옵션 목록(vendor-inventory-items-with-vendorItems)으로 vendorInventoryItemId 를 얻어 stock-manager/remain-change/request 에 stockManageItems={dtos:[{vendorInventoryItemId, vendorItemId, inventoryQuantity:0}]} 로 보낸다(2026-09-18 실측). 옵션 단위라 품절 옵션만 0 이 되고, 로켓그로스(RFM) 옵션은 쿠팡 재고라 건너뛴다.',
   },
   {
     key: 'kakao',

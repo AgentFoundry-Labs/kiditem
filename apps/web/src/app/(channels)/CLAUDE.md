@@ -67,8 +67,9 @@
   되돌릴 수 있어 확장이 그 몰 관리자의 자기 버튼이 보내는 요청 그대로 끝까지 보낸다
   (`mall-availability-send`, 몰은 `MALL_AVAILABILITY_SEND_MALLS`). 보냈다는 것은 `attention` 이고,
   보낸 뒤 몰을 다시 읽어 전부 확인된 것(도매꾹)만 `succeeded` 다(`availabilityOutcome`). 도매꾹 품절은
-  진열안함, 쿠팡 윙은 상품목록 일괄적용의 판매중지다. 송신은 상품 단위라 옵션 일부만 품절인 상품은
-  보내지 않는다 — 서버 미리보기(`previewAvailability`)가 막고 이유를 붙인다.
+  진열안함이다. 쿠팡 윙 품절은 옵션 재고 0 이다(윙에서 품절과 판매중지는 다르다) — 옵션 단위라 품절 옵션만
+  바꾼다(`mallOptionCode`). 상품 단위로 보내는 몰은 옵션 일부만 품절인 상품을 보내지 않는다 — 서버 미리보기
+  (`previewAvailability`)가 막고 이유를 붙인다.
 - `/mall-tasks`: 등록·품절 실행 기록을 한 표에서 상태로 본다.
 
 `/mall-settings`(쇼핑몰 계정)는 `app/(orders)/` 에 남아 있다. 그 화면은 몰 계정 행

@@ -1,7 +1,7 @@
 (function initializeMallAvailabilitySend(root) {
   "use strict";
 
-  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(아이스크림몰은 경로 대기).
+  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0). 아이스크림몰은 경로 대기.
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -111,25 +111,29 @@
       },
     },
     /**
-     * 쿠팡 윙. 상품 목록(`/vendor-inventory/list`) [선택한 상품 일괄적용 → 판매상태 변경] 이 보내는 것과
-     * 같은 요청이다(실측 2026-09-18, 화면 코드 `app/listV3.js`).
+     * 쿠팡 윙. 품절 = **옵션 재고수량 0** — 윙 상품목록의 재고수량 칸을 고치면 보내는 것과 같은 요청이다
+     * (실측 2026-09-18, 화면 코드 `app/listV3.js`). 윙에서 품절과 판매중지는 다르다: 품절은 판매중인 채로
+     * '품절' 로 보이고 재고를 넣으면 다시 팔린다(사장님: "품절 처리할려는건데").
      *
-     *  - 판매중지 = `saleStatus: "INVALID"`, 판매재개 = `"VALID"`. 등록상품ID(vendorInventoryId)를 25개씩
-     *    `POST /tenants/seller-web/vendor-inventories/sale-status-change/request` 에 JSON 으로 보낸다.
-     *  - 윙이 상품마다 `{vendorInventoryId, success | isSuccess}` 로 답한다 — 그걸로 센다(다시 읽지는 않는다).
-     *  - 상품 단위라 옵션이 여럿인 상품은 전부 품절일 때만 온다(서버 미리보기가 거른다).
-     *  - 윙 화면 안에서 보낸다 — 리뷰 수집과 같은 길이다. 상품 목록 화면은 무거워 자동화 중에 멈추므로
-     *    리뷰 화면을 연다(같은 윙 주소라 로그인 쿠키가 같다).
+     *  - 옵션 단위다. 등록상품ID로 옵션 목록(`vendor-inventory-items-with-vendorItems`)을 읽어
+     *    `vendorInventoryItemId` 를 얻고, 품절 옵션(옵션ID = vendorItemId)만 `stock-manager/remain-change/request`
+     *    에 `stockManageItems={"dtos":[{vendorInventoryItemId, vendorItemId, inventoryQuantity:0}]}` 로 보낸다.
+     *    해제는 같은 칸에 `resumeQuantity`.
+     *  - 옵션을 짚지 않은 상품(등록현황 칸의 품절 처리)은 그 상품의 옵션 전부다.
+     *  - 로켓그로스(RFM) 옵션은 쿠팡 재고라 윙 화면도 못 고친다 — 건너뛴다.
+     *  - 보낸 뒤 옵션 목록을 다시 읽어 재고가 바뀐 옵션을 센다(`confirmed`). 세는 단위는 옵션이다.
+     *  - 윙 화면 안에서 보낸다(리뷰 수집과 같은 길). 상품 목록 화면은 무거워 자동화 중에 멈추므로 리뷰 화면을 연다.
      */
     coupang: {
       label: "쿠팡 윙",
       origin: "https://wing.coupang.com",
-      saleStatusRequest: {
+      optionStock: {
         pageUrl: "https://wing.coupang.com/tenants/cs/product/review",
-        path: "/tenants/seller-web/vendor-inventories/sale-status-change/request",
-        chunk: 25,
-        stop: "INVALID",
-        resume: "VALID",
+        itemsPath: "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/",
+        itemsQuery: "hasProgressiveDiscountRule=true&queryNonVariationJustificationProof=true&queryMpnProof=true",
+        changePath: "/tenants/seller-web/vendorinventory/stock-manager/remain-change/request",
+        // 해제할 때 넣는 재고. 우리 쿠팡 상품은 재고를 999 로 두고 판다(윙 목록 실측 2026-09-18).
+        resumeQuantity: 999,
       },
     },
   };
@@ -140,16 +144,19 @@
   };
 
   /**
-   * 윙 화면 안에서 판매상태 요청 하나를 보낸다. 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
+   * 윙 화면 안에서 요청 하나를 보낸다. 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
    * 답은 몰이 준 JSON 그대로 돌려주되, JSON 이 아니면 앞부분만 싣는다(로그인 화면 판별용).
    */
-  async function postJsonOnPage(path, body) {
+  async function requestOnPage(path, method, contentType, body) {
     try {
       const response = await fetch(path, {
-        method: "POST",
+        method,
         credentials: "include",
-        headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          ...(contentType ? { "Content-Type": contentType } : {}),
+        },
+        ...(body === null || body === undefined ? {} : { body }),
       });
       const text = await response.text();
       let json = null;
@@ -370,69 +377,125 @@
     }
 
     /**
-     * 윙 판매상태 변경(쿠팡). 윙 화면을 하나 열어 그 안에서 25개씩 보낸다. 로그인 화면으로 넘어갔으면 보내지 않는다.
+     * 쿠팡 윙 옵션 재고. 윙 화면을 하나 열어 상품마다 옵션 목록을 읽고, 짚은 옵션의 재고를 0(해제는
+     * `resumeQuantity`)으로 보낸 뒤 다시 읽어 확인한다. 로그인 화면으로 넘어갔으면 보내지 않는다.
      */
-    async function sendBySaleStatusRequest(spec, codes, resume) {
-      const request = spec.saleStatusRequest;
+    async function sendByOptionStock(spec, codes, options, resume) {
+      const stock = spec.optionStock;
+      const quantity = resume ? stock.resumeQuantity : 0;
       const warnings = [];
-      const numeric = codes.filter((code) => /^\d{1,15}$/.test(code));
-      const invalid = codes.length - numeric.length;
+      const products = codes.filter((code) => /^\d{1,15}$/.test(code));
+      const invalid = codes.length - products.length;
       if (invalid > 0) warnings.push(`${invalid}건은 ${spec.label} 등록상품ID 모양이 아니라 보내지 않았습니다.`);
-      if (numeric.length === 0) return { success: true, sent: 0, failed: invalid, requestOnly: false, warnings };
 
       let sent = 0;
       let failed = invalid;
+      let confirmed = 0;
+      let already = 0;
+      let rocket = 0;
       let tabId = null;
+      const inPage = async (path, method, contentType, body) => {
+        const [injected] = await chromeApi.scripting.executeScript({
+          target: { tabId },
+          func: requestOnPage,
+          args: [path, method, contentType, body],
+        });
+        return injected?.result || { status: 0, json: null, preview: "", url: "" };
+      };
+      const readItems = async (product) => {
+        const answer = await inPage(`${stock.itemsPath}${product}?${stock.itemsQuery}`, "GET", null, null);
+        if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) {
+          return { items: answer.json.data };
+        }
+        return { loggedOut: /login|로그인|xauth/i.test(`${answer.url} ${answer.preview}`), status: answer.status };
+      };
       try {
-        const tab = await interactiveTabs.createTab({ url: request.pageUrl, reason: tabReason });
+        const tab = await interactiveTabs.createTab({ url: stock.pageUrl, reason: tabReason });
         tabId = tab.id;
         const waited = await waitForTabComplete(tabId).catch(() => undefined);
         await sleep(waited ? 900 : 2200);
         const current = await chromeApi.tabs.get(tabId).catch(() => null);
-        const href = String(current?.url || current?.pendingUrl || "");
-        if (!href.startsWith(spec.origin)) {
+        if (!String(current?.url || current?.pendingUrl || "").startsWith(spec.origin)) {
           return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 보내세요.` };
         }
-        for (let start = 0; start < numeric.length; start += request.chunk) {
-          const group = numeric.slice(start, start + request.chunk);
-          const [injected] = await chromeApi.scripting.executeScript({
-            target: { tabId },
-            func: postJsonOnPage,
-            args: [request.path, {
-              vendorInventoryIds: group.map((code) => Number(code)),
-              saleStatus: resume ? request.resume : request.stop,
-            }],
-          });
-          const answer = injected?.result || { status: 0, json: null, preview: "" };
-          const results = Array.isArray(answer.json) ? answer.json : null;
-          if (answer.status < 200 || answer.status >= 300 || !results) {
-            failed += group.length;
-            const loggedOut = /login|로그인|xauth/i.test(`${answer.url} ${answer.preview}`);
-            warnings.push(loggedOut
-              ? `${spec.label} 로그인이 풀려 ${group.length}건을 보내지 못했습니다.`
-              : `${spec.label}이 ${group.length}건 요청을 받지 않았습니다(HTTP ${answer.status}).`);
-            if (loggedOut) break;
+        for (const product of products) {
+          const wanted = Array.isArray(options?.[product])
+            ? new Set(options[product].map((code) => String(code)).filter((code) => /^\d{1,15}$/.test(code)))
+            : null;
+          const read = await readItems(product);
+          if (!read.items) {
+            if (read.loggedOut) {
+              return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 보내세요.` };
+            }
+            failed += wanted ? wanted.size : 1;
+            warnings.push(`${product}: ${spec.label} 옵션 목록을 읽지 못했습니다(HTTP ${read.status}).`);
             continue;
           }
-          const succeeded = new Set(results
-            .filter((entry) => entry && (entry.success === true || entry.isSuccess === true))
-            .map((entry) => String(entry.vendorInventoryId)));
-          const ok = group.filter((code) => succeeded.has(code)).length;
-          sent += ok;
-          failed += group.length - ok;
-          if (ok < group.length) {
+          const items = read.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
+          if (wanted) {
+            const missing = [...wanted].filter((code) => !read.items.some((item) => String(item.vendorItemId) === code));
+            if (missing.length > 0) {
+              failed += missing.length;
+              warnings.push(`${product}: 옵션 ${missing.length}개가 ${spec.label}에 없습니다.`);
+            }
+          }
+          const editable = items.filter((item) => item.registrationType !== "RFM");
+          rocket += items.length - editable.length;
+          const targets = editable.filter((item) => Number(item.stockQuantity) !== quantity);
+          already += editable.length - targets.length;
+          if (targets.length === 0) continue;
+          const dtos = targets.map((item) => ({
+            vendorInventoryItemId: item.vendorInventoryItemId,
+            vendorItemId: item.vendorItemId,
+            inventoryQuantity: quantity,
+          }));
+          const answer = await inPage(
+            stock.changePath,
+            "POST",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+            `stockManageItems=${encodeURIComponent(JSON.stringify({ dtos }))}`,
+          );
+          const results = Array.isArray(answer.json) ? answer.json : null;
+          if (answer.status < 200 || answer.status >= 300 || !results) {
+            failed += targets.length;
+            warnings.push(`${product}: ${spec.label}이 재고 변경을 받지 않았습니다(HTTP ${answer.status}).`);
+            continue;
+          }
+          const ok = new Set(results.filter((entry) => entry && entry.success === true).map((entry) => String(entry.vendorItemId)));
+          const okCount = targets.filter((item) => ok.has(String(item.vendorItemId))).length;
+          sent += okCount;
+          failed += targets.length - okCount;
+          if (okCount < targets.length) {
             const reasons = [...new Set(results
-              .filter((entry) => entry && !(entry.success === true || entry.isSuccess === true))
-              .map((entry) => String(entry.message || entry.errorMessage || entry.failReason || "").trim())
+              .filter((entry) => entry && entry.success !== true)
+              .map((entry) => String(entry.message || "").trim())
               .filter(Boolean))].slice(0, 2);
-            warnings.push(`${spec.label}이 ${group.length - ok}건을 바꾸지 않았습니다${reasons.length ? `: ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
+            warnings.push(`${product}: ${targets.length - okCount}개 옵션을 바꾸지 않았습니다${reasons.length ? ` — ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
+          }
+          // 다시 읽어 재고가 바뀐 옵션을 센다. 못 읽으면 확인하지 못한 것으로 둔다.
+          const after = await readItems(product);
+          if (after.items) {
+            const changed = new Set(after.items
+              .filter((item) => Number(item.stockQuantity) === quantity)
+              .map((item) => String(item.vendorItemId)));
+            confirmed += targets.filter((item) => changed.has(String(item.vendorItemId))).length;
           }
           await sleep(PACE_MS);
         }
       } finally {
         if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
       }
-      return { success: true, sent, failed, requestOnly: false, warnings };
+      if (already > 0) warnings.push(`${already}개 옵션은 이미 재고 ${quantity}이었습니다.`);
+      if (rocket > 0) warnings.push(`로켓그로스 옵션 ${rocket}개는 쿠팡 재고라 건너뛰었습니다.`);
+      return {
+        success: true,
+        // 이미 원하는 재고인 옵션은 보낼 것이 없었을 뿐 끝난 일이다.
+        sent: sent + already,
+        failed,
+        confirmed: confirmed + already,
+        requestOnly: false,
+        warnings,
+      };
     }
 
     async function postForm(origin, action, pairs, encoding) {
@@ -465,10 +528,11 @@
       if (codes.length === 0) return { success: false, error: "품절로 보낼 상품코드가 없습니다." };
       const resume = msg?.resume === true;
 
-      // 쿠팡 윙은 윙 화면 하나를 열어 판매상태 요청을 25개씩 보낸다.
-      if (spec.saleStatusRequest) {
+      // 쿠팡 윙은 윙 화면 하나를 열어 옵션 재고를 바꾼다(옵션 단위).
+      if (spec.optionStock) {
         try {
-          return await sendBySaleStatusRequest(spec, codes, resume);
+          const options = msg?.options && typeof msg.options === "object" ? msg.options : null;
+          return await sendByOptionStock(spec, codes, options, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
         }

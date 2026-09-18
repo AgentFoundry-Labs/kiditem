@@ -44,12 +44,17 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
   });
 
   const groups = useMemo(() => {
-    const byMall = new Map<string, { mallName: string; codes: string[] }>();
+    const byMall = new Map<string, { mallName: string; codes: string[]; optionCodes: Record<string, string[]> }>();
     for (const candidate of previewQuery.data?.candidates ?? []) {
       // 보낼 수 없다고 판정된 줄은 빼둔다. 매니페스트가 막은 것을 화면이 되살리지 않는다.
       if (!candidate.sendable || !candidate.mallProductCode) continue;
-      const group = byMall.get(candidate.mallKey) ?? { mallName: candidate.mallName, codes: [] };
+      const group = byMall.get(candidate.mallKey)
+        ?? { mallName: candidate.mallName, codes: [], optionCodes: {} };
       group.codes.push(candidate.mallProductCode);
+      // 옵션 단위로 보내는 몰(쿠팡 윙 = 옵션 재고 0)은 이 옵션만 바꾼다. 상품 단위 몰은 쓰지 않는다.
+      if (candidate.mallOptionCode) {
+        (group.optionCodes[candidate.mallProductCode] ??= []).push(candidate.mallOptionCode);
+      }
       byMall.set(candidate.mallKey, group);
     }
     return [...byMall.entries()]
@@ -63,11 +68,16 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
   const blocked = groups.filter((group) => !canSendMallAvailability(group.mallKey));
   if (previewQuery.isLoading || groups.length === 0) return null;
 
-  const run = async (mallKey: string, mallName: string, codes: string[]) => {
+  const run = async (
+    mallKey: string,
+    mallName: string,
+    codes: string[],
+    optionCodes: Record<string, string[]>,
+  ) => {
     if (!canSendMallAvailability(mallKey)) return;
     setRunning(mallKey);
     try {
-      const result = await sendMallAvailability(mallKey, codes);
+      const result = await sendMallAvailability(mallKey, codes, { optionCodes });
       for (const warning of result.warnings) toast.warning(warning);
       // 보낸 것은 성공이 아니라 `attention` 이다 — 몰을 다시 읽어 확인된 것만 성공이다.
       const recorded = availabilityOutcome(result);
@@ -117,7 +127,7 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
           <button
             key={group.mallKey}
             type="button"
-            onClick={() => void run(group.mallKey, group.mallName, group.codes)}
+            onClick={() => void run(group.mallKey, group.mallName, group.codes, group.optionCodes)}
             disabled={running !== null}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >

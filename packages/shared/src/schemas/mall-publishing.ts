@@ -331,6 +331,11 @@ export const MallAvailabilityCandidateSchema = z.object({
    * 없으면 어느 줄을 골라야 하는지 알 수 없다.
    */
   mallProductCode: z.string(),
+  /**
+   * 몰이 이 옵션에 매긴 코드(`ChannelListingOption.externalOptionId`, 쿠팡은 옵션ID = vendorItemId).
+   * 옵션 단위로 품절을 보내는 몰(쿠팡 윙 = 옵션 재고 0)이 이 줄을 짚는다.
+   */
+  mallOptionCode: z.string(),
   sellableStock: z.number().nullable(),
   bottleneckCodes: z.array(z.string()),
   desiredState: z.enum(['sold_out', 'on_sale', 'suspended']),

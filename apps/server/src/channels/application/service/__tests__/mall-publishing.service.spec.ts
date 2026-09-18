@@ -189,14 +189,18 @@ describe('MallPublishingService.preflight', () => {
 function skuOption(
   listing: string,
   option: string,
-  { stock, mapping = 'matched' }: { stock: number | null; mapping?: 'matched' | 'unmatched' },
+  { stock, mapping = 'matched', channel = 'kidkids' }: {
+    stock: number | null;
+    mapping?: 'matched' | 'unmatched';
+    channel?: string;
+  },
 ): ChannelSkuAvailabilityItem {
   return {
-    channelAccount: { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: '쿠팡 윙' },
+    channelAccount: { id: '11111111-1111-4111-8111-111111111111', channel, name: channel },
     product: { id: listing, externalProductId: '13712531060', registeredName: '말랑이', displayName: '말랑이', status: 'active' },
     sku: {
       id: option,
-      externalSkuId: `vi-${option.slice(-4)}`,
+      externalSkuId: `9448953${option.slice(-4)}`,
       sellerSku: null,
       optionName: null,
       barcode: null,
@@ -215,8 +219,8 @@ function skuOption(
 }
 
 /**
- * 품절 송신은 상품 단위다(몰 관리자의 상품 줄을 멈춘다). 옵션 일부만 품절인 상품을 보내면 재고 있는 옵션까지
- * 멈추므로 그 상품은 보내지 않는다 — 쿠팡은 옵션이 여럿인 상품이 137개다(2026-09-18).
+ * 상품 단위로 보내는 몰(몰 관리자의 상품 줄을 멈춘다)은 옵션 일부만 품절인 상품을 보내지 않는다 — 재고 있는
+ * 옵션까지 멈춘다. 옵션 단위로 보내는 몰(쿠팡 윙 = 옵션 재고 0)은 품절 옵션만 바뀌므로 막지 않는다.
  */
 describe('MallPublishingService.previewAvailability', () => {
   const single = '44444444-4444-4444-8444-444444444441';
@@ -224,7 +228,7 @@ describe('MallPublishingService.previewAvailability', () => {
   const unknown = '44444444-4444-4444-8444-444444444443';
   const allOut = '44444444-4444-4444-8444-444444444444';
 
-  it('⭐ sends a product only when every option is out of stock', async () => {
+  it('⭐ a product-level mall gets a product only when every option is out of stock', async () => {
     const outOfStock = [
       skuOption(single, '55555555-5555-4555-8555-555555555501', { stock: 0 }),
       skuOption(partial, '55555555-5555-4555-8555-555555555502', { stock: 0 }),
@@ -249,5 +253,21 @@ describe('MallPublishingService.previewAvailability', () => {
     // 재고를 모르는 옵션(레시피 미확정)도 멈추면 안 되는 쪽으로 센다.
     expect(byListing(unknown)[0]?.sendable).toBe(false);
     expect(preview.sendableCount).toBe(3);
+  });
+
+  it('⭐ 쿠팡 윙은 옵션 재고를 0 으로 두므로 옵션 일부만 품절이어도 그 옵션을 보낸다 — 옵션코드를 싣는다', async () => {
+    const outOfStock = [skuOption(partial, '55555555-5555-4555-8555-555555555502', { stock: 0, channel: 'coupang' })];
+    const listingOptions = [
+      ...outOfStock,
+      skuOption(partial, '55555555-5555-4555-8555-555555555512', { stock: 7, channel: 'coupang' }),
+    ];
+    const preview = await buildService({ outOfStock, listingOptions }).previewAvailability(ORG, 100);
+    expect(preview.candidates).toHaveLength(1);
+    expect(preview.candidates[0]).toMatchObject({
+      mallKey: 'coupang',
+      sendable: true,
+      mallProductCode: '13712531060',
+      mallOptionCode: '94489535502',
+    });
   });
 });
