@@ -66,6 +66,11 @@ export const MallAdapterManifestSchema = z.object({
     resume: z.boolean(),
   }),
   soldOutRoute: MallSoldOutRouteSchema,
+  /**
+   * 판매 재개(품절 해제)를 보내는 길. 품절 길이 있고 몰이 해제를 받으면 같은 길이다 — 쇼핑몰 현황이
+   * 품절관리 · 판매재개를 칸 둘로 가른다(사장님 2026-09-19).
+   */
+  resumeRoute: MallSoldOutRouteSchema,
   hazards: z.object({
     soldOutDeletesListing: z.boolean(),
     suspendAutoDeletesAfterDays: z.number().nullable(),

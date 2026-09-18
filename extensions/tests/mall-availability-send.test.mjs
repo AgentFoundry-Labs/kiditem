@@ -4,12 +4,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { JSDOM } from 'jsdom';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const modulePath = path.join(repoRoot, 'extensions/kiditem-os/background/orders/mall-availability-send.js');
 
-function loadModule() {
-  const context = { self: {}, console, URL, URLSearchParams, Promise, setTimeout, clearTimeout, Error };
+/** `page` 는 화면 안 함수가 쓰는 전역(fetch · DOMParser · location)이다 — 확장이 그 화면에 넣어 돌리는 것처럼. */
+function loadModule(page = {}) {
+  const context = { self: {}, console, URL, URLSearchParams, Promise, setTimeout, clearTimeout, Error, ...page };
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
@@ -795,6 +797,445 @@ test('지금 재고 읽기 — 카카오는 재고 수, 올웨이즈는 품절�
     missing: [],
   });
   const module = loadModule();
-  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'coupang', 'kakao']);
+  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'art09', 'coupang', 'kakao', 'kkomangse', 'lotte-on']);
   assert.ok(module.MALL_KEYS.includes('kakao') && module.MALL_KEYS.includes('always'));
+});
+
+/**
+ * 아트공구(카페24 공급사 관리자) 품절 = 상품목록의 [판매안함], 재개 = [판매함](실측 2026-09-19, 화면 코드
+ * `PRODUCT_MANAGE._manageState`). 버튼은 고른 줄의 체크박스 값(`is_display` · `is_selling`)을 읽어
+ * `product_no[]` · `change=is_selling` · `state` · `market[번호][…]` 로 POST /exec/admin/product/ProductManageState 에 보낸다.
+ * 화면 안 함수(`cafe24ListOnPage` · `requestOnPage`)를 실제로 돌린다 — 목록 HTML 은 카페24 모양 그대로다.
+ */
+const CAFE24 = 'https://zzogzzog1.cafe24.com';
+const { DOMParser: PageDOMParser } = new JSDOM('').window;
+
+function cafe24ListHtml(total, rows) {
+  const row = ([no, product]) => `<tr>
+    <td><input type="checkbox" class="rowChk _product_no" value="${no}" is_display="${product.display ? 'T' : 'F'}"
+      is_selling="${product.selling ? 'T' : 'F'}" is_funding_product="F" is_set_product="${product.set ? 'T' : 'F'}" data-option-type="T"></td>
+    <td>${no}</td><td>기본상품</td><td>P000${no}</td>
+    <td><p><a href="/disp/admin/shop1/product/ProductRegister?product_no=${no}" class="txtLink eProductDetail ec-product-list-productname">상품 ${no}</a></p></td>
+    <td></td><td>9,490</td><td>9,490</td><td>9,490</td><td>SMS발송</td>
+  </tr>`;
+  return `<html><body><form id="eProductSearchForm"></form><p class="total">[총 <strong>${total}</strong>개]</p>
+    <table><thead><tr><th></th><th>No</th><th>상품구분</th><th>상품코드</th><th>상품명</th><th>마켓연동</th><th>판매가</th></tr></thead>
+    <tbody>${rows.map(row).join('')}</tbody></table></body></html>`;
+}
+
+function art09Mall({ products = {}, loggedOut = false, stateAnswer = { passed: true, msg: null } } = {}) {
+  const state = new Map(Object.entries(products).map(([no, product]) => [no, { display: true, selling: true, set: false, ...product }]));
+  const log = { tabs: [], removed: [], lists: [], posts: [] };
+  const fetch = async (path, init = {}) => {
+    const url = new URL(path, CAFE24);
+    if (url.pathname === '/disp/admin/shop1/product/ProductManage') {
+      log.lists.push(Number(url.searchParams.get('page')));
+      if (loggedOut) return { url: 'https://eclogin.cafe24.com/Shop/', ok: true, status: 200, text: async () => '<html><body>로그인</body></html>' };
+      const page = Number(url.searchParams.get('page'));
+      const limit = Number(url.searchParams.get('limit'));
+      assert.equal(url.searchParams.get('orderby'), 'regist_d');
+      const all = [...state.entries()];
+      return { url: url.href, ok: true, status: 200, text: async () => cafe24ListHtml(all.length, all.slice((page - 1) * limit, page * limit)) };
+    }
+    if (url.pathname === '/exec/admin/product/ProductManageState' && init.method === 'POST') {
+      assert.equal(init.headers['X-Requested-With'], 'XMLHttpRequest');
+      assert.match(init.headers['Content-Type'], /^application\/x-www-form-urlencoded/);
+      const body = new URLSearchParams(init.body);
+      log.posts.push([...body.entries()]);
+      if (stateAnswer.passed) {
+        for (const no of body.getAll('product_no[]')) state.get(no).selling = body.get('state') === 'T';
+      }
+      return { url: url.href, ok: true, status: 200, text: async () => JSON.stringify(stateAnswer) };
+    }
+    throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+  };
+  const module = loadModule({ fetch, DOMParser: PageDOMParser, location: new URL(`${CAFE24}/disp/admin/shop1/product/ProductManage`) });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 21 }; },
+      get: async () => ({ id: 21, url: `${CAFE24}/disp/admin/shop1/product/ProductManage` }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(21, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 아트공구 품절은 상품목록 [판매안함]과 같은 요청으로 — 판매함인 상품만, 지금 값을 싣고, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = art09Mall({
+    products: {
+      123858: {},
+      123856: { display: false },
+      123852: { selling: false },
+      123851: { set: true },
+    },
+  });
+  const result = await api.send({ mallKey: 'art09', codes: ['123858', '123856', '123852', '123851', '999999', 'P000HBFU'] });
+  // 버튼이 만드는 모양 그대로 — 상품번호들, 바꿀 칸, 값, 그리고 고른 상품마다 지금 진열 · 판매 값.
+  assert.deepEqual(plain(log.posts), [[
+    ['product_no[]', '123858'],
+    ['product_no[]', '123856'],
+    ['change', 'is_selling'],
+    ['state', 'F'],
+    ['market[123858][is_display]', 'T'],
+    ['market[123858][is_selling]', 'T'],
+    ['market[123856][is_display]', 'F'],
+    ['market[123856][is_selling]', 'T'],
+  ]]);
+  assert.equal(state.get('123858').selling, false);
+  assert.equal(state.get('123856').selling, false);
+  assert.equal(state.get('123851').selling, true, '세트상품은 화면도 막는다 — 보내지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 3, '보낸 2 + 이미 판매안함 1');
+  assert.equal(result.confirmed, 3);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 3, '세트상품 1 + 목록에 없는 번호 1 + 모양이 틀린 번호 1');
+  assert.ok(result.warnings.some((warning) => /세트상품 1개/.test(warning)));
+  // 상품목록을 읽고(한 쪽), 보낸 뒤 다시 읽는다. 뒤에서 연 탭은 닫는다.
+  assert.deepEqual(log.lists, [1, 1]);
+  assert.deepEqual(log.tabs, [[`${CAFE24}/disp/admin/shop1/product/ProductManage`, false]]);
+  assert.deepEqual(log.removed, [21]);
+});
+
+test('아트공구 판매 재개는 판매안함인 상품만 [판매함]으로 되돌린다', async () => {
+  const { api, log, state } = art09Mall({ products: { 1: { selling: false }, 2: {} } });
+  const result = await api.send({ mallKey: 'art09', codes: ['1', '2'], resume: true });
+  assert.deepEqual(plain(log.posts), [[
+    ['product_no[]', '1'],
+    ['change', 'is_selling'],
+    ['state', 'T'],
+    ['market[1][is_display]', 'T'],
+    ['market[1][is_selling]', 'F'],
+  ]]);
+  assert.equal(state.get('1').selling, true);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+});
+
+test('아트공구 — 상품목록은 100개씩 끝까지 읽는다', async () => {
+  const products = Object.fromEntries(Array.from({ length: 150 }, (_, index) => [String(200000 + index), {}]));
+  const { api, log } = art09Mall({ products });
+  const result = await api.send({ mallKey: 'art09', codes: ['200149'] });
+  assert.equal(result.confirmed, 1);
+  assert.deepEqual(log.lists, [1, 2, 1, 2]);
+});
+
+test('아트공구 — 로그인이 풀렸으면 아무것도 보내지 않는다 · 몰이 거절하면 실패로 센다', async () => {
+  const loggedOut = art09Mall({ products: { 1: {} }, loggedOut: true });
+  const refused = await loggedOut.api.send({ mallKey: 'art09', codes: ['1'] });
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /아트공구 로그인이 풀렸습니다/);
+  assert.equal(loggedOut.log.posts.length, 0);
+
+  const rejected = art09Mall({ products: { 1: {} }, stateAnswer: { passed: false, msg: '권한이 없습니다.' } });
+  const result = await rejected.api.send({ mallKey: 'art09', codes: ['1'] });
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 1);
+  assert.ok(result.warnings.some((warning) => /판매상태 변경을 받지 않았습니다.*권한이 없습니다/.test(warning)));
+});
+
+test('아트공구 지금 상태 읽기 — 판매안함이면 품절(0), 판매함이면 모름', async () => {
+  const { api, log } = art09Mall({ products: { 1: { selling: false }, 2: {} } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'art09', codes: ['1', '2', '3'] })), {
+    success: true,
+    products: [
+      { code: '1', options: [{ optionCode: '1', stock: 0, rocket: false }] },
+      { code: '2', options: [{ optionCode: '2', stock: null, rocket: false }] },
+    ],
+    missing: ['3'],
+  });
+  assert.equal(log.posts.length, 0, '읽기만 한다');
+});
+
+/**
+ * 롯데ON 품절 = 상품 판매상태 품절(SOUT), 재개 = 판매중(SALE)(실측 2026-09-19). 상품 조회/수정의 [상품판매 변경] →
+ * 상품정보일괄수정 → 일괄수정항목 팝업 [저장]이 soapi `updateProductBatch` 에 상품마다
+ * {spdNo, trNo, lrtrNo, trGrpCd, dvPdTypCd, code:"07", ctrtTypCd/dvProcTypCd/dmstOvsDvDvsCd:"all", reqTxt:"spdSlStatCd", spdSlStatCd}
+ * 를 보낸다. 요청 머리는 화면 함수 `gcm._sbm_setRequestHeader` 가 붙인다 — 화면 안(MAIN)에서만 돈다.
+ */
+function lotteonMall({ products = {}, loggedOut = false, updateAnswer = null } = {}) {
+  const state = new Map(Object.entries(products).map(([no, product]) => [no, {
+    spdNo: no, slStatCd: 'SALE', trNo: 'LO10014931', lrtrNo: null, trGrpCd: 'SR', dvPdTypCd: 'GNRL', ctrtTypCd: 'A', ...product,
+  }]));
+  const log = { tabs: [], removed: [], lists: [], updates: [], worlds: [], headers: [] };
+  class FakeXhr {
+    constructor() { this.headers = {}; }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    send(body) {
+      assert.equal(this.method, 'POST');
+      log.headers.push({ ...this.headers });
+      const parsed = JSON.parse(body);
+      const path = new URL(this.url).pathname;
+      let json;
+      if (path === '/soapi/v1/product/information/selectProductList') {
+        const nos = parsed.spdNo.split('\n');
+        log.lists.push(nos);
+        const data = nos.filter((no) => state.has(no)).map((no) => ({ ...state.get(no), pdNm: '상품', sitmJsn: '[]' }));
+        json = { returnCode: 'SUCCESS', dataCount: data.length, data };
+      } else if (path === '/soapi/v1/product/registration/updateProductBatch') {
+        log.updates.push(parsed);
+        if (!updateAnswer) for (const param of parsed) state.get(param.spdNo).slStatCd = param.spdSlStatCd;
+        json = updateAnswer ?? { returnCode: 'SUCCESS', data: [JSON.stringify({ successCnt: parsed.length, failCnt: 0, productLst: [] })] };
+      } else {
+        throw new Error(`unexpected ${this.url}`);
+      }
+      this.status = 200;
+      this.responseText = JSON.stringify(json);
+      setTimeout(() => this.onload(), 0);
+    }
+  }
+  const module = loadModule({
+    XMLHttpRequest: FakeXhr,
+    sessionStorage: { getItem: (key) => (key === 'AuthToken' && !loggedOut ? 'page-token' : null) },
+    location: { href: loggedOut ? 'https://store.lotteon.com/cm/main/login_SO.wsp' : 'https://store.lotteon.com/cm/main/index_SO.wsp' },
+    gcm: {
+      _sbm_setRequestHeader: (xhr) => {
+        xhr.setRequestHeader('Authorization', 'Bearer page-token');
+        xhr.setRequestHeader('X-Timezone', 'GMT+09:00');
+      },
+    },
+  });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 31 }; },
+      get: async () => ({ id: 31, url: 'https://store.lotteon.com/cm/main/index_SO.wsp' }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(31, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: {
+      executeScript: async ({ func, args, world }) => {
+        log.worlds.push(world ?? null);
+        return [{ result: await func(...args) }];
+      },
+    },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 롯데ON 품절은 일괄수정 팝업 [저장]과 같은 요청으로 — 판매중인 상품만 품절(SOUT)로, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = lotteonMall({
+    products: {
+      LO2752600462: {},
+      LO2310916826: { slStatCd: 'SOUT' },
+      LO2656719130: { slStatCd: 'STP' },
+    },
+  });
+  const result = await api.send({ mallKey: 'lotte-on', codes: ['LO2752600462', 'LO2310916826', 'LO2656719130', 'LO9999999999', '2752600462'] });
+  assert.deepEqual(plain(log.updates), [[{
+    spdNo: 'LO2752600462',
+    trNo: 'LO10014931',
+    lrtrNo: null,
+    trGrpCd: 'SR',
+    dvPdTypCd: 'GNRL',
+    code: '07',
+    ctrtTypCd: 'all',
+    dvProcTypCd: 'all',
+    dmstOvsDvDvsCd: 'all',
+    reqTxt: 'spdSlStatCd',
+    spdSlStatCd: 'SOUT',
+  }]]);
+  assert.equal(state.get('LO2752600462').slStatCd, 'SOUT');
+  assert.equal(state.get('LO2656719130').slStatCd, 'STP', '롯데ON이 멈춘 상품은 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2, '보낸 1 + 이미 품절 1');
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 3, '판매중지 1 + 없는 상품 1 + 모양이 틀린 번호 1');
+  assert.ok(result.warnings.some((warning) => /판매중지 · 판매종료/.test(warning)));
+  // 조회 → 저장 → 다시 조회. 전부 화면 안(MAIN)에서, 화면 함수가 붙인 머리로.
+  assert.deepEqual(log.worlds, ['MAIN', 'MAIN', 'MAIN']);
+  assert.ok(log.headers.every((headers) => headers.Authorization === 'Bearer page-token' && headers['Content-Type'].startsWith('application/json')));
+  assert.ok(!JSON.stringify(result).includes('page-token'), '결과에 토큰이 없다');
+  assert.deepEqual(log.tabs, [['https://store.lotteon.com/cm/main/index_SO.wsp', false]]);
+  assert.deepEqual(log.removed, [31]);
+});
+
+test('롯데ON 판매 재개는 품절(SOUT)인 상품만 판매중(SALE)으로 되돌린다', async () => {
+  const { api, log } = lotteonMall({ products: { LO11110000: { slStatCd: 'SOUT' }, LO22220000: {} } });
+  const resumed = await api.send({ mallKey: 'lotte-on', codes: ['LO11110000', 'LO22220000'], resume: true });
+  assert.deepEqual(log.updates.map((params) => params.map((param) => [param.spdNo, param.spdSlStatCd])), [[['LO11110000', 'SALE']]]);
+  assert.equal(resumed.confirmed, 2);
+  assert.equal(resumed.already, 1);
+});
+
+test('롯데ON — 저장이 일부만 됐다고 답하면 그만큼 실패로 세고, 확인은 다시 읽은 것만', async () => {
+  const { api } = lotteonMall({
+    products: { LO11110000: {}, LO22220000: {} },
+    updateAnswer: { returnCode: 'SUCCESS', data: [JSON.stringify({ successCnt: 1, failCnt: 1, productLst: [] })] },
+  });
+  const result = await api.send({ mallKey: 'lotte-on', codes: ['LO11110000', 'LO22220000'] });
+  assert.equal(result.sent, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(result.confirmed, 0, '가짜 몰은 상태를 바꾸지 않았다 — 다시 읽어 바뀐 것만 확인');
+  assert.ok(result.warnings.some((warning) => /2건 중 1건을 바꾸지 않았다/.test(warning)));
+});
+
+test('롯데ON — 로그인이 풀렸으면 아무것도 보내지 않는다', async () => {
+  const { api, log } = lotteonMall({ products: { LO11110000: {} }, loggedOut: true });
+  const result = await api.send({ mallKey: 'lotte-on', codes: ['LO11110000'] });
+  assert.equal(result.success, false);
+  assert.match(result.error, /롯데ON 로그인이 풀렸습니다/);
+  assert.equal(log.updates.length, 0);
+});
+
+test('롯데ON 지금 상태 읽기 — 판매중이면 모름, 품절 · 판매중지면 살 수 없어 0', async () => {
+  const { api, log } = lotteonMall({ products: { LO11110000: { slStatCd: 'SOUT' }, LO22220000: {}, LO33330000: { slStatCd: 'STP' } } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'lotte-on', codes: ['LO11110000', 'LO22220000', 'LO33330000', 'LO44440000'] })), {
+    success: true,
+    products: [
+      { code: 'LO11110000', options: [{ optionCode: 'LO11110000', stock: 0, rocket: false }] },
+      { code: 'LO22220000', options: [{ optionCode: 'LO22220000', stock: null, rocket: false }] },
+      { code: 'LO33330000', options: [{ optionCode: 'LO33330000', stock: 0, rocket: false }] },
+    ],
+    missing: ['LO44440000'],
+  });
+  assert.equal(log.updates.length, 0, '읽기만 한다');
+  assert.deepEqual(log.lists, [['LO11110000', 'LO22220000', 'LO33330000', 'LO44440000']]);
+});
+
+/**
+ * 꼬망세 품절 = 재고 0, 재개 = 재고 999(실측 2026-09-19). 노출/재고/KC 설정 화면의 줄마다 있는 [개별수정]이
+ * `_mode=view_direct_change` · pcode · _view · _stock · _stock_control · _kc_yn · _kc_num · _kc_date 를 POST 한다.
+ * 지금 값은 같은 화면을 상품코드로 검색해 읽는다. 화면 안 함수를 실제로 돌린다.
+ */
+const KKOMANGSE = 'https://nstore.edupre.co.kr';
+
+function kkomangseRowHtml(code, product) {
+  const radio = (name, value, on) => `<input type="radio" name="${name}[${code}]" value="${value}"${on ? ' checked' : ''}>`;
+  return `<tr>
+    <td><input type="checkbox" name="chk_pcode[${code}]" class="js_ck" value="Y" data-pcode="${code}"></td>
+    <td>${radio('_view', 'Y', product.view === 'Y')}${radio('_view', 'N', product.view === 'N')}</td>
+    <td>${radio('_stock_control', 'Y', product.control === 'Y')}${radio('_stock_control', 'N', product.control === 'N')}</td>
+    <td><input type="text" class="design _stock number_style" name="_stock[${code}]" value="${product.stock}"></td>
+    <td>${radio('_kc_yn', 'N', product.kcYn === 'N')}${radio('_kc_yn', 'Y', product.kcYn === 'Y')}
+      <input type="text" name="_kc_num[${code}]" value="${product.kcNum}"><input type="text" name="_kc_date[${code}]" value="${product.kcDate}"></td>
+    <td><a href="#none" class="c_btn h22 blue product_view_change" data-pcode="${code}">개별수정</a></td>
+  </tr>`;
+}
+
+function kkomangseMall({ products = {}, loggedOut = false, answer = null } = {}) {
+  const state = new Map(Object.entries(products).map(([code, product]) => [code, {
+    view: 'Y', control: 'N', stock: '1', kcYn: 'Y', kcNum: 'CB065R2807-5003', kcDate: '0000-00-00', ...product,
+  }]));
+  const log = { tabs: [], removed: [], searches: [], posts: [] };
+  const fetch = async (path, init = {}) => {
+    const url = new URL(path, KKOMANGSE);
+    if (url.pathname === '/subAdmin/_product_mass.view.php') {
+      assert.equal(url.searchParams.get('mode'), 'search');
+      assert.equal(url.searchParams.get('pass_input_type'), 'pcode');
+      const code = url.searchParams.get('pass_input_value');
+      log.searches.push(code);
+      if (loggedOut) return { url: `${KKOMANGSE}/subAdmin/login.php`, ok: true, status: 200, text: async () => '<html><body>로그인</body></html>' };
+      const rows = state.has(code) ? kkomangseRowHtml(code, state.get(code)) : '';
+      return { url: url.href, ok: true, status: 200, text: async () => `<html><body><form name="searchfrm"></form><form name="frm"><table>${rows}</table></form></body></html>` };
+    }
+    if (url.pathname === '/subAdmin/_product_mass.pro.php' && init.method === 'POST') {
+      assert.equal(init.headers['X-Requested-With'], 'XMLHttpRequest');
+      assert.match(init.headers['Content-Type'], /^application\/x-www-form-urlencoded/);
+      const body = new URLSearchParams(init.body);
+      log.posts.push([...body.entries()]);
+      if (!answer) state.get(body.get('pcode')).stock = body.get('_stock');
+      return { url: url.href, ok: true, status: 200, text: async () => JSON.stringify(answer ?? { res: 'success' }) };
+    }
+    throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+  };
+  const module = loadModule({ fetch, DOMParser: PageDOMParser, location: new URL(`${KKOMANGSE}/subAdmin/_product_mass.view.php`) });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 41 }; },
+      get: async () => ({ id: 41, url: `${KKOMANGSE}/subAdmin/_product_mass.view.php` }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(41, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 꼬망세 품절은 [개별수정]과 같은 요청으로 — 그 줄의 지금 값을 싣고 재고만 0, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = kkomangseMall({
+    products: {
+      'M0450-U7839-J6532': {},
+      'V3231-B1709-N1195': { control: 'Y', stock: '0' },
+      'R4090-X3734-V8152': { stock: '32767', kcYn: 'N', kcNum: '', kcDate: '' },
+    },
+  });
+  const result = await api.send({ mallKey: 'kkomangse', codes: ['M0450-U7839-J6532', 'V3231-B1709-N1195', 'R4090-X3734-V8152', 'Z0000-Z0000-Z0000'] });
+  assert.deepEqual(plain(log.posts), [
+    [['_mode', 'view_direct_change'], ['pcode', 'M0450-U7839-J6532'], ['_view', 'Y'], ['_stock', '0'], ['_stock_control', 'N'],
+      ['_kc_yn', 'Y'], ['_kc_num', 'CB065R2807-5003'], ['_kc_date', '0000-00-00']],
+    [['_mode', 'view_direct_change'], ['pcode', 'R4090-X3734-V8152'], ['_view', 'Y'], ['_stock', '0'], ['_stock_control', 'N'],
+      ['_kc_yn', 'N'], ['_kc_num', ''], ['_kc_date', '']],
+  ]);
+  assert.equal(state.get('M0450-U7839-J6532').stock, '0');
+  assert.equal(state.get('M0450-U7839-J6532').control, 'N', '재고관리는 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 3, '보낸 2 + 이미 재고 0 1');
+  assert.equal(result.confirmed, 3);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 1, '없는 상품 1');
+  // 검색 → (보냄 → 다시 검색) 순. 뒤에서 연 설정 화면은 닫는다.
+  assert.deepEqual(log.searches, ['M0450-U7839-J6532', 'M0450-U7839-J6532', 'V3231-B1709-N1195', 'R4090-X3734-V8152', 'R4090-X3734-V8152', 'Z0000-Z0000-Z0000']);
+  assert.deepEqual(log.tabs, [[`${KKOMANGSE}/subAdmin/_product_mass.view.php`, false]]);
+  assert.deepEqual(log.removed, [41]);
+});
+
+test('꼬망세 판매 재개는 재고 0 인 상품만 재고 999 로 되돌린다', async () => {
+  const { api, log } = kkomangseMall({ products: { 'A0000-A0000-A0001': { stock: '0' }, 'A0000-A0000-A0002': { stock: '999' } } });
+  const result = await api.send({ mallKey: 'kkomangse', codes: ['A0000-A0000-A0001', 'A0000-A0000-A0002'], resume: true });
+  assert.deepEqual(log.posts.map((post) => [post.find(([key]) => key === 'pcode')[1], post.find(([key]) => key === '_stock')[1]]), [['A0000-A0000-A0001', '999']]);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+});
+
+test('꼬망세 — 로그인이 풀렸으면 보내지 않고, 몰이 거절하면 실패로 센다', async () => {
+  const loggedOut = kkomangseMall({ products: { 'A0000-A0000-A0001': {} }, loggedOut: true });
+  const refused = await loggedOut.api.send({ mallKey: 'kkomangse', codes: ['A0000-A0000-A0001'] });
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /꼬망세 로그인이 풀렸습니다/);
+  assert.equal(loggedOut.log.posts.length, 0);
+
+  const rejected = kkomangseMall({ products: { 'A0000-A0000-A0001': {} }, answer: { res: 'fail' } });
+  const result = await rejected.api.send({ mallKey: 'kkomangse', codes: ['A0000-A0000-A0001'] });
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 1);
+});
+
+test('꼬망세 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 모름', async () => {
+  const { api, log } = kkomangseMall({ products: { 'A0000-A0000-A0001': { stock: '0' }, 'A0000-A0000-A0002': { stock: '1' } } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'kkomangse', codes: ['A0000-A0000-A0001', 'A0000-A0000-A0002', 'A0000-A0000-A0003'] })), {
+    success: true,
+    products: [
+      { code: 'A0000-A0000-A0001', options: [{ optionCode: 'A0000-A0000-A0001', stock: 0, rocket: false }] },
+      { code: 'A0000-A0000-A0002', options: [{ optionCode: 'A0000-A0000-A0002', stock: null, rocket: false }] },
+    ],
+    missing: ['A0000-A0000-A0003'],
+  });
+  assert.equal(log.posts.length, 0, '읽기만 한다');
 });

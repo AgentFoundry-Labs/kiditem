@@ -105,6 +105,15 @@ export interface MallAdapterManifest {
    * 사방넷 경유는 길이 아니다 — 사방넷 기능을 흡수하고 그만 쓰는 것이 방침이다(KID-251).
    */
   readonly soldOutRoute: 'mall_admin' | null;
+  /**
+   * 판매 재개(품절 해제)를 어느 길로 보내는가. 품절 길과 따로 적는다 — 몰이 품절은 받아도 해제는 사람이
+   * 풀어야 하는 곳(`supports.resume` false)이 있고, 쇼핑몰 현황은 품절관리 · 판매재개를 칸 둘로 가른다
+   * (사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지 구별해놔줘").
+   *
+   * 우리 확장은 품절을 보내는 그 화면 · 그 요청의 반대 값으로 해제를 보낸다. 그래서 품절 길이 있고 몰이
+   * 해제를 받으면 해제 길도 있다.
+   */
+  readonly resumeRoute: 'mall_admin' | null;
   readonly hazards: MallAdapterHazards;
   readonly limits: MallAdapterLimits;
   readonly preflightRules: readonly MallPreflightRule[];
@@ -223,7 +232,7 @@ const NO_LIMIT: MallAdapterLimits = {
  *    눌렀을 때 아무 일도 안 일어난다.
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
-  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always',
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on',
 ]);
 
 /**
@@ -239,6 +248,13 @@ export function soldOutSendsByOption(key: string): boolean {
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
   if (!applicable) return null;
   return MALL_ADMIN_SOLD_OUT_KEYS.has(key) ? 'mall_admin' : null;
+}
+
+function resumeRouteFor(
+  soldOutRoute: 'mall_admin' | null,
+  supports: MallAdapterSupports,
+): 'mall_admin' | null {
+  return soldOutRoute === 'mall_admin' && supports.resume ? 'mall_admin' : null;
 }
 
 interface ManifestSeed {
@@ -264,6 +280,7 @@ function manifest(seed: ManifestSeed): MallAdapterManifest {
   const supports = unverified || !applicable
     ? NO_SUPPORT
     : { ...NO_SUPPORT, ...seed.supports };
+  const soldOutRoute = soldOutRouteFor(seed.key, applicable);
   return {
     key: seed.key,
     name: seed.name,
@@ -272,7 +289,8 @@ function manifest(seed: ManifestSeed): MallAdapterManifest {
     unverified,
     applicable,
     supports,
-    soldOutRoute: soldOutRouteFor(seed.key, applicable),
+    soldOutRoute,
+    resumeRoute: resumeRouteFor(soldOutRoute, supports),
     hazards: { ...NO_HAZARD, ...seed.hazards },
     limits: { ...NO_LIMIT, ...seed.limits },
     preflightRules: applicable ? [...BASE_RULES, ...(seed.extraRules ?? [])] : [],
@@ -303,7 +321,7 @@ const SEEDS: readonly ManifestSeed[] = [
       createListing: true, updateListing: true,
       setStock: 'option', setSaleStatus: 'option', soldOut: true, resume: true,
     },
-    note: 'product/status/change 의 slStatCd = SALE/SOUT/END. 공식 샘플이 한 요청에 SOUT+SALE 을 동시에 담아 대칭이 명문화돼 있다. 등록은 spdLst 배열이라 fan-out 실증에 적합.',
+    note: 'product/status/change 의 slStatCd = SALE/SOUT/END. 공식 샘플이 한 요청에 SOUT+SALE 을 동시에 담아 대칭이 명문화돼 있다. 등록은 spdLst 배열이라 fan-out 실증에 적합. 우리 품절 길은 OpenAPI 가 아니라 판매자센터 상품 조회/수정의 [상품판매 변경] → 상품정보일괄수정 → 일괄수정항목 팝업 [저장]이 보내는 요청이다(2026-09-19 실측): POST soapi /soapi/v1/product/registration/updateProductBatch 에 상품마다 {spdNo, trNo, lrtrNo, trGrpCd, dvPdTypCd, code:"07", ctrtTypCd · dvProcTypCd · dmstOvsDvDvsCd:"all", reqTxt:"spdSlStatCd", spdSlStatCd} — 품절 SOUT, 판매 재개 SALE. 팝업이 고르게 하는 값은 SALE · SOUT · END 뿐이고 END(판매종료)는 보내지 않는다. 롯데ON이 판매중지(STP)한 상품은 바꾸지 않는다. 확인은 selectProductList 의 slStatCd.',
   },
   {
     key: 'coupang',
@@ -425,10 +443,10 @@ const SEEDS: readonly ManifestSeed[] = [
   {
     key: 'art09',
     name: '아트공구',
-    kind: 'extension_excel',
+    kind: 'extension_form',
     difficulty: 'medium',
-    unverified: true,
-    note: '카페24 공급사. API 는 몰 운영자의 앱 OAuth 가 필요해 공급사 단독으로는 불가하고, 실질 경로는 상품 엑셀(CSV)과 재고 정보 수정 엑셀이다. quantity/display/selling 이 독립 필드라 양방향이 깨끗하지만, 공급사 계정 권한 3종(분류 선택/상품 수정/상품 진열) 부여 여부가 미확인이라 닫아 둔다. ⚠️ "품절표시 사용" 미체크면 재고 0 이어도 품절 처리되지 않는다.',
+    supports: { setSaleStatus: 'listing', soldOut: true, resume: true },
+    note: '카페24 공급사 관리자(zzogzzog1.cafe24.com). API 는 몰 운영자의 앱 OAuth 가 필요해 공급사 단독으로는 불가하다. 우리 품절 길은 상품목록(ProductManage)의 [판매안함] · [판매함] 버튼이 보내는 요청 그대로다(2026-09-19 실측): POST /exec/admin/product/ProductManageState 에 product_no[] · change=is_selling · state=F(품절)|T(판매 재개) · 상품마다 지금 값 market[번호][is_display|is_selling] 을 싣고 JSON {passed, msg} 로 답한다. 카페24 판매안함은 진열된 채 품절로 보이고, 재고 칸은 건드리지 않는다. 세트상품은 화면도 이 버튼을 막는다. 상품목록 한 쪽 최대 100개, 550개(판매함 455 · 판매안함 95 · 진열함 294 · 진열안함 256). ⚠️ 재고로 품절을 걸려면 "품절표시 사용"이 켜져 있어야 한다 — 판매상태 축은 그와 무관하다.',
   },
 
   // ── 어드민 폼·엑셀 리버스 ──────────────────────────────────────────────────
@@ -485,7 +503,7 @@ const SEEDS: readonly ManifestSeed[] = [
       createListing: true, updateListing: true,
       setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
-    note: 'EduPre. 품절 축은 노출·재고 일괄 화면(_product_mass.view.php → POST _product_mass.pro.php)이다. 줄마다 chk_pcode[코드]=Y 로 지목하고 _view[코드] Y=판매중/N=판매종료, _stock_control[코드] Y=자동/N=수동, _stock[코드]=재고량을 실어 폼째 보낸다(2026-09-18 실측). ⚠️ 이 몰에는 "일시품절" 값이 없다 — 끄는 값이 판매종료뿐이라 재고 0(재고관리=자동)이 덜 거친 축이고, 되돌리기는 같은 화면에서 대칭이다.',
+    note: 'EduPre. 품절 축은 노출/재고/KC 설정 화면(_product_mass.view.php)의 줄마다 있는 [개별수정]이 보내는 요청이다(2026-09-19 실측): POST _product_mass.pro.php 에 _mode=view_direct_change · pcode · _view(Y 판매중/N 판매종료) · _stock · _stock_control(Y 자동/N 수동) · _kc_yn · _kc_num · _kc_date 를 싣고 {res:"success"} 로 답한다. 지금 값은 같은 화면을 상품코드로 검색해(mode=search&pass_input_type=pcode) 읽고 재고만 바꾼다 — 품절 0, 판매 재개 999. 재고 0 이면 재고관리가 자동이든 수동이든 쇼핑몰에 "일시품절된 상품입니다"로 뜬다(판매중 449개 중 141개가 이미 재고 0). ⚠️ 이 몰에는 "일시품절" 값이 없다 — 끄는 값이 판매종료뿐이라 노출은 건드리지 않고 재고만 쓴다.',
   },
   {
     key: 'always',

@@ -7,6 +7,7 @@ import {
   MessageCircleQuestion,
   MessageSquareReply,
   Minus,
+  PackageCheck,
   PackageX,
   PencilLine,
   RotateCcw,
@@ -17,7 +18,10 @@ import {
 import { cn } from '@/lib/utils';
 import type { CapabilityKey, CapabilityState } from '../../_shared/mall-capabilities';
 
-/** 칸 이름은 사방넷 스케줄러와 같다 — 사장님이 두 화면을 같은 말로 읽는다. */
+/**
+ * 칸 이름은 사방넷 스케줄러와 같다 — 사장님이 두 화면을 같은 말로 읽는다. 사방넷의 상품상태송신 한 칸만
+ * 사장님 말대로 품절관리 · 판매재개 둘로 가른다(2026-09-19).
+ */
 export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
   orders: '주문수집',
   claims: '클레임수집',
@@ -26,7 +30,8 @@ export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
   inquiryReplies: '문의답변',
   register: '상품등록',
   update: '상품수정',
-  soldout: '상품상태송신',
+  soldout: '품절관리',
+  resume: '판매재개',
   stock: '재고송신',
 };
 
@@ -40,6 +45,7 @@ export const CAPABILITY_ICON = {
   register: Send,
   update: PencilLine,
   soldout: PackageX,
+  resume: PackageCheck,
   stock: Boxes,
 } as const;
 
@@ -110,9 +116,14 @@ const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
     unavailable: SUPPLY_CHANNEL,
   },
   soldout: {
-    ready: '이 몰에 품절 · 판매중지 · 해제를 보낼 수 있습니다.',
-    pending: '품절 · 판매중지 송신 경로가 아직 없습니다 — 품절 관리 화면은 미리보기만 합니다.',
+    ready: '이 몰에 품절을 보낼 수 있습니다 — 등록현황 칸 · 품절 관리에서 상품마다.',
+    pending: '품절 송신 경로가 아직 없습니다 — 품절 관리 화면은 미리보기만 합니다.',
     unavailable: '이 채널에는 품절 송신 개념이 없습니다.',
+  },
+  resume: {
+    ready: '이 몰에 판매재개(품절 해제)를 보낼 수 있습니다 — 등록현황 칸 · 품절 관리에서 상품마다.',
+    pending: '판매재개 송신 경로가 아직 없습니다.',
+    unavailable: '이 채널에는 판매재개를 보낼 수 없습니다.',
   },
   stock: {
     ready: '이 몰에 재고 수량을 보낼 수 있습니다.',

@@ -41,10 +41,11 @@ function row(overrides: Record<string, unknown> = {}) {
 
 describe('MALL_ADMIN_LISTING_READERS', () => {
   it('직접 읽는 몰은 몰 계정 행의 키로 부른다', () => {
-    expect(Object.keys(MALL_ADMIN_LISTING_READERS)).toEqual(['kidkids', 'icecream-mall', 'onch', 'kkomangse', 'always']);
+    expect(Object.keys(MALL_ADMIN_LISTING_READERS)).toEqual(['kidkids', 'icecream-mall', 'onch', 'kkomangse', 'always', 'art09']);
     expect(isMallAdminListingMallKey('kidkids')).toBe(true);
     expect(isMallAdminListingMallKey('icecream-mall')).toBe(true);
     expect(isMallAdminListingMallKey('always')).toBe(true);
+    expect(isMallAdminListingMallKey('art09')).toBe(true);
     expect(isMallAdminListingMallKey('boribori')).toBe(false);
     expect(isMallAdminListingMallKey('toString')).toBe(false);
   });

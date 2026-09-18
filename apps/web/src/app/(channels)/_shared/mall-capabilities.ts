@@ -3,7 +3,9 @@ import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 /**
  * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17):
  * 주문수집 · 클레임수집 · 운송장 송신 · 문의수집 · 문의답변 · 상품등록 · 상품수정 ·
- * 상품상태송신(품절 · 판매중지) · 재고송신.
+ * 품절관리 · 판매재개 · 재고송신. 사방넷의 상품상태송신 한 칸을 품절관리 · 판매재개 둘로 가른다 —
+ * 몰마다 둘이 따로 되는지가 보여야 한다(사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지
+ * 구별해놔줘").
  *
  * 상태는 셋뿐이다.
  *  - `ready`(초록): 지금 된다. 경로가 실제로 있다.
@@ -27,6 +29,7 @@ export const CAPABILITY_KEYS = [
   'register',
   'update',
   'soldout',
+  'resume',
   'stock',
 ] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
@@ -38,7 +41,8 @@ export interface MallManifestFacts {
   applicable: boolean;
   /** 몰 방식이 아직 확인되지 않았다. 이때 `supports` 는 비어 있다(모름). */
   unverified: boolean;
-  supports: { soldOut: boolean };
+  /** `resume` 은 몰이 품절 해제를 자동으로 받는가. false 면 사람이 몰에서 풀어야 한다. */
+  supports: { soldOut: boolean; resume?: boolean };
   /**
    * 우리가 그 몰 관리자에 품절을 쓰는 구현을 만들었는가.
    *
@@ -46,6 +50,8 @@ export interface MallManifestFacts {
    * 안 뚫은 몰이 대부분이라, 이 칸의 초록은 **이 값**만 보고 켠다.
    */
   soldOutRoute?: 'mall_admin' | null;
+  /** 판매 재개(품절 해제)를 보내는 길. 판매재개 칸의 초록은 이 값만 보고 켠다. */
+  resumeRoute?: 'mall_admin' | null;
   hazards: { soldOutDeletesListing: boolean };
 }
 
@@ -62,6 +68,9 @@ export function mallCapabilities(
   const applicable = manifest ? manifest.applicable : true;
   // 확인된 몰인데 품절을 안 받는다고 하면 없는 일이다. 확인 전이면 모른다.
   const takesSoldOut = !manifest || manifest.unverified || manifest.supports?.soldOut !== false;
+  // 품절은 받아도 해제를 자동으로 못 받는다고 확인된 몰은 판매재개가 없는 일이다 — 몰에서 사람이 푼다.
+  const takesResume = takesSoldOut
+    && (!manifest || manifest.unverified || manifest.supports?.resume !== false);
   // 발주를 받는 사입 채널(쿠팡 로켓 · 직배송)에는 고객 클레임 · 문의도, 우리가 고칠 상품
   // 페이지도, 우리가 보낼 재고도 없다. 그 칸은 빨강이다.
   const onlyWhereApplicable: CapabilityState = applicable ? 'pending' : 'unavailable';
@@ -85,6 +94,10 @@ export function mallCapabilities(
     soldout: !applicable || !takesSoldOut
       ? 'unavailable'
       : manifest?.soldOutRoute === 'mall_admin' ? 'ready' : 'pending',
+    // 판매재개도 같은 기준이다 — 그 몰 관리자에 해제를 보내는 길(`resumeRoute`)이 있어야 초록이다.
+    resume: !applicable || !takesResume
+      ? 'unavailable'
+      : manifest?.resumeRoute === 'mall_admin' ? 'ready' : 'pending',
     stock: onlyWhereApplicable,
   };
 }
@@ -176,7 +189,24 @@ export function soldOutNoteFor(manifest: MallManifestFacts | null): string | nul
   if (!manifest || !manifest.applicable) return null;
   if (manifest.unverified) return '이 몰의 품절 방식은 아직 확인 전입니다.';
   if (manifest.supports?.soldOut === false) return null;
+  // 경로가 있는 몰에 "경로가 아직 없다"를 적으면 초록 칸이 거짓말을 한다. 그때는 칸의 기본 설명을 쓴다.
+  if (manifest.soldOutRoute === 'mall_admin') return null;
   return manifest.hazards?.soldOutDeletesListing
     ? '몰은 품절을 받지만 완전품절이 영구삭제라 판매중지로 보내야 합니다. 우리 송신 경로는 아직 없습니다.'
     : '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.';
+}
+
+/**
+ * 판매재개 줄에 붙는 사연. 몰이 해제를 자동으로 받지 않는 곳은 사람이 몰에서 풀어야 한다고 적는다 —
+ * 품절관리는 초록인데 판매재개가 빨강이면 이유가 보여야 한다.
+ */
+export function resumeNoteFor(manifest: MallManifestFacts | null): string | null {
+  if (!manifest || !manifest.applicable) return null;
+  if (manifest.unverified) return '이 몰의 판매재개 방식은 아직 확인 전입니다.';
+  if (manifest.supports?.soldOut === false) return null;
+  if (manifest.supports?.resume === false) {
+    return '몰이 품절 해제를 자동으로 받지 않습니다 — 몰 관리자에서 직접 풀어야 합니다.';
+  }
+  if (manifest.resumeRoute === 'mall_admin') return null;
+  return '몰은 판매재개를 받습니다. 우리 송신 경로가 아직 없습니다.';
 }

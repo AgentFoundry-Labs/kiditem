@@ -82,6 +82,16 @@ const STATUS_RULES: Record<
     ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
     ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
+  /*
+    아트공구(카페24): 상품목록 줄의 판매상태(판매함 · 판매안함)와 진열상태(진열함 · 진열안함)가 따로 온다
+    (라이브 2026-09-19: 판매함 455 · 판매안함 95 · 진열함 294 · 진열안함 256). 카페24 판매안함은 진열된 채
+    품절로 보이고, 우리 품절 송신도 판매안함이다. 진열안함은 몰에서 안 보인다.
+  */
+  art09: [
+    ['판매안함', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['진열안함', MALL_ADMIN_LISTING_STATUS.hidden],
+    ['판매함', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
 };
 
 /**

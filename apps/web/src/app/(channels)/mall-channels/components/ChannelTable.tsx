@@ -36,7 +36,7 @@ export interface ChannelAccountInfo {
 /**
  * 연결된 몰 표 — 사방넷 스케줄러와 같은 모양이다(사장님 2026-09-17).
  *
- * 한 줄이 몰 하나다. 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정 · 등록 상품, 그리고 되는 일 아홉 칸.
+ * 한 줄이 몰 하나다. 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정 · 등록 상품, 그리고 되는 일 열 칸.
  * 등록 상품은 그 몰의 상품을 가져온 적이 없으면 0 이 아니라 `—` 다(모른다). 사방넷은
  * 칸마다 켜고 끄는 스위치를 두지만, 우리 칸은 **그 일이 지금 되는지**를 말한다 — 누를 수 없는
  * 스위치를 그리면 켜 둔 줄 알고 기다리게 된다. 켜고 끄는 것은 계정 화면의 사용여부 하나다.
@@ -56,7 +56,7 @@ export function ChannelTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <table className="w-full min-w-[1260px] border-collapse text-xs">
+      <table className="w-full min-w-[1340px] border-collapse text-xs">
         <caption className="sr-only">연결된 몰마다 되는 일</caption>
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500">

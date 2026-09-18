@@ -631,7 +631,7 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
     new URL("../kiditem-os/background/orders/mall-admin-listings.js", import.meta.url),
     "utf8",
   );
-  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"]]) {
+  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"], ["https://zzogzzog1.cafe24.com", "100", "100"]]) {
     assert.match(contract, new RegExp(`origin: '${origin}'`));
     assert.match(collector, new RegExp(`origin: "${origin}"`));
     assert.match(contract, new RegExp(`pageSize: ${contractSize},`));
@@ -642,6 +642,7 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.ok(manifest.host_permissions.includes("https://*.i-screammall.co.kr/*"));
   assert.ok(manifest.host_permissions.includes("https://alwayzseller.ilevit.com/*"));
   assert.ok(manifest.host_permissions.includes("https://alwayz-seller-back.ilevit.com/*"));
+  assert.ok(manifest.host_permissions.includes("https://zzogzzog1.cafe24.com/*"));
   const owners = readFileSync(
     new URL("../kiditem-os/background/source-owner-manifest.js", import.meta.url),
     "utf8",
@@ -730,4 +731,92 @@ test("올웨이즈 — 토큰이 없으면 로그인이 필요하다고 답하�
   assert.equal(noToken.requests.length, 0);
   const shifted = await runAlwayzReader({ items: [alwayzItem(1), alwayzItem(2)], totalShift: 1 });
   assert.deepEqual(shifted.result, { success: false, errorCode: "mall_total_changed" });
+});
+
+// 아트공구(카페24 공급사 관리자) — 상품목록(ProductManage)을 100개씩 1쪽부터 끝까지 읽는다(라이브 2026-09-19: 550개 = 6쪽).
+const ART09 = "https://zzogzzog1.cafe24.com";
+const art09Plan = { ...kidkidsPlan, mallKey: "art09", sourceOrigin: ART09, pageSize: 100 };
+
+function cafe24Product(index, overrides = {}) {
+  return { no: String(123000 + index), name: `[펜시네${index}] 상품 ${index} 1p`, price: "9,490", display: "T", selling: "T", ...overrides };
+}
+
+function cafe24Page(total, products) {
+  const row = (product) => `<tr>
+    <td><input type="checkbox" class="rowChk _product_no" value="${product.no}" is_display="${product.display}" is_selling="${product.selling}" is_funding_product="F" is_set_product="F" data-option-type="T"></td>
+    <td>1</td><td>기본상품</td><td>P000${product.no}</td>
+    <td><div class="gGoods gMedium"><div class="mOpen"><span class="frame eOpenOver"><img src="//zzogzzog1.cafe24.com/web/product/tiny/202608/${product.no}.jpg"></span>
+      <div class="open"><ul class="default"><li><a href="#none" class="eProductDetail" product_no="${product.no}">상품 상세보기</a></li></ul></div></div>
+      <p><a href="/disp/admin/shop1/product/ProductRegister?product_no=${product.no}" class="txtLink eProductDetail ec-product-list-productname">${product.name}</a></p></div></td>
+    <td></td><td>${product.price}</td><td>${product.price}</td><td>${product.price}</td><td>SMS발송 SNS공유 주소복사</td>
+  </tr>`;
+  return `<html><body><form id="eProductSearchForm"></form>
+    <div class="mState"><p class="total">[총 <strong>${total}</strong>개]</p></div>
+    <table><thead><tr><th></th><th>No</th><th>상품구분</th><th>상품코드</th><th>상품명</th><th>마켓연동</th><th>판매가</th><th>할인가</th><th>모바일할인가</th><th>바로구매 URL</th></tr></thead>
+    <tbody>${products.map(row).join("")}</tbody></table></body></html>`;
+}
+
+async function runArt09Reader({ products, serve = null } = {}) {
+  const requests = [];
+  const context = loadSource(["../kiditem-os/background/orders/mall-admin-listings.js"]);
+  const pageContext = vm.createContext({
+    Date, Map, Set, URL, URLSearchParams, JSON, Number, Array, String, Math,
+    AbortController,
+    DOMParser,
+    setTimeout: (callback) => setTimeout(callback, 0),
+    clearTimeout,
+    location: new URL(`${ART09}/disp/admin/shop1/product/ProductManage`),
+    fetch: async (path, init) => {
+      const url = new URL(path, ART09);
+      requests.push({ page: Number(url.searchParams.get("page")), limit: url.searchParams.get("limit"), orderby: url.searchParams.get("orderby"), credentials: init.credentials });
+      const page = Number(url.searchParams.get("page"));
+      const html = serve ? serve(page) : cafe24Page(products.length, products.slice((page - 1) * 100, page * 100));
+      if (html && html.landed) return { url: html.landed, ok: true, status: 200, text: async () => "<html><body>로그인</body></html>" };
+      return { url: url.href, ok: true, status: 200, text: async () => html };
+    },
+  });
+  const reader = vm.runInContext(`(${context.KidItemMallAdminListings.readArt09Listings.toString()})`, pageContext);
+  const result = await reader(structuredClone(art09Plan), 1000, 0, 1);
+  return { result: JSON.parse(JSON.stringify(result)), requests };
+}
+
+test("⭐ 아트공구 — 상품목록을 100개씩 1쪽부터 끝까지 읽고, 판매 · 진열 상태를 그대로, 고른 칸만 넘긴다", async () => {
+  const products = Array.from({ length: 150 }, (_, index) => cafe24Product(index, {
+    selling: index === 0 ? "F" : "T",
+    display: index === 1 ? "F" : "T",
+  }));
+  const { result, requests } = await runArt09Reader({ products });
+  assert.equal(result.success, true);
+  assert.deepEqual(requests, [
+    { page: 1, limit: "100", orderby: "regist_d", credentials: "include" },
+    { page: 2, limit: "100", orderby: "regist_d", credentials: "include" },
+  ]);
+  const { rows, collection } = result.snapshot;
+  assert.equal(rows.length, 150);
+  assert.deepEqual(collection, { totalRecords: 150, recordsRead: 150, pagesRead: 2, totalPages: 2, detailsRead: 0, detailsMissing: 0 });
+  assert.deepEqual(rows.find((row) => row.mallProductCode === "123000"), {
+    mallProductCode: "123000",
+    productName: "[펜시네0] 상품 0 1p",
+    sellpiaName: null,
+    sellerCode: null,
+    salePrice: 9490,
+    statusWords: ["판매안함", "진열함"],
+    registeredOn: null,
+    imageUrl: "https://zzogzzog1.cafe24.com/web/product/tiny/202608/123000.jpg",
+  });
+  assert.deepEqual(rows.find((row) => row.mallProductCode === "123001").statusWords, ["판매함", "진열안함"]);
+});
+
+test("아트공구 — 쪽이 겹치거나 읽는 사이 수가 바뀌면 저장하지 않는다", async () => {
+  const products = Array.from({ length: 150 }, (_, index) => cafe24Product(index));
+  // 정렬이 흔들려 2쪽이 1쪽 상품을 다시 주면 빠진 상품이 있다는 뜻이다.
+  const overlap = await runArt09Reader({ serve: (page) => cafe24Page(150, products.slice(0, page === 1 ? 100 : 50)) });
+  assert.deepEqual(overlap.result, { success: false, errorCode: "mall_contract_drift", stage: "page_overlap" });
+  const shifted = await runArt09Reader({ serve: (page) => cafe24Page(page === 1 ? 150 : 151, products.slice((page - 1) * 100, page * 100)) });
+  assert.deepEqual(shifted.result, { success: false, errorCode: "mall_total_changed" });
+});
+
+test("아트공구 — 로그인 화면으로 넘어가면 로그인이 필요하다고 답한다", async () => {
+  const { result } = await runArt09Reader({ serve: () => ({ landed: "https://eclogin.cafe24.com/Shop/" }) });
+  assert.deepEqual(result, { success: false, errorCode: "mall_login_required" });
 });

@@ -70,6 +70,16 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 100,
     detailNames: false,
   },
+  /**
+   * 아트공구(카페24 공급사 관리자). 상품목록(ProductManage)을 100개씩 1쪽부터 끝까지 읽는다
+   * (라이브 2026-09-19: 550개 = 6쪽, 겹침 없음). 몰 상품코드는 카페24 상품번호(product_no)다.
+   */
+  art09: {
+    mallName: '아트공구',
+    origin: 'https://zzogzzog1.cafe24.com',
+    pageSize: 100,
+    detailNames: false,
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;

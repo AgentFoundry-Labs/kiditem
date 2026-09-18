@@ -7,6 +7,7 @@ import {
   ordersNoteFor,
   readyCount,
   registerNoteFor,
+  resumeNoteFor,
   soldOutNoteFor,
   sortByCapability,
   type MallManifestFacts,
@@ -52,6 +53,7 @@ describe('mallCapabilities', () => {
       register: 'pending',
       update: 'pending',
       soldout: 'pending',
+      resume: 'pending',
       stock: 'pending',
     });
   });
@@ -64,10 +66,11 @@ describe('mallCapabilities', () => {
    * 쿠팡 로켓·쿠팡직배송은 우리가 발주를 받는 사입 채널이라 상품등록·품절 송신 개념이 없다
    * (매니페스트 `applicable: false`). 회색으로 두면 "언젠가 된다" 로 읽힌다.
    */
-  it('⭐ 개념이 없는 채널은 상품등록·품절관리가 빨강이다 — 어댑터가 있어도', () => {
+  it('⭐ 개념이 없는 채널은 상품등록·품절관리·판매재개가 빨강이다 — 어댑터가 있어도', () => {
     const caps = mallCapabilities(channel(), { hasAdapter: true, manifest: notApplicable });
     expect(caps.register).toBe('unavailable');
     expect(caps.soldout).toBe('unavailable');
+    expect(caps.resume).toBe('unavailable');
   });
 
   /** 발주를 받는 사입 채널에는 고객 클레임 · 문의도, 우리가 고칠 상품 페이지도, 보낼 재고도 없다. */
@@ -118,6 +121,7 @@ describe('mallCapabilities', () => {
       register: 'pending',
       update: 'pending',
       soldout: 'pending',
+      resume: 'pending',
       stock: 'pending',
     });
   });
@@ -147,6 +151,7 @@ describe('capabilityTotals', () => {
     expect(totals.tracking).toEqual({ ready: 0, pending: 3, unavailable: 0 });
     expect(totals.register).toEqual({ ready: 1, pending: 1, unavailable: 1 });
     expect(totals.soldout).toEqual({ ready: 0, pending: 2, unavailable: 1 });
+    expect(totals.resume).toEqual({ ready: 0, pending: 2, unavailable: 1 });
   });
 });
 
@@ -231,6 +236,32 @@ describe('soldOutNoteFor', () => {
     expect(soldOutNoteFor(notApplicable)).toBeNull();
     expect(soldOutNoteFor(null)).toBeNull();
   });
+
+  /** 초록 칸에 "경로가 아직 없다"를 적으면 칸이 거짓말을 한다(2026-09-19 전에는 그렇게 적혔다). */
+  it('⭐ 우리 길이 있는 몰에는 "경로가 없다" 사연을 붙이지 않는다', () => {
+    expect(soldOutNoteFor(manifest({ soldOutRoute: 'mall_admin' }))).toBeNull();
+  });
+});
+
+describe('resumeNoteFor', () => {
+  it('몰이 해제를 자동으로 받지 않으면 몰에서 직접 풀어야 한다고 적는다', () => {
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: false }, soldOutRoute: 'mall_admin' })))
+      .toContain('직접 풀어야');
+  });
+
+  it('길이 있으면 사연이 없고, 없으면 경로가 아직 없다고 적는다', () => {
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: true }, resumeRoute: 'mall_admin' }))).toBeNull();
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: true } })))
+      .toBe('몰은 판매재개를 받습니다. 우리 송신 경로가 아직 없습니다.');
+    expect(resumeNoteFor(manifest({ unverified: true, supports: { soldOut: false } })))
+      .toBe('이 몰의 판매재개 방식은 아직 확인 전입니다.');
+  });
+
+  it('개념이 없는 채널 · 품절을 안 받는 몰 · 매니페스트가 없을 때는 사연이 없다', () => {
+    expect(resumeNoteFor(notApplicable)).toBeNull();
+    expect(resumeNoteFor(manifest({ supports: { soldOut: false } }))).toBeNull();
+    expect(resumeNoteFor(null)).toBeNull();
+  });
 });
 
 describe('품절 송신 칸', () => {
@@ -257,5 +288,38 @@ describe('품절 송신 칸', () => {
       manifest: manifest({ supports: { soldOut: false }, soldOutRoute: 'mall_admin' }),
     });
     expect(refuses.soldout).toBe('unavailable');
+    expect(refuses.resume).toBe('unavailable');
+  });
+});
+
+/** 사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지 구별해놔줘". */
+describe('판매재개 칸', () => {
+  it('⭐ 해제 길(resumeRoute)이 있는 몰만 초록이다 — 품절 길과 따로 본다', () => {
+    const both = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: true }, soldOutRoute: 'mall_admin', resumeRoute: 'mall_admin' }),
+    });
+    expect(both).toMatchObject({ soldout: 'ready', resume: 'ready' });
+    const soldOutOnly = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: true }, soldOutRoute: 'mall_admin', resumeRoute: null }),
+    });
+    expect(soldOutOnly).toMatchObject({ soldout: 'ready', resume: 'pending' });
+  });
+
+  it('⭐ 몰이 품절 해제를 자동으로 받지 않는다고 확인되면 판매재개만 빨강이다', () => {
+    const caps = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: false }, soldOutRoute: 'mall_admin', resumeRoute: null }),
+    });
+    expect(caps).toMatchObject({ soldout: 'ready', resume: 'unavailable' });
+  });
+
+  it('확인 전인 몰은 해제를 안 받는다고 단정하지 않는다', () => {
+    const caps = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ unverified: true, supports: { soldOut: false, resume: false } }),
+    });
+    expect(caps.resume).toBe('pending');
   });
 });

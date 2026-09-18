@@ -93,7 +93,10 @@ registration, and Coupang cookie-overflow recovery.
   the Sellpia product name the mall keeps (Kidkids 송장용 상품명, i-Scream the
   goods-notice 품명), and only whitelisted columns are returned. Alwayz reads its
   seller-center list API page by page inside the seller page; the access token
-  stays in that page and is never returned.
+  stays in that page and is never returned. 아트공구 (Cafe24 supplier admin)
+  reads the product list 100 rows per page; each row's checkbox carries the
+  product number and its display/selling state, and an overlapping page stops
+  the run.
 
 ## Sellpia And Rocket Boundaries
 

@@ -119,6 +119,40 @@ describe('resolveSoldOutCommand', () => {
     }
   });
 
+  /** 아트공구 품절 = 카페24 상품목록의 [판매안함], 재개 = [판매함](2026-09-19 실측). 상품 단위다. */
+  it('sends sold_out to 아트공구 as 판매안함 through the Cafe24 product list', () => {
+    const art09 = getMallAdapterManifest('art09')!;
+    expect(art09.unverified).toBe(false);
+    expect(resolveSoldOutCommand(art09)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(art09.soldOutRoute).toBe('mall_admin');
+    expect(art09.resumeRoute).toBe('mall_admin');
+    expect(art09.supports).toMatchObject({ setSaleStatus: 'listing', soldOut: true, resume: true, createListing: false });
+    expect(soldOutSendsByOption('art09')).toBe(false);
+  });
+
+  /** 롯데ON 품절 = 판매자센터 상품정보일괄수정의 판매상태 품절(SOUT), 재개 = 판매중(SALE)(2026-09-19 실측). 상품 단위다. */
+  it('sends sold_out to 롯데ON as sale status SOUT through the seller-center batch edit', () => {
+    const lotteon = getMallAdapterManifest('lotte-on')!;
+    expect(resolveSoldOutCommand(lotteon)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(lotteon.soldOutRoute).toBe('mall_admin');
+    expect(lotteon.resumeRoute).toBe('mall_admin');
+    expect(soldOutSendsByOption('lotte-on')).toBe(false);
+  });
+
+  /**
+   * 쇼핑몰 현황은 품절관리 · 판매재개를 칸 둘로 가른다(사장님 2026-09-19). 해제 길은 품절 길이 있고 몰이
+   * 해제를 받을 때만 선다 — 우리 확장은 같은 화면 · 같은 요청의 반대 값으로 해제를 보낸다.
+   */
+  it('opens a resume route exactly where a sold-out route exists and the mall takes resume', () => {
+    for (const manifest of MALL_ADAPTER_MANIFESTS) {
+      expect(manifest.resumeRoute).toBe(
+        manifest.soldOutRoute === 'mall_admin' && manifest.supports.resume ? 'mall_admin' : null,
+      );
+    }
+    expect(getMallAdapterManifest('toss')!.resumeRoute).toBeNull();
+    expect(getMallAdapterManifest('rocket')!.resumeRoute).toBeNull();
+  });
+
   it('refuses malls with no sold-out path at all', () => {
     const boribori = getMallAdapterManifest('boribori')!;
     expect(resolveSoldOutCommand(boribori).allowed).toBe(false);

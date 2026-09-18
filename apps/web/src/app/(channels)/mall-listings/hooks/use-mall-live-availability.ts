@@ -74,7 +74,7 @@ export function useMallLiveAvailability(
           put(target.codes.map((code) => {
             const options = products.get(code);
             return [liveCellKey(target.mallKey, code), options
-              ? { status: 'ready', summary: summarizeLiveAvailability(options), readAt }
+              ? { status: 'ready', summary: summarizeLiveAvailability(options, target.mallKey), readAt }
               : { status: 'error', message: '이 상품을 몰에서 찾지 못했습니다.' }];
           }));
         },
@@ -96,7 +96,7 @@ export function useMallLiveAvailability(
       const products = await readMallAvailabilityMany(mallKey, [mallProductCode]);
       const options = products.get(mallProductCode);
       put([[key, options
-        ? { status: 'ready', summary: summarizeLiveAvailability(options), readAt: new Date() }
+        ? { status: 'ready', summary: summarizeLiveAvailability(options, mallKey), readAt: new Date() }
         : { status: 'error', message: '이 상품을 몰에서 찾지 못했습니다.' }]]);
     } catch (error) {
       put([[key, { status: 'error', message: error instanceof Error ? error.message : '지금 재고를 읽지 못했습니다.' }]]);

@@ -1,8 +1,8 @@
 (function initializeMallAvailabilitySend(root) {
   "use strict";
 
-  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈.
-  // 아이스크림몰은 경로 대기.
+  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈·
+  // 아트공구(판매안함)·롯데ON(판매상태 품절). 아이스크림몰은 경로 대기.
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -49,36 +49,34 @@
    * (`ChannelListing.externalId`)와 같은 값이어야 줄을 짚을 수 있다 — 목록을 가져올 때
    * 쓴 것과 같은 코드다(`mall-admin-listings.js`).
    *
-   * `perCode` 는 "한 번에 한 상품" 이라는 뜻이다. 그 몰의 화면이 그렇게 생겼을 때만
-   * 켠다 — 꼬망세는 저장 버튼이 **페이지 전체**를 저장해서(실측: 고른 줄과 무관하게
-   * 50줄 전부) 상품 하나만 있는 페이지를 만들어야 그 줄만 바뀐다.
+   * `perCode` 는 "한 번에 한 상품" 이라는 뜻이다(폼을 직렬화해 보내는 몰에서만 쓴다). 그 몰의 화면이 그렇게
+   * 생겼을 때만 켠다.
    */
   const SPECS = {
+    /**
+     * 꼬망세(EduPre 입점관리자). 품절 = **재고 0**, 판매 재개 = **재고 999** — 노출/재고/KC 설정 화면
+     * (`_product_mass.view.php`)의 줄마다 있는 [개별수정] 버튼이 보내는 요청 그대로다(2026-09-19 실측, 화면 코드
+     * `$('.product_view_change')`).
+     *
+     *  - [개별수정]은 그 줄의 지금 값을 모아 POST `_product_mass.pro.php` 에 `_mode=view_direct_change` · `pcode` ·
+     *    `_view` · `_stock` · `_stock_control` · `_kc_yn` · `_kc_num` · `_kc_date` 를 싣고 JSON `{res:"success"}` 로 답한다.
+     *    지금 값은 같은 화면을 상품코드로 검색해(`mode=search&pass_input_type=pcode`) 그 줄에서 읽고, 재고만 바꾼다.
+     *  - 재고 0 이면 재고관리가 자동이든 수동이든 쇼핑몰에 "일시품절된 상품입니다"로 뜬다(실측: 판매중 449개 중
+     *    수동 · 재고 0 이 133개, 자동 · 재고 0 이 8개 — 모두 일시품절 표시). 이 몰에는 '일시품절' 값이 따로 없고 끄는
+     *    값이 판매종료(_view=N)뿐이라, 노출은 건드리지 않고 재고만 쓴다. 재고관리(자동/수동)도 그대로 둔다.
+     *  - 예전에는 `입력값 전체저장`처럼 페이지 전체(2,602줄)를 다시 저장했다 — 상품 하나를 바꾸려고 전부를 다시 쓰지
+     *    않는다.
+     *  - 보낸 뒤 같은 검색으로 다시 읽어 재고가 바뀐 것을 센다.
+     */
     kkomangse: {
       label: "꼬망세",
       origin: "https://nstore.edupre.co.kr",
-      // 전 상품이 한 페이지에 오게 한다(가져오기가 쓰는 것과 같은 상한).
-      //
-      // 검색으로 한 상품만 남기는 길도 있지만 그 파라미터 값을 실측하지 못했다. 반면
-      // **페이지 전체를 그대로 보내는 것**은 실측했다 — `입력값 전체저장` 이 정확히
-      // 그렇게 한다(2026-09-18: 고른 줄과 무관하게 페이지의 모든 줄을 담아 보낸다).
-      // 우리 줄만 재고 0 으로 바꾸고 나머지는 지금 값 그대로 실려 나가므로, 이 요청은
-      // 몰의 자기 버튼이 하는 일을 벗어나지 않는다. 추측한 주소로 좁히는 것보다 안전하다.
-      listPath: () => "/subAdmin/_product_mass.view.php?listmaxcount=10000",
-      perCode: false,
-      form: "frm",
-      action: "/subAdmin/_product_mass.pro.php",
-      // 이 몰에는 '일시품절'이 없다. 끄는 값이 판매종료(_view=N)뿐이라 그걸로 내리면
-      // 노출이 통째로 꺼져 되돌릴 때 새로 시작하는 것과 같아진다. 재고 0 을 쓴다.
-      set: [
-        { selector: 'input[name^="_stock["]', value: "0" },
-        { selector: 'input[name^="_stock_control["][value="Y"]', check: true },
-        { selector: "input.js_ck", check: true },
-      ],
-      resumeSet: [{ selector: 'input[name^="_stock["]', value: "{stock}" }],
-      // 버튼이 채우는 값. 실측(2026-09-18): 두 칸 다 mass_view.
-      hidden: { _mode: "mass_view", _submode: "mass_view" },
-      rowKey: { selector: "input.js_ck", attr: "data-pcode" },
+      directChange: {
+        pageUrl: "https://nstore.edupre.co.kr/subAdmin/_product_mass.view.php",
+        viewPath: "/subAdmin/_product_mass.view.php",
+        changePath: "/subAdmin/_product_mass.pro.php",
+        resumeStock: 999,
+      },
     },
     kidkids: {
       label: "키드키즈",
@@ -204,6 +202,56 @@
         tokenKey: "@alwayz@seller@token@",
       },
     },
+    /**
+     * 아트공구(카페24 공급사 관리자). 품절 = **판매안함**, 판매 재개 = **판매함** — 상품목록(ProductManage)의
+     * [판매안함] · [판매함] 버튼이 보내는 요청 그대로다(2026-09-19 실측, 화면 코드 `PRODUCT_MANAGE._manageState`).
+     *
+     *  - POST /exec/admin/product/ProductManageState 에 `product_no[]` · `change=is_selling` · `state=F|T` 와
+     *    고른 상품마다 지금 값 `market[번호][is_display|is_selling]` 을 싣는다(버튼이 싣는 그대로). 답은 JSON `{passed, msg}`.
+     *  - 카페24 판매안함은 진열된 채 품절로 보이고 주문을 받지 않는다. 재고 칸은 건드리지 않는다.
+     *  - 세트상품은 화면도 이 버튼으로 판매상태를 못 바꾸게 막는다 — 보내지 않고 알린다.
+     *  - 상품번호(product_no)로 짚는다. 목록 검색으로는 상품번호를 못 찾아서, 상품목록을 100개씩 끝까지 읽어 지금
+     *    값을 얻고, 보낸 뒤 다시 읽어 확인한다(550개 = 6쪽).
+     */
+    art09: {
+      label: "아트공구",
+      origin: "https://zzogzzog1.cafe24.com",
+      sellingState: {
+        pageUrl: "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage",
+        listPath: "/disp/admin/shop1/product/ProductManage",
+        statePath: "/exec/admin/product/ProductManageState",
+        // 상품목록 한 쪽 최대(화면의 '100개씩보기'). 보낼 때도 한 번에 이만큼 — 화면에서 한 쪽을 다 골라 누른 것과 같다.
+        pageSize: 100,
+        maxPages: 60,
+      },
+    },
+    /**
+     * 롯데ON 판매자센터. 품절 = 상품 판매상태 **품절(SOUT)**, 판매 재개 = **판매중(SALE)** — 상품 조회/수정의
+     * [상품판매 변경]이 여는 상품정보일괄수정 → 일괄수정항목 팝업의 [저장]이 보내는 요청 그대로다(2026-09-19 실측,
+     * 팝업 `productChangeInfo.xml` 의 `btn_trigger2_onclick` case '07').
+     *
+     *  - POST soapi `/soapi/v1/product/registration/updateProductBatch` 에 상품마다
+     *    `{spdNo, trNo, lrtrNo, trGrpCd, dvPdTypCd, code:"07", ctrtTypCd:"all", dvProcTypCd:"all", dmstOvsDvDvsCd:"all",
+     *    reqTxt:"spdSlStatCd", spdSlStatCd}` 배열을 싣는다. 거래처 · 배송상품유형은 상품 조회(selectProductList)가 준
+     *    값 그대로, "all" 은 일괄수정 화면의 검색 칸이 처음 가진 값(전체, `WebSquare.allValue`)이다. 팝업이 고르게 하는
+     *    값은 SALE · SOUT · END 뿐이다 — END(판매종료)는 보내지 않는다.
+     *  - 요청 머리(토큰 · 시간대 · 기기)는 화면이 요청마다 쓰는 함수(`gcm._sbm_setRequestHeader`)로 붙인다 — 그래서
+     *    화면 안(MAIN)에서 부르고, 토큰은 밖으로 나가지 않는다.
+     *  - 롯데ON이 판매중지(STP)했거나 판매종료(END)한 상품은 바꾸지 않는다.
+     *  - 보낸 뒤 상품 조회로 판매상태를 다시 읽어 확인한다.
+     */
+    "lotte-on": {
+      label: "롯데ON",
+      origin: "https://store.lotteon.com",
+      saleStatus: {
+        pageUrl: "https://store.lotteon.com/cm/main/index_SO.wsp",
+        api: "https://soapi.lotteon.com",
+        listPath: "/soapi/v1/product/information/selectProductList",
+        updatePath: "/soapi/v1/product/registration/updateProductBatch",
+        // 한 번에 조회 · 저장하는 상품 수. 판매자상품번호 칸은 줄바꿈으로 여러 개를 받는다.
+        batchSize: 100,
+      },
+    },
   };
 
   /** 이 몰은 아직 경로가 없다. 화면이 버튼을 세우지 않게 이름만 남긴다. */
@@ -215,7 +263,7 @@
    * 윙 화면 안에서 요청 하나를 보낸다. 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
    * 답은 몰이 준 JSON 그대로 돌려주되, JSON 이 아니면 앞부분만 싣는다(로그인 화면 판별용).
    */
-  async function requestOnPage(path, method, contentType, body) {
+  async function requestOnPage(path, method, contentType, body, extraHeaders) {
     try {
       const response = await fetch(path, {
         method,
@@ -223,6 +271,7 @@
         headers: {
           Accept: "application/json, text/plain, */*",
           ...(contentType ? { "Content-Type": contentType } : {}),
+          ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
         },
         ...(body === null || body === undefined ? {} : { body }),
       });
@@ -262,6 +311,138 @@
       return { status: response.status, json, loggedOut: response.status === 401 || response.status === 403 };
     } catch (error) {
       return { status: 0, json: null, loggedOut: false, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 롯데ON 판매자센터 화면 안(MAIN)에서 soapi 에 JSON 을 POST 한다. 요청 머리는 화면이 요청마다 쓰는 함수
+   * (`gcm._sbm_setRequestHeader` — 토큰 · 시간대 · 기기)로 붙인다. 토큰은 이 함수 밖으로 나가지 않는다.
+   * 판매자센터는 화면이 뜬 뒤에야 토큰을 채우므로 로그인 화면이 아니면 잠시 기다린다.
+   * `slimRows` 면 상품 조회 답에서 우리가 쓰는 칸만 추려 돌려준다. 워커가 인자로만 넘긴다.
+   */
+  async function lotteonPostOnPage(url, body, slimRows) {
+    try {
+      const deadline = Date.now() + 20000;
+      const ready = () => typeof gcm !== "undefined" && gcm && typeof gcm._sbm_setRequestHeader === "function"
+        && Boolean(sessionStorage.getItem("AuthToken"));
+      while (!ready()) {
+        if (/login/i.test(location.href) || Date.now() > deadline) return { status: 401, json: null, loggedOut: true };
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      const answer = await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, true);
+        xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+        xhr.setRequestHeader("Accept", "application/json");
+        gcm._sbm_setRequestHeader(xhr);
+        xhr.onload = () => {
+          let json = null;
+          try {
+            json = JSON.parse(xhr.responseText);
+          } catch {
+            json = null;
+          }
+          resolve({ status: xhr.status, json });
+        };
+        xhr.onerror = () => resolve({ status: 0, json: null });
+        xhr.send(JSON.stringify(body));
+      });
+      const loggedOut = answer.status === 401 || answer.status === 403;
+      if (slimRows) {
+        const rows = Array.isArray(answer.json?.data)
+          ? answer.json.data.map((row) => ({
+            spdNo: row?.spdNo ?? null,
+            slStatCd: row?.slStatCd ?? null,
+            trNo: row?.trNo ?? null,
+            lrtrNo: row?.lrtrNo ?? null,
+            trGrpCd: row?.trGrpCd ?? null,
+            dvPdTypCd: row?.dvPdTypCd ?? null,
+          }))
+          : null;
+        return { status: answer.status, loggedOut, returnCode: answer.json?.returnCode ?? null, rows };
+      }
+      return { status: answer.status, loggedOut, json: answer.json };
+    } catch (error) {
+      return { status: 0, json: null, loggedOut: false, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 꼬망세 노출/재고/KC 설정 화면을 상품코드로 검색해 그 줄의 지금 값을 읽는다. 읽기만 한다. 워커가 인자로만 넘긴다.
+   * 로그인이 풀렸으면 설정 화면이 아닌 곳(로그인)으로 넘어간다.
+   */
+  async function kkomangseRowOnPage(viewPath, code) {
+    try {
+      const params = new URLSearchParams({ mode: "search", pass_input_type: "pcode", pass_input_value: code });
+      const response = await fetch(`${viewPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || landed.pathname !== viewPath) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      if (!doc.querySelector('form[name="searchfrm"]')) return { loggedOut: true };
+      const box = [...doc.querySelectorAll("input.js_ck")].find((candidate) => candidate.getAttribute("data-pcode") === code);
+      if (!box) return { found: false };
+      const row = box.closest("tr");
+      const field = (name) => [...row.querySelectorAll("input")].filter((input) => input.name === `${name}[${code}]`);
+      const checked = (name) => field(name).find((input) => input.checked)?.value ?? "";
+      const text = (name) => field(name)[0]?.value ?? "";
+      return {
+        found: true,
+        view: checked("_view"),
+        stock: text("_stock"),
+        stockControl: checked("_stock_control"),
+        kcYn: checked("_kc_yn"),
+        kcNum: text("_kc_num"),
+        kcDate: text("_kc_date"),
+      };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 카페24 관리자 상품목록을 끝까지 읽어 상품마다 진열 · 판매 상태를 돌려준다. 읽기만 한다. 워커가 인자로만 넘긴다.
+   *
+   * 줄마다 있는 체크박스(`input._product_no`)가 상품번호와 지금 값(`is_display` · `is_selling` · `is_set_product`)을
+   * 들고 있다 — [판매함] · [판매안함] 버튼도 이 값을 읽어 보낸다. 로그인이 풀렸으면 목록 화면이 아닌 곳에 닿는다.
+   */
+  async function cafe24ListOnPage(listPath, pageSize, maxPages) {
+    try {
+      const rows = [];
+      const seen = new Set();
+      let total = null;
+      for (let page = 1; page <= maxPages; page += 1) {
+        const params = new URLSearchParams({ orderby: "regist_d", limit: String(pageSize), page: String(page) });
+        const response = await fetch(`${listPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || landed.pathname.toLowerCase() !== listPath.toLowerCase()) {
+          return { loggedOut: true };
+        }
+        if (!response.ok) return { error: `HTTP ${response.status}` };
+        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        if (!doc.querySelector("#eProductSearchForm")) return { loggedOut: true };
+        if (total === null) {
+          const counted = Number(String(doc.querySelector(".total strong")?.textContent || "").replace(/[^\d]/g, ""));
+          if (!Number.isSafeInteger(counted)) return { error: "상품 수를 읽지 못했습니다" };
+          total = counted;
+        }
+        const boxes = [...doc.querySelectorAll("input._product_no")];
+        for (const box of boxes) {
+          const no = String(box.value || "").trim();
+          if (!/^\d{1,12}$/.test(no) || seen.has(no)) continue;
+          seen.add(no);
+          rows.push({
+            no,
+            display: box.getAttribute("is_display") === "T",
+            selling: box.getAttribute("is_selling") === "T",
+            set: box.getAttribute("is_set_product") === "T",
+          });
+        }
+        if (rows.length >= total || boxes.length < pageSize) break;
+      }
+      return { total, rows };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
     }
   }
 
@@ -775,8 +956,14 @@
             return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.` };
           }
         }
-        const run = async (func, args) => {
-          const [injected] = await chromeApi.scripting.executeScript({ target: { tabId }, func, args });
+        // `world` 가 "MAIN" 이면 화면 자신의 전역(롯데ON `gcm`)을 쓰는 함수다. 없으면 격리된 곳에서 돈다.
+        const run = async (func, args, world) => {
+          const [injected] = await chromeApi.scripting.executeScript({
+            target: { tabId },
+            func,
+            args,
+            ...(world ? { world } : {}),
+          });
           return injected?.result || { status: 0, json: null };
         };
         return await work(run);
@@ -924,6 +1111,298 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /** 카페24 상품목록 전체를 읽는다. 로그인이 풀렸으면 { loggedOut }, 못 읽었으면 { error }. */
+    async function readCafe24Rows(spec, run) {
+      const api = spec.sellingState;
+      const answer = await run(cafe24ListOnPage, [api.listPath, api.pageSize, api.maxPages]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "형식을 모릅니다" };
+      return { rows: new Map(answer.rows.map((row) => [row.no, row])) };
+    }
+
+    /**
+     * 카페24 판매상태. 상품목록을 읽어 지금 값을 얻고, [판매안함] · [판매함] 버튼이 보내는 요청을 한 쪽(100개)씩 보낸 뒤
+     * 목록을 다시 읽어 확인한다.
+     */
+    async function sendBySellingState(spec, codes, resume) {
+      const api = spec.sellingState;
+      const warnings = [];
+      const products = codes.filter((code) => /^\d{1,12}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readCafe24Rows(spec, run);
+        if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((no) => before.rows.has(no));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label} 상품목록에 없습니다.`);
+        }
+        const sets = found.filter((no) => before.rows.get(no).set).length;
+        if (sets > 0) {
+          failed += sets;
+          warnings.push(`세트상품 ${sets}개는 ${spec.label} 화면도 판매상태를 바꾸지 못하게 막아 보내지 않았습니다.`);
+        }
+        const targets = found.filter((no) => !before.rows.get(no).set && before.rows.get(no).selling !== resume);
+        already += found.length - sets - targets.length;
+        for (let start = 0; start < targets.length; start += api.pageSize) {
+          const group = targets.slice(start, start + api.pageSize);
+          // 버튼이 만드는 모양 그대로(jQuery 가 {product_no, change, state, market} 을 펼친 순서).
+          const body = new URLSearchParams();
+          for (const no of group) body.append("product_no[]", no);
+          body.append("change", "is_selling");
+          body.append("state", resume ? "T" : "F");
+          for (const no of group) {
+            const row = before.rows.get(no);
+            body.append(`market[${no}][is_display]`, row.display ? "T" : "F");
+            body.append(`market[${no}][is_selling]`, row.selling ? "T" : "F");
+          }
+          const answer = await run(requestOnPage, [
+            api.statePath, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(),
+            { "X-Requested-With": "XMLHttpRequest" },
+          ]);
+          if (answer.status < 200 || answer.status >= 300 || !answer.json || answer.json.passed === false) {
+            failed += group.length;
+            const reason = answer.json?.msg ? `: ${String(answer.json.msg).slice(0, 120)}` : "";
+            warnings.push(`${spec.label}이 판매상태 변경을 받지 않았습니다(HTTP ${answer.status})${reason}.`);
+            continue;
+          }
+          sent += group.length;
+          await sleep(PACE_MS);
+        }
+        if (sent === 0) return null;
+        const after = await readCafe24Rows(spec, run);
+        if (after.rows) confirmed += targets.filter((no) => after.rows.get(no)?.selling === resume).length;
+        else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품목록에서 확인하세요.`);
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /**
+     * 꼬망세 재고. 상품마다 설정 화면을 검색해 지금 값을 읽고, [개별수정]과 같은 요청으로 재고만 바꿔 보낸 뒤 다시
+     * 읽어 확인한다.
+     */
+    async function sendByKkomangseDirect(spec, codes, resume) {
+      const api = spec.directChange;
+      const wanted = resume ? String(api.resumeStock) : "0";
+      const warnings = [];
+      let sent = 0;
+      let failed = 0;
+      let confirmed = 0;
+      let already = 0;
+      let missing = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        for (let index = 0; index < codes.length; index += 1) {
+          const code = codes[index];
+          if (index > 0) await sleep(PACE_MS);
+          const row = await run(kkomangseRowOnPage, [api.viewPath, code]);
+          if (row?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!row?.found) {
+            if (row?.error) {
+              failed += 1;
+              warnings.push(`${code}: ${spec.label} 설정 화면을 읽지 못했습니다(${row.error}).`);
+            } else {
+              missing += 1;
+            }
+            continue;
+          }
+          // 빈 칸은 0 이 아니다 — 모르는 재고를 품절로 읽지 않는다.
+          const soldOut = String(row.stock).trim() !== "" && Number(row.stock) === 0;
+          if (resume ? !soldOut : soldOut) {
+            already += 1;
+            continue;
+          }
+          // [개별수정]이 모으는 모양 그대로 — 지금 값을 싣고 재고만 바꾼다.
+          const body = new URLSearchParams([
+            ["_mode", "view_direct_change"],
+            ["pcode", code],
+            ["_view", row.view],
+            ["_stock", wanted],
+            ["_stock_control", row.stockControl],
+            ["_kc_yn", row.kcYn],
+            ["_kc_num", row.kcNum],
+            ["_kc_date", row.kcDate],
+          ]);
+          const answer = await run(requestOnPage, [
+            api.changePath, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(),
+            { "X-Requested-With": "XMLHttpRequest" },
+          ]);
+          if (answer.status < 200 || answer.status >= 300 || answer.json?.res !== "success") {
+            failed += 1;
+            warnings.push(`${code}: ${spec.label}이 재고 변경을 받지 않았습니다(HTTP ${answer.status}).`);
+            continue;
+          }
+          sent += 1;
+          const after = await run(kkomangseRowOnPage, [api.viewPath, code]);
+          if (after?.found && String(Number(after.stock)) === wanted) confirmed += 1;
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (missing > 0) {
+        failed += missing;
+        warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+      }
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 꼬망세 지금 재고. 상품마다 설정 화면 검색 한 번. 재고 0 이면 품절(0), 아니면 판매 가능(모름). 읽기만 한다. */
+    async function readByKkomangseDirect(spec, codes) {
+      const products = [...new Set(codes)].slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품코드가 없습니다.` };
+      const found = [];
+      const missing = [];
+      const halted = await withSellerPage(spec, spec.directChange.pageUrl, async (run) => {
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const row = await run(kkomangseRowOnPage, [spec.directChange.viewPath, products[index]]);
+          if (row?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!row?.found) {
+            missing.push(products[index]);
+            continue;
+          }
+          found.push({
+            code: products[index],
+            options: [{
+              optionCode: products[index],
+              stock: String(row.stock).trim() !== "" && Number(row.stock) === 0 ? 0 : null,
+              rocket: false,
+            }],
+          });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 롯데ON 상품 조회. 판매자상품번호로 묶음마다 한 번. 로그인이 풀렸으면 { loggedOut }, 못 읽었으면 { error }. */
+    async function readLotteonRows(spec, run, codes) {
+      const api = spec.saleStatus;
+      const rows = new Map();
+      for (let start = 0; start < codes.length; start += api.batchSize) {
+        if (start > 0) await sleep(PACE_MS);
+        const group = codes.slice(start, start + api.batchSize);
+        const answer = await run(lotteonPostOnPage, [
+          `${api.api}${api.listPath}`,
+          { spdNo: group.join("\n"), pageNo: 1, rowsPerPage: api.batchSize },
+          true,
+        ], "MAIN");
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (answer?.status !== 200 || answer.returnCode !== "SUCCESS" || !Array.isArray(answer.rows)) {
+          return { error: `HTTP ${answer?.status ?? 0}${answer?.returnCode ? ` ${answer.returnCode}` : ""}` };
+        }
+        for (const row of answer.rows) if (row?.spdNo) rows.set(String(row.spdNo), row);
+      }
+      return { rows };
+    }
+
+    /**
+     * 롯데ON 저장 답 — `data` 는 JSON 글자들의 배열이고 마지막 것이 {successCnt, failCnt} 다(팝업이 그렇게 읽는다).
+     * 못 읽으면 null.
+     */
+    function lotteonBatchCounts(json) {
+      const data = Array.isArray(json?.data) ? json.data : null;
+      if (!data || data.length === 0) return null;
+      try {
+        const last = typeof data[data.length - 1] === "string" ? JSON.parse(data[data.length - 1]) : data[data.length - 1];
+        const successCnt = Number(last?.successCnt);
+        const failCnt = Number(last?.failCnt);
+        return Number.isFinite(successCnt) || Number.isFinite(failCnt)
+          ? { successCnt: Number.isFinite(successCnt) ? successCnt : null, failCnt: Number.isFinite(failCnt) ? failCnt : 0 }
+          : null;
+      } catch {
+        return null;
+      }
+    }
+
+    /**
+     * 롯데ON 상품 판매상태. 상품 조회로 지금 상태와 거래처 칸을 읽고, 일괄수정항목 팝업의 [저장]과 같은 요청을 묶음마다
+     * 보낸 뒤 다시 읽어 확인한다.
+     */
+    async function sendByLotteonStatus(spec, codes, resume) {
+      const api = spec.saleStatus;
+      const wanted = resume ? "SALE" : "SOUT";
+      const from = resume ? "SOUT" : "SALE";
+      const warnings = [];
+      const products = codes.filter((code) => /^LO\d{4,20}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 판매자상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readLotteonRows(spec, run, products);
+        if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((no) => before.rows.has(no));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+        }
+        const locked = found.filter((no) => !["SALE", "SOUT"].includes(before.rows.get(no).slStatCd)).length;
+        if (locked > 0) {
+          failed += locked;
+          warnings.push(`${locked}건은 ${spec.label}이 판매중지 · 판매종료한 상품이라 바꾸지 않았습니다.`);
+        }
+        const targets = found.filter((no) => before.rows.get(no).slStatCd === from);
+        already += found.length - locked - targets.length;
+        for (let start = 0; start < targets.length; start += api.batchSize) {
+          const group = targets.slice(start, start + api.batchSize);
+          // 팝업이 만드는 모양 그대로 — 상품정보일괄수정이 넘긴 줄 값에 팝업이 고른 판매상태를 얹는다.
+          const params = group.map((no) => {
+            const row = before.rows.get(no);
+            return {
+              spdNo: no,
+              trNo: row.trNo,
+              lrtrNo: row.lrtrNo,
+              trGrpCd: row.trGrpCd,
+              dvPdTypCd: row.dvPdTypCd,
+              code: "07",
+              ctrtTypCd: "all",
+              dvProcTypCd: "all",
+              dmstOvsDvDvsCd: "all",
+              reqTxt: "spdSlStatCd",
+              spdSlStatCd: wanted,
+            };
+          });
+          const answer = await run(lotteonPostOnPage, [`${api.api}${api.updatePath}`, params, false], "MAIN");
+          if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.status !== 200 || (answer.json?.returnCode && answer.json.returnCode !== "SUCCESS")) {
+            failed += group.length;
+            const reason = answer?.json?.message ? `: ${String(answer.json.message).slice(0, 120)}` : "";
+            warnings.push(`${spec.label}이 판매상태 변경을 받지 않았습니다(HTTP ${answer?.status ?? 0})${reason}.`);
+            continue;
+          }
+          const counts = lotteonBatchCounts(answer.json);
+          const ok = counts?.successCnt ?? group.length - (counts?.failCnt ?? 0);
+          sent += Math.max(0, Math.min(ok, group.length));
+          if (counts && counts.failCnt > 0) {
+            failed += Math.min(counts.failCnt, group.length);
+            warnings.push(`${spec.label}이 ${group.length}건 중 ${counts.failCnt}건을 바꾸지 않았다고 답했습니다.`);
+          }
+          await sleep(PACE_MS);
+        }
+        if (sent === 0) return null;
+        const after = await readLotteonRows(spec, run, targets);
+        if (after.rows) confirmed += targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
+        else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 조회/수정에서 확인하세요.`);
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
     /**
      * 한 몰에 품절(또는 해제)을 보낸다.
      *
@@ -950,12 +1429,16 @@
         }
       }
 
-      // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼과 같은 요청이다.
-      if (spec.gridStock || spec.itemApi) {
+      // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼, 아트공구는 상품목록의
+      // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정]과
+      // 같은 요청이다.
+      if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange) {
         try {
-          return spec.gridStock
-            ? await sendByKakaoGrid(spec, codes, resume)
-            : await sendByAlwayzItems(spec, codes, resume);
+          if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
+          if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
+          if (spec.saleStatus) return await sendByLotteonStatus(spec, codes, resume);
+          if (spec.directChange) return await sendByKkomangseDirect(spec, codes, resume);
+          return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
         }
@@ -1135,11 +1618,60 @@
       return { success: true, products: found, missing };
     }
 
-    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈). 읽기만 한다. */
+    /**
+     * 아트공구 지금 판매상태. 상품목록을 한 번 끝까지 읽는다. 재고 수는 주지 않고 판매안함(품절)이면 0, 판매함이면
+     * 모름(null)이다. 읽기만 한다.
+     */
+    async function readBySellingState(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{1,12}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.sellingState.pageUrl, async (run) => {
+        const read = await readCafe24Rows(spec, run);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${read.error}).` };
+        found = products.filter((no) => read.rows.has(no)).map((no) => ({
+          code: no,
+          options: [{ optionCode: no, stock: read.rows.get(no).selling ? null : 0, rocket: false }],
+        }));
+        missing = products.filter((no) => !read.rows.has(no));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /**
+     * 롯데ON 지금 판매상태. 상품 조회 한 번(판매자상품번호 여럿). 재고 수는 주지 않고, 판매중이 아니면(품절 · 판매중지 ·
+     * 판매종료) 살 수 없으니 0, 판매중이면 모름(null)이다. 읽기만 한다.
+     */
+    async function readByLotteonStatus(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^LO\d{4,20}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 판매자상품번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.saleStatus.pageUrl, async (run) => {
+        const read = await readLotteonRows(spec, run, products);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+        found = products.filter((no) => read.rows.has(no)).map((no) => ({
+          code: no,
+          options: [{ optionCode: no, stock: read.rows.get(no).slStatCd === "SALE" ? null : 0, rocket: false }],
+        }));
+        missing = products.filter((no) => !read.rows.has(no));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세). 읽기만 한다. */
     async function read(msg) {
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
-      if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi) {
+      if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
+        && !spec?.directChange) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -1148,6 +1680,9 @@
       try {
         if (spec.gridStock) return await readByKakaoList(spec, codes);
         if (spec.itemApi) return await readByAlwayzItems(spec, codes);
+        if (spec.sellingState) return await readBySellingState(spec, codes);
+        if (spec.saleStatus) return await readByLotteonStatus(spec, codes);
+        if (spec.directChange) return await readByKkomangseDirect(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -1162,8 +1697,11 @@
     SPECS,
     PENDING,
     MALL_KEYS: Object.keys(SPECS),
-    // 지금 재고를 읽을 수 있는 몰(옵션 재고로 품절을 보내는 몰).
-    READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi)),
+    // 지금 재고(품절 여부)를 몰에서 바로 읽을 수 있는 몰.
+    READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(
+      SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
+        || SPECS[key].saleStatus || SPECS[key].directChange,
+    )),
     SEND_TIMEOUT_MS,
   };
 })(typeof self !== "undefined" ? self : globalThis);
