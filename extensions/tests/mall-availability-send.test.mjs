@@ -156,6 +156,7 @@ test('도매꾹이 품절을 보낼 수 있는 몰로 알려진다', () => {
  * 얻고, 품절 옵션만 `stock-manager/remain-change/request` 에 `stockManageItems={dtos}` 로 보낸 뒤 다시 읽는다.
  */
 const ITEMS_PATH = '/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/';
+const WING_LIST = 'https://wing.coupang.com/vendor-inventory/list';
 const CHANGE_PATH = '/tenants/seller-web/vendorinventory/stock-manager/remain-change/request';
 
 function wingMall({
@@ -167,6 +168,8 @@ function wingMall({
   throttle = { reads: 0, posts: 0 },
   // 보낸 뒤 몇 번의 읽기까지 옛 재고가 보이는가(윙이 늦게 반영하는 경우).
   lagReads = 0,
+  // 이미 열려 있는 윙 상품목록 탭 id.
+  openListTabs = [],
 } = {}) {
   // products: 등록상품ID → [{ vendorItemId, stockQuantity, registrationType }]
   const state = new Map(Object.entries(products).map(([id, items]) => [id, items.map((item, index) => ({
@@ -175,12 +178,15 @@ function wingMall({
     status: 'APPROVED',
     ...item,
   }))]));
-  const log = { tabs: [], active: [], removed: [], reads: [], changes: [], sleeps: [] };
+  const log = { tabs: [], active: [], removed: [], reads: [], changes: [], sleeps: [], updated: [], reloaded: [], queries: [] };
   const limits = { reads: throttle.reads ?? 0, posts: throttle.posts ?? 0 };
   let stale = null;
   const chrome = {
     tabs: {
       create: async ({ url, active }) => { log.tabs.push(url); log.active.push(active); return { id: 7 }; },
+      query: async ({ url }) => { log.queries.push(url); return openListTabs.map((id) => ({ id, url: 'https://wing.coupang.com/vendor-inventory/list?page=1' })); },
+      update: async (id, { url, active }) => { log.updated.push({ id, url, active }); return { id }; },
+      reload: async (id) => { log.reloaded.push(id); },
       get: async () => ({ id: 7, url: tabUrl }),
       remove: async (id) => { log.removed.push(id); },
       onUpdated: {
@@ -251,9 +257,12 @@ test('⭐ 쿠팡 윙 품절은 짚은 옵션만 재고 0 으로 — 윙 재고�
     options: { 15966710321: ['94489536455'] },
   });
 
-  assert.deepEqual(log.tabs, ['https://wing.coupang.com/tenants/cs/product/review']);
-  // 사장님 2026-09-18: "왜 리뷰 목록으로 가는거야?" — 윙을 부르려고 여는 탭은 뒤에서 연다.
-  assert.deepEqual(log.active, [false], '윙 탭은 앞에 띄우지 않는다');
+  // 사장님 2026-09-18: "vendor-inventory/list 여기 가서 해야하잖아" — 리뷰 화면이 아니라 윙 상품목록에서 보낸다.
+  // 여러 상품을 보낼 때는 상품목록을 뒤에서 열고 닫는다.
+  assert.equal(log.tabs.length, 1);
+  assert.ok(log.tabs[0].startsWith(`${WING_LIST}?searchKeywordType=ALL&searchKeywords=&`), log.tabs[0]);
+  assert.ok(!log.tabs[0].includes('review'));
+  assert.deepEqual(log.active, [false], '여러 상품은 뒤에서 보낸다');
   // 옵션을 짚은 상품은 그 옵션만, 짚지 않은 상품은 옵션 전부다. 이미 0 인 옵션은 보내지 않는다.
   assert.deepEqual(plain(log.changes), [[
     { vendorInventoryItemId: 77103210, vendorItemId: 94489536455, inventoryQuantity: 0 },
@@ -438,4 +447,70 @@ test('지금 재고는 옵션 재고로 품절을 보내는 몰(쿠팡 윙)만 �
   const { api } = wingMall();
   const result = await api.read({ mallKey: 'domeggook', codes: ['68010748'] });
   assert.equal(result.success, false);
+});
+
+/**
+ * 등록현황 칸에서 상품 하나를 누르면 사장님이 손으로 품절을 하는 바로 그 화면 — 그 상품을 검색한 윙 상품목록 — 을
+ * 앞에 띄우고, 거기서 보낸 뒤 새로 고쳐 바뀐 재고를 보여 준 채로 둔다(사장님 2026-09-18: "여기 가서 해야하잖아").
+ */
+test('⭐ 상품 하나를 누르면 그 상품을 검색한 윙 상품목록을 앞에 띄우고, 보낸 뒤 새로 고쳐 둔다', async () => {
+  const { api, log, state } = wingMall({ products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }] } });
+  const result = await api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+
+  assert.equal(log.tabs.length, 1);
+  assert.ok(log.tabs[0].startsWith(`${WING_LIST}?searchKeywordType=ALL&searchKeywords=16340985357&`), log.tabs[0]);
+  assert.deepEqual(log.active, [true], '사장님이 보는 화면이다');
+  assert.equal(state.get('16340985357')[0].stockQuantity, 0);
+  assert.deepEqual(log.reloaded, [7], '보낸 뒤 상품목록을 새로 고쳐 품절을 보여 준다');
+  assert.deepEqual(log.removed, [], '앞에 띄운 상품목록은 닫지 않는다');
+  assert.equal(result.sent, 1);
+  assert.equal(result.confirmed, 1);
+});
+
+test('이미 열린 윙 상품목록 탭이 있으면 그 탭에서 검색해 앞에 띄운다 — 탭을 쌓지 않는다', async () => {
+  const { api, log } = wingMall({
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }] },
+    openListTabs: [9],
+  });
+  await api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+  assert.deepEqual(log.queries, ['https://wing.coupang.com/vendor-inventory/list*']);
+  assert.equal(log.tabs.length, 0, '새 탭을 열지 않는다');
+  assert.equal(log.updated.length, 1);
+  assert.equal(log.updated[0].id, 9);
+  assert.equal(log.updated[0].active, true);
+  assert.ok(log.updated[0].url.includes('searchKeywords=16340985357&'), log.updated[0].url);
+  assert.deepEqual(log.removed, [], '사장님 탭은 닫지 않는다');
+});
+
+test('상품 여러 개를 나눠 보낼 때는 show 가 와도 뒤에서 보낸다', async () => {
+  const { api, log } = wingMall({
+    products: {
+      16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }],
+      15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }],
+    },
+  });
+  await api.send({ mallKey: 'coupang', codes: ['16340985357', '15966710321'], show: true });
+  assert.deepEqual(log.active, [false]);
+  assert.deepEqual(log.removed, [7]);
+  assert.deepEqual(log.reloaded, []);
+});
+
+test('앞에 띄운 상품목록이 로그인 화면이면 닫지 않고 거기서 로그인하라고 답한다', async () => {
+  const { api, log } = wingMall({
+    tabUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth',
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }] },
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+  assert.equal(result.success, false);
+  assert.match(result.error, /열린 윙 화면에서 로그인한 뒤 다시 누르세요/);
+  assert.equal(log.changes.length, 0);
+  assert.deepEqual(log.removed, []);
+});
+
+test('지금 재고 읽기도 윙 상품목록을 뒤에서 열고 닫는다', async () => {
+  const { api, log } = wingMall({ products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] } });
+  await api.read({ mallKey: 'coupang', codes: ['16340985357'] });
+  assert.ok(log.tabs[0].startsWith(WING_LIST), log.tabs[0]);
+  assert.deepEqual(log.active, [false]);
+  assert.deepEqual(log.removed, [7]);
 });

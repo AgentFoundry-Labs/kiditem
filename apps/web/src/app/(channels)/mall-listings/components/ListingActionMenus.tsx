@@ -296,7 +296,8 @@ export function CellActionPopover({
     const resume = spec.run === 'resume';
     setRunning(spec.key);
     try {
-      const result = await sendMallAvailability(column.mallKey, [externalId], { resume });
+      // 상품 하나다 — 확장이 그 상품의 몰 화면(쿠팡 윙 상품목록)을 앞에 띄워 거기서 보내고 바뀐 재고를 보여 준다.
+      const result = await sendMallAvailability(column.mallKey, [externalId], { resume, show: true });
       showAvailabilityWarnings(result.warnings);
       if (result.sent === 0) throw new Error(`${column.mallName}이 이 상품을 받지 않았습니다.`);
       // 보낸 것은 성공이 아니다 — 몰을 다시 읽어 바뀐 것이 확인된 것만 성공이다(도매꾹 · 쿠팡 윙).

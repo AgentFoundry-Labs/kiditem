@@ -133,9 +133,11 @@
      *  - 옵션을 짚지 않은 상품(등록현황 칸의 품절 처리)은 그 상품의 옵션 전부다.
      *  - 로켓그로스(RFM) 옵션은 쿠팡 재고라 윙 화면도 못 고친다 — 건너뛴다.
      *  - 보낸 뒤 옵션 목록을 다시 읽어 재고가 바뀐 옵션을 센다(`confirmed`). 세는 단위는 옵션이다.
-     *  - 윙 화면 안에서 보낸다(리뷰 수집과 같은 길) — 윙 API 는 윙 화면의 로그인으로 불러야 한다. 상품 목록 화면은
-     *    무거워 자동화 중에 멈추므로 가벼운 리뷰 화면을 **뒤에서** 열고 닫는다. 사람이 볼 화면이 아니다
-     *    (사장님 2026-09-18: "왜 리뷰 목록으로 가는거야?" — 앞에 띄웠던 것이 잘못이었다).
+     *  - **윙 상품목록(`vendor-inventory/list`) 안에서** 보낸다 — 사장님이 손으로 품절을 하는 바로 그 화면이고, 윙 API 는
+     *    윙 화면의 로그인으로 불러야 한다(사장님 2026-09-18: "vendor-inventory/list 여기 가서 해야하잖아" — 리뷰
+     *    화면을 쓰던 것이 잘못이었다).
+     *  - 등록현황 칸에서 상품 하나를 누르면(`show`) 그 상품을 검색한 상품목록을 **앞에** 띄우고, 보낸 뒤 새로 고쳐
+     *    바뀐 재고(품절)를 보여 준 채로 둔다. 여러 상품을 나눠 보낼 때와 지금 재고 읽기는 상품목록을 뒤에서 열고 닫는다.
      *  - 해제는 재고 0 인 옵션에만 `resumeQuantity` 를 넣는다. 재고가 남아 있는 옵션(1861 · 9954 …)을 999 로
      *    낮추지 않는다.
      */
@@ -143,7 +145,14 @@
       label: "쿠팡 윙",
       origin: "https://wing.coupang.com",
       optionStock: {
-        pageUrl: "https://wing.coupang.com/tenants/cs/product/review",
+        // 윙 상품목록. 사장님이 쓰는 주소 그대로이고 검색어 칸에 등록상품ID 를 넣는다.
+        listUrl: (keyword) => "https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL"
+          + `&searchKeywords=${encodeURIComponent(keyword || "")}`
+          + "&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes="
+          + "&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL"
+          + "&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR"
+          + "&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1",
+        listPath: "/vendor-inventory/list",
         itemsPath: "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/",
         itemsQuery: "hasProgressiveDiscountRule=true&queryNonVariationJustificationProof=true&queryMpnProof=true",
         changePath: "/tenants/seller-web/vendorinventory/stock-manager/remain-change/request",
@@ -394,15 +403,21 @@
     }
 
     /**
-     * 윙 화면 하나를 **뒤에서** 열고, 그 안에서 윙 API 를 부르는 도구를 `work` 에 넘긴다. 윙 API 는 윙 화면의 로그인으로
-     * 불러야 한다. 로그인 화면으로 넘어갔으면 부르지 않는다. 끝나면(실패해도) 연 탭을 닫는다.
+     * 윙 상품목록을 열고, 그 안에서 윙 API 를 부르는 도구를 `work` 에 넘긴다. 윙 API 는 윙 화면의 로그인으로 불러야
+     * 한다. 로그인 화면으로 넘어갔으면 부르지 않는다.
+     *
+     *  - `show`(상품코드)가 있으면 그 상품을 검색한 상품목록을 **앞에** 띄운다. 이미 열린 상품목록 탭이 있으면 그 탭을
+     *    쓴다. 보낸 뒤 새로 고쳐 바뀐 재고를 보여 주고, 사장님이 보도록 닫지 않는다. 로그인 화면이 떠도 닫지 않는다 —
+     *    거기서 로그인하면 된다.
+     *  - 없으면 상품목록을 뒤에서 열고 끝나면(실패해도) 닫는다.
      *
      * 윙이 429 로 막으면 쉬었다 같은 요청을 다시 보낸다(재고를 정해진 값으로 두는 요청이라 다시 보내도 같다).
      * 429 를 로그아웃으로 읽지 않는다.
      */
-    async function withWingPage(spec, work) {
+    async function withWingPage(spec, work, { show = null } = {}) {
       const stock = spec.optionStock;
       let tabId = null;
+      const closeWhenDone = !show;
       const inPage = async (path, method, contentType, body) => {
         for (let attempt = 0; ; attempt += 1) {
           const [injected] = await chromeApi.scripting.executeScript({
@@ -427,18 +442,36 @@
         };
       };
       try {
-        // 사람이 볼 화면이 아니다. 앞에 띄우지 않는다(사장님 2026-09-18: "왜 리뷰 목록으로 가는거야?").
-        const tab = await chromeApi.tabs.create({ url: stock.pageUrl, active: false });
-        tabId = tab.id;
+        const url = stock.listUrl(show || "");
+        if (show) {
+          // 이미 열린 상품목록 탭이 있으면 그 탭에서 이 상품을 검색해 앞에 띄운다. 탭이 쌓이지 않는다.
+          const [open] = await chromeApi.tabs.query({ url: `${spec.origin}${stock.listPath}*` }).catch(() => []);
+          const tab = open
+            ? await chromeApi.tabs.update(open.id, { url, active: true })
+            : await chromeApi.tabs.create({ url, active: true });
+          tabId = tab.id;
+        } else {
+          const tab = await chromeApi.tabs.create({ url, active: false });
+          tabId = tab.id;
+        }
         const waited = await waitForTabComplete(tabId).catch(() => undefined);
         await sleep(waited ? 900 : 2200);
         const current = await chromeApi.tabs.get(tabId).catch(() => null);
         if (!String(current?.url || current?.pendingUrl || "").startsWith(spec.origin)) {
-          return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.` };
+          return {
+            success: false,
+            error: show
+              ? `${spec.label}에 로그인되어 있지 않습니다. 열린 윙 화면에서 로그인한 뒤 다시 누르세요.`
+              : `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.`,
+          };
         }
-        return await work({ inPage, readItems });
+        const result = await work({ inPage, readItems });
+        // 사장님이 보는 상품목록은 새로 고쳐 바뀐 재고(품절)를 보여 준다.
+        if (show) await chromeApi.tabs.reload(tabId).catch(() => undefined);
+        return result;
       } finally {
-        if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
+        // 뒤에서 연 탭만 닫는다. 앞에 띄운 상품목록은 사장님 것이다(원래 열려 있던 탭일 수도 있다).
+        if (tabId !== null && closeWhenDone) await chromeApi.tabs.remove(tabId).catch(() => undefined);
       }
     }
 
@@ -448,7 +481,7 @@
      *
      * 윙이 끝까지 막으면(429) 거기서 멈춰 남은 상품을 보내지 못한 것으로 센다(`stopped: "rate_limited"`).
      */
-    async function sendByOptionStock(spec, codes, options, resume) {
+    async function sendByOptionStock(spec, codes, options, resume, show) {
       const stock = spec.optionStock;
       const quantity = resume ? stock.resumeQuantity : 0;
       const warnings = [];
@@ -471,6 +504,8 @@
       const isTarget = (item) => (resume
         ? Number(item.stockQuantity) === 0
         : Number(item.stockQuantity) !== 0);
+      // 상품 하나를 사장님이 눌렀을 때만 상품목록을 앞에 띄운다. 나눠 보내는 묶음은 뒤에서.
+      const shown = show && products.length === 1 ? products[0] : null;
       const halted = await withWingPage(spec, async ({ inPage, readItems }) => {
         for (let index = 0; index < products.length; index += 1) {
           const product = products[index];
@@ -555,7 +590,7 @@
           await sleep(PACE_MS);
         }
         return null;
-      });
+      }, { show: shown });
       if (halted) return halted;
       if (stoppedAt !== null) {
         const rest = products.slice(stoppedAt);
@@ -611,7 +646,7 @@
       if (spec.optionStock) {
         try {
           const options = msg?.options && typeof msg.options === "object" ? msg.options : null;
-          return await sendByOptionStock(spec, codes, options, resume);
+          return await sendByOptionStock(spec, codes, options, resume, msg?.show === true);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
         }

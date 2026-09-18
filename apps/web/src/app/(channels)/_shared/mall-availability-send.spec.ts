@@ -147,6 +147,17 @@ describe('쿠팡 윙 품절 나눠 보내기', () => {
     expect(bridge.sendToExtension).toHaveBeenCalledTimes(1);
   });
 
+  it('칸에서 상품 하나를 누르면 그 몰 화면을 띄우라고(show) 함께 넘긴다', async () => {
+    await sendMallAvailability('coupang', ['16340985357'], { show: true });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith(
+      'ext',
+      { action: 'sendMallAvailability', mallKey: 'coupang', codes: ['16340985357'], resume: false, show: true },
+      180_000,
+    );
+    await sendMallAvailability('coupang', codes(2));
+    expect((bridge.sendToExtension.mock.calls[1][1] as { show?: boolean }).show).toBeUndefined();
+  });
+
   it('해제에서 이미 재고가 있던 옵션은 그렇게 말한다', async () => {
     const result = await sendMallAvailability('coupang', codes(2), { resume: true });
     expect(result.warnings).toEqual(['1개 옵션은 이미 재고가 있었습니다.']);

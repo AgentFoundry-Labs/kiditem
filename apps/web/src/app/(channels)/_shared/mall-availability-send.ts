@@ -16,7 +16,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 /** 목록을 읽고 몰마다 한 번씩 보낸다. 몰 관리자는 느리다. */
 const SEND_TIMEOUT_MS = 180_000;
 
-/** 지금 재고 읽기는 윙 탭을 뒤에서 열어 한 상품만 읽는다. 429 로 쉬는 시간까지 넉넉히. */
+/** 지금 재고 읽기는 윙 상품목록을 뒤에서 열어 한 상품만 읽는다. 429 로 쉬는 시간까지 넉넉히. */
 const READ_TIMEOUT_MS = 90_000;
 
 /**
@@ -179,6 +179,11 @@ interface SendOptions {
   optionCodes?: Readonly<Record<string, readonly string[]>>;
   /** 나눠 보내는 몰에서 한 묶음이 끝날 때마다. `done` 은 끝낸 상품 수다. */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * 등록현황 칸에서 상품 하나를 눌렀다. 확장이 그 상품의 몰 화면(쿠팡 윙은 그 상품을 검색한 상품목록)을 앞에 띄워
+   * 거기서 보내고, 바뀐 재고를 보여 준 채로 둔다(사장님 2026-09-18: "vendor-inventory/list 여기 가서 해야하잖아").
+   */
+  show?: boolean;
 }
 
 export async function sendMallAvailability(
@@ -268,6 +273,7 @@ async function sendChunk(
         codes,
         resume: options.resume === true,
         ...(optionCodes ? { options: optionCodes } : {}),
+        ...(options.show ? { show: true } : {}),
       },
       SEND_TIMEOUT_MS,
     );
