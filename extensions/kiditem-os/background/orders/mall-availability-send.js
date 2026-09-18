@@ -48,6 +48,8 @@
    */
   const LOTTEON_RECHECK_MS = 3000;
   const LOTTEON_RECHECK_TIMES = 8;
+  /** 보내기 전 "이미 원하는 상태"로 보인 롯데ON 상품을 다시 읽는 횟수(3초 간격) — 방금 바꾼 옛 값인지 가린다. */
+  const LOTTEON_SETTLE_TIMES = 4;
   /** 아이스크림몰은 보낸 뒤 상품 목록을 다시 읽어 확인한다. 아직 옛 상태면 이 간격으로 몇 번 더 본다. */
   const ICECREAM_RECHECK_MS = 2000;
   const ICECREAM_RECHECK_TIMES = 3;
@@ -101,18 +103,25 @@
         resumeStock: 999,
       },
     },
+    /**
+     * 키드키즈 파트너센터(EUC-KR PHP). 품절 = **일시품절**(use_flag N), 판매 재개 = **품절해제**(Y) — 상품관리 목록에서
+     * 상품코드로 검색해 그 줄을 고르고 [일시품절] · [품절해제]를 누른 것과 같다(2026-09-19 실측, 화면 코드
+     * `changeUseFlag`: `commitType=change_use_flag` · `use_flag` 를 채워 목록 폼 `frmGoodsList` 전체를 숨은 창으로
+     * `./proc_logis.htm` 에 보낸다).
+     *
+     *  - 목록은 수정일 순 동률이라 쪽을 넘겨선 못 찾는다 — 상품코드 검색(`s_option=goods_code&s_key=`)으로 그 줄만 띄운다.
+     *  - 폼에 한글(상품명 · 송장용 상품명)이 같이 실리므로 화면처럼 **EUC-KR 로 폼을 제출**한다(숨은 창, 스크립트는 막은 채).
+     *  - "품절상품" 칸이 판매(정상) · 품절(일시품절)이다. 세금 구분(`tax_type`)이 비어 있는 상품은 화면도 막는다.
+     *  - 보낸 뒤 같은 검색으로 다시 읽어 확인한다.
+     */
     kidkids: {
       label: "키드키즈",
       origin: "https://partner.kidkids.net",
-      listPath: () => "/sales/goods_list_renewal.htm?pNum=1",
-      perCode: false,
-      form: "frmGoodsList",
-      action: "/sales/proc_logis.htm",
-      // changeUseFlag('N') 이 채우는 값. 해제는 같은 칸에 'Y'.
-      hidden: { commitType: "use_flag", use_flag: "N" },
-      resumeHidden: { commitType: "use_flag", use_flag: "Y" },
-      rowKey: { selector: 'input[name="goods_code[]"]', attr: "value" },
-      encoding: "euc-kr",
+      useFlag: {
+        pageUrl: "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1",
+        listPath: "/sales/goods_list_renewal.htm",
+        savePath: "/sales/proc_logis.htm",
+      },
     },
     onch: {
       label: "온채널",
@@ -1022,6 +1031,103 @@
   }
 
   /**
+   * 키드키즈 상품관리 목록을 상품코드로 검색해 그 줄을 읽는다(EUC-KR) — "품절상품" 칸(판매 · 품절), 세금 구분, 그리고
+   * [일시품절] · [품절해제]가 보낼 목록 폼 값(그 줄을 고른 채). 읽기만 한다. 워커가 인자로만 넘긴다.
+   */
+  async function kidkidsRowOnPage(listPath, code) {
+    try {
+      const params = new URLSearchParams({ s_option: "goods_code", s_key: code });
+      const response = await fetch(`${listPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname)) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const html = new TextDecoder("euc-kr").decode(await response.arrayBuffer());
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const form = doc.querySelector('form[name="frmGoodsList"]');
+      if (!form) return doc.querySelector('input[type="password"]') ? { loggedOut: true } : { error: "list_form" };
+      const box = [...form.querySelectorAll('input[name="goods_code[]"]')].find((input) => input.value === code);
+      if (!box) return { found: false };
+      const table = box.closest("table");
+      const headRow = table ? [...table.querySelectorAll("tr")].find((tr) => tr.querySelector("th")) : null;
+      const heads = headRow ? [...headRow.cells].map((cell) => cell.textContent.replace(/[\s△▽]/g, "")) : [];
+      const index = heads.indexOf("품절상품");
+      if (index < 0) return { error: "status_column" };
+      const word = String(box.closest("tr")?.cells?.[index]?.textContent || "").replace(/\s+/g, "");
+      box.checked = true;
+      const pairs = [...new FormData(form)].map(([name, value]) => [name, String(value)]);
+      return { found: true, word, taxType: box.getAttribute("tax_type") ?? "", pairs };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 키드키즈 [일시품절] · [품절해제]처럼 목록 폼을 숨은 창으로 제출한다. 폼은 화면 문서(EUC-KR)에서 만들어 브라우저가
+   * 화면과 같은 인코딩으로 보내게 하고, 답 화면의 스크립트(부모 새로고침 · 알림)는 창을 막아 돌지 않게 한다. 답은 알림 글만
+   * 돌려준다. 워커가 인자로만 넘긴다.
+   */
+  async function kidkidsSaveOnPage(savePath, pairs) {
+    let frame = null;
+    let form = null;
+    try {
+      const frameName = `kiditem_kidkids_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      frame = document.createElement("iframe");
+      frame.name = frameName;
+      frame.setAttribute("sandbox", "allow-same-origin");
+      frame.style.display = "none";
+      document.body.appendChild(frame);
+      form = document.createElement("form");
+      form.method = "post";
+      form.action = savePath;
+      form.acceptCharset = "euc-kr";
+      form.target = frameName;
+      form.style.display = "none";
+      for (const [name, value] of pairs) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      const target = frame;
+      const loaded = new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 30000);
+        target.addEventListener("load", function onLoad() {
+          let href = "";
+          try {
+            href = String(target.contentWindow?.location?.href || "");
+          } catch {
+            href = "";
+          }
+          if (href === "" || href === "about:blank") return;
+          target.removeEventListener("load", onLoad);
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+      form.submit();
+      if (!(await loaded)) return { status: 0, error: "timeout" };
+      let text = "";
+      let path = "";
+      try {
+        text = String(frame.contentDocument?.documentElement?.outerHTML || "");
+        path = String(frame.contentWindow?.location?.pathname || "");
+      } catch {
+        text = "";
+      }
+      if (/login/i.test(path) || /type=["']?password/i.test(text)) return { status: 200, loggedOut: true };
+      const alerted = /alert\(\s*(["'])((?:(?!\1).){1,200})\1/.exec(text);
+      return { status: 200, alert: alerted ? alerted[2].slice(0, 160) : null };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    } finally {
+      form?.remove();
+      frame?.remove();
+    }
+  }
+
+  /**
    * 꼬망세 노출/재고/KC 설정 화면을 상품코드로 검색해 그 줄의 지금 값을 읽는다. 읽기만 한다. 워커가 인자로만 넘긴다.
    * 로그인이 풀렸으면 설정 화면이 아닌 곳(로그인)으로 넘어간다.
    */
@@ -1076,10 +1182,14 @@
         const doc = new DOMParser().parseFromString(await response.text(), "text/html");
         if (!doc.querySelector("#eProductSearchForm")) return { loggedOut: true };
         if (total === null) {
-          const counted = Number(String(doc.querySelector(".total strong")?.textContent || "").replace(/[^\d]/g, ""));
-          if (!Number.isSafeInteger(counted)) return { error: "상품 수를 읽지 못했습니다" };
+          // 칸이 없거나 숫자가 없으면 0 으로 읽혀 첫 쪽만 읽고 멈춘다 — 숫자가 있어야 믿는다.
+          const counter = String(doc.querySelector(".total strong")?.textContent || "");
+          const counted = Number(counter.replace(/[^\d]/g, ""));
+          if (!/\d/.test(counter) || !Number.isSafeInteger(counted)) return { error: "상품 수를 읽지 못했습니다" };
           total = counted;
         }
+        // T · F 가 아니면 모른다(null) — 모르는 상태를 판매안함으로 읽지 않는다.
+        const flag = (value) => (value === "T" ? true : value === "F" ? false : null);
         const boxes = [...doc.querySelectorAll("input._product_no")];
         for (const box of boxes) {
           const no = String(box.value || "").trim();
@@ -1087,8 +1197,8 @@
           seen.add(no);
           rows.push({
             no,
-            display: box.getAttribute("is_display") === "T",
-            selling: box.getAttribute("is_selling") === "T",
+            display: flag(box.getAttribute("is_display")),
+            selling: flag(box.getAttribute("is_selling")),
             set: box.getAttribute("is_set_product") === "T",
           });
         }
@@ -1112,73 +1222,42 @@
     return match ? match[1] : null;
   }
 
-  /**
-   * 화면에서 값을 세우고 **그 폼이 보낼 것을 그대로 모아 돌려준다.**
-   *
-   * 보내지는 않는다 — 보내는 것은 워커가 한다. 페이지 안에서 fetch 하면 응답을
-   * 워커가 못 보고, 페이지가 이동하면 결과를 잃는다.
-   */
-  function collectFormOnPage(payload) {
-    const { formName, set, hidden, rowKey, codes } = payload;
-    const form = document.forms[formName];
-    if (!form) return { ok: false, error: "품절 화면의 폼을 찾지 못했습니다." };
-
-    const wanted = new Set(codes);
-    const matched = [];
-    const rows = [...document.querySelectorAll(rowKey.selector)];
-    for (const anchor of rows) {
-      const code = rowKey.attr === "value"
-        ? (anchor.value || "")
-        : (anchor.getAttribute(rowKey.attr) || "");
-      if (!wanted.has(code)) continue;
-      matched.push(code);
-      if (anchor.type === "checkbox") {
-        anchor.checked = true;
-        anchor.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      // 값 칸은 **그 줄 안에서만** 찾는다. 화면 전체에서 찾으면 고르지 않은 줄까지
-      // 고쳐 놓고 폼을 통째로 보낼 때 같이 나간다.
-      const row = anchor.closest("tr") || anchor.parentElement;
-      for (const rule of set || []) {
-        const field = row && row.querySelector(rule.selector);
-        if (!field) continue;
-        if (rule.check) {
-          field.checked = true;
-          field.dispatchEvent(new Event("change", { bubbles: true }));
-        } else {
-          field.value = rule.value;
-          field.dispatchEvent(new Event("input", { bubbles: true }));
-          field.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-      }
-    }
-
-    if (matched.length === 0) {
-      return { ok: false, error: "이 화면에서 대상 상품을 찾지 못했습니다.", matched: [] };
-    }
-
-    for (const [name, value] of Object.entries(hidden || {})) {
-      let field = form.elements[name];
-      if (field && field.length && field.tagName === undefined) field = field[0];
-      if (field) field.value = value;
-      else {
-        const made = document.createElement("input");
-        made.type = "hidden";
-        made.name = name;
-        made.value = value;
-        form.appendChild(made);
-      }
-    }
-
-    // 폼이 보낼 것을 그대로. 버튼을 눌렀을 때와 같은 바이트다.
-    const pairs = [];
-    for (const [name, value] of new FormData(form).entries()) {
-      if (typeof value === "string") pairs.push([name, value]);
-    }
-    return { ok: true, matched, pairs, rowsOnPage: rows.length };
-  }
-
   function create({ chrome: chromeApi, fetch: fetchApi, interactiveTabs, tabReason, sleep: sleepOverride }) {
+    /** 판매자센터 탭 가운데 우리가 지금 쓰려고 연 것. 다른 송신 · 읽기가 빌리지 않는다(끝나면 우리가 닫는다). */
+    const ownedTabs = new Set();
+
+    /**
+     * 보내는 도중 멈췄을 때(로그인이 풀림 등). 이미 몰에 간 것은 버리지 않는다 — 하나라도 새로 보냈으면 그 건수와 멈춘
+     * 까닭을 돌려주고(`stopped`, 웹은 남은 묶음을 보내지 않는다), 하나도 안 보냈으면 실패다.
+     */
+    /**
+     * 품절 여부만 주는 몰의 지금 상태 한 줄. 판매중이면 재고 모름(null), 아니면 못 사니 0 이고 그 몰의 상태 글자를 싣는다 —
+     * 칸이 '품절' 로 뭉개지 않고 판매중지 · 판매종료 · 숨김처럼 몰의 말 그대로 적는다.
+     */
+    function flagOption(code, selling, state) {
+      return selling
+        ? { optionCode: code, stock: null, rocket: false }
+        : { optionCode: code, stock: 0, rocket: false, ...(state ? { state: String(state) } : {}) };
+    }
+
+    function lotteonOption(code, status) {
+      return flagOption(code, status === "SALE", { SOUT: "품절", STP: "판매중지", END: "판매종료" }[status]);
+    }
+
+    function stoppedMidway(message, { sent, failed, confirmed, already, warnings, left }) {
+      if (sent === 0) return { success: false, error: message };
+      return {
+        success: true,
+        sent: sent + already,
+        failed: failed + left,
+        confirmed: confirmed + already,
+        already,
+        rocket: 0,
+        requestOnly: false,
+        warnings: [...warnings, `${message} ${left > 0 ? `— ${left}건은 보내지 못했습니다.` : ""}`.trim()],
+        stopped: "halted",
+      };
+    }
     function waitForTabComplete(tabId, timeoutMs = 45000) {
       if (!chromeApi.tabs?.onUpdated?.addListener) return Promise.resolve(null);
       return new Promise((resolve) => {
@@ -1293,7 +1372,11 @@
             failed += targets.length;
             warnings.push(`${spec.label}이 수정을 받지 않았습니다${json?.msg ? `: ${String(json.msg).slice(0, 120)}` : ""}.`);
           } else {
-            const ok = Number.isFinite(Number(json.success)) ? Math.min(Number(json.success), targets.length) : targets.length;
+            // 건수가 숫자로 왔을 때만 믿는다(null · "" · true 를 0 · 1 로 읽지 않는다). 없으면 묶음 전체로 본다.
+            const counted = typeof json.success === "number" || (typeof json.success === "string" && /^\d+$/.test(json.success))
+              ? Number(json.success)
+              : null;
+            const ok = counted === null ? targets.length : Math.min(counted, targets.length);
             sent += ok;
             failed += targets.length - ok;
             if (ok < targets.length) warnings.push(`${spec.label}이 ${targets.length}건 중 ${ok}건만 바꿨다고 답했습니다.`);
@@ -1449,9 +1532,16 @@
       let stoppedAt = null;
       // 보내기에서 막힌 상품(읽기는 됐다). 멈춘 자리 앞이지만 역시 보내지 못했다.
       let blockedOnSend = 0;
-      const wantedOf = (product) => (Array.isArray(options?.[product])
-        ? new Set(options[product].map((code) => String(code)).filter((code) => /^\d{1,15}$/.test(code)))
-        : null);
+      // 짚은 옵션코드. 비었거나 없으면 모든 옵션이다. 모양이 틀린 코드는 버리지 않고 실패로 센다(아래).
+      const wantedOf = (product) => {
+        if (!Array.isArray(options?.[product]) || options[product].length === 0) return null;
+        return new Set(options[product].map((code) => String(code)).filter((code) => /^\d{1,15}$/.test(code)));
+      };
+      const badOptionsOf = (product) => (Array.isArray(options?.[product])
+        ? options[product].map((code) => String(code)).filter((code) => !/^\d{1,15}$/.test(code)).length
+        : 0);
+      // 로그인이 풀려 멈춘 자리(products 의 index). 이미 보낸 것은 버리지 않는다.
+      let loggedOutAt = null;
       const isTarget = (item) => (resume
         ? Number(item.stockQuantity) === 0
         : Number(item.stockQuantity) !== 0);
@@ -1464,10 +1554,18 @@
           const product = products[index];
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
           const wanted = wantedOf(product);
+          const badOptions = badOptionsOf(product);
+          if (badOptions > 0) {
+            failed += badOptions;
+            warnings.push(`${product}: 옵션코드 ${badOptions}개가 ${spec.label} 옵션ID 모양이 아니라 보내지 않았습니다.`);
+          }
+          if (wanted && wanted.size === 0) continue;
           const read = await readItems(product);
           if (!read.items) {
             if (read.loggedOut) {
-              return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 보내세요.` };
+              if (sent === 0) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 보내세요.` };
+              loggedOutAt = index;
+              break;
             }
             if (read.rateLimited) {
               stoppedAt = index;
@@ -1478,6 +1576,12 @@
             continue;
           }
           const items = read.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
+          if (!wanted && read.items.length === 0) {
+            // 옵션 목록이 비어 오면 보낼 것도 확인할 것도 없다 — 조용히 넘기지 않고 실패로 센다.
+            failed += 1;
+            warnings.push(`${product}: ${spec.label} 옵션 목록이 비어 있습니다.`);
+            continue;
+          }
           if (wanted) {
             const missing = [...wanted].filter((code) => !read.items.some((item) => String(item.vendorItemId) === code));
             if (missing.length > 0) {
@@ -1554,6 +1658,11 @@
         failed += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
         warnings.push(`${spec.label}이 요청을 잠시 막았습니다(HTTP 429). 상품 ${rest.length + blockedOnSend}개는 보내지 못했습니다 — 몇 분 뒤 다시 보내세요.`);
       }
+      if (loggedOutAt !== null) {
+        const rest = products.slice(loggedOutAt);
+        failed += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+        warnings.push(`${spec.label} 로그인이 풀려 멈췄습니다 — 상품 ${rest.length}개는 보내지 못했습니다. 로그인한 뒤 다시 보내세요.`);
+      }
       return {
         success: true,
         // 이미 원하는 재고인 옵션은 보낼 것이 없었을 뿐 끝난 일이다.
@@ -1566,7 +1675,7 @@
         requestOnly: false,
         warnings,
         ...(shown ? { listShown } : {}),
-        ...(stoppedAt !== null ? { stopped: "rate_limited" } : {}),
+        ...(stoppedAt !== null ? { stopped: "rate_limited" } : loggedOutAt !== null ? { stopped: "logged_out" } : {}),
       };
     }
 
@@ -1581,6 +1690,11 @@
         },
         body: params.toString(),
       });
+      // 로그인 화면으로 넘어갔으면 받은 것이 아니다.
+      const landed = String(response.url || "");
+      if (landed && (!landed.startsWith(origin) || /login/i.test(landed))) {
+        return { status: response.status, accepted: false, failed: true, loggedOut: true };
+      }
       return readAnswer(response.status, await response.text().catch(() => ""));
     }
 
@@ -1593,7 +1707,9 @@
       let created = false;
       try {
         const open = await chromeApi.tabs.query({ url: `${spec.origin}/*` }).catch(() => []);
+        // 우리가 다른 일로 연 탭은 빌리지 않는다 — 그 일이 끝나면 닫혀서, 빌린 쪽이 보내는 도중에 탭을 잃는다.
         const reusable = (open || []).find((tab) => tab && tab.status === "complete"
+          && !ownedTabs.has(tab.id)
           && String(tab.url || "").startsWith(spec.origin)
           && !/login|signin|auth/i.test(String(tab.url || "")));
         if (reusable) {
@@ -1602,6 +1718,7 @@
           const tab = await chromeApi.tabs.create({ url: pageUrl, active: false });
           tabId = tab.id;
           created = true;
+          ownedTabs.add(tabId);
           const waited = await waitForTabComplete(tabId).catch(() => undefined);
           await sleep(waited ? 1200 : 2500);
           const current = await chromeApi.tabs.get(tabId).catch(() => null);
@@ -1622,7 +1739,10 @@
         };
         return await work(run);
       } finally {
-        if (created && tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
+        if (created && tabId !== null) {
+          ownedTabs.delete(tabId);
+          await chromeApi.tabs.remove(tabId).catch(() => undefined);
+        }
       }
     }
 
@@ -1696,7 +1816,13 @@
           warnings.push(`${spec.label}이 재고 변경을 받지 않았습니다(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
           return null;
         }
-        sent += targets.length;
+        // 몰이 받은 건수를 주면 그만큼만 보낸 것으로 센다(없으면 묶음 전체).
+        const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+        sent += counted ?? targets.length;
+        if (counted !== null && counted < targets.length) {
+          failed += targets.length - counted;
+          warnings.push(`${spec.label}이 ${targets.length}건 중 ${counted}건만 바꿨다고 답했습니다.`);
+        }
         // 다시 읽어 재고가 바뀐 상품을 센다.
         for (const product of targets) {
           await sleep(WING_PRODUCT_PACE_MS);
@@ -1803,8 +1929,17 @@
           failed += sets;
           warnings.push(`세트상품 ${sets}개는 ${spec.label} 화면도 판매상태를 바꾸지 못하게 막아 보내지 않았습니다.`);
         }
-        const targets = found.filter((no) => !before.rows.get(no).set && before.rows.get(no).selling !== resume);
-        already += found.length - sets - targets.length;
+        const unknown = found.filter((no) => !before.rows.get(no).set
+          && (before.rows.get(no).selling === null || before.rows.get(no).display === null)).length;
+        if (unknown > 0) {
+          failed += unknown;
+          warnings.push(`${unknown}건은 ${spec.label} 상품목록에서 판매 · 진열 상태를 읽지 못해 보내지 않았습니다.`);
+        }
+        const known = found.filter((no) => !before.rows.get(no).set
+          && before.rows.get(no).selling !== null && before.rows.get(no).display !== null);
+        const targets = known.filter((no) => before.rows.get(no).selling !== resume);
+        already += known.length - targets.length;
+        const accepted = [];
         for (let start = 0; start < targets.length; start += api.pageSize) {
           const group = targets.slice(start, start + api.pageSize);
           // 버튼이 만드는 모양 그대로(jQuery 가 {product_no, change, state, market} 을 펼친 순서).
@@ -1828,11 +1963,13 @@
             continue;
           }
           sent += group.length;
+          accepted.push(...group);
           await sleep(PACE_MS);
         }
         if (sent === 0) return null;
         const after = await readCafe24Rows(spec, run);
-        if (after.rows) confirmed += targets.filter((no) => after.rows.get(no)?.selling === resume).length;
+        // 받아들여진 것만 확인으로 센다 — 거절된 묶음이 다른 까닭으로 원하는 상태여도 보낸 수를 넘기지 않는다.
+        if (after.rows) confirmed += accepted.filter((no) => after.rows.get(no)?.selling === resume).length;
         else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품목록에서 확인하세요.`);
         return null;
       });
@@ -1853,12 +1990,18 @@
       let confirmed = 0;
       let already = 0;
       let missing = 0;
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         for (let index = 0; index < codes.length; index += 1) {
           const code = codes[index];
           if (index > 0) await sleep(PACE_MS);
           const row = await run(kkomangseRowOnPage, [api.viewPath, code]);
-          if (row?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (row?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = codes.length - index;
+            return null;
+          }
           if (!row?.found) {
             if (row?.error) {
               failed += 1;
@@ -1872,6 +2015,12 @@
           const soldOut = String(row.stock).trim() !== "" && Number(row.stock) === 0;
           if (resume ? !soldOut : soldOut) {
             already += 1;
+            continue;
+          }
+          // 노출 · 재고관리 칸을 못 읽었으면 보내지 않는다 — 빈 값을 실으면 노출이 꺼지거나 KC 정보가 지워질 수 있다.
+          if (!["Y", "N"].includes(row.view) || !["Y", "N"].includes(row.stockControl)) {
+            failed += 1;
+            warnings.push(`${code}: ${spec.label} 설정 화면에서 노출 · 재고관리 값을 읽지 못해 보내지 않았습니다.`);
             continue;
           }
           // [개별수정]이 모으는 모양 그대로 — 지금 값을 싣고 재고만 바꾼다.
@@ -1905,6 +2054,7 @@
         failed += missing;
         warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
       }
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -1923,12 +2073,18 @@
       let already = 0;
       let missing = 0;
       let withOptions = 0;
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         for (let index = 0; index < codes.length; index += 1) {
           const code = codes[index];
           if (index > 0) await sleep(PACE_MS);
           const form = await run(teacherBatchFormOnPage, [api.batchPath, code]);
-          if (form?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (form?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = codes.length - index;
+            return null;
+          }
           if (!form?.found) {
             if (form?.error) {
               failed += 1;
@@ -1983,6 +2139,7 @@
       if (withOptions > 0) {
         warnings.push(`옵션이 여럿인 상품 ${withOptions}개는 옵션마다 재고라 보내지 않았습니다 — ${spec.label}에서 옵션 재고를 고쳐 주세요.`);
       }
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -1997,6 +2154,8 @@
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
           const form = await run(teacherBatchFormOnPage, [spec.batchStock.batchPath, products[index]]);
           if (form?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          // 화면을 못 읽은 것(HTTP 오류)은 "없음"이 아니다 — 칸이 "찾지 못했습니다"로 거짓말하지 않게 실패로 돌려준다.
+          if (form?.error) return { success: false, error: `${spec.label} 화면을 읽지 못했습니다(${form.error}).` };
           if (!form?.found || form.stocks.length === 0) {
             missing.push(products[index]);
             continue;
@@ -2027,6 +2186,7 @@
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
           const row = await run(kkomangseRowOnPage, [spec.directChange.viewPath, products[index]]);
           if (row?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (row?.error) return { success: false, error: `${spec.label} 설정 화면을 읽지 못했습니다(${row.error}).` };
           if (!row?.found) {
             missing.push(products[index]);
             continue;
@@ -2101,6 +2261,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         if (products.length === 0) return null;
         const before = await readLotteonRows(spec, run, products);
@@ -2112,13 +2275,26 @@
           failed += missing;
           warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
         }
-        const locked = found.filter((no) => !["SALE", "SOUT"].includes(before.rows.get(no).slStatCd)).length;
-        if (locked > 0) {
-          failed += locked;
-          warnings.push(`${locked}건은 ${spec.label}이 판매중지 · 판매종료한 상품이라 바꾸지 않았습니다.`);
+        // 판매중지(STP) · 판매종료(END)는 이미 못 산다 — 품절로는 이미 된 것이고, 판매 재개로는 풀지 않는다.
+        const locked = found.filter((no) => !["SALE", "SOUT"].includes(before.rows.get(no).slStatCd));
+        if (resume && locked.length > 0) {
+          failed += locked.length;
+          warnings.push(`${locked.length}건은 ${spec.label}이 판매중지 · 판매종료한 상품이라 풀지 않았습니다.`);
         }
-        const targets = found.filter((no) => before.rows.get(no).slStatCd === from);
-        already += found.length - locked - targets.length;
+        if (!resume) already += locked.length;
+        let targets = found.filter((no) => before.rows.get(no).slStatCd === from);
+        // 상품 조회는 바꾼 직후 옛 판매상태를 섞어 준다 — "이미 원하는 상태"로 보인 것은 잠시 뒤 다시 읽어, 사실은 아직
+        // 옛 상태면 보낼 대상에 넣는다(방금 품절한 상품을 바로 재개할 때 옛 SALE 을 보고 건너뛰지 않게).
+        let settled = found.filter((no) => before.rows.get(no).slStatCd === wanted);
+        for (let attempt = 0; attempt < LOTTEON_SETTLE_TIMES && settled.length > 0; attempt += 1) {
+          await sleep(LOTTEON_RECHECK_MS);
+          const again = await readLotteonRows(spec, run, settled);
+          if (!again.rows) break;
+          const flipped = settled.filter((no) => again.rows.get(no)?.slStatCd === from);
+          targets = [...targets, ...flipped];
+          settled = settled.filter((no) => !flipped.includes(no));
+        }
+        already += settled.length;
         for (let start = 0; start < targets.length; start += api.batchSize) {
           const group = targets.slice(start, start + api.batchSize);
           // 팝업이 만드는 모양 그대로 — 상품정보일괄수정이 넘긴 줄 값에 팝업이 고른 판매상태를 얹는다.
@@ -2139,19 +2315,24 @@
             };
           });
           const answer = await run(lotteonPostOnPage, [`${api.api}${api.updatePath}`, params, false], "MAIN");
-          if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = targets.length - start;
+            return null;
+          }
           if (answer?.status !== 200 || (answer.json?.returnCode && answer.json.returnCode !== "SUCCESS")) {
             failed += group.length;
             const reason = answer?.json?.message ? `: ${String(answer.json.message).slice(0, 120)}` : "";
             warnings.push(`${spec.label}이 판매상태 변경을 받지 않았습니다(HTTP ${answer?.status ?? 0})${reason}.`);
             continue;
           }
+          // 받은 수는 몰이 말한 성공 수, 나머지는 전부 실패다 — 성공 · 실패 수의 합이 묶음과 달라도 빠지는 상품이 없다.
           const counts = lotteonBatchCounts(answer.json);
-          const ok = counts?.successCnt ?? group.length - (counts?.failCnt ?? 0);
-          sent += Math.max(0, Math.min(ok, group.length));
-          if (counts && counts.failCnt > 0) {
-            failed += Math.min(counts.failCnt, group.length);
-            warnings.push(`${spec.label}이 ${group.length}건 중 ${counts.failCnt}건을 바꾸지 않았다고 답했습니다.`);
+          const ok = Math.max(0, Math.min(counts?.successCnt ?? group.length - (counts?.failCnt ?? 0), group.length));
+          sent += ok;
+          if (ok < group.length) {
+            failed += group.length - ok;
+            warnings.push(`${spec.label}이 ${group.length}건 중 ${group.length - ok}건을 바꾸지 않았다고 답했습니다.`);
           }
           await sleep(PACE_MS);
         }
@@ -2168,12 +2349,14 @@
         if (seen === null) {
           warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 조회/수정에서 확인하세요.`);
         } else {
-          confirmed += seen;
+          // 몰이 받았다고 한 수를 넘겨 확인으로 세지 않는다.
+          confirmed += Math.min(seen, sent);
           if (seen < sent) warnings.push(`${spec.label} 상품 조회가 아직 옛 상태를 보여 줍니다 — 잠시 뒤 다시 확인하세요.`);
         }
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -2206,6 +2389,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         if (products.length === 0) return null;
         const before = await readIcecreamRows(spec, run, products);
@@ -2217,13 +2403,15 @@
           failed += missing;
           warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
         }
+        // 판매종료(40)는 이미 못 산다 — 품절로는 이미 된 것이고, 판매 재개로는 되살리지 않는다.
         const ended = found.filter((no) => !["10", "20"].includes(before.rows.get(no).saleStatCd)).length;
-        if (ended > 0) {
+        if (resume && ended > 0) {
           failed += ended;
-          warnings.push(`${ended}건은 ${spec.label}에서 판매종료된 상품이라 바꾸지 않았습니다.`);
+          warnings.push(`${ended}건은 ${spec.label}에서 판매종료된 상품이라 되살리지 않았습니다.`);
         }
+        if (!resume) already += ended;
         const movable = found.filter((no) => before.rows.get(no).saleStatCd === from);
-        already += found.length - ended - movable.length;
+        already += found.filter((no) => before.rows.get(no).saleStatCd === wanted).length;
         // 예약상품이 품절이면 창이 판매중을 고르지 못하게 숨긴다 — 화면이 못 하는 것은 하지 않는다.
         const reserved = resume ? movable.filter((no) => before.rows.get(no).saleMethCd === "20") : [];
         if (reserved.length > 0) {
@@ -2239,6 +2427,7 @@
           groups.get(method).push(no);
         }
         const accepted = [];
+        let processed = 0;
         for (const group of groups.values()) {
           for (let start = 0; start < group.length; start += api.batchSize) {
             const slice = group.slice(start, start + api.batchSize);
@@ -2251,7 +2440,12 @@
               saleStatChgCausCd: null,
             }));
             const answer = await run(icecreamSaveOnPage, [api.savePath, list]);
-            if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            if (answer?.loggedOut) {
+              halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+              left = targets.length - processed;
+              return null;
+            }
+            processed += slice.length;
             if (answer?.status !== 200 || answer.succeeded !== true) {
               failed += slice.length;
               const reason = answer?.message ? `: ${answer.message}` : "";
@@ -2283,6 +2477,7 @@
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -2323,6 +2518,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         if (products.length === 0) return null;
         const before = await readKidsnoteRows(spec, run, products, true);
@@ -2338,11 +2536,13 @@
           failed += missing;
           warnings.push(`${missing}건은 ${spec.label} 상품목록에서 찾지 못했습니다.`);
         }
+        // 숨김은 이미 못 산다 — 품절로는 이미 된 것이고, 판매 재개로는 풀지 않는다(사장님이 숨긴 상품).
         const hidden = found.filter((no) => ![from, wanted].includes(before.rows.get(no).stat)).length;
-        if (hidden > 0) {
+        if (resume && hidden > 0) {
           failed += hidden;
-          warnings.push(`${hidden}건은 ${spec.label}에서 숨김(또는 다른 상태)이라 바꾸지 않았습니다.`);
+          warnings.push(`${hidden}건은 ${spec.label}에서 숨김(또는 다른 상태)이라 풀지 않았습니다.`);
         }
+        if (!resume) already += hidden;
         const targets = found.filter((no) => before.rows.get(no).stat === from);
         already += found.filter((no) => before.rows.get(no).stat === wanted).length;
         const accepted = [];
@@ -2357,7 +2557,11 @@
             return [name, current];
           });
           const answer = await run(kidsnoteSaveOnPage, [api.savePath, pairs]);
-          if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = targets.length - start;
+            return null;
+          }
           if (answer?.alert) answered = answer.alert;
           if (answer?.status !== 200) {
             failed += group.length;
@@ -2389,6 +2593,7 @@
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -2436,6 +2641,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         const siteNos = [...bySite.keys()];
         if (siteNos.length === 0) return null;
@@ -2454,15 +2662,18 @@
           warnings.push(`${combined.length}건은 지마켓 · 옥션 통합상품이라 보내지 않았습니다 — ESM 에서 사이트를 골라 바꾸세요.`);
         }
         const single = found.filter((no) => !combined.includes(no));
+        // 판매불가(22) · SKU품절(31) · 등록대기(01)는 이미 못 산다 — 품절로는 이미 된 것이고, 판매 재개로는 화면도 못 바꾼다.
         const locked = single.filter((no) => ![from, wanted].includes(before.items.get(no).sellStatus[site])).length;
-        if (locked > 0) {
+        if (resume && locked > 0) {
           failed += locked;
-          warnings.push(`${locked}건은 판매불가 · SKU품절 · 등록대기라 ${spec.label} 화면도 판매상태를 못 바꿉니다.`);
+          warnings.push(`${locked}건은 판매불가 · SKU품절 · 등록대기라 ${spec.label} 화면도 판매가능으로 못 바꿉니다.`);
         }
+        if (!resume) already += locked;
         const targets = single.filter((no) => before.items.get(no).sellStatus[site] === from);
         already += single.filter((no) => before.items.get(no).sellStatus[site] === wanted).length;
         const accepted = [];
-        for (const no of targets) {
+        for (let index = 0; index < targets.length; index += 1) {
+          const no = targets[index];
           const item = before.items.get(no);
           // 창이 만드는 모양 그대로 — 그 사이트 판매 여부 하나, 머리에는 사이트별 판매자 아이디(없으면 빈 값).
           const answer = await run(esmSellStatusOnPage, [
@@ -2471,9 +2682,15 @@
             { isSell: { [site]: resume } },
             { gmkt: encodeURIComponent(item.siteSellerId.gmkt ?? ""), iac: encodeURIComponent(item.siteSellerId.iac ?? "") },
           ]);
-          if (answer?.loggedOut) return { success: false, error: `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.loggedOut) {
+            halt = `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = targets.length - index;
+            return null;
+          }
+          // 화면(createResultModel)처럼 사이트 결과 0 · 5300 이 성공이고, 최상위 5300(노출 제한 안내)도 성공이다.
           const siteResult = answer?.[site];
-          const ok = answer?.status === 200 && (answer.resultCode === 5300 || siteResult?.resultCode === 0);
+          const ok = answer?.status === 200
+            && (answer.resultCode === 5300 || siteResult?.resultCode === 0 || siteResult?.resultCode === 5300);
           if (ok) {
             sent += 1;
             accepted.push(no);
@@ -2504,6 +2721,7 @@
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -2536,6 +2754,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         if (products.length === 0) return null;
         const before = await readSt11Rows(spec, run, products);
@@ -2565,20 +2786,19 @@
             warnings.push(`${other}건은 ${spec.label}에서 판매중지가 아니라(품절 · 전시전 등) 풀 것이 없습니다.`);
           }
         } else {
+          // 판매중(103)만 멈춘다. 품절(104, 재고 0) · 판매중지(105) · 전시전(102) · 승인대기(101)는 이미 못 산다.
           targets = found.filter((no) => stat(no) === "103");
-          // 품절(104, 재고 0)과 판매중지(105)는 이미 못 산다.
-          already += found.filter((no) => ["104", "105"].includes(stat(no))).length;
-          const other = found.filter((no) => !["103", "104", "105"].includes(stat(no))).length;
-          if (other > 0) {
-            failed += other;
-            warnings.push(`${other}건은 ${spec.label}에서 판매중이 아니라(전시전 · 승인대기 등) 멈추지 않았습니다.`);
-          }
+          already += found.length - targets.length;
         }
         const accepted = [];
         for (let start = 0; start < targets.length; start += api.batchSize) {
           const group = targets.slice(start, start + api.batchSize);
           const answer = await run(st11SaveOnPage, [api.savePath, mode, group]);
-          if (answer?.loggedOut) return { success: false, error: `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.loggedOut) {
+            halt = `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = targets.length - start;
+            return null;
+          }
           if (answer?.status !== 200 || answer.msg !== "SAVE_OK") {
             failed += group.length;
             const said = answer?.alert || answer?.msg || answer?.error || `HTTP ${answer?.status ?? 0}`;
@@ -2612,6 +2832,7 @@
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
@@ -2660,6 +2881,9 @@
       let sent = 0;
       let confirmed = 0;
       let already = 0;
+      // 보내는 도중 로그인이 풀리면 멈춘 까닭과 못 보낸 건수(이미 보낸 것은 버리지 않는다).
+      let halt = null;
+      let left = 0;
       const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
         if (products.length === 0) return null;
         const before = await readSmartstoreRows(spec, run, products);
@@ -2682,14 +2906,9 @@
             warnings.push(`${other}건은 ${spec.label}에서 판매중지가 아니라(품절 · 판매대기 · 판매종료 등) 풀 것이 없습니다.`);
           }
         } else {
+          // 판매중(SALE)만 멈춘다. 품절(재고 0) · 판매중지 · 판매대기 · 판매종료 · 판매금지는 이미 못 산다.
           targets = found.filter((code) => stat(code) === "SALE");
-          // 품절(재고 0)과 판매중지는 이미 못 산다.
-          already += found.filter((code) => ["OUTOFSTOCK", "SUSPENSION"].includes(stat(code))).length;
-          const other = found.filter((code) => !["SALE", "OUTOFSTOCK", "SUSPENSION"].includes(stat(code))).length;
-          if (other > 0) {
-            failed += other;
-            warnings.push(`${other}건은 ${spec.label}에서 판매중이 아니라(판매대기 · 판매종료 등) 멈추지 않았습니다.`);
-          }
+          already += found.length - targets.length;
         }
         // 원상품번호로 보낸다. 같은 원상품을 가리키는 코드가 여럿이면 한 번만.
         const origin = new Map();
@@ -2698,12 +2917,17 @@
         const accepted = [];
         for (let start = 0; start < originNos.length; start += api.batchSize) {
           const group = originNos.slice(start, start + api.batchSize);
+          // 화면 목록의 번호처럼 숫자로 싣는다(원상품번호는 안전한 정수 범위다).
           const answer = await run(smartstoreApiOnPage, ["status", api.updatePath, {
-            productNos: group,
+            productNos: group.map((no) => (/^\d{1,15}$/.test(no) ? Number(no) : no)),
             productStatusType: wanted,
             productBulkUpdateType: wanted,
           }], "MAIN");
-          if (answer?.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.loggedOut) {
+            halt = `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = originNos.length - start;
+            return null;
+          }
           if (answer?.state !== "STARTED") {
             failed += group.length;
             const said = answer?.state === "ALREADY_PROGRESS"
@@ -2719,7 +2943,14 @@
           for (const waitMs of SMARTSTORE_PROGRESS_WAITS_MS) {
             await sleep(waitMs);
             const progress = await run(smartstoreApiOnPage, ["progress", api.progressPath, null], "MAIN");
-            if (progress?.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            if (progress?.loggedOut) {
+              // 일괄변경은 이미 시작됐다 — 이 묶음은 보낸 것으로 두고(확인은 못 함) 멈춘다.
+              sent += group.length;
+              accepted.push(...group.map((no) => origin.get(no)));
+              halt = `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+              left = originNos.length - start - group.length;
+              return null;
+            }
             if (progress?.completed === true) {
               result = progress;
               break;
@@ -2737,7 +2968,15 @@
             warnings.push(`${spec.label}: ${result.errorMessage}`);
             continue;
           }
-          const ok = Array.isArray(result.successIds) ? group.filter((no) => result.successIds.includes(no)) : group;
+          // 결과에는 작업 번호가 없다 — 우리 묶음 번호가 하나도 없으면 다른 작업의 결과로 보고 목록으로 확인한다.
+          const successIds = Array.isArray(result.successIds) ? result.successIds.map(String) : null;
+          if (successIds && !group.some((no) => successIds.includes(String(no)))) {
+            warnings.push(`${spec.label} 일괄변경 결과가 이 묶음과 맞지 않아 목록을 다시 읽어 확인합니다.`);
+            accepted.push(...group.map((no) => origin.get(no)));
+            sent += group.length;
+            continue;
+          }
+          const ok = successIds ? group.filter((no) => successIds.includes(String(no))) : group;
           sent += ok.length;
           accepted.push(...ok.map((no) => origin.get(no)));
           if (ok.length < group.length) {
@@ -2772,7 +3011,141 @@
         return null;
       });
       if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 키드키즈 한 줄을 상품코드 검색으로 읽는다. 로그인이 풀렸으면 { loggedOut }. */
+    async function readKidkidsRow(spec, run, code) {
+      return run(kidkidsRowOnPage, [spec.useFlag.listPath, code]);
+    }
+
+    /**
+     * 키드키즈 일시품절 / 품절해제. 상품마다 코드로 검색해 그 줄의 "품절상품" 칸을 읽고, [일시품절] · [품절해제]처럼 목록 폼을
+     * 보낸 뒤 같은 검색으로 다시 읽어 확인한다.
+     */
+    async function sendByKidkidsUseFlag(spec, codes, resume) {
+      const api = spec.useFlag;
+      const wanted = resume ? "판매" : "품절";
+      const from = resume ? "품절" : "판매";
+      const warnings = [];
+      const products = [...new Set(codes)].filter((code) => /^\d{3,10}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품코드 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const notFound = [];
+      const other = [];
+      const noTax = [];
+      const accepted = [];
+      let halt = null;
+      let left = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        for (let index = 0; index < products.length; index += 1) {
+          const code = products[index];
+          if (index > 0) await sleep(PACE_MS);
+          const row = await readKidkidsRow(spec, run, code);
+          if (row?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = products.length - index;
+            return null;
+          }
+          if (row?.error) {
+            failed += 1;
+            warnings.push(`${code}: ${spec.label} 목록을 읽지 못했습니다(${row.error}).`);
+            continue;
+          }
+          if (!row?.found) {
+            failed += 1;
+            notFound.push(code);
+            continue;
+          }
+          // 판매 재개는 품절 → 판매, 품절은 판매 → 품절. 품절이면 이미 못 사고, 그 밖의 글자는 건드리지 않는다.
+          if (row.word === wanted) {
+            already += 1;
+            continue;
+          }
+          if (row.word !== from) {
+            failed += 1;
+            other.push(`${code}(${row.word || "?"})`);
+            continue;
+          }
+          if (!row.taxType) {
+            // 화면도 막는다(chkTaxFlag: "세금 구분이 미 등록된 상품이 있습니다").
+            failed += 1;
+            noTax.push(code);
+            continue;
+          }
+          const pairs = row.pairs.map(([name, value]) => {
+            if (name === "commitType") return [name, "change_use_flag"];
+            if (name === "use_flag") return [name, resume ? "Y" : "N"];
+            return [name, value];
+          });
+          const answer = await run(kidkidsSaveOnPage, [api.savePath, pairs]);
+          if (answer?.loggedOut) {
+            halt = `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+            left = products.length - index;
+            return null;
+          }
+          if (answer?.status !== 200) {
+            failed += 1;
+            warnings.push(`${code}: ${spec.label}이 받지 않았습니다(${answer?.error || `HTTP ${answer?.status ?? 0}`}).`);
+            continue;
+          }
+          sent += 1;
+          accepted.push(code);
+          if (answer.alert && /실패|오류|권한|불가|없습니다/.test(answer.alert)) warnings.push(`${code}: ${spec.label} 답 "${answer.alert}"`);
+        }
+        // 다시 검색해 확인한다(같은 탭에서).
+        let pending = [...accepted];
+        for (let attempt = 0; attempt <= MARKET_RECHECK_TIMES && pending.length > 0; attempt += 1) {
+          if (attempt > 0) await sleep(MARKET_RECHECK_MS);
+          const still = [];
+          for (const code of pending) {
+            const row = await readKidkidsRow(spec, run, code);
+            if (row?.found && row.word === wanted) confirmed += 1;
+            else still.push(code);
+          }
+          pending = still;
+        }
+        if (pending.length > 0) {
+          warnings.push(`${spec.label} 목록이 ${pending.length}건을 아직 옛 상태로 보여 줍니다 — 상품관리에서 확인하세요.`);
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (notFound.length > 0) warnings.push(`${notFound.length}건은 ${spec.label}에서 찾지 못했습니다.`);
+      if (other.length > 0) warnings.push(`${other.length}건은 ${spec.label}에서 ${from}이 아니라 바꾸지 않았습니다: ${other.slice(0, 5).join(", ")}`);
+      if (noTax.length > 0) warnings.push(`${noTax.length}건은 ${spec.label} 세금 구분이 미등록이라 화면도 바꾸지 못합니다: ${noTax.slice(0, 5).join(", ")}`);
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 키드키즈 지금 상태 — 상품마다 코드 검색. 품절이면 0, 판매면 모름(null). 읽기만 한다. */
+    async function readByKidkidsUseFlag(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{3,10}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품코드가 없습니다.` };
+      const found = [];
+      const missing = [];
+      const halted = await withSellerPage(spec, spec.useFlag.pageUrl, async (run) => {
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(KIDSNOTE_PAGE_PACE_MS);
+          const code = products[index];
+          const row = await readKidkidsRow(spec, run, code);
+          if (row?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (row?.error) return { success: false, error: `${spec.label} 목록을 읽지 못했습니다(${row.error}).` };
+          if (!row?.found) {
+            missing.push(code);
+            continue;
+          }
+          const selling = row.word === "판매";
+          found.push({ code, options: [{ optionCode: code, stock: selling ? null : 0, rocket: false, ...(selling ? {} : { state: row.word || "품절" }) }] });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
     }
 
     /**
@@ -2807,7 +3180,8 @@
       // [상태/노출일괄수정]의 [확인], 지마켓 · 옥션은 ESM [판매 상태 변경], 11번가는 [판매중지] · [판매중지 해제] 확인 창,
       // 스마트스토어는 판매상태 변경과 같은 요청이다.
       if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock
-        || spec.goodsSaleState || spec.stateBatch || spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus) {
+        || spec.goodsSaleState || spec.stateBatch || spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus
+        || spec.useFlag) {
         try {
           if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
           if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
@@ -2819,6 +3193,7 @@
           if (spec.esmSellStatus) return await sendByEsmSellStatus(spec, codes, resume);
           if (spec.st11SellStatus) return await sendBySt11SellStatus(spec, codes, resume);
           if (spec.naverStatus) return await sendBySmartstoreStatus(spec, codes, resume);
+          if (spec.useFlag) return await sendByKidkidsUseFlag(spec, codes, resume);
           return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
@@ -2842,6 +3217,7 @@
       if (spec.post) {
         const body = resume ? spec.post.resumeBody(codes) : spec.post.body(codes);
         const answer = await postForm(spec.origin, spec.post.path, Object.entries(body));
+        if (answer.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
         if (answer.accepted) sent.push(...codes);
         else failed.push(...codes);
         if (spec.requestOnly) {
@@ -2856,59 +3232,7 @@
         };
       }
 
-      const targets = spec.perCode ? codes.map((code) => [code]) : [codes];
-      let tabId = null;
-      try {
-        for (const group of targets) {
-          const url = `${spec.origin}${spec.listPath(group[0])}`;
-          if (tabId === null) {
-            const tab = await interactiveTabs.createTab({ url, reason: tabReason });
-            tabId = tab.id;
-          } else {
-            await chromeApi.tabs.update(tabId, { url });
-          }
-          const waited = await waitForTabComplete(tabId).catch(() => undefined);
-          await sleep(waited ? 900 : 2200);
-
-          const injected = await chromeApi.scripting.executeScript({
-            target: { tabId },
-            func: collectFormOnPage,
-            args: [{
-              formName: spec.form,
-              set: resume ? spec.resumeSet || [] : spec.set || [],
-              hidden: (resume ? spec.resumeHidden : spec.hidden) || {},
-              rowKey: spec.rowKey,
-              codes: group,
-            }],
-          });
-          const outcome = (injected || []).map((entry) => entry?.result).find(Boolean);
-          if (!outcome?.ok) {
-            failed.push(...group);
-            if (outcome?.error) warnings.push(`${group[0]}: ${outcome.error}`);
-            continue;
-          }
-
-          const answer = await postForm(spec.origin, spec.action, outcome.pairs, spec.encoding);
-          if (answer.accepted) sent.push(...outcome.matched);
-          else failed.push(...outcome.matched);
-          await sleep(PACE_MS);
-        }
-      } finally {
-        // 우리가 연 탭은 우리가 닫는다. 한 몰에 한 탭이고, 실패해도 닫는다.
-        if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
-      }
-
-      const notFound = codes.filter((code) => !sent.includes(code) && !failed.includes(code));
-      if (notFound.length > 0) {
-        warnings.push(`${notFound.length}건은 그 몰 화면에 없었습니다.`);
-      }
-      return {
-        success: true,
-        sent: sent.length,
-        failed: failed.length + notFound.length,
-        requestOnly: false,
-        warnings,
-      };
+      return { success: false, error: `품절 경로를 아는 몰이 아닙니다: ${mallKey}` };
     }
 
     /**
@@ -2933,6 +3257,11 @@
             if (read.rateLimited) {
               return { success: false, error: `${spec.label}이 요청을 잠시 막았습니다(HTTP 429). 몇 분 뒤 다시 확인하세요.` };
             }
+            missing.push(products[index]);
+            continue;
+          }
+          // 옵션 목록이 비어 오면 모른다 — 빈 목록을 돌려주면 칸이 로켓그로스로 읽는다.
+          if (read.items.length === 0) {
             missing.push(products[index]);
             continue;
           }
@@ -3014,7 +3343,8 @@
         if (!read.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${read.error}).` };
         found = products.filter((no) => read.rows.has(no)).map((no) => ({
           code: no,
-          options: [{ optionCode: no, stock: read.rows.get(no).selling ? null : 0, rocket: false }],
+          // 판매안함만 품절(0)이다. 판매 상태를 못 읽었으면(null) 모른다 — 품절로 단정하지 않는다.
+          options: [{ optionCode: no, stock: read.rows.get(no).selling === false ? 0 : null, rocket: false }],
         }));
         missing = products.filter((no) => !read.rows.has(no));
         return null;
@@ -3038,7 +3368,7 @@
         if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
         found = products.filter((no) => read.rows.has(no)).map((no) => ({
           code: no,
-          options: [{ optionCode: no, stock: read.rows.get(no).slStatCd === "SALE" ? null : 0, rocket: false }],
+          options: [lotteonOption(no, read.rows.get(no).slStatCd)],
         }));
         missing = products.filter((no) => !read.rows.has(no));
         return null;
@@ -3062,7 +3392,7 @@
         if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
         found = products.filter((no) => read.rows.has(no)).map((no) => ({
           code: no,
-          options: [{ optionCode: no, stock: read.rows.get(no).saleStatCd === "10" ? null : 0, rocket: false }],
+          options: [flagOption(no, read.rows.get(no).saleStatCd === "10", { 20: "품절", 40: "판매종료" }[read.rows.get(no).saleStatCd])],
         }));
         missing = products.filter((no) => !read.rows.has(no));
         return null;
@@ -3086,7 +3416,7 @@
         if (!read.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${read.error}).` };
         found = products.filter((no) => read.rows.has(no)).map((no) => ({
           code: no,
-          options: [{ optionCode: no, stock: read.rows.get(no).stat === "정상" ? null : 0, rocket: false }],
+          options: [flagOption(no, read.rows.get(no).stat === "정상", read.rows.get(no).stat)],
         }));
         missing = products.filter((no) => !read.rows.has(no));
         return null;
@@ -3116,23 +3446,34 @@
           const read = await readEsmItems(spec, run, [...bySite.keys()]);
           if (read.loggedOut) return { success: false, error: `${spec.label}(ESM) 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
           if (!read.items) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
-          selling = new Map([...bySite].filter(([siteNo]) => read.items.has(siteNo))
-            .map(([siteNo, code]) => [code, read.items.get(siteNo).sellStatus[spec.esmSellStatus.site] === "11"]));
+          const esmWords = { 21: "판매중지", 22: "판매불가", 31: "SKU품절", "01": "등록대기" };
+          selling = new Map([...bySite].filter(([siteNo]) => read.items.has(siteNo)).map(([siteNo, code]) => {
+            const stat = read.items.get(siteNo).sellStatus[spec.esmSellStatus.site];
+            return [code, stat === "11" ? true : esmWords[stat] || "판매중지"];
+          }));
         } else if (spec.st11SellStatus) {
           const read = await readSt11Rows(spec, run, valid);
           if (read.loggedOut) return { success: false, error: `${spec.label} 셀러오피스 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
           if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
-          selling = new Map(valid.filter((code) => read.rows.has(code)).map((code) => [code, read.rows.get(code).selStatCd === "103"]));
+          const st11Words = { 101: "승인대기", 102: "전시전", 104: "품절", 105: "판매중지" };
+          selling = new Map(valid.filter((code) => read.rows.has(code)).map((code) => {
+            const stat = read.rows.get(code).selStatCd;
+            return [code, stat === "103" ? true : st11Words[stat] || "판매중지"];
+          }));
         } else {
           const read = await readSmartstoreRows(spec, run, valid);
           if (read.loggedOut) return { success: false, error: `${spec.label}센터 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
           if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
-          selling = new Map(valid.filter((code) => read.rows.has(code))
-            .map((code) => [code, read.rows.get(code).productStatusType === "SALE"]));
+          const naverWords = { OUTOFSTOCK: "품절", SUSPENSION: "판매중지", WAIT: "판매대기", CLOSE: "판매종료", PROHIBITION: "판매금지" };
+          selling = new Map(valid.filter((code) => read.rows.has(code)).map((code) => {
+            const stat = read.rows.get(code).productStatusType;
+            return [code, stat === "SALE" ? true : naverWords[stat] || "판매중지"];
+          }));
         }
+        // 판매중이면 true, 아니면 그 몰의 상태 글자(판매중지 · 품절 · 판매종료 …) — 칸이 몰의 말 그대로 적는다.
         found = valid.filter((code) => selling.has(code)).map((code) => ({
           code,
-          options: [{ optionCode: code, stock: selling.get(code) ? null : 0, rocket: false }],
+          options: [flagOption(code, selling.get(code) === true, selling.get(code) === true ? null : selling.get(code))],
         }));
         missing = valid.filter((code) => !selling.has(code));
         return null;
@@ -3147,7 +3488,7 @@
       const spec = SPECS[mallKey];
       if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
         && !spec?.directChange && !spec?.batchStock && !spec?.goodsSaleState && !spec?.stateBatch && !spec?.esmSellStatus
-        && !spec?.st11SellStatus && !spec?.naverStatus) {
+        && !spec?.st11SellStatus && !spec?.naverStatus && !spec?.useFlag) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -3163,6 +3504,7 @@
         if (spec.goodsSaleState) return await readByIcecreamSaleState(spec, codes);
         if (spec.stateBatch) return await readByKidsnoteState(spec, codes);
         if (spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus) return await readByMarketStatus(spec, codes);
+        if (spec.useFlag) return await readByKidkidsUseFlag(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -3181,7 +3523,8 @@
     READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(
       SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
         || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock || SPECS[key].goodsSaleState
-        || SPECS[key].stateBatch || SPECS[key].esmSellStatus || SPECS[key].st11SellStatus || SPECS[key].naverStatus,
+        || SPECS[key].stateBatch || SPECS[key].esmSellStatus || SPECS[key].st11SellStatus || SPECS[key].naverStatus
+        || SPECS[key].useFlag,
     )),
     SEND_TIMEOUT_MS,
   };

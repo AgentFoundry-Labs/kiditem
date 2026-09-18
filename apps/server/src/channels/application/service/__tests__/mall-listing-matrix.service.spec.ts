@@ -25,6 +25,10 @@ function account(overrides: Partial<MallListingAccountRow> = {}): MallListingAcc
     name: 'Coupang Wing',
     listingCount: 1230,
     productCount: 456,
+    optionCount: 0,
+    matchedOptionCount: 0,
+    onSaleOptionCount: 0,
+    onSaleMatchedOptionCount: 0,
     ...overrides,
   };
 }
@@ -44,6 +48,7 @@ function product(overrides: Partial<MallMatrixProductRow> = {}): MallMatrixProdu
   return {
     masterProductId: 'mp-1',
     code: 'INV-SELLPIA-1',
+    sellpiaCode: null,
     name: '3000샤이닝반짝이풀펜',
     imageUrl: null,
     stock: 120,
@@ -116,6 +121,21 @@ describe('listingMatrix — 열', () => {
 
     const result = await service.listingMatrix(ORG, { page: 1, limit: 25 });
     expect(result.columns.map((column) => column.mallKey)).toEqual(['coupang', 'rocket']);
+  });
+
+  /**
+   * 지마켓 · 옥션 · 11번가는 완전품절이 삭제인 몰이지만 우리 품절 길은 판매중지다 — 칸이 품절 버튼을 막거나 "삭제"로
+   * 경고하지 않는다(2026-09-19 검토에서 발견: 칸에서 품절이 막혀 있었다).
+   */
+  it('완전품절이 삭제인 몰도 우리 판매중지 길이 있으면 칸이 삭제로 막지 않는다', async () => {
+    const service = build({ listingAccounts: [account()], mallAccounts: [mallAccount()] });
+    const result = await service.listingMatrix(ORG, { page: 1, limit: 25, mallKeys: ['gmarket', 'auction', '11st', 'boribori'] });
+    for (const key of ['gmarket', 'auction', '11st']) {
+      const column = result.columns.find((entry) => entry.mallKey === key)!;
+      expect(column.actions.soldOut).toBe(true);
+      expect(column.actions.soldOutDeletesListing).toBe(false);
+      expect(column.actions.soldOutRoute).toBe('mall_admin');
+    }
   });
 
   it('요청한 몰은 리스팅이 없어도 열로 세우고 imported=false 로 표시한다', async () => {
@@ -201,6 +221,7 @@ describe('listingMatrix — 칸', () => {
           externalId: '16290876620',
           category: '완구/취미>물총',
           updatedAt: new Date('2026-09-05T00:00:00.000Z'),
+          storefrontProductId: '196377720',
         }],
       })],
     });
@@ -210,6 +231,8 @@ describe('listingMatrix — 칸', () => {
     expect(cell?.state).toBe('published');
     expect(cell?.rawStatus).toBe('승인완료');
     expect(cell?.externalId).toBe('16290876620');
+    // 쿠팡 매장 상품번호(productId)로 상품 페이지를 연다 — 윙 등록상품ID 가 아니다.
+    expect(cell?.productUrl).toBe('https://www.coupang.com/vp/products/196377720');
     expect(result.rows[0]?.publishedCount).toBe(1);
   });
 
@@ -222,7 +245,7 @@ describe('listingMatrix — 칸', () => {
       matrixProducts: [product({
         listings: [{
           channelAccountId: 'acc-coupang', status: '승인완료',
-          externalId: 'x', category: null, updatedAt: new Date(),
+          externalId: 'x', category: null, updatedAt: new Date(), storefrontProductId: null,
         }],
       })],
     });
@@ -240,7 +263,7 @@ describe('listingMatrix — 칸', () => {
       matrixProducts: [product({
         listings: [{
           channelAccountId: 'acc-coupang', status: '활성',
-          externalId: 'x', category: '문구/사무용품', updatedAt: new Date(),
+          externalId: 'x', category: '문구/사무용품', updatedAt: new Date(), storefrontProductId: null,
         }],
       })],
     });

@@ -24,6 +24,7 @@ import {
   mallInboundSupports,
 } from '../../domain/mall/mall-adapter-manifest';
 import { filledListingProfileFields } from '../../domain/mall/mall-listing-profile';
+import { mallProductUrl } from '../../domain/mall/mall-product-url';
 import {
   evaluateMallPreflight,
   isKcReady,
@@ -84,7 +85,9 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
     soldOut: manifest.supports.soldOut,
     resume: manifest.supports.resume,
     setStock: manifest.supports.setStock !== null,
-    soldOutDeletesListing: manifest.hazards.soldOutDeletesListing,
+    // 완전품절이 삭제인 몰이어도 우리가 그 몰 관리자에 만든 품절 길은 판매중지다(지마켓 · 옥션 · 11번가) — 칸이 삭제로
+    // 경고하거나 품절 버튼을 막지 않게, 우리 길이 있는 몰에서는 이 위험을 켜지 않는다.
+    soldOutDeletesListing: manifest.hazards.soldOutDeletesListing && manifest.soldOutRoute !== 'mall_admin',
     requiresOperatorApproval: manifest.hazards.requiresOperatorApproval,
     soldOutRoute: manifest.soldOutRoute,
   };
@@ -373,6 +376,7 @@ export class MallPublishingService {
           state: resolved.state,
           rawStatus: listing?.status ?? null,
           externalId: listing?.externalId ?? null,
+          productUrl: listing ? mallProductUrl(column.mallKey, listing.externalId, listing.storefrontProductId) : null,
           warning: resolved.warning,
           updatedAt: listing?.updatedAt.toISOString() ?? null,
         } satisfies MallListingMatrixCell;

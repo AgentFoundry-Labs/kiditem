@@ -474,6 +474,7 @@ function MatrixRow({
                   state={state}
                   rawStatus={cell?.rawStatus ?? null}
                   externalId={externalId}
+                  productUrl={cell?.productUrl ?? null}
                   live={liveCell}
                   onRefreshLive={() => (externalId ? live.refresh(column.mallKey, externalId) : Promise.resolve())}
                   onSettleLive={(soldOut) => { if (externalId) live.settle(column.mallKey, externalId, soldOut); }}

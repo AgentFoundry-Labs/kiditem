@@ -79,6 +79,8 @@ export interface MallMatrixListingRow {
   externalId: string;
   category: string | null;
   updatedAt: Date;
+  /** 몰 매장의 상품번호가 몰 상품코드와 다를 때(쿠팡 productId). 가져올 때 받은 값이 없으면 null. */
+  storefrontProductId: string | null;
 }
 
 export interface MallMatrixProductRow {

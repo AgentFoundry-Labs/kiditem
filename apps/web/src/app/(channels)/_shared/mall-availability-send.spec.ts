@@ -4,7 +4,10 @@ import {
   canReadMallAvailability,
   canSendMallAvailability,
   mallReadLagsAfterSend,
+  mallSoldOutNote,
+  mallSoldOutWord,
   readMallAvailability,
+  withObjectParticle,
   sendMallAvailability,
   summarizeLiveAvailability,
   type MallAvailabilitySendResult,
@@ -201,7 +204,7 @@ describe('몰 지금 재고', () => {
     expect(canReadMallAvailability('art09')).toBe(true);
     expect(canReadMallAvailability('icecream-mall')).toBe(true);
     expect(canReadMallAvailability('kidsnote')).toBe(true);
-    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) expect(canReadMallAvailability(mall)).toBe(true);
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore', 'kidkids']) expect(canReadMallAvailability(mall)).toBe(true);
     expect(canReadMallAvailability('domeggook')).toBe(false);
   });
 
@@ -219,6 +222,9 @@ describe('몰 지금 재고', () => {
       expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], mall)).toEqual({ tone: 'sold_out', label: '판매중지' });
     }
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }], 'smartstore')).toEqual({ tone: 'on_sale', label: '판매 가능' });
+    // 몰이 준 상태 글자가 있으면 그대로 적는다 — 11번가 품절(재고 0)은 판매중지가 아니다.
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '품절' }], '11st')).toEqual({ tone: 'sold_out', label: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '판매종료' }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '판매종료' });
   });
 
   it('롯데ON 은 보낸 직후 다시 읽지 않는다 — 조회가 옛 판매상태를 섞어 준다', () => {
@@ -304,6 +310,15 @@ describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 
+  it('키드키즈는 새 방식(상품코드 검색 + change_use_flag)을 아는 확장으로만 보낸다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible', extensionId: 'ext', version: '1.2.19', missingCapabilities: ['mallAvailabilityKidkidsUseFlagV1'],
+    });
+    await expect(sendMallAvailability('kidkids', ['1090904'])).rejects.toThrow(/1\.2\.19.*새로고침/);
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityKidkidsUseFlagV1']);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
   it('새 확장이면 보내고, 다른 몰은 이 확인을 하지 않는다', async () => {
     bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready', extensionId: 'ext', version: '1.2.16' });
     await sendMallAvailability('kkomangse', ['M0450-U7839-J6532']);
@@ -311,5 +326,19 @@ describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
     bridge.detectOrderCollectionExtensionRuntime.mockClear();
     await sendMallAvailability('domeggook', ['12345678']);
     expect(bridge.detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();
+  });
+});
+
+describe('품절 문장', () => {
+  it('판매중지로 보내는 몰은 판매중지라고 말하고, 조사는 받침에 맞춘다', () => {
+    expect(mallSoldOutWord('gmarket')).toBe('판매중지');
+    expect(mallSoldOutWord('kakao')).toBe('품절');
+    expect(withObjectParticle('판매 재개')).toBe('판매 재개를');
+    expect(withObjectParticle('품절')).toBe('품절을');
+    expect(withObjectParticle('판매중지')).toBe('판매중지를');
+    expect(mallSoldOutNote('auction')).toContain('90일');
+    expect(mallSoldOutNote('gmarket')).toContain('13개월');
+    expect(mallSoldOutNote('11st')).toContain('판매중지');
+    expect(mallSoldOutNote('kakao')).toBeNull();
   });
 });

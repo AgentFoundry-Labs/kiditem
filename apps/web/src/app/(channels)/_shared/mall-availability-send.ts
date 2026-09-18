@@ -70,6 +70,8 @@ const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
   // 새로고침하라고 먼저 말한다.
   'icecream-mall': 'mallAvailabilityIcecreamSaleStateV1',
   kidsnote: 'mallAvailabilityKidsnoteStateV1',
+  // 1.2.20 전 확장은 키드키즈를 틀린 값(commitType=use_flag)으로 목록 1쪽에서만 보냈다 — 보내지 않는다.
+  kidkids: 'mallAvailabilityKidkidsUseFlagV1',
   // 1.2.19 전 확장은 지마켓 · 옥션 · 11번가 · 스마트스토어를 모른다.
   gmarket: 'mallAvailabilityMarketsV1',
   auction: 'mallAvailabilityMarketsV1',
@@ -90,7 +92,7 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  */
 export const MALL_AVAILABILITY_READ_MALLS = [
   'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall', 'icecream-mall', 'kidsnote',
-  'gmarket', 'auction', '11st', 'smartstore',
+  'gmarket', 'auction', '11st', 'smartstore', 'kidkids',
 ] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
@@ -113,6 +115,8 @@ export interface MallLiveOption {
   stock: number | null;
   /** 로켓그로스 옵션 — 쿠팡 재고라 우리가 바꾸지 않는다. */
   rocket: boolean;
+  /** 못 사는 상태일 때 그 몰의 상태 글자(판매중지 · 품절 · 판매종료 · 숨김 …). 칸이 몰의 말 그대로 적는다. */
+  state?: string;
 }
 
 interface ReadResponse {
@@ -170,11 +174,32 @@ export interface MallLiveSummary {
  * 아니라 '재고 0' 이라고 적지 않는다.
  */
 const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set([
-  'always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
+  'always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'kidkids',
 ]);
 
 /** 품절을 판매중지로 보내는 몰(ESM · 11번가 · 스마트스토어) — 칸은 '품절' 이 아니라 그 몰의 말 그대로 '판매중지' 라고 적는다. */
 const SUSPENSION_MALLS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore']);
+
+/** 이 몰에서 "품절 처리"가 실제로 하는 일의 이름 — 알림 문장에 쓴다. */
+export function mallSoldOutWord(mallKey: string): '판매중지' | '품절' {
+  return SUSPENSION_MALLS.has(mallKey) ? '판매중지' : '품절';
+}
+
+/** 칸 창에 붙는 한 줄 — 품절을 판매중지로 보내는 몰이면 그렇다고, 판매중지를 오래 두면 지우는 몰이면 그 기간을 말한다. */
+export function mallSoldOutNote(mallKey: string): string | null {
+  if (mallKey === 'gmarket') return '지마켓은 품절을 판매중지로 보냅니다. 판매중지 13개월 동안 상품정보를 안 고치면 지마켓이 상품을 지웁니다.';
+  if (mallKey === 'auction') return '옥션은 품절을 판매중지로 보냅니다. 판매중지 90일 동안 상품정보를 안 고치면 옥션이 상품을 지웁니다.';
+  if (SUSPENSION_MALLS.has(mallKey)) return '이 몰은 품절을 판매중지로 보냅니다. 판매 재개는 판매중지를 풉니다.';
+  return null;
+}
+
+/** 받침에 맞춘 목적격 조사(을 · 를). */
+export function withObjectParticle(word: string): string {
+  const last = word.trim().slice(-1);
+  const code = last.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return `${word}를`;
+  return `${word}${code % 28 === 0 ? '를' : '을'}`;
+}
 
 /** 지금 재고 → 한 줄. 품절은 재고 0 이다(판매상태와 다르다). 로켓그로스 옵션은 쿠팡 재고라 세지 않는다. */
 export function summarizeLiveAvailability(options: readonly MallLiveOption[], mallKey?: string): MallLiveSummary {
@@ -182,6 +207,9 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[], ma
   if (editable.length === 0) return { tone: 'rocket', label: '로켓그로스 상품 — 쿠팡 재고입니다' };
   const soldOut = editable.filter((option) => option.stock === 0).length;
   if (soldOut === editable.length) {
+    // 몰이 준 상태 글자가 있으면 그대로(11번가 품절 · 스마트스토어 판매대기처럼 판매중지가 아닌 것도 있다).
+    const stated = editable.length === 1 ? editable[0].state?.trim() : undefined;
+    if (stated) return { tone: 'sold_out', label: stated };
     if (mallKey && SUSPENSION_MALLS.has(mallKey)) return { tone: 'sold_out', label: '판매중지' };
     if (mallKey && SOLD_OUT_FLAG_MALLS.has(mallKey)) return { tone: 'sold_out', label: '품절' };
     return { tone: 'sold_out', label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0` };
@@ -329,7 +357,10 @@ export async function sendMallAvailability(
 
   const summary: string[] = [];
   if (total.already > 0) {
-    summary.push(`${total.already}개 옵션은 이미 ${options.resume ? '재고가 있었습니다' : '재고 0이었습니다'}.`);
+    // 재고로 품절을 거는 몰은 재고로, 판매상태로 거는 몰은 상태로 말한다.
+    summary.push(SOLD_OUT_FLAG_MALLS.has(mallKey)
+      ? `${total.already}개는 이미 ${options.resume ? '팔리고 있었습니다' : '살 수 없는 상태(품절 · 판매중지 등)였습니다'}.`
+      : `${total.already}개 옵션은 이미 ${options.resume ? '재고가 있었습니다' : '재고 0이었습니다'}.`);
   }
   if (total.rocket > 0) summary.push(`로켓그로스 옵션 ${total.rocket}개는 쿠팡 재고라 건너뛰었습니다.`);
 

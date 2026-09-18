@@ -23,9 +23,12 @@ import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation
 import {
   availabilityOutcome,
   mallReadLagsAfterSend,
+  mallSoldOutNote,
+  mallSoldOutWord,
   canReadMallAvailability,
   canSendMallAvailability,
   sendMallAvailability,
+  withObjectParticle,
   type MallLiveSummary,
 } from '../../_shared/mall-availability-send';
 import type { MallLiveCell } from '../hooks/use-mall-live-availability';
@@ -175,6 +178,8 @@ interface CellActionPopoverProps {
   state: MallListingState;
   rawStatus: string | null;
   externalId: string | null;
+  /** 몰 매장의 상품 페이지(확인한 규칙이 있는 몰만). 있으면 "몰에서 보기"로 연다. */
+  productUrl?: string | null;
   /** 몰 지금 재고(쿠팡 윙). 표가 페이지째 읽어 들고 있고, 창과 칸이 같은 값을 본다. */
   live?: MallLiveCell | null;
   /** 이 칸을 몰에서 다시 읽는다. */
@@ -237,6 +242,7 @@ export function CellActionPopover({
   state,
   rawStatus,
   externalId,
+  productUrl = null,
   live = null,
   onRefreshLive,
   onSettleLive,
@@ -313,11 +319,13 @@ export function CellActionPopover({
         : result.listShown === false
           ? ` ${column.mallName} 상품목록 화면은 조금 늦게 바뀝니다 — 1분쯤 뒤 새로고침하면 보입니다.`
           : '';
-      toast.success(`${column.mallName} · ${resume ? '판매 재개' : '품절'}을 보냈습니다.`, {
+      // 이 몰에서 품절이 실제로 하는 일(판매중지 · 품절)의 이름으로 말한다.
+      const word = mallSoldOutWord(column.mallKey);
+      toast.success(`${column.mallName} · ${withObjectParticle(resume ? '판매 재개' : word)} 보냈습니다.`, {
         description: result.requestOnly
           ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
           : recorded.outcome === 'succeeded'
-            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : '품절로 바뀐'} 것을 확인했습니다.${listNote}`
+            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : `${word}로 바뀐`} 것을 확인했습니다.${listNote}`
             : '반영은 몰을 다시 가져와야 확인됩니다.',
         duration: 10_000,
       });
@@ -329,6 +337,14 @@ export function CellActionPopover({
       } else if (liveReadable) readLive();
       else onClose();
     } catch (error) {
+      // 보내지 못한 것도 관찰 기록에 남긴다(일괄 화면과 같게).
+      void recordMallOperationOutcome({
+        mallKey: column.mallKey,
+        operation: 'availability_stage',
+        outcome: 'failed',
+        reasonCode: 'extension_unavailable',
+        itemCount: 1,
+      });
       toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
     } finally {
       setRunning(null);
@@ -419,9 +435,26 @@ export function CellActionPopover({
           </p>
         ) : null}
 
+        {mallSoldOutNote(column.mallKey) && column.actions.soldOut ? (
+          <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-800">
+            {mallSoldOutNote(column.mallKey)}
+          </p>
+        ) : null}
+
         {externalId ? (
-          <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] text-slate-400">
-            몰 상품번호 {externalId}
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[10px] text-slate-400">
+            <span className="truncate">몰 상품번호 {externalId}</span>
+            {productUrl ? (
+              <a
+                href={productUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex flex-none items-center gap-0.5 font-medium text-indigo-600 hover:underline"
+              >
+                몰에서 보기
+                <ExternalLink size={10} />
+              </a>
+            ) : null}
           </div>
         ) : null}
       </div>

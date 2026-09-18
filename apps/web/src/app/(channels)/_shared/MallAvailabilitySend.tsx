@@ -13,6 +13,7 @@ import {
   MALL_AVAILABILITY_PENDING,
   availabilityOutcome,
   canSendMallAvailability,
+  mallSoldOutWord,
   sendMallAvailability,
 } from './mall-availability-send';
 
@@ -105,13 +106,14 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
         failedCount: result.failed,
         warningCount: result.warnings.length,
       });
+      const word = mallSoldOutWord(mallKey);
       toast.success(
-        `${mallName} ${formatNumber(result.sent)}건을 품절로 보냈습니다.`,
+        `${mallName} ${formatNumber(result.sent)}건을 ${word}로 보냈습니다.`,
         {
           description: result.requestOnly
             ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
             : recorded.outcome === 'succeeded'
-              ? `${mallName}에서 다시 읽어 ${formatNumber(result.confirmed ?? 0)}건 모두 품절로 바뀐 것을 확인했습니다.`
+              ? `${mallName}에서 다시 읽어 ${formatNumber(result.confirmed ?? 0)}건 모두 ${word}로 바뀐 것을 확인했습니다.`
               : '반영은 몰을 다시 가져와야 확인됩니다.',
           duration: 10_000,
         },

@@ -367,6 +367,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
               category: true,
               updatedAt: true,
               imageUrl: true,
+              // 쿠팡 매장 상품번호(productId)는 윙 등록상품ID와 달라 가져올 때 받은 원문에만 있다.
+              rawJson: true,
               // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
               // (라이브 실측 2026-09-09: 활성 2,951건 전부 빈 배열), 리스팅에
               // 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
@@ -416,6 +418,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         externalId: listing.externalId,
         category: listing.category,
         updatedAt: listing.updatedAt,
+        storefrontProductId: storefrontProductIdOf(listing.rawJson),
       })),
     }));
 
@@ -517,4 +520,12 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   countActiveMasterProducts(organizationId: string): Promise<number> {
     return this.prisma.masterProduct.count({ where: { organizationId, isActive: true } });
   }
+}
+
+/** 가져올 때 받은 원문에 몰 매장 상품번호(쿠팡 productId)가 있으면 그 값. */
+function storefrontProductIdOf(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const value = (raw as Record<string, unknown>).productId;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  return typeof value === 'string' && /^\d{1,15}$/.test(value) ? value : null;
 }
