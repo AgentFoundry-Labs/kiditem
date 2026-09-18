@@ -158,6 +158,14 @@ describe('쿠팡 윙 품절 나눠 보내기', () => {
     expect((bridge.sendToExtension.mock.calls[1][1] as { show?: boolean }).show).toBeUndefined();
   });
 
+  it('상품 하나를 띄워 보낸 결과에 상품목록에 보였는지가 실린다', async () => {
+    bridge.sendToExtension.mockReset().mockResolvedValueOnce({ success: true, sent: 1, failed: 0, confirmed: 1, listShown: false, warnings: [] });
+    const result = await sendMallAvailability('coupang', ['16340985357'], { show: true });
+    expect(result.listShown).toBe(false);
+    bridge.sendToExtension.mockReset().mockResolvedValueOnce({ success: true, sent: 1, failed: 0, confirmed: 1, warnings: [] });
+    expect('listShown' in (await sendMallAvailability('coupang', ['1']))).toBe(false);
+  });
+
   it('해제에서 이미 재고가 있던 옵션은 그렇게 말한다', async () => {
     const result = await sendMallAvailability('coupang', codes(2), { resume: true });
     expect(result.warnings).toEqual(['1개 옵션은 이미 재고가 있었습니다.']);

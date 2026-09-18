@@ -137,6 +137,11 @@ export interface MallAvailabilitySendResult {
    */
   confirmed: number | null;
   warnings: string[];
+  /**
+   * 상품 하나를 몰 화면에 띄워 보냈을 때(`show`), 그 화면(쿠팡 윙 상품목록)에 바뀐 재고가 보였는가. 윙 상품목록은
+   * 늦게 따라온다 — false 면 재고는 바뀌었고 화면만 아직이다. 띄우지 않았으면 없다.
+   */
+  listShown?: boolean | null;
 }
 
 export interface MallAvailabilityOutcome {
@@ -169,6 +174,7 @@ interface SendResponse {
   rocket?: number;
   /** 몰이 막아 도중에 멈췄다(쿠팡 윙 429). 남은 상품은 보내지 않았다. */
   stopped?: string;
+  listShown?: boolean | null;
   warnings?: string[];
   error?: string;
 }
@@ -208,6 +214,7 @@ export async function sendMallAvailability(
   const optionCount = (list: readonly string[]) =>
     list.reduce((sum, code) => sum + (options.optionCodes?.[code]?.length ?? 1), 0);
   const total = { sent: 0, failed: 0, confirmed: 0, already: 0, rocket: 0, confirmedKnown: true, requestOnly: false };
+  let listShown: boolean | null | undefined;
   const warnings: string[] = [];
   for (let start = 0; start < codes.length; start += chunkSize) {
     const chunk = codes.slice(start, start + chunkSize);
@@ -227,6 +234,7 @@ export async function sendMallAvailability(
     total.already += response.already ?? 0;
     total.rocket += response.rocket ?? 0;
     total.requestOnly ||= response.requestOnly === true;
+    if (response.listShown !== undefined) listShown = response.listShown;
     if (typeof response.confirmed === 'number') total.confirmed += response.confirmed;
     else total.confirmedKnown = false;
     warnings.push(...(response.warnings ?? []));
@@ -251,6 +259,7 @@ export async function sendMallAvailability(
     requestOnly: total.requestOnly,
     confirmed: total.confirmedKnown ? total.confirmed : null,
     warnings: [...summary, ...new Set(warnings)],
+    ...(listShown !== undefined ? { listShown } : {}),
   };
 }
 

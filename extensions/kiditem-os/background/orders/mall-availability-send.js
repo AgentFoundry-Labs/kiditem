@@ -32,6 +32,14 @@
   const WING_RECHECK_MS = 1500;
   /** 지금 재고 읽기 한 번에 읽는 상품 수. 등록현황 칸은 한 상품만 읽는다. */
   const READ_LIMIT = 20;
+  /**
+   * 윙 상품목록은 재고를 바꾼 뒤 늦게 따라온다(실측 2026-09-18: 15초 뒤에는 옛 값, 70초 뒤에는 새 값). 앞에 띄운
+   * 상품목록은 이 간격으로 새로 고쳐 바뀐 재고가 보일 때까지 기다린다 — 사장님은 그 화면을 보고 판단한다.
+   */
+  const LIST_RECHECK_MS = 10000;
+  const LIST_RECHECK_TIMES = 6;
+  /** 상품목록 문서가 뜬 뒤 목록(검색 결과)이 그려질 때까지. */
+  const LIST_RENDER_MS = 3500;
 
   /**
    * 몰마다 다른 것 전부.
@@ -194,6 +202,18 @@
     } catch (error) {
       return { status: 0, json: null, preview: String(error?.message || error).slice(0, 200), url: "" };
     }
+  }
+
+  /**
+   * 윙 상품목록에 보이는 그 상품의 재고 칸('품절' 또는 '999개'). 읽기만 한다. 못 찾으면 null.
+   * 줄 글자는 "… 등록상품ID 16340985357 … 판매중 품절 상품수정" 모양이다(실측 2026-09-18).
+   */
+  function listStockCellOnPage(productCode) {
+    const text = document.body ? document.body.innerText : "";
+    const at = text.indexOf(`등록상품ID ${productCode}`);
+    if (at < 0) return null;
+    const match = /\s(품절|[\d,]+개)\s+상품수정/.exec(text.slice(at, at + 800));
+    return match ? match[1] : null;
   }
 
   /**
@@ -465,10 +485,30 @@
               : `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.`,
           };
         }
-        const result = await work({ inPage, readItems });
-        // 사장님이 보는 상품목록은 새로 고쳐 바뀐 재고(품절)를 보여 준다.
-        if (show) await chromeApi.tabs.reload(tabId).catch(() => undefined);
-        return result;
+        /**
+         * 앞에 띄운 상품목록을 새로 고쳐 바뀐 재고가 보일 때까지 기다린다. `settled(재고 칸)` 이 참이면 끝이다.
+         * 보인 것을 확인했으면 true, 끝내 옛 값이면 false, 그 상품 줄을 못 찾았으면 null.
+         */
+        const showList = async (settled) => {
+          if (!show) return null;
+          let cell = null;
+          for (let attempt = 0; attempt < LIST_RECHECK_TIMES; attempt += 1) {
+            if (attempt > 0) await sleep(LIST_RECHECK_MS);
+            await chromeApi.tabs.reload(tabId).catch(() => undefined);
+            const loaded = await waitForTabComplete(tabId).catch(() => undefined);
+            await sleep(loaded ? LIST_RENDER_MS : 2200);
+            const [injected] = await chromeApi.scripting.executeScript({
+              target: { tabId },
+              func: listStockCellOnPage,
+              args: [show],
+            }).catch(() => []);
+            cell = injected?.result ?? null;
+            if (cell === null) return null;
+            if (settled(cell)) return true;
+          }
+          return false;
+        };
+        return await work({ inPage, readItems, showList });
       } finally {
         // 뒤에서 연 탭만 닫는다. 앞에 띄운 상품목록은 사장님 것이다(원래 열려 있던 탭일 수도 있다).
         if (tabId !== null && closeWhenDone) await chromeApi.tabs.remove(tabId).catch(() => undefined);
@@ -506,7 +546,9 @@
         : Number(item.stockQuantity) !== 0);
       // 상품 하나를 사장님이 눌렀을 때만 상품목록을 앞에 띄운다. 나눠 보내는 묶음은 뒤에서.
       const shown = show && products.length === 1 ? products[0] : null;
-      const halted = await withWingPage(spec, async ({ inPage, readItems }) => {
+      // 앞에 띄운 상품목록에 바뀐 재고가 보였는가(true) · 끝내 옛 값(false) · 줄을 못 찾음/띄우지 않음(null).
+      let listShown = null;
+      const halted = await withWingPage(spec, async ({ inPage, readItems, showList }) => {
         for (let index = 0; index < products.length; index += 1) {
           const product = products[index];
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
@@ -589,6 +631,10 @@
           confirmed += seen;
           await sleep(PACE_MS);
         }
+        // 사장님이 보는 상품목록은 바뀐 재고가 보일 때까지 새로 고친다. 보낸 것이 없으면(이미 그 재고) 한 번만.
+        if (shown) {
+          listShown = await showList((cell) => (sent === 0 || (resume ? cell !== "품절" : cell === "품절")));
+        }
         return null;
       }, { show: shown });
       if (halted) return halted;
@@ -608,6 +654,7 @@
         rocket,
         requestOnly: false,
         warnings,
+        ...(shown ? { listShown } : {}),
         ...(stoppedAt !== null ? { stopped: "rate_limited" } : {}),
       };
     }

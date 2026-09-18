@@ -311,13 +311,19 @@ export function CellActionPopover({
         failedCount: result.failed,
         warningCount: result.warnings.length,
       });
+      // 쿠팡 윙은 그 상품의 상품목록을 앞에 띄워 보냈다. 상품목록은 늦게 따라오므로 보였는지도 말한다.
+      const listNote = result.listShown === true
+        ? ` 열린 ${column.mallName} 상품목록에도 ${resume ? '재고가' : '품절로'} 보입니다.`
+        : result.listShown === false
+          ? ` ${column.mallName} 상품목록 화면은 조금 늦게 바뀝니다 — 1분쯤 뒤 새로고침하면 보입니다.`
+          : '';
       toast.success(`${column.mallName} · ${resume ? '판매 재개' : '품절'}을 보냈습니다.`, {
         description: result.requestOnly
           ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
           : recorded.outcome === 'succeeded'
-            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : '품절로 바뀐'} 것을 확인했습니다.`
+            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : '품절로 바뀐'} 것을 확인했습니다.${listNote}`
             : '반영은 몰을 다시 가져와야 확인됩니다.',
-        duration: 8_000,
+        duration: 10_000,
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
       // 지금 재고를 읽을 수 있는 몰은 창을 닫지 않고 몰에서 다시 읽어 바뀐 상태를 그 자리에서 보여 준다.

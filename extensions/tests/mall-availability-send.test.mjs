@@ -170,6 +170,8 @@ function wingMall({
   lagReads = 0,
   // 이미 열려 있는 윙 상품목록 탭 id.
   openListTabs = [],
+  // 앞에 띄운 상품목록이 새로 고칠 때마다 보여 주는 재고 칸(앞에서부터). 다 쓰면 지금 재고대로 보인다.
+  listCells = [],
 } = {}) {
   // products: 등록상품ID → [{ vendorItemId, stockQuantity, registrationType }]
   const state = new Map(Object.entries(products).map(([id, items]) => [id, items.map((item, index) => ({
@@ -178,7 +180,7 @@ function wingMall({
     status: 'APPROVED',
     ...item,
   }))]));
-  const log = { tabs: [], active: [], removed: [], reads: [], changes: [], sleeps: [], updated: [], reloaded: [], queries: [] };
+  const log = { tabs: [], active: [], removed: [], reads: [], changes: [], sleeps: [], updated: [], reloaded: [], queries: [], listReads: [] };
   const limits = { reads: throttle.reads ?? 0, posts: throttle.posts ?? 0 };
   let stale = null;
   const chrome = {
@@ -196,6 +198,15 @@ function wingMall({
     },
     scripting: {
       executeScript: async ({ func, args }) => {
+        if (func.name === 'listStockCellOnPage') {
+          const [product] = args;
+          log.listReads.push(product);
+          if (listCells.length > 0) return [{ result: listCells.shift() }];
+          const items = state.get(product);
+          if (!items) return [{ result: null }];
+          const total = items.reduce((sum, item) => sum + Number(item.stockQuantity), 0);
+          return [{ result: total === 0 ? '품절' : `${total}개` }];
+        }
         assert.equal(func.name, 'requestOnPage');
         const [path, method, contentType, body] = args;
         const tooMany = { status: 429, json: null, preview: '<html>Too Many Requests</html>', url: `https://wing.coupang.com${path}` };
@@ -462,9 +473,49 @@ test('⭐ 상품 하나를 누르면 그 상품을 검색한 윙 상품목록을
   assert.deepEqual(log.active, [true], '사장님이 보는 화면이다');
   assert.equal(state.get('16340985357')[0].stockQuantity, 0);
   assert.deepEqual(log.reloaded, [7], '보낸 뒤 상품목록을 새로 고쳐 품절을 보여 준다');
+  assert.deepEqual(log.listReads, ['16340985357']);
   assert.deepEqual(log.removed, [], '앞에 띄운 상품목록은 닫지 않는다');
   assert.equal(result.sent, 1);
   assert.equal(result.confirmed, 1);
+  assert.equal(result.listShown, true, '상품목록에 품절이 보였다');
+});
+
+test('⭐ 윙 상품목록이 늦게 따라오면 품절이 보일 때까지 10초마다 새로 고친다', async () => {
+  const { api, log } = wingMall({
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }] },
+    listCells: ['999개', '999개'],
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+  assert.deepEqual(log.reloaded, [7, 7, 7], '옛 값 두 번 · 세 번째에 품절');
+  assert.equal(log.sleeps.filter((ms) => ms === 10000).length, 2);
+  assert.equal(result.listShown, true);
+});
+
+test('끝내 상품목록이 옛 값이면 그렇다고 돌려준다 — 재고는 이미 바뀌었다', async () => {
+  const { api, log } = wingMall({
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 999 }] },
+    listCells: ['999개', '999개', '999개', '999개', '999개', '999개'],
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+  assert.equal(log.reloaded.length, 6);
+  assert.equal(result.listShown, false);
+  assert.equal(result.confirmed, 1, '윙 재고는 다시 읽어 확인했다');
+});
+
+test('해제도 상품목록에 재고가 보일 때까지 기다리고, 이미 그 재고면 한 번만 새로 고친다', async () => {
+  const resumed = wingMall({
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] },
+    listCells: ['품절'],
+  });
+  const result = await resumed.api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true, resume: true });
+  assert.deepEqual(resumed.log.reloaded, [7, 7]);
+  assert.equal(result.listShown, true);
+
+  const already = wingMall({ products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] } });
+  const same = await already.api.send({ mallKey: 'coupang', codes: ['16340985357'], show: true });
+  assert.equal(already.log.changes.length, 0);
+  assert.deepEqual(already.log.reloaded, [7]);
+  assert.equal(same.listShown, true);
 });
 
 test('이미 열린 윙 상품목록 탭이 있으면 그 탭에서 검색해 앞에 띄운다 — 탭을 쌓지 않는다', async () => {
