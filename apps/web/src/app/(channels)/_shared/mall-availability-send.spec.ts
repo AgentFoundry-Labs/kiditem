@@ -11,6 +11,7 @@ import {
 
 const bridge = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
+  detectOrderCollectionExtensionRuntime: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 vi.mock('@/lib/extension-bridge', () => bridge);
@@ -239,5 +240,36 @@ describe('몰 지금 재고', () => {
     expect(summarizeLiveAvailability([option(3), option(5)])).toEqual({ tone: 'on_sale', label: '판매 가능 · 옵션 2개 재고 있음' });
     expect(summarizeLiveAvailability([option(0, true)]).tone).toBe('rocket');
     expect(summarizeLiveAvailability([option(0), option(9, true)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
+  });
+});
+
+/**
+ * 1.2.16 전 확장은 꼬망세를 페이지 전체(2,602줄) 재저장으로 보냈고, 재개 때 재고 칸에 "{stock}" 글자를 넣었다.
+ * 새 방식([개별수정])을 아는 확장이 아니면 꼬망세는 보내지 않는다.
+ */
+describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
+  beforeEach(() => {
+    bridge.detectOrderCollectionExtensionId.mockReset().mockResolvedValue('ext');
+    bridge.detectOrderCollectionExtensionRuntime.mockReset();
+    bridge.sendToExtension.mockReset().mockResolvedValue({ success: true, sent: 1, failed: 0, confirmed: 1, warnings: [] });
+  });
+
+  it('⭐ 옛 확장이면 보내지 않고 새로고침하라고 말한다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible', extensionId: 'ext', version: '1.2.10', missingCapabilities: ['mallAvailabilityKkomangseDirectV1'],
+    });
+    await expect(sendMallAvailability('kkomangse', ['M0450-U7839-J6532'], { resume: true }))
+      .rejects.toThrow(/1\.2\.10.*새로고침/);
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityKkomangseDirectV1']);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('새 확장이면 보내고, 다른 몰은 이 확인을 하지 않는다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready', extensionId: 'ext', version: '1.2.16' });
+    await sendMallAvailability('kkomangse', ['M0450-U7839-J6532']);
+    expect(bridge.sendToExtension).toHaveBeenCalledTimes(1);
+    bridge.detectOrderCollectionExtensionRuntime.mockClear();
+    await sendMallAvailability('domeggook', ['12345678']);
+    expect(bridge.detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();
   });
 });

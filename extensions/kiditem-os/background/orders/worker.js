@@ -7811,6 +7811,9 @@ KidItemDomains.register({
     // 몰 품절 송신(끝까지 보낸다. 해제도 같은 액션).
     mallAvailabilitySend: true,
     mallAvailabilitySendMalls: KidItemMallAvailabilitySend.MALL_KEYS,
+    // 꼬망세를 줄마다의 [개별수정]으로 보낸다(1.2.16). 옛 확장은 페이지 전체를 다시 저장했고 재개 때 재고 칸에
+    // "{stock}" 글자를 넣었다 — 웹은 이 값이 없는 확장으로 꼬망세를 보내지 않는다.
+    mallAvailabilityKkomangseDirectV1: true,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

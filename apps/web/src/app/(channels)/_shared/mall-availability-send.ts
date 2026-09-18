@@ -1,4 +1,8 @@
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import {
+  detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
+  sendToExtension,
+} from '@/lib/extension-bridge';
 
 /**
  * 몰 품절 송신 호출.
@@ -50,6 +54,14 @@ export const MALL_AVAILABILITY_PENDING: Readonly<Record<string, string>> = {
 
 /** 길이 없는 몰에 공통으로 붙는 말. 사방넷을 대안으로 제시하지 않는다. */
 export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를 아직 뚫지 않았습니다.';
+
+/**
+ * 이 몰을 지금 방식으로 보내는 확장만 가진 능력. 옛 확장이 옛 방식으로 몰에 쓰지 않게 막는다 — 1.2.16 전 확장은
+ * 꼬망세를 페이지 전체(2,602줄) 재저장으로 보냈고, 재개 때 재고 칸에 "{stock}" 글자를 넣었다.
+ */
+const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
+  kkomangse: 'mallAvailabilityKkomangseDirectV1',
+};
 
 export function canSendMallAvailability(mallKey: string): mallKey is MallAvailabilitySendMall {
   return (MALL_AVAILABILITY_SEND_MALLS as readonly string[]).includes(mallKey);
@@ -231,6 +243,16 @@ export async function sendMallAvailability(
       '확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 '
       + '해당 몰 관리자에 로그인한 뒤 다시 시도하세요.',
     );
+  }
+  const required = SEND_REQUIRES_CAPABILITY[mallKey];
+  if (required) {
+    const runtime = await detectOrderCollectionExtensionRuntime(1200, [required]);
+    if (runtime.status !== 'ready') {
+      throw new Error(
+        `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 이 몰의 옛 방식입니다. `
+        + 'chrome://extensions 에서 확장을 새로고침한 뒤 이 페이지도 새로고침(F5)하고 다시 보내세요.',
+      );
+    }
   }
 
   const chunkSize = SEND_CHUNK[mallKey] ?? codes.length;
