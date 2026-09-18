@@ -14,11 +14,13 @@ was removed.
 - Headline cards: 매출 (월 매출 · 월 순이익 · 오늘 매출 · 광고비율) and 광고 (ROAS ·
   CTR · 광고 전환매출 · 광고비) — the first dashboard's two KPI rows. They render
   values the page resolves from the server read models; they compute nothing.
-- 매출 추이: one line chart. By default 총 매출 · 쿠팡 · 쿠팡 외 몰; a settings panel
-  lets the operator add up to three non-Coupang malls as their own lines, and
-  the choice is remembered in this browser only. Lines, not stacks — the
+- 매출 추이: one line chart. By default 총 매출 · 쿠팡 · 쿠팡 외 몰, 일별; a
+  settings panel switches 일별 / 누적 and adds up to three non-Coupang malls as
+  their own lines, remembered in this browser only. Lines, not stacks — the
   series overlap in meaning, so stacking would count revenue twice.
-- Top 상품.
+- Top 상품 beside 수익성 ABC (A/B/C 현황). For a whole month the server ranks
+  Sellpia's per-product sales (every channel, options summed); other windows
+  rank collected orders. The table renders what the server ranked.
 - Right column: agent status (에이전트 | 지금 진행 중인 일, in the sidebar's
   order), 긴급 (links straight to the screen that handles each item), and 방금.
 
@@ -36,7 +38,8 @@ owner screens; failures reach the operator through 긴급.
   and never adds or subtracts series to make a total. Shares are the server's.
 - An unknown value renders as unknown, never as 0: an uncovered day is a gap,
   a withheld profit stays empty, and one source's profit is never borrowed
-  under another source's card.
+  under another source's card. 누적 sums confirmed days only; an uncovered
+  day stays a gap (`revenuePoints`).
 - A failed read is named once under the header with a retry; it is not shown
   as an empty value.
 - Agent status reads the Agent Org model (`useAgentOrg`, `buildPipeAgents`) so

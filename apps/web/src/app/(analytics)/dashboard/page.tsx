@@ -25,6 +25,7 @@ import { DashboardHeadlineCards, type HeadlineMetric } from './components/Dashbo
 import { DashboardRevenue } from './components/DashboardRevenue';
 import { DashboardAgentStatus } from './components/DashboardAgentStatus';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
+import { DashboardGradeCards } from './components/DashboardGradeCards';
 import {
   basisHasValues,
   readFirstMetricBasis,
@@ -303,6 +304,16 @@ export default function Dashboard() {
     'channelLinkedProducts',
     'channelUnlinkedProducts',
   ]);
+  const inventoryBasis = readFirstMetricBasis(inventoryData, [
+    'gradeCount.A',
+    'abcStatusCount.READY',
+    'alerts',
+  ]);
+  const contributionBasis = readFirstMetricBasis(inventoryData, [
+    'abcContributionProfit.amountByGrade.A',
+    'abcContributionProfit.amountByGrade.B',
+    'abcContributionProfit.amountByGrade.C',
+  ]);
   const topProductsBasis = readFirstMetricBasis(effectiveSales, [
     'topProducts.revenue',
     'topProducts.netProfit',
@@ -550,15 +561,38 @@ export default function Dashboard() {
             isError={channelSales.isError}
             salesHref={salesAnalysisHref}
           />
-          {topProductsHasErr ? (
-            <DashboardSectionUnavailable label="Top Revenue Products" />
-          ) : topProductsLoading ? (
-            <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
-          ) : !effectiveSales ? (
-            <DashboardSectionEmpty label="Top Revenue Products" />
-          ) : (
-            <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
-          )}
+          {/* Top 상품과 A/B/C 현황을 한 줄에 — 무엇이 잘 팔리는지와 그 등급을 나란히 본다(사장님 2026-09-18). */}
+          <div className="grid grid-cols-1 items-start gap-3 2xl:grid-cols-5">
+            <div className="min-w-0 2xl:col-span-3">
+              {topProductsHasErr ? (
+                <DashboardSectionUnavailable label="Top Revenue Products" />
+              ) : topProductsLoading ? (
+                <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
+              ) : !effectiveSales ? (
+                <DashboardSectionEmpty label="Top Revenue Products" />
+              ) : (
+                <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
+              )}
+            </div>
+            <div className="min-w-0 2xl:col-span-2">
+              {inventoryHasErr ? (
+                <DashboardSectionUnavailable label="수익성 ABC" />
+              ) : !inventoryData ? (
+                <DashboardSectionEmpty label="수익성 ABC" />
+              ) : (
+                <DashboardGradeCards
+                  gradeCount={inventoryData.gradeCount}
+                  classifiedProductCount={inventoryData.classifiedProductCount}
+                  abcStatusCount={inventoryData.abcStatusCount}
+                  abcContributionProfit={inventoryData.abcContributionProfit}
+                  abcFormula={inventoryData.abcFormula}
+                  basis={inventoryBasis}
+                  contributionBasis={contributionBasis}
+                  refetchReads={async () => { await refetchInventory(); }}
+                />
+              )}
+            </div>
+          </div>
         </div>
         <DashboardAgentStatus />
       </div>
