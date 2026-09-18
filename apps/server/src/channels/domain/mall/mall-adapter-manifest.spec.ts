@@ -108,9 +108,20 @@ describe('resolveSoldOutCommand', () => {
     expect(soldOutSendsByOption('domeggook')).toBe(false);
   });
 
+  /** 카카오 톡스토어 품절 = 판매자센터 [선택 수정]의 재고 0 · 올웨이즈 품절 = [품절] 버튼(2026-09-19 실측). 상품 단위다. */
+  it('sends sold_out to 카카오 톡스토어 and 올웨이즈 through their seller centers', () => {
+    for (const key of ['kakao', 'always']) {
+      const mall = getMallAdapterManifest(key)!;
+      expect(resolveSoldOutCommand(mall)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+      expect(mall.soldOutRoute).toBe('mall_admin');
+      expect(mall.supports.resume).toBe(true);
+      expect(soldOutSendsByOption(key)).toBe(false);
+    }
+  });
+
   it('refuses malls with no sold-out path at all', () => {
-    const alwayz = getMallAdapterManifest('always')!;
-    expect(resolveSoldOutCommand(alwayz).allowed).toBe(false);
+    const boribori = getMallAdapterManifest('boribori')!;
+    expect(resolveSoldOutCommand(boribori).allowed).toBe(false);
   });
 
   it('refuses a channel that does not sell products', () => {

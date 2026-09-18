@@ -26,7 +26,7 @@ const READ_TIMEOUT_MS = 90_000;
  * 끝나지 않아 웹이 먼저 포기하고, 확장 서비스워커도 한 요청을 5분 넘게 붙잡지 못한다(2026-09-18: 20개쯤 보내고
  * 멈췄다). 나눠 보내고 사이사이 진행을 알린다.
  */
-const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10 };
+const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20 };
 
 /**
  * 품절을 보낼 수 있는 몰.
@@ -34,7 +34,7 @@ const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10 };
  * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
  * 버튼이 서지 않는다 — 눌러도 아무 일이 안 일어나는 버튼을 만들지 않는다.
  */
-export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang'] as const;
+export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always'] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
 
@@ -61,7 +61,7 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  * 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이라, 가져온 상태만으로는 품절인지 모른다. 등록현황 칸의 창이
  * 열릴 때 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐").
  */
-export const MALL_AVAILABILITY_READ_MALLS = ['coupang'] as const;
+export const MALL_AVAILABILITY_READ_MALLS = ['coupang', 'kakao', 'always'] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
   return (MALL_AVAILABILITY_READ_MALLS as readonly string[]).includes(mallKey);
@@ -69,7 +69,8 @@ export function canReadMallAvailability(mallKey: string): boolean {
 
 export interface MallLiveOption {
   optionCode: string;
-  stock: number;
+  /** 재고 수. 올웨이즈처럼 품절 여부만 주는 몰은 판매중일 때 null(모름)이다 — 품절이면 0. */
+  stock: number | null;
   /** 로켓그로스 옵션 — 쿠팡 재고라 우리가 바꾸지 않는다. */
   rocket: boolean;
 }
@@ -132,10 +133,11 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[]): M
     return { tone: 'sold_out', label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0` };
   }
   if (soldOut > 0) return { tone: 'partial', label: `옵션 ${editable.length}개 중 ${soldOut}개 품절` };
+  const only = editable.length === 1 ? editable[0].stock : null;
   return {
     tone: 'on_sale',
     label: editable.length === 1
-      ? `판매 가능 · 재고 ${editable[0].stock.toLocaleString('ko-KR')}`
+      ? only === null ? '판매 가능' : `판매 가능 · 재고 ${only.toLocaleString('ko-KR')}`
       : `판매 가능 · 옵션 ${editable.length}개 재고 있음`,
   };
 }

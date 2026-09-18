@@ -1,7 +1,8 @@
 (function initializeMallAvailabilitySend(root) {
   "use strict";
 
-  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0). 아이스크림몰은 경로 대기.
+  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈.
+  // 아이스크림몰은 경로 대기.
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -169,6 +170,40 @@
         resumeQuantity: 999,
       },
     },
+    /**
+     * 카카오 톡스토어. 품절 = **재고 0** — 판매자센터 상품조회의 [선택 수정]이 보내는 요청 그대로다
+     * (PUT /api/tstore/products/grid/columns, 2026-09-19 실측). 판매상태 품절(OUT_OF_STOCK)은 재고 0 이면 저절로 된다.
+     *
+     *  - [선택 수정]은 상품마다 {productId, name, salePrice, storeManagementCode, stockQuantity, displayStatus} 를
+     *    한 배열로 보낸다. 지금 값을 목록 API(GET /api/tstore/products?productIds=)로 읽어 **그대로** 싣고 재고만 바꾼다.
+     *  - 옵션이 있는 상품(optionSetting 설정)은 이 칸으로 재고를 못 고친다 — 보내지 않고 알린다(386개 중 10개).
+     *  - 해제는 재고 0 인 상품에만 `resumeQuantity`. 보낸 뒤 목록 API 로 다시 읽어 확인한다.
+     */
+    kakao: {
+      label: "카카오 톡스토어",
+      origin: "https://shopping-seller.kakao.com",
+      gridStock: {
+        pageUrl: "https://shopping-seller.kakao.com/product/store-seller/list",
+        listPath: "/api/tstore/products",
+        gridPath: "/api/tstore/products/grid/columns",
+        resumeQuantity: 999,
+      },
+    },
+    /**
+     * 올웨이즈. 판매자센터 상품 조회/수정의 [품절] · [판매재개] 버튼이 보내는 요청 그대로다(2026-09-19 실측).
+     * 품절 POST /items/sold-out-many {itemIdList} · 재개 /items/resume-many {itemIdList}, 확인
+     * POST /sellers/items/info-request {itemIds} 의 soldOut. 인증 토큰은 판매자센터 화면의 localStorage 에 있고
+     * x-access-token 으로 싣는다 — **화면 안에서만 읽고 쓴다.** 밖으로 돌려주지 않는다.
+     */
+    always: {
+      label: "올웨이즈",
+      origin: "https://alwayzseller.ilevit.com",
+      itemApi: {
+        pageUrl: "https://alwayzseller.ilevit.com/items/management",
+        backend: "https://alwayz-seller-back.ilevit.com",
+        tokenKey: "@alwayz@seller@token@",
+      },
+    },
   };
 
   /** 이 몰은 아직 경로가 없다. 화면이 버튼을 세우지 않게 이름만 남긴다. */
@@ -201,6 +236,32 @@
       return { status: response.status, json, preview: json ? "" : text.slice(0, 200), url: response.url };
     } catch (error) {
       return { status: 0, json: null, preview: String(error?.message || error).slice(0, 200), url: "" };
+    }
+  }
+
+  /**
+   * 올웨이즈 판매자센터 화면 안에서 백엔드에 요청 하나를 보낸다. 토큰은 이 함수 안에서 localStorage 로 읽어 헤더에만
+   * 싣고, **돌려주지 않는다.** 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
+   */
+  async function alwayzRequestOnPage(url, body, tokenKey) {
+    try {
+      const token = localStorage.getItem(tokenKey);
+      if (!token) return { status: 401, json: null, loggedOut: true };
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-access-token": token },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { status: response.status, json, loggedOut: response.status === 401 || response.status === 403 };
+    } catch (error) {
+      return { status: 0, json: null, loggedOut: false, error: String(error?.message || error).slice(0, 200) };
     }
   }
 
@@ -689,6 +750,181 @@
     }
 
     /**
+     * 판매자센터 화면 하나에서 일한다. 이미 열린 그 몰 화면(로그인된 채 다 뜬 것)이 있으면 빌려 쓰고 건드리지 않는다.
+     * 없으면 뒤에서 열고, 끝나면(실패해도) 닫는다. 로그인 화면으로 넘어갔으면 부르지 않는다.
+     */
+    async function withSellerPage(spec, pageUrl, work) {
+      let tabId = null;
+      let created = false;
+      try {
+        const open = await chromeApi.tabs.query({ url: `${spec.origin}/*` }).catch(() => []);
+        const reusable = (open || []).find((tab) => tab && tab.status === "complete"
+          && String(tab.url || "").startsWith(spec.origin)
+          && !/login|signin|auth/i.test(String(tab.url || "")));
+        if (reusable) {
+          tabId = reusable.id;
+        } else {
+          const tab = await chromeApi.tabs.create({ url: pageUrl, active: false });
+          tabId = tab.id;
+          created = true;
+          const waited = await waitForTabComplete(tabId).catch(() => undefined);
+          await sleep(waited ? 1200 : 2500);
+          const current = await chromeApi.tabs.get(tabId).catch(() => null);
+          const url = String(current?.url || current?.pendingUrl || "");
+          if (!url.startsWith(spec.origin) || /login|signin/i.test(url)) {
+            return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.` };
+          }
+        }
+        const run = async (func, args) => {
+          const [injected] = await chromeApi.scripting.executeScript({ target: { tabId }, func, args });
+          return injected?.result || { status: 0, json: null };
+        };
+        return await work(run);
+      } finally {
+        if (created && tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
+      }
+    }
+
+    /** 톡스토어 상품 하나를 목록 API 로 읽는다. 없으면 null, 로그인이 풀렸으면 { loggedOut }. */
+    async function readKakaoProduct(spec, run, productId) {
+      const answer = await run(requestOnPage, [
+        `${spec.gridStock.listPath}?productIds=${encodeURIComponent(productId)}&size=1&page=0`, "GET", null, null,
+      ]);
+      if (answer.status === 401 || answer.status === 403 || /login|xauth|accounts\.kakao/i.test(`${answer.url} ${answer.preview}`)) {
+        return { loggedOut: true };
+      }
+      if (answer.status !== 200 || !Array.isArray(answer.json?.contents)) return { error: `HTTP ${answer.status}` };
+      return { product: answer.json.contents.find((row) => String(row.id) === String(productId)) || null };
+    }
+
+    /**
+     * 카카오 톡스토어 재고. 상품마다 지금 값을 읽어 [선택 수정]과 같은 모양으로 재고만 바꿔 보내고, 다시 읽어 확인한다.
+     */
+    async function sendByKakaoGrid(spec, codes, resume) {
+      const grid = spec.gridStock;
+      const quantity = resume ? grid.resumeQuantity : 0;
+      const warnings = [];
+      const products = codes.filter((code) => /^\d{1,15}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      let withOptions = 0;
+      const halted = await withSellerPage(spec, grid.pageUrl, async (run) => {
+        const targets = [];
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const read = await readKakaoProduct(spec, run, products[index]);
+          if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.product) {
+            failed += 1;
+            warnings.push(`${products[index]}: ${spec.label}에서 찾지 못했습니다${read.error ? `(${read.error})` : ""}.`);
+            continue;
+          }
+          const product = read.product;
+          if (product.optionSetting && product.optionSetting !== "미설정") {
+            withOptions += 1;
+            failed += 1;
+            continue;
+          }
+          const stock = Number(product.stockQuantity);
+          const isTarget = resume ? stock === 0 : stock !== 0;
+          if (!isTarget) {
+            already += 1;
+            continue;
+          }
+          targets.push(product);
+        }
+        if (targets.length === 0) return null;
+        // [선택 수정]이 만드는 모양 그대로 — 지금 값을 그대로 싣고 재고만 바꾼다.
+        const edits = targets.map((product) => ({
+          name: product.name,
+          salePrice: product.salePrice,
+          storeManagementCode: product.storeManagementCode ?? "",
+          stockQuantity: quantity,
+          productId: product.id,
+          displayStatus: product.displayStatusType,
+        }));
+        const answer = await run(requestOnPage, [
+          grid.gridPath, "PUT", "application/json", JSON.stringify(edits),
+        ]);
+        if (answer.status < 200 || answer.status >= 300) {
+          failed += targets.length;
+          const reason = answer.json?.message || answer.json?.errorMessage || "";
+          warnings.push(`${spec.label}이 재고 변경을 받지 않았습니다(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+          return null;
+        }
+        sent += targets.length;
+        // 다시 읽어 재고가 바뀐 상품을 센다.
+        for (const product of targets) {
+          await sleep(WING_PRODUCT_PACE_MS);
+          const after = await readKakaoProduct(spec, run, product.id);
+          if (after.product && Number(after.product.stockQuantity) === quantity) confirmed += 1;
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (withOptions > 0) {
+        warnings.push(`옵션이 있는 상품 ${withOptions}개는 옵션마다 재고라 보내지 않았습니다 — ${spec.label}에서 옵션 재고를 고쳐 주세요.`);
+      }
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 올웨이즈 상품 상태를 읽는다(soldOut). 로그인이 풀렸으면 { loggedOut }. */
+    async function readAlwayzItems(spec, run, itemIds) {
+      const api = spec.itemApi;
+      const answer = await run(alwayzRequestOnPage, [`${api.backend}/sellers/items/info-request`, { itemIds }, api.tokenKey]);
+      if (answer.loggedOut) return { loggedOut: true };
+      const items = Array.isArray(answer.json?.data) ? answer.json.data : null;
+      if (answer.status !== 200 || !items) return { error: `HTTP ${answer.status}` };
+      return { items };
+    }
+
+    /** 올웨이즈 품절 · 재개. [품절] · [판매재개] 버튼이 보내는 요청을 여러 개 한 번에 보내고, 다시 읽어 확인한다. */
+    async function sendByAlwayzItems(spec, codes, resume) {
+      const api = spec.itemApi;
+      const warnings = [];
+      const ids = codes.filter((code) => /^[0-9a-f]{24}$/i.test(code));
+      let failed = codes.length - ids.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품 고유번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (ids.length === 0) return null;
+        const read = await readAlwayzItems(spec, run, ids);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.items) return { success: false, error: `${spec.label} 상품 상태를 읽지 못했습니다(${read.error}).` };
+        const byId = new Map(read.items.map((item) => [String(item._id), item]));
+        const missing = ids.filter((id) => !byId.has(id));
+        if (missing.length > 0) {
+          failed += missing.length;
+          warnings.push(`${missing.length}건은 ${spec.label}에서 찾지 못했습니다.`);
+        }
+        const targets = ids.filter((id) => byId.has(id) && Boolean(byId.get(id).soldOut) === resume);
+        already += ids.filter((id) => byId.has(id)).length - targets.length;
+        if (targets.length === 0) return null;
+        const path = resume ? "/items/resume-many" : "/items/sold-out-many";
+        const answer = await run(alwayzRequestOnPage, [`${api.backend}${path}`, { itemIdList: targets }, api.tokenKey]);
+        const ok = answer.status === 200 && (answer.json?.status === undefined || Number(answer.json.status) === 200);
+        if (!ok) {
+          failed += targets.length;
+          warnings.push(`${spec.label}이 ${resume ? "판매재개" : "품절"}를 받지 않았습니다(HTTP ${answer.status}).`);
+          return null;
+        }
+        sent += targets.length;
+        await sleep(PACE_MS);
+        const after = await readAlwayzItems(spec, run, targets);
+        if (after.items) confirmed += after.items.filter((item) => Boolean(item.soldOut) === !resume).length;
+        else warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다.`);
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /**
      * 한 몰에 품절(또는 해제)을 보낸다.
      *
      * 돌려주는 것은 개수와 상품코드뿐이다. 사람 이름도 주문번호도 담지 않는다.
@@ -709,6 +945,17 @@
         try {
           const options = msg?.options && typeof msg.options === "object" ? msg.options : null;
           return await sendByOptionStock(spec, codes, options, resume, msg?.show === true);
+        } catch (error) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      }
+
+      // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼과 같은 요청이다.
+      if (spec.gridStock || spec.itemApi) {
+        try {
+          return spec.gridStock
+            ? await sendByKakaoGrid(spec, codes, resume)
+            : await sendByAlwayzItems(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
         }
@@ -840,15 +1087,67 @@
       return { success: true, products: found, missing };
     }
 
-    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙). 읽기만 한다. */
+    /** 톡스토어 지금 재고. 상품마다 목록 API 한 번. 읽기만 한다. */
+    async function readByKakaoList(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{1,15}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      const found = [];
+      const missing = [];
+      const halted = await withSellerPage(spec, spec.gridStock.pageUrl, async (run) => {
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const read = await readKakaoProduct(spec, run, products[index]);
+          if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.product) {
+            missing.push(products[index]);
+            continue;
+          }
+          found.push({
+            code: products[index],
+            options: [{ optionCode: String(read.product.id), stock: Number(read.product.stockQuantity), rocket: false }],
+          });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 올웨이즈 지금 상태. 재고 수는 주지 않고 품절 여부만 준다 — 품절이면 0, 아니면 모름(null). 읽기만 한다. */
+    async function readByAlwayzItems(spec, codes) {
+      const ids = [...new Set(codes)].filter((code) => /^[0-9a-f]{24}$/i.test(code)).slice(0, READ_LIMIT);
+      if (ids.length === 0) return { success: false, error: `읽을 ${spec.label} 상품 고유번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.itemApi.pageUrl, async (run) => {
+        const read = await readAlwayzItems(spec, run, ids);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.items) return { success: false, error: `${spec.label} 상품 상태를 읽지 못했습니다(${read.error}).` };
+        const byId = new Map(read.items.map((item) => [String(item._id), item]));
+        found = ids.filter((id) => byId.has(id)).map((id) => ({
+          code: id,
+          options: [{ optionCode: id, stock: byId.get(id).soldOut ? 0 : null, rocket: false }],
+        }));
+        missing = ids.filter((id) => !byId.has(id));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈). 읽기만 한다. */
     async function read(msg) {
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
-      if (!spec?.optionStock) return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
+      if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi) {
+        return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
+      }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
         .map((code) => String(code || "").trim())
         .filter(Boolean);
       try {
+        if (spec.gridStock) return await readByKakaoList(spec, codes);
+        if (spec.itemApi) return await readByAlwayzItems(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -864,7 +1163,7 @@
     PENDING,
     MALL_KEYS: Object.keys(SPECS),
     // 지금 재고를 읽을 수 있는 몰(옵션 재고로 품절을 보내는 몰).
-    READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].optionStock)),
+    READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi)),
     SEND_TIMEOUT_MS,
   };
 })(typeof self !== "undefined" ? self : globalThis);

@@ -52,9 +52,11 @@ describe('품절 송신 결과', () => {
     expect(availabilityOutcome(result({ sent: 0, confirmed: 0 }))).toEqual({ outcome: 'attention', reasonCode: 'awaiting_mall_recheck' });
   });
 
-  it('도매꾹 · 쿠팡 윙은 품절을 보낼 수 있는 몰이다', () => {
+  it('도매꾹 · 쿠팡 윙 · 카카오 톡스토어 · 올웨이즈는 품절을 보낼 수 있는 몰이다', () => {
     expect(canSendMallAvailability('domeggook')).toBe(true);
     expect(canSendMallAvailability('coupang')).toBe(true);
+    expect(canSendMallAvailability('kakao')).toBe(true);
+    expect(canSendMallAvailability('always')).toBe(true);
     expect(canSendMallAvailability('icecream-mall')).toBe(false);
   });
 });
@@ -181,9 +183,16 @@ describe('몰 지금 재고', () => {
     bridge.sendToExtension.mockReset();
   });
 
-  it('쿠팡 윙만 지금 재고를 읽는다', () => {
+  it('쿠팡 윙 · 카카오 톡스토어 · 올웨이즈는 지금 재고를 읽는다', () => {
     expect(canReadMallAvailability('coupang')).toBe(true);
+    expect(canReadMallAvailability('kakao')).toBe(true);
+    expect(canReadMallAvailability('always')).toBe(true);
     expect(canReadMallAvailability('domeggook')).toBe(false);
+  });
+
+  it('재고 수를 주지 않는 몰(올웨이즈)은 판매중이면 "판매 가능"만 말한다', () => {
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }])).toEqual({ tone: 'on_sale', label: '판매 가능' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
   });
 
   it('⭐ 확장에 읽기만 부탁하고 그 상품의 옵션 재고를 돌려준다', async () => {

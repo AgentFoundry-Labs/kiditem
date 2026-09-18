@@ -223,7 +223,7 @@ const NO_LIMIT: MallAdapterLimits = {
  *    눌렀을 때 아무 일도 안 일어난다.
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
-  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang',
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always',
 ]);
 
 /**
@@ -327,7 +327,7 @@ const SEEDS: readonly ManifestSeed[] = [
       setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
     hazards: { fullPayloadOnUpdate: true },
-    note: '재고 0=품절 / 1이상=해제에 더해 saleStatus on|off 도 별도 대칭. ⚠️ 수정 시 전체 필드 재전송 필수 — 누락한 필드는 삭제된다.',
+    note: '재고 0=품절 / 1이상=해제에 더해 saleStatus on|off 도 별도 대칭. ⚠️ 수정 시 전체 필드 재전송 필수 — 누락한 필드는 삭제된다. 우리 품절 길은 OpenAPI 가 아니라 판매자센터 상품조회의 [선택 수정]이 보내는 요청이다: PUT /api/tstore/products/grid/columns 에 [{productId, name, salePrice, storeManagementCode, stockQuantity, displayStatus}] — 지금 값을 그대로 싣고 재고만 0(해제 999)으로 바꾼다. 판매상태 품절(OUT_OF_STOCK)은 재고 0 이면 저절로 된다. 옵션이 있는 상품(optionSetting 설정)은 이 칸으로 재고를 못 고쳐 보내지 않는다(2026-09-19 실측, 386개 중 10개). 판매중지는 PUT products/suspension{productIds} · 해제 products/suspension/release 로 따로 있다.',
   },
   {
     key: 'ssg',
@@ -490,10 +490,10 @@ const SEEDS: readonly ManifestSeed[] = [
   {
     key: 'always',
     name: '올웨이즈',
-    kind: 'unknown',
-    difficulty: 'high',
-    unverified: true,
-    note: '공식 대량 등록 경로가 사방넷과 플레이오토 두 솔루션뿐이라고 명시돼 있다("올웨이즈는 사방넷과 플레이오토 두가지 상품 대량 등록을 지원합니다"). 사방넷 기능표상 품절처리는 O 라 비공개 파트너 채널이 있는 것으로 보이나 근거 없음.',
+    kind: 'extension_form',
+    difficulty: 'medium',
+    supports: { setSaleStatus: 'listing', soldOut: true, resume: true },
+    note: '판매자센터 상품 조회/수정의 [품절] · [판매재개] 버튼이 보내는 요청 그대로다(2026-09-19 실측): POST alwayz-seller-back.ilevit.com/items/sold-out {itemId} · /items/resume {itemId} (여러 개는 /items/sold-out-many · /items/resume-many {itemIdList}). 인증은 판매자센터 localStorage 의 토큰을 x-access-token 헤더로 싣는다 — 화면 안에서만 쓰고 밖으로 내보내지 않는다. 확인은 POST /sellers/items/info-request {itemIds} 의 soldOut. 상품 대량 등록은 여전히 사방넷 · 플레이오토 두 솔루션뿐이다("올웨이즈는 사방넷과 플레이오토 두가지 상품 대량 등록을 지원합니다").',
   },
   {
     key: 'gs-shop',

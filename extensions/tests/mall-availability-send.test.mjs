@@ -454,7 +454,7 @@ test('지금 재고 읽기 — 로그인이 풀렸거나 윙이 막으면 그렇
 
 test('지금 재고는 옵션 재고로 품절을 보내는 몰(쿠팡 윙)만 읽는다', async () => {
   const module = loadModule();
-  assert.deepEqual([...module.READ_MALL_KEYS], ['coupang']);
+  assert.ok(module.READ_MALL_KEYS.includes('coupang'));
   const { api } = wingMall();
   const result = await api.read({ mallKey: 'domeggook', codes: ['68010748'] });
   assert.equal(result.success, false);
@@ -589,4 +589,212 @@ test('지금 재고 읽기는 한 번에 50개까지 읽는다 — 등록현황 
   const result = await api.read({ mallKey: 'coupang', codes: Object.keys(products) });
   assert.equal(result.products.length, 50);
   assert.equal(log.reads.length, 50);
+});
+
+/**
+ * 카카오 톡스토어 품절 = 재고 0(2026-09-19 실측). 판매자센터 상품조회의 [선택 수정]이 보내는 요청 그대로 —
+ * PUT /api/tstore/products/grid/columns 에 [{name, salePrice, storeManagementCode, stockQuantity, productId, displayStatus}].
+ * 지금 값을 목록 API 로 읽어 그대로 싣고 재고만 바꾼다. 옵션이 있는 상품은 이 칸으로 못 고친다.
+ */
+function kakaoMall({ products = {}, tabUrl = 'https://shopping-seller.kakao.com/product/store-seller/list', openTabs = [], gridStatus = 200 } = {}) {
+  const state = new Map(Object.entries(products).map(([id, product]) => [id, {
+    id, name: `상품 ${id}`, salePrice: 2220, storeManagementCode: '', stockQuantity: 999,
+    optionSetting: '미설정', displayStatusType: 'OPEN', ...product,
+  }]));
+  const log = { tabs: [], active: [], removed: [], puts: [], reads: [] };
+  const chrome = {
+    tabs: {
+      query: async () => openTabs,
+      create: async ({ url, active }) => { log.tabs.push(url); log.active.push(active); return { id: 11 }; },
+      get: async () => ({ id: 11, url: tabUrl }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(11, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: {
+      executeScript: async ({ func, args }) => {
+        assert.equal(func.name, 'requestOnPage');
+        const [path, method, contentType, body] = args;
+        if (method === 'GET' && path.startsWith('/api/tstore/products?')) {
+          const id = new URLSearchParams(path.split('?')[1]).get('productIds');
+          log.reads.push(id);
+          const product = state.get(id);
+          return [{ result: { status: 200, json: { contents: product ? [{ ...product }] : [], totalCount: product ? 1 : 0 }, preview: '', url: `https://shopping-seller.kakao.com${path}` } }];
+        }
+        if (method === 'PUT' && path === '/api/tstore/products/grid/columns') {
+          assert.equal(contentType, 'application/json');
+          const edits = JSON.parse(body);
+          log.puts.push(edits);
+          if (gridStatus === 200) for (const edit of edits) state.get(String(edit.productId)).stockQuantity = edit.stockQuantity;
+          return [{ result: { status: gridStatus, json: gridStatus === 200 ? { successCount: edits.length } : { message: '수정할 수 없는 상품입니다' }, preview: '', url: '' } }];
+        }
+        throw new Error(`unexpected ${method} ${path}`);
+      },
+    },
+  };
+  const api = loadModule().create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 카카오 톡스토어 품절은 [선택 수정]과 같은 모양으로 재고만 0 으로 — 지금 값을 그대로 싣는다', async () => {
+  const { api, log, state } = kakaoMall({
+    products: {
+      779522307: { name: '애니멀 회전 주사위 키링', salePrice: 2220, storeManagementCode: 'ABC', displayStatusType: 'OPEN' },
+      711073894: { optionSetting: '설정' },
+      777184227: { stockQuantity: 0 },
+    },
+  });
+  const result = await api.send({ mallKey: 'kakao', codes: ['779522307', '711073894', '777184227', 'X-1'] });
+
+  assert.deepEqual(plain(log.puts), [[
+    { name: '애니멀 회전 주사위 키링', salePrice: 2220, storeManagementCode: 'ABC', stockQuantity: 0, productId: '779522307', displayStatus: 'OPEN' },
+  ]]);
+  assert.equal(state.get('779522307').stockQuantity, 0);
+  assert.equal(state.get('711073894').stockQuantity, 999, '옵션 상품은 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2, '보낸 1 + 이미 0 인 1');
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.failed, 2, '옵션 상품 1 + 모양이 틀린 번호 1');
+  assert.equal(result.already, 1);
+  assert.ok(result.warnings.some((warning) => warning.includes('옵션이 있는 상품 1개')), result.warnings.join(' / '));
+  assert.deepEqual(log.active, [false], '뒤에서 연다');
+  assert.deepEqual(log.removed, [11], '연 탭은 닫는다');
+});
+
+test('카카오 해제는 재고 0 인 상품만 999 로 — 재고가 남은 상품은 낮추지 않는다', async () => {
+  const { api, log } = kakaoMall({ products: { 1: { stockQuantity: 0 }, 2: { stockQuantity: 5 } } });
+  const result = await api.send({ mallKey: 'kakao', codes: ['1', '2'], resume: true });
+  assert.deepEqual(log.puts.map((edits) => edits.map((edit) => [edit.productId, edit.stockQuantity])), [[['1', 999]]]);
+  assert.equal(result.sent, 2);
+  assert.equal(result.confirmed, 2);
+});
+
+test('카카오 — 열린 판매자센터 화면이 있으면 그 화면을 빌려 쓰고 닫지 않는다 · 거절하면 몰이 한 말을 싣는다', async () => {
+  const reused = kakaoMall({ products: { 1: {} }, openTabs: [{ id: 5, status: 'complete', url: 'https://shopping-seller.kakao.com/product/store-seller/list' }] });
+  await reused.api.send({ mallKey: 'kakao', codes: ['1'] });
+  assert.equal(reused.log.tabs.length, 0);
+  assert.deepEqual(reused.log.removed, []);
+
+  const refused = kakaoMall({ products: { 1: {} }, gridStatus: 400 });
+  const result = await refused.api.send({ mallKey: 'kakao', codes: ['1'] });
+  assert.equal(result.failed, 1);
+  assert.equal(result.confirmed, 0);
+  assert.ok(result.warnings.some((warning) => warning.includes('수정할 수 없는 상품입니다')), result.warnings.join(' / '));
+});
+
+test('카카오 — 로그인 화면이면 아무것도 보내지 않는다', async () => {
+  const { api, log } = kakaoMall({ products: { 1: {} }, tabUrl: 'https://accounts.kakao.com/login' });
+  const result = await api.send({ mallKey: 'kakao', codes: ['1'] });
+  assert.equal(result.success, false);
+  assert.match(result.error, /카카오 톡스토어에 로그인되어 있지 않습니다/);
+  assert.equal(log.puts.length, 0);
+});
+
+/**
+ * 올웨이즈 품절 · 판매재개 = 판매자센터의 [품절] · [판매재개] 버튼(2026-09-19 실측). POST /items/sold-out-many ·
+ * /items/resume-many {itemIdList}, 확인 POST /sellers/items/info-request {itemIds}. 토큰은 화면 안에서만 읽는다.
+ */
+function alwayzMall({ items = {}, tabUrl = 'https://alwayzseller.ilevit.com/items/management', loggedOut = false } = {}) {
+  const state = new Map(Object.entries(items).map(([id, item]) => [id, { _id: id, itemTitle: `상품 ${id}`, soldOut: false, ...item }]));
+  const log = { tabs: [], removed: [], posts: [], args: [] };
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 12 }; },
+      get: async () => ({ id: 12, url: tabUrl }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(12, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: {
+      executeScript: async ({ func, args }) => {
+        assert.equal(func.name, 'alwayzRequestOnPage');
+        const [url, body, tokenKey] = args;
+        log.args.push(args);
+        assert.equal(tokenKey, '@alwayz@seller@token@');
+        if (loggedOut) return [{ result: { status: 401, json: null, loggedOut: true } }];
+        const path = new URL(url).pathname;
+        if (path === '/sellers/items/info-request') {
+          return [{ result: { status: 200, json: { status: 200, data: body.itemIds.filter((id) => state.has(id)).map((id) => ({ ...state.get(id) })) }, loggedOut: false } }];
+        }
+        if (path === '/items/sold-out-many' || path === '/items/resume-many') {
+          log.posts.push([path, body.itemIdList]);
+          for (const id of body.itemIdList) state.get(id).soldOut = path === '/items/sold-out-many';
+          return [{ result: { status: 200, json: { status: 200 }, loggedOut: false } }];
+        }
+        throw new Error(`unexpected ${url}`);
+      },
+    },
+  };
+  const api = loadModule().create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+const A = '6743cacb46ae748ace9f239c';
+const B = '675b86c999d04ee13d45b6c0';
+const C = '668b81adc75f21b22efa0fda';
+
+test('⭐ 올웨이즈 품절은 [품절] 버튼과 같은 요청으로 — 이미 품절인 상품은 보내지 않고, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = alwayzMall({ items: { [A]: { soldOut: false }, [B]: { soldOut: true } } });
+  const result = await api.send({ mallKey: 'always', codes: [A, B, C, 'not-an-id'] });
+  assert.deepEqual(plain(log.posts), [['/items/sold-out-many', [A]]]);
+  assert.equal(state.get(A).soldOut, true);
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 2, '없는 상품 1 + 모양이 틀린 번호 1');
+  assert.deepEqual(log.tabs, [['https://alwayzseller.ilevit.com/items/management', false]]);
+  assert.deepEqual(log.removed, [12]);
+  // 워커는 토큰을 보지 않는다 — 화면 안 함수에 토큰이 든 localStorage 열쇠 이름만 넘긴다.
+  assert.ok(log.args.every((args) => args.length === 3 && typeof args[2] === 'string' && !/eyJ/.test(JSON.stringify(args))));
+});
+
+test('올웨이즈 판매재개는 품절인 상품만 [판매재개]로 되돌린다', async () => {
+  const { api, log } = alwayzMall({ items: { [A]: { soldOut: true }, [B]: { soldOut: false } } });
+  const result = await api.send({ mallKey: 'always', codes: [A, B], resume: true });
+  assert.deepEqual(plain(log.posts), [['/items/resume-many', [A]]]);
+  assert.equal(result.confirmed, 2);
+});
+
+test('올웨이즈 — 로그인이 풀렸으면 아무것도 보내지 않는다', async () => {
+  const { api, log } = alwayzMall({ items: { [A]: {} }, loggedOut: true });
+  const result = await api.send({ mallKey: 'always', codes: [A] });
+  assert.equal(result.success, false);
+  assert.match(result.error, /올웨이즈 로그인이 풀렸습니다/);
+  assert.equal(log.posts.length, 0);
+});
+
+test('지금 재고 읽기 — 카카오는 재고 수, 올웨이즈는 품절이면 0 · 아니면 모름', async () => {
+  const kakao = kakaoMall({ products: { 1: { stockQuantity: 0 }, 2: { stockQuantity: 37 } } });
+  assert.deepEqual(plain(await kakao.api.read({ mallKey: 'kakao', codes: ['1', '2', '3'] })), {
+    success: true,
+    products: [
+      { code: '1', options: [{ optionCode: '1', stock: 0, rocket: false }] },
+      { code: '2', options: [{ optionCode: '2', stock: 37, rocket: false }] },
+    ],
+    missing: ['3'],
+  });
+  const alwayz = alwayzMall({ items: { [A]: { soldOut: true }, [B]: { soldOut: false } } });
+  assert.deepEqual(plain(await alwayz.api.read({ mallKey: 'always', codes: [A, B] })), {
+    success: true,
+    products: [
+      { code: A, options: [{ optionCode: A, stock: 0, rocket: false }] },
+      { code: B, options: [{ optionCode: B, stock: null, rocket: false }] },
+    ],
+    missing: [],
+  });
+  const module = loadModule();
+  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'coupang', 'kakao']);
+  assert.ok(module.MALL_KEYS.includes('kakao') && module.MALL_KEYS.includes('always'));
 });
