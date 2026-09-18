@@ -413,6 +413,8 @@
       let rocket = 0;
       // 윙이 끝까지 막아 멈춘 자리(products 의 index). 여기부터는 보내지 않았다.
       let stoppedAt = null;
+      // 보내기에서 막힌 상품(읽기는 됐다). 멈춘 자리 앞이지만 역시 보내지 못했다.
+      let blockedOnSend = 0;
       let tabId = null;
       const wantedOf = (product) => (Array.isArray(options?.[product])
         ? new Set(options[product].map((code) => String(code)).filter((code) => /^\d{1,15}$/.test(code)))
@@ -497,6 +499,7 @@
           );
           if (answer.status === 429) {
             failed += targets.length;
+            blockedOnSend = 1;
             stoppedAt = index + 1;
             break;
           }
@@ -541,7 +544,7 @@
       if (stoppedAt !== null) {
         const rest = products.slice(stoppedAt);
         failed += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
-        warnings.push(`${spec.label}이 요청을 잠시 막았습니다(HTTP 429). 상품 ${rest.length}개는 보내지 못했습니다 — 몇 분 뒤 다시 보내세요.`);
+        warnings.push(`${spec.label}이 요청을 잠시 막았습니다(HTTP 429). 상품 ${rest.length + blockedOnSend}개는 보내지 못했습니다 — 몇 분 뒤 다시 보내세요.`);
       }
       return {
         success: true,

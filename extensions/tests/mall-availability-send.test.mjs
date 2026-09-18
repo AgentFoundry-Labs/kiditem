@@ -372,3 +372,19 @@ test('윙에 없는 옵션코드는 실패로 센다', async () => {
   assert.equal(result.failed, 1);
   assert.ok(result.warnings.some((warning) => warning.includes('옵션 1개가 쿠팡 윙에 없습니다')), result.warnings.join(' / '));
 });
+
+test('보내기에서 끝까지 막히면 그 상품부터 보내지 못한 것으로 센다', async () => {
+  const { api, log } = wingMall({
+    products: {
+      15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }],
+      16389409095: [{ vendorItemId: 96075239894, stockQuantity: 999 }],
+    },
+    throttle: { reads: 0, posts: 100 },
+  });
+  const result = await api.send({ mallKey: 'coupang', codes: ['15966710321', '16389409095'] });
+  assert.equal(result.stopped, 'rate_limited');
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 2);
+  assert.equal(log.reads.length, 1, '둘째 상품은 읽지도 않는다');
+  assert.ok(result.warnings.some((warning) => warning.includes('상품 2개는 보내지 못했습니다')), result.warnings.join(' / '));
+});
