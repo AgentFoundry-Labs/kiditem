@@ -52,7 +52,7 @@ function HeadlineCard({ title, icon: Icon, href, hrefLabel, metrics }: HeadlineC
       aria-label={title}
       className="overflow-hidden rounded-xl border border-slate-200 bg-white"
     >
-      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+      <header className="flex items-center justify-between h-10 border-b border-slate-100 px-4">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <Icon size={14} className="text-slate-500" aria-hidden />
           {title}

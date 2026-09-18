@@ -37,10 +37,10 @@ export function DashboardTopProducts({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+      <div className="flex h-10 items-center justify-between gap-2 border-b border-slate-100 px-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={13} className="text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-900">Top 상품 · 매출순</h3>
+          <h3 className="text-sm font-semibold text-slate-800">Top 상품 · 매출순</h3>
         </div>
         <div className="flex items-center gap-1.5">
           <Link href="/product-hub" className="text-[13px] font-semibold text-violet-700 hover:text-violet-900">전체 보기 →</Link>

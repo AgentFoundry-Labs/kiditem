@@ -21,12 +21,15 @@ was removed.
   settings panel switches 일별 / 누적 and adds up to three non-Coupang malls as
   their own lines, remembered in this browser only. Lines, not stacks — the
   series overlap in meaning, so stacking would count revenue twice.
-- 수익성 ABC (A/B/C 현황, with each grade's ▲in ▼out and the largest moves the
-  server counted), then Top 상품 below it. For a whole month the server ranks
+- Top 상품 under the chart. For a whole month the server ranks
   Sellpia's per-product sales (every channel, options summed); other windows
   rank collected orders. The table renders what the server ranked.
 - Right column: agent status (에이전트 | 지금 진행 중인 일, in the sidebar's
-  order), 긴급 (links straight to the screen that handles each item), and 방금.
+  order; one 40px row each, a traffic-light dot — green running, amber needs a
+  person, red failed, gray idle, hollow no record — and 확인 필요 N), 긴급 (links
+  straight to the screen that handles each item), 수익성 ABC (A/B/C with each
+  grade's ▲in ▼out and the largest moves the server counted), and 방금.
+- Every card header is one style: 40px, white, `border-slate-100`.
 
 There is no collection control on this page. Collections start from their
 owner screens; failures reach the operator through 긴급.

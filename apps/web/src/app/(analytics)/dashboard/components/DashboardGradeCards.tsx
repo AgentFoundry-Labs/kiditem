@@ -60,9 +60,9 @@ export function DashboardGradeCards({
       className="overflow-hidden rounded-xl border border-slate-200 bg-white"
       aria-label="수익성 ABC 현황"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+      <header className="flex h-10 items-center justify-between gap-2 border-b border-slate-100 px-4">
         <h2
-          className="text-sm font-semibold text-slate-900"
+          className="text-sm font-semibold text-slate-800"
           title={abcFormula ? `절대평가 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일` : '상품 관리에서 등급 새로고침을 실행하세요.'}
         >
           수익성 ABC

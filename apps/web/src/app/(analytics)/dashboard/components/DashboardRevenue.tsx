@@ -44,7 +44,7 @@ const MALL_SLOTS = [
   { color: '#1baf7a', dash: '2 3' },
   { color: '#e87ba4', dash: '8 3 2 3' },
 ] as const;
-const CHART_HEIGHT = 280;
+const CHART_HEIGHT = 360;
 const VIEW_KEY = 'kiditem.dashboard.revenue-view.v1';
 
 type BaseKey = 'total' | 'coupang' | 'nonCoupang';
@@ -216,7 +216,7 @@ export function DashboardRevenue({
 
   return (
     <section aria-label="매출 추이" className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="dashboard-revenue">
-      <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
+      <header className="flex items-center justify-between gap-2 h-10 border-b border-slate-100 px-4">
         <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-800">
           <LineChartIcon size={14} className="flex-none text-slate-500" aria-hidden />
           매출 추이

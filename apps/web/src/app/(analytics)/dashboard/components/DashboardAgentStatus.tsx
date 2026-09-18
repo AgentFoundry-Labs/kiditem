@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, ArrowUpRight, Radio } from 'lucide-react';
 // ⚠️ Agent Org 의 상태 모델을 그대로 읽는다. 대시보드가 에이전트 상태를 따로 계산하면 두
@@ -30,28 +30,39 @@ import { cn, timeAgo } from '@/lib/utils';
  * 더해지는 것은 분당 약 6회다.
  */
 
-/** 상태마다 색 하나. 에이전트 고유색이 아니라 의미색이다 — 고유색은 Agent Org 의 어두운 판용이다. */
-function stateTone(state: PipeState): { dot: string; text: string; pulse: boolean } {
+/**
+ * 상태마다 색 하나 — 신호등처럼 읽힌다. 돌고 있으면 초록(깜빡임), 사람이 봐야 하면 주황, 실패는
+ * 빨강, 할 일 없이 대기면 회색, 기록이 아예 없으면 빈 동그라미. 에이전트 고유색이 아니라 의미색이다.
+ */
+function stateTone(state: PipeState): { dot: string; pulse: boolean } {
   switch (state) {
     case 'running':
     case 'queued':
     case 'retrying':
-      return { dot: 'bg-violet-500', text: 'text-violet-700', pulse: true };
+      return { dot: 'bg-emerald-500', pulse: true };
     case 'failed':
-      return { dot: 'bg-red-500', text: 'text-red-600', pulse: false };
+      return { dot: 'bg-red-500', pulse: false };
     case 'blocked_external':
     case 'waiting_human':
     case 'stale':
-      return { dot: 'bg-amber-500', text: 'text-amber-700', pulse: false };
+      return { dot: 'bg-amber-500', pulse: false };
     case 'done':
     case 'partial':
     case 'skipped':
     case 'rejected':
-      return { dot: 'bg-emerald-500', text: 'text-emerald-700', pulse: false };
+      return { dot: 'bg-slate-400', pulse: false };
     default:
-      return { dot: 'bg-slate-300', text: 'text-slate-400', pulse: false };
+      return { dot: 'bg-white ring-1 ring-inset ring-slate-300', pulse: false };
   }
 }
+
+const LEGEND = [
+  { label: '진행 중', dot: 'bg-emerald-500' },
+  { label: '확인 필요', dot: 'bg-amber-500' },
+  { label: '실패', dot: 'bg-red-500' },
+  { label: '대기', dot: 'bg-slate-400' },
+  { label: '기록 없음', dot: 'bg-white ring-1 ring-inset ring-slate-300' },
+] as const;
 
 /** 급한 것부터. 실패 → 막힘 → 대기 → 오래됨, 같으면 최근 것. */
 const URGENCY: Readonly<Partial<Record<PipeState, number>>> = {
@@ -126,32 +137,44 @@ function currentWork(agent: AgentLine, views: ReadonlyMap<string, PipeStageView>
   return '기록 없음';
 }
 
-function AgentRow({ agent, work }: { agent: AgentLine; work: string }) {
-  const tone = stateTone(agent.state);
+function StatusDot({ dot, pulse }: { dot: string; pulse: boolean }) {
   return (
-    <tr className="align-top">
-      <th scope="row" className="whitespace-nowrap py-2 pl-4 pr-2 text-left text-[13px] font-semibold text-slate-800">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="relative flex h-1.5 w-1.5" aria-hidden>
-            {tone.pulse ? (
-              <span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 motion-reduce:animate-none', tone.dot)} />
-            ) : null}
-            <span className={cn('relative inline-flex h-1.5 w-1.5 rounded-full', tone.dot)} />
-          </span>
-          {agent.label}
-        </span>
-      </th>
-      <td className="py-2 pl-2 pr-4 text-xs text-slate-600">
-        <span className={cn('line-clamp-2', tone.pulse && 'font-medium text-violet-700')} title={work}>{work}</span>
-        {agent.attention > 0 ? (
-          <span className="mt-0.5 inline-block rounded bg-amber-50 px-1 text-[11px] font-semibold text-amber-700">확인 {agent.attention}</span>
-        ) : null}
-      </td>
-    </tr>
+    <span className="relative flex h-2 w-2 flex-none" aria-hidden>
+      {pulse ? (
+        <span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 motion-reduce:animate-none', dot)} />
+      ) : null}
+      <span className={cn('relative inline-flex h-2 w-2 rounded-full', dot)} />
+    </span>
   );
 }
 
-export function DashboardAgentStatus() {
+/** 모든 줄이 같은 높이 — 이름 · 지금 하는 일 · 확인 필요 수가 늘 같은 자리에 선다. */
+const ROW_GRID = 'grid grid-cols-[4.75rem_minmax(0,1fr)_auto] items-center gap-2 px-4';
+
+function AgentRow({ agent, work }: { agent: AgentLine; work: string }) {
+  const tone = stateTone(agent.state);
+  return (
+    <li className={cn(ROW_GRID, 'h-10')}>
+      <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
+        <StatusDot dot={tone.dot} pulse={tone.pulse} />
+        {agent.label}
+      </span>
+      <span className={cn('truncate text-xs', tone.pulse ? 'font-medium text-emerald-700' : 'text-slate-600')} title={work}>
+        {work}
+      </span>
+      {agent.attention > 0 ? (
+        <span
+          className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-700 ring-1 ring-inset ring-amber-200"
+          title={`사람이 확인해야 할 일 ${agent.attention}건 — 아래 긴급에서 바로 처리합니다`}
+        >
+          확인 필요 {agent.attention}
+        </span>
+      ) : <span aria-hidden />}
+    </li>
+  );
+}
+
+export function DashboardAgentStatus({ beforeRecent }: { beforeRecent?: ReactNode } = {}) {
   const { snapshot, now } = useAgentOrg();
   const agents = useMemo(() => {
     const byGroup = new Map(buildPipeAgents(snapshot).map((agent) => [agent.group.id, agent]));
@@ -181,7 +204,7 @@ export function DashboardAgentStatus() {
   return (
     <aside aria-label="에이전트 실시간 상태" className="space-y-3" data-testid="dashboard-agent-status">
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <header className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+        <header className="flex items-center justify-between h-10 border-b border-slate-100 px-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <Radio size={14} className="text-violet-600" aria-hidden />
             에이전트 실시간
@@ -195,31 +218,30 @@ export function DashboardAgentStatus() {
           </Link>
         </header>
 
-        <table className="w-full table-fixed">
-          <caption className="sr-only">에이전트마다 지금 진행 중인 일</caption>
-          <colgroup>
-            <col className="w-[36%]" />
-            <col />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              <th scope="col" className="py-1.5 pl-4 pr-2 font-semibold">에이전트</th>
-              <th scope="col" className="py-1.5 pl-2 pr-4 font-semibold">지금 진행 중인 일</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {agents.map((agent) => (
-              <AgentRow key={agent.id} agent={agent} work={currentWork(agent, views)} />
-            ))}
-          </tbody>
-        </table>
+        <div className={cn(ROW_GRID, 'h-8 border-b border-slate-100 text-[11px] font-semibold text-slate-400')}>
+          <span>에이전트</span>
+          <span>지금 진행 중인 일</span>
+        </div>
+        <ul className="divide-y divide-slate-100" aria-label="에이전트마다 지금 진행 중인 일">
+          {agents.map((agent) => (
+            <AgentRow key={agent.id} agent={agent} work={currentWork(agent, views)} />
+          ))}
+        </ul>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+          {LEGEND.map((item) => (
+            <span key={item.label} className="inline-flex items-center gap-1">
+              <span className={cn('inline-flex h-2 w-2 rounded-full', item.dot)} aria-hidden />
+              {item.label}
+            </span>
+          ))}
+        </p>
       </section>
 
       {/* 긴급 — 바탕을 붉게 해 에이전트 표와 한눈에 갈린다. 줄을 누르면 그 일을 처리하는 화면으로
           바로 간다(주문 수집 실패 → 주문수집, 셀피아 재고 → 재고 관리). 주소는 Agent Org 모델이
           단계마다 정한 것이라 두 화면이 같은 곳을 가리킨다. */}
       <section aria-label="긴급" className="overflow-hidden rounded-xl border border-red-200 bg-red-50">
-        <header className="flex items-center justify-between border-b border-red-100 px-4 py-2.5">
+        <header className="flex h-10 items-center justify-between border-b border-red-100 px-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-red-800">
             <AlertTriangle size={14} className="text-red-600" aria-hidden />
             긴급
@@ -273,10 +295,12 @@ export function DashboardAgentStatus() {
         ) : null}
       </section>
 
+      {beforeRecent}
+
       {/* 방금 한 일. 에이전트가 무엇을 하고 있는지의 나머지 절반이다. */}
       {feed.length > 0 ? (
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <header className="border-b border-slate-100 px-4 py-2.5">
+          <header className="flex h-10 items-center border-b border-slate-100 px-4">
             <h2 className="text-sm font-semibold text-slate-800">방금</h2>
           </header>
           <ul className="divide-y divide-slate-100">

@@ -552,6 +552,26 @@ export default function Dashboard() {
     </div>
   );
 
+  // 수익성 ABC 는 오른쪽 칸, 방금 위에 선다(사장님 2026-09-18).
+  const abcPanel = inventoryHasErr ? (
+    <DashboardSectionUnavailable label="수익성 ABC" />
+  ) : !inventoryData ? (
+    <DashboardSectionEmpty label="수익성 ABC" />
+  ) : (
+    <DashboardGradeCards
+      gradeCount={inventoryData.gradeCount}
+      classifiedProductCount={inventoryData.classifiedProductCount}
+      abcStatusCount={inventoryData.abcStatusCount}
+      abcContributionProfit={inventoryData.abcContributionProfit}
+      abcFormula={inventoryData.abcFormula}
+      gradeChanges={inventoryData.gradeChanges}
+      changesMeasured={basisHasValues(changesBasis)}
+      basis={inventoryBasis}
+      contributionBasis={contributionBasis}
+      refetchReads={async () => { await refetchInventory(); }}
+    />
+  );
+
   return (
     <div className="space-y-4 w-full pb-12">
       {/* Header */}
@@ -604,7 +624,7 @@ export default function Dashboard() {
 
       {/* 바깥 두 칸 — 왼쪽은 매출 · 광고와 매출 추이, 오른쪽은 에이전트 실시간.
           겹치던 것(기간 지표 = 매출 카드, 광고 성과 = 광고 카드, 알림 = 긴급)은 걷었다(사장님 2026-09-18). */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px] items-start">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px] items-start">
         <div className="min-w-0 space-y-3">
           <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} inventory={headlineInventory} salesHref={salesAnalysisHref} />
           <DashboardRevenue
@@ -613,25 +633,6 @@ export default function Dashboard() {
             isError={channelSales.isError}
             salesHref={salesAnalysisHref}
           />
-          {/* A/B/C 현황 아래에 그 상품들의 매출 순위 — 등급을 먼저, 무엇이 팔리는지를 그 밑에(사장님 2026-09-18). */}
-          {inventoryHasErr ? (
-            <DashboardSectionUnavailable label="수익성 ABC" />
-          ) : !inventoryData ? (
-            <DashboardSectionEmpty label="수익성 ABC" />
-          ) : (
-            <DashboardGradeCards
-              gradeCount={inventoryData.gradeCount}
-              classifiedProductCount={inventoryData.classifiedProductCount}
-              abcStatusCount={inventoryData.abcStatusCount}
-              abcContributionProfit={inventoryData.abcContributionProfit}
-              abcFormula={inventoryData.abcFormula}
-              gradeChanges={inventoryData.gradeChanges}
-              changesMeasured={basisHasValues(changesBasis)}
-              basis={inventoryBasis}
-              contributionBasis={contributionBasis}
-              refetchReads={async () => { await refetchInventory(); }}
-            />
-          )}
           {topProductsHasErr ? (
             <DashboardSectionUnavailable label="Top Revenue Products" />
           ) : topProductsLoading ? (
@@ -642,7 +643,7 @@ export default function Dashboard() {
             <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
           )}
         </div>
-        <DashboardAgentStatus />
+        <DashboardAgentStatus beforeRecent={abcPanel} />
       </div>
 
     </div>
