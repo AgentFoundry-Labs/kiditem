@@ -35,14 +35,12 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-pipeline/detail-template-generation', '상세 템플릿 생성'],
         ['/product-pipeline/thumbnail-ai', '썸네일 AI'],
         ['/product-pipeline/thumbnail-generation', '썸네일 생성'],
+        ['/product-hub', '상품 관리'],
+        ['/product-hub/matching', '상품 매칭'],
       ]],
       ['마케팅 에이전트', [
         ['/ad-ops', '광고전략 AI'],
         ['/rank-tracking', '쿠팡 순위추적'],
-      ]],
-      ['상품 관리', [
-        ['/product-hub', '상품 관리'],
-        ['/product-hub/matching', '상품 매칭'],
         ['/reviews', '리뷰 관리'],
       ]],
       ['쇼핑몰 에이전트', [
@@ -52,17 +50,13 @@ describe('Sidebar product pipeline navigation', () => {
         ['/mall-listings', '상품 등록'],
         ['/mall-availability', '품절 관리'],
         ['/mall-tasks', '송신 내역'],
-      ]],
-      ['주문관리', [
         ['/order-collection', '주문수집'],
         ['/rocket-orders', '쿠팡 로켓'],
+        ['/coupang-shipments', '쿠팡 쉽먼트'],
       ]],
-      ['재고관리', [
+      ['재고관리 에이전트', [
         ['/inventory-hub', '재고 관리'],
         ['/stock-ops', '재고 분석'],
-      ]],
-      ['출고반품', [
-        ['/coupang-shipments', '쿠팡 쉽먼트'],
       ]],
       ['재무분석', [
         ['/profit-loss', '손익 분석'],

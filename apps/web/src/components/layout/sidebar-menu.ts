@@ -87,6 +87,8 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
       { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
+      { href: '/product-hub', label: '상품 관리', icon: Package },
+      { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
     ],
   },
   {
@@ -95,14 +97,6 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
-    ],
-  },
-  {
-    label: '상품 관리',
-    collapsible: true,
-    items: [
-      { href: '/product-hub', label: '상품 관리', icon: Package },
-      { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
     ],
   },
@@ -116,29 +110,17 @@ export const menuSections: MenuSection[] = [
       { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },
       { href: '/mall-availability', label: '품절 관리', icon: PackageX },
       { href: '/mall-tasks', label: '송신 내역', icon: ClipboardList },
-    ],
-  },
-  {
-    label: '주문관리',
-    collapsible: true,
-    items: [
       { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
       { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
+      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
     ],
   },
   {
-    label: '재고관리',
+    label: '재고관리 에이전트',
     collapsible: true,
     items: [
       { href: '/inventory-hub', label: '재고 관리', icon: Warehouse },
       { href: '/stock-ops', label: '재고 분석', icon: Boxes },
-    ],
-  },
-  {
-    label: '출고반품',
-    collapsible: true,
-    items: [
-      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
     ],
   },
   {
