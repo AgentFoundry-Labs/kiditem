@@ -27,7 +27,8 @@ const MALL_FILL_TIMEOUT_MS = 120_000;
 
 export type MallFormRegisterMall =
   | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st' | 'icecream'
-  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall' | 'kidkids' | 'ssg' | 'smartstore' | 'gsshop' | 'lotteon';
+  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall' | 'kidkids' | 'ssg' | 'smartstore' | 'gsshop' | 'lotteon'
+  | 'kakao';
 
 /**
  * 확장 폼 스펙 이름 → 쇼핑몰 계정 키.
@@ -71,6 +72,9 @@ export const MALL_ACCOUNT_KEY: Record<MallFormRegisterMall, string> = {
   // 주문수집에 이미 붙어 있는 몰 키다. 롯데ON 로그인은 통합회원 화면이라 자동 로그인이 못 붙으면
   // 확장이 "직접 로그인하세요" 로 멈춘다.
   lotteon: 'lotte-on',
+  // 주문수집에 이미 붙어 있는 몰 키다. 카카오 계정 로그인은 자동 로그인이 못 붙으므로 로그아웃이면
+  // 확장이 "직접 로그인하세요" 로 멈춘다.
+  kakao: 'kakao',
 };
 
 export interface MallFormRegistrationResult {

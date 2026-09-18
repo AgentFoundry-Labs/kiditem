@@ -17,6 +17,7 @@ import { ssgAdapter } from './ssg.adapter';
 import { smartstoreAdapter } from './smartstore.adapter';
 import { gsshopAdapter } from './gsshop.adapter';
 import { lotteonAdapter } from './lotteon.adapter';
+import { kakaoAdapter } from './kakao.adapter';
 
 /**
  * 등록 어댑터 레지스트리.
@@ -48,6 +49,7 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   smartstoreAdapter,
   gsshopAdapter,
   lotteonAdapter,
+  kakaoAdapter,
 ];
 
 const BY_KEY = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
@@ -92,4 +94,5 @@ export {
   smartstoreAdapter,
   gsshopAdapter,
   lotteonAdapter,
+  kakaoAdapter,
 };
