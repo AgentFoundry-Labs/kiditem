@@ -92,15 +92,6 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
-    label: '마케팅 에이전트',
-    collapsible: true,
-    items: [
-      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
-      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
-      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-    ],
-  },
-  {
     label: '쇼핑몰 에이전트',
     collapsible: true,
     items: [
@@ -124,7 +115,22 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
-    label: '재무분석',
+    label: '마케팅 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
+      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
+    ],
+  },
+  {
+    label: 'CS 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
+    ],
+  },
+  {
+    label: '재무분석 에이전트',
     collapsible: true,
     items: [
       { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },

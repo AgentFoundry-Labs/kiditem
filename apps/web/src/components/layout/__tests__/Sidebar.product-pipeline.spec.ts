@@ -38,11 +38,6 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub', '상품 관리'],
         ['/product-hub/matching', '상품 매칭'],
       ]],
-      ['마케팅 에이전트', [
-        ['/ad-ops', '광고전략 AI'],
-        ['/rank-tracking', '쿠팡 순위추적'],
-        ['/reviews', '리뷰 관리'],
-      ]],
       ['쇼핑몰 에이전트', [
         ['/mall-home', '쇼핑몰 홈'],
         ['/mall-channels', '쇼핑몰 현황'],
@@ -58,7 +53,14 @@ describe('Sidebar product pipeline navigation', () => {
         ['/inventory-hub', '재고 관리'],
         ['/stock-ops', '재고 분석'],
       ]],
-      ['재무분석', [
+      ['마케팅 에이전트', [
+        ['/ad-ops', '광고전략 AI'],
+        ['/rank-tracking', '쿠팡 순위추적'],
+      ]],
+      ['CS 에이전트', [
+        ['/reviews', '리뷰 관리'],
+      ]],
+      ['재무분석 에이전트', [
         ['/profit-loss', '손익 분석'],
         ['/sales-analysis', '매출 분석'],
       ]],
