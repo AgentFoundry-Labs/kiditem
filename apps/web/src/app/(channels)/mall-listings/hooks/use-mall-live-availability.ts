@@ -20,6 +20,11 @@ export interface MallLiveAvailability {
   cells: ReadonlyMap<string, MallLiveCell>;
   /** 칸 하나를 몰에서 다시 읽는다(품절 · 재개를 보낸 뒤). */
   refresh: (mallKey: string, mallProductCode: string) => Promise<void>;
+  /**
+   * 확장이 보낸 뒤 몰을 다시 읽어 확인한 상태를 칸에 그대로 둔다 — 조회가 늦게 따라오는 몰(롯데ON)은 바로 다시 읽으면
+   * 옛 값을 받는다.
+   */
+  settle: (mallKey: string, mallProductCode: string, soldOut: boolean) => void;
 }
 
 export function liveCellKey(mallKey: string, mallProductCode: string) {
@@ -103,5 +108,10 @@ export function useMallLiveAvailability(
     }
   }, [put]);
 
-  return { cells, refresh };
+  const settle = useCallback((mallKey: string, mallProductCode: string, soldOut: boolean) => {
+    const summary = summarizeLiveAvailability([{ optionCode: mallProductCode, stock: soldOut ? 0 : null, rocket: false }], mallKey);
+    put([[liveCellKey(mallKey, mallProductCode), { status: 'ready', summary, readAt: new Date() }]]);
+  }, [put]);
+
+  return { cells, refresh, settle };
 }

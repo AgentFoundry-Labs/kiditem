@@ -3,6 +3,7 @@ import {
   availabilityOutcome,
   canReadMallAvailability,
   canSendMallAvailability,
+  mallReadLagsAfterSend,
   readMallAvailability,
   sendMallAvailability,
   summarizeLiveAvailability,
@@ -205,6 +206,12 @@ describe('몰 지금 재고', () => {
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'art09')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'always')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'lotte-on')).toEqual({ tone: 'sold_out', label: '품절' });
+  });
+
+  it('롯데ON 은 보낸 직후 다시 읽지 않는다 — 조회가 옛 판매상태를 섞어 준다', () => {
+    expect(mallReadLagsAfterSend('lotte-on')).toBe(true);
+    expect(mallReadLagsAfterSend('coupang')).toBe(false);
+    expect(mallReadLagsAfterSend('art09')).toBe(false);
   });
 
   it('⭐ 확장에 읽기만 부탁하고 그 상품의 옵션 재고를 돌려준다', async () => {

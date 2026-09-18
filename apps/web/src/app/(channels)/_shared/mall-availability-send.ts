@@ -82,6 +82,16 @@ export function canReadMallAvailability(mallKey: string): boolean {
   return (MALL_AVAILABILITY_READ_MALLS as readonly string[]).includes(mallKey);
 }
 
+/**
+ * 조회가 바뀐 상태를 늦게 보여 주는 몰. 롯데ON 상품 조회는 보낸 직후 옛 판매상태를 섞어 준다(라이브 2026-09-19:
+ * 확장이 다시 읽어 확인한 다음 번 조회가 또 옛 값). 확장이 이미 몰에서 확인했으면 칸은 다시 읽지 않고 그 결과를 쓴다.
+ */
+const READ_LAGS_AFTER_SEND: ReadonlySet<string> = new Set(['lotte-on']);
+
+export function mallReadLagsAfterSend(mallKey: string): boolean {
+  return READ_LAGS_AFTER_SEND.has(mallKey);
+}
+
 export interface MallLiveOption {
   optionCode: string;
   /** 재고 수. 올웨이즈처럼 품절 여부만 주는 몰은 판매중일 때 null(모름)이다 — 품절이면 0. */

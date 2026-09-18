@@ -22,6 +22,7 @@ import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation';
 import {
   availabilityOutcome,
+  mallReadLagsAfterSend,
   canReadMallAvailability,
   canSendMallAvailability,
   sendMallAvailability,
@@ -178,6 +179,8 @@ interface CellActionPopoverProps {
   live?: MallLiveCell | null;
   /** 이 칸을 몰에서 다시 읽는다. */
   onRefreshLive?: () => Promise<void>;
+  /** 확장이 몰에서 확인한 상태(품절이면 true)를 칸에 그대로 둔다. 조회가 늦게 따라오는 몰에서 쓴다. */
+  onSettleLive?: (soldOut: boolean) => void;
   /** 이 메뉴를 연 버튼. 스크롤해도 계속 그 버튼에 붙어 있게 한다. */
   anchor: HTMLElement;
   onClose: () => void;
@@ -236,6 +239,7 @@ export function CellActionPopover({
   externalId,
   live = null,
   onRefreshLive,
+  onSettleLive,
   anchor,
   onClose,
 }: CellActionPopoverProps) {
@@ -318,8 +322,11 @@ export function CellActionPopover({
         duration: 10_000,
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
-      // 지금 재고를 읽을 수 있는 몰은 창을 닫지 않고 몰에서 다시 읽어 바뀐 상태를 그 자리에서 보여 준다.
-      if (liveReadable) readLive();
+      // 지금 재고를 읽을 수 있는 몰은 창을 닫지 않고 몰에서 다시 읽어 바뀐 상태를 그 자리에서 보여 준다. 조회가 늦게
+      // 따라오는 몰(롯데ON)은 확장이 이미 확인한 결과를 그대로 쓴다 — 바로 다시 읽으면 옛 값을 받는다.
+      if (liveReadable && recorded.outcome === 'succeeded' && mallReadLagsAfterSend(column.mallKey) && onSettleLive) {
+        onSettleLive(!resume);
+      } else if (liveReadable) readLive();
       else onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
