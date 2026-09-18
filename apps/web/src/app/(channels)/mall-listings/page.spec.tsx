@@ -18,11 +18,11 @@ const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWi
     downloadWingExcelMock: vi.fn(),
   }));
 
-// 등록현황 칸의 창은 쿠팡 지금 재고를 확장으로 읽는다. 몰에 닿는 그 한 단계만 막는다.
-const { readMallAvailabilityMock } = vi.hoisted(() => ({ readMallAvailabilityMock: vi.fn() }));
+// 등록현황은 쿠팡 칸의 지금 재고를 확장으로 읽는다. 몰에 닿는 그 한 단계만 막는다.
+const { readMallAvailabilityManyMock } = vi.hoisted(() => ({ readMallAvailabilityManyMock: vi.fn() }));
 vi.mock('../_shared/mall-availability-send', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_shared/mall-availability-send')>()),
-  readMallAvailability: readMallAvailabilityMock,
+  readMallAvailabilityMany: readMallAvailabilityManyMock,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -116,7 +116,7 @@ beforeEach(() => {
   });
   generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
   // 기본은 읽는 중 그대로 둔다 — 창의 버튼을 세는 테스트가 읽기 결과에 흔들리지 않게.
-  readMallAvailabilityMock.mockReturnValue(new Promise(() => {}));
+  readMallAvailabilityManyMock.mockReturnValue(new Promise(() => {}));
 });
 
 describe('상품 등록 (N × M)', () => {
@@ -542,27 +542,46 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     expect(enabled[1]).toHaveTextContent('판매 재개');
   });
 
-  // 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이다. 창을 열면 윙 지금 재고를 읽어 품절인지 보여 준다
-  // (사장님 2026-09-18: "이거 확인을 해줘봐").
-  it('⭐ 쿠팡 칸을 열면 윙 지금 재고를 읽어 품절인지 보여 준다', async () => {
+  // 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이다. 표가 페이지째 윙 지금 재고를 읽어 품절이면 칸을 빨간 '품절'로
+  // 보인다(사장님 2026-09-18: "실시간으로 품절이면 품절로 나오게 해줘야지 … 품절은 빨간색으로").
+  it('⭐ 쿠팡 칸은 윙 지금 재고를 읽어 품절이면 빨간 품절로 보이고, 창에도 같은 값이 보인다', async () => {
     withActions();
-    readMallAvailabilityMock.mockResolvedValue([{ optionCode: '95903875495', stock: 0, rocket: false }]);
+    readMallAvailabilityManyMock.mockResolvedValue(
+      new Map([['16290876620', [{ optionCode: '95903875495', stock: 0, rocket: false }]]]),
+    );
     render(<MallListingsPage />);
+    const pill = await screen.findByText('품절');
+    expect(pill).toHaveClass('text-rose-700');
+    expect(readMallAvailabilityManyMock).toHaveBeenCalledWith('coupang', ['16290876620']);
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     const panel = screen.getByRole('dialog');
-    expect(within(panel).getByText(/지금 재고 읽는 중/)).toBeInTheDocument();
-    expect(await within(panel).findByText('지금 품절 · 재고 0')).toBeInTheDocument();
-    expect(readMallAvailabilityMock).toHaveBeenCalledWith('coupang', '16290876620');
+    expect(within(panel).getByText('지금 품절 · 재고 0')).toBeInTheDocument();
+    expect(readMallAvailabilityManyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('재고가 있으면 칸은 그대로 등록이다', async () => {
+    withActions();
+    readMallAvailabilityManyMock.mockResolvedValue(
+      new Map([['16290876620', [{ optionCode: '95903875495', stock: 999, rocket: false }]]]),
+    );
+    render(<MallListingsPage />);
+    await waitFor(() => expect(readMallAvailabilityManyMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    const panel = screen.getByRole('dialog');
+    expect(await within(panel).findByText('지금 판매 가능 · 재고 999')).toBeInTheDocument();
+    expect(screen.queryByText('품절')).not.toBeInTheDocument();
   });
 
   it('지금 재고를 못 읽으면 이유와 다시 읽기를 보인다', async () => {
     withActions();
-    readMallAvailabilityMock.mockRejectedValue(new Error('쿠팡 윙에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.'));
+    readMallAvailabilityManyMock.mockRejectedValueOnce(new Error('쿠팡 윙에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.'));
     render(<MallListingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     const panel = screen.getByRole('dialog');
     expect(await within(panel).findByText(/쿠팡 윙에 로그인되어 있지 않습니다/)).toBeInTheDocument();
-    readMallAvailabilityMock.mockResolvedValue([{ optionCode: '95903875495', stock: 999, rocket: false }]);
+    readMallAvailabilityManyMock.mockResolvedValue(
+      new Map([['16290876620', [{ optionCode: '95903875495', stock: 999, rocket: false }]]]),
+    );
     fireEvent.click(within(panel).getByRole('button', { name: '다시' }));
     expect(await within(panel).findByText('지금 판매 가능 · 재고 999')).toBeInTheDocument();
   });

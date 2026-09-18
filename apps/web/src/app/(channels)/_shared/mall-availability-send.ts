@@ -82,13 +82,29 @@ interface ReadResponse {
 
 /** 몰 지금 재고를 읽는다. 읽기만 한다 — 몰에 아무것도 보내지 않는다. */
 export async function readMallAvailability(mallKey: string, mallProductCode: string): Promise<MallLiveOption[]> {
+  const products = await readMallAvailabilityMany(mallKey, [mallProductCode]);
+  const options = products.get(mallProductCode);
+  if (!options) throw new Error('이 상품을 몰에서 찾지 못했습니다.');
+  return options;
+}
+
+/**
+ * 여러 상품의 몰 지금 재고를 한 번에 읽는다(등록현황 한 페이지). 몰에서 못 찾은 상품은 결과에 없다.
+ * 읽기만 한다.
+ */
+export async function readMallAvailabilityMany(
+  mallKey: string,
+  mallProductCodes: readonly string[],
+): Promise<Map<string, MallLiveOption[]>> {
+  const codes = [...new Set(mallProductCodes.map((code) => code.trim()).filter(Boolean))];
+  if (codes.length === 0) return new Map();
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) throw new Error('확장프로그램이 필요합니다.');
   let response: ReadResponse;
   try {
     response = await sendToExtension<ReadResponse>(
       extensionId,
-      { action: 'readMallAvailability', mallKey, codes: [mallProductCode] },
+      { action: 'readMallAvailability', mallKey, codes },
       READ_TIMEOUT_MS,
     );
   } catch (error) {
@@ -99,9 +115,7 @@ export async function readMallAvailability(mallKey: string, mallProductCode: str
     throw error;
   }
   if (response?.success !== true) throw new Error(response?.error ?? '지금 재고를 읽지 못했습니다.');
-  const product = response.products?.find((entry) => entry.code === mallProductCode);
-  if (!product) throw new Error('이 상품을 몰에서 찾지 못했습니다.');
-  return product.options;
+  return new Map((response.products ?? []).map((entry) => [entry.code, entry.options]));
 }
 
 export interface MallLiveSummary {

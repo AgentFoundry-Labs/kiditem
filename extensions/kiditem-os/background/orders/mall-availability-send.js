@@ -30,8 +30,8 @@
   const WING_RATE_LIMIT_WAITS_MS = [5000, 15000, 30000];
   /** 보낸 뒤 다시 읽어 아직 안 바뀌었으면 한 번 더 볼 때까지 기다리는 시간. */
   const WING_RECHECK_MS = 1500;
-  /** 지금 재고 읽기 한 번에 읽는 상품 수. 등록현황 칸은 한 상품만 읽는다. */
-  const READ_LIMIT = 20;
+  /** 지금 재고 읽기 한 번에 읽는 상품 수. 등록현황 한 페이지(25줄)가 한 번에 들어간다. */
+  const READ_LIMIT = 50;
   /**
    * 윙 상품목록은 재고를 바꾼 뒤 늦게 따라온다(실측 2026-09-18: 15초 뒤에는 옛 값, 70초 뒤에는 새 값). 앞에 띄운
    * 상품목록은 이 간격으로 새로 고쳐 바뀐 재고가 보일 때까지 기다린다 — 사장님은 그 화면을 보고 판단한다.
@@ -434,10 +434,10 @@
      * 윙이 429 로 막으면 쉬었다 같은 요청을 다시 보낸다(재고를 정해진 값으로 두는 요청이라 다시 보내도 같다).
      * 429 를 로그아웃으로 읽지 않는다.
      */
-    async function withWingPage(spec, work, { show = null } = {}) {
+    async function withWingPage(spec, work, { show = null, reuseOpen = false } = {}) {
       const stock = spec.optionStock;
       let tabId = null;
-      const closeWhenDone = !show;
+      let closeWhenDone = !show;
       const inPage = async (path, method, contentType, body) => {
         for (let attempt = 0; ; attempt += 1) {
           const [injected] = await chromeApi.scripting.executeScript({
@@ -463,6 +463,13 @@
       };
       try {
         const url = stock.listUrl(show || "");
+        // 읽기만 할 때는 이미 열린 윙 화면이 있으면 그 화면에서 부른다 — 탭을 새로 열지 않아 빠르고 화면도 안 바뀐다.
+        const reusable = reuseOpen ? await findOpenWingTab(spec) : null;
+        if (reusable) {
+          tabId = reusable.id;
+          closeWhenDone = false;
+          return await work({ inPage, readItems, showList: async () => null });
+        }
         if (show) {
           // 이미 열린 상품목록 탭이 있으면 그 탭에서 이 상품을 검색해 앞에 띄운다. 탭이 쌓이지 않는다.
           const [open] = await chromeApi.tabs.query({ url: `${spec.origin}${stock.listPath}*` }).catch(() => []);
@@ -513,6 +520,14 @@
         // 뒤에서 연 탭만 닫는다. 앞에 띄운 상품목록은 사장님 것이다(원래 열려 있던 탭일 수도 있다).
         if (tabId !== null && closeWhenDone) await chromeApi.tabs.remove(tabId).catch(() => undefined);
       }
+    }
+
+    /** 로그인된 채 다 뜬 윙 화면 하나. 없으면 null. 그 화면은 건드리지 않고 그 안에서 부르기만 한다. */
+    async function findOpenWingTab(spec) {
+      const tabs = await chromeApi.tabs.query({ url: `${spec.origin}/*` }).catch(() => []);
+      return (tabs || []).find((tab) => tab && tab.status === "complete"
+        && String(tab.url || "").startsWith(spec.origin)
+        && !/login|xauth/i.test(String(tab.url || ""))) || null;
     }
 
     /**
@@ -820,7 +835,7 @@
           });
         }
         return null;
-      });
+      }, { reuseOpen: true });
       if (halted) return halted;
       return { success: true, products: found, missing };
     }

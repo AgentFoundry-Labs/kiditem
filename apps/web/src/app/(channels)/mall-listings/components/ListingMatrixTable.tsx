@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Check, ChevronDown, CircleSlash, PauseCircle, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, CircleSlash, PackageX, PauseCircle, X } from 'lucide-react';
 import type {
   MallListingMatrixColumn,
   MallListingMatrixRow,
@@ -17,6 +17,12 @@ import {
   productMonogram,
 } from '../../_shared/mall-presentation';
 import { CellActionPopover, RowActionMenu } from './ListingActionMenus';
+import {
+  liveCellKey,
+  useMallLiveAvailability,
+  type MallLiveAvailability,
+  type MallLiveCell,
+} from '../hooks/use-mall-live-availability';
 
 const STATE_ICON: Partial<Record<MallListingState, typeof Check>> = {
   published: Check,
@@ -85,6 +91,8 @@ export function ListingMatrixTable({
     null,
   );
   const { topRef, bodyRef, scrollWidth, overflowing } = useSyncedHorizontalScroll();
+  // 몰 지금 재고(쿠팡 윙). 품절이면 칸이 빨간 '품절'이 된다.
+  const live = useMallLiveAvailability(columns, loading ? [] : rows);
 
   return (
     <div className="table-card">
@@ -159,6 +167,7 @@ export function ListingMatrixTable({
                   key={row.masterProductId}
                   row={row}
                   columns={columns}
+                  live={live}
                   checked={selected.has(row.masterProductId)}
                   onToggle={() => onToggle(row.masterProductId)}
                   openCell={openCell?.rowId === row.masterProductId ? openCell : null}
@@ -313,6 +322,7 @@ function MallIcon({ mallKey, mallName }: { mallKey: string; mallName: string }) 
 function MatrixRow({
   row,
   columns,
+  live,
   checked,
   onToggle,
   openCell,
@@ -323,6 +333,7 @@ function MatrixRow({
 }: {
   row: MallListingMatrixRow;
   columns: MallListingMatrixColumn[];
+  live: MallLiveAvailability;
   checked: boolean;
   onToggle: () => void;
   openCell: { mallKey: string; anchor: HTMLElement } | null;
@@ -435,6 +446,8 @@ function MatrixRow({
       {columns.map((column) => {
         const cell = cellByMall.get(column.mallKey) ?? null;
         const state = cell?.state ?? 'unregistered';
+        const externalId = cell?.externalId ?? null;
+        const liveCell = externalId ? live.cells.get(liveCellKey(column.mallKey, externalId)) ?? null : null;
         return (
           <td key={column.mallKey} className="text-center">
             <div className="relative inline-block">
@@ -451,6 +464,7 @@ function MatrixRow({
                   warning={cell?.warning ?? null}
                   updatedAt={cell?.updatedAt ?? null}
                   imported={column.imported}
+                  live={liveCell}
                 />
               </button>
               {openCell?.mallKey === column.mallKey ? (
@@ -459,7 +473,9 @@ function MatrixRow({
                   productName={row.name}
                   state={state}
                   rawStatus={cell?.rawStatus ?? null}
-                  externalId={cell?.externalId ?? null}
+                  externalId={externalId}
+                  live={liveCell}
+                  onRefreshLive={() => (externalId ? live.refresh(column.mallKey, externalId) : Promise.resolve())}
                   anchor={openCell.anchor}
                   onClose={onCloseMenus}
                 />
@@ -513,19 +529,43 @@ function ProductThumbnail({
   );
 }
 
+/** 몰 지금 재고가 품절 · 일부 품절이면 칸이 그것을 먼저 말한다. 품절은 빨강이다(사장님 2026-09-18). */
+const LIVE_PILL = {
+  sold_out: { label: '품절', tone: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' },
+  partial: { label: '일부 품절', tone: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
+} as const;
+
 function StatePill({
   state,
   rawStatus,
   warning,
   updatedAt,
   imported,
+  live = null,
 }: {
   state: MallListingState;
   rawStatus: string | null;
   warning: string | null;
   updatedAt: string | null;
   imported: boolean;
+  live?: MallLiveCell | null;
 }) {
+  const liveTone = live?.status === 'ready' && (live.summary.tone === 'sold_out' || live.summary.tone === 'partial')
+    ? live.summary.tone
+    : null;
+  if (live?.status === 'ready' && liveTone) {
+    const pill = LIVE_PILL[liveTone];
+    const time = live.readAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    return (
+      <span
+        title={`몰 지금 재고: ${live.summary.label} (${time} 확인)${rawStatus ? `\n몰 판매상태: ${rawStatus}` : ''}`}
+        className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold', pill.tone)}
+      >
+        <PackageX size={11} />
+        {pill.label}
+      </span>
+    );
+  }
   const presentation = MALL_LISTING_STATE_PRESENTATION[state];
   const Icon = STATE_ICON[state];
   const title = [

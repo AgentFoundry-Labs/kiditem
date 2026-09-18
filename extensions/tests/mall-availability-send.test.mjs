@@ -186,7 +186,7 @@ function wingMall({
   const chrome = {
     tabs: {
       create: async ({ url, active }) => { log.tabs.push(url); log.active.push(active); return { id: 7 }; },
-      query: async ({ url }) => { log.queries.push(url); return openListTabs.map((id) => ({ id, url: 'https://wing.coupang.com/vendor-inventory/list?page=1' })); },
+      query: async ({ url }) => { log.queries.push(url); return openListTabs.map((id) => ({ id, status: 'complete', url: 'https://wing.coupang.com/vendor-inventory/list?page=1' })); },
       update: async (id, { url, active }) => { log.updated.push({ id, url, active }); return { id }; },
       reload: async (id) => { log.reloaded.push(id); },
       get: async () => ({ id: 7, url: tabUrl }),
@@ -564,4 +564,29 @@ test('지금 재고 읽기도 윙 상품목록을 뒤에서 열고 닫는다', a
   assert.ok(log.tabs[0].startsWith(WING_LIST), log.tabs[0]);
   assert.deepEqual(log.active, [false]);
   assert.deepEqual(log.removed, [7]);
+});
+
+test('⭐ 지금 재고 읽기는 이미 열린 윙 화면에서 부른다 — 탭을 새로 열지도 닫지도 않는다', async () => {
+  const { api, log } = wingMall({
+    products: {
+      16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }],
+      15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }],
+    },
+    openListTabs: [9],
+  });
+  const result = await api.read({ mallKey: 'coupang', codes: ['16340985357', '15966710321'] });
+  assert.equal(result.success, true);
+  assert.equal(result.products.length, 2);
+  assert.deepEqual(log.queries, ['https://wing.coupang.com/*']);
+  assert.equal(log.tabs.length, 0, '새 탭을 열지 않는다');
+  assert.deepEqual(log.removed, [], '사장님 화면은 닫지 않는다');
+  assert.deepEqual(log.updated, [], '그 화면을 다른 주소로 옮기지 않는다');
+});
+
+test('지금 재고 읽기는 한 번에 50개까지 읽는다 — 등록현황 한 페이지가 들어간다', async () => {
+  const products = Object.fromEntries(Array.from({ length: 60 }, (_, index) => [String(16000000000 + index), [{ vendorItemId: 90000000000 + index, stockQuantity: index % 2 }]]));
+  const { api, log } = wingMall({ products });
+  const result = await api.read({ mallKey: 'coupang', codes: Object.keys(products) });
+  assert.equal(result.products.length, 50);
+  assert.equal(log.reads.length, 50);
 });
