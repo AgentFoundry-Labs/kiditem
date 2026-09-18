@@ -87,7 +87,7 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
       { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
-      { href: '/product-hub', label: '상품 관리', icon: Package },
+      { href: '/product-hub', label: '상품 분석', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
     ],
   },

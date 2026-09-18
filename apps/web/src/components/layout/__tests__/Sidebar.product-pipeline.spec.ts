@@ -35,7 +35,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-pipeline/detail-template-generation', '상세 템플릿 생성'],
         ['/product-pipeline/thumbnail-ai', '썸네일 AI'],
         ['/product-pipeline/thumbnail-generation', '썸네일 생성'],
-        ['/product-hub', '상품 관리'],
+        ['/product-hub', '상품 분석'],
         ['/product-hub/matching', '상품 매칭'],
       ]],
       ['쇼핑몰 에이전트', [
