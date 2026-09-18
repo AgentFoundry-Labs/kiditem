@@ -10,6 +10,7 @@ import {
   businessDatesInWindow,
   resolveDashboardPeriod,
   resolveWingMonthlyTrendPeriod,
+  wholeCalendarMonth,
   type ResolvedDashboardPeriod,
 } from './dashboard-period';
 
@@ -337,3 +338,23 @@ describe('resolveWingMonthlyTrendPeriod', () => {
     expect(august.selectedDates).toHaveLength(31);
   });
 });
+
+describe('wholeCalendarMonth', () => {
+  const selected = (context: ReturnType<typeof buildDashboardContext>) =>
+    resolveDashboardPeriod(context, ANCHOR, 'order_timestamps').selected;
+
+  it('names the month of a month selection, current or past', () => {
+    expect(wholeCalendarMonth(selected(buildDashboardContext('month', undefined, undefined, ANCHOR)))).toBe('2026-09');
+    expect(wholeCalendarMonth(selected(buildDashboardContext('month', '2026-07-01', '2026-07-31', ANCHOR)))).toBe('2026-07');
+    expect(wholeCalendarMonth(selected(buildDashboardContext('custom', '2026-02-01', '2026-02-28', ANCHOR)))).toBe('2026-02');
+  });
+
+  it('names nothing for a window that is not one whole month', () => {
+    expect(wholeCalendarMonth(selected(buildDashboardContext('week', undefined, undefined, ANCHOR)))).toBeNull();
+    expect(wholeCalendarMonth(selected(buildDashboardContext('day', undefined, undefined, ANCHOR)))).toBeNull();
+    expect(wholeCalendarMonth(selected(buildDashboardContext('custom', '2026-07-01', '2026-07-30', ANCHOR)))).toBeNull();
+    expect(wholeCalendarMonth(selected(buildDashboardContext('custom', '2026-07-02', '2026-07-31', ANCHOR)))).toBeNull();
+    expect(wholeCalendarMonth(selected(buildDashboardContext('custom', '2026-07-01', '2026-08-31', ANCHOR)))).toBeNull();
+  });
+});
+

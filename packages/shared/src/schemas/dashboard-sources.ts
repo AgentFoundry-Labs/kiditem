@@ -13,6 +13,7 @@ export type DashboardSourceName =
   | 'wing_traffic'
   | 'coupang_ads'
   | 'sellpia_sales'
+  | 'sellpia_product_sales'
   | 'products'
   | 'product_abc'
   | 'channel_listings'
@@ -39,6 +40,13 @@ export const COUPANG_ADS_SOURCE = 'coupang_ads' satisfies DashboardSourceName;
 
 /** Sellpia `sale_summary` published daily snapshots. */
 export const SELLPIA_SALES_SOURCE = 'sellpia_sales' satisfies DashboardSourceName;
+
+/**
+ * Sellpia's per-product monthly sales (`stat_prd_profit`) — the published
+ * profitability generation. Monthly, so it can only answer a whole calendar
+ * month, and it carries no settlement costs.
+ */
+export const SELLPIA_PRODUCT_SALES_SOURCE = 'sellpia_product_sales' satisfies DashboardSourceName;
 
 /**
  * Products' master catalogue rows — the active product set. Reading its

@@ -167,6 +167,7 @@ function salesService(options: {
     sales: new DashboardSalesService(profit, sales, wing),
     ad: new DashboardAdService(profit, wing),
     profit,
+    salesRepo: sales,
   };
 }
 
@@ -930,3 +931,110 @@ describe('dashboard inventory metricBasis', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Top 상품 ranks one whole calendar month from Sellpia's per-product monthly
+ * sales, which see every channel. The collected orders see only the malls
+ * collected so far — September's ranking read empty while Sellpia had the
+ * month's product sales. Any other window still ranks orders.
+ */
+describe('dashboard Top products source', () => {
+  // 12:00 KST on 20 September.
+  const anchor = new Date('2026-09-20T03:00:00.000Z');
+  const sellpiaRow = {
+    id: 'sellpia:3189',
+    name: '만국기',
+    organization: '셀피아',
+    grade: 'A' as const,
+    abcEvaluation: null,
+    revenue: 16_563_098,
+    netProfit: null,
+    profitRate: null,
+  };
+  const orderRow = {
+    id: 'listing-1',
+    name: '주문 상품',
+    organization: '쿠팡',
+    grade: null,
+    abcEvaluation: null,
+    revenue: 10_000,
+    netProfit: null,
+    profitRate: null,
+  };
+  const noEvidence = (period: ResolvedDashboardPeriod) =>
+    profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null });
+
+  it("ranks a month selection from Sellpia and publishes Sellpia's coverage as its basis", async () => {
+    const { sales, salesRepo } = salesService({ profitFor: noEvidence });
+    salesRepo.fetchTopProducts.mockResolvedValue([orderRow]);
+    salesRepo.fetchSellpiaTopProducts.mockResolvedValue({
+      products: [sellpiaRow],
+      coverage: { startDate: '2026-09-01', endDate: '2026-09-17' },
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(salesRepo.fetchSellpiaTopProducts).toHaveBeenCalledWith(ORGANIZATION_ID, '2026-09');
+    expect(result.topProducts).toEqual([sellpiaRow]);
+    const revenueBasis = result.metricBasis?.['topProducts.revenue'];
+    expect(revenueBasis).toMatchObject({
+      from: '2026-09-01',
+      to: '2026-09-30',
+      sources: ['sellpia_product_sales'],
+    });
+    expect(revenueBasis?.kind === 'period' && revenueBasis.includedDates).toHaveLength(17);
+    expect(missingDatesOf(revenueBasis)[0]).toBe('2026-09-18');
+    // Sellpia publishes no settled profit, so the column claims no date.
+    const profitBasis = result.metricBasis?.['topProducts.netProfit'];
+    expect(profitBasis).toMatchObject({ sources: ['sellpia_product_sales'], includedDates: [] });
+  });
+
+  it('ranks a past month chosen from the period control the same way', async () => {
+    const { sales, salesRepo } = salesService({ profitFor: noEvidence });
+    salesRepo.fetchTopProducts.mockResolvedValue([]);
+    salesRepo.fetchSellpiaTopProducts.mockResolvedValue({
+      products: [sellpiaRow],
+      coverage: { startDate: '2026-07-01', endDate: '2026-07-31' },
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', '2026-07-01', '2026-07-31', anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(salesRepo.fetchSellpiaTopProducts).toHaveBeenCalledWith(ORGANIZATION_ID, '2026-07');
+    expect(periodStatusOf(result.metricBasis?.['topProducts.revenue'])).toBe('complete');
+  });
+
+  it.each([
+    ['a week', buildDashboardContext('week', undefined, undefined, anchor)],
+    ['a custom range inside a month', buildDashboardContext('custom', '2026-09-01', '2026-09-05', anchor)],
+  ])('ranks orders for %s — monthly facts cannot answer part of a month', async (_label, context) => {
+    const { sales, salesRepo } = salesService({ profitFor: noEvidence });
+    salesRepo.fetchTopProducts.mockResolvedValue([orderRow]);
+
+    const result = await sales.getSummary(context, ORGANIZATION_ID);
+
+    expect(salesRepo.fetchSellpiaTopProducts).not.toHaveBeenCalled();
+    expect(result.topProducts).toEqual([orderRow]);
+    expect(result.metricBasis?.['topProducts.revenue']).toMatchObject({ sources: ['orders'] });
+  });
+
+  it('keeps the order ranking when Sellpia has nothing for the month', async () => {
+    const { sales, salesRepo } = salesService({ profitFor: noEvidence });
+    salesRepo.fetchTopProducts.mockResolvedValue([orderRow]);
+    salesRepo.fetchSellpiaTopProducts.mockResolvedValue(null);
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.topProducts).toEqual([orderRow]);
+    expect(result.metricBasis?.['topProducts.revenue']).toMatchObject({ sources: ['orders'] });
+  });
+});
+

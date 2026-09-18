@@ -76,6 +76,13 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - Top-N profit reads `buildPerListingProfit` for the selected window, matching
   `/api/profit-loss`; insufficient evidence leaves profit and margin `null`
   ([ADR 0006](../../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md)).
+- A selection that is one whole calendar month (`wholeCalendarMonth`) ranks
+  Top Products from Sellpia's per-product monthly facts through their
+  registered reader: one row per Sellpia product, options summed, named from
+  its first option, graded only when every mapped master product agrees, and
+  with no profit. With no facts, or facts over different coverage windows, and
+  for every other window, the ranking reads Orders. The published basis names
+  whichever source ranked the rows.
 - Wing/Drive replay revenue fallback activates only when complete Order
   revenue is absent. Funnel order, quantity, and revenue stages use canonical
   Order line facts at the active listing/date intersection and never provider

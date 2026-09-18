@@ -280,6 +280,24 @@ function previousPresetWindow(
 
 
 /** KST business date of an instant, `YYYY-MM-DD`. */
+/**
+ * The calendar month a resolved period is, as `YYYY-MM`, when its dates run
+ * from a month's first day through its last; `null` for any other window. A
+ * source that publishes whole months (Sellpia's product sales) can answer
+ * only such a period.
+ */
+export function wholeCalendarMonth(period: ResolvedDashboardPeriod): string | null {
+  const dates = period.selectedDates;
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (!first || !last || !first.endsWith('-01')) return null;
+  const yearMonth = first.slice(0, 7);
+  if (last.slice(0, 7) !== yearMonth) return null;
+  const [year, month] = yearMonth.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+  return dates.length === daysInMonth ? yearMonth : null;
+}
+
 export function businessDateText(value: Date): string {
   return businessDateKey(kstBusinessDate(value));
 }

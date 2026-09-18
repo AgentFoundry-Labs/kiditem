@@ -35,6 +35,7 @@ import {
   resolveDashboardPeriod,
   resolveExactPeriod,
   resolveWingMonthlyTrendPeriod,
+  wholeCalendarMonth,
   type ResolvedDashboardPeriod,
 } from '../../domain/period/dashboard-period';
 import {
@@ -46,6 +47,7 @@ import {
   windowCoverageDates,
   COUPANG_ADS_SOURCE,
   ORDERS_SOURCE,
+  SELLPIA_PRODUCT_SALES_SOURCE,
   WING_TRAFFIC_SOURCE,
   type DashboardSourceName,
 } from '../../domain/evidence';
@@ -111,6 +113,9 @@ export class DashboardSalesService {
       // selection's profit window is its calendar window. Each distinct window
       // is read once.
       const readProfit = this.profitReader(organizationId);
+      // Sellpia's product sales are monthly, so they answer only a selection
+      // that is one whole calendar month; any other window ranks orders.
+      const sellpiaTopMonth = wholeCalendarMonth(orderPeriods.selected);
 
       const [
         curMonth,
@@ -121,6 +126,7 @@ export class DashboardSalesService {
         rangeCurProfit,
         todayRows,
         topProductRows,
+        sellpiaTopProducts,
         wingTrafficMonth,
         wingTrafficPrevMonth,
         wingTrafficRange,
@@ -146,6 +152,9 @@ export class DashboardSalesService {
           orderPeriods.selected.queryWindow.from,
           orderPeriods.selected.queryWindow.to,
         ),
+        sellpiaTopMonth
+          ? this.salesRepository.fetchSellpiaTopProducts(organizationId, sellpiaTopMonth)
+          : Promise.resolve(null),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.previousMonth),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.selected),
@@ -179,6 +188,7 @@ export class DashboardSalesService {
         anchorShifted: ctx.anchorShifted,
         latencyMs: Date.now() - startedAt,
         topProductsCount: topProductRows.length,
+        sellpiaTopProductsCount: sellpiaTopProducts?.products.length ?? null,
         useWingMonthly,
         useWingRange,
       });
@@ -253,12 +263,35 @@ export class DashboardSalesService {
         includedDates: todayRows.includedDates,
         sources: [ORDERS_SOURCE],
       });
-      // Revenue is ranked from orders alone, so orders decide its basis.
-      const topProductsBasis = periodEvidence({
-        selectedDates: orderPeriods.selected.selectedDates,
-        includedDates: rangeCur.sourceCoverage.orderDates,
-        sources: [ORDERS_SOURCE],
-      });
+      // A whole month ranks from Sellpia's product sales, which see every
+      // channel; the collected orders see only the malls collected so far.
+      // Whichever ranks the rows decides their basis.
+      const sellpiaRanking = sellpiaTopProducts && sellpiaTopProducts.products.length > 0
+        ? sellpiaTopProducts
+        : null;
+      const topProducts = sellpiaRanking?.products ?? topProductRows;
+      const topProductsBasis = sellpiaRanking
+        ? periodEvidence({
+          selectedDates: orderPeriods.selected.selectedDates,
+          includedDates: orderPeriods.selected.selectedDates.filter((date) =>
+            date >= sellpiaRanking.coverage.startDate
+            && date <= sellpiaRanking.coverage.endDate),
+          sources: [SELLPIA_PRODUCT_SALES_SOURCE],
+        })
+        : periodEvidence({
+          selectedDates: orderPeriods.selected.selectedDates,
+          includedDates: rangeCur.sourceCoverage.orderDates,
+          sources: [ORDERS_SOURCE],
+        });
+      // Sellpia publishes no settled profit, so its rows carry none, and the
+      // column's basis says so rather than borrowing the orders' profit dates.
+      const topProductsProfitBasis = sellpiaRanking
+        ? periodEvidence({
+          selectedDates: orderPeriods.selected.selectedDates,
+          includedDates: [],
+          sources: [SELLPIA_PRODUCT_SALES_SOURCE],
+        })
+        : rangeEvidence.profit;
 
       return {
         today,
@@ -269,7 +302,7 @@ export class DashboardSalesService {
           wingTrafficMonth,
           wingTrafficPrevMonth,
         ),
-        topProducts: topProductRows,
+        topProducts,
         profitDetail: this.buildProfitDetail(curMonthProfit),
         rangeKpi: this.buildRangeKpi(
           ctx.effectiveRange,
@@ -315,7 +348,7 @@ export class DashboardSalesService {
           // July read `sources: [orders] · partial` while every value was
           // withheld for want of ad evidence. The ranking reads the selected
           // calendar window, so its profit evidence is that window's.
-          'topProducts.netProfit': rangeEvidence.profit,
+          'topProducts.netProfit': topProductsProfitBasis,
           profitInputs: rangeProfitEvidence.profit,
         }),
       } satisfies DashboardSalesSummary;

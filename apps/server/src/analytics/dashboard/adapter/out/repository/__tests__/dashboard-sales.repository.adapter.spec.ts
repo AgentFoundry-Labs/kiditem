@@ -6,6 +6,7 @@ import {
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
 import { readProductAbcPublication } from "../../../../../../products/read/product-abc-publication.reader";
 import { readOrderLineWindowFacts } from "../../../../../../orders/read/order-facts.reader";
+import { readCurrentSellpiaProductMonthlyFacts } from "../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import { businessDatesInWindow } from "../../../../domain/period/dashboard-period";
 
 vi.mock(
@@ -25,6 +26,15 @@ vi.mock(
   }),
 );
 vi.mock(
+  "../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts")
+    >()),
+    readCurrentSellpiaProductMonthlyFacts: vi.fn(),
+  }),
+);
+vi.mock(
   "../../../../../../common/per-listing-profit",
   async (importOriginal) => ({
     ...(await importOriginal<
@@ -36,6 +46,7 @@ vi.mock(
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
+const mockedReadSellpiaFacts = vi.mocked(readCurrentSellpiaProductMonthlyFacts);
 
 /**
  * The ranking settles profit through `buildPerListingProfit`, whose own
@@ -364,6 +375,167 @@ describe("DashboardSalesRepositoryAdapter", () => {
       expect(row.revenue).toBe(10_000);
       expect(row.netProfit).toBeNull();
       expect(row.profitRate).toBeNull();
+    });
+  });
+
+  /**
+   * A whole month ranks from Sellpia's per-product monthly sales: the orders
+   * table sees only what the mall collectors brought in, so September read as
+   * an empty ranking while Sellpia had sold 1억 across every channel.
+   */
+  describe("Sellpia month ranking", () => {
+    const ORGANIZATION_ID = "11111111-1111-4111-8111-111111111111";
+    const SEPTEMBER_START = new Date("2026-09-01T00:00:00.000Z");
+    const SEPTEMBER_END = new Date("2026-09-17T00:00:00.000Z");
+
+    const fact = (overrides: Record<string, unknown>) => ({
+      productCode: "1",
+      optionCode: "1",
+      yearMonth: "2026-09",
+      productName: "상품",
+      orderAmount: 0,
+      masterProductId: null,
+      capturedAt: new Date("2026-09-17T10:00:00.000Z"),
+      coverageStartDate: SEPTEMBER_START,
+      coverageEndDate: SEPTEMBER_END,
+      ...overrides,
+    });
+    const answer = (facts: Array<Record<string, unknown>>) =>
+      mockedReadSellpiaFacts.mockResolvedValue({
+        generation: null,
+        facts: facts as never,
+      });
+    const evaluation = (abcGrade: "A" | "B" | "C"): ProductAbcEvaluation => ({
+      abcGrade,
+      weightedRevenue: 1_000_000,
+      weightedOrderTimeSupplyCost: 600_000,
+      weightedAdvertisingSpend: 100_000,
+      weightedOperatingProfit: 300_000,
+      operatingProfitVelocity30: 300_000,
+      operatingMargin: 0.3,
+      lossPersistence: 0,
+      profitScore: 40,
+      marginScore: 100,
+      consistencyScore: 100,
+      economicScore: 70,
+      validObservationDays: 30,
+      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+      formulaRevision: 1,
+      publicationRevision: 2,
+      gradeBasisCutoffDate: "2026-08-31",
+      saleStartDate: "2026-05-01",
+      sellpiaSourceImportRunId: "11111111-1111-4111-8111-111111111111",
+      advertisingSourceImportRunId: "22222222-2222-4222-8222-222222222222",
+      sellpiaGeneration: "3",
+      advertisingGeneration: "4",
+      mappingGeneration: "5",
+      calculatedAt: "2026-09-01T00:00:00.000Z",
+    });
+    const repository = () => new DashboardSalesRepositoryAdapter(prismaWith([]));
+
+    beforeEach(() => mockedReadSellpiaFacts.mockReset());
+
+    it("sums a product's options, ranks by revenue and leaves out what sold nothing", async () => {
+      answer([
+        fact({ productCode: "9484", optionCode: "1", productName: "캐치볼 세트", orderAmount: 3_000 }),
+        fact({ productCode: "9484", optionCode: "2", productName: "캐치볼 세트", orderAmount: 2_000 }),
+        fact({ productCode: "3189", productName: "만국기", orderAmount: 4_000 }),
+        fact({ productCode: "10252", productName: "연 날리기", orderAmount: 0 }),
+      ]);
+
+      const result = await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09");
+
+      expect(mockedReadSellpiaFacts).toHaveBeenCalledWith(expect.anything(), {
+        organizationId: ORGANIZATION_ID,
+        scope: { yearMonths: ["2026-09"] },
+      });
+      expect(result?.coverage).toEqual({ startDate: "2026-09-01", endDate: "2026-09-17" });
+      expect(result?.products.map((row) => [row.id, row.name, row.revenue])).toEqual([
+        ["sellpia:9484", "캐치볼 세트", 5_000],
+        ["sellpia:3189", "만국기", 4_000],
+      ]);
+    });
+
+    it("names a product from its first option, not from one colour's option", async () => {
+      // Sellpia's own rows for product 9484, read out of order.
+      answer([
+        fact({ productCode: "9484", optionCode: "3", productName: "11000 찍찍이 가방 캐치볼 (블루)", orderAmount: 2_724_450 }),
+        fact({ productCode: "9484", optionCode: "1", productName: "찍찍이 가방 캐치볼 세트 판2개, 볼2개 가방케이스포함", orderAmount: 2_857_649 }),
+        fact({ productCode: "9484", optionCode: "2", productName: "11000 찍찍이 가방 캐치볼 (핑크)", orderAmount: 2_005_550 }),
+      ]);
+
+      const result = await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09");
+
+      expect(result?.products[0]).toMatchObject({
+        name: "찍찍이 가방 캐치볼 세트 판2개, 볼2개 가방케이스포함",
+        revenue: 7_587_649,
+      });
+    });
+
+    it("publishes no profit — Sellpia's margin is not a settled profit", async () => {
+      answer([fact({ productCode: "1", orderAmount: 10_000 })]);
+
+      const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
+
+      expect(row).toMatchObject({ revenue: 10_000, netProfit: null, profitRate: null });
+    });
+
+    it("grades a product only when every master product its options map to agrees", async () => {
+      answer([
+        fact({ productCode: "agree", optionCode: "1", orderAmount: 5_000, masterProductId: "master-1" }),
+        fact({ productCode: "agree", optionCode: "2", orderAmount: 4_000, masterProductId: "master-2" }),
+        fact({ productCode: "split", optionCode: "1", orderAmount: 3_000, masterProductId: "master-3" }),
+        fact({ productCode: "split", optionCode: "2", orderAmount: 2_000, masterProductId: "master-4" }),
+        fact({ productCode: "unmapped", orderAmount: 1_000 }),
+      ]);
+      const leading = evaluation("B");
+      mockedReadProductAbcPublication.mockResolvedValue({
+        currentFormulaRevision: 1,
+        currentMappingGeneration: "5",
+        publication: null,
+        products: [
+          { masterProductId: "master-1", evaluation: leading, contributionEligible: true },
+          { masterProductId: "master-2", evaluation: evaluation("B"), contributionEligible: true },
+          { masterProductId: "master-3", evaluation: evaluation("A"), contributionEligible: true },
+          { masterProductId: "master-4", evaluation: evaluation("C"), contributionEligible: true },
+        ],
+      });
+
+      const result = await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09");
+
+      expect(mockedReadProductAbcPublication).toHaveBeenCalledWith(expect.anything(), {
+        organizationId: ORGANIZATION_ID,
+        masterProductIds: ["master-1", "master-2", "master-3", "master-4"],
+      });
+      expect(result?.products.map((row) => [row.id, row.grade])).toEqual([
+        ["sellpia:agree", "B"],
+        ["sellpia:split", null],
+        ["sellpia:unmapped", null],
+      ]);
+      expect(result?.products[0]?.abcEvaluation).toBe(leading);
+      expect(result?.products[1]?.abcEvaluation).toBeNull();
+    });
+
+    it("answers nothing for a month with no published facts", async () => {
+      answer([]);
+
+      await expect(
+        repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"),
+      ).resolves.toBeNull();
+    });
+
+    it.each([
+      ["facts captured over different windows", { coverageEndDate: new Date("2026-09-10T00:00:00.000Z") }],
+      ["a fact with no coverage", { coverageStartDate: null }],
+    ])("answers nothing for %s, so the order ranking stands", async (_label, override) => {
+      answer([
+        fact({ productCode: "1", orderAmount: 1_000 }),
+        fact({ productCode: "2", orderAmount: 1_000, ...override }),
+      ]);
+
+      await expect(
+        repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"),
+      ).resolves.toBeNull();
     });
   });
 });
