@@ -833,7 +833,12 @@ describe('Dashboard absolute ABC grade cards', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
-    expect(screen.getByText('광고비율').parentElement?.parentElement?.parentElement).toHaveTextContent('0.0%');
+    // 광고비율은 맨 위 광고비율 칸과 아래 기간 지표 두 곳에 선다(처음 대시보드의 매출 카드를
+    // 다시 세웠다). 둘 다 0 을 지우지 않아야 한다.
+    const headline = screen.getByTestId('dashboard-headline-cards');
+    const stripAdRate = screen.getAllByText('광고비율').find((node) => !headline.contains(node));
+    expect(stripAdRate?.parentElement?.parentElement?.parentElement).toHaveTextContent('0.0%');
+    expect(screen.getByTestId('headline-adRate')).toHaveTextContent('0.0%');
     expect(screen.getByText('광고수익률').parentElement?.parentElement?.parentElement).toHaveTextContent('0%');
   });
 

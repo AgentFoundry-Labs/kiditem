@@ -45,6 +45,8 @@ import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
 import { DashboardSidePanel, type DashboardReadFailure } from './components/DashboardSidePanel';
+import { DashboardHeadlineCards, type HeadlineMetric } from './components/DashboardHeadlineCards';
+import { DashboardAgentStatus } from './components/DashboardAgentStatus';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardAdPerformance } from './components/DashboardAdPerformance';
 import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
@@ -777,6 +779,72 @@ export default function Dashboard() {
   addReadFailure('inventory', '상품·재고', inventoryHasErr, inventoryError, () => { void refetchInventory(); });
   addReadFailure('trend', '매출 추이', trendHasErr, trendError, () => { void refetchTrend(); });
 
+  // ── 맨 위 매출 · 광고 카드 ───────────────────────────────────────────────
+  // 처음 대시보드의 KPI 두 줄(매출 넷 · 광고 넷)을 카드 두 장으로 세운다. 값은 아래 기간
+  // 지표와 같은 변수에서 온다 — 여기서 다시 계산하면 두 자리가 어긋난다. 변화는 아래 칸과
+  // 같은 조건에서만 적는다(셀피아 기준 매출은 비교 기준이 달라 변화를 싣지 않는다).
+  // 출처 문구(셀피아 · 정산 없음 …)는 아래 칸이 이미 말하므로 되풀이하지 않는다.
+  const headlineRevenueChange = !sellpiaHasData && displayRevenue !== null ? revenueChange : null;
+  const headlineProfitChange = !sellpiaHasData && displayProfit !== null ? profitChange : null;
+  const changeNote = (change: number | null) =>
+    change === null ? null : `${change > 0 ? '▲' : change < 0 ? '▼' : '−'} ${Math.abs(change).toFixed(1)}% 이전 대비`;
+  const trendOf = (change: number | null) => (change === null || change === 0 ? null : change > 0 ? 'up' : 'down');
+  const headlineAdSpend = rkAd ? rkAd.adSpend : adMonthly?.totalAdSpend ?? null;
+  const headlinePrevAdSpend = rkAd ? rkAd.prevAdSpend ?? null : adMonthly?.prevTotalAdSpend ?? null;
+  const headlineAdCtr = rkAd?.adCtr ?? adCtr;
+  const headlinePrevAdCtr = rkAd ? rkAd.prevAdCtr ?? null : adMonthly?.prevCtr ?? null;
+  const headlinePrevAdConvRevenue = rkAd ? rkAd.prevAdConvRevenue ?? null : adMonthly?.prevAdRevenue ?? null;
+  const prevNote = (prev: number | null, format: (value: number) => string) =>
+    prev === null ? null : `이전 ${format(prev)}`;
+  const headlineRevenue: HeadlineMetric[] = [
+    {
+      key: 'revenue', label: `${rangeLabel} 매출`,
+      value: displayRevenue === null ? null : formatKRW(displayRevenue), unit: '원',
+      note: changeNote(headlineRevenueChange), trend: trendOf(headlineRevenueChange),
+    },
+    {
+      key: 'profit', label: `${rangeLabel} 순이익`,
+      value: displayProfit === null ? null : formatKRW(displayProfit), unit: '원',
+      note: changeNote(headlineProfitChange), trend: trendOf(headlineProfitChange),
+    },
+    {
+      key: 'today', label: '오늘 매출',
+      value: today?.revenue === null || today?.revenue === undefined ? null : formatKRW(today.revenue), unit: '원',
+      note: today?.orders === null || today?.orders === undefined ? null : `주문 ${formatNumber(today.orders)}건`,
+    },
+    {
+      key: 'adRate', label: '광고비율',
+      value: kpiAdRate === null ? null : kpiAdRate.toFixed(1), unit: '%',
+      note: prevNote(kpiPrevAdRate, (value) => `${value.toFixed(1)}%`),
+      trend: trendOf(adRateChange), higherIsWorse: true,
+      // 처음 대시보드와 같은 문턱: 광고비율 15% 를 넘으면 붉다.
+      alert: kpiAdRate !== null && kpiAdRate > 15,
+    },
+  ];
+  const headlineAds: HeadlineMetric[] = [
+    {
+      key: 'roas', label: 'ROAS',
+      value: adRoas === null ? null : adRoas.toFixed(0), unit: '%',
+      note: prevNote(adPrevRoas, (value) => `${value.toFixed(0)}%`), trend: trendOf(adRoasChange),
+    },
+    {
+      key: 'ctr', label: '클릭률 (CTR)',
+      value: headlineAdCtr === null ? null : headlineAdCtr.toFixed(2), unit: '%',
+      note: prevNote(headlinePrevAdCtr, (value) => `${value.toFixed(2)}%`),
+    },
+    {
+      key: 'adConvRevenue', label: '광고 전환매출',
+      value: adConvRevenue === null ? null : formatKRW(adConvRevenue), unit: '원',
+      note: prevNote(headlinePrevAdConvRevenue, (value) => `${formatKRW(value)}원`),
+    },
+    {
+      key: 'adSpend', label: '광고비',
+      value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend), unit: '원',
+      note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),
+      higherIsWorse: true,
+    },
+  ];
+
   return (
     <div className="space-y-4 w-full pb-12">
       {/* Header */}
@@ -842,6 +910,12 @@ export default function Dashboard() {
           셀피아 판매현황을 불러오는 중입니다.
         </div>
       )}
+
+      {/* 바깥 두 칸 — 왼쪽은 원래 대시보드 전체(위에 매출 · 광고 카드), 오른쪽은 에이전트
+          실시간 상태. 원래 화면은 하나도 없애지 않고 폭만 내준다(사장님 2026-09-18). */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px] items-start">
+      <div className="min-w-0 space-y-3">
+      <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} salesHref={salesAnalysisHref} />
 
       {/* 본문 — 왼쪽은 기간을 읽는 것, 오른쪽은 지금 손이 필요한 것.
           한 화면에서 훑는 것이 이 페이지의 용도라 세로로 쌓지 않는다. */}
@@ -935,7 +1009,13 @@ export default function Dashboard() {
           />
 
         {/* KPI 카드 — 기간 지표 여섯 개 + 오늘 주문 */}
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-7" style={{ alignItems: 'stretch' }}>
+        {/* 칸 하나에 '135,385,452원' 이 들어가려면 12rem 남짓이 든다. 오른쪽에 에이전트 칸이 선 뒤로
+            이 줄의 폭이 화면 폭과 따로 놀아 일곱 칸 고정이면 값이 잘렸다. 그래서 줄이 **자기 폭**을
+            보고 흐른다 — 들어가는 만큼 한 줄에 서고, 넘치면 다음 줄로 가며 남은 칸이 늘어나 빈
+            구멍이 생기지 않는다(컨테이너 쿼리 플러그인 없이 되는 방법). */}
+        {/* 칸 가운데 `h-full` 인 것(이익률 · 광고비율)은 그리드 칸에선 높이를 따르지만 flex 줄에선
+            높이를 못 박아 늘어나지 않고 아래에 회색 띠를 남긴다. 이 줄 안에서만 높이를 풀어 준다. */}
+        <div className="flex flex-wrap gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 *:h-auto *:min-w-0 *:flex-[1_1_12rem]" style={{ alignItems: 'stretch' }}>
           {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
         <Link
           href={salesAnalysisHref}
@@ -1180,6 +1260,9 @@ export default function Dashboard() {
             readFailures={readFailures}
           />
         </div>
+      </div>
+      </div>
+      <DashboardAgentStatus />
       </div>
 
       {/* 순이익 상세 모달 */}
