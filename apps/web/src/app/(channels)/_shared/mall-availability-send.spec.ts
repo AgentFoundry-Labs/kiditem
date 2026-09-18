@@ -42,8 +42,9 @@ describe('품절 송신 결과', () => {
     expect(availabilityOutcome(result({ sent: 0, confirmed: 0 }))).toEqual({ outcome: 'attention', reasonCode: 'awaiting_mall_recheck' });
   });
 
-  it('도매꾹은 품절을 보낼 수 있는 몰이다', () => {
+  it('도매꾹 · 쿠팡 윙은 품절을 보낼 수 있는 몰이다', () => {
     expect(canSendMallAvailability('domeggook')).toBe(true);
+    expect(canSendMallAvailability('coupang')).toBe(true);
     expect(canSendMallAvailability('icecream-mall')).toBe(false);
   });
 });

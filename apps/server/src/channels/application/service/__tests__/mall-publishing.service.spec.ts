@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 import type { MallListingProfile } from '../../../domain/mall/mall-listing-profile';
 import type { ChannelSkuAvailabilityPort } from '../../port/in/channel-sku-availability.port';
 import type {
@@ -58,6 +59,10 @@ function buildService(overrides: {
   matrixProducts?: MallMatrixProductRow[];
   orderCounts?: { channelAccountId: string; orderCount: number }[];
   masterProductCount?: number;
+  /** 품절 목록(`out_of_stock`) 한 페이지. */
+  outOfStock?: ChannelSkuAvailabilityItem[];
+  /** 상품(리스팅)의 모든 옵션. */
+  listingOptions?: ChannelSkuAvailabilityItem[];
 } = {}) {
   const repository: MallPublishingRepositoryPort = {
     listMallAccounts: async () => overrides.mallAccounts ?? [],
@@ -74,9 +79,16 @@ function buildService(overrides: {
     countActiveMasterProducts: async () => overrides.masterProductCount ?? 0,
   };
   const availability = {
-    list: async () => ({ items: [], total: 0, page: 1, limit: 50 }),
+    list: async () => ({
+      items: overrides.outOfStock ?? [],
+      total: (overrides.outOfStock ?? []).length,
+      page: 1,
+      limit: 50,
+      summary: { total: 0, inStock: 0, outOfStock: 0, unmatched: 0, needsReview: 0 },
+    }),
     findByChannelSkuIds: async () => [],
-    findByListingIds: async () => [],
+    findByListingIds: async (_organizationId: string, ids: string[]) =>
+      (overrides.listingOptions ?? []).filter((item) => ids.includes(item.product.id)),
   } as unknown as ChannelSkuAvailabilityPort;
   return new MallPublishingService(repository, availability);
 }
@@ -171,5 +183,71 @@ describe('MallPublishingService.preflight', () => {
     expect(response.mallKeys).not.toContain('11st');
     expect(response.mallKeys).not.toContain('coupang-direct');
     expect(response.mallKeys).toContain('kidsnote');
+  });
+});
+
+function skuOption(
+  listing: string,
+  option: string,
+  { stock, mapping = 'matched' }: { stock: number | null; mapping?: 'matched' | 'unmatched' },
+): ChannelSkuAvailabilityItem {
+  return {
+    channelAccount: { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: '쿠팡 윙' },
+    product: { id: listing, externalProductId: '13712531060', registeredName: '말랑이', displayName: '말랑이', status: 'active' },
+    sku: {
+      id: option,
+      externalSkuId: `vi-${option.slice(-4)}`,
+      sellerSku: null,
+      optionName: null,
+      barcode: null,
+      modelNumber: null,
+      salePrice: 2850,
+      status: 'active',
+      mappingStatus: mapping,
+      sellableStock: mapping === 'matched' ? stock : null,
+      updatedAt: '2026-09-18T00:00:00.000Z',
+    },
+    masterProductId: mapping === 'matched' ? '33333333-3333-4333-8333-333333333333' : null,
+    recipeStatus: mapping,
+    components: [],
+    warnings: [],
+  };
+}
+
+/**
+ * 품절 송신은 상품 단위다(몰 관리자의 상품 줄을 멈춘다). 옵션 일부만 품절인 상품을 보내면 재고 있는 옵션까지
+ * 멈추므로 그 상품은 보내지 않는다 — 쿠팡은 옵션이 여럿인 상품이 137개다(2026-09-18).
+ */
+describe('MallPublishingService.previewAvailability', () => {
+  const single = '44444444-4444-4444-8444-444444444441';
+  const partial = '44444444-4444-4444-8444-444444444442';
+  const unknown = '44444444-4444-4444-8444-444444444443';
+  const allOut = '44444444-4444-4444-8444-444444444444';
+
+  it('⭐ sends a product only when every option is out of stock', async () => {
+    const outOfStock = [
+      skuOption(single, '55555555-5555-4555-8555-555555555501', { stock: 0 }),
+      skuOption(partial, '55555555-5555-4555-8555-555555555502', { stock: 0 }),
+      skuOption(unknown, '55555555-5555-4555-8555-555555555503', { stock: 0 }),
+      skuOption(allOut, '55555555-5555-4555-8555-555555555504', { stock: 0 }),
+      skuOption(allOut, '55555555-5555-4555-8555-555555555505', { stock: 0 }),
+    ];
+    const listingOptions = [
+      ...outOfStock,
+      skuOption(partial, '55555555-5555-4555-8555-555555555512', { stock: 7 }),
+      skuOption(unknown, '55555555-5555-4555-8555-555555555513', { stock: null, mapping: 'unmatched' }),
+    ];
+    const preview = await buildService({ outOfStock, listingOptions }).previewAvailability(ORG, 100);
+    const byListing = (listing: string) => preview.candidates.filter((candidate) =>
+      outOfStock.some((item) => item.product.id === listing && item.sku.id === candidate.channelListingOptionId));
+
+    expect(byListing(single).map((candidate) => candidate.sendable)).toEqual([true]);
+    expect(byListing(allOut).map((candidate) => candidate.sendable)).toEqual([true, true]);
+    const [held] = byListing(partial);
+    expect(held?.sendable).toBe(false);
+    expect(held?.blockedReason).toContain('다른 옵션 1개는 품절이 아니라');
+    // 재고를 모르는 옵션(레시피 미확정)도 멈추면 안 되는 쪽으로 센다.
+    expect(byListing(unknown)[0]?.sendable).toBe(false);
+    expect(preview.sendableCount).toBe(3);
   });
 });

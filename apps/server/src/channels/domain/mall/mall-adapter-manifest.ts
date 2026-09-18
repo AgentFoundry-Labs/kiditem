@@ -223,7 +223,7 @@ const NO_LIMIT: MallAdapterLimits = {
  *    눌렀을 때 아무 일도 안 일어난다.
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
-  'kkomangse', 'kidkids', 'onch', 'domeggook',
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang',
 ]);
 
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
@@ -305,7 +305,7 @@ const SEEDS: readonly ManifestSeed[] = [
       setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
     limits: { maxPerRequest: 1, maxOptionsPerListing: 200 },
-    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가.',
+    note: 'sales/stop ↔ sales/resume 가 둘 다 body 없는 완전 대칭이라 롤백 검증이 가장 쉽다. 예외: 쿠팡 모니터링으로 내려간 상품은 재개가 실패한다. ⚠️ OpenAPI 키는 판매자ID당 1개 — 사방넷이 점유 중이면 병행 불가. 우리 품절 길은 OpenAPI 가 아니라 윙 상품목록 [선택한 상품 일괄적용 → 판매상태 변경] 과 같은 요청이다(POST /tenants/seller-web/vendor-inventories/sale-status-change/request, {vendorInventoryIds 25개씩, saleStatus INVALID↔VALID}, 2026-09-18 실측). 상품 단위라 옵션 일부만 품절이면 보내지 않고, 로켓그로스(RFM) 상품은 윙 화면도 거른다.',
   },
   {
     key: 'kakao',

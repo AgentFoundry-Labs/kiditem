@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type {
-  ChannelSkuAvailabilityItem,
-  ChannelSkuAvailabilityListResponse,
-  ChannelSkuAvailabilityQuery,
+import {
+  isChannelSkuOutOfStock,
+  type ChannelSkuAvailabilityItem,
+  type ChannelSkuAvailabilityListResponse,
+  type ChannelSkuAvailabilityQuery,
 } from '@kiditem/shared/channel-sku-availability';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
@@ -50,9 +51,7 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
         inStock: projected.filter((item) =>
           item.sku.mappingStatus === 'matched'
           && (item.sku.sellableStock ?? 0) > 0).length,
-        outOfStock: projected.filter((item) =>
-          item.sku.mappingStatus === 'matched'
-          && item.sku.sellableStock === 0).length,
+        outOfStock: projected.filter(isChannelSkuOutOfStock).length,
         unmatched: projected.filter((item) => item.sku.mappingStatus === 'unmatched').length,
         needsReview: projected.filter(
           (item) => item.sku.mappingStatus === 'needs_review',
@@ -196,5 +195,5 @@ function matchesStatus(
   if (status === 'in_stock') {
     return item.sku.mappingStatus === 'matched' && (item.sku.sellableStock ?? 0) > 0;
   }
-  return item.sku.mappingStatus === 'matched' && item.sku.sellableStock === 0;
+  return isChannelSkuOutOfStock(item);
 }

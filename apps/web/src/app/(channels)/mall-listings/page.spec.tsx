@@ -521,14 +521,16 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     expect(within(panel).getByText('몰 상품번호 16290876620')).toBeInTheDocument();
   });
 
-  it('아무 작업도 실행되지 않는다 — 전부 비활성이다', () => {
+  // 쿠팡 윙은 품절 · 재개 송신 경로가 있다(2026-09-18). 경로가 없는 작업은 여전히 누를 수 없다.
+  it('경로가 있는 품절 처리 · 판매 재개만 누를 수 있고 나머지는 비활성이다', () => {
     withActions();
     render(<MallListingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     const panel = screen.getByRole('dialog');
-    for (const button of within(panel).getAllByRole('button')) {
-      expect(button).toBeDisabled();
-    }
+    const enabled = within(panel).getAllByRole('button').filter((button) => !(button as HTMLButtonElement).disabled);
+    expect(enabled).toHaveLength(2);
+    expect(enabled[0]).toHaveTextContent('품절 처리');
+    expect(enabled[1]).toHaveTextContent('판매 재개');
   });
 
   it('몰이 못 하는 작업은 불가로 표시한다', () => {

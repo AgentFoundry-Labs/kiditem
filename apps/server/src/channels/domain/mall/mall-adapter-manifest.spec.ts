@@ -97,6 +97,13 @@ describe('resolveSoldOutCommand', () => {
     expect(domeggook.supports.setStock).toBeNull();
   });
 
+  /** 쿠팡 윙 품절 = 상품목록 일괄적용의 판매상태 변경(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */
+  it('sends sold_out to 쿠팡 through the Wing product list', () => {
+    const coupang = getMallAdapterManifest('coupang')!;
+    expect(resolveSoldOutCommand(coupang)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(coupang.soldOutRoute).toBe('mall_admin');
+  });
+
   it('refuses malls with no sold-out path at all', () => {
     const alwayz = getMallAdapterManifest('always')!;
     expect(resolveSoldOutCommand(alwayz).allowed).toBe(false);

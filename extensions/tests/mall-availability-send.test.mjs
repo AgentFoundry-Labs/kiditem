@@ -149,3 +149,91 @@ test('도매꾹이 품절을 보낼 수 있는 몰로 알려진다', () => {
   assert.ok(module.MALL_KEYS.includes('domeggook'));
   assert.equal(module.PENDING.domeggook, undefined);
 });
+
+/**
+ * 쿠팡 윙 품절 = 상품목록 [선택한 상품 일괄적용 → 판매상태 변경] 의 판매중지(실측 2026-09-18, `app/listV3.js`).
+ * 등록상품ID 25개씩 `sale-status-change/request` 에 `{vendorInventoryIds, saleStatus}` JSON 으로 보내고, 윙이
+ * 상품마다 `{vendorInventoryId, success}` 로 답한다. 윙 화면 안에서 보낸다(리뷰 수집과 같은 길).
+ */
+function wingMall({ tabUrl = 'https://wing.coupang.com/tenants/cs/product/review', failIds = [], status = 200 } = {}) {
+  const log = { tabs: [], removed: [], posts: [] };
+  const chrome = {
+    tabs: {
+      get: async () => ({ id: 7, url: tabUrl }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: {
+        addListener: (listener) => setTimeout(() => listener(7, { status: 'complete' }, {}), 0),
+        removeListener: () => {},
+      },
+    },
+    scripting: {
+      executeScript: async ({ func, args }) => {
+        assert.equal(func.name, 'postJsonOnPage');
+        const [path, body] = args;
+        log.posts.push({ path, body: plain(body) });
+        const json = status === 200
+          ? body.vendorInventoryIds.map((id) => ({
+            vendorInventoryId: id,
+            success: !failIds.includes(id),
+            ...(failIds.includes(id) ? { message: '쿠팡 모니터링 상품은 변경할 수 없습니다' } : {}),
+          }))
+          : null;
+        return [{ result: { status, json, preview: json ? '' : '<html>', url: `https://wing.coupang.com${path}` } }];
+      },
+    },
+  };
+  const module = loadModule();
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async ({ url }) => { log.tabs.push(url); return { id: 7 }; } },
+    tabReason: 'test',
+  });
+  return { api, log };
+}
+
+test('⭐ 쿠팡 윙 품절은 윙 화면 안에서 등록상품ID 25개씩 판매중지(INVALID)를 보내고, 윙이 답한 줄로 센다', async () => {
+  const codes = Array.from({ length: 30 }, (_, i) => String(13712531000 + i));
+  const { api, log } = wingMall({ failIds: [13712531003] });
+  const result = await api.send({ mallKey: 'coupang', codes: [...codes, 'ABC-1'] });
+
+  assert.deepEqual(log.tabs, ['https://wing.coupang.com/tenants/cs/product/review']);
+  assert.deepEqual(log.posts.map((post) => post.path), [
+    '/tenants/seller-web/vendor-inventories/sale-status-change/request',
+    '/tenants/seller-web/vendor-inventories/sale-status-change/request',
+  ]);
+  assert.deepEqual(log.posts.map((post) => post.body.vendorInventoryIds.length), [25, 5]);
+  assert.equal(log.posts[0].body.saleStatus, 'INVALID');
+  assert.equal(typeof log.posts[0].body.vendorInventoryIds[0], 'number', '윙 화면처럼 숫자로 보낸다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 29);
+  assert.equal(result.failed, 2);
+  assert.equal(result.confirmed, undefined, '윙은 다시 읽지 않는다 — 확인 대기로 남는다');
+  assert.ok(result.warnings.includes('1건은 쿠팡 윙 등록상품ID 모양이 아니라 보내지 않았습니다.'), result.warnings.join(' / '));
+  assert.ok(result.warnings.some((warning) => warning.includes('쿠팡 모니터링 상품은 변경할 수 없습니다')), result.warnings.join(' / '));
+  assert.deepEqual(log.removed, [7], '연 탭은 닫는다');
+});
+
+test('해제는 같은 길로 판매재개(VALID)를 보낸다', async () => {
+  const { api, log } = wingMall();
+  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060'], resume: true });
+  assert.equal(log.posts[0].body.saleStatus, 'VALID');
+  assert.equal(result.sent, 1);
+});
+
+test('윙 로그인이 풀려 로그인 화면으로 넘어가면 아무것도 보내지 않는다', async () => {
+  const { api, log } = wingMall({ tabUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth' });
+  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060'] });
+  assert.equal(result.success, false);
+  assert.match(result.error, /쿠팡 윙에 로그인되어 있지 않습니다/);
+  assert.equal(log.posts.length, 0);
+  assert.deepEqual(log.removed, [7]);
+});
+
+test('윙이 요청을 받지 않으면(JSON 아님) 그 묶음을 실패로 센다', async () => {
+  const { api } = wingMall({ status: 403 });
+  const result = await api.send({ mallKey: 'coupang', codes: ['13712531060', '13712531061'] });
+  assert.equal(result.sent, 0);
+  assert.equal(result.failed, 2);
+  assert.ok(result.warnings.some((warning) => warning.includes('HTTP 403')), result.warnings.join(' / '));
+});

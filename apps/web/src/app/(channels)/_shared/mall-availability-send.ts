@@ -22,7 +22,7 @@ const SEND_TIMEOUT_MS = 180_000;
  * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
  * 버튼이 서지 않는다 — 눌러도 아무 일이 안 일어나는 버튼을 만들지 않는다.
  */
-export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook'] as const;
+export const MALL_AVAILABILITY_SEND_MALLS = ['kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang'] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
 

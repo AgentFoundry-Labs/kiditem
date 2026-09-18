@@ -130,6 +130,14 @@ export type ChannelSkuAvailabilityItem = z.infer<
   typeof ChannelSkuAvailabilityItemSchema
 >;
 
+/**
+ * 품절 옵션 — 레시피가 확정됐고 팔 수 있는 재고가 0 이다. 레시피가 없거나 검토 중인 옵션은 재고를
+ * 모르므로 품절이 아니다(목록 `out_of_stock` 과 같은 규칙).
+ */
+export function isChannelSkuOutOfStock(item: Pick<ChannelSkuAvailabilityItem, 'sku'>): boolean {
+  return item.sku.mappingStatus === 'matched' && item.sku.sellableStock === 0;
+}
+
 export const ChannelSkuAvailabilitySummarySchema = z.object({
   total: z.number().int().nonnegative(),
   inStock: z.number().int().nonnegative(),

@@ -1,7 +1,7 @@
 (function initializeMallAvailabilitySend(root) {
   "use strict";
 
-  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹(아이스크림몰은 경로 대기).
+  // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(아이스크림몰은 경로 대기).
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -110,12 +110,59 @@
         shown: { hide: "진열안함", show: "진열함" },
       },
     },
+    /**
+     * 쿠팡 윙. 상품 목록(`/vendor-inventory/list`) [선택한 상품 일괄적용 → 판매상태 변경] 이 보내는 것과
+     * 같은 요청이다(실측 2026-09-18, 화면 코드 `app/listV3.js`).
+     *
+     *  - 판매중지 = `saleStatus: "INVALID"`, 판매재개 = `"VALID"`. 등록상품ID(vendorInventoryId)를 25개씩
+     *    `POST /tenants/seller-web/vendor-inventories/sale-status-change/request` 에 JSON 으로 보낸다.
+     *  - 윙이 상품마다 `{vendorInventoryId, success | isSuccess}` 로 답한다 — 그걸로 센다(다시 읽지는 않는다).
+     *  - 상품 단위라 옵션이 여럿인 상품은 전부 품절일 때만 온다(서버 미리보기가 거른다).
+     *  - 윙 화면 안에서 보낸다 — 리뷰 수집과 같은 길이다. 상품 목록 화면은 무거워 자동화 중에 멈추므로
+     *    리뷰 화면을 연다(같은 윙 주소라 로그인 쿠키가 같다).
+     */
+    coupang: {
+      label: "쿠팡 윙",
+      origin: "https://wing.coupang.com",
+      saleStatusRequest: {
+        pageUrl: "https://wing.coupang.com/tenants/cs/product/review",
+        path: "/tenants/seller-web/vendor-inventories/sale-status-change/request",
+        chunk: 25,
+        stop: "INVALID",
+        resume: "VALID",
+      },
+    },
   };
 
   /** 이 몰은 아직 경로가 없다. 화면이 버튼을 세우지 않게 이름만 남긴다. */
   const PENDING = {
     "icecream-mall": "판매상태 일괄변경이 별도 창(goodsSaleStateModifyView.do)에서 저장돼 창 사이를 잇는 경로가 더 필요합니다.",
   };
+
+  /**
+   * 윙 화면 안에서 판매상태 요청 하나를 보낸다. 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
+   * 답은 몰이 준 JSON 그대로 돌려주되, JSON 이 아니면 앞부분만 싣는다(로그인 화면 판별용).
+   */
+  async function postJsonOnPage(path, body) {
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { status: response.status, json, preview: json ? "" : text.slice(0, 200), url: response.url };
+    } catch (error) {
+      return { status: 0, json: null, preview: String(error?.message || error).slice(0, 200), url: "" };
+    }
+  }
 
   /**
    * 화면에서 값을 세우고 **그 폼이 보낼 것을 그대로 모아 돌려준다.**
@@ -322,6 +369,72 @@
       };
     }
 
+    /**
+     * 윙 판매상태 변경(쿠팡). 윙 화면을 하나 열어 그 안에서 25개씩 보낸다. 로그인 화면으로 넘어갔으면 보내지 않는다.
+     */
+    async function sendBySaleStatusRequest(spec, codes, resume) {
+      const request = spec.saleStatusRequest;
+      const warnings = [];
+      const numeric = codes.filter((code) => /^\d{1,15}$/.test(code));
+      const invalid = codes.length - numeric.length;
+      if (invalid > 0) warnings.push(`${invalid}건은 ${spec.label} 등록상품ID 모양이 아니라 보내지 않았습니다.`);
+      if (numeric.length === 0) return { success: true, sent: 0, failed: invalid, requestOnly: false, warnings };
+
+      let sent = 0;
+      let failed = invalid;
+      let tabId = null;
+      try {
+        const tab = await interactiveTabs.createTab({ url: request.pageUrl, reason: tabReason });
+        tabId = tab.id;
+        const waited = await waitForTabComplete(tabId).catch(() => undefined);
+        await sleep(waited ? 900 : 2200);
+        const current = await chromeApi.tabs.get(tabId).catch(() => null);
+        const href = String(current?.url || current?.pendingUrl || "");
+        if (!href.startsWith(spec.origin)) {
+          return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 보내세요.` };
+        }
+        for (let start = 0; start < numeric.length; start += request.chunk) {
+          const group = numeric.slice(start, start + request.chunk);
+          const [injected] = await chromeApi.scripting.executeScript({
+            target: { tabId },
+            func: postJsonOnPage,
+            args: [request.path, {
+              vendorInventoryIds: group.map((code) => Number(code)),
+              saleStatus: resume ? request.resume : request.stop,
+            }],
+          });
+          const answer = injected?.result || { status: 0, json: null, preview: "" };
+          const results = Array.isArray(answer.json) ? answer.json : null;
+          if (answer.status < 200 || answer.status >= 300 || !results) {
+            failed += group.length;
+            const loggedOut = /login|로그인|xauth/i.test(`${answer.url} ${answer.preview}`);
+            warnings.push(loggedOut
+              ? `${spec.label} 로그인이 풀려 ${group.length}건을 보내지 못했습니다.`
+              : `${spec.label}이 ${group.length}건 요청을 받지 않았습니다(HTTP ${answer.status}).`);
+            if (loggedOut) break;
+            continue;
+          }
+          const succeeded = new Set(results
+            .filter((entry) => entry && (entry.success === true || entry.isSuccess === true))
+            .map((entry) => String(entry.vendorInventoryId)));
+          const ok = group.filter((code) => succeeded.has(code)).length;
+          sent += ok;
+          failed += group.length - ok;
+          if (ok < group.length) {
+            const reasons = [...new Set(results
+              .filter((entry) => entry && !(entry.success === true || entry.isSuccess === true))
+              .map((entry) => String(entry.message || entry.errorMessage || entry.failReason || "").trim())
+              .filter(Boolean))].slice(0, 2);
+            warnings.push(`${spec.label}이 ${group.length - ok}건을 바꾸지 않았습니다${reasons.length ? `: ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
+          }
+          await sleep(PACE_MS);
+        }
+      } finally {
+        if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
+      }
+      return { success: true, sent, failed, requestOnly: false, warnings };
+    }
+
     async function postForm(origin, action, pairs, encoding) {
       const params = new URLSearchParams();
       for (const [name, value] of pairs) params.append(name, value);
@@ -351,6 +464,15 @@
         .map((code) => String(code || "").trim()).filter(Boolean))];
       if (codes.length === 0) return { success: false, error: "품절로 보낼 상품코드가 없습니다." };
       const resume = msg?.resume === true;
+
+      // 쿠팡 윙은 윙 화면 하나를 열어 판매상태 요청을 25개씩 보낸다.
+      if (spec.saleStatusRequest) {
+        try {
+          return await sendBySaleStatusRequest(spec, codes, resume);
+        } catch (error) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      }
 
       // 도매꾹은 화면을 열 필요가 없다. 목록 조회로 줄을 읽고 목록 수정 한 방으로 보낸다.
       if (spec.listEdit) {

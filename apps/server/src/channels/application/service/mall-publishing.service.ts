@@ -42,6 +42,7 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../port/in/channel-sku-availability.port';
+import { isChannelSkuOutOfStock } from '@kiditem/shared/channel-sku-availability';
 
 /**
  * 도메인 매니페스트가 전송 규격과 어긋나면 여기서 컴파일이 깨진다.
@@ -245,6 +246,15 @@ export class MallPublishingService {
       limit,
     });
 
+    // 우리 품절 송신은 **상품 단위**다 — 몰 관리자에서 상품 줄을 멈춘다(`mall-availability-send`).
+    // 옵션 일부만 품절인 상품을 보내면 재고 있는(또는 모르는) 옵션까지 멈춘다. 그런 상품은 보내지 않는다.
+    const listingIds = [...new Set(page.items.map((item) => item.product.id))];
+    const liveOptions = new Map<string, number>();
+    for (const option of await this.availability.findByListingIds(organizationId, listingIds)) {
+      if (isChannelSkuOutOfStock(option)) continue;
+      liveOptions.set(option.product.id, (liveOptions.get(option.product.id) ?? 0) + 1);
+    }
+
     const candidates = page.items.map<MallAvailabilityCandidate>((item) => {
       const manifest = getMallAdapterManifest(item.channelAccount.channel);
       const base = {
@@ -274,9 +284,19 @@ export class MallPublishingService {
         };
       }
       const resolved = resolveSoldOutCommand(manifest);
-      return resolved.allowed
-        ? { ...base, sendable: true, effectiveState: resolved.downgradedTo, blockedReason: null }
-        : { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
+      if (!resolved.allowed) {
+        return { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
+      }
+      const live = liveOptions.get(item.product.id) ?? 0;
+      if (live > 0) {
+        return {
+          ...base,
+          sendable: false,
+          effectiveState: null,
+          blockedReason: `이 상품의 다른 옵션 ${live}개는 품절이 아니라(재고 있음 · 모름) 상품 전체를 멈추지 않습니다.`,
+        };
+      }
+      return { ...base, sendable: true, effectiveState: resolved.downgradedTo, blockedReason: null };
     });
 
     return {
