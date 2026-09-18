@@ -163,6 +163,24 @@ describe('resolveSoldOutCommand', () => {
     expect(soldOutSendsByOption('teacher-mall')).toBe(false);
   });
 
+  /** 아이스크림몰 품절 = 판매상태 일괄변경 창의 품절(20), 재개 = 판매중(10)(2026-09-19 실측). 상품 단위다. */
+  it('sends sold_out to 아이스크림몰 as sale status 20 through the sale-state batch window', () => {
+    const icecream = getMallAdapterManifest('icecream-mall')!;
+    expect(resolveSoldOutCommand(icecream)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(icecream.soldOutRoute).toBe('mall_admin');
+    expect(icecream.resumeRoute).toBe('mall_admin');
+    expect(soldOutSendsByOption('icecream-mall')).toBe(false);
+  });
+
+  /** 키즈노트 품절 = 판매 상품 내역 [상태/노출일괄수정]의 품절(3), 재개 = 정상(2)(2026-09-19 실측). 상품 단위다. */
+  it('sends sold_out to 키즈노트 as status 품절 through the state batch edit', () => {
+    const kidsnote = getMallAdapterManifest('kidsnote')!;
+    expect(resolveSoldOutCommand(kidsnote)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
+    expect(kidsnote.soldOutRoute).toBe('mall_admin');
+    expect(kidsnote.resumeRoute).toBe('mall_admin');
+    expect(soldOutSendsByOption('kidsnote')).toBe(false);
+  });
+
   it('refuses malls with no sold-out path at all', () => {
     const boribori = getMallAdapterManifest('boribori')!;
     expect(resolveSoldOutCommand(boribori).allowed).toBe(false);

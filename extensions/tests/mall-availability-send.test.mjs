@@ -797,7 +797,7 @@ test('지금 재고 읽기 — 카카오는 재고 수, 올웨이즈는 품절�
     missing: [],
   });
   const module = loadModule();
-  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'art09', 'coupang', 'kakao', 'kkomangse', 'lotte-on', 'teacher-mall']);
+  assert.deepEqual([...module.READ_MALL_KEYS].sort(), ['always', 'art09', 'coupang', 'icecream-mall', 'kakao', 'kidsnote', 'kkomangse', 'lotte-on', 'teacher-mall']);
   assert.ok(module.MALL_KEYS.includes('kakao') && module.MALL_KEYS.includes('always'));
 });
 
@@ -1439,4 +1439,359 @@ test('티쳐몰 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 �
     missing: ['3'],
   });
   assert.equal(log.posts.length, 0, '읽기만 한다');
+});
+
+/**
+ * 아이스크림몰(아이스크림 PO) 품절 = 판매상태 품절(20), 판매 재개 = 판매중(10). 상품 정보 관리 목록의 [판매상태 일괄변경]
+ * 창(단품 판매상태 일괄 변경)의 [적용]이 보내는 `modifyGoodsSaleState.do` 그대로다(실측 2026-09-19).
+ */
+const ICECREAM = 'https://po.i-screammall.co.kr';
+
+function icecreamViewHtml() {
+  return `<html><head><script>
+    var _baseUrl = "https:\/\/po.i-screammall.co.kr\/";
+    var _entrNo = "7777";
+    var _entrNm = "키드아이템";
+  </script></head><body>
+    <form id="goodsInfoGridForm">
+      <input type="hidden" name="csSignature" value="sig-1">
+      <input type="hidden" name="_csrf" value="csrf-1">
+      <select name="goodsDtmOption"><option value="reg" selected>등록일</option></select>
+      <input type="text" name="goodsStartDtm" value=""><input type="text" name="goodsEndDtm" value="">
+      <select name="saleStatCd"><option value="" selected>전체</option><option value="10">판매중</option></select>
+      <input type="hidden" name="entrNo" value=""><input type="text" name="entrNm" value="">
+      <select name="goodsNoOption"><option value="mt" selected>멀티</option></select>
+      <textarea name="goodsNoList"></textarea>
+    </form></body></html>`;
+}
+
+function icecreamMall({ products = {}, loggedOut = false, saveAnswer = null, lagReads = 0 } = {}) {
+  const state = new Map(Object.entries(products).map(([code, product]) => [code, { saleStatCd: '10', saleMethCd: '10', ...product }]));
+  const log = { tabs: [], removed: [], lists: [], saves: [], views: 0 };
+  let reads = 0;
+  const fetch = async (path, init = {}) => {
+    const url = new URL(path, ICECREAM);
+    if (loggedOut) {
+      return { url: `${ICECREAM}/login/loginForm.do`, ok: true, status: 200, text: async () => '<html><body><input type="password"></body></html>' };
+    }
+    if (url.pathname === '/goods/goodsMgmt.goodsMgmtView.do') {
+      log.views += 1;
+      return { url: url.href, ok: true, status: 200, text: async () => icecreamViewHtml() };
+    }
+    if (url.pathname === '/goods/goodsMgmt.getGoodsList.do') {
+      assert.equal(init.headers.Accept, 'application/json');
+      const params = [...url.searchParams.entries()];
+      log.lists.push(params);
+      const codes = url.searchParams.get('goodsNoList').split('\r\n');
+      reads += 1;
+      const lagging = reads > 1 && reads <= 1 + lagReads;
+      const payloads = codes.filter((code) => state.has(code)).map((code) => {
+        const product = state.get(code);
+        return { goodsNo: code, goodsNm: '상품', saleStatCd: lagging ? product.previous ?? product.saleStatCd : product.saleStatCd, saleMethCd: product.saleMethCd, dispYn: 'Y' };
+      });
+      return { url: url.href, ok: true, status: 200, text: async () => JSON.stringify({ totalCount: payloads.length, payloads }) };
+    }
+    if (url.pathname === '/goods/goodsMgmtPopup.modifyGoodsSaleState.do' && init.method === 'POST') {
+      assert.deepEqual(plain(init.headers), {
+        'Content-Type': 'application/json;charset=UTF-8',
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+      });
+      const body = JSON.parse(init.body);
+      log.saves.push(body);
+      if (saveAnswer) return { url: url.href, ok: true, status: 200, text: async () => JSON.stringify(saveAnswer) };
+      for (const row of body.goodsSaleStateList) {
+        const product = state.get(row.goodsNo);
+        product.previous = product.saleStatCd;
+        product.saleStatCd = row.itmSaleStatCd;
+      }
+      return { url: url.href, ok: true, status: 200, text: async () => JSON.stringify({ succeeded: true, message: '저장되었습니다.' }) };
+    }
+    throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+  };
+  const module = loadModule({ fetch, DOMParser: PageDOMParser, FormData: PageFormData, location: new URL(`${ICECREAM}/main.do`) });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 61 }; },
+      get: async () => ({ id: 61, url: `${ICECREAM}/goods/goodsMgmt.goodsMgmtView.do` }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(61, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+const { FormData: PageFormData } = new JSDOM('').window;
+
+test('⭐ 아이스크림몰 품절은 판매상태 일괄변경 창 [적용]과 같은 요청으로 — 판매중인 상품만 품절(20)로, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = icecreamMall({
+    products: { 11411122: {}, 10826095: { saleStatCd: '20' }, 936465: { saleStatCd: '40' } },
+  });
+  const result = await api.send({ mallKey: 'icecream-mall', codes: ['11411122', '10826095', '936465', '99999999', 'abc'] });
+  assert.deepEqual(plain(log.saves), [{
+    goodsSaleStateList: [{ goodsNo: '11411122', saleStatCd: '10', itmSaleStatCd: '20', soutCausCd: '12', saleStatChgCausCd: null }],
+  }]);
+  assert.equal(state.get('11411122').saleStatCd, '20');
+  assert.equal(state.get('936465').saleStatCd, '40', '판매종료는 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2, '보낸 1 + 이미 품절 1');
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 3, '판매종료 1 · 없는 상품 1 · 모양이 다른 코드 1');
+  assert.ok(result.warnings.some((warning) => /판매종료된 상품/.test(warning)));
+  // 검색은 화면처럼 기간 무시 · 폼 전체(서명 포함) · 업체번호는 화면 스크립트 값 · 상품번호 멀티(CRLF).
+  const first = new URLSearchParams(log.lists[0]);
+  assert.equal(first.get('goodsDtmIgnoreOption'), 'check');
+  assert.equal(first.get('csSignature'), 'sig-1');
+  assert.equal(first.get('entrNo'), '7777');
+  assert.equal(first.get('entrNm'), '키드아이템');
+  assert.equal(first.get('goodsNoOption'), 'mt');
+  assert.equal(first.get('goodsNoList'), '11411122\r\n10826095\r\n936465\r\n99999999');
+  assert.deepEqual(log.tabs, [[`${ICECREAM}/goods/goodsMgmt.goodsMgmtView.do`, false]]);
+  assert.deepEqual(log.removed, [61]);
+});
+
+test('아이스크림몰 판매 재개는 품절(20)인 상품만 판매중(10)으로 — 예약상품 품절은 화면도 못 되돌려 알린다', async () => {
+  const { api, log } = icecreamMall({
+    products: { 1111111: { saleStatCd: '20' }, 2222222: {}, 3333333: { saleStatCd: '20', saleMethCd: '20' } },
+  });
+  const result = await api.send({ mallKey: 'icecream-mall', codes: ['1111111', '2222222', '3333333'], resume: true });
+  assert.deepEqual(plain(log.saves), [{
+    goodsSaleStateList: [{ goodsNo: '1111111', saleStatCd: '20', itmSaleStatCd: '10', soutCausCd: '12', saleStatChgCausCd: null }],
+  }]);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 1);
+  assert.ok(result.warnings.some((warning) => /예약상품/.test(warning)));
+});
+
+test('아이스크림몰 — 판매방식이 다른 상품은 나눠 보낸다(목록이 한 번에 못 넘긴다)', async () => {
+  const { api, log } = icecreamMall({ products: { 1111111: {}, 2222222: { saleMethCd: '20' }, 3333333: {} } });
+  const result = await api.send({ mallKey: 'icecream-mall', codes: ['1111111', '2222222', '3333333'] });
+  assert.deepEqual(log.saves.map((body) => body.goodsSaleStateList.map((row) => row.goodsNo)), [['1111111', '3333333'], ['2222222']]);
+  assert.equal(result.confirmed, 3);
+});
+
+test('아이스크림몰 — 목록이 늦게 따라와도 다시 읽어 확인하고, 끝내 옛 상태면 확인으로 세지 않는다', async () => {
+  const late = icecreamMall({ products: { 1111111: {} }, lagReads: 2 });
+  const caught = await late.api.send({ mallKey: 'icecream-mall', codes: ['1111111'] });
+  assert.equal(caught.confirmed, 1);
+
+  const stuck = icecreamMall({ products: { 1111111: {} }, lagReads: 50 });
+  const stale = await stuck.api.send({ mallKey: 'icecream-mall', codes: ['1111111'] });
+  assert.equal(stale.sent, 1);
+  assert.equal(stale.confirmed, 0);
+  assert.ok(stale.warnings.some((warning) => /옛 상태/.test(warning)));
+});
+
+test('아이스크림몰 — 몰이 거절하면 실패로 세고 몰이 한 말을 싣는다 · 로그인이 풀렸으면 아무것도 보내지 않는다', async () => {
+  const refused = icecreamMall({ products: { 1111111: {} }, saveAnswer: { succeeded: false, message: '변경할 수 없는 상품입니다.' } });
+  const answer = await refused.api.send({ mallKey: 'icecream-mall', codes: ['1111111'] });
+  assert.equal(answer.sent, 0);
+  assert.equal(answer.failed, 1);
+  assert.ok(answer.warnings.some((warning) => /변경할 수 없는 상품입니다/.test(warning)));
+
+  const loggedOut = icecreamMall({ products: { 1111111: {} }, loggedOut: true });
+  const halted = await loggedOut.api.send({ mallKey: 'icecream-mall', codes: ['1111111'] });
+  assert.equal(halted.success, false);
+  assert.match(halted.error, /아이스크림몰 로그인이 풀렸습니다/);
+  assert.equal(loggedOut.log.saves.length, 0);
+});
+
+test('아이스크림몰 지금 상태 읽기 — 판매중이면 모름, 품절 · 판매종료면 살 수 없어 0', async () => {
+  const { api, log } = icecreamMall({ products: { 1111111: {}, 2222222: { saleStatCd: '20' }, 3333333: { saleStatCd: '40' } } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'icecream-mall', codes: ['1111111', '2222222', '3333333', '4444444'] })), {
+    success: true,
+    products: [
+      { code: '1111111', options: [{ optionCode: '1111111', stock: null, rocket: false }] },
+      { code: '2222222', options: [{ optionCode: '2222222', stock: 0, rocket: false }] },
+      { code: '3333333', options: [{ optionCode: '3333333', stock: 0, rocket: false }] },
+    ],
+    missing: ['4444444'],
+  });
+  assert.equal(log.saves.length, 0, '읽기만 한다');
+});
+
+/**
+ * 키즈노트(WISA 스마트윙) 품절 = 상태 품절(3), 판매 재개 = 정상(2). 판매 상품 내역(body=2010)의 [상태/노출일괄수정]
+ * 폼(edt_layer_4)을 "선택한 상품의" 로 [확인]한 요청 그대로다(실측 2026-09-19). 상품번호 검색이 없어 목록을 100개씩 넘긴다.
+ */
+const KIDSNOTE = 'https://shop.kidsnote.com';
+
+function kidsnoteListHtml(rows, allPnos) {
+  const body = rows.map(([pno, stat]) => `<tr>
+      <td><input type="checkbox" name="check_pno[]" id="check_pno" value="${pno}"><input type="hidden" name="pno[]" value="${pno}"></td>
+      <td>1</td><td><img></td><td><span>2128-${pno}</span><a href="./?body=product@product_register&pno=${pno}">상품</a></td>
+      <td>26/09/16</td><td>1,950 원</td><td>3,000 원</td><td>0 원</td><td>${stat}</td><td>회</td>
+    </tr>`).join('');
+  return `<html><body>
+    <form name="prdFrm" id="prdFrm" method="post" action="/_manage/index.php">
+      <input type="hidden" name="body" value="product@product_list.exe"><input type="hidden" name="exec" value="">
+      <table><thead><tr><th><input type="checkbox"></th><th>번호</th><th>이미지</th><th>상품명</th><th>등록일</th><th>판매가</th>
+        <th>소비자가</th><th>적립금</th><th>상태</th><th>판매설정</th></tr></thead><tbody>${body}</tbody></table>
+    </form>
+    <form id="edt_layer_4" method="post" action="./" target="hidden1" onsubmit="return edtConfirm(this)">
+      <input type="hidden" name="body" value="product@product_price.exe">
+      <input type="hidden" name="w" value=" and p.partner_no='367' and p.stat!=5">
+      <input type="hidden" name="prd_no" value="${allPnos.join(',')}">
+      <input type="hidden" name="nums" value="">
+      <input type="hidden" name="exec" value="stat">
+      <select name="where"><option value="1">선택한 상품의</option><option value="2">현재 검색된 모든 상품</option></select>
+      <label><input type="radio" name="change_stat" value="" checked> 변화없음</label>
+      <label><input type="radio" name="change_stat" value="2"> 정상</label>
+      <label><input type="radio" name="change_stat" value="3"> 품절</label>
+      <label><input type="radio" name="change_stat" value="4"> 숨김</label>
+      <label><input type="radio" name="perm_lst" value="" checked> 변화없음</label><label><input type="radio" name="perm_lst" value="Y"> 노출</label>
+      <label><input type="radio" name="perm_dtl" value="" checked> 변화없음</label><label><input type="radio" name="perm_dtl" value="Y"> 노출</label>
+      <label><input type="radio" name="perm_sch" value="" checked> 변화없음</label><label><input type="radio" name="perm_sch" value="Y"> 노출</label>
+      <input type="submit" value="확인">
+    </form></body></html>`;
+}
+
+function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStatus = 200 } = {}) {
+  // 목록 순서 = 넣은 순서. 상태 글자는 화면 그대로(정상 · 품절 · 숨김).
+  const state = new Map(Object.entries(products).map(([pno, stat]) => [pno, { stat, previous: null }]));
+  const log = { tabs: [], removed: [], pages: [], saves: [] };
+  let listReads = 0;
+  let saved = false;
+  const fetch = async (path, init = {}) => {
+    const url = new URL(path, KIDSNOTE);
+    if (loggedOut) {
+      return { url: `${KIDSNOTE}/_manage/login.php`, ok: true, status: 200, text: async () => '<html><body><input type="password"></body></html>' };
+    }
+    if (url.pathname === '/_manage/' && (init.method || 'GET') === 'GET') {
+      assert.equal(url.searchParams.get('body'), '2010');
+      const size = Number(url.searchParams.get('row'));
+      const page = Number(url.searchParams.get('page'));
+      log.pages.push(page);
+      if (page === 1 && saved) listReads += 1;
+      const lagging = saved && listReads <= lagReads;
+      const all = [...state.entries()];
+      const rows = all.slice((page - 1) * size, page * size)
+        .map(([pno, product]) => [pno, lagging && product.previous ? product.previous : product.stat]);
+      return { url: url.href, ok: true, status: 200, text: async () => kidsnoteListHtml(rows, all.map(([pno]) => pno)) };
+    }
+    if (url.pathname === '/_manage/' && init.method === 'POST') {
+      assert.equal(init.headers['Content-Type'], 'application/x-www-form-urlencoded');
+      const body = [...new URLSearchParams(init.body).entries()];
+      log.saves.push(body);
+      if (saveStatus !== 200) return { url: url.href, ok: false, status: saveStatus, text: async () => '' };
+      const form = new URLSearchParams(init.body);
+      const next = { 2: '정상', 3: '품절', 4: '숨김' }[form.get('change_stat')];
+      for (const pno of form.get('nums').split('@').filter(Boolean)) {
+        const product = state.get(pno);
+        product.previous = product.stat;
+        product.stat = next;
+      }
+      saved = true;
+      return { url: url.href, ok: true, status: 200, text: async () => "<script>parent.removeLoading();alert('수정되었습니다.');parent.location.reload();</script>" };
+    }
+    throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+  };
+  const module = loadModule({ fetch, DOMParser: PageDOMParser, FormData: PageFormData, location: new URL(`${KIDSNOTE}/_manage/?body=2010`) });
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 71 }; },
+      get: async () => ({ id: 71, url: `${KIDSNOTE}/_manage/?body=2010` }),
+      remove: async (id) => { log.removed.push(id); },
+      onUpdated: { addListener: (listener) => setTimeout(() => listener(71, { status: 'complete' }, {}), 0), removeListener: () => {} },
+    },
+    scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  };
+  const api = module.create({
+    chrome,
+    fetch: async () => { throw new Error('워커에서 직접 부르지 않는다'); },
+    interactiveTabs: { createTab: async () => { throw new Error('앞에 띄우지 않는다'); } },
+    tabReason: 'test',
+    sleep: async () => {},
+  });
+  return { api, log, state };
+}
+
+test('⭐ 키즈노트 품절은 [상태/노출일괄수정]을 "선택한 상품의" 로 보낸 요청 그대로 — 정상인 상품만 품절로, 다시 읽어 확인한다', async () => {
+  const { api, log, state } = kidsnoteMall({ products: { 155982: '정상', 187336: '품절', 114708: '숨김' } });
+  const result = await api.send({ mallKey: 'kidsnote', codes: ['155982', '187336', '114708', '999999', 'LO1'] });
+  assert.deepEqual(plain(log.saves), [[
+    ['body', 'product@product_price.exe'],
+    ['w', " and p.partner_no='367' and p.stat!=5"],
+    ['prd_no', '114708,155982,187336'],
+    ['nums', '@155982'],
+    ['exec', 'stat'],
+    ['where', '1'],
+    ['change_stat', '3'],
+    ['perm_lst', ''],
+    ['perm_dtl', ''],
+    ['perm_sch', ''],
+  ]]);
+  assert.equal(state.get('155982').stat, '품절');
+  assert.equal(state.get('114708').stat, '숨김', '숨김은 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2, '보낸 1 + 이미 품절 1');
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.already, 1);
+  assert.equal(result.failed, 3, '숨김 1 · 없는 상품 1 · 모양이 다른 코드 1');
+  assert.ok(result.warnings.some((warning) => /숨김/.test(warning)));
+  assert.deepEqual(log.tabs, [[`${KIDSNOTE}/_manage/?body=2010`, false]]);
+  assert.deepEqual(log.removed, [71]);
+});
+
+test('키즈노트 판매 재개는 품절인 상품만 정상(2)으로 되돌린다', async () => {
+  const { api, log } = kidsnoteMall({ products: { 1: '품절', 2: '정상', 3: '품절' } });
+  const result = await api.send({ mallKey: 'kidsnote', codes: ['1', '2', '3'], resume: true });
+  assert.deepEqual(log.saves.map((body) => [body.find(([name]) => name === 'nums')[1], body.find(([name]) => name === 'change_stat')[1]]), [['@1@3', '2']]);
+  assert.equal(result.confirmed, 3);
+  assert.equal(result.already, 1);
+});
+
+test('키즈노트 — 목록은 100개씩 넘기되 찾던 상품을 다 찾으면 멈춘다', async () => {
+  const products = Object.fromEntries(Array.from({ length: 250 }, (_, index) => [String(100000 + index), '정상']));
+  const { api, log } = kidsnoteMall({ products });
+  const read = await api.read({ mallKey: 'kidsnote', codes: ['100150'] });
+  assert.deepEqual(log.pages, [1, 2], '두 번째 쪽에서 찾았으니 세 번째 쪽은 읽지 않는다');
+  assert.deepEqual(plain(read.products), [{ code: '100150', options: [{ optionCode: '100150', stock: null, rocket: false }] }]);
+  log.pages.length = 0;
+  const miss = await api.read({ mallKey: 'kidsnote', codes: ['777'] });
+  assert.deepEqual(log.pages, [1, 2, 3], '끝 쪽(100개 미만)까지 읽고 멈춘다');
+  assert.deepEqual(plain(miss.missing), ['777']);
+});
+
+test('키즈노트 — 목록이 늦게 따라와도 다시 읽어 확인하고, 몰이 받지 않으면 실패로 센다 · 로그인이 풀렸으면 보내지 않는다', async () => {
+  const late = kidsnoteMall({ products: { 1: '정상' }, lagReads: 1 });
+  const caught = await late.api.send({ mallKey: 'kidsnote', codes: ['1'] });
+  assert.equal(caught.confirmed, 1);
+
+  const refused = kidsnoteMall({ products: { 1: '정상' }, saveStatus: 500 });
+  const answer = await refused.api.send({ mallKey: 'kidsnote', codes: ['1'] });
+  assert.equal(answer.sent, 0);
+  assert.equal(answer.failed, 1);
+
+  const loggedOut = kidsnoteMall({ products: { 1: '정상' }, loggedOut: true });
+  const halted = await loggedOut.api.send({ mallKey: 'kidsnote', codes: ['1'] });
+  assert.equal(halted.success, false);
+  assert.match(halted.error, /키즈노트 로그인이 풀렸습니다/);
+  assert.equal(loggedOut.log.saves.length, 0);
+});
+
+test('키즈노트 지금 상태 읽기 — 정상이면 모름, 품절 · 숨김이면 살 수 없어 0', async () => {
+  const { api, log } = kidsnoteMall({ products: { 1: '정상', 2: '품절', 3: '숨김' } });
+  assert.deepEqual(plain(await api.read({ mallKey: 'kidsnote', codes: ['1', '2', '3', '4'] })), {
+    success: true,
+    products: [
+      { code: '1', options: [{ optionCode: '1', stock: null, rocket: false }] },
+      { code: '2', options: [{ optionCode: '2', stock: 0, rocket: false }] },
+      { code: '3', options: [{ optionCode: '3', stock: 0, rocket: false }] },
+    ],
+    missing: ['4'],
+  });
+  assert.equal(log.saves.length, 0, '읽기만 한다');
 });

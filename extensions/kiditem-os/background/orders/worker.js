@@ -7814,6 +7814,10 @@ KidItemDomains.register({
     // 꼬망세를 줄마다의 [개별수정]으로 보낸다(1.2.16). 옛 확장은 페이지 전체를 다시 저장했고 재개 때 재고 칸에
     // "{stock}" 글자를 넣었다 — 웹은 이 값이 없는 확장으로 꼬망세를 보내지 않는다.
     mallAvailabilityKkomangseDirectV1: true,
+    // 아이스크림몰을 판매상태 일괄변경 창의 [적용], 키즈노트를 [상태/노출일괄수정]과 같은 요청으로 보낸다(1.2.18).
+    // 옛 확장은 경로가 없다고 거절한다 — 웹은 이 값이 없는 확장으로 두 몰을 보내지 않는다.
+    mallAvailabilityIcecreamSaleStateV1: true,
+    mallAvailabilityKidsnoteStateV1: true,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

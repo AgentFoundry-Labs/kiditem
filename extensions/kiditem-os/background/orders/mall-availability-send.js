@@ -2,7 +2,7 @@
   "use strict";
 
   // 몰 품절 송신 — 키드키즈·꼬망세·온채널·도매꾹·쿠팡 윙(옵션 재고 0)·카카오 톡스토어(재고 0)·올웨이즈·
-  // 아트공구(판매안함)·롯데ON(판매상태 품절)·티쳐몰(재고 0). 아이스크림몰은 경로 대기.
+  // 아트공구(판매안함)·롯데ON(판매상태 품절)·티쳐몰(재고 0)·아이스크림몰(판매상태 품절)·키즈노트(상태 품절).
   //
   // 사장님이 품절 버튼을 한 번 누르면 **여기서 끝까지 보낸다.** 사람이 몰마다 들어가
   // 다시 누르게 하지 않는다(사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에
@@ -47,6 +47,16 @@
    */
   const LOTTEON_RECHECK_MS = 3000;
   const LOTTEON_RECHECK_TIMES = 8;
+  /** 아이스크림몰은 보낸 뒤 상품 목록을 다시 읽어 확인한다. 아직 옛 상태면 이 간격으로 몇 번 더 본다. */
+  const ICECREAM_RECHECK_MS = 2000;
+  const ICECREAM_RECHECK_TIMES = 3;
+  /**
+   * 키즈노트 관리자 상품목록은 상품번호로 검색하지 못해 100개씩 넘기며 찾는다(1,107개 = 12쪽). 쪽 사이 간격은 짧게.
+   * 보낸 뒤 다시 읽어 아직 옛 상태면 이 간격으로 몇 번 더 본다.
+   */
+  const KIDSNOTE_PAGE_PACE_MS = 200;
+  const KIDSNOTE_RECHECK_MS = 2000;
+  const KIDSNOTE_RECHECK_TIMES = 2;
 
   /**
    * 몰마다 다른 것 전부.
@@ -284,12 +294,63 @@
         batchSize: 100,
       },
     },
+    /**
+     * 아이스크림몰(아이스크림 PO). 품절 = 판매상태 **품절(20)**, 판매 재개 = **판매중(10)** — 상품 정보 관리 목록의
+     * [판매상태 일괄변경]이 여는 "단품 판매상태 일괄 변경" 창의 [적용]이 보내는 요청 그대로다(2026-09-19 실측, 창 코드
+     * `goodsSaleStateModify.eventhandler` 의 `#btn_apply`).
+     *
+     *  - POST `/goods/goodsMgmtPopup.modifyGoodsSaleState.do` 에 JSON `{goodsSaleStateList: [{goodsNo, saleStatCd,
+     *    itmSaleStatCd, soutCausCd:"12", saleStatChgCausCd:null}]}` 를 싣는다. `saleStatCd` 는 목록이 준 지금 상태,
+     *    `itmSaleStatCd` 가 고른 상태다. 품절 사유(soutCausCd)는 창이 늘 "12"를 싣고, 판매종료 사유(saleStatChgCausCd)는
+     *    판매종료(40)에서만 고르는 칸이라 품절 · 판매중이면 비어 있다(null). 머리는 화면의 jQuery 가 붙이는 것
+     *    (Content-Type · Accept · X-Requested-With)뿐이다. 답은 JSON `{succeeded, message}`.
+     *  - 목록은 판매방식(saleMethCd)이 다른 상품을 한 번에 넘기지 못하게 막는다 — 판매방식마다 나눠 보낸다. 예약상품(20)이
+     *    품절이면 창이 판매중을 고르지 못하게 숨긴다 — 그 상품은 재개하지 않고 알린다. 판매종료(40) 상품은 건드리지 않는다.
+     *  - 지금 상태는 상품 정보 관리 목록 조회(`goodsMgmt.getGoodsList.do`)를 상품번호 여럿(멀티)으로 불러 읽는다. 검색
+     *    폼(보안 서명 포함)은 목록 화면을 받아 그 폼 그대로 쓰고, 업체번호는 화면 스크립트가 채우는 값(`_entrNo`)을 쓴다.
+     *  - 보낸 뒤 같은 조회로 판매상태를 다시 읽어 확인한다.
+     */
+    "icecream-mall": {
+      label: "아이스크림몰",
+      origin: "https://po.i-screammall.co.kr",
+      goodsSaleState: {
+        pageUrl: "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do",
+        viewPath: "/goods/goodsMgmt.goodsMgmtView.do",
+        listPath: "/goods/goodsMgmt.getGoodsList.do",
+        savePath: "/goods/goodsMgmtPopup.modifyGoodsSaleState.do",
+        // 한 번에 조회 · 저장하는 상품 수. 상품번호 칸(멀티)은 줄바꿈으로 여러 개를 받는다.
+        batchSize: 100,
+      },
+    },
+    /**
+     * 키즈노트(WISA 스마트윙 관리자). 품절 = 상태 **품절(3)**, 판매 재개 = **정상(2)** — 판매 상품 내역(body=2010)의
+     * [상태/노출일괄수정] 폼(`edt_layer_4`)에서 "선택한 상품의" 상태를 바꿔 [확인]을 누른 요청 그대로다(2026-09-19 실측,
+     * 화면 코드 `edtConfirm` · `numSelect`).
+     *
+     *  - POST `/_manage/` 에 그 폼 전체(`body=product@product_price.exe` · `w` · `prd_no` · `nums` · `exec=stat` ·
+     *    `where` · `change_stat` · `perm_lst` · `perm_dtl` · `perm_sch`)를 싣는다. `nums` 는 고른 상품번호마다 "@"를 앞에
+     *    붙여 이은 것(`@155982@187336`), `where=1` 은 "선택한 상품의", 노출 칸(perm_*)은 "변화없음"(빈 값) 그대로다.
+     *    `w` · `prd_no` 는 목록 화면이 폼에 넣어 둔 값 그대로 싣는다.
+     *  - 상품번호(pno) 검색이 없어 목록을 100개씩 넘기며 지금 상태(정상 · 품절 · 숨김)를 읽는다. 숨김 상품은 사장님이 숨긴
+     *    것이라 바꾸지 않는다.
+     *  - 답은 숨은 창에 그리는 화면이라, 보낸 뒤 목록을 다시 읽어 상태가 바뀐 것을 센다.
+     */
+    kidsnote: {
+      label: "키즈노트",
+      origin: "https://shop.kidsnote.com",
+      stateBatch: {
+        pageUrl: "https://shop.kidsnote.com/_manage/?body=2010",
+        listPath: "/_manage/",
+        savePath: "/_manage/",
+        // 목록 한 쪽 최대(화면의 '100개씩'). 보낼 때도 한 번에 이만큼 — 화면에서 한 쪽을 다 골라 누른 것과 같다.
+        pageSize: 100,
+        maxPages: 60,
+      },
+    },
   };
 
   /** 이 몰은 아직 경로가 없다. 화면이 버튼을 세우지 않게 이름만 남긴다. */
-  const PENDING = {
-    "icecream-mall": "판매상태 일괄변경이 별도 창(goodsSaleStateModifyView.do)에서 저장돼 창 사이를 잇는 경로가 더 필요합니다.",
-  };
+  const PENDING = {};
 
   /**
    * 윙 화면 안에서 요청 하나를 보낸다. 워커가 인자로만 넘긴다(클로저를 잡을 수 없다).
@@ -458,6 +519,182 @@
       return { found: true, approval: match ? match[1] : null, state: match ? match[2] : null };
     } catch (error) {
       return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 아이스크림몰 상품 정보 관리 목록을 상품번호 여럿으로 조회해 판매상태를 읽는다. 읽기만 한다. 워커가 인자로만 넘긴다.
+   * 검색 폼(보안 서명 포함)은 목록 화면을 받아 그 폼 그대로 쓴다 — 열린 탭이 목록 화면이 아니어도 된다. 화면처럼 기간
+   * 조건을 앞에 두고(기간 무시), 폼 전체, 쪽 크기와 쪽 번호를 붙인다. 업체번호 · 업체명은 화면 스크립트가 채우는 값이다.
+   */
+  async function icecreamRowsOnPage(viewPath, listPath, codes) {
+    try {
+      const page = await fetch(viewPath, { credentials: "include", cache: "no-store" });
+      const landed = new URL(page.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname)) return { loggedOut: true };
+      if (!page.ok) return { error: `HTTP ${page.status}` };
+      const html = await page.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const form = doc.getElementById("goodsInfoGridForm");
+      if (!form) return doc.querySelector('input[type="password"]') ? { loggedOut: true } : { error: "search_form" };
+      const literal = (name) => {
+        const match = new RegExp(`(?:var|let|const)\\s+${name}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(html);
+        if (!match) return "";
+        try {
+          return String(JSON.parse(match[1]));
+        } catch {
+          return "";
+        }
+      };
+      const today = new Date();
+      const pad = (value) => String(value).padStart(2, "0");
+      const params = new URLSearchParams({
+        goodsStartDtm: "2000-01-01T00:00:00",
+        goodsEndDtm: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}T23:59:59`,
+        goodsDtmIgnoreOption: "check",
+      });
+      for (const [name, value] of new FormData(form)) {
+        if (typeof value !== "string") continue;
+        if (name === "goodsNoOption" || name === "goodsNoList") continue;
+        if (name === "entrNo" || name === "entrNm") {
+          params.append(name, value || literal(name === "entrNo" ? "_entrNo" : "_entrNm"));
+          continue;
+        }
+        params.append(name, value);
+      }
+      params.append("goodsNoOption", "mt");
+      // 화면 폼(jQuery serialize)처럼 줄바꿈은 CRLF 다 — LF 로만 이으면 한 건도 안 나온다(2026-09-19 실측).
+      params.append("goodsNoList", codes.join("\r\n"));
+      params.append("rowsPerPage", String(Math.max(10, codes.length)));
+      params.append("pageIdx", "1");
+      const response = await fetch(`${listPath}?${params.toString()}`, {
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const listed = new URL(response.url || location.href, location.href);
+      if (listed.origin !== location.origin || /login/i.test(listed.pathname)) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        return /type=["']?password|loginForm/i.test(text) ? { loggedOut: true } : { error: "json" };
+      }
+      if (json?.succeeded === false) return { error: String(json.message || "succeeded=false").slice(0, 120) };
+      if (!Array.isArray(json?.payloads)) return { error: "payloads" };
+      return {
+        rows: json.payloads.map((row) => ({
+          goodsNo: row?.goodsNo === undefined || row?.goodsNo === null ? "" : String(row.goodsNo),
+          saleStatCd: row?.saleStatCd ?? null,
+          saleMethCd: row?.saleMethCd ?? null,
+        })),
+      };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 아이스크림몰 "단품 판매상태 일괄 변경" 창의 [적용]과 같은 요청을 보낸다. 머리는 화면의 jQuery 가 붙이는 것만 싣는다.
+   * 워커가 인자로만 넘긴다. 답은 성공 여부와 몰이 준 글(있으면 앞부분)뿐이다.
+   */
+  async function icecreamSaveOnPage(savePath, goodsSaleStateList) {
+    try {
+      const response = await fetch(savePath, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json;charset=UTF-8",
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({ goodsSaleStateList }),
+      });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname)) return { status: response.status, loggedOut: true };
+      const text = await response.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      if (!json && /type=["']?password|loginForm|loginExpired/i.test(text)) return { status: response.status, loggedOut: true };
+      return {
+        status: response.status,
+        succeeded: json?.succeeded === true,
+        message: typeof json?.message === "string" ? json.message.slice(0, 160) : null,
+      };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 키즈노트 판매 상품 내역 한 쪽을 읽는다 — 줄마다 상품번호(pno)와 상태 글자. `withForm` 이면 [상태/노출일괄수정] 폼
+   * (`edt_layer_4`)이 보낼 값도 모아 온다(목록 화면이 넣어 둔 `w` · `prd_no` 포함). 읽기만 한다. 워커가 인자로만 넘긴다.
+   */
+  async function kidsnoteListOnPage(listPath, page, pageSize, withForm) {
+    try {
+      const params = new URLSearchParams({ body: "2010", row: String(pageSize), page: String(page) });
+      const response = await fetch(`${listPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
+      const landed = new URL(response.url || location.href, location.href);
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname + landed.search)) return { loggedOut: true };
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      const list = doc.querySelector('form[name="prdFrm"], form#prdFrm');
+      if (!list) return doc.querySelector('input[type="password"]') ? { loggedOut: true } : { error: "list_form" };
+      const boxes = [...list.querySelectorAll('input[name="check_pno[]"]')];
+      let statIndex = -1;
+      const table = boxes[0]?.closest("table");
+      if (table) {
+        const headRow = [...table.querySelectorAll("tr")].find((tr) => tr.querySelector("th"));
+        const heads = headRow ? [...headRow.cells].map((cell) => cell.textContent.replace(/\s+/g, "")) : [];
+        statIndex = heads.indexOf("상태");
+      }
+      if (boxes.length > 0 && statIndex < 0) return { error: "status_column" };
+      const rows = boxes.map((box) => ({
+        pno: String(box.value || ""),
+        stat: String(box.closest("tr")?.cells?.[statIndex]?.textContent || "").replace(/\s+/g, " ").trim(),
+      }));
+      let form = null;
+      if (withForm) {
+        const edit = doc.getElementById("edt_layer_4");
+        if (!edit) return { error: "state_form" };
+        form = [...new FormData(edit)].map(([name, value]) => [name, String(value)]);
+      }
+      return { rows, form };
+    } catch (error) {
+      return { error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 키즈노트 [상태/노출일괄수정] 폼을 보낸 것과 같은 요청(폼 그대로, urlencoded)을 보낸다. 답은 숨은 창에 그리는 화면이라
+   * 알림(alert) 글만 앞부분을 돌려준다. 워커가 인자로만 넘긴다.
+   */
+  async function kidsnoteSaveOnPage(savePath, pairs) {
+    try {
+      const body = new URLSearchParams();
+      for (const [name, value] of pairs) body.append(name, value);
+      const response = await fetch(savePath, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      const landed = new URL(response.url || location.href, location.href);
+      const text = await response.text();
+      if (landed.origin !== location.origin || /login/i.test(landed.pathname + landed.search)
+        || /type=["']?password/i.test(text)) {
+        return { status: response.status, loggedOut: true };
+      }
+      const alerted = /alert\(\s*(['"])((?:(?!\1).){1,200})\1/.exec(text);
+      return { status: response.status, alert: alerted ? alerted[2].slice(0, 160) : null };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
     }
   }
 
@@ -1617,6 +1854,221 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /** 아이스크림몰 상품 정보 관리 목록을 상품번호 여럿으로 읽는다(묶음마다 한 번). 로그인이 풀렸으면 { loggedOut }. */
+    async function readIcecreamRows(spec, run, codes) {
+      const api = spec.goodsSaleState;
+      const rows = new Map();
+      for (let start = 0; start < codes.length; start += api.batchSize) {
+        if (start > 0) await sleep(PACE_MS);
+        const answer = await run(icecreamRowsOnPage, [api.viewPath, api.listPath, codes.slice(start, start + api.batchSize)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.error || "목록 조회 실패" };
+        for (const row of answer.rows) if (row?.goodsNo) rows.set(row.goodsNo, row);
+      }
+      return { rows };
+    }
+
+    /**
+     * 아이스크림몰 판매상태. 목록 조회로 지금 상태와 판매방식을 읽고, "단품 판매상태 일괄 변경" 창의 [적용]과 같은 요청을
+     * 판매방식마다 보낸 뒤 다시 읽어 확인한다.
+     */
+    async function sendByIcecreamSaleState(spec, codes, resume) {
+      const api = spec.goodsSaleState;
+      const wanted = resume ? "10" : "20";
+      const from = resume ? "20" : "10";
+      const warnings = [];
+      const products = codes.filter((code) => /^\d{5,15}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readIcecreamRows(spec, run, products);
+        if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((no) => before.rows.has(no));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+        }
+        const ended = found.filter((no) => !["10", "20"].includes(before.rows.get(no).saleStatCd)).length;
+        if (ended > 0) {
+          failed += ended;
+          warnings.push(`${ended}건은 ${spec.label}에서 판매종료된 상품이라 바꾸지 않았습니다.`);
+        }
+        const movable = found.filter((no) => before.rows.get(no).saleStatCd === from);
+        already += found.length - ended - movable.length;
+        // 예약상품이 품절이면 창이 판매중을 고르지 못하게 숨긴다 — 화면이 못 하는 것은 하지 않는다.
+        const reserved = resume ? movable.filter((no) => before.rows.get(no).saleMethCd === "20") : [];
+        if (reserved.length > 0) {
+          failed += reserved.length;
+          warnings.push(`${reserved.length}건은 예약상품이라 ${spec.label} 화면도 판매중으로 되돌리지 못합니다.`);
+        }
+        const targets = movable.filter((no) => !reserved.includes(no));
+        // 목록은 판매방식이 다른 상품을 한 번에 넘기지 못한다 — 판매방식마다 나눠 보낸다.
+        const groups = new Map();
+        for (const no of targets) {
+          const method = String(before.rows.get(no).saleMethCd ?? "");
+          if (!groups.has(method)) groups.set(method, []);
+          groups.get(method).push(no);
+        }
+        const accepted = [];
+        for (const group of groups.values()) {
+          for (let start = 0; start < group.length; start += api.batchSize) {
+            const slice = group.slice(start, start + api.batchSize);
+            // 창이 만드는 모양 그대로 — 목록 줄의 상품번호 · 지금 상태에 창이 고른 상태와 사유 칸을 얹는다.
+            const list = slice.map((no) => ({
+              goodsNo: no,
+              saleStatCd: before.rows.get(no).saleStatCd,
+              itmSaleStatCd: wanted,
+              soutCausCd: "12",
+              saleStatChgCausCd: null,
+            }));
+            const answer = await run(icecreamSaveOnPage, [api.savePath, list]);
+            if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            if (answer?.status !== 200 || answer.succeeded !== true) {
+              failed += slice.length;
+              const reason = answer?.message ? `: ${answer.message}` : "";
+              warnings.push(`${spec.label}이 판매상태 변경을 받지 않았습니다(HTTP ${answer?.status ?? 0})${reason}.`);
+            } else {
+              sent += slice.length;
+              accepted.push(...slice);
+            }
+            await sleep(PACE_MS);
+          }
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= ICECREAM_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(ICECREAM_RECHECK_MS);
+          const after = await readIcecreamRows(spec, run, accepted);
+          if (!after.rows) continue;
+          seen = accepted.filter((no) => after.rows.get(no)?.saleStatCd === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품 정보 관리에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다 — 상품 정보 관리에서 확인하세요.`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /**
+     * 키즈노트 판매 상품 내역을 100개씩 넘기며 찾는 상품의 상태를 모은다. 다 찾았거나 마지막 쪽이면 멈춘다.
+     * `withForm` 이면 첫 쪽에서 [상태/노출일괄수정] 폼 값도 받아 온다.
+     */
+    async function readKidsnoteRows(spec, run, codes, withForm) {
+      const api = spec.stateBatch;
+      const wanted = new Set(codes);
+      const rows = new Map();
+      let form = null;
+      for (let page = 1; page <= api.maxPages; page += 1) {
+        if (page > 1) await sleep(KIDSNOTE_PAGE_PACE_MS);
+        const answer = await run(kidsnoteListOnPage, [api.listPath, page, api.pageSize, Boolean(withForm && page === 1)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.error || "목록 조회 실패" };
+        if (withForm && page === 1) form = answer.form;
+        for (const row of answer.rows) if (wanted.has(row.pno)) rows.set(row.pno, row);
+        if (answer.rows.length < api.pageSize || rows.size >= wanted.size) break;
+      }
+      return { rows, form };
+    }
+
+    /**
+     * 키즈노트 상태. 목록을 넘기며 지금 상태를 읽고, [상태/노출일괄수정] 폼을 "선택한 상품의" 로 보낸 것과 같은 요청을
+     * 100개씩 보낸 뒤 목록을 다시 읽어 확인한다.
+     */
+    async function sendByKidsnoteState(spec, codes, resume) {
+      const api = spec.stateBatch;
+      const wanted = resume ? "정상" : "품절";
+      const from = resume ? "품절" : "정상";
+      const value = resume ? "2" : "3";
+      const warnings = [];
+      const products = codes.filter((code) => /^\d{1,10}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readKidsnoteRows(spec, run, products, true);
+        if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${before.error}).` };
+        const names = new Set((before.form || []).map(([name]) => name));
+        if (!["body", "nums", "exec", "where", "change_stat"].every((name) => names.has(name))) {
+          return { success: false, error: `${spec.label} 상태/노출일괄수정 화면이 바뀌어 보내지 않았습니다.` };
+        }
+        const found = products.filter((no) => before.rows.has(no));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label} 상품목록에서 찾지 못했습니다.`);
+        }
+        const hidden = found.filter((no) => ![from, wanted].includes(before.rows.get(no).stat)).length;
+        if (hidden > 0) {
+          failed += hidden;
+          warnings.push(`${hidden}건은 ${spec.label}에서 숨김(또는 다른 상태)이라 바꾸지 않았습니다.`);
+        }
+        const targets = found.filter((no) => before.rows.get(no).stat === from);
+        already += found.filter((no) => before.rows.get(no).stat === wanted).length;
+        const accepted = [];
+        let answered = null;
+        for (let start = 0; start < targets.length; start += api.pageSize) {
+          const group = targets.slice(start, start + api.pageSize);
+          // 화면 폼 그대로 — 고른 상품(nums), "선택한 상품의"(where=1), 바꿀 상태(change_stat)만 채운다.
+          const pairs = before.form.map(([name, current]) => {
+            if (name === "nums") return [name, group.map((no) => `@${no}`).join("")];
+            if (name === "where") return [name, "1"];
+            if (name === "change_stat") return [name, value];
+            return [name, current];
+          });
+          const answer = await run(kidsnoteSaveOnPage, [api.savePath, pairs]);
+          if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (answer?.alert) answered = answer.alert;
+          if (answer?.status !== 200) {
+            failed += group.length;
+            warnings.push(`${spec.label}이 상태 변경을 받지 않았습니다(HTTP ${answer?.status ?? 0}).`);
+          } else {
+            sent += group.length;
+            accepted.push(...group);
+          }
+          await sleep(PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= KIDSNOTE_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(KIDSNOTE_RECHECK_MS);
+          const after = await readKidsnoteRows(spec, run, accepted, false);
+          if (!after.rows) continue;
+          seen = accepted.filter((no) => after.rows.get(no)?.stat === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 판매 상품 내역에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            const said = answered ? ` 몰 답: "${answered}"` : "";
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다.${said}`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
     /**
      * 한 몰에 품절(또는 해제)을 보낸다.
      *
@@ -1645,14 +2097,18 @@
 
       // 카카오 톡스토어는 [선택 수정]의 재고 칸, 올웨이즈는 [품절] · [판매재개] 버튼, 아트공구는 상품목록의
       // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정],
-      // 티쳐몰은 [실물] 일괄 업데이트의 [업데이트하기]와 같은 요청이다.
-      if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock) {
+      // 티쳐몰은 [실물] 일괄 업데이트의 [업데이트하기], 아이스크림몰은 단품 판매상태 일괄 변경 창의 [적용], 키즈노트는
+      // [상태/노출일괄수정]의 [확인]과 같은 요청이다.
+      if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock
+        || spec.goodsSaleState || spec.stateBatch) {
         try {
           if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
           if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
           if (spec.saleStatus) return await sendByLotteonStatus(spec, codes, resume);
           if (spec.directChange) return await sendByKkomangseDirect(spec, codes, resume);
           if (spec.batchStock) return await sendByTeacherBatchStock(spec, codes, resume);
+          if (spec.goodsSaleState) return await sendByIcecreamSaleState(spec, codes, resume);
+          if (spec.stateBatch) return await sendByKidsnoteState(spec, codes, resume);
           return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
@@ -1881,12 +2337,60 @@
       return { success: true, products: found, missing };
     }
 
-    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세). 읽기만 한다. */
+    /**
+     * 아이스크림몰 지금 판매상태. 목록 조회 한 번(상품번호 여럿). 재고 수는 주지 않고, 판매중(10)이 아니면(품절 · 판매종료)
+     * 살 수 없으니 0, 판매중이면 모름(null)이다. 읽기만 한다.
+     */
+    async function readByIcecreamSaleState(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{5,15}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.goodsSaleState.pageUrl, async (run) => {
+        const read = await readIcecreamRows(spec, run, products);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+        found = products.filter((no) => read.rows.has(no)).map((no) => ({
+          code: no,
+          options: [{ optionCode: no, stock: read.rows.get(no).saleStatCd === "10" ? null : 0, rocket: false }],
+        }));
+        missing = products.filter((no) => !read.rows.has(no));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /**
+     * 키즈노트 지금 상태. 목록을 넘기며 찾는다. 재고 수는 주지 않고, 정상이 아니면(품절 · 숨김) 살 수 없으니 0, 정상이면
+     * 모름(null)이다. 읽기만 한다.
+     */
+    async function readByKidsnoteState(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{1,10}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.stateBatch.pageUrl, async (run) => {
+        const read = await readKidsnoteRows(spec, run, products, false);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${read.error}).` };
+        found = products.filter((no) => read.rows.has(no)).map((no) => ({
+          code: no,
+          options: [{ optionCode: no, stock: read.rows.get(no).stat === "정상" ? null : 0, rocket: false }],
+        }));
+        missing = products.filter((no) => !read.rows.has(no));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세 · 티쳐몰 · 아이스크림몰 · 키즈노트). 읽기만 한다. */
     async function read(msg) {
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
       if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
-        && !spec?.directChange && !spec?.batchStock) {
+        && !spec?.directChange && !spec?.batchStock && !spec?.goodsSaleState && !spec?.stateBatch) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -1899,6 +2403,8 @@
         if (spec.saleStatus) return await readByLotteonStatus(spec, codes);
         if (spec.directChange) return await readByKkomangseDirect(spec, codes);
         if (spec.batchStock) return await readByTeacherBatchStock(spec, codes);
+        if (spec.goodsSaleState) return await readByIcecreamSaleState(spec, codes);
+        if (spec.stateBatch) return await readByKidsnoteState(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -1916,7 +2422,8 @@
     // 지금 재고(품절 여부)를 몰에서 바로 읽을 수 있는 몰.
     READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(
       SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
-        || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock,
+        || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock || SPECS[key].goodsSaleState
+        || SPECS[key].stateBatch,
     )),
     SEND_TIMEOUT_MS,
   };

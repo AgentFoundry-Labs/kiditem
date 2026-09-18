@@ -233,6 +233,7 @@ const NO_LIMIT: MallAdapterLimits = {
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
+  'icecream-mall', 'kidsnote',
 ]);
 
 /**
@@ -459,7 +460,7 @@ const SEEDS: readonly ManifestSeed[] = [
       createListing: true, updateListing: true,
       setStock: 'option', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
-    note: 'WISA 스마트윙. 상품 일괄등록 엑셀이 upsert(고유번호 있으면 수정)이고, 재고는 일괄재고 조정(재고조사표.xls, 조정사유 필수)이 따로 있다. 상품조회 목록에서 상태(정상/품절/숨김)를 고쳐 [가격/적립금/상태 수정] 한 버튼으로 일괄 적용 — 27개 몰 중 품절·해제가 가장 깨끗하게 대칭인 몰.',
+    note: 'WISA 스마트윙. 상품 일괄등록 엑셀이 upsert(고유번호 있으면 수정)이고, 재고는 일괄재고 조정(재고조사표.xls, 조정사유 필수)이 따로 있다. 우리 품절 길은 판매 상품 내역(body=2010)의 [상태/노출일괄수정] 폼(edt_layer_4)을 "선택한 상품의" 로 [확인]한 요청 그대로다(2026-09-19 실측): POST /_manage/ 에 폼 전체(body=product@product_price.exe · w · prd_no · nums=@상품번호… · exec=stat · where=1 · change_stat 3 품절 | 2 정상 · perm_* 변화없음). 상품번호(pno) 검색이 없어 목록을 100개씩 넘기며 지금 상태를 읽고, 숨김 상품은 바꾸지 않는다. 우리 상품코드(사방넷이 준 값)가 곧 pno 다. 품절·해제가 같은 칸이라 대칭.',
   },
   {
     key: 'haebub-mall',
@@ -557,7 +558,7 @@ const SEEDS: readonly ManifestSeed[] = [
       createListing: true, updateListing: true,
       setStock: 'listing', setSaleStatus: 'listing', soldOut: true, resume: true,
     },
-    note: 'X2BEE PO. 로그인 뒤 경로가 열려 상품 목록(getGoodsList.do)을 실제로 가져왔다. 품절 축은 목록의 [판매상태 일괄변경](#btn_saleStateAllChange)이 고른 줄을 goodsMgmtPopup.goodsSaleStateModifyView.do 팝업으로 넘기는 경로다 — saleStatCd 10=판매중/20=품절/40=판매종료, 노출은 dispYn Y/N(2026-09-18 실측). 품절↔판매중이 같은 셀렉트라 대칭.',
+    note: 'X2BEE PO. 로그인 뒤 경로가 열려 상품 목록(getGoodsList.do)을 실제로 가져왔다. 우리 품절 길은 목록의 [판매상태 일괄변경](#btn_saleStateAllChange)이 여는 "단품 판매상태 일괄 변경" 창의 [적용]이 보내는 요청 그대로다(2026-09-19 실측): POST goods/goodsMgmtPopup.modifyGoodsSaleState.do 에 JSON {goodsSaleStateList:[{goodsNo, saleStatCd(지금), itmSaleStatCd(20 품절 | 10 판매중), soutCausCd:"12", saleStatChgCausCd:null}]} → {succeeded}. 품절↔판매중이 같은 셀렉트라 대칭. 판매종료(40)는 건드리지 않고, 예약상품(saleMethCd 20)이 품절이면 창도 판매중을 숨겨 재개하지 않는다. 판매방식이 다른 상품은 한 번에 못 넘긴다. 지금 상태는 목록 조회를 상품번호 멀티(CRLF)로 읽는다. 노출은 dispYn Y/N 로 따로다.',
   },
   {
     key: 'kidkids',

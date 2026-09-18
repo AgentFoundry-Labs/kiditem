@@ -62,7 +62,9 @@ describe('품절 송신 결과', () => {
     expect(canSendMallAvailability('kakao')).toBe(true);
     expect(canSendMallAvailability('always')).toBe(true);
     expect(canSendMallAvailability('art09')).toBe(true);
-    expect(canSendMallAvailability('icecream-mall')).toBe(false);
+    expect(canSendMallAvailability('icecream-mall')).toBe(true);
+    expect(canSendMallAvailability('kidsnote')).toBe(true);
+    expect(canSendMallAvailability('gs-shop')).toBe(false);
   });
 });
 
@@ -196,6 +198,8 @@ describe('몰 지금 재고', () => {
     expect(canReadMallAvailability('kakao')).toBe(true);
     expect(canReadMallAvailability('always')).toBe(true);
     expect(canReadMallAvailability('art09')).toBe(true);
+    expect(canReadMallAvailability('icecream-mall')).toBe(true);
+    expect(canReadMallAvailability('kidsnote')).toBe(true);
     expect(canReadMallAvailability('domeggook')).toBe(false);
   });
 
@@ -206,6 +210,8 @@ describe('몰 지금 재고', () => {
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'art09')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'always')).toEqual({ tone: 'sold_out', label: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'lotte-on')).toEqual({ tone: 'sold_out', label: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'kidsnote')).toEqual({ tone: 'sold_out', label: '품절' });
   });
 
   it('롯데ON 은 보낸 직후 다시 읽지 않는다 — 조회가 옛 판매상태를 섞어 준다', () => {
@@ -270,6 +276,15 @@ describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
     await expect(sendMallAvailability('kkomangse', ['M0450-U7839-J6532'], { resume: true }))
       .rejects.toThrow(/1\.2\.10.*새로고침/);
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityKkomangseDirectV1']);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('아이스크림몰도 새 방식(판매상태 일괄변경)을 아는 확장으로만 보낸다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible', extensionId: 'ext', version: '1.2.17', missingCapabilities: ['mallAvailabilityIcecreamSaleStateV1'],
+    });
+    await expect(sendMallAvailability('icecream-mall', ['11411122'])).rejects.toThrow(/1\.2\.17.*새로고침/);
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityIcecreamSaleStateV1']);
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 

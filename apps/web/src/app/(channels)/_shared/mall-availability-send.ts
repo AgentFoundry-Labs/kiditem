@@ -40,6 +40,7 @@ const SEND_CHUNK: Partial<Record<string, number>> = { coupang: 10, kakao: 20, kk
  */
 export const MALL_AVAILABILITY_SEND_MALLS = [
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
+  'icecream-mall', 'kidsnote',
 ] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
@@ -50,9 +51,7 @@ export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[numbe
  * 사방넷 경유는 길로 세지 않는다 — 사방넷 기능을 흡수하고 그만 쓰는 것이 방침이라
  * (KID-251), 몰마다 그 관리자 화면을 직접 뚫는 것만이 길이다.
  */
-export const MALL_AVAILABILITY_PENDING: Readonly<Record<string, string>> = {
-  'icecream-mall': '저장 경로(goodsCommon.modifyGoodsInfo)는 찾았고 본문 모양이 남았습니다.',
-};
+export const MALL_AVAILABILITY_PENDING: Readonly<Record<string, string>> = {};
 
 /** 길이 없는 몰에 공통으로 붙는 말. 사방넷을 대안으로 제시하지 않는다. */
 export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를 아직 뚫지 않았습니다.';
@@ -63,6 +62,10 @@ export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를
  */
 const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
   kkomangse: 'mallAvailabilityKkomangseDirectV1',
+  // 1.2.18 전 확장은 아이스크림몰을 "경로가 더 필요합니다", 키즈노트를 "품절 경로를 아는 몰이 아닙니다"로 거절한다 —
+  // 새로고침하라고 먼저 말한다.
+  'icecream-mall': 'mallAvailabilityIcecreamSaleStateV1',
+  kidsnote: 'mallAvailabilityKidsnoteStateV1',
 };
 // 티쳐몰 · 롯데ON · 아트공구는 옛 확장이 모르는 몰이라 확장이 "품절 경로를 아는 몰이 아닙니다"로 거절한다.
 
@@ -76,7 +79,9 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  * 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이라, 가져온 상태만으로는 품절인지 모른다. 등록현황 칸의 창이
  * 열릴 때 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐").
  */
-export const MALL_AVAILABILITY_READ_MALLS = ['coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall'] as const;
+export const MALL_AVAILABILITY_READ_MALLS = [
+  'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall', 'icecream-mall', 'kidsnote',
+] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
   return (MALL_AVAILABILITY_READ_MALLS as readonly string[]).includes(mallKey);
@@ -150,10 +155,11 @@ export interface MallLiveSummary {
 }
 
 /**
- * 재고 수가 아니라 품절인지만 주는 몰 — 올웨이즈 [품절], 아트공구 판매안함, 롯데ON 판매상태(품절 · 판매중지).
- * 품절이면 재고 0 으로 오지만 몰의 재고가 0 인 것은 아니라 '재고 0' 이라고 적지 않는다.
+ * 재고 수가 아니라 품절인지만 주는 몰 — 올웨이즈 [품절], 아트공구 판매안함, 롯데ON 판매상태(품절 · 판매중지),
+ * 아이스크림몰 판매상태(품절 · 판매종료), 키즈노트 상태(품절 · 숨김). 품절이면 재고 0 으로 오지만 몰의 재고가 0 인 것은
+ * 아니라 '재고 0' 이라고 적지 않는다.
  */
-const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set(['always', 'art09', 'lotte-on']);
+const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set(['always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote']);
 
 /** 지금 재고 → 한 줄. 품절은 재고 0 이다(판매상태와 다르다). 로켓그로스 옵션은 쿠팡 재고라 세지 않는다. */
 export function summarizeLiveAvailability(options: readonly MallLiveOption[], mallKey?: string): MallLiveSummary {
