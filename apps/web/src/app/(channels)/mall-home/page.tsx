@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, Target } from 'lucide-react';
 import { useMallAgentLoop } from '@/hooks/use-mall-agent-loop';
 import { formatNumber } from '@/lib/utils';
+import { useMallLoginTest } from '../../(orders)/mall-settings/hooks/use-mall-login-test';
 import { AgentPipeline } from './components/AgentPipeline';
 import { MallAgentLoopCard } from './components/MallAgentLoopCard';
 import { MallAlertPanel } from './components/MallAlertPanel';
@@ -13,7 +14,7 @@ import { MallStatusBoard } from './components/MallStatusBoard';
 import { PrinciplesSection } from './components/PrinciplesSection';
 import { useMallAlerts } from './hooks/use-mall-alerts';
 import { buildAgentPipeline } from './lib/agent-pipeline';
-import { needsAttention, type MallAlertFilter } from './lib/mall-alerts';
+import { needsAttention, type MallAlertFilter, type MallStatusTile } from './lib/mall-alerts';
 import { buildMallAgentMissions } from './lib/mall-agent-missions';
 
 /**
@@ -25,7 +26,9 @@ import { buildMallAgentMissions } from './lib/mall-agent-missions';
  * 아래로 적힌다. 미션은 파이프라인 첫 칸이다.
  *
  * 화면을 열면 확장이 몰마다 로그인 상태를 조용히 확인해 몰별 상태에 붙인다 — 로그인은 하지
- * 않는다. 풀린 몰은 빨갛게 서고, 알림판과 위 칸이 '로그인 필요'를 말한다.
+ * 않는다. 풀린 몰은 빨갛게 서고, 알림판과 위 칸이 '로그인 필요'를 말한다. 풀린 몰 타일을
+ * 누르면 그때만 쇼핑몰 계정 화면의 로그인 테스트와 같은 길로 그 몰에 로그인을 다시 해 보고,
+ * 끝나면 그 몰만 다시 확인한다.
  *
  * 몰 판정과 숫자는 쇼핑몰 현황과 같은 곳(`useMallCapabilityRows`)에서, 알림은 전역 알림판과
  * 같은 스트림에서 몰 일만 골라 읽는다 — 화면마다 다른 말을 하지 않게. 머리글의 한 줄도
@@ -37,6 +40,7 @@ export default function MallHomePage() {
   const loop = useMallAgentLoop();
   const [filter, setFilter] = useState<MallAlertFilter>('all');
   const [mallKey, setMallKey] = useState<string | null>(null);
+  const loginTest = useMallLoginTest();
   const missions = useMemo(
     () => buildMallAgentMissions(home.overview ? home.totals : null),
     [home.overview, home.totals],
@@ -97,6 +101,11 @@ export default function MallHomePage() {
     setMallKey(next);
     if (next) setFilter('all');
   };
+  // 한 번에 한 몰만. 결과(로그인됨 · 비밀번호 거부 · 인증 필요)는 로그인 테스트가 알리고 기록한다.
+  const retryLogin = (tile: MallStatusTile) => {
+    if (loginTest.testingKey) return;
+    void loginTest.test(tile.mallKey, tile.mallName).then(() => home.session.recheckMall(tile.mallKey));
+  };
 
   return (
     <div className="space-y-6">
@@ -137,6 +146,8 @@ export default function MallHomePage() {
             selectedMallKey={mallKey}
             onSelect={selectMall}
             session={home.session}
+            loggingInKey={loginTest.testingKey}
+            onRetryLogin={retryLogin}
           />
         </div>
         <MallAlertPanel

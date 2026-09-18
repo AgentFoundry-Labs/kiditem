@@ -35,6 +35,13 @@ vi.mock('@/lib/mall-session-probe', async (importOriginal) => ({
 
 const queryClientStub = vi.hoisted(() => ({ invalidateQueries: vi.fn() }));
 
+/** 쇼핑몰 계정 화면의 로그인 테스트 — 풀린 몰 타일을 누르면 같은 길로 로그인을 다시 해 본다. */
+const mockLoginTest = vi.hoisted(() => vi.fn());
+
+vi.mock('../../(orders)/mall-settings/hooks/use-mall-login-test', () => ({
+  useMallLoginTest: () => ({ testingKey: null, results: {}, test: mockLoginTest }),
+}));
+
 /**
  * 쇼핑몰 홈이 지키는 것.
  *
@@ -162,6 +169,8 @@ beforeEach(() => {
   mockDetectProbe.mockReset();
   mockDetectProbe.mockResolvedValue({ status: 'not_found' });
   mockProbeMall.mockReset();
+  mockLoginTest.mockReset();
+  mockLoginTest.mockResolvedValue(undefined);
   mockApiPost.mockReset();
   mockApiPost.mockResolvedValue({ ok: true });
   queryClientStub.invalidateQueries.mockClear();
@@ -569,6 +578,86 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 확인' }));
     await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
     expect(mockProbeMall).toHaveBeenCalledTimes(4);
+  });
+
+  it('⭐ 화면을 보지 못한 몰은 바로 로그인 필요로 내지 않고, 다른 몰을 다 본 뒤 혼자 한 번 더 본다', async () => {
+    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
+    let onchLooks = 0;
+    mockProbeMall.mockImplementation(async (_extensionId: string, mallKey: string) => {
+      if (mallKey === 'onch') onchLooks += 1;
+      const missed = mallKey === 'onch' && onchLooks === 1;
+      return {
+        mallKey,
+        state: missed ? 'signed_out' : 'signed_in',
+        reason: missed ? 'login_page_not_reachable' : 'admin_page',
+        checkedAt: Date.now(),
+      };
+    });
+    render(<MallHomePage />);
+
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
+    expect(mockProbeMall.mock.calls.map(([, mallKey]) => mallKey)).toEqual(['onch', 'rocket', 'onch']);
+  });
+
+  it('⭐ 풀린 몰 타일을 누르면 알림판을 거르지 않고 그 몰만 로그인을 다시 해 보고, 그 몰만 다시 확인한다', async () => {
+    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
+    answer({ onch: 'signed_out', rocket: 'signed_in' });
+    render(<MallHomePage />);
+    const onchTile = await screen.findByRole('button', { name: '온채널 로그인 필요, 로그인 상태 로그인 필요' });
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
+
+    answer({ onch: 'signed_in', rocket: 'signed_in' });
+    mockProbeMall.mockClear();
+    fireEvent.click(onchTile);
+
+    expect(mockLoginTest).toHaveBeenCalledWith('onch', '온채널');
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
+    expect(mockProbeMall.mock.calls).toEqual([['ext', 'onch', null]]);
+    expect(within(panel()).queryByText(/온채널 알림만 보는 중/)).not.toBeInTheDocument();
+  });
+
+  it('로그인됨 타일은 누르면 전처럼 그 몰 알림만 본다 — 로그인을 시도하지 않는다', async () => {
+    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
+    answer({ onch: 'signed_in', rocket: 'signed_in' });
+    render(<MallHomePage />);
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2'));
+
+    fireEvent.click(screen.getByRole('button', { name: /^온채널 .*로그인 상태 로그인됨$/ }));
+    expect(mockLoginTest).not.toHaveBeenCalled();
+    expect(within(panel()).getByText(/온채널 알림만 보는 중/)).toBeInTheDocument();
+  });
+
+  it('⭐ 로그인됨 칩에 확인한 시각(시:분)을 적는다', async () => {
+    const at = new Date(2026, 8, 18, 9, 5).getTime();
+    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
+    mockProbeMall.mockImplementation(async (_extensionId: string, mallKey: string) => ({
+      mallKey,
+      state: mallKey === 'rocket' ? 'signed_in' : 'signed_out',
+      reason: mallKey === 'rocket' ? 'admin_page' : 'login_page',
+      checkedAt: at,
+    }));
+    render(<MallHomePage />);
+
+    const rocketTile = await screen.findByRole('button', { name: /^쿠팡 로켓 .*로그인 상태 로그인됨$/ });
+    expect(rocketTile).toHaveTextContent('로그인됨09:05');
+    // 풀린 몰에는 시각을 붙이지 않는다 — 로그인됨이 언제 사실이었는지만 적는다.
+    expect(screen.getByRole('button', { name: /^온채널 .*로그인 상태 로그인 필요$/ })).not.toHaveTextContent('09:05');
+  });
+
+  it('⭐ 실패만 다시 확인은 로그인 필요 · 인증 필요로 나온 몰만 다시 본다', async () => {
+    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
+    answer({ onch: 'signed_out', rocket: 'signed_in' });
+    render(<MallHomePage />);
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 1 · 인증 필요 0 · 로그인 필요 1'));
+
+    answer({ onch: 'signed_in', rocket: 'signed_in' });
+    mockProbeMall.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '실패만 다시 확인' }));
+
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
+    expect(mockProbeMall.mock.calls).toEqual([['ext', 'onch', null]]);
+    // 다 로그인됐으면 다시 볼 실패가 없다.
+    expect(screen.getByRole('button', { name: '실패만 다시 확인' })).toBeDisabled();
   });
 
   it('확장이 없으면 확인하지 않고 그렇다고 말한다 — 몰마다 지어내지 않는다', async () => {

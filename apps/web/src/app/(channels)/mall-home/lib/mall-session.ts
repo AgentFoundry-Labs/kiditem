@@ -32,7 +32,13 @@ export interface MallSessionView {
   checkedAt: number | null;
   /** 옛 확장일 때 그 버전 — 없는 확장과 옛 확장을 가르려고. */
   extensionVersion: string | null;
+  /** 몰마다 마지막으로 확인한 때 — 로그인됨 칩에 그 시각을 적는다. */
+  checkedAtByMall: Readonly<Record<string, number>>;
   recheck: () => void;
+  /** 로그인 필요 · 인증 필요로 나온 몰만 다시 본다. */
+  recheckFailed: () => void;
+  /** 한 몰만 다시 본다 — 로그인을 다시 시도한 뒤. */
+  recheckMall: (mallKey: string) => Promise<void>;
 }
 
 /** 로그인해야 하는 몰 — 세션이 풀렸거나 계정 정보가 없는 몰(둘 다인 몰은 한 번). */

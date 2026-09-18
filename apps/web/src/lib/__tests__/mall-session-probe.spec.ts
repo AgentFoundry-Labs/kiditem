@@ -48,7 +48,7 @@ describe('probeMallSession', () => {
     expect(mockSend).toHaveBeenCalledWith(
       'ext',
       { action: 'checkMallLogin', mallKey: 'always', siteUrl: 'https://alwayzseller.ilevit.com/login' },
-      45_000,
+      60_000,
     );
     expect(result).toMatchObject({ mallKey: 'always', state: 'signed_out', reason: 'login_page' });
   });
@@ -56,7 +56,7 @@ describe('probeMallSession', () => {
   it('sends no address when none is saved', async () => {
     mockSend.mockResolvedValueOnce({ success: true, state: 'signed_in', reason: 'admin_page' });
     await probeMallSession('ext', 'onch');
-    expect(mockSend).toHaveBeenCalledWith('ext', { action: 'checkMallLogin', mallKey: 'onch' }, 45_000);
+    expect(mockSend).toHaveBeenCalledWith('ext', { action: 'checkMallLogin', mallKey: 'onch' }, 60_000);
   });
 
   it('keeps a verification answer as its own state', async () => {
@@ -119,7 +119,7 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
     expect(mockSend).toHaveBeenCalledWith(
       'ext',
       { action: 'checkMallLogin', mallKey: 'art09', siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php' },
-      45_000,
+      60_000,
     );
   });
 

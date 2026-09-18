@@ -6283,12 +6283,25 @@ async function loginFormRemainsAfterSubmit(tabId) {
 // 로그인 폼을 보여 줄 수 있어, 확인에는 로그인해야 열리는 화면을 쓴다.
 const MALL_LOGIN_CHECK_URLS = Object.freeze({
   always: "https://alwayzseller.ilevit.com/",
-  kakao: "https://shopping-seller.kakao.com/",
+  // 톡스토어 판매자센터 첫 주소(/)는 로그인돼 있어도 공개 소개 사이트(shopping-sell.kakao.com,
+  // 확장 권한 밖)로 넘어가 늘 '화면에 닿지 못함'이 됐다. 대시보드는 로그인해야 열린다(2026-09-18 실측).
+  kakao: "https://shopping-seller.kakao.com/display/store-seller/dashboard",
   coupang: "https://wing.coupang.com/",
   rocket: COUPANG_DIRECT_LOGIN_URL,
   "coupang-direct": COUPANG_DIRECT_LOGIN_URL,
   "benepia-mul": "https://newmallvenadm.benepia.co.kr/",
 });
+
+// 화면이 멈춰(알림 창 · 무거운 스크립트) 들여다볼 수 없을 때, 탭 제목만으로 로그인된 화면을
+// 알아보는 몰. 제목은 로그인해야 판매자 이름이 붙는다 — 쿠팡 윙은 열자마자 멈추는 일이 잦다
+// (2026-09-18 실측: 로그인된 윙이 45초 넘게 응답하지 않았다). 제목 글자는 돌려주지 않는다.
+const MALL_SIGNED_IN_TITLES = Object.freeze({
+  coupang: /^Coupang Wing - \S/,
+});
+
+// 화면을 들여다보는 시간. 무거운 관리자 화면(올웨이즈 · 스마트스토어 등)은 백그라운드 탭에서
+// 10초 넘게 걸려 뜬다 — 두 번만 보고 끝내면 로그인돼 있어도 '화면에 닿지 못함'이 됐다.
+const LOGIN_SCREEN_LOOK_WINDOW_MS = 20000;
 
 // 로그인 화면으로 넘어갔다는 주소. 권한 밖 도메인(통합 로그인)이어도 탭 주소는 읽힌다.
 const LOGIN_SCREEN_URL = /\/(?:login|signin|sign-in|signIn)(?:[/?#.]|$)|loginform|partnerlogin|partner_login|login_so|authentication\/login|xauth\.coupang\.com|nid\.naver\.com|accounts\.kakao\.com|accounts\.commerce\.naver\.com/i;
@@ -6321,28 +6334,35 @@ function inspectMallLoginScreen() {
   };
 }
 
-async function lookAtMallLoginScreen(tabId) {
+async function lookAtMallLoginScreen(tabId, mallKey) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  const href = String(tab?.url || tab?.pendingUrl || "");
+  // 넘어가는 중이면 가는 곳(pendingUrl)이 최신이다 — 둘 다 본다.
+  const hrefs = [tab?.pendingUrl, tab?.url].map((value) => String(value || "")).filter(Boolean);
   let frames = null;
   try {
     const injected = await withTimeout(
       chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectMallLoginScreen }),
-      5000,
+      8000,
       "login-screen-no-answer",
     );
     frames = (injected || []).map((item) => item.result).filter(Boolean);
   } catch {
-    // 권한 밖 주소로 넘어갔거나 알림 창이 떠 페이지가 멈췄다.
+    // 권한 밖 주소로 넘어갔거나, 알림 창 · 무거운 스크립트로 페이지가 멈췄다.
     frames = null;
   }
-  if (frames?.some((frame) => frame.loginForm) || LOGIN_SCREEN_URL.test(href)) {
+  if (frames?.some((frame) => frame.loginForm) || hrefs.some((href) => LOGIN_SCREEN_URL.test(href))) {
     return { state: "signed_out", reason: "login_page", definite: true };
   }
-  if (frames?.some((frame) => frame.verification) || VERIFY_SCREEN_URL.test(href)) {
+  if (frames?.some((frame) => frame.verification) || hrefs.some((href) => VERIFY_SCREEN_URL.test(href))) {
     return { state: "verification_required", reason: "verification_required", definite: true };
   }
   if (!frames || frames.length === 0) {
+    const title = Object.prototype.hasOwnProperty.call(MALL_SIGNED_IN_TITLES, mallKey)
+      ? MALL_SIGNED_IN_TITLES[mallKey]
+      : null;
+    if (title && title.test(String(tab?.title || ""))) {
+      return { state: "signed_in", reason: "admin_title", definite: true };
+    }
     return { state: "signed_out", reason: "login_page_not_reachable", definite: false };
   }
   return { state: "signed_in", reason: "admin_page", definite: false };
@@ -6369,12 +6389,20 @@ async function checkMallLoginOnScreen(mallKey, siteUrl) {
     await withTimeout(waitForTabReady(tab.id), 20000, "login-screen-load").catch(() => undefined);
     // SPA 는 화면을 띄운 뒤 로그인 여부를 확인하고 로그인 화면으로 넘긴다 — 그 시간을 준다.
     await delay(2500);
+    // 확실한 답(로그인 폼 · 로그인 주소 · 인증 화면)이 나오거나, 관리자 화면이 두 번 그대로면
+    // 끝낸다. 화면을 못 본 번은 증거가 아니다 — 앞서 본 관리자 화면을 지우지 않고 창이 닫힐
+    // 때까지 다시 본다.
+    const deadline = Date.now() + LOGIN_SCREEN_LOOK_WINDOW_MS;
+    let adminLooks = 0;
     let seen = null;
-    for (let look = 0; look < 2; look += 1) {
-      if (look > 0) await delay(2000);
-      seen = await lookAtMallLoginScreen(tab.id);
+    for (;;) {
+      seen = await lookAtMallLoginScreen(tab.id, mallKey);
       if (seen.definite) break;
+      if (seen.state === "signed_in") adminLooks += 1;
+      if (adminLooks >= 2 || Date.now() >= deadline) break;
+      await delay(2000);
     }
+    if (!seen.definite && adminLooks > 0) return { state: "signed_in", reason: "admin_page" };
     return { state: seen.state, reason: seen.reason };
   } finally {
     forgetOrderCollectionTab(tab.id);

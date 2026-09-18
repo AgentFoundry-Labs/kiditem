@@ -26,6 +26,14 @@ export type MallSessionState = 'signed_in' | 'verification_required' | 'signed_o
 /** 우리 쪽 사정으로 몰을 보지 못한 이유. 몰을 본 사실이 아니라서 관찰 기록에는 남기지 않는다. */
 const OUR_SIDE_REASONS = new Set(['extension_no_answer', 'login_page_not_reachable', 'no_login_address']);
 
+/**
+ * 몰 화면을 보지 못했다 — 확장이 답하지 않았거나 화면에 닿지 못했다. 여러 몰을 한꺼번에 열면
+ * 무거운 관리자 화면이 제때 뜨지 않아 생기므로, 혼자 다시 보면 보일 수 있다(2026-09-18 실측).
+ */
+export function couldNotLook(result: MallSessionProbeResult): boolean {
+  return result.reason === 'extension_no_answer' || result.reason === 'login_page_not_reachable';
+}
+
 export interface MallSessionProbeResult {
   mallKey: string;
   state: MallSessionState;
@@ -182,8 +190,8 @@ export async function probeMallSession(
     const response = await sendToExtension<{ success?: boolean; state?: unknown; reason?: unknown }>(
       extensionId,
       { action: 'checkMallLogin', mallKey, ...(siteUrl ? { siteUrl } : {}) },
-      // 조용히 읽어 모르면 화면을 열어 본다 — 화면 로드와 두 번 보기까지 기다린다.
-      45_000,
+      // 조용히 읽어 모르면 화면을 열어 본다 — 화면 로드와, 확장이 20초 동안 다시 보는 것까지 기다린다.
+      60_000,
     );
     const state: MallSessionState =
       response?.state === 'signed_in' || response?.state === 'verification_required'

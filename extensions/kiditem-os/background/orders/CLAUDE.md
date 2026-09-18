@@ -27,9 +27,12 @@ registration, and Coupang cookie-overflow recovery.
   signal). When that cannot tell, it opens the mall's admin screen (the probe
   URL, a fixed check URL, or the operator's saved site address inside
   `host_permissions`) in an inactive tab, looks for a login form or a
-  verification-code screen, and closes the tab. No credentials, no typing, no
-  clicks, and no URL, body, or header in the answer; a screen it cannot reach is
-  `signed_out` with its reason. Never add export, audit-logging, or mutating
+  verification-code screen until an answer or a 20-second window closes, and
+  closes the tab. A look that cannot see the page never erases an admin screen
+  seen before; a frozen page counts as signed in only by a per-mall signed-in
+  tab title (never returned). No credentials, no typing, no clicks, and no URL,
+  body, title, or header in the answer; a screen it cannot reach is `signed_out`
+  with its reason. Never add export, audit-logging, or mutating
   URLs, and never reuse `ensureMallLogin` for checks.
 - Stored-credential login (`ensureMallLogin`) reports what it did, not a verdict:
   `submitted` for the click and `verified` for whether the login form was gone

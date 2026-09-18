@@ -136,15 +136,31 @@ export function useMallAlerts() {
     const checked = probe.status === 'running' || probe.status === 'done';
     return { total: keys.size, signedOut: checked ? signedOut.length : null, noCredentials: noCredentials.length };
   }, [channels, signedOut, probe.status]);
+  const checkedAtByMall = useMemo(
+    () => Object.fromEntries(Object.values(probe.results).map((result) => [result.mallKey, result.checkedAt])),
+    [probe.results],
+  );
   const session = useMemo(
     (): MallSessionView => ({
       status: probe.status,
       counts: countMallSessions(sessionStates),
       checkedAt: probe.checkedAt,
       extensionVersion: probe.extensionVersion,
+      checkedAtByMall,
       recheck: probe.recheck,
+      recheckFailed: probe.recheckFailed,
+      recheckMall: probe.recheckMall,
     }),
-    [probe.status, probe.checkedAt, probe.extensionVersion, probe.recheck, sessionStates],
+    [
+      probe.status,
+      probe.checkedAt,
+      probe.extensionVersion,
+      probe.recheck,
+      probe.recheckFailed,
+      probe.recheckMall,
+      checkedAtByMall,
+      sessionStates,
+    ],
   );
 
   return {

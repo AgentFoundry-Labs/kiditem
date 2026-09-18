@@ -44,11 +44,21 @@ function extractConst(name) {
  */
 const BLOCKED = Symbol("blocked");
 
-function load({ passive, probeUrl = null, screens = [], finalUrl = "https://example.invalid/admin", allowed = true }) {
-  const calls = { created: [], removed: [], remembered: [], forgotten: [], permissions: [] };
+function load({
+  passive,
+  probeUrl = null,
+  screens = [],
+  finalUrl = "https://example.invalid/admin",
+  title = "",
+  allowed = true,
+}) {
+  const calls = { created: [], removed: [], remembered: [], forgotten: [], permissions: [], looks: 0 };
   let look = 0;
+  // 가짜 시계 — 기다리는 만큼만 흐른다. 화면을 못 보는 동안 창이 닫힐 때까지 다시 보는지 잰다.
+  let clock = 0;
   const context = {
     URL,
+    Date: { now: () => clock },
     Number,
     Promise,
     setTimeout,
@@ -71,13 +81,14 @@ function load({ passive, probeUrl = null, screens = [], finalUrl = "https://exam
           calls.removed.push(tabId);
         },
         async get() {
-          return { id: 77, url: finalUrl };
+          return { id: 77, url: finalUrl, title };
         },
       },
       scripting: {
         async executeScript() {
           const screen = screens[Math.min(look, screens.length - 1)];
           look += 1;
+          calls.looks = look;
           if (screen === BLOCKED || screen === undefined) throw new Error("Cannot access contents of the page");
           return screen.map((result) => ({ result }));
         },
@@ -90,11 +101,19 @@ function load({ passive, probeUrl = null, screens = [], finalUrl = "https://exam
     rememberOrderCollectionTab: (tabId) => calls.remembered.push(tabId),
     forgetOrderCollectionTab: (tabId) => calls.forgotten.push(tabId),
     waitForTabReady: async () => undefined,
-    delay: async () => undefined,
+    delay: async (ms) => {
+      clock += ms;
+    },
     inspectMallLoginScreen: () => undefined,
   };
   vm.createContext(context);
-  for (const name of ["MALL_LOGIN_CHECK_URLS", "LOGIN_SCREEN_URL", "VERIFY_SCREEN_URL"]) {
+  for (const name of [
+    "MALL_LOGIN_CHECK_URLS",
+    "MALL_SIGNED_IN_TITLES",
+    "LOGIN_SCREEN_LOOK_WINDOW_MS",
+    "LOGIN_SCREEN_URL",
+    "VERIFY_SCREEN_URL",
+  ]) {
     vm.runInContext(extractConst(name).replace(/^const /, "var "), context);
   }
   vm.runInContext(extractFunction("savedMallLoginUrl"), context);
@@ -171,6 +190,91 @@ test("a screen we could not look into at all is sign-in needed with the reason",
   const result = await check("kakao");
   assert.equal(result.state, "signed_out");
   assert.equal(result.reason, "login_page_not_reachable");
+});
+
+test("Kakao opens the seller dashboard — its root bounces to the public site outside our reach", async () => {
+  const { check, calls } = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [[{ loginForm: false, verification: false }]],
+    finalUrl: "https://shopping-seller.kakao.com/display/store-seller/dashboard",
+  });
+  assert.equal((await check("kakao")).state, "signed_in");
+  assert.equal(calls.created[0].url, "https://shopping-seller.kakao.com/display/store-seller/dashboard");
+});
+
+test("⭐ a look that could not see the screen does not erase the admin screen seen before", async () => {
+  const admin = [{ loginForm: false, verification: false }];
+  const { check } = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [admin, BLOCKED],
+  });
+  const result = await check("always");
+  assert.equal(result.state, "signed_in");
+  assert.equal(result.reason, "admin_page");
+});
+
+test("⭐ a slow admin screen is looked at again until it answers — not given up after two looks", async () => {
+  const admin = [{ loginForm: false, verification: false }];
+  const { check, calls } = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [BLOCKED, BLOCKED, BLOCKED, admin, admin],
+  });
+  assert.equal((await check("always")).state, "signed_in");
+  assert.equal(calls.looks, 5);
+});
+
+test("a screen we never see is given up when the look window closes", async () => {
+  const { check, calls } = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [BLOCKED],
+  });
+  assert.equal((await check("always")).reason, "login_page_not_reachable");
+  // 20초 창을 2초 간격으로 — 끝없이 두드리지 않는다.
+  assert.ok(calls.looks > 2 && calls.looks <= 12, `looks ${calls.looks}`);
+});
+
+test("⭐ a frozen Wing page is signed in when its title carries the seller name", async () => {
+  const frozen = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [BLOCKED],
+    finalUrl: "https://wing.coupang.com/",
+    title: "Coupang Wing - 판매자, 주식회사",
+  });
+  assert.deepEqual({ ...(await frozen.check("coupang")) }, {
+    success: true,
+    mallKey: "coupang",
+    state: "signed_in",
+    reason: "admin_title",
+  });
+
+  // 판매자 이름이 없는 제목(로그인 전 껍데기)이나 다른 몰의 제목은 증거가 아니다.
+  const shell = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [BLOCKED],
+    finalUrl: "https://wing.coupang.com/",
+    title: "Coupang Wing",
+  });
+  assert.equal((await shell.check("coupang")).reason, "login_page_not_reachable");
+  const otherMall = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [BLOCKED],
+    title: "Coupang Wing - 판매자, 주식회사",
+  });
+  assert.equal((await otherMall.check("always")).reason, "login_page_not_reachable");
+});
+
+test("a tab already heading to a login address is sign-in needed", async () => {
+  const { context, check } = load({
+    passive: { state: "unknown", reason: "no_passive_check" },
+    screens: [[{ loginForm: false, verification: false }]],
+    finalUrl: "https://alwayzseller.ilevit.com/",
+  });
+  context.chrome.tabs.get = async () => ({
+    id: 77,
+    url: "https://alwayzseller.ilevit.com/",
+    pendingUrl: "https://alwayzseller.ilevit.com/login",
+  });
+  assert.equal((await check("always")).reason, "login_page");
 });
 
 test("no address to open, or an address outside the extension's reach, opens nothing", async () => {
