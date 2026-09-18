@@ -77,6 +77,11 @@ const STATUS_RULES: Record<
     ['판매중지', MALL_ADMIN_LISTING_STATUS.hidden],
     ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
+  // 올웨이즈: 목록 API 의 soldOut 한 칸 — 품절 · 판매중(라이브 2026-09-19).
+  always: [
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
 };
 
 /**

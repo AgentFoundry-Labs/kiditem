@@ -91,7 +91,9 @@ registration, and Coupang cookie-overflow recovery.
   link (a complete EUC-KR HTML table) and cross-checks its row count against
   the list counter. i-Scream reads its JSON list API in one page. Both carry
   the Sellpia product name the mall keeps (Kidkids 송장용 상품명, i-Scream the
-  goods-notice 품명), and only whitelisted columns are returned.
+  goods-notice 품명), and only whitelisted columns are returned. Alwayz reads its
+  seller-center list API page by page inside the seller page; the access token
+  stays in that page and is never returned.
 
 ## Sellpia And Rocket Boundaries
 

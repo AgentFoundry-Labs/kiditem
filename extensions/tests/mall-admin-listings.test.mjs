@@ -631,7 +631,7 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
     new URL("../kiditem-os/background/orders/mall-admin-listings.js", import.meta.url),
     "utf8",
   );
-  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"]]) {
+  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"]]) {
     assert.match(contract, new RegExp(`origin: '${origin}'`));
     assert.match(collector, new RegExp(`origin: "${origin}"`));
     assert.match(contract, new RegExp(`pageSize: ${contractSize},`));
@@ -640,6 +640,8 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   const manifest = JSON.parse(readFileSync(new URL("../kiditem-os/manifest.json", import.meta.url), "utf8"));
   assert.ok(manifest.host_permissions.includes(`${KIDKIDS}/*`));
   assert.ok(manifest.host_permissions.includes("https://*.i-screammall.co.kr/*"));
+  assert.ok(manifest.host_permissions.includes("https://alwayzseller.ilevit.com/*"));
+  assert.ok(manifest.host_permissions.includes("https://alwayz-seller-back.ilevit.com/*"));
   const owners = readFileSync(
     new URL("../kiditem-os/background/source-owner-manifest.js", import.meta.url),
     "utf8",
@@ -649,4 +651,83 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.match(worker, /mallAdminListingsSourceOwnerV1: true/);
   assert.match(worker, /collectMallAdminListings: \{/);
   assert.match(worker, /session\?\.producer === "orders\.mall_admin_listings"/);
+});
+
+// 올웨이즈 — 판매자센터 화면 안에서 백엔드 목록 API 를 쪽마다 읽는다(라이브 2026-09-19: 197개 = 100 + 97).
+const ALWAYZ = "https://alwayzseller.ilevit.com";
+const alwayzPlan = { ...kidkidsPlan, mallKey: "always", sourceOrigin: ALWAYZ, pageSize: 100 };
+
+function alwayzItem(index, overrides = {}) {
+  const id = `668b81adc75f21b22efa${index.toString(16).padStart(4, "0")}`;
+  return {
+    _id: id,
+    itemTitle: `[키드아이템] 상품 ${index}`,
+    soldOut: index % 3 === 0,
+    teamPurchasePrice: 8500,
+    createdAt: "2024-07-08T16:05:33.157Z",
+    mainImageUris: ["https://alwayz-product-images.ilevit.com/a.jpg"],
+    manualItemCode: null,
+    ...overrides,
+  };
+}
+
+async function runAlwayzReader({ items, token: pageToken = "eyJ-page-token", totalShift = 0 } = {}) {
+  const requests = [];
+  const context = loadSource(["../kiditem-os/background/orders/mall-admin-listings.js"]);
+  const pageContext = vm.createContext({
+    Date, Map, Set, URL, JSON, Number, Array, String, Math,
+    AbortController,
+    setTimeout: (callback) => setTimeout(callback, 0),
+    clearTimeout,
+    localStorage: { getItem: (key) => (key === "@alwayz@seller@token@" ? pageToken : null) },
+    fetch: async (url, init) => {
+      const parsed = new URL(url);
+      const body = JSON.parse(init.body);
+      requests.push({ path: parsed.pathname, body, token: init.headers["x-access-token"] });
+      if (parsed.pathname === "/sellers/items/v2/count-request") {
+        return { ok: true, status: 200, json: async () => ({ status: 200, data: items.length + totalShift }) };
+      }
+      const start = (body.page - 1) * body.pageLimit;
+      return { ok: true, status: 200, json: async () => ({ status: 2000, data: { itemsInfo: items.slice(start, start + body.pageLimit) } }) };
+    },
+  });
+  const reader = vm.runInContext(`(${context.KidItemMallAdminListings.readAlwayzListings.toString()})`, pageContext);
+  const result = await reader(structuredClone(alwayzPlan), 1000, 0, 1);
+  return { result: JSON.parse(JSON.stringify(result)), requests };
+}
+
+test("⭐ 올웨이즈 — 전체 수를 읽고 1쪽부터 100개씩 다 돌며, 품절 여부를 상태로, 고른 칸만 넘긴다", async () => {
+  const items = Array.from({ length: 197 }, (_, index) => alwayzItem(index));
+  const { result, requests } = await runAlwayzReader({ items });
+  assert.equal(result.success, true);
+  assert.deepEqual(requests.map((request) => [request.path, request.body.page ?? null]), [
+    ["/sellers/items/v2/count-request", null],
+    ["/sellers/items/v2/list-request", 1],
+    ["/sellers/items/v2/list-request", 2],
+  ]);
+  assert.ok(requests.every((request) => request.token === "eyJ-page-token"), "토큰은 화면 안 요청 헤더에만 실린다");
+  assert.ok(!JSON.stringify(result).includes("eyJ-page-token"), "결과에 토큰이 없다");
+  const { rows, collection } = result.snapshot;
+  assert.equal(rows.length, 197);
+  assert.deepEqual(collection, { totalRecords: 197, recordsRead: 197, pagesRead: 2, totalPages: 2, detailsRead: 0, detailsMissing: 0 });
+  const first = rows.find((row) => row.productName === "[키드아이템] 상품 0");
+  assert.deepEqual(first, {
+    mallProductCode: first.mallProductCode,
+    productName: "[키드아이템] 상품 0",
+    sellpiaName: null,
+    sellerCode: null,
+    salePrice: 8500,
+    statusWords: ["품절"],
+    registeredOn: "2024-07-09",
+    imageUrl: "https://alwayz-product-images.ilevit.com/a.jpg",
+  });
+  assert.deepEqual(rows.find((row) => row.productName === "[키드아이템] 상품 1").statusWords, ["판매중"]);
+});
+
+test("올웨이즈 — 토큰이 없으면 로그인이 필요하다고 답하고, 읽는 사이 수가 바뀌면 저장하지 않는다", async () => {
+  const noToken = await runAlwayzReader({ items: [alwayzItem(1)], token: null });
+  assert.deepEqual(noToken.result, { success: false, errorCode: "mall_login_required" });
+  assert.equal(noToken.requests.length, 0);
+  const shifted = await runAlwayzReader({ items: [alwayzItem(1), alwayzItem(2)], totalShift: 1 });
+  assert.deepEqual(shifted.result, { success: false, errorCode: "mall_total_changed" });
 });

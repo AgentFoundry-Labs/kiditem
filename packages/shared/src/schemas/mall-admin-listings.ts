@@ -60,6 +60,16 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 10_000,
     detailNames: false,
   },
+  /**
+   * 올웨이즈 판매자센터. 상품 조회/수정 화면이 부르는 목록 API(백엔드 alwayz-seller-back)를 화면 안에서 쪽마다
+   * 읽는다 — 100개씩 1쪽부터(라이브 2026-09-19: 197개 = 100 + 97). 토큰은 화면 안에서만 쓴다.
+   */
+  always: {
+    mallName: '올웨이즈',
+    origin: 'https://alwayzseller.ilevit.com',
+    pageSize: 100,
+    detailNames: false,
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;
