@@ -30,6 +30,8 @@
   const WING_RATE_LIMIT_WAITS_MS = [5000, 15000, 30000];
   /** 보낸 뒤 다시 읽어 아직 안 바뀌었으면 한 번 더 볼 때까지 기다리는 시간. */
   const WING_RECHECK_MS = 1500;
+  /** 지금 재고 읽기 한 번에 읽는 상품 수. 등록현황 칸은 한 상품만 읽는다. */
+  const READ_LIMIT = 20;
 
   /**
    * 몰마다 다른 것 전부.
@@ -392,11 +394,59 @@
     }
 
     /**
-     * 쿠팡 윙 옵션 재고. 윙 화면을 하나 **뒤에서** 열어 상품마다 옵션 목록을 읽고, 짚은 옵션의 재고를 0(해제는
-     * 재고 0 인 옵션에 `resumeQuantity`)으로 보낸 뒤 다시 읽어 확인한다. 로그인 화면으로 넘어갔으면 보내지 않는다.
+     * 윙 화면 하나를 **뒤에서** 열고, 그 안에서 윙 API 를 부르는 도구를 `work` 에 넘긴다. 윙 API 는 윙 화면의 로그인으로
+     * 불러야 한다. 로그인 화면으로 넘어갔으면 부르지 않는다. 끝나면(실패해도) 연 탭을 닫는다.
      *
-     * 윙이 429 로 막으면 쉬었다 다시 보내고, 끝까지 막히면 거기서 멈춰 남은 상품을 보내지 못한 것으로 센다
-     * (`stopped: "rate_limited"`). 429 를 로그아웃으로 읽지 않는다.
+     * 윙이 429 로 막으면 쉬었다 같은 요청을 다시 보낸다(재고를 정해진 값으로 두는 요청이라 다시 보내도 같다).
+     * 429 를 로그아웃으로 읽지 않는다.
+     */
+    async function withWingPage(spec, work) {
+      const stock = spec.optionStock;
+      let tabId = null;
+      const inPage = async (path, method, contentType, body) => {
+        for (let attempt = 0; ; attempt += 1) {
+          const [injected] = await chromeApi.scripting.executeScript({
+            target: { tabId },
+            func: requestOnPage,
+            args: [path, method, contentType, body],
+          });
+          const answer = injected?.result || { status: 0, json: null, preview: "", url: "" };
+          if (answer.status !== 429 || attempt >= WING_RATE_LIMIT_WAITS_MS.length) return answer;
+          await sleep(WING_RATE_LIMIT_WAITS_MS[attempt]);
+        }
+      };
+      const readItems = async (product) => {
+        const answer = await inPage(`${stock.itemsPath}${product}?${stock.itemsQuery}`, "GET", null, null);
+        if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) {
+          return { items: answer.json.data };
+        }
+        return {
+          status: answer.status,
+          rateLimited: answer.status === 429,
+          loggedOut: answer.status !== 429 && /login|로그인|xauth/i.test(`${answer.url} ${answer.preview}`),
+        };
+      };
+      try {
+        // 사람이 볼 화면이 아니다. 앞에 띄우지 않는다(사장님 2026-09-18: "왜 리뷰 목록으로 가는거야?").
+        const tab = await chromeApi.tabs.create({ url: stock.pageUrl, active: false });
+        tabId = tab.id;
+        const waited = await waitForTabComplete(tabId).catch(() => undefined);
+        await sleep(waited ? 900 : 2200);
+        const current = await chromeApi.tabs.get(tabId).catch(() => null);
+        if (!String(current?.url || current?.pendingUrl || "").startsWith(spec.origin)) {
+          return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.` };
+        }
+        return await work({ inPage, readItems });
+      } finally {
+        if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
+      }
+    }
+
+    /**
+     * 쿠팡 윙 옵션 재고. 상품마다 옵션 목록을 읽고, 짚은 옵션의 재고를 0(해제는 재고 0 인 옵션에
+     * `resumeQuantity`)으로 보낸 뒤 다시 읽어 확인한다.
+     *
+     * 윙이 끝까지 막으면(429) 거기서 멈춰 남은 상품을 보내지 못한 것으로 센다(`stopped: "rate_limited"`).
      */
     async function sendByOptionStock(spec, codes, options, resume) {
       const stock = spec.optionStock;
@@ -415,47 +465,13 @@
       let stoppedAt = null;
       // 보내기에서 막힌 상품(읽기는 됐다). 멈춘 자리 앞이지만 역시 보내지 못했다.
       let blockedOnSend = 0;
-      let tabId = null;
       const wantedOf = (product) => (Array.isArray(options?.[product])
         ? new Set(options[product].map((code) => String(code)).filter((code) => /^\d{1,15}$/.test(code)))
         : null);
-      const inPage = async (path, method, contentType, body) => {
-        for (let attempt = 0; ; attempt += 1) {
-          const [injected] = await chromeApi.scripting.executeScript({
-            target: { tabId },
-            func: requestOnPage,
-            args: [path, method, contentType, body],
-          });
-          const answer = injected?.result || { status: 0, json: null, preview: "", url: "" };
-          // 재고를 정해진 값으로 두는 요청이라 다시 보내도 같다. 429 는 받지 않았다는 뜻이다.
-          if (answer.status !== 429 || attempt >= WING_RATE_LIMIT_WAITS_MS.length) return answer;
-          await sleep(WING_RATE_LIMIT_WAITS_MS[attempt]);
-        }
-      };
-      const readItems = async (product) => {
-        const answer = await inPage(`${stock.itemsPath}${product}?${stock.itemsQuery}`, "GET", null, null);
-        if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) {
-          return { items: answer.json.data };
-        }
-        return {
-          status: answer.status,
-          rateLimited: answer.status === 429,
-          loggedOut: answer.status !== 429 && /login|로그인|xauth/i.test(`${answer.url} ${answer.preview}`),
-        };
-      };
       const isTarget = (item) => (resume
         ? Number(item.stockQuantity) === 0
         : Number(item.stockQuantity) !== 0);
-      try {
-        // 사람이 볼 화면이 아니다. 앞에 띄우지 않는다.
-        const tab = await chromeApi.tabs.create({ url: stock.pageUrl, active: false });
-        tabId = tab.id;
-        const waited = await waitForTabComplete(tabId).catch(() => undefined);
-        await sleep(waited ? 900 : 2200);
-        const current = await chromeApi.tabs.get(tabId).catch(() => null);
-        if (!String(current?.url || current?.pendingUrl || "").startsWith(spec.origin)) {
-          return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 보내세요.` };
-        }
+      const halted = await withWingPage(spec, async ({ inPage, readItems }) => {
         for (let index = 0; index < products.length; index += 1) {
           const product = products[index];
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
@@ -538,9 +554,9 @@
           confirmed += seen;
           await sleep(PACE_MS);
         }
-      } finally {
-        if (tabId !== null) await chromeApi.tabs.remove(tabId).catch(() => undefined);
-      }
+        return null;
+      });
+      if (halted) return halted;
       if (stoppedAt !== null) {
         const rest = products.slice(stoppedAt);
         failed += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
@@ -687,7 +703,62 @@
       };
     }
 
-    return { send };
+    /**
+     * 쿠팡 윙 지금 재고를 **읽기만** 한다. 보내지 않는다. 등록현황 칸의 창이 "지금 품절인가"를 보여 줄 때 쓴다 —
+     * 매트릭스의 상태는 어젯밤 가져온 판매상태(ON_SALE)라 품절(재고 0)을 모른다.
+     *
+     * 돌려주는 것은 상품코드 · 옵션코드 · 재고 수뿐이다.
+     */
+    async function readByOptionStock(spec, codes) {
+      const products = [...new Set(codes)].filter((code) => /^\d{1,15}$/.test(code)).slice(0, READ_LIMIT);
+      if (products.length === 0) return { success: false, error: `읽을 ${spec.label} 등록상품ID가 없습니다.` };
+      const found = [];
+      const missing = [];
+      const halted = await withWingPage(spec, async ({ readItems }) => {
+        for (let index = 0; index < products.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const read = await readItems(products[index]);
+          if (!read.items) {
+            if (read.loggedOut) {
+              return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            }
+            if (read.rateLimited) {
+              return { success: false, error: `${spec.label}이 요청을 잠시 막았습니다(HTTP 429). 몇 분 뒤 다시 확인하세요.` };
+            }
+            missing.push(products[index]);
+            continue;
+          }
+          found.push({
+            code: products[index],
+            options: read.items.map((item) => ({
+              optionCode: String(item.vendorItemId),
+              stock: Number(item.stockQuantity),
+              rocket: item.registrationType === "RFM",
+            })),
+          });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙). 읽기만 한다. */
+    async function read(msg) {
+      const mallKey = String(msg?.mallKey || "");
+      const spec = SPECS[mallKey];
+      if (!spec?.optionStock) return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
+      const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
+        .map((code) => String(code || "").trim())
+        .filter(Boolean);
+      try {
+        return await readByOptionStock(spec, codes);
+      } catch (error) {
+        return { success: false, error: error?.message || String(error) };
+      }
+    }
+
+    return { send, read };
   }
 
   root.KidItemMallAvailabilitySend = {
@@ -695,6 +766,8 @@
     SPECS,
     PENDING,
     MALL_KEYS: Object.keys(SPECS),
+    // 지금 재고를 읽을 수 있는 몰(옵션 재고로 품절을 보내는 몰).
+    READ_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].optionStock)),
     SEND_TIMEOUT_MS,
   };
 })(typeof self !== "undefined" ? self : globalThis);

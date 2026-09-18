@@ -388,3 +388,54 @@ test('보내기에서 끝까지 막히면 그 상품부터 보내지 못한 것�
   assert.equal(log.reads.length, 1, '둘째 상품은 읽지도 않는다');
   assert.ok(result.warnings.some((warning) => warning.includes('상품 2개는 보내지 못했습니다')), result.warnings.join(' / '));
 });
+
+/**
+ * 등록현황 칸의 창은 쿠팡 판매상태(ON_SALE)만 알아 품절(재고 0)을 모른다 — 품절이어도 윙 판매상태는 판매중이다.
+ * 그래서 창을 열면 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐"). 읽기만 한다.
+ */
+test('⭐ 지금 재고 읽기는 윙을 뒤에서 열어 옵션 재고만 읽고, 아무것도 보내지 않는다', async () => {
+  const { api, log } = wingMall({
+    products: {
+      16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }],
+      15966710321: [{ vendorItemId: 94489536455, stockQuantity: 999 }, { vendorItemId: 94489536459, stockQuantity: 5, registrationType: 'RFM' }],
+    },
+  });
+  const result = await api.read({ mallKey: 'coupang', codes: ['16340985357', '15966710321', '99999999999', 'ABC'] });
+  assert.deepEqual(plain(result), {
+    success: true,
+    products: [
+      { code: '16340985357', options: [{ optionCode: '95903875495', stock: 0, rocket: false }] },
+      { code: '15966710321', options: [{ optionCode: '94489536455', stock: 999, rocket: false }, { optionCode: '94489536459', stock: 5, rocket: true }] },
+    ],
+    missing: ['99999999999'],
+  });
+  assert.equal(log.changes.length, 0, '읽기는 보내지 않는다');
+  assert.deepEqual(log.active, [false], '윙 탭은 뒤에서 연다');
+  assert.deepEqual(log.removed, [7]);
+});
+
+test('지금 재고 읽기 — 로그인이 풀렸거나 윙이 막으면 그렇게 답한다', async () => {
+  const loggedOut = wingMall({
+    tabUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth',
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] },
+  });
+  const outcome = await loggedOut.api.read({ mallKey: 'coupang', codes: ['16340985357'] });
+  assert.equal(outcome.success, false);
+  assert.match(outcome.error, /쿠팡 윙에 로그인되어 있지 않습니다/);
+
+  const blocked = wingMall({
+    products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] },
+    throttle: { reads: 100, posts: 0 },
+  });
+  const limited = await blocked.api.read({ mallKey: 'coupang', codes: ['16340985357'] });
+  assert.equal(limited.success, false);
+  assert.match(limited.error, /HTTP 429/);
+});
+
+test('지금 재고는 옵션 재고로 품절을 보내는 몰(쿠팡 윙)만 읽는다', async () => {
+  const module = loadModule();
+  assert.deepEqual([...module.READ_MALL_KEYS], ['coupang']);
+  const { api } = wingMall();
+  const result = await api.read({ mallKey: 'domeggook', codes: ['68010748'] });
+  assert.equal(result.success, false);
+});

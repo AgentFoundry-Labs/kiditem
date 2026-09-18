@@ -16,6 +16,9 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 /** 목록을 읽고 몰마다 한 번씩 보낸다. 몰 관리자는 느리다. */
 const SEND_TIMEOUT_MS = 180_000;
 
+/** 지금 재고 읽기는 윙 탭을 뒤에서 열어 한 상품만 읽는다. 429 로 쉬는 시간까지 넉넉히. */
+const READ_TIMEOUT_MS = 90_000;
+
 /**
  * 확장에 한 번에 넘기는 상품 수. 없는 몰은 한 번에 넘긴다.
  *
@@ -50,6 +53,77 @@ export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를
 
 export function canSendMallAvailability(mallKey: string): mallKey is MallAvailabilitySendMall {
   return (MALL_AVAILABILITY_SEND_MALLS as readonly string[]).includes(mallKey);
+}
+
+/**
+ * 지금 재고를 몰에서 바로 읽을 수 있는 몰. 확장 `READ_MALL_KEYS` 와 같아야 한다.
+ *
+ * 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이라, 가져온 상태만으로는 품절인지 모른다. 등록현황 칸의 창이
+ * 열릴 때 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐").
+ */
+export const MALL_AVAILABILITY_READ_MALLS = ['coupang'] as const;
+
+export function canReadMallAvailability(mallKey: string): boolean {
+  return (MALL_AVAILABILITY_READ_MALLS as readonly string[]).includes(mallKey);
+}
+
+export interface MallLiveOption {
+  optionCode: string;
+  stock: number;
+  /** 로켓그로스 옵션 — 쿠팡 재고라 우리가 바꾸지 않는다. */
+  rocket: boolean;
+}
+
+interface ReadResponse {
+  success?: boolean;
+  products?: Array<{ code: string; options: MallLiveOption[] }>;
+  error?: string;
+}
+
+/** 몰 지금 재고를 읽는다. 읽기만 한다 — 몰에 아무것도 보내지 않는다. */
+export async function readMallAvailability(mallKey: string, mallProductCode: string): Promise<MallLiveOption[]> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) throw new Error('확장프로그램이 필요합니다.');
+  let response: ReadResponse;
+  try {
+    response = await sendToExtension<ReadResponse>(
+      extensionId,
+      { action: 'readMallAvailability', mallKey, codes: [mallProductCode] },
+      READ_TIMEOUT_MS,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/message port closed/i.test(message)) {
+      throw new Error('설치된 확장이 아직 지금 재고 읽기를 모릅니다. chrome://extensions 에서 KidItem 확장을 새로고침하세요.');
+    }
+    throw error;
+  }
+  if (response?.success !== true) throw new Error(response?.error ?? '지금 재고를 읽지 못했습니다.');
+  const product = response.products?.find((entry) => entry.code === mallProductCode);
+  if (!product) throw new Error('이 상품을 몰에서 찾지 못했습니다.');
+  return product.options;
+}
+
+export interface MallLiveSummary {
+  tone: 'sold_out' | 'partial' | 'on_sale' | 'rocket';
+  label: string;
+}
+
+/** 지금 재고 → 한 줄. 품절은 재고 0 이다(판매상태와 다르다). 로켓그로스 옵션은 쿠팡 재고라 세지 않는다. */
+export function summarizeLiveAvailability(options: readonly MallLiveOption[]): MallLiveSummary {
+  const editable = options.filter((option) => !option.rocket);
+  if (editable.length === 0) return { tone: 'rocket', label: '로켓그로스 상품 — 쿠팡 재고입니다' };
+  const soldOut = editable.filter((option) => option.stock === 0).length;
+  if (soldOut === editable.length) {
+    return { tone: 'sold_out', label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0` };
+  }
+  if (soldOut > 0) return { tone: 'partial', label: `옵션 ${editable.length}개 중 ${soldOut}개 품절` };
+  return {
+    tone: 'on_sale',
+    label: editable.length === 1
+      ? `판매 가능 · 재고 ${editable[0].stock.toLocaleString('ko-KR')}`
+      : `판매 가능 · 옵션 ${editable.length}개 재고 있음`,
+  };
 }
 
 export interface MallAvailabilitySendResult {

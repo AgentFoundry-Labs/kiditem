@@ -919,6 +919,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(mallAvailabilitySend().send(msg));
   }
 
+  // 몰 지금 재고(쿠팡 윙). 읽기만 한다 — 등록현황 칸의 창이 품절인지 보여 줄 때 쓴다.
+  if (msg?.action === "readMallAvailability") {
+    return respond(mallAvailabilitySend().read(msg));
+  }
+
   if (msg?.action === "collectSellpiaManualMatch") {
     try {
       const parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(rawMessage);
@@ -7806,6 +7811,9 @@ KidItemDomains.register({
     // 몰 품절 송신(끝까지 보낸다. 해제도 같은 액션).
     mallAvailabilitySend: true,
     mallAvailabilitySendMalls: KidItemMallAvailabilitySend.MALL_KEYS,
+    // 몰 지금 재고 읽기(보내지 않는다).
+    mallAvailabilityRead: true,
+    mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: ["onch"],

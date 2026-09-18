@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
@@ -22,8 +22,12 @@ import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation';
 import {
   availabilityOutcome,
+  canReadMallAvailability,
   canSendMallAvailability,
+  readMallAvailability,
   sendMallAvailability,
+  summarizeLiveAvailability,
+  type MallLiveSummary,
 } from '../../_shared/mall-availability-send';
 import { showAvailabilityWarnings } from '../../_shared/MallAvailabilitySend';
 
@@ -176,6 +180,53 @@ interface CellActionPopoverProps {
   onClose: () => void;
 }
 
+const LIVE_TONE: Record<MallLiveSummary['tone'], string> = {
+  sold_out: 'bg-rose-50 text-rose-700',
+  partial: 'bg-amber-50 text-amber-800',
+  on_sale: 'bg-emerald-50 text-emerald-700',
+  rocket: 'bg-slate-50 text-slate-600',
+};
+
+/** 몰 지금 재고 한 줄. 판매상태(ON_SALE)와 따로 — 품절은 재고 0 이다. */
+function LiveAvailabilityLine({
+  mallName,
+  live,
+  onRetry,
+}: {
+  mallName: string;
+  live:
+    | { status: 'loading' }
+    | { status: 'ready'; summary: MallLiveSummary; readAt: Date }
+    | { status: 'error'; message: string };
+  onRetry: () => void;
+}) {
+  if (live.status === 'loading') {
+    return (
+      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-400">
+        <Loader2 size={10} className="animate-spin" />
+        {mallName}에서 지금 재고 읽는 중
+      </div>
+    );
+  }
+  if (live.status === 'error') {
+    return (
+      <div className="mt-1.5 flex items-start gap-1 text-[10px] leading-relaxed text-slate-500">
+        <span className="flex-1">지금 재고를 읽지 못했습니다 — {live.message}</span>
+        <button type="button" onClick={onRetry} className="flex-none text-slate-600 underline underline-offset-2">
+          다시
+        </button>
+      </div>
+    );
+  }
+  const time = live.readAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return (
+    <div className={cn('mt-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px] font-medium', LIVE_TONE[live.summary.tone])}>
+      <span className="flex-1">지금 {live.summary.label}</span>
+      <span className="flex-none font-normal opacity-70 tabular-nums">{time} 확인</span>
+    </div>
+  );
+}
+
 /** 칸 하나를 눌렀을 때. 그 (상품 × 몰) 에서 무엇이 가능한지 보여준다. */
 export function CellActionPopover({
   column,
@@ -208,6 +259,31 @@ export function CellActionPopover({
   const presentation = MALL_LISTING_STATE_PRESENTATION[state];
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
+
+  /**
+   * 몰 지금 재고(쿠팡 윙). 가져온 판매상태(ON_SALE)는 품절이어도 판매중이라, 창을 열면 몰에서 바로 읽어
+   * 품절인지 보여 준다. 읽기만 한다. 이 창이 열려 있는 동안만 들고 있는 값이다.
+   */
+  const liveReadable = canReadMallAvailability(column.mallKey) && Boolean(externalId);
+  const [live, setLive] = useState<
+    | { status: 'loading' }
+    | { status: 'ready'; summary: MallLiveSummary; readAt: Date }
+    | { status: 'error'; message: string }
+    | null
+  >(liveReadable ? { status: 'loading' } : null);
+  const readLive = useCallback(async () => {
+    if (!liveReadable || !externalId) return;
+    setLive({ status: 'loading' });
+    try {
+      const options = await readMallAvailability(column.mallKey, externalId);
+      setLive({ status: 'ready', summary: summarizeLiveAvailability(options), readAt: new Date() });
+    } catch (error) {
+      setLive({ status: 'error', message: error instanceof Error ? error.message : '지금 재고를 읽지 못했습니다.' });
+    }
+  }, [column.mallKey, externalId, liveReadable]);
+  useEffect(() => {
+    void readLive();
+  }, [readLive]);
 
   /**
    * 이 칸 하나를 몰에 보낸다.
@@ -243,7 +319,9 @@ export function CellActionPopover({
         duration: 8_000,
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
-      onClose();
+      // 지금 재고를 읽을 수 있는 몰은 창을 닫지 않고 몰에서 다시 읽어 바뀐 상태를 그 자리에서 보여 준다.
+      if (liveReadable) void readLive();
+      else onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
     } finally {
@@ -273,6 +351,7 @@ export function CellActionPopover({
               <span className="text-[10px] text-slate-400">몰 상태 {rawStatus}</span>
             ) : null}
           </div>
+          {live ? <LiveAvailabilityLine mallName={column.mallName} live={live} onRetry={() => void readLive()} /> : null}
         </div>
 
         <ul className="mt-2 space-y-0.5">

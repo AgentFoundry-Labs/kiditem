@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   availabilityOutcome,
+  canReadMallAvailability,
   canSendMallAvailability,
+  readMallAvailability,
   sendMallAvailability,
+  summarizeLiveAvailability,
   type MallAvailabilitySendResult,
 } from './mall-availability-send';
 
@@ -147,5 +150,57 @@ describe('쿠팡 윙 품절 나눠 보내기', () => {
   it('해제에서 이미 재고가 있던 옵션은 그렇게 말한다', async () => {
     const result = await sendMallAvailability('coupang', codes(2), { resume: true });
     expect(result.warnings).toEqual(['1개 옵션은 이미 재고가 있었습니다.']);
+  });
+});
+
+/**
+ * 쿠팡 윙 지금 재고. 품절은 재고 0 이고, 판매상태(ON_SALE)와 다르다. 로켓그로스 옵션은 쿠팡 재고라 세지 않는다.
+ */
+describe('몰 지금 재고', () => {
+  beforeEach(() => {
+    bridge.detectOrderCollectionExtensionId.mockReset().mockResolvedValue('ext');
+    bridge.sendToExtension.mockReset();
+  });
+
+  it('쿠팡 윙만 지금 재고를 읽는다', () => {
+    expect(canReadMallAvailability('coupang')).toBe(true);
+    expect(canReadMallAvailability('domeggook')).toBe(false);
+  });
+
+  it('⭐ 확장에 읽기만 부탁하고 그 상품의 옵션 재고를 돌려준다', async () => {
+    bridge.sendToExtension.mockResolvedValue({
+      success: true,
+      products: [{ code: '16340985357', options: [{ optionCode: '95903875495', stock: 0, rocket: false }] }],
+      missing: [],
+    });
+    await expect(readMallAvailability('coupang', '16340985357')).resolves.toEqual([
+      { optionCode: '95903875495', stock: 0, rocket: false },
+    ]);
+    expect(bridge.sendToExtension).toHaveBeenCalledWith(
+      'ext',
+      { action: 'readMallAvailability', mallKey: 'coupang', codes: ['16340985357'] },
+      90_000,
+    );
+  });
+
+  it('옛 확장이면 새로고침하라고 말한다', async () => {
+    bridge.sendToExtension.mockRejectedValue(new Error('The message port closed before a response was received.'));
+    await expect(readMallAvailability('coupang', '1')).rejects.toThrow(/확장을 새로고침하세요/);
+  });
+
+  it('몰에 없는 상품이면 그렇게 말한다', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, products: [], missing: ['1'] });
+    await expect(readMallAvailability('coupang', '1')).rejects.toThrow('이 상품을 몰에서 찾지 못했습니다.');
+  });
+
+  it('재고 0 이면 품절, 일부면 몇 개 품절, 아니면 판매 가능이다', () => {
+    const option = (stock: number, rocket = false) => ({ optionCode: String(stock), stock, rocket });
+    expect(summarizeLiveAvailability([option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
+    expect(summarizeLiveAvailability([option(0), option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 옵션 2개 모두 재고 0' });
+    expect(summarizeLiveAvailability([option(0), option(5)])).toEqual({ tone: 'partial', label: '옵션 2개 중 1개 품절' });
+    expect(summarizeLiveAvailability([option(1861)])).toEqual({ tone: 'on_sale', label: '판매 가능 · 재고 1,861' });
+    expect(summarizeLiveAvailability([option(3), option(5)])).toEqual({ tone: 'on_sale', label: '판매 가능 · 옵션 2개 재고 있음' });
+    expect(summarizeLiveAvailability([option(0, true)]).tone).toBe('rocket');
+    expect(summarizeLiveAvailability([option(0), option(9, true)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
   });
 });
