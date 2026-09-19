@@ -1,7 +1,10 @@
 'use client';
 
+import { useId } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Ban } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   MALL_VALUE_ORIGIN_LABEL,
   missingRequiredFields,
@@ -116,6 +119,13 @@ export function StepValues({
                       </option>
                     ))}
                   </select>
+                ) : field.key === CATEGORY_FIELD_KEY ? (
+                  <CategoryPathInput
+                    mallKey={active.mallKey}
+                    value={values[field.key] ?? ''}
+                    required={field.required}
+                    onChange={(value) => onChangeValue(active.mallKey, field.key, value)}
+                  />
                 ) : (
                   <input
                     value={values[field.key] ?? ''}
@@ -207,5 +217,59 @@ export function StepValues({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/** 어댑터가 분류 경로를 받는 칸 이름. 몰마다 같은 이름을 쓴다(`>` 로 잇는 경로). */
+const CATEGORY_FIELD_KEY = 'categoryPath';
+
+/**
+ * 분류 칸 — 이 몰에서 판매상품이 쓰던 분류(사방넷 송신 기록에서 옮긴 것)를 많이 쓴 순으로 고를거리로 보인다.
+ * 고르지 않고 직접 적어도 된다. 값을 대신 채우지는 않는다.
+ */
+function CategoryPathInput({
+  mallKey,
+  value,
+  required,
+  onChange,
+}: {
+  mallKey: string;
+  value: string;
+  required: boolean;
+  onChange: (value: string) => void;
+}) {
+  const listId = useId();
+  const suggestions = useQuery({
+    queryKey: salesProductKeys.mallCategories(mallKey),
+    queryFn: () => salesProductApi.mallCategories(mallKey),
+    staleTime: 5 * 60_000,
+  });
+  const categories = suggestions.data?.categories ?? [];
+  return (
+    <>
+      <input
+        value={value}
+        list={categories.length > 0 ? listId : undefined}
+        onChange={(event) => onChange(event.target.value)}
+        className={cn(
+          'mt-1 w-full rounded-md border px-2 py-2 text-sm outline-none focus:border-purple-400',
+          required && !value.trim() ? 'border-red-300' : 'border-slate-200',
+        )}
+      />
+      {categories.length > 0 ? (
+        <>
+          <datalist id={listId}>
+            {categories.map((category) => (
+              <option key={category.path} value={category.path}>
+                {category.title ? `${category.title} · ` : ''}{category.count}개 상품
+              </option>
+            ))}
+          </datalist>
+          <span className="mt-1 block text-[11px] text-purple-700">
+            사방넷에서 쓰던 분류 {categories.length}개 — 칸을 누르면 고를 수 있습니다.
+          </span>
+        </>
+      ) : null}
+    </>
   );
 }

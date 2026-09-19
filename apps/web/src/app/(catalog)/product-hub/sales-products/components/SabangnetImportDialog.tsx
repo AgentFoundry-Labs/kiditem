@@ -13,6 +13,8 @@ const KIND_LABEL: Record<SabangnetImportPreview['files'][number]['kind'], string
   options: '단품(사방넷단품대량수정)',
   channel_overrides: '몰별 값(쇼핑몰별별도정보관리)',
   send_records: '송신 기록(쇼핑몰상품수정 다운로드)',
+  mall_categories: '몰 분류(쇼핑몰카테고리)',
+  mall_templates: '몰 부가정보(쇼핑몰부가정보)',
 };
 
 const LINK_SOURCE_LABEL: Record<keyof SalesProductLinkResult['bySource'], string> = {
@@ -21,7 +23,7 @@ const LINK_SOURCE_LABEL: Record<keyof SalesProductLinkResult['bySource'], string
   seller_code: '판매자 상품코드',
 };
 
-const MAX_FILES = 4;
+const MAX_FILES = 6;
 
 /**
  * 사방넷에서 내려받은 엑셀을 그대로 올린다. 먼저 미리보기로 무엇이 바뀌는지 보고, 같은 파일로 옮긴다 —
@@ -61,8 +63,8 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
             <h2 className="text-lg font-bold text-slate-900">사방넷 엑셀 가져오기</h2>
             <p className="mt-1 text-sm text-slate-500">
               사방넷 <b>상품대량수정</b> 수정파일(쓰시던 <b>대량등록</b> 양식도 됩니다)에 <b>단품대량수정</b> ·
-              <b>쇼핑몰별별도정보관리</b>를 함께 올리면 옵션과 몰별 값까지 옮깁니다. 자체상품코드가 같으면 같은 상품으로 고칩니다. <b>쇼핑몰상품수정</b> 다운로드를 더하면 몰에 올라간 상품도 판매상품과 잇습니다(그 파일만 올려도
-              됩니다). 같은 파일을 다시 올려도 바뀐 것만 고칩니다.
+              <b>쇼핑몰별별도정보관리</b>를 함께 올리면 옵션과 몰별 값까지 옮깁니다. 자체상품코드가 같으면 같은 상품으로 고칩니다. <b>쇼핑몰상품수정</b> 다운로드를 더하면 몰에 올라간 상품도 판매상품과 잇고(그 파일만 올려도 됩니다),
+              <b>쇼핑몰카테고리</b> · <b>쇼핑몰부가정보</b>까지 더하면 상품마다 몰에서 쓰던 분류와 부가정보를 남깁니다. 같은 파일을 다시 올려도 바뀐 것만 고칩니다.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="닫기">
@@ -150,6 +152,14 @@ function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
         </dl>
       )}
       {preview.links && <LinkSummary links={preview.links} dryRun={preview.dryRun} />}
+      {preview.mallValues && (
+        <p className="mt-2 text-slate-700">
+          몰별 분류 · 부가정보: 상품 × 몰 <span className="tabular-nums">{preview.mallValues.pairs.toLocaleString()}</span>줄
+          <span className="text-slate-500">
+            {' '}(분류 {preview.mallValues.withCategory.toLocaleString()} · 부가정보 {preview.mallValues.withTemplate.toLocaleString()})
+          </span>
+        </p>
+      )}
       {skipped.length > 0 && (
         <p className="mt-2 text-xs text-slate-500">
           우리 몰 계정이 없어 넘긴 몰: {skipped.map(([shop, count]) => `${shop} ${count}줄`).join(' · ')}

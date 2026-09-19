@@ -7,6 +7,8 @@ import type { SabangnetImportIssue, SabangnetWorkbookKind } from '@kiditem/share
  * - `products`: 사방넷상품대량수정 수정파일 · 사방넷상품대량등록 샘플 양식(품번코드가 없으면 자체상품코드가 키).
  * - `options`: 사방넷단품대량수정 수정파일(단품코드 · 옵션상세명칭 · 추가금액 · 공급상태).
  * - `channel_overrides`: 쇼핑몰별별도정보관리 수정파일(쇼핑몰코드 · 쇼핑몰 판매가 · 쇼핑몰 상품명 …).
+ * - `send_records`: 쇼핑몰상품수정 다운로드(몰 × 상품 송신 기록 — 쇼핑몰상품코드 · 부가정보코드 · 카테고리코드).
+ * - `mall_categories` · `mall_templates`: 쇼핑몰카테고리 · 쇼핑몰부가정보 수정파일(송신 기록의 코드가 가리키는 것).
  *
  * 칸은 머리 이름으로 찾는다(열 순서가 파일마다 다르다). 머리 다음 줄이 '▶' 설명이면 건너뛴다.
  */
@@ -103,11 +105,37 @@ export interface SabangnetSendRecordRow {
   sentPrice: number | null;
 }
 
+/** 쇼핑몰카테고리 수정파일 한 줄 — 사방넷 카테고리코드 → 그 몰의 분류 경로. */
+export interface SabangnetMallCategoryRow {
+  row: number;
+  code: string;
+  mallName: string | null;
+  title: string | null;
+  path: string | null;
+  active: boolean;
+}
+
+/** 쇼핑몰부가정보 수정파일 한 줄 — 몰별 등록 틀(배송 조건 이름 · 기본 분류 · 상품명 앞뒤 문구 · 상세 위아래 문구). */
+export interface SabangnetMallTemplateRow {
+  row: number;
+  code: string;
+  mallName: string | null;
+  title: string | null;
+  path: string | null;
+  active: boolean;
+  namePrefix: string | null;
+  nameSuffix: string | null;
+  detailTop: string | null;
+  detailBottom: string | null;
+}
+
 export type ParsedSabangnetWorkbook =
   | { kind: 'products'; name: string; rows: SabangnetProductRow[]; issues: SabangnetImportIssue[] }
   | { kind: 'send_records'; name: string; rows: SabangnetSendRecordRow[]; issues: SabangnetImportIssue[] }
   | { kind: 'options'; name: string; rows: SabangnetOptionRow[]; issues: SabangnetImportIssue[] }
-  | { kind: 'channel_overrides'; name: string; rows: SabangnetChannelOverrideRow[]; issues: SabangnetImportIssue[] };
+  | { kind: 'channel_overrides'; name: string; rows: SabangnetChannelOverrideRow[]; issues: SabangnetImportIssue[] }
+  | { kind: 'mall_categories'; name: string; rows: SabangnetMallCategoryRow[]; issues: SabangnetImportIssue[] }
+  | { kind: 'mall_templates'; name: string; rows: SabangnetMallTemplateRow[]; issues: SabangnetImportIssue[] };
 
 export class SabangnetWorkbookFormatError extends Error {}
 
@@ -165,7 +193,8 @@ function readTable(buffer: Buffer): SheetTable {
   const headerIndex = matrix.slice(0, 6).findIndex((cells) =>
     cells.some((cell) => {
       const header = normalizeSabangnetHeader(cell);
-      return header === '상품명' || header === '사방넷상품코드' || header === '쇼핑몰코드';
+      return header === '상품명' || header === '사방넷상품코드' || header === '쇼핑몰코드'
+        || header === '카테고리코드' || header === '부가정보코드';
     }));
   if (headerIndex < 0) throw new SabangnetWorkbookFormatError('사방넷 엑셀 머리 줄을 찾지 못했습니다.');
   const headers = (matrix[headerIndex] ?? []).map(normalizeSabangnetHeader);
@@ -197,6 +226,8 @@ export function recomputeSheetRange(sheet: XLSX.WorkSheet): string | null {
 export function detectSabangnetWorkbookKind(headers: readonly string[]): SabangnetWorkbookKind | null {
   const has = (name: string) => headers.includes(name);
   if (has('쇼핑몰상품코드') && has('쇼핑몰코드') && has('품번코드')) return 'send_records';
+  if (has('카테고리코드') && has('카테고리제목') && has('카테고리(쇼핑몰)')) return 'mall_categories';
+  if (has('부가정보코드') && has('부가정보제목')) return 'mall_templates';
   if (has('쇼핑몰코드') && has('품번코드')) return 'channel_overrides';
   if (has('사방넷상품코드') && has('옵션상세명칭')) return 'options';
   if (has('상품명') && (has('품번코드') || has('자체상품코드')) && headers.some((header) => header.startsWith('옵션제목'))) {
@@ -210,12 +241,14 @@ export function parseSabangnetWorkbook(buffer: Buffer, name: string): ParsedSaba
   const kind = detectSabangnetWorkbookKind(table.headers);
   if (!kind) {
     throw new SabangnetWorkbookFormatError(
-      `${name}: 사방넷 상품대량수정 · 단품대량수정 · 쇼핑몰별별도정보 · 쇼핑몰상품수정 다운로드 파일이 아닙니다.`,
+      `${name}: 사방넷 상품대량수정 · 단품대량수정 · 쇼핑몰별별도정보 · 쇼핑몰상품수정 다운로드 · 쇼핑몰카테고리 · 쇼핑몰부가정보 파일이 아닙니다.`,
     );
   }
   if (kind === 'products') return { kind, name, ...parseProducts(table) };
   if (kind === 'options') return { kind, name, ...parseOptions(table) };
   if (kind === 'send_records') return { kind, name, ...parseSendRecords(table) };
+  if (kind === 'mall_categories') return { kind, name, ...parseMallCategories(table) };
+  if (kind === 'mall_templates') return { kind, name, ...parseMallTemplates(table) };
   return { kind, name, ...parseChannelOverrides(table) };
 }
 
@@ -450,6 +483,60 @@ function parseSendRecords(
       categoryCode: textOrNull(get(['카테고리코드'])),
       sentStatus: textOrNull(get(['상품상태(송신)'])),
       sentPrice: sabangnetNumber(get(['판매가(송신)'])),
+    });
+  }
+  return { rows, issues };
+}
+
+function parseMallCategories(
+  table: SheetTable,
+): { rows: SabangnetMallCategoryRow[]; issues: SabangnetImportIssue[] } {
+  const col = columnReader(table.headers);
+  const issues: SabangnetImportIssue[] = [];
+  const rows: SabangnetMallCategoryRow[] = [];
+  for (const { row, cells } of table.dataRows) {
+    const get = (names: readonly string[]) => col.get(cells, names);
+    const code = cellText(get(['카테고리코드']));
+    if (!code) {
+      issues.push({ kind: 'mall_categories', row, code: null, message: '카테고리코드가 비어 있습니다.' });
+      continue;
+    }
+    rows.push({
+      row,
+      code,
+      mallName: textOrNull(get(['쇼핑몰명'])),
+      title: textOrNull(get(['카테고리제목'])),
+      path: textOrNull(get(['카테고리(쇼핑몰)'])),
+      active: cellText(get(['사용여부'])) !== '미사용',
+    });
+  }
+  return { rows, issues };
+}
+
+function parseMallTemplates(
+  table: SheetTable,
+): { rows: SabangnetMallTemplateRow[]; issues: SabangnetImportIssue[] } {
+  const col = columnReader(table.headers);
+  const issues: SabangnetImportIssue[] = [];
+  const rows: SabangnetMallTemplateRow[] = [];
+  for (const { row, cells } of table.dataRows) {
+    const get = (names: readonly string[]) => col.get(cells, names);
+    const code = cellText(get(['부가정보코드']));
+    if (!code) {
+      issues.push({ kind: 'mall_templates', row, code: null, message: '부가정보코드가 비어 있습니다.' });
+      continue;
+    }
+    rows.push({
+      row,
+      code,
+      mallName: textOrNull(get(['쇼핑몰명'])),
+      title: textOrNull(get(['부가정보제목'])),
+      path: textOrNull(get(['카테고리(쇼핑몰)'])),
+      active: cellText(get(['사용여부'])) !== '미사용',
+      namePrefix: textOrNull(get(['상품명추가앞문구'])),
+      nameSuffix: textOrNull(get(['상품명추가뒷문구'])),
+      detailTop: textOrNull(get(['상품설명상단추가문구'])),
+      detailBottom: textOrNull(get(['상품설명하단추가문구'])),
     });
   }
   return { rows, issues };

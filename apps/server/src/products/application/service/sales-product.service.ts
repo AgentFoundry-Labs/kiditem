@@ -13,6 +13,7 @@ import {
   SalesProductUpdateInputSchema,
   type SalesProduct,
   type SalesProductListResponse,
+  type SalesProductMallCategories,
 } from '@kiditem/shared/sales-product';
 import {
   planSalesProductOptionReplacement,
@@ -119,20 +120,24 @@ export class SalesProductService {
       organizationId,
       salesProductId,
       channelAccountId,
+      // 보낸 칸만 바꾼다(null 은 비움). 보내지 않은 칸 — 사방넷에서 옮긴 상세 · 원가 · 고시 · 분류 · 원문 — 은 지킨다.
       data: {
-        salePrice: input.salePrice ?? null,
-        priceRateBp: input.priceRateBp ?? null,
-        costPrice: input.costPrice ?? null,
-        name: input.name ?? null,
-        detailHtml: input.detailHtml ?? null,
-        promoText: input.promoText ?? null,
-        noticeCategory: input.noticeCategory ?? null,
-        stockPercent: input.stockPercent ?? null,
-        adapterValues: input.adapterValues ?? null,
-        sourceRaw: null,
+        salePrice: input.salePrice,
+        priceRateBp: input.priceRateBp,
+        costPrice: input.costPrice,
+        name: input.name,
+        detailHtml: input.detailHtml,
+        promoText: input.promoText,
+        noticeCategory: input.noticeCategory,
+        stockPercent: input.stockPercent,
+        adapterValues: input.adapterValues,
       },
     });
     return this.get(organizationId, salesProductId);
+  }
+
+  async mallCategories(organizationId: string, mallKey: string): Promise<SalesProductMallCategories> {
+    return { mallKey, categories: await this.repository.listMallCategories(organizationId, mallKey) };
   }
 
   async deleteChannelOverride(

@@ -1,11 +1,13 @@
 import * as XLSX from 'xlsx';
 import { describe, expect, it } from 'vitest';
-import { buildSabangnetImportPlan, sabangnetShopMallKey } from './sabangnet-product-import.plan';
+import { buildSabangnetImportPlan, planSabangnetMallValues, sabangnetShopMallKey } from './sabangnet-product-import.plan';
 import {
   parseSabangnetWorkbook,
   recomputeSheetRange,
   SabangnetWorkbookFormatError,
   type SabangnetChannelOverrideRow,
+  type SabangnetMallCategoryRow,
+  type SabangnetMallTemplateRow,
   type SabangnetOptionRow,
   type SabangnetProductRow,
   type SabangnetSendRecordRow,
@@ -108,6 +110,47 @@ describe('Sabangnet workbook import', () => {
     })]);
     expect(parsed.issues).toHaveLength(1);
     expect(JSON.stringify(parsed.rows)).not.toContain('seller-login');
+  });
+
+  it('keeps each product × mall Sabangnet category and template, newer 11st shop first', () => {
+    const categories = parse<SabangnetMallCategoryRow>(workbook(' 쇼핑몰관리 > 쇼핑몰카테고리 > 수정파일', [
+      '카테고리코드\n[수정불가]', '쇼핑몰명\n[수정불가]', '카테고리 제목', '카테고리(쇼핑몰)\n[수정불가]', '사용여부',
+    ], [
+      ['C1207602', '11번가', '역할놀이', '장난감 > 역할놀이/소꿉놀이 > 역할놀이 기타', '사용'],
+      ['C0000001', '11번가(구)', '예전', '도서/문구::문구/사무용품 > 문구용품 > 문구용품 기타', '사용'],
+    ]));
+    const templates = parse<SabangnetMallTemplateRow>(workbook(' 쇼핑몰관리 > 쇼핑몰부가정보 > 수정파일', [
+      '부가정보코드\n[수정불가]', '쇼핑몰명\n[수정불가]', '부가정보 제목', '카테고리(쇼핑몰)\n[수정불가]', '사용여부',
+      '상품설명 상단 추가문구', '상품설명 하단 추가문구', '상품명 추가 앞문구', '상품명 추가 뒷문구',
+    ], [
+      ['00102324', '11번가', '(신)3만원이상무료배송', '장난감 > 역할놀이/소꿉놀이 > 역할놀이 기타', '사용', null, "<img src='https://x/bottom.jpg' />", '[키드아이템]', null],
+    ]));
+    expect(categories[0]).toMatchObject({ code: 'C1207602', path: '장난감 > 역할놀이/소꿉놀이 > 역할놀이 기타', active: true });
+    const planned = planSabangnetMallValues({
+      sendRecords: [
+        { shopCode: 'shop0003', goodsNo: '103181', additionCode: null, categoryCode: 'C0000001' },
+        { shopCode: 'shop0464', goodsNo: '103181', additionCode: '00102324', categoryCode: 'C1207602' },
+        { shopCode: 'shop0464', goodsNo: '999999', additionCode: '00102324', categoryCode: 'C1207602' },
+      ],
+      categories,
+      templates,
+      productIdByCode: new Map([['103181', 'p-1']]),
+      accounts: [{ id: 'acc-11st', channel: '11st' }],
+    });
+    expect(planned.writes).toEqual([{
+      salesProductId: 'p-1',
+      channelAccountId: 'acc-11st',
+      values: {
+        sabangnetCategoryCode: 'C1207602',
+        sabangnetCategoryTitle: '역할놀이',
+        sabangnetCategoryPath: '장난감 > 역할놀이/소꿉놀이 > 역할놀이 기타',
+        sabangnetTemplateCode: '00102324',
+        sabangnetTemplateTitle: '(신)3만원이상무료배송',
+        sabangnetNamePrefix: '[키드아이템]',
+        sabangnetDetailBottom: "<img src='https://x/bottom.jpg' />",
+      },
+    }]);
+    expect(planned).toMatchObject({ withCategory: 1, withTemplate: 1 });
   });
 
   it('refuses a workbook that is not a Sabangnet export', () => {

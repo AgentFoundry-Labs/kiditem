@@ -385,7 +385,14 @@ export type SalesProductLinkResult = z.infer<typeof SalesProductLinkResultSchema
 // ── 사방넷 엑셀 가져오기 ──────────────────────────────────────────────
 
 /** 사방넷에서 내려받는 파일 종류. 머리 이름으로 알아본다. */
-export const SABANGNET_WORKBOOK_KINDS = ['products', 'options', 'channel_overrides', 'send_records'] as const;
+export const SABANGNET_WORKBOOK_KINDS = [
+  'products',
+  'options',
+  'channel_overrides',
+  'send_records',
+  'mall_categories',
+  'mall_templates',
+] as const;
 export const SabangnetWorkbookKindSchema = z.enum(SABANGNET_WORKBOOK_KINDS);
 export type SabangnetWorkbookKind = z.infer<typeof SabangnetWorkbookKindSchema>;
 
@@ -423,6 +430,12 @@ export const SabangnetImportPreviewSchema = z.object({
   issueCount: z.number().int(),
   /** 몰에 올라간 상품 ↔ 판매상품 잇기 결과. 옮길 때는 늘 잇고, 송신 기록 없이 미리볼 때만 null. */
   links: SalesProductLinkResultSchema.nullable(),
+  /** 송신 기록에서 읽은 상품 × 몰의 사방넷 분류 · 부가정보. 송신 기록이 없으면 null. */
+  mallValues: z.object({
+    pairs: z.number().int(),
+    withCategory: z.number().int(),
+    withTemplate: z.number().int(),
+  }).nullable(),
 });
 export type SabangnetImportPreview = z.infer<typeof SabangnetImportPreviewSchema>;
 
@@ -449,3 +462,34 @@ export const SalesProductImageMirrorResultSchema = z.object({
   nextSkip: z.number().int(),
 });
 export type SalesProductImageMirrorResult = z.infer<typeof SalesProductImageMirrorResultSchema>;
+
+// ── 몰별 사방넷 분류 · 부가정보(상품 × 몰 몰별 값의 adapterValues) ─────────────
+
+/**
+ * 사방넷 송신 기록에서 옮긴 상품 × 몰 값의 키. 몰 등록 칸 값(`categoryPath` 등)과 섞이지 않게 `sabangnet` 으로
+ * 시작한다 — 등록 화면은 이 값을 고를거리로만 보이고, 어댑터 칸을 대신 채우지 않는다.
+ */
+export const SALES_PRODUCT_SABANGNET_VALUE_KEYS = {
+  categoryCode: 'sabangnetCategoryCode',
+  categoryTitle: 'sabangnetCategoryTitle',
+  categoryPath: 'sabangnetCategoryPath',
+  templateCode: 'sabangnetTemplateCode',
+  templateTitle: 'sabangnetTemplateTitle',
+  namePrefix: 'sabangnetNamePrefix',
+  nameSuffix: 'sabangnetNameSuffix',
+  detailTop: 'sabangnetDetailTop',
+  detailBottom: 'sabangnetDetailBottom',
+} as const;
+
+export const SalesProductMallCategoriesSchema = z.object({
+  mallKey: z.string(),
+  categories: z.array(z.object({
+    /** 몰 분류 경로(사방넷이 몰에 보낸 그대로, `>` 로 잇는다). */
+    path: z.string(),
+    /** 사방넷에서 붙인 분류 이름. */
+    title: z.string().nullable(),
+    /** 이 분류를 쓴 판매상품 수. */
+    count: z.number().int(),
+  })),
+});
+export type SalesProductMallCategories = z.infer<typeof SalesProductMallCategoriesSchema>;

@@ -4,7 +4,11 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SalesProduct, SalesProductChannelOverride } from '@kiditem/shared/sales-product';
+import {
+  SALES_PRODUCT_SABANGNET_VALUE_KEYS,
+  type SalesProduct,
+  type SalesProductChannelOverride,
+} from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { formatWon } from '../lib/sales-product-labels';
@@ -23,9 +27,28 @@ function draftOf(override: SalesProductChannelOverride | undefined): OverrideDra
   };
 }
 
+function hasSabangnetValues(override: SalesProductChannelOverride | undefined): boolean {
+  return Object.keys(override?.adapterValues ?? {}).some((key) => key.startsWith('sabangnet'));
+}
+
+/** 사방넷 송신 기록에서 옮긴 이 몰의 분류 · 부가정보 한 줄. 없으면 null. */
+function SabangnetMallNote({ override }: { override: SalesProductChannelOverride | undefined }) {
+  const values = override?.adapterValues ?? {};
+  const keys = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
+  const category = values[keys.categoryPath];
+  const template = values[keys.templateTitle];
+  if (!category && !template) return null;
+  return (
+    <p className="mt-0.5 max-w-[16rem] text-[11px] font-normal leading-snug text-slate-500">
+      {category && <span className="block truncate" title={category}>분류 {category}</span>}
+      {template && <span className="block truncate" title={template}>부가정보 {template}</span>}
+    </p>
+  );
+}
+
 /**
  * 몰별 값(사방넷 쇼핑몰별별도정보) — 몰마다 판매가(금액 또는 %)와 상품명을 따로 둔다. 비워 두면 판매상품의
- * 값이 그대로 간다. 금액이 있으면 %보다 먼저다.
+ * 값이 그대로 간다. 금액이 있으면 %보다 먼저다. 사방넷에서 쓰던 그 몰의 분류 · 부가정보는 몰 이름 아래에 남는다.
  */
 export function ChannelOverridesSection({ product }: { product: SalesProduct }) {
   const queryClient = useQueryClient();
@@ -75,7 +98,13 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
   });
 
   const remove = useMutation({
-    mutationFn: (channelAccountId: string) => salesProductApi.deleteChannelOverride(product.id, channelAccountId),
+    // 사방넷에서 옮긴 분류 · 부가정보가 있는 줄은 지우지 않고 판매가 · 상품명만 비운다 — 해지하면 다시 받을 수 없다.
+    mutationFn: (channelAccountId: string) => {
+      const override = product.channelOverrides.find((item) => item.channelAccountId === channelAccountId);
+      return hasSabangnetValues(override)
+        ? salesProductApi.upsertChannelOverride(product.id, channelAccountId, { salePrice: null, priceRateBp: null, name: null })
+        : salesProductApi.deleteChannelOverride(product.id, channelAccountId);
+    },
     onSuccess: (next) => {
       queryClient.setQueryData(salesProductKeys.detail(product.id), next);
       toast.success('몰별 값을 지웠습니다. 이 몰에는 판매상품 값이 그대로 갑니다.');
@@ -116,7 +145,10 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                   : product.salePrice;
               return (
                 <tr key={channelAccountId} className="border-b border-slate-100">
-                  <td className="px-3 py-1.5 font-medium text-slate-800">{mallName}</td>
+                  <td className="px-3 py-1.5 align-top font-medium text-slate-800">
+                    {mallName}
+                    <SabangnetMallNote override={override} />
+                  </td>
                   <td className="px-2 py-1.5">
                     <input
                       type="number"

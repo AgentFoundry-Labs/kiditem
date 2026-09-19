@@ -20,7 +20,11 @@ import {
   type SalesProductImageMirrorPort,
 } from '../port/out/storage/sales-product-image-mirror.port';
 import { mirroredImageKey, preferMirroredImageUrls } from '../../domain/sales-product-images';
-import { buildSabangnetImportPlan, sabangnetShopMallKey } from './sabangnet-product-import.plan';
+import {
+  buildSabangnetImportPlan,
+  planSabangnetMallValues,
+  sabangnetShopMallKey,
+} from './sabangnet-product-import.plan';
 import { SalesProductLinkService } from './sales-product-link.service';
 import type { SendRecordLink } from '../../domain/sales-product-links';
 import {
@@ -28,6 +32,8 @@ import {
   SabangnetWorkbookFormatError,
   type ParsedSabangnetWorkbook,
   type SabangnetChannelOverrideRow,
+  type SabangnetMallCategoryRow,
+  type SabangnetMallTemplateRow,
   type SabangnetOptionRow,
   type SabangnetProductRow,
   type SabangnetSendRecordRow,
@@ -38,7 +44,7 @@ export interface UploadedWorkbook {
   buffer: Buffer;
 }
 
-const MAX_FILES = 4;
+const MAX_FILES = 6;
 
 /**
  * 사방넷 엑셀 가져오기(KID-264). 같은 파일을 두 번 올려도 결과가 같다 — 판매상품코드(사방넷 품번)로 찾아
@@ -72,18 +78,38 @@ export class SabangnetProductImportService {
       byKind.set(workbook.kind, workbook);
     }
     const products = byKind.get('products');
-    const sendRecords = toSendRecordLinks((byKind.get('send_records')?.rows ?? []) as SabangnetSendRecordRow[]);
+    const sendRecordRows = (byKind.get('send_records')?.rows ?? []) as SabangnetSendRecordRow[];
+    const sendRecords = toSendRecordLinks(sendRecordRows);
     if (!products && !byKind.has('send_records')) {
       throw new BadRequestException('사방넷상품대량수정(또는 대량등록) 파일이나 쇼핑몰상품수정 다운로드 파일이 있어야 합니다.');
     }
+    if ((byKind.has('mall_categories') || byKind.has('mall_templates')) && !byKind.has('send_records')) {
+      throw new BadRequestException('쇼핑몰카테고리 · 쇼핑몰부가정보는 어느 상품이 썼는지 알려 주는 쇼핑몰상품수정 다운로드와 함께 올리세요.');
+    }
+    const mallValues = (productIdByCode: ReadonlyMap<string, string>, accounts: readonly { id: string; channel: string }[]) =>
+      planSabangnetMallValues({
+        sendRecords: sendRecordRows,
+        categories: (byKind.get('mall_categories')?.rows ?? []) as SabangnetMallCategoryRow[],
+        templates: (byKind.get('mall_templates')?.rows ?? []) as SabangnetMallTemplateRow[],
+        productIdByCode,
+        accounts,
+      });
+    const writeMallValues = async () => {
+      if (sendRecordRows.length === 0) return null;
+      const [productIdByCode, accounts] = await Promise.all([
+        this.repository.readProductIdsByCodes(organizationId, [...new Set(sendRecordRows.map((row) => row.goodsNo))]),
+        this.repository.listChannelAccounts(organizationId),
+      ]);
+      const planned = mallValues(productIdByCode, accounts);
+      if (!dryRun) await this.repository.mergeSabangnetMallValues(organizationId, planned.writes);
+      return { pairs: planned.writes.length, withCategory: planned.withCategory, withTemplate: planned.withTemplate };
+    };
     if (!products) {
-      // 송신 기록만 올렸다 — 상품은 그대로 두고 몰 상품만 잇는다.
-      return {
-        ...emptyPreview(dryRun, parsed),
-        links: dryRun
-          ? await this.links.preview(organizationId, sendRecords)
-          : await this.links.autoLink(organizationId, sendRecords),
-      };
+      // 송신 기록만 올렸다 — 상품은 그대로 두고 몰 상품을 잇고, 상품 × 몰의 사방넷 분류 · 부가정보를 옮긴다.
+      const links = dryRun
+        ? await this.links.preview(organizationId, sendRecords)
+        : await this.links.autoLink(organizationId, sendRecords);
+      return { ...emptyPreview(dryRun, parsed), links, mallValues: await writeMallValues() };
     }
 
     const productRows = products.rows as SabangnetProductRow[];
@@ -180,12 +206,21 @@ export class SabangnetProductImportService {
       issues: issues.slice(0, 200),
       issueCount: issues.length,
       links: null,
+      mallValues: null,
     };
-    if (dryRun) return { ...preview, links: sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null };
+    if (dryRun) {
+      return {
+        ...preview,
+        links: sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null,
+        // 새로 만들 판매상품은 아직 id 가 없어 세지 못한다 — 옮긴 뒤 다시 미리보면 잡힌다.
+        mallValues: await writeMallValues(),
+      };
+    }
 
     const result = await this.repository.importSabangnet(organizationId, writes);
     // 옮긴 판매상품을 몰에 올라간 상품과 잇는다(사방넷 기록 · 판매자 상품코드 · 올린 송신 기록).
     const links = await this.links.autoLink(organizationId, sendRecords);
+    const savedMallValues = await writeMallValues();
     this.logger.log(
       `사방넷 가져오기 org=${organizationId} 새로 ${result.created} · 고침 ${result.updated} · 그대로 ${result.unchanged} · 몰별 값 ${result.overridesSaved}`,
     );
@@ -194,6 +229,7 @@ export class SabangnetProductImportService {
       products: { ...preview.products, created: result.created, updated: result.updated, unchanged: result.unchanged },
       channelOverrides: { ...preview.channelOverrides, saved: result.overridesSaved },
       links,
+      mallValues: savedMallValues,
     };
   }
 }
@@ -215,6 +251,7 @@ function emptyPreview(dryRun: boolean, parsed: readonly ParsedSabangnetWorkbook[
     issues: parsed.flatMap((workbook) => workbook.issues).slice(0, 200),
     issueCount: parsed.reduce((sum, workbook) => sum + workbook.issues.length, 0),
     links: null,
+    mallValues: null,
   };
 }
 

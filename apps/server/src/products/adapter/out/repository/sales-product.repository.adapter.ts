@@ -39,6 +39,9 @@ import type {
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 const IMPORT_CHUNK = 20;
+const MALL_VALUES_CHUNK = 200;
+/** 사방넷에서 옮긴 상품 × 몰 값 키의 머리(`SALES_PRODUCT_SABANGNET_VALUE_KEYS`). */
+const SABANGNET_VALUE_PREFIX = 'sabangnet';
 
 type Tx = Prisma.TransactionClient;
 
@@ -325,7 +328,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string;
     salesProductId: string;
     channelAccountId: string;
-    data: SalesProductChannelOverrideRecord;
+    data: Partial<SalesProductChannelOverrideRecord>;
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await assertProductAndAccount(tx, input.organizationId, input.salesProductId, input.channelAccountId);
@@ -514,6 +517,83 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       }
     }
     return fingerprints;
+  }
+
+  async readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {
+    const ids = new Map<string, string>();
+    for (let start = 0; start < codes.length; start += 500) {
+      const rows = await this.prisma.salesProduct.findMany({
+        where: { organizationId, code: { in: codes.slice(start, start + 500) } },
+        select: { id: true, code: true },
+      });
+      for (const row of rows) ids.set(row.code, row.id);
+    }
+    return ids;
+  }
+
+  async mergeSabangnetMallValues(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; values: Record<string, string> }[],
+  ): Promise<number> {
+    let written = 0;
+    for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
+      const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
+      await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.salesProductChannelOverride.findMany({
+          where: {
+            organizationId,
+            OR: chunk.map((write) => ({ salesProductId: write.salesProductId, channelAccountId: write.channelAccountId })),
+          },
+          select: { id: true, salesProductId: true, channelAccountId: true, adapterValues: true },
+        });
+        const byPair = new Map(existing.map((row) => [`${row.salesProductId}|${row.channelAccountId}`, row]));
+        for (const write of chunk) {
+          const row = byPair.get(`${write.salesProductId}|${write.channelAccountId}`);
+          if (!row) {
+            await tx.salesProductChannelOverride.create({
+              data: {
+                organizationId,
+                salesProductId: write.salesProductId,
+                channelAccountId: write.channelAccountId,
+                adapterValues: write.values,
+              },
+            });
+            written += 1;
+            continue;
+          }
+          const kept = Object.fromEntries(Object.entries(isStringRecord(row.adapterValues) ? row.adapterValues : {})
+            .filter(([key]) => !key.startsWith(SABANGNET_VALUE_PREFIX)));
+          const merged = { ...kept, ...write.values };
+          if (sameStringRecord(isStringRecord(row.adapterValues) ? row.adapterValues : {}, merged)) continue;
+          await tx.salesProductChannelOverride.updateMany({
+            where: { id: row.id, organizationId },
+            data: { adapterValues: merged, version: { increment: 1 } },
+          });
+          written += 1;
+        }
+      });
+    }
+    return written;
+  }
+
+  async listMallCategories(
+    organizationId: string,
+    mallKey: string,
+  ): Promise<{ path: string; title: string | null; count: number }[]> {
+    const rows = await this.prisma.$queryRaw<{ path: string; title: string | null; count: number }[]>(Prisma.sql`
+      SELECT o.adapter_values->>'sabangnetCategoryPath' AS path,
+        max(o.adapter_values->>'sabangnetCategoryTitle') AS title,
+        count(*)::int AS count
+      FROM sales_product_channel_overrides o
+      JOIN channel_accounts a ON a.id = o.channel_account_id AND a.organization_id = o.organization_id
+      WHERE o.organization_id = ${organizationId}::uuid
+        AND a.channel = ${mallKey}
+        AND coalesce(o.adapter_values->>'sabangnetCategoryPath', '') <> ''
+      GROUP BY 1
+      ORDER BY 3 DESC, 1
+      LIMIT 300
+    `);
+    return rows;
   }
 
   async findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>> {
@@ -768,19 +848,20 @@ async function upsertOverride(
   organizationId: string,
   salesProductId: string,
   channelAccountId: string,
-  data: SalesProductChannelOverrideRecord,
+  data: Partial<SalesProductChannelOverrideRecord>,
 ): Promise<void> {
+  // 보낸 칸만 쓴다 — 사람이 몰 판매가만 고쳐도 사방넷에서 옮긴 상세 · 원가 · 고시 · 분류가 지워지지 않게.
   const values = {
-    salePrice: data.salePrice,
-    priceRateBp: data.priceRateBp,
-    costPrice: data.costPrice,
-    name: data.name,
-    detailHtml: data.detailHtml,
-    promoText: data.promoText,
-    noticeCategory: data.noticeCategory,
-    stockPercent: data.stockPercent,
-    adapterValues: data.adapterValues ?? Prisma.JsonNull,
-    sourceRaw: data.sourceRaw ?? Prisma.JsonNull,
+    ...(data.salePrice !== undefined ? { salePrice: data.salePrice } : {}),
+    ...(data.priceRateBp !== undefined ? { priceRateBp: data.priceRateBp } : {}),
+    ...(data.costPrice !== undefined ? { costPrice: data.costPrice } : {}),
+    ...(data.name !== undefined ? { name: data.name } : {}),
+    ...(data.detailHtml !== undefined ? { detailHtml: data.detailHtml } : {}),
+    ...(data.promoText !== undefined ? { promoText: data.promoText } : {}),
+    ...(data.noticeCategory !== undefined ? { noticeCategory: data.noticeCategory } : {}),
+    ...(data.stockPercent !== undefined ? { stockPercent: data.stockPercent } : {}),
+    ...(data.adapterValues !== undefined ? { adapterValues: data.adapterValues ?? Prisma.JsonNull } : {}),
+    ...(data.sourceRaw !== undefined ? { sourceRaw: data.sourceRaw ?? Prisma.JsonNull } : {}),
   };
   await tx.salesProductChannelOverride.upsert({
     where: { salesProductId_channelAccountId: { salesProductId, channelAccountId } },
@@ -906,6 +987,11 @@ function toSalesProduct(
       isActive: listing.isActive,
     })),
   } satisfies SalesProduct;
+}
+
+function sameStringRecord(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  return leftKeys.length === Object.keys(right).length && leftKeys.every((key) => left[key] === right[key]);
 }
 
 function isStringRecord(value: Prisma.JsonValue | null): value is Record<string, string> {

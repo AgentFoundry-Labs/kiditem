@@ -43,6 +43,16 @@ export class SalesProductController {
     private readonly images: SalesProductImageService,
   ) {}
 
+  /** 이 몰에서 판매상품이 쓴 사방넷 분류 — 등록 화면의 분류 칸 고를거리. */
+  @Get('mall-categories')
+  mallCategories(
+    @CurrentOrganization() organizationId: string,
+    @Query('mallKey') mallKey?: string,
+  ) {
+    if (!mallKey?.trim()) throw new BadRequestException('mallKey 가 필요합니다.');
+    return this.salesProducts.mallCategories(organizationId, mallKey.trim());
+  }
+
   /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
   @Get('images/external')
   externalImages(@CurrentOrganization() organizationId: string) {
@@ -88,7 +98,7 @@ export class SalesProductController {
 
   @Post('imports/sabangnet')
   @UseInterceptors(
-    FilesInterceptor('files', 4, {
+    FilesInterceptor('files', 6, {
       limits: { fileSize: MAX_WORKBOOK_SIZE },
       fileFilter: (_req, file, cb) => {
         if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);

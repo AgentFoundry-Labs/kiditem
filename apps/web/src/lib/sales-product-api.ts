@@ -3,11 +3,13 @@ import {
   SalesProductExternalImagesSchema,
   SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
+  SalesProductMallCategoriesSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
   type SalesProduct,
   type SalesProductExternalImages,
   type SalesProductImageMirrorResult,
+  type SalesProductMallCategories,
   type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
@@ -34,6 +36,7 @@ export const salesProductKeys = {
   skuSearch: (search: string) => ['sales-products', 'sku-search', search] as const,
   mallAccounts: () => ['sales-products', 'mall-accounts'] as const,
   externalImages: () => ['sales-products', 'external-images'] as const,
+  mallCategories: (mallKey: string) => ['sales-products', 'mall-categories', mallKey] as const,
 };
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
@@ -68,6 +71,11 @@ export const salesProductApi = {
     for (const file of files) form.append('files', file);
     return apiClient.uploadParsed(`${BASE}/imports/sabangnet?dryRun=${dryRun}`, SabangnetImportPreviewSchema, form);
   },
+  /** 이 몰에서 판매상품이 쓴 사방넷 분류(많이 쓴 순) — 등록 화면 분류 칸의 고를거리. */
+  mallCategories: async (mallKey: string): Promise<SalesProductMallCategories> =>
+    SalesProductMallCategoriesSchema.parse(
+      await apiClient.get<unknown>(`${BASE}/mall-categories?mallKey=${encodeURIComponent(mallKey)}`),
+    ),
   /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
   externalImages: async (): Promise<SalesProductExternalImages> =>
     SalesProductExternalImagesSchema.parse(await apiClient.get<unknown>(`${BASE}/images/external`)),

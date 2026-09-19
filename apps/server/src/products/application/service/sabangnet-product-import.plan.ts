@@ -4,6 +4,7 @@ import {
 import {
   buildSalesProductOptionCombinations,
   nextSalesProductOptionCode,
+  SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   salesProductOptionKey,
   type SabangnetImportIssue,
   type SalesProductCertification,
@@ -23,8 +24,11 @@ import type {
 } from '../port/out/repository/sales-product.repository.port';
 import type {
   SabangnetChannelOverrideRow,
+  SabangnetMallCategoryRow,
+  SabangnetMallTemplateRow,
   SabangnetOptionRow,
   SabangnetProductRow,
+  SabangnetSendRecordRow,
 } from './sabangnet-product-workbook.parser';
 
 /**
@@ -332,7 +336,6 @@ function planOverrides(
         promoText: clamp(row.promoText, 255),
         noticeCategory: clamp(row.noticeCategory, 10),
         stockPercent: row.stockPercent !== null ? Math.max(0, Math.min(100, row.stockPercent)) : null,
-        adapterValues: null,
         sourceRaw: row.raw,
       },
     });
@@ -347,4 +350,65 @@ function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[
     grouped.set(value, [...(grouped.get(value) ?? []), row]);
   }
   return grouped;
+}
+
+export interface SabangnetMallValuesWrite {
+  salesProductId: string;
+  channelAccountId: string;
+  /** `SALES_PRODUCT_SABANGNET_VALUE_KEYS` 키만. 빈 값은 넣지 않는다. */
+  values: Record<string, string>;
+}
+
+const MALL_VALUE_MAX = 2000;
+
+/**
+ * 송신 기록(몰 × 상품)이 가리키는 사방넷 분류 · 부가정보를 상품 × 몰 값으로 푼다. 같은 몰 계정으로 오는 쇼핑몰이
+ * 둘이면(11번가 신 · 구) 몰별 값과 같이 표 앞쪽이 이긴다. 우리 몰 계정이 없거나 판매상품이 없으면 넘긴다.
+ */
+export function planSabangnetMallValues(input: {
+  sendRecords: readonly Pick<SabangnetSendRecordRow, 'shopCode' | 'goodsNo' | 'additionCode' | 'categoryCode'>[];
+  categories: readonly SabangnetMallCategoryRow[];
+  templates: readonly SabangnetMallTemplateRow[];
+  productIdByCode: ReadonlyMap<string, string>;
+  accounts: readonly { id: string; channel: string }[];
+}): { writes: SabangnetMallValuesWrite[]; withCategory: number; withTemplate: number } {
+  const categoryByCode = new Map(input.categories.map((row) => [row.code, row]));
+  const templateByCode = new Map(input.templates.map((row) => [row.code, row]));
+  const accountByChannel = new Map(input.accounts.map((account) => [account.channel, account.id]));
+  const keys = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
+  const byPair = new Map<string, SabangnetMallValuesWrite>();
+  const sorted = [...input.sendRecords].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
+  for (const record of sorted) {
+    const mallKey = sabangnetShopMallKey(record.shopCode);
+    const channelAccountId = mallKey ? accountByChannel.get(mallKey) : undefined;
+    const salesProductId = input.productIdByCode.get(record.goodsNo);
+    if (!channelAccountId || !salesProductId) continue;
+    const pair = `${salesProductId}|${channelAccountId}`;
+    if (byPair.has(pair)) continue;
+    const category = record.categoryCode ? categoryByCode.get(record.categoryCode) : undefined;
+    const template = record.additionCode ? templateByCode.get(record.additionCode) : undefined;
+    const values: Record<string, string> = {};
+    const put = (key: string, value: string | null | undefined) => {
+      const text = value?.trim();
+      if (text) values[key] = text.length > MALL_VALUE_MAX ? text.slice(0, MALL_VALUE_MAX) : text;
+    };
+    put(keys.categoryCode, record.categoryCode);
+    put(keys.categoryTitle, category?.title);
+    // 분류를 따로 고르지 않은 송신은 부가정보의 기본 분류로 올라갔다.
+    put(keys.categoryPath, category?.path ?? template?.path);
+    put(keys.templateCode, record.additionCode);
+    put(keys.templateTitle, template?.title);
+    put(keys.namePrefix, template?.namePrefix);
+    put(keys.nameSuffix, template?.nameSuffix);
+    put(keys.detailTop, template?.detailTop);
+    put(keys.detailBottom, template?.detailBottom);
+    if (Object.keys(values).length === 0) continue;
+    byPair.set(pair, { salesProductId, channelAccountId, values });
+  }
+  const writes = [...byPair.values()];
+  return {
+    writes,
+    withCategory: writes.filter((write) => write.values[keys.categoryPath]).length,
+    withTemplate: writes.filter((write) => write.values[keys.templateTitle]).length,
+  };
 }

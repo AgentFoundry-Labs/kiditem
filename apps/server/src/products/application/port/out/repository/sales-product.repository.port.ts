@@ -79,8 +79,9 @@ export interface SalesProductChannelOverrideRecord {
   promoText: string | null;
   noticeCategory: string | null;
   stockPercent: number | null;
-  adapterValues: Record<string, string> | null;
-  sourceRaw: Record<string, string> | null;
+  /** 없으면(undefined) 지금 값을 그대로 둔다. 사람이 몰별 값을 고쳐도 옮겨 온 사방넷 값이 지워지지 않게. */
+  adapterValues?: Record<string, string> | null;
+  sourceRaw?: Record<string, string> | null;
 }
 
 export interface SalesProductImportResult {
@@ -121,11 +122,12 @@ export interface SalesProductRepositoryPort {
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
   }): Promise<boolean>;
+  /** 보낸 칸만 바꾼다(undefined 는 지금 값 그대로, null 은 비움). 줄이 없으면 만든다. */
   upsertChannelOverride(input: {
     organizationId: string;
     salesProductId: string;
     channelAccountId: string;
-    data: SalesProductChannelOverrideRecord;
+    data: Partial<SalesProductChannelOverrideRecord>;
   }): Promise<void>;
   deleteChannelOverride(input: {
     organizationId: string;
@@ -156,6 +158,21 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     codes: readonly string[],
   ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
+  /** 가져오기: 판매상품코드 → id(이미 있는 것만). */
+  readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>>;
+  /**
+   * 상품 × 몰 값의 사방넷 키(`sabangnet…`)만 바꿔 쓴다. 다른 키와 몰별 판매가 · 상품명 등은 그대로 두고, 몰별 값 줄이
+   * 없으면 만든다. 쓴 줄 수를 돌려준다.
+   */
+  mergeSabangnetMallValues(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; values: Record<string, string> }[],
+  ): Promise<number>;
+  /** 몰 키의 계정들에서 판매상품이 쓴 사방넷 분류 경로 — 많이 쓴 순. */
+  listMallCategories(
+    organizationId: string,
+    mallKey: string,
+  ): Promise<{ path: string; title: string | null; count: number }[]>;
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
