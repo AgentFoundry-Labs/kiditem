@@ -7,7 +7,7 @@ import {
   DOMEGGOOK_BASE_VALUE,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/domeggook-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -171,14 +171,8 @@ export const domeggookAdapter: MallPublishAdapter = {
       ...(values.itemCode?.trim() ? { itemCode: values.itemCode.trim() } : {}),
       ...(values.certNumber?.trim() ? { certNumber: values.certNumber.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('domeggook', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. 사람이 제출해야 등록이다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    // [등록]까지 부탁한다(ADR-0015). 확장이 이 몰의 누르기를 확인하지 않았으면 폼만 채우고 사람에게 남긴다.
+    const result = await fillMallRegistrationForm('domeggook', draft, form, { submit: true });
+    return registrationOutcome(result);
   },
 };

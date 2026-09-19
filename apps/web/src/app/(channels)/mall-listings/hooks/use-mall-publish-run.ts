@@ -30,15 +30,24 @@ function toMessage(error: unknown): string {
 type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'message' | 'warningCount'>;
 
 /**
- * 폼을 채운 것은 등록이 아니다 — 사람이 제출해야 하므로 '확인 필요'로 남긴다. 몰에서 다시
- * 확인된 것만 성공이다(ok ≠ confirmed).
+ * 몰에서 다시 확인된 것만 성공이다(ok ≠ confirmed). 확장이 [등록]을 눌러 몰이 받았어도 재조회 전이면 '확인 필요'이고,
+ * 누르지 않았으면(확인 전 몰 · 확인할 칸) 사람이 [등록]할 몫으로 남긴다(ADR-0015).
  */
 function sendRecord(outcome: MallSendOutcome): PublishRecord {
   const warningCount = outcome.warnings.length;
   if (!outcome.ok) {
-    return { outcome: 'failed', reasonCode: 'send_failed', message: outcome.error ?? null, warningCount };
+    const refused = outcome.submitted === true && outcome.accepted === false;
+    return { outcome: 'failed', reasonCode: refused ? 'mall_refused' : 'send_failed', message: outcome.error ?? null, warningCount };
   }
   if (outcome.confirmed) return { outcome: 'succeeded', reasonCode: null, message: null, warningCount };
+  if (outcome.submitted) {
+    return {
+      outcome: 'attention',
+      reasonCode: outcome.accepted ? 'submitted_awaiting_recheck' : 'submitted_unconfirmed',
+      message: outcome.productNo ? `몰 상품번호 ${outcome.productNo}` : null,
+      warningCount,
+    };
+  }
   return { outcome: 'attention', reasonCode: 'manual_submit_required', message: null, warningCount };
 }
 

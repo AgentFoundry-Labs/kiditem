@@ -12,7 +12,7 @@ import {
   boriboriListPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/boribori-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -188,14 +188,8 @@ export const boriboriAdapter: MallPublishAdapter = {
       ...(values.decoWord?.trim() ? { decoWord: values.decoWord.trim() } : {}),
       ...(values.sellerCode?.trim() ? { sellerCode: values.sellerCode.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('boribori', draft, form);
-    return {
-      ok: result.ok,
-      // 1단계만 채웠다. 저장·상세정보·승인요청이 남아 있으니 등록이 아니다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    // [등록]까지 부탁한다(ADR-0015). 확장이 이 몰의 누르기를 확인하지 않았으면 폼만 채우고 사람에게 남긴다.
+    const result = await fillMallRegistrationForm('boribori', draft, form, { submit: true });
+    return registrationOutcome(result);
   },
 };

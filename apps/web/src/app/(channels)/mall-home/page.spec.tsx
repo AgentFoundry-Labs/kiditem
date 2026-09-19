@@ -496,10 +496,10 @@ describe('쇼핑몰 홈 — 미션', () => {
     expect(within(mission(/네 가지 일이 되게 한다/)).getByText('숫자를 불러오는 중입니다.')).toBeInTheDocument();
   });
 
-  it('지키는 원칙을 적는다 — 되돌리기 어려운 일은 사람이 누른다', () => {
+  it('지키는 원칙을 적는다 — 되돌릴 수 없는 일은 사람이 누른다', () => {
     render(<MallHomePage />);
     expect(screen.getByRole('heading', { name: /지키는 원칙/ })).toBeInTheDocument();
-    expect(screen.getByText(/되돌리기 어려운 일은 사람이 누른다/)).toBeInTheDocument();
+    expect(screen.getByText(/되돌릴 수 없는 일은 사람이 누른다/)).toBeInTheDocument();
   });
 });
 

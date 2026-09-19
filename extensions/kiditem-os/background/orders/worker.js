@@ -7814,8 +7814,11 @@ KidItemDomains.register({
     // 키즈노트 상품등록 폼 자동 채움(제출은 사람이 한다).
     kidsnoteFormRegister: true,
     kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
-    // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
+    // 몰 상품등록 폼 자동 채움. [등록]까지 누르는 것은 확인한 몰만(ADR-0015) — 몰마다 `mallFormSubmit:<몰>` 이 켜진다.
     mallFormRegister: true,
+    mallFormSubmitV1: true,
+    mallFormSubmitMalls: KidItemMallFormRegister.SUBMIT_MALL_KEYS,
+    ...Object.fromEntries(KidItemMallFormRegister.SUBMIT_MALL_KEYS.map((key) => [`mallFormSubmit:${key}`, true])),
     mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st", "icecream"],
     // 몰 품절 송신(끝까지 보낸다. 해제도 같은 액션).
     mallAvailabilitySend: true,

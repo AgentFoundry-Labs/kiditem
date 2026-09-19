@@ -13,10 +13,11 @@ import {
 } from './mall-product-draft';
 
 /**
- * 도매꾹·온채널 상품등록 폼 자동 채움 호출.
+ * 몰 상품등록 폼 자동 채움 · [등록] 누르기 호출.
  *
- * 확장이 등록 화면을 열고 폼을 채운다. **제출은 하지 않는다** — 두 몰 다 승인이
- * 붙는 등록이라 되돌리기 어렵다. 사람이 화면에서 확인하고 누른다.
+ * 확장이 등록 화면을 열고 폼을 채운다. `submit` 을 부탁하면 그 몰의 [등록] 누르기를 확인한 몰에서만, 빠지거나
+ * 확인할 칸이 없을 때 몰 [등록]까지 누른다(ADR-0015, 사장님 2026-09-20 "끝까지 자동 등록"). 누른 것은 몰에 올라간
+ * 것이 아니다 — 몰 재조회로만 확인한다.
  *
  * 키즈노트와 같은 계약을 쓰되 몰 키를 함께 보낸다. 확장이 그 키로 어느 주소를 열고
  * 어느 폼을 채울지 정한다 — 웹이 몰별 주소를 들고 있지 않게 하는 경계다.
@@ -81,8 +82,16 @@ export interface MallFormRegistrationResult {
   ok: boolean;
   mall: MallFormRegisterMall;
   tabId?: number;
-  /** 폼을 채운 것은 등록이 아니다. 언제나 false 다. */
+  /** 확장이 몰 [등록]을 눌렀는가. 누른 것도 등록 확인은 아니다. */
   submitted: boolean;
+  /** 몰이 받았다고 답했나(true) · 거절했나(false) · 모르나(null). 누르지 않았으면 없다. */
+  accepted?: boolean | null;
+  /** 몰이 준 새 상품번호(보이면). */
+  productNo?: string | null;
+  /** 몰이 띄운 말(알림 · 확인 창). */
+  mallMessage?: string | null;
+  /** 부탁했는데 누르지 않은 까닭 — 확인 전 몰이거나 확인할 칸이 남았다. */
+  submitSkipped?: string | null;
   steps: string[];
   warnings: string[];
   manualSteps: string[];
@@ -93,6 +102,11 @@ interface ExtensionResponse {
   ok?: boolean;
   success?: boolean;
   tabId?: number;
+  submitted?: boolean;
+  accepted?: boolean | null;
+  productNo?: string | null;
+  mallMessage?: string | null;
+  submitSkipped?: string;
   steps?: string[];
   warnings?: string[];
   manualSteps?: string[];
@@ -109,6 +123,7 @@ export async function fillMallRegistrationForm(
   mall: MallFormRegisterMall,
   draft: MallProductDraft,
   form: MallRegistrationFormPayload,
+  options: { submit?: boolean } = {},
 ): Promise<MallFormRegistrationResult> {
   // 초안이 비어 있으면 확장을 부르지 않는다. 반쯤 빈 폼이 열리면 사람이 그걸
   // 그대로 제출할 수 있고, 그건 우리가 만든 사고다.
@@ -140,6 +155,8 @@ export async function fillMallRegistrationForm(
         action: 'registerToMallForm',
         mall,
         form,
+        // 옛 확장은 이 칸을 모르고 폼만 채운다 — 누르는 것은 확장이 확인한 몰뿐이다.
+        ...(options.submit ? { submit: true } : {}),
         accountKey,
         ...(credentials ? { credentials } : {}),
       },
@@ -159,12 +176,16 @@ export async function fillMallRegistrationForm(
   }
 
   const ok = response?.ok === true || response?.success === true;
+  const submitted = response?.submitted === true;
   return {
     ok,
     mall,
     ...(typeof response?.tabId === 'number' ? { tabId: response.tabId } : {}),
-    // 확장은 제출하지 않는다. 응답이 어떻든 제출됐다고 보고하지 않는다.
-    submitted: false,
+    submitted,
+    ...(submitted
+      ? { accepted: response?.accepted ?? null, productNo: response?.productNo ?? null, mallMessage: response?.mallMessage ?? null }
+      : {}),
+    ...(response?.submitSkipped ? { submitSkipped: response.submitSkipped } : {}),
     steps: response?.steps ?? [],
     warnings: response?.warnings ?? [],
     manualSteps: response?.manualSteps ?? form.manualSteps,
@@ -190,4 +211,24 @@ export async function prepareMallRegistration(
     detailImageUrl,
   });
   return { draft, detailImageUrl };
+}
+
+/**
+ * [등록]까지 누를 수 있는 몰(확장 폼 스펙 이름) — 확장 핑의 `mallFormSubmitMalls`. 확장이 없거나 옛 확장이면 빈 목록이다.
+ * 화면이 "확장이 등록까지" · "폼 채움, 사람이 등록"을 가를 때 쓴다. 읽기만 한다.
+ */
+export async function detectMallFormSubmitMalls(): Promise<string[]> {
+  const extensionId = await detectOrderCollectionExtensionId().catch(() => null);
+  if (!extensionId) return [];
+  try {
+    const response = await sendToExtension<{ success?: boolean; capabilities?: Record<string, unknown> }>(
+      extensionId,
+      { action: 'ping' },
+      1500,
+    );
+    const malls = response?.capabilities?.mallFormSubmitMalls;
+    return Array.isArray(malls) ? malls.filter((mall): mall is string => typeof mall === 'string') : [];
+  } catch {
+    return [];
+  }
 }

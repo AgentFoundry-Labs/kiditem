@@ -9,8 +9,9 @@
   // 여기 두 몰은 그 둘이 없어서 한 구현으로 충분하다. 몰마다 다른 것은 아래 SPECS
   // 한 덩어리뿐이고, 채우는 절차는 같다.
   //
-  // ⚠️ 제출하지 않는다. 두 몰 다 승인이 붙는 등록이라 되돌리기 어렵다. 폼만 채우고
-  //    사람이 화면에서 확인한 뒤 누른다.
+  // ⚠️ 제출은 몰마다 [등록] 누르기(`submit`)를 확인한 몰에서만, 웹이 `submit: true` 로 부를 때만 한다(ADR-0015,
+  //    사장님 2026-09-20 "끝까지 자동 등록"). 빠지거나 확인할 칸이 하나라도 있으면 누르지 않고 폼을 사람에게 남긴다.
+  //    누른 것(`submitted`)과 몰에 올라간 것(몰 재조회)은 다르다.
 
   const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
   const FILL_TIMEOUT_MS = 120000;
@@ -3565,6 +3566,66 @@
    *
    * MAIN 월드여야 한다. 격리 월드에서는 페이지의 `window.open` 을 갈아끼울 수 없다.
    */
+  /**
+   * 몰 [등록] 버튼을 누른다(ADR-0015). 페이지 안(MAIN)에서 돈다 — 몰이 띄우는 확인 창은 받아들이고(`acceptConfirm`),
+   * 알림 창은 삼켜 글만 모은다. 네이티브 대화상자는 자동화에서 화면을 통째로 멈춘다. 워커가 인자로만 넘긴다.
+   */
+  function pressMallRegisterButton(submit) {
+    try {
+      const dialogs = (window.__kiditemRegisterDialogs = window.__kiditemRegisterDialogs || []);
+      if (!window.__kiditemRegisterDialogsHooked) {
+        window.__kiditemRegisterDialogsHooked = true;
+        window.alert = (message) => { dialogs.push({ type: "alert", message: String(message ?? "").slice(0, 300) }); };
+        window.confirm = (message) => {
+          dialogs.push({ type: "confirm", message: String(message ?? "").slice(0, 300) });
+          return submit.acceptConfirm !== false;
+        };
+      }
+      const visible = (el) => Boolean(el) && el.offsetParent !== null && !el.disabled;
+      let button = null;
+      for (const selector of submit.buttonSelectors || []) {
+        button = [...document.querySelectorAll(selector)].find(visible) || null;
+        if (button) break;
+      }
+      if (!button && submit.buttonText) {
+        const want = String(submit.buttonText).replace(/\s+/g, "");
+        button = [...document.querySelectorAll("button, input[type=button], input[type=submit], a")]
+          .find((el) => visible(el) && String(el.textContent || el.value || "").replace(/\s+/g, "") === want) || null;
+      }
+      if (!button) return { clicked: false, noButton: true };
+      button.click();
+      return { clicked: true };
+    } catch (error) {
+      return { clicked: false, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * [등록]을 누른 뒤 결과를 읽는다 — 이동한 주소, 화면 글, 삼킨 알림 글. 새 상품번호는 주소 파라미터나 글에서 찾는다.
+   * 주소는 쿼리를 뺀 채로만 돌려준다(토큰이 섞일 수 있다). 읽기만 한다.
+   */
+  function readMallRegisterResult(submit) {
+    const dialogs = window.__kiditemRegisterDialogs || [];
+    const text = document.body ? String(document.body.innerText || "").slice(0, 20000) : "";
+    const said = dialogs.map((dialog) => dialog.message);
+    const url = location.href;
+    const hit = (needles) => (needles || []).some((needle) => text.includes(needle) || said.some((line) => line.includes(needle)));
+    const success = (submit.successUrlIncludes || []).some((part) => url.includes(part)) || hit(submit.successText);
+    const failure = hit(submit.failureText);
+    let productNo = null;
+    if (submit.productNoUrlParam) {
+      try { productNo = new URL(url).searchParams.get(submit.productNoUrlParam); } catch { productNo = null; }
+    }
+    if (!productNo && submit.productNoPattern) {
+      const pattern = new RegExp(submit.productNoPattern);
+      for (const source of [url, ...said, text]) {
+        const match = pattern.exec(source);
+        if (match) { productNo = match[1]; break; }
+      }
+    }
+    return { url: url.split("?")[0], success, failure, dialogs: said.slice(-5), productNo };
+  }
+
   function driveDetailEditor(payload) {
     return (async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -6107,6 +6168,44 @@
      * 읽기만 한다. 폼을 열지도, 값을 넣지도 않는다 — 사람이 고르는 동안 화면이
      * 물어보는 용도다.
      */
+    /**
+     * 채운 폼의 몰 [등록]을 누르고 결과를 기다린다(ADR-0015). 이 몰의 [등록] 누르기를 확인하지 않았거나(`spec.submit` 없음)
+     * 빠지거나 확인할 칸이 있으면(`blockers`) 누르지 않는다 — 폼은 사람에게 남는다.
+     */
+    async function submitRegistration(tabId, spec, blockers) {
+      if (!spec.submit) {
+        return { submitted: false, reason: `${spec.label}은 아직 [등록] 자동 누르기를 확인하지 않은 몰이라 폼만 채웠습니다. 화면에서 확인하고 등록하세요.` };
+      }
+      if (blockers.length > 0) {
+        return { submitted: false, reason: `확인할 것이 있어 [등록]을 누르지 않았습니다 — ${blockers[0]}` };
+      }
+      const target = spec.allFrames ? { tabId, allFrames: true } : { tabId };
+      const pressed = await chromeApi.scripting.executeScript({
+        target, world: "MAIN", func: pressMallRegisterButton, args: [spec.submit],
+      }).catch((error) => [{ result: { clicked: false, error: String(error?.message || error) } }]);
+      const clicked = (pressed || []).map((entry) => entry?.result).find((entry) => entry?.clicked);
+      if (!clicked) {
+        return { submitted: false, reason: `${spec.label} 등록 버튼을 찾지 못해 누르지 않았습니다. 화면에서 등록하세요.` };
+      }
+      const until = Date.now() + (spec.submit.waitMs || 30000);
+      let last = null;
+      while (Date.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const read = await chromeApi.scripting.executeScript({
+          target, world: "MAIN", func: readMallRegisterResult, args: [spec.submit],
+        }).catch(() => []);
+        const results = (read || []).map((entry) => entry?.result).filter(Boolean);
+        last = results.find((entry) => entry.success) || results.find((entry) => entry.failure) || results[0] || last;
+        if (last?.success || last?.failure) break;
+      }
+      return {
+        submitted: true,
+        accepted: last?.success ? true : last?.failure ? false : null,
+        productNo: last?.productNo || null,
+        mallMessage: (last?.dialogs || []).join(" / ") || null,
+      };
+    }
+
     async function listCategories(message) {
       const spec = specFor(message?.mall);
       const source = spec.categorySource;
@@ -6503,21 +6602,32 @@
           );
         }
       }
+      const fillWarnings = [
+        ...(outcome.warnings || []),
+        ...imageWarnings,
+        ...selfUploadWarnings,
+        ...detailWarnings,
+      ];
+      // 웹이 [등록]까지 부탁했고(ADR-0015) 폼을 다 채웠을 때만 누른다. 채우다 남긴 경고와 사람이 할 일은 모두 막는 이유다.
+      let submission = null;
+      if (message.submit === true && outcome.ok === true) {
+        submission = await submitRegistration(tab.id, spec, [...fillWarnings, ...form.manualSteps]);
+        // 몰이 받았으면 대량 등록이 탭을 쌓지 않게 닫는다. 받지 않았거나 모르면 사람이 보도록 남긴다.
+        if (submission.submitted && submission.accepted === true) {
+          await chromeApi.tabs.remove(tab.id).catch(() => undefined);
+        }
+      }
       return {
         success: outcome.ok === true,
         ok: outcome.ok === true,
         tabId: tab.id,
-        // 제출하지 않는다. 응답이 어떻든 제출됐다고 보고하지 않는다.
-        submitted: false,
+        // 누른 것은 등록이 아니다 — 몰이 받았는지(`accepted`)와 몰 재조회는 따로다.
+        submitted: submission?.submitted === true,
+        ...(submission?.submitted ? { accepted: submission.accepted, productNo: submission.productNo, mallMessage: submission.mallMessage } : {}),
+        ...(submission && !submission.submitted ? { submitSkipped: submission.reason } : {}),
         mall: message.mall,
         steps: outcome.steps || [],
-        warnings: [
-          ...(outcome.warnings || []),
-          ...loginWarnings,
-          ...imageWarnings,
-          ...selfUploadWarnings,
-          ...detailWarnings,
-        ],
+        warnings: [...fillWarnings, ...loginWarnings],
         manualSteps: form.manualSteps,
         ...(outcome.error ? { error: outcome.error } : {}),
       };
@@ -6533,7 +6643,10 @@
     create,
     SPECS,
     FILL_TIMEOUT_MS,
+    // [등록]까지 누를 수 있는 몰(ADR-0015) — 몰마다 등록 버튼 · 결과 화면을 확인한 몰만.
+    SUBMIT_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].submit)),
     pageFunctions: {
+      pressMallRegisterButton, readMallRegisterResult,
       driveDetailEditor, fillMallProductForm, fillSsgProductForm, fillSmartstoreProductForm, fillGsshopProductForm,
       fillLotteonProductForm, fillKakaoProductForm,
     },

@@ -12,6 +12,8 @@ interface StepMallsProps {
   selected: ReadonlySet<string>;
   productCount: number;
   onToggle: (mallKey: string) => void;
+  /** 확장이 [등록]까지 누르는 몰(몰 계정 키, ADR-0015). 나머지는 폼만 채우고 사람이 등록한다. */
+  autoSubmitMalls: ReadonlySet<string>;
 }
 
 const MODE_META: Record<MallPublishAdapter['mode'], { label: string; icon: typeof Plug }> = {
@@ -38,7 +40,7 @@ function batchHint(adapter: MallPublishAdapter, productCount: number): string {
  * 무엇을 지원하는가" 를 아는 것이고, 실제로 보내는 방법을 아는 것은 어댑터다.
  * 둘을 섞어 보여주면 고를 수 없는 몰을 고르게 된다.
  */
-export function StepMalls({ targets, selected, productCount, onToggle }: StepMallsProps) {
+export function StepMalls({ targets, selected, productCount, onToggle, autoSubmitMalls }: StepMallsProps) {
   const targetByKey = new Map(targets.map((target) => [target.manifest.key, target]));
   const withoutAdapter = targets.filter(
     (target) => !MALL_PUBLISH_ADAPTERS.some((adapter) => adapter.mallKey === target.manifest.key),
@@ -66,6 +68,7 @@ export function StepMalls({ targets, selected, productCount, onToggle }: StepMal
             target={targetByKey.get(adapter.mallKey) ?? null}
             selected={selected.has(adapter.mallKey)}
             productCount={productCount}
+            autoSubmit={autoSubmitMalls.has(adapter.mallKey)}
             onToggle={() => onToggle(adapter.mallKey)}
           />
         ))}
@@ -102,12 +105,14 @@ function MallAdapterCard({
   target,
   selected,
   productCount,
+  autoSubmit,
   onToggle,
 }: {
   adapter: MallPublishAdapter;
   target: MallPublishTarget | null;
   selected: boolean;
   productCount: number;
+  autoSubmit: boolean;
   onToggle: () => void;
 }) {
   const mode = MODE_META[adapter.mode];
@@ -153,8 +158,8 @@ function MallAdapterCard({
         </div>
         <div className="flex gap-2">
           <dt className="w-16 flex-none text-slate-400">최종 제출</dt>
-          <dd className={adapter.requiresOperatorSubmit ? 'text-amber-600' : 'text-slate-600'}>
-            {adapter.requiresOperatorSubmit ? '사람이 직접' : '자동'}
+          <dd className={autoSubmit ? 'text-emerald-700' : 'text-amber-600'}>
+            {autoSubmit ? '확장이 [등록]까지' : '폼 채움 · 사람이 등록'}
           </dd>
         </div>
         <div className="flex gap-2">

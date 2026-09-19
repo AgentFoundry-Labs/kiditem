@@ -246,14 +246,16 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
 
     await waitFor(() => {
-      expect(screen.getByText('전송 완료')).toBeInTheDocument();
+      expect(screen.getByText('끝남')).toBeInTheDocument();
     });
-    expect(screen.getByText('전송까지 끝났습니다. 아직 등록은 아닙니다.')).toBeInTheDocument();
+    expect(screen.getByText('끝났습니다. 몰에 올라간 것은 몰 상품을 다시 가져와 확인합니다.')).toBeInTheDocument();
     expect(screen.getByText('화면에서 등록 신청 버튼을 누르세요.')).toBeInTheDocument();
-
-    // '등록 확인됨' 은 0 이어야 한다 — 폼을 채운 것은 등록이 아니다.
-    const confirmedCard = screen.getByText('등록 확인됨').parentElement as HTMLElement;
-    expect(within(confirmedCard).getByText('0')).toBeInTheDocument();
+    // 확장이 [등록]을 누르지 않은 몰은 사람 몫으로 센다 — 폼을 채운 것은 등록이 아니다(ADR-0015).
+    expect(screen.getByText('폼 채움 — [등록]은 사람이 누릅니다.')).toBeInTheDocument();
+    const acceptedCard = screen.getByText('몰이 받음').parentElement as HTMLElement;
+    expect(within(acceptedCard).getByText('0')).toBeInTheDocument();
+    const personCard = screen.getByText('사람이 등록할 것').parentElement as HTMLElement;
+    expect(within(personCard).getByText('1')).toBeInTheDocument();
   });
 
   it('한 몰이 실패해도 다음 몰을 계속 보낸다', async () => {

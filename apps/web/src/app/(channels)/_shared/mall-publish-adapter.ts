@@ -92,6 +92,12 @@ export interface MallSendInput {
 
 export interface MallSendOutcome {
   ok: boolean;
+  /** 확장이 몰 [등록]을 눌렀는가(ADR-0015). 누른 것도 `confirmed` 는 아니다. */
+  submitted?: boolean;
+  /** 몰이 받았다고 답했나 · 거절했나 · 모르나. */
+  accepted?: boolean | null;
+  /** 몰이 준 새 상품번호(보이면). */
+  productNo?: string | null;
   /**
    * 몰에 실제로 등록됐음이 확인됐는가.
    *
@@ -200,3 +206,44 @@ export function missingRequiredFields(
 }
 
 export type { MallProductDraft };
+
+/**
+ * 폼 채움 · [등록] 누르기 결과 → 송신 결과(ADR-0015). 몰이 거절하면 실패로 몰의 말을 싣고, 누르지 않았으면 그 까닭을 사람이
+ * 할 일 맨 앞에 둔다. 누른 것도 등록 확인(`confirmed`)은 아니다 — 몰 재조회만 확인이다.
+ */
+export function registrationOutcome(result: {
+  ok: boolean;
+  submitted: boolean;
+  accepted?: boolean | null;
+  productNo?: string | null;
+  mallMessage?: string | null;
+  submitSkipped?: string | null;
+  manualSteps: string[];
+  warnings: string[];
+  error?: string;
+}): MallSendOutcome {
+  if (result.submitted && result.accepted === false) {
+    return {
+      ok: false,
+      confirmed: false,
+      submitted: true,
+      accepted: false,
+      manualSteps: [],
+      warnings: result.warnings,
+      error: result.mallMessage
+        ? `몰이 등록을 받지 않았습니다: ${result.mallMessage}`
+        : '몰이 등록을 받지 않았습니다. 열어 둔 화면에서 까닭을 확인하세요.',
+    };
+  }
+  return {
+    ok: result.ok,
+    confirmed: false,
+    submitted: result.submitted,
+    ...(result.submitted ? { accepted: result.accepted ?? null, productNo: result.productNo ?? null } : {}),
+    manualSteps: result.submitted
+      ? []
+      : [...(result.submitSkipped ? [result.submitSkipped] : []), ...result.manualSteps],
+    warnings: result.warnings,
+    ...(result.error ? { error: result.error } : {}),
+  };
+}

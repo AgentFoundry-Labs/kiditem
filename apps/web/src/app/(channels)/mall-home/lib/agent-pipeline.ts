@@ -273,7 +273,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         'act-register',
         '상품등록 폼 채우기',
         { path: '/mall-listings', label: '상품 등록' },
-        ' · 제출은 사람이',
+        ' · [등록]은 확인한 몰만 확장이',
       ),
       capability('soldout', 'act-soldout', '품절 · 해제 송신', { path: '/mall-availability', label: '품절 관리' }),
       {
@@ -295,8 +295,8 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
       {
         id: 'approve-submit',
         title: '상품등록 최종 제출',
-        status: 'done',
-        detail: '확장은 폼을 채우기만 한다. 저장 · 등록은 사람이 누른다.',
+        status: 'progress',
+        detail: '[등록]을 확인한 몰은 확장이 끝까지 누르고(사장님 2026-09-20), 확인 전 몰은 폼만 채워 사람이 누른다.',
         href: { path: '/mall-listings', label: '상품 등록' },
       },
       {

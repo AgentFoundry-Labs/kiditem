@@ -17,6 +17,11 @@ import {
   type MallPublishItem,
 } from '../../_shared/mall-publish-adapter';
 import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
+import {
+  detectMallFormSubmitMalls,
+  MALL_ACCOUNT_KEY,
+  type MallFormRegisterMall,
+} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import { useMallPublishRun } from '../hooks/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
@@ -90,6 +95,17 @@ export function RegistrationWizard() {
     queryKey: queryKeys.mallPublishing.targets(),
     queryFn: mallPublishingApi.targets,
   });
+
+  // 확장이 [등록]까지 누르는 몰(ADR-0015) — 확장 핑이 알려 주는 폼 스펙 이름을 몰 계정 키로 바꾼다.
+  const submitMallsQuery = useQuery({
+    queryKey: ['mall-listings', 'form-submit-malls'],
+    queryFn: detectMallFormSubmitMalls,
+    staleTime: 60_000,
+  });
+  const autoSubmitMalls = useMemo(() => new Set(
+    (Array.isArray(submitMallsQuery.data) ? submitMallsQuery.data : [])
+      .map((mall) => MALL_ACCOUNT_KEY[mall as MallFormRegisterMall] ?? mall),
+  ), [submitMallsQuery.data]);
 
   const pageItems = useMemo<MallPublishItem[]>(
     () => source === 'sales_product'
@@ -232,6 +248,7 @@ export function RegistrationWizard() {
           selected={selectedMalls}
           productCount={items.length}
           onToggle={toggleMall}
+          autoSubmitMalls={autoSubmitMalls}
         />
       ) : null}
 

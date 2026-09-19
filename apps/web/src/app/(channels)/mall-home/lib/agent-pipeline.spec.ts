@@ -72,7 +72,7 @@ describe('buildAgentPipeline', () => {
     expect(itemOf('sense', 'sense-session').detail).toBe('로그인됨 6 · 인증 필요 1 · 로그인 필요 2곳');
     expect(itemOf('sense', 'sense-soldout').detail).toBe('387개 — 판매 가능 재고 0');
     expect(itemOf('act', 'act-orders').detail).toBe('29곳 중 13곳');
-    expect(itemOf('act', 'act-register').detail).toBe('29곳 중 14곳 · 제출은 사람이');
+    expect(itemOf('act', 'act-register').detail).toBe('29곳 중 14곳 · [등록]은 확인한 몰만 확장이');
     const soldOut = itemOf('act', 'act-soldout');
     expect(soldOut.status).toBe('todo');
     expect(soldOut.detail).toBe('29곳 중 0곳');

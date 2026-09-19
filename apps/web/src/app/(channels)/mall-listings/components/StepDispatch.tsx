@@ -12,7 +12,7 @@ import {
 const STATUS_META: Record<PublishTaskStatus, { label: string; tone: string; icon: typeof Check }> = {
   pending: { label: '대기', tone: 'text-slate-400', icon: CircleDashed },
   running: { label: '진행 중', tone: 'text-purple-600', icon: Loader2 },
-  succeeded: { label: '전송 완료', tone: 'text-emerald-600', icon: Check },
+  succeeded: { label: '끝남', tone: 'text-emerald-600', icon: Check },
   failed: { label: '실패', tone: 'text-red-600', icon: X },
   cancelled: { label: '중단', tone: 'text-slate-400', icon: MinusCircle },
 };
@@ -25,9 +25,8 @@ interface StepDispatchProps {
 /**
  * 4단계 — 송신.
  *
- * 작업 하나가 한 줄이다. 상태는 `전송 완료` 까지만 말한다 — 그게 우리가 아는
- * 전부이기 때문이다. 몰이 실제로 등록했는지는 재조회로만 알 수 있고, 그 배선이
- * 붙기 전까지 이 화면은 등록됐다고 말하지 않는다.
+ * 작업 하나가 한 줄이다. 확장이 [등록]을 누른 몰(ADR-0015)은 "몰이 받음 · 상품번호"까지, 누르지 않은 몰은 "폼 채움 —
+ * 사람이 등록"까지 말한다. 몰이 실제로 올렸는지는 재조회로만 알 수 있어, 그 전에는 등록됐다고 말하지 않는다.
  *
  * 사방넷 FAQ 원문: "실제 등록 성공 여부와 상관없이 '처리완료'로 변경됩니다."
  * 업계에서 가장 자주 나오는 사고가 그 표시를 성공으로 읽는 것이다.
@@ -35,14 +34,16 @@ interface StepDispatchProps {
 export function StepDispatch({ tasks, running }: StepDispatchProps) {
   const summary = summarizePublishRun(tasks);
   const manualSteps = collectManualSteps(tasks);
+  const accepted = tasks.filter((task) => task.outcome?.submitted && task.outcome.accepted === true).length;
+  const leftToPerson = tasks.filter((task) => task.status === 'succeeded' && !task.outcome?.submitted).length;
 
   return (
     <section className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="작업" value={summary.total} />
-        <StatCard label="전송 완료" value={summary.succeeded} tone="text-emerald-600" />
+        <StatCard label="몰이 받음" value={accepted} tone="text-emerald-600" />
+        <StatCard label="사람이 등록할 것" value={leftToPerson} tone="text-amber-600" />
         <StatCard label="실패" value={summary.failed} tone="text-red-600" />
-        <StatCard label="등록 확인됨" value={summary.confirmed} tone="text-slate-400" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -68,6 +69,9 @@ export function StepDispatch({ tasks, running }: StepDispatchProps) {
                   {task.error ? (
                     <p className="mt-1 text-xs leading-relaxed text-red-600">{task.error}</p>
                   ) : null}
+                  {task.status === 'succeeded' ? (
+                    <p className="mt-1 text-xs text-slate-500">{submitLine(task)}</p>
+                  ) : null}
                   {(task.outcome?.warnings ?? []).map((warning) => (
                     <p key={warning} className="mt-1 flex items-start gap-1 text-xs text-amber-600">
                       <AlertTriangle size={11} className="mt-0.5 flex-none" />
@@ -84,10 +88,10 @@ export function StepDispatch({ tasks, running }: StepDispatchProps) {
 
       {summary.done && summary.succeeded > 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <strong className="block">전송까지 끝났습니다. 아직 등록은 아닙니다.</strong>
+          <strong className="block">끝났습니다. 몰에 올라간 것은 몰 상품을 다시 가져와 확인합니다.</strong>
           <p className="mt-1 text-xs leading-relaxed">
-            우리가 확인한 것은 &lsquo;보냈다&rsquo; 까지입니다. 몰이 실제로 등록했는지는 몰 화면에서
-            확인해야 합니다. 아래 남은 일을 마치면 등록이 완료됩니다.
+            몰이 받았다고 답한 것도 몰이 실제로 올렸는지는 몰 상품 목록을 다시 가져와야 압니다. 승인이 붙는 몰은 승인
+            뒤에 올라갑니다. 확장이 [등록]을 누르지 않은 몰은 아래 남은 일을 마쳐야 등록됩니다.
           </p>
           {manualSteps.length > 0 ? (
             <ul className="mt-3 space-y-1.5">
@@ -120,4 +124,14 @@ function StatCard({ label, value, tone = 'text-slate-900' }: { label: string; va
       <div className={cn('mt-1 text-xl font-semibold', tone)}>{formatNumber(value)}</div>
     </div>
   );
+}
+
+/** 끝난 작업 한 줄 — 확장이 [등록]을 눌렀는지, 몰이 뭐라고 했는지. */
+function submitLine(task: PublishTask): string {
+  const outcome = task.outcome;
+  if (!outcome?.submitted) return '폼 채움 — [등록]은 사람이 누릅니다.';
+  if (outcome.accepted === true) {
+    return outcome.productNo ? `몰이 받음 · 상품번호 ${outcome.productNo}` : '몰이 받음';
+  }
+  return '[등록]을 눌렀지만 몰의 답을 읽지 못했습니다 — 열린 화면에서 확인하세요.';
 }

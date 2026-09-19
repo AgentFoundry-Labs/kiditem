@@ -43,6 +43,12 @@ registration, and Coupang cookie-overflow recovery.
   uses `testMallLogin`, which runs outside a collection attempt and sends nothing
   to KidItem. Registration form fill logs in only when the form is absent
   (`noForm`); a form that fails to fill is never a login prompt.
+- Registration presses a mall's own register button only when the web asks
+  `submit: true`, that mall's form spec declares a verified `submit`, and the
+  fill left no warnings or manual steps
+  ([ADR-0015](../../../../docs/adr/0015-mall-registrations-submit-all-the-way.md)).
+  Report pressed, accepted, and refused separately; publication is a later
+  re-read. Never press delete, sale-ban, or other irreversible controls.
 
 ## Collection Contract
 
