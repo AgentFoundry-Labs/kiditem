@@ -8,6 +8,7 @@ import { FileSpreadsheet, Layers, Link2Off, Package, Search } from 'lucide-react
 import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { ExternalImagesNotice } from './components/ExternalImagesNotice';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -85,6 +86,8 @@ function SalesProductsContent() {
           사방넷 엑셀 가져오기
         </button>
       </header>
+
+      <ExternalImagesNotice />
 
       <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryCard icon={Package} label="판매상품" value={data?.summary.total} active={focus === 'all'} onClick={() => navigate({ focus: 'all' })} />

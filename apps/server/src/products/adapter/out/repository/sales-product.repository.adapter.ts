@@ -482,15 +482,18 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return { listings, options };
   }
 
-  async readImportFingerprints(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {
-    const fingerprints = new Map<string, string>();
+  async readImportFingerprints(
+    organizationId: string,
+    codes: readonly string[],
+  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>> {
+    const fingerprints = new Map<string, { fingerprint: string; imageUrls: string[] }>();
     for (let start = 0; start < codes.length; start += 500) {
       const rows = await this.prisma.salesProduct.findMany({
         where: { organizationId, code: { in: codes.slice(start, start + 500) } },
         include: { options: { include: { components: true } } },
       });
       for (const row of rows) {
-        fingerprints.set(row.code, salesProductImportFingerprint({
+        const fingerprint = salesProductImportFingerprint({
           basics: pickFingerprintBasics({
             ...row,
             certifications: parseCertifications(row.certifications),
@@ -506,10 +509,32 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               quantity: component.quantity,
             })),
           })),
-        }));
+        });
+        fingerprints.set(row.code, { fingerprint, imageUrls: row.imageUrls });
       }
     }
     return fingerprints;
+  }
+
+  async listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[] }[]> {
+    return this.prisma.salesProduct.findMany({
+      where: { organizationId },
+      select: { id: true, code: true, version: true, imageUrls: true },
+      orderBy: { code: 'asc' },
+    });
+  }
+
+  async replaceImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    expectedVersion: number;
+    imageUrls: string[];
+  }): Promise<boolean> {
+    const result = await this.prisma.salesProduct.updateMany({
+      where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
+      data: { imageUrls: input.imageUrls, version: { increment: 1 } },
+    });
+    return result.count === 1;
   }
 
   async importSabangnet(

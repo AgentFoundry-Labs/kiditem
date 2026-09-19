@@ -15,6 +15,11 @@ import {
   type SabangnetImportProductWrite,
   type SalesProductRepositoryPort,
 } from '../port/out/repository/sales-product.repository.port';
+import {
+  SALES_PRODUCT_IMAGE_MIRROR_PORT,
+  type SalesProductImageMirrorPort,
+} from '../port/out/storage/sales-product-image-mirror.port';
+import { mirroredImageKey, preferMirroredImageUrls } from '../../domain/sales-product-images';
 import { buildSabangnetImportPlan, sabangnetShopMallKey } from './sabangnet-product-import.plan';
 import { SalesProductLinkService } from './sales-product-link.service';
 import type { SendRecordLink } from '../../domain/sales-product-links';
@@ -49,6 +54,8 @@ export class SabangnetProductImportService {
     @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
     private readonly sellpiaSkus: SellpiaInventorySkuReadPort,
     private readonly links: SalesProductLinkService,
+    @Inject(SALES_PRODUCT_IMAGE_MIRROR_PORT)
+    private readonly images: SalesProductImageMirrorPort,
   ) {}
 
   async import(
@@ -101,7 +108,24 @@ export class SabangnetProductImportService {
     let created = 0;
     let updated = 0;
     let unchanged = 0;
-    for (const product of plan.products) {
+    const mirroredUrl = (url: string) => {
+      const key = mirroredImageKey(organizationId, url);
+      return key ? this.images.urlFor(key) : null;
+    };
+    for (const planned of plan.products) {
+      const current = fingerprints.get(planned.create.code);
+      // 이미 우리 저장소로 옮긴 사진은 다시 가져와도 옮긴 주소를 지킨다.
+      const product = {
+        ...planned,
+        create: {
+          ...planned.create,
+          imageUrls: preferMirroredImageUrls({
+            incoming: planned.create.imageUrls,
+            current: current?.imageUrls ?? [],
+            mirroredUrl,
+          }),
+        },
+      };
       const state = states.get(product.create.code);
       let optionPlan;
       try {
@@ -120,7 +144,7 @@ export class SabangnetProductImportService {
         optionAxes: product.create.optionAxes,
         options: optionPlan.writes,
       });
-      const same = state !== undefined && fingerprints.get(product.create.code) === fingerprint
+      const same = state !== undefined && current?.fingerprint === fingerprint
         && optionPlan.retireIds.length === 0 && optionPlan.deleteIds.length === 0;
       if (!state) created += 1;
       else if (same) unchanged += 1;

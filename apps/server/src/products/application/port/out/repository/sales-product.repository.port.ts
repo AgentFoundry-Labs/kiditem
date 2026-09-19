@@ -151,8 +151,20 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     plan: Pick<SalesProductLinkPlan, 'listingLinks' | 'optionLinks'>,
   ): Promise<{ listings: number; options: number }>;
-  /** 가져오기 미리보기: 코드별 지금 버전 · 내용 해시. */
-  readImportFingerprints(organizationId: string, codes: readonly string[]): Promise<Map<string, string>>;
+  /** 가져오기 미리보기: 코드별 내용 해시와 지금 사진 주소(이미 옮긴 사진을 알아보려고). */
+  readImportFingerprints(
+    organizationId: string,
+    codes: readonly string[],
+  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
+  /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[] }[]>;
+  /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
+  replaceImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    expectedVersion: number;
+    imageUrls: string[];
+  }): Promise<boolean>;
 }
 
 export type { SalesProductChannelOverrideInput };

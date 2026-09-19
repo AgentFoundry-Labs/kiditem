@@ -1,9 +1,13 @@
 import {
   SabangnetImportPreviewSchema,
+  SalesProductExternalImagesSchema,
+  SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
   type SalesProduct,
+  type SalesProductExternalImages,
+  type SalesProductImageMirrorResult,
   type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
@@ -29,6 +33,7 @@ export const salesProductKeys = {
   detail: (id: string) => ['sales-products', 'detail', id] as const,
   skuSearch: (search: string) => ['sales-products', 'sku-search', search] as const,
   mallAccounts: () => ['sales-products', 'mall-accounts'] as const,
+  externalImages: () => ['sales-products', 'external-images'] as const,
 };
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
@@ -63,6 +68,12 @@ export const salesProductApi = {
     for (const file of files) form.append('files', file);
     return apiClient.uploadParsed(`${BASE}/imports/sabangnet?dryRun=${dryRun}`, SabangnetImportPreviewSchema, form);
   },
+  /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+  externalImages: async (): Promise<SalesProductExternalImages> =>
+    SalesProductExternalImagesSchema.parse(await apiClient.get<unknown>(`${BASE}/images/external`)),
+  /** 사방넷 서버 사진 한 묶음을 우리 저장소로 옮긴다. 다음 묶음은 결과의 `nextSkip` 으로 부른다. */
+  mirrorImages: async (skip: number): Promise<SalesProductImageMirrorResult> =>
+    SalesProductImageMirrorResultSchema.parse(await apiClient.post<unknown>(`${BASE}/images/mirror?skip=${skip}`)),
   /** 몰별 값을 둘 수 있는 몰 계정 행(ADR-0012). 쇼핑몰 현황과 같은 목록을 읽기만 한다. */
   mallAccounts: async (): Promise<{ channelAccountId: string; mallKey: string; mallName: string }[]> => {
     const overview = MallChannelOverviewSchema.parse(

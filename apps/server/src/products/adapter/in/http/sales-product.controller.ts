@@ -18,6 +18,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { SalesProductService } from '../../../application/service/sales-product.service';
 import { SabangnetProductImportService } from '../../../application/service/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../../../application/service/sales-product-link.service';
+import { SalesProductImageService } from '../../../application/service/sales-product-image.service';
 
 interface UploadedWorkbookFile {
   originalname: string;
@@ -39,7 +40,24 @@ export class SalesProductController {
     private readonly salesProducts: SalesProductService,
     private readonly sabangnetImport: SabangnetProductImportService,
     private readonly links: SalesProductLinkService,
+    private readonly images: SalesProductImageService,
   ) {}
+
+  /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+  @Get('images/external')
+  externalImages(@CurrentOrganization() organizationId: string) {
+    return this.images.external(organizationId);
+  }
+
+  /** 사방넷 서버 사진을 한 묶음 우리 저장소로 옮긴다. 결과의 `nextSkip` 으로 다음 묶음을 부른다. */
+  @Post('images/mirror')
+  mirrorImages(
+    @CurrentOrganization() organizationId: string,
+    @Query('limit') limit?: string,
+    @Query('skip') skip?: string,
+  ) {
+    return this.images.mirror(organizationId, { limit: optionalInt(limit), skip: optionalInt(skip) });
+  }
 
   /** 몰에 올라간 상품을 판매상품과 잇는다(코드가 정확히 같을 때만). `dryRun=true` 면 세기만 한다. */
   @Post('links/auto')
@@ -130,4 +148,11 @@ export class SalesProductController {
   ) {
     return this.salesProducts.deleteChannelOverride(organizationId, salesProductId, channelAccountId);
   }
+}
+
+function optionalInt(value: string | undefined): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new BadRequestException('limit · skip 은 0 이상의 정수입니다.');
+  return parsed;
 }

@@ -425,3 +425,27 @@ export const SabangnetImportPreviewSchema = z.object({
   links: SalesProductLinkResultSchema.nullable(),
 });
 export type SabangnetImportPreview = z.infer<typeof SabangnetImportPreviewSchema>;
+
+// ── 사진 옮기기(사방넷 서버 → 우리 저장소) ─────────────────────────────
+
+export const SalesProductExternalImagesSchema = z.object({
+  /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+  images: z.number().int(),
+  /** 그런 사진이 있는 판매상품 수. */
+  products: z.number().int(),
+});
+export type SalesProductExternalImages = z.infer<typeof SalesProductExternalImagesSchema>;
+
+export const SalesProductImageMirrorResultSchema = z.object({
+  mirrored: z.number().int(),
+  failedCount: z.number().int(),
+  failed: z.array(z.object({ url: z.string(), reason: z.string() })).max(20),
+  productsUpdated: z.number().int(),
+  /** 그사이 누가 고쳐 이번에 쓰지 못한 판매상품. 다음 묶음에서 다시 옮긴다. */
+  productsSkipped: z.number().int(),
+  /** 아직 옮기지 못한 사진 수. */
+  remaining: z.number().int(),
+  /** 다음 묶음을 부를 때 넘길 `skip` — 이번까지 못 옮긴 사진은 건너뛴다. */
+  nextSkip: z.number().int(),
+});
+export type SalesProductImageMirrorResult = z.infer<typeof SalesProductImageMirrorResultSchema>;
