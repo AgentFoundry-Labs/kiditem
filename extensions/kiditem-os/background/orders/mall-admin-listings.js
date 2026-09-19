@@ -1701,9 +1701,11 @@
     }
   }
 
-  // 롯데ON 판매자센터 화면 안(MAIN)에서 돈다. 상품 조회(`selectProductList`, soapi)를 판매자상품번호 칸 없이 100개씩 1쪽부터
-  // 읽는다. 요청 머리(토큰 · 시간대 · 기기)는 화면이 요청마다 쓰는 함수(`gcm._sbm_setRequestHeader`)로 붙이고 토큰은 밖으로
-  // 나가지 않는다. 전체 수 칸을 모르는 답이라 한 쪽이 덜 차면 끝이다. 몰 상품코드는 판매자상품번호(spdNo, `LO…`)다.
+  // 롯데ON 판매자센터 화면 안(MAIN)에서 돈다. 상품 조회(`selectProductList`, soapi)를 우리 거래처(화면의 로그인 정보
+  // `gcm.user` 의 거래처그룹 · 거래처번호)로 좁혀 100개씩 1쪽부터 전체 수(`totalCount`)만큼 읽는다 — 거래처 없이 부르면 롯데ON
+  // 전체 상품(1억 건대)이 온다(라이브 2026-09-19). 롯데ON 은 탭마다 로그인이라 로그인된 판매자센터 탭을 빌려 읽는다. 요청 머리
+  // (토큰 · 시간대 · 기기)는 화면이 요청마다 쓰는 함수(`gcm._sbm_setRequestHeader`)로 붙이고 토큰은 밖으로 나가지 않는다. 몰
+  // 상품코드는 판매자상품번호(spdNo, `LO…`)다. 모든 줄이 우리 거래처 것인지 확인한다.
   async function readLotteonListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
     const ROW_LIMIT = 20_000;
     const PAGE_LIMIT = 1_000;
@@ -1737,6 +1739,15 @@
         if (/login/i.test(location.href) || Date.now() > deadline) return fail("mall_login_required");
         await wait(500);
       }
+      // 로그인 화면에도 토큰 칸이 있다 — 거래처 정보가 없으면 로그인되지 않은 탭이다.
+      if (/login/i.test(location.href)) return fail("mall_login_required");
+      let trade = null;
+      try {
+        trade = { trGrpCd: gcm.user.getTrGrpCd(), trNo: gcm.user.getTrNo() };
+      } catch {
+        trade = null;
+      }
+      if (!trade || !trade.trNo || !trade.trGrpCd) return fail("mall_login_required");
       const post = (body) => new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", API, true);
@@ -1760,15 +1771,26 @@
 
       const rows = [];
       const seen = new Set();
-      let pages = 0;
-      for (let pageNo = 1; ; pageNo += 1) {
-        if (pages >= PAGE_LIMIT) drift("page_limit");
-        if (pages > 0 && requestDelayMs > 0) await wait(requestDelayMs);
-        const json = await post({ pageNo, rowsPerPage: plan.pageSize });
-        pages += 1;
+      let total = null;
+      let totalPages = 1;
+      for (let pageNo = 1; pageNo <= totalPages; pageNo += 1) {
+        if (pageNo > 1 && requestDelayMs > 0) await wait(requestDelayMs);
+        const json = await post({ ...trade, pageNo, rowsPerPage: plan.pageSize });
         if (json?.returnCode !== "SUCCESS") drift("return_code");
         if (!Array.isArray(json.data)) drift("data");
+        const count = Number(json.totalCount);
+        if (!Number.isInteger(count) || count < 0) drift("total");
+        if (total === null) {
+          // 우리 거래처로 좁혔는데도 몇만 건이면 좁히기가 먹지 않은 것이다 — 남의 상품을 읽지 않는다.
+          if (count > ROW_LIMIT) drift("row_limit");
+          total = count;
+          totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
+          if (totalPages > PAGE_LIMIT) drift("page_limit");
+        } else if (count !== total) {
+          return fail("mall_total_changed");
+        }
         for (const item of json.data) {
+          if (String(item?.trNo ?? "") !== String(trade.trNo)) drift("trade_scope");
           const mallProductCode = String(item?.spdNo ?? "");
           if (!/^LO\d{4,20}$/.test(mallProductCode)) drift("spd_no");
           if (seen.has(mallProductCode)) return fail("mall_total_changed");
@@ -1792,15 +1814,14 @@
           });
           if (rows.length > ROW_LIMIT) drift("row_limit");
         }
-        if (json.data.length < plan.pageSize) break;
       }
+      if (rows.length !== total) return fail("mall_total_changed");
       rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
-      const totalPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
       return {
         success: true,
         snapshot: {
           collection: {
-            totalRecords: rows.length,
+            totalRecords: total,
             recordsRead: rows.length,
             pagesRead: totalPages,
             totalPages,
@@ -1860,24 +1881,35 @@
       const $http = injector.get("$http");
       const search = async (page) => {
         try {
+          // 원상품 목록 검색 폼이 처음 가진 값 그대로다(공개 번들 app.js: searchPeriodType · searchKeywordType ·
+          // searchOrderType · searchKeyword · searchDynamicPricingType). 기간 칸은 비워 전체다.
           const response = await $http({
             method: "POST",
             url: "/api/products/list/search",
             timeout: requestTimeoutMs,
-            data: { searchOrderType: "REG_DATE", page, size: plan.pageSize },
+            data: {
+              searchPeriodType: "PROD_REG_DAY",
+              searchKeywordType: "CHANNEL_PRODUCT_NO",
+              searchOrderType: "REG_DATE",
+              searchKeyword: "",
+              searchDynamicPricingType: "ALL",
+              page,
+              size: plan.pageSize,
+            },
           });
           return response?.data;
         } catch (failure) {
           const status = Number(failure?.status) || 0;
           if (status === 401 || status === 403) throw new Error("LOGIN_REQUIRED");
           if (status === -1) throw Object.assign(new Error("timeout"), { name: "AbortError" });
-          throw new Error("NETWORK_FAILED");
+          // 어떤 답이었는지 남긴다 — 이 몰은 화면을 직접 보지 못해 답 번호가 고칠 곳을 알려 준다.
+          throw new Error(`CONTRACT_DRIFT:http_${status}`);
         }
       };
 
       const first = await search(0);
       if (!first || !Array.isArray(first.content)) drift("content");
-      const total = Number(first.totalElements);
+      const total = Number(first.total ?? first.totalElements);
       if (!Number.isInteger(total) || total < 0) drift("total");
       if (total > ROW_LIMIT) drift("row_limit");
       const totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
@@ -1888,7 +1920,7 @@
         if (page > 0 && requestDelayMs > 0) await wait(requestDelayMs);
         const data = page === 0 ? first : await search(page);
         if (!data || !Array.isArray(data.content)) drift("content");
-        if (Number(data.totalElements) !== total) return fail("mall_total_changed");
+        if (Number(data.total ?? data.totalElements) !== total) return fail("mall_total_changed");
         for (const product of data.content) {
           const originNo = String(product?.id ?? product?.originProductNo ?? "");
           if (!/^\d{6,15}$/.test(originNo)) drift("origin_no");
@@ -1898,7 +1930,7 @@
           const mallProductCode = /^\d{6,15}$/.test(channelNo) ? channelNo : originNo;
           if (seen.has(mallProductCode)) return fail("mall_total_changed");
           seen.add(mallProductCode);
-          const productName = text(String(product.name ?? product.productName ?? channel?.name ?? ""), 400);
+          const productName = text(String(product.productName ?? product.name ?? channel?.name ?? ""), 400);
           if (!productName) drift("product_name");
           const statusType = String(product.productStatusType ?? channel?.statusType ?? "");
           const status = STATUS[statusType];
@@ -1906,7 +1938,7 @@
           const amount = Number(product.salePrice ?? channel?.salePrice);
           const registered = /^(\d{4}-\d{2}-\d{2})/.exec(String(product.regDate ?? product.createdDate ?? ""));
           const code = text(String(product.sellerManagementCode ?? ""), 60);
-          const imageSource = product.representativeImage?.url ?? product.representImage?.url ?? null;
+          const imageSource = product.representImageUrl ?? product.representativeImage?.url ?? null;
           const image = typeof imageSource === "string" && /^https:\/\//.test(imageSource) && imageSource.length <= 2000
             ? imageSource : null;
           rows.push({
@@ -1952,8 +1984,10 @@
     }
   }
 
-  // 티쳐몰(퍼스트몰 selleradmin) 안에서 돈다. 판매상품 목록(`/selleradmin/goods/catalog`)을 100개씩 1쪽부터 읽는다. 줄마다
-  // 상품번호(goods_seq)와 승인 · 판매 상태(`승인 정상` · `미승인 품절` …)가 있다. 한 쪽이 덜 차면 끝이다. 몰 상품코드는 상품번호다.
+  // 티쳐몰(퍼스트몰 selleradmin) 안에서 돈다. 판매상품 목록(`/selleradmin/goods/catalog`)을 100개씩 1쪽부터 읽는다(라이브
+  // 2026-09-19: 1,365개). 칸은 머리 이름으로 찾는다 — 상품명 머리가 두 칸(사진 · 이름)을 덮어 머리를 칸 수만큼 편다. 상품명
+  // 칸에는 "[상품번호: …]" 링크와 이름 링크가 함께 있어 이름 링크만 고른다. 상태 칸은 승인(승인 · 미승인)과 판매 상태(정상 ·
+  // 품절 · 재고확보중 · 판매중지), 노출 칸은 노출 · 미노출이다. 전체 수를 따로 주지 않아 한 쪽이 덜 차면 끝이다.
   async function readTeacherListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
     const ROW_LIMIT = 20_000;
     const PAGE_LIMIT = 1_000;
@@ -1992,6 +2026,20 @@
       }
     }
 
+    function columns(box) {
+      const table = box.closest("table");
+      const headRow = table ? [...table.querySelectorAll("tr")].find((tr) => tr.querySelector("th")) : null;
+      if (!headRow) drift("head");
+      const heads = [];
+      for (const cell of headRow.cells) {
+        for (let span = 0; span < Math.max(1, cell.colSpan || 1); span += 1) heads.push(cell.textContent.replace(/\s+/g, ""));
+      }
+      const at = (prefix) => heads.findIndex((head) => head.startsWith(prefix));
+      const found = { price: at("판매가"), state: at("상태"), shown: at("노출"), date: at("등록일") };
+      if (found.state < 0) drift("state_column");
+      return found;
+    }
+
     try {
       const rows = [];
       const seen = new Set();
@@ -2003,6 +2051,7 @@
         pages += 1;
         const boxes = [...doc.querySelectorAll('input[name="goods_seq[]"]')];
         if (number === 1 && boxes.length === 0 && !doc.querySelector("table")) drift("list");
+        const at = boxes.length > 0 ? columns(boxes[0]) : null;
         let fresh = 0;
         for (const box of boxes) {
           const mallProductCode = String(box.value ?? "");
@@ -2011,26 +2060,28 @@
           if (seen.has(mallProductCode)) continue;
           seen.add(mallProductCode);
           fresh += 1;
-          const tr = box.closest("tr");
-          const rowText = (tr?.textContent ?? "").replace(/\s+/g, " ");
-          const state = /(미승인|승인)\s*(정상|품절|재고확보중|판매중지)/.exec(rowText);
+          const cells = [...(box.closest("tr")?.cells ?? [])];
+          const numberLink = /^\[상품번호:\s*\d+\]$/;
+          const nameCell = cells.find((cell) => [...cell.querySelectorAll("a")].some((anchor) => numberLink.test(anchor.textContent.trim())));
+          const productName = text([...(nameCell?.querySelectorAll("a") ?? [])]
+            .map((anchor) => anchor.textContent)
+            .find((value) => !numberLink.test(value.trim()) && value.trim().length > 1) ?? "", 400);
+          if (!productName) drift("goods_name");
+          const stateText = (cells[at.state]?.textContent ?? "").replace(/\s+/g, "");
+          const state = /(미승인|승인)(정상|품절|재고확보중|판매중지)/.exec(stateText);
           if (!state) drift("state");
-          const link = [...(tr?.querySelectorAll("a") ?? [])]
-            .map((anchor) => text(anchor.textContent ?? "", 400))
-            .filter((value) => value && value.length >= 2 && !/^(수정|보기|복사|삭제|미리보기)$/.test(value))
-            .sort((left, right) => right.length - left.length)[0] ?? null;
-          if (!link) drift("goods_name");
-          const amount = /([0-9][0-9,]{0,12})\s*원/.exec(rowText);
-          const registered = /(\d{4})-(\d{2})-(\d{2})/.exec(rowText);
-          const src = tr?.querySelector("img")?.getAttribute("src") ?? "";
+          const shown = at.shown >= 0 ? text(cells[at.shown]?.textContent ?? "", 20) : null;
+          const digits = at.price >= 0 ? String(cells[at.price]?.textContent ?? "").replace(/[,\s원]/g, "") : "";
+          const registered = at.date >= 0 ? /(\d{4})-(\d{2})-(\d{2})/.exec(cells[at.date]?.textContent ?? "") : null;
+          const src = cells.map((cell) => cell.querySelector("img")?.getAttribute("src") ?? "").find(Boolean) ?? "";
           const image = /^https:\/\//.test(src) && src.length <= 2000 ? src : null;
           rows.push({
             mallProductCode,
-            productName: link,
+            productName,
             sellpiaName: null,
             sellerCode: null,
-            salePrice: amount ? Number(amount[1].replace(/,/g, "")) : null,
-            statusWords: [state[1], state[2]],
+            salePrice: /^\d{1,10}$/.test(digits) ? Number(digits) : null,
+            statusWords: [state[1], state[2], ...(shown ? [shown] : [])],
             registeredOn: registered ? `${registered[1]}-${registered[2]}-${registered[3]}` : null,
             ...(image ? { imageUrl: image } : {}),
           });
@@ -2182,6 +2233,8 @@
       // 판매자센터 첫 화면. 요청 머리를 붙이는 화면 함수가 여기 있어 화면 안(MAIN)에서 읽는다.
       startPath: "/cm/main/index_SO.wsp",
       world: "MAIN",
+      // 롯데ON 은 탭마다 로그인이다(sessionStorage) — 새 탭은 로그인 화면이라, 사장님이 로그인해 둔 판매자센터 탭을 빌린다.
+      borrowOpenTab: true,
       read: readLotteonListings,
     }),
     smartstore: Object.freeze({
@@ -2309,6 +2362,24 @@
       let keepOpen = false;
       try {
         await assertCollectionActive(collection, plan.mallKey);
+        if (reader.borrowOpenTab) {
+          // 탭마다 로그인인 몰은 로그인된 몰 탭을 빌려 읽기만 한다. 옮기거나 닫지 않는다.
+          const open = await chromeApi.tabs.query({ url: `${reader.origin}/*` }).catch(() => []);
+          const borrowed = (open || []).find((candidate) => candidate && candidate.status === "complete"
+            && String(candidate.url || "").startsWith(reader.origin) && !/login|signin|auth/i.test(String(candidate.url || "")));
+          if (borrowed && Number.isInteger(borrowed.id)) {
+            const injected = await chromeApi.scripting.executeScript({
+              target: { tabId: borrowed.id },
+              func: reader.read,
+              args: [plan, requestTimeoutMs, requestDelayMs, concurrency],
+              ...(reader.world ? { world: reader.world } : {}),
+            });
+            await assertCollectionActive(collection, plan.mallKey);
+            const result = injected?.[0]?.result;
+            if (!result || result.success !== true) return publicFailure(plan.mallKey, result?.errorCode, result?.stage);
+            return { success: true, snapshot: result.snapshot };
+          }
+        }
         // 새 비활성 탭을 연다. 사장님이 열어 둔 몰 탭은 건드리지 않는다.
         tab = await chromeApi.tabs.create({ url: `${reader.origin}${reader.startPath}`, active: false });
         if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {

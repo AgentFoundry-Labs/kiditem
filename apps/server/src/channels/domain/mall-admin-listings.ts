@@ -186,12 +186,13 @@ const STATUS_RULES: Record<
     ['판매대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
     ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
-  // 티쳐몰(퍼스트몰): 승인(승인 · 미승인)과 상태(정상 · 품절 · 재고확보중 · 판매중지). 우리 품절 송신은 재고 0 이다.
+  // 티쳐몰(퍼스트몰): 승인(승인 · 미승인), 상태(정상 · 품절 · 재고확보중 · 판매중지), 노출(노출 · 미노출). 우리 품절 송신은 재고 0 이다.
   'teacher-mall': [
     ['미승인', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
     ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
     ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
     ['재고확보중', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['미노출', MALL_ADMIN_LISTING_STATUS.hidden],
     ['정상', MALL_ADMIN_LISTING_STATUS.selling],
   ],
 };

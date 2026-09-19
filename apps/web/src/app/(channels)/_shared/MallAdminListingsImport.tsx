@@ -96,20 +96,20 @@ export function MallAdminListingsImport({
               : <Link2 size={13} aria-hidden />}
           </button>
         ) : null}
-        <span className="flex min-h-[26px] flex-col justify-center text-[11px] leading-tight">
-          {completedAt ? (
-            <span className="whitespace-nowrap text-slate-500" title={statusTitle}>
+        {/* 한 줄만 — 실패 · 중단이면 그 말을(전문은 풀이로), 아니면 마지막으로 가져온 수와 때. 줄 아래로 글을 내리지 않는다. */}
+        <span className="flex min-h-[26px] items-center whitespace-nowrap text-[11px]">
+          {stopped ? (
+            <span role="status" className="text-slate-500" title={COLLECTION_STOPPED_MESSAGE}>중단함</span>
+          ) : failure?.errorMessage ? (
+            <span role="status" className="max-w-[9rem] truncate text-red-600" title={failure.errorMessage}>
+              {failure.errorMessage}
+            </span>
+          ) : completedAt ? (
+            <span className="text-slate-500" title={statusTitle}>
               {formatNumber(listings)}개 · {timeAgo(completedAt)}
             </span>
           ) : control.status ? (
-            <span className="whitespace-nowrap text-slate-400">아직 안 가져옴</span>
-          ) : null}
-          {stopped ? (
-            <span role="status" className="text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
-          ) : failure?.errorMessage ? (
-            <span role="status" className="max-w-[12rem] truncate text-red-600" title={failure.errorMessage}>
-              {failure.errorMessage}
-            </span>
+            <span className="text-slate-400">아직 안 가져옴</span>
           ) : null}
         </span>
       </div>

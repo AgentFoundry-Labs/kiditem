@@ -94,7 +94,8 @@ export const MALL_ADMIN_LISTING_READERS = {
   /*
     사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
     몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
-    1.2.22(`mallAdminListingsMallsV2`)부터 읽는다.
+    1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
+    티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
   */
   /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
   domeggook: {
@@ -152,7 +153,7 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://store.lotteon.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
+    capability: 'mallAdminListingsMallsV3',
   },
   /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
   smartstore: {
@@ -160,7 +161,7 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://sell.smartstore.naver.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
+    capability: 'mallAdminListingsMallsV3',
   },
   /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
   'teacher-mall': {
@@ -168,7 +169,7 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://shop.teacherville.co.kr',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
+    capability: 'mallAdminListingsMallsV3',
   },
 } as const satisfies Record<string, {
   mallName: string;

@@ -7794,6 +7794,8 @@ KidItemDomains.register({
     mallAdminListingsSourceOwnerV1: true,
     // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.
     mallAdminListingsMallsV2: true,
+    // 롯데ON(우리 거래처로 좁혀 로그인된 탭에서) · 스마트스토어(원상품 목록 검색 폼 그대로) · 티쳐몰(칸 머리로) 읽기기를 고친 판.
+    mallAdminListingsMallsV3: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KIDITEM OS",
   "description": "주문수집·쿠팡 Wing/광고센터·소싱(Alibaba/1688/틱톡) 자동화를 하나로 묶어 KIDITEM OS 대시보드에 연동합니다.",
-  "version": "1.2.22",
+  "version": "1.2.23",
   "permissions": [
     "activeTab",
     "alarms",

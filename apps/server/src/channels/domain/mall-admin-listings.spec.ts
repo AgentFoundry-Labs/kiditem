@@ -108,6 +108,7 @@ describe('mallAdminListingStatus', () => {
     expect(mallAdminListingStatus('smartstore', ['판매중지'])).toBe('일시중지');
     expect(mallAdminListingStatus('teacher-mall', ['미승인', '정상'])).toBe('승인대기');
     expect(mallAdminListingStatus('teacher-mall', ['승인', '재고확보중'])).toBe('품절');
+    expect(mallAdminListingStatus('teacher-mall', ['승인', '정상', '미노출'])).toBe('미노출');
   });
 
   it('모르는 글자는 짐작하지 않고 몰 글자를 그대로 둔다', () => {

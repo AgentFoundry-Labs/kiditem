@@ -297,8 +297,12 @@ describe('linkMallAdminListings', () => {
 describe('mallAdminCapabilities', () => {
   it('⭐ 사방넷으로만 가져오던 몰은 그 읽기기가 든 확장(1.2.22)이어야 가져온다 — 옛 확장은 몰을 몰라 형식 오류로 멈춘다', () => {
     expect(mallAdminCapabilities('kidkids')).toEqual(['mallAdminListingsSourceOwnerV1']);
-    for (const mallKey of ['domeggook', 'kidsnote', '11st', 'gmarket', 'auction', 'kakao', 'lotte-on', 'smartstore', 'teacher-mall'] as const) {
+    for (const mallKey of ['domeggook', 'kidsnote', '11st', 'gmarket', 'auction', 'kakao'] as const) {
       expect(mallAdminCapabilities(mallKey)).toEqual(['mallAdminListingsSourceOwnerV1', 'mallAdminListingsMallsV2']);
+    }
+    // 첫 라이브에서 고친 읽기기(롯데ON 은 옛 판이 거래처 없이 롯데ON 전체를 읽었다)는 고친 확장(1.2.23)이어야 한다.
+    for (const mallKey of ['lotte-on', 'smartstore', 'teacher-mall'] as const) {
+      expect(mallAdminCapabilities(mallKey)).toEqual(['mallAdminListingsSourceOwnerV1', 'mallAdminListingsMallsV3']);
     }
   });
 });

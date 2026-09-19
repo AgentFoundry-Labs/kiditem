@@ -661,7 +661,9 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.match(worker, /mallAdminListingsSourceOwnerV1: true/);
   // 사방넷으로만 가져오던 몰은 이 기능이 있는 확장부터 읽는다 — 웹이 그 몰을 가져오기 전에 확인한다.
   assert.match(worker, /mallAdminListingsMallsV2: true/);
+  assert.match(worker, /mallAdminListingsMallsV3: true/);
   assert.match(contract, /capability: 'mallAdminListingsMallsV2'/);
+  assert.match(contract, /capability: 'mallAdminListingsMallsV3'/);
   assert.match(worker, /collectMallAdminListings: \{/);
   assert.match(worker, /session\?\.producer === "orders\.mall_admin_listings"/);
 });
@@ -1151,42 +1153,104 @@ test("⭐ 키즈노트 — 판매 상품 내역을 100개씩 전체 수만큼 �
 
 test("롯데ON — 화면 함수로 머리를 붙여 상품 조회를 한 쪽이 덜 찰 때까지 읽는다(토큰은 밖으로 나가지 않는다)", async () => {
   const LOTTE = "https://store.lotteon.com";
-  const data = Array.from({ length: 3 }, (_, index) => ({ spdNo: `LO21000000${index}`, spdNm: `상품 ${index}`, slStatCd: ["SALE", "SOUT", "END"][index], slPrc: 3000 }));
+  const data = Array.from({ length: 3 }, (_, index) => ({ spdNo: `LO21000000${index}`, trNo: "0012345", spdNm: `상품 ${index}`, slStatCd: ["SALE", "SOUT", "END"][index], slPrc: 3000 }));
   const sent = [];
+  let answerTotal = data.length;
+  let answerRows = data;
   class FakeXhr {
     open(method, url) { this.method = method; this.url = url; }
     setRequestHeader() {}
     send(body) {
       sent.push(JSON.parse(body));
       this.status = 200;
-      this.responseText = JSON.stringify({ returnCode: "SUCCESS", data });
+      this.responseText = JSON.stringify({ returnCode: "SUCCESS", totalCount: answerTotal, data: answerRows });
       setTimeout(() => this.onload(), 0);
     }
   }
-  const context = pageContextFor(LOTTE, {
-    gcm: { _sbm_setRequestHeader: (xhr) => xhr.setRequestHeader("Authorization", "Bearer secret") },
+  const makeContext = (user) => pageContextFor(LOTTE, {
+    gcm: {
+      _sbm_setRequestHeader: (xhr) => xhr.setRequestHeader("Authorization", "Bearer secret"),
+      user,
+    },
     sessionStorage: { getItem: (key) => (key === "AuthToken" ? "secret" : null) },
     XMLHttpRequest: FakeXhr,
   });
-  const result = JSON.parse(JSON.stringify(await readerIn(context, "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
+  const ours = { getTrGrpCd: () => "SR", getTrNo: () => "0012345" };
+  const result = JSON.parse(JSON.stringify(await readerIn(makeContext(ours), "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
   assert.equal(result.success, true);
-  assert.deepEqual(sent, [{ pageNo: 1, rowsPerPage: 100 }]);
+  // 우리 거래처로 좁힌다 — 거래처 없이 부르면 롯데ON 전체 상품이 온다.
+  assert.deepEqual(sent, [{ trGrpCd: "SR", trNo: "0012345", pageNo: 1, rowsPerPage: 100 }]);
   assert.deepEqual(result.snapshot.rows.map((row) => [row.mallProductCode, row.statusWords[0]]), [
     ["LO210000000", "판매중"], ["LO210000001", "품절"], ["LO210000002", "판매종료"],
   ]);
   assert.ok(!JSON.stringify(result).includes("secret"), "결과에 토큰이 없다");
+  assert.equal(result.snapshot.collection.totalRecords, 3);
+
+  // 로그인 정보(거래처)가 없는 탭은 로그인이 필요하다 — 좁히지 못한 채 읽지 않는다.
+  sent.length = 0;
+  const noUser = JSON.parse(JSON.stringify(await readerIn(makeContext({ getTrNo: () => { throw new Error("no user"); } }), "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
+  assert.deepEqual(noUser, { success: false, errorCode: "mall_login_required" });
+  assert.equal(sent.length, 0);
+  // 좁혔는데도 몇만 건이거나 남의 거래처 줄이 오면 멈춘다.
+  answerTotal = 164_084_736;
+  const huge = JSON.parse(JSON.stringify(await readerIn(makeContext(ours), "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
+  assert.deepEqual(huge, { success: false, errorCode: "mall_contract_drift", stage: "row_limit" });
+  answerTotal = 1;
+  answerRows = [{ ...data[0], trNo: "9999999" }];
+  const foreign = JSON.parse(JSON.stringify(await readerIn(makeContext(ours), "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
+  assert.deepEqual(foreign, { success: false, errorCode: "mall_contract_drift", stage: "trade_scope" });
+});
+
+test("⭐ 티쳐몰 — 칸 머리(상품명이 두 칸을 덮는다)로 판매가 · 상태 · 노출을 찾고, 이름 링크만 상품명으로 넘긴다", async () => {
+  const TEACHER = "https://shop.teacherville.co.kr";
+  const row = (index, state, shown) => `
+    <tr><td><input type="checkbox" name="goods_seq[]" value="${1117000 + index}"></td><td></td><td class="page_no">${index}</td>
+      <td><a href="#"><img src="https://shop.teacherville.co.kr/data/${index}.jpg"></a></td>
+      <td><a href="#">[상품번호: ${1117000 + index}]</a><a href="#">상품 ${index} (1p)</a></td>
+      <td>900</td><td>2,000</td><td>1,500</td><td>40 %</td><td>[1] 10 / 10</td><td>-</td><td>택배(2500)</td><td>0 0</td>
+      <td>2026-08-10 10:00:00 2026-08-11 10:00:00</td><td><span>${state[0]}</span><span>${state[1]}</span></td><td>${shown}</td><td></td></tr>
+    <tr><td colspan="17">옵션</td></tr>`;
+  const html = `<html><body><table>
+    <tr><th></th><th></th><th>번호</th><th colspan="2">상품명</th><th>공급가</th><th>정가</th><th>판매가</th><th>마진율</th><th>재고/가용</th><th>재고판매</th><th>배송</th><th>구매/PV</th><th>등록일▼ /수정일</th><th>상태</th><th>노출</th><th>관리</th></tr>
+    ${row(0, ["승인", "정상"], "노출")}${row(1, ["미승인", "판매중지"], "노출")}${row(2, ["승인", "재고확보중"], "미노출")}
+  </table></body></html>`;
+  const pages = [];
+  const context = pageContextFor(TEACHER, {
+    fetch: async (url) => {
+      const parsed = new URL(url, `${TEACHER}/`);
+      pages.push([parsed.searchParams.get("page"), parsed.searchParams.get("perpage")]);
+      return { ok: true, status: 200, url: parsed.href, text: async () => html };
+    },
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readTeacherListings")(planFor("teacher-mall", TEACHER, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(pages, [["1", "100"]]);
+  const byCode = new Map(result.snapshot.rows.map((item) => [item.mallProductCode, item]));
+  assert.deepEqual(byCode.get("1117000"), {
+    mallProductCode: "1117000",
+    productName: "상품 0 (1p)",
+    sellpiaName: null,
+    sellerCode: null,
+    salePrice: 1500,
+    statusWords: ["승인", "정상", "노출"],
+    registeredOn: "2026-08-10",
+    imageUrl: "https://shop.teacherville.co.kr/data/0.jpg",
+  });
+  assert.deepEqual(byCode.get("1117001").statusWords, ["미승인", "판매중지", "노출"]);
+  assert.deepEqual(byCode.get("1117002").statusWords, ["승인", "재고확보중", "미노출"]);
 });
 
 test("스마트스토어 — 화면의 $http 로 원상품 목록을 읽고, 채널상품번호를 코드로 · 원상품번호를 다른 코드로 넘긴다", async () => {
   const NAVER = "https://sell.smartstore.naver.com";
   const content = [
-    { id: 10091000001, name: "상품 A", productStatusType: "SALE", salePrice: 5000, singleChannelProducts: [{ channelProductNo: 5441000001 }], sellerManagementCode: "1234-1", regDate: "2026-08-10T10:00:00" },
-    { id: 10091000002, name: "상품 B", productStatusType: "SUSPENSION", salePrice: 6000, singleChannelProducts: [{ channelProductNo: 5441000002 }] },
+    { id: 10091000001, productName: "상품 A", productStatusType: "SALE", salePrice: 5000, singleChannelProducts: [{ channelProductNo: 5441000001 }], sellerManagementCode: "1234-1", regDate: "2026-08-10T10:00:00", representImageUrl: "https://shop-phinf.pstatic.net/a.jpg" },
+    { id: 10091000002, productName: "상품 B", productStatusType: "SUSPENSION", salePrice: 6000, singleChannelProducts: [{ channelProductNo: 5441000002 }] },
   ];
   const calls = [];
   const $http = async (config) => {
     calls.push(config.data);
-    return { status: 200, data: { content, totalElements: content.length, totalPages: 1 } };
+    // 원상품 목록 답은 전체 수를 `total` 에 싣는다(공개 번들 app.js).
+    return { status: 200, data: { content, pageable: { page: 0, size: 100 }, total: content.length } };
   };
   const context = pageContextFor(NAVER, {
     document: { body: {} },
@@ -1195,10 +1259,58 @@ test("스마트스토어 — 화면의 $http 로 원상품 목록을 읽고, 채
   context.location = { hostname: "sell.smartstore.naver.com", href: `${NAVER}/#/products/origin-list` };
   const result = JSON.parse(JSON.stringify(await readerIn(context, "readSmartstoreListings")(planFor("smartstore", NAVER, 100), 1000, 0, 1)));
   assert.equal(result.success, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ searchOrderType: "REG_DATE", page: 0, size: 100 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{
+    searchPeriodType: "PROD_REG_DAY",
+    searchKeywordType: "CHANNEL_PRODUCT_NO",
+    searchOrderType: "REG_DATE",
+    searchKeyword: "",
+    searchDynamicPricingType: "ALL",
+    page: 0,
+    size: 100,
+  }]);
+  assert.equal(result.snapshot.rows[0].imageUrl, "https://shop-phinf.pstatic.net/a.jpg");
   assert.deepEqual(result.snapshot.rows.map((row) => [row.mallProductCode, row.alternateCodes, row.statusWords[0]]), [
     ["5441000001", ["10091000001"], "판매중"],
     ["5441000002", ["10091000002"], "판매중지"],
   ]);
   assert.equal(result.snapshot.rows[0].sellerCode, "1234-1");
+});
+
+test("롯데ON — 탭마다 로그인이라 로그인된 판매자센터 탭을 빌려 화면 안(MAIN)에서 읽고, 탭을 만들지도 닫지도 않는다", async () => {
+  const LOTTE = "https://store.lotteon.com";
+  const context = loadSource(["../kiditem-os/background/orders/mall-admin-listings.js"]);
+  const created = [];
+  const injected = [];
+  const snapshot = {
+    collection: { totalRecords: 0, recordsRead: 0, pagesRead: 1, totalPages: 1, detailsRead: 0, detailsMissing: 0 },
+    rows: [],
+    proof: { mallKey: "lotte-on", pageSize: 100, validatedList: true },
+  };
+  const chrome = {
+    tabs: {
+      query: async () => [
+        { id: 7, status: "complete", url: `${LOTTE}/cm/main/login_SO.wsp` },
+        { id: 8, status: "complete", url: `${LOTTE}/cm/main/index_SO.wsp` },
+      ],
+      create: async (details) => { created.push(details); return { id: 99, windowId: 1 }; },
+      get: async (id) => ({ id, status: "complete" }),
+    },
+    scripting: {
+      executeScript: async (details) => {
+        injected.push({ tabId: details.target.tabId, world: details.world });
+        return [{ result: { success: true, snapshot } }];
+      },
+    },
+  };
+  const collector = context.KidItemMallAdminListings.create({ chrome, requestDelayMs: 0 });
+  const attachments = [];
+  const result = await collector.collect(planFor("lotte-on", LOTTE, 100), {
+    assertActive: async () => true,
+    attachTab: async (tab) => { attachments.push(tab); return true; },
+    detachTab: async () => undefined,
+  });
+  assert.equal(result.success, true);
+  assert.deepEqual(injected, [{ tabId: 8, world: "MAIN" }]);
+  assert.deepEqual(created, []);
+  assert.deepEqual(attachments, []);
 });

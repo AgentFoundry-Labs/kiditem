@@ -72,8 +72,9 @@ export function CollectionStartControl({
   /** The screen that shows the running collection's progress and attention, opened in a new tab. */
   runningLink?: Readonly<{ href: string; label: string }>;
   /**
-   * `sm` 은 표의 한 줄에 서는 작은 모양이다 — 버튼 높이가 줄 높이를 넘지 않고, 알릴 말이 없을 때는
-   * 알림 자리가 줄을 늘리지 않는다(알림 자리는 그대로 남아 새 말을 읽어 준다).
+   * `sm` 은 표의 한 줄에 서는 작은 모양이다 — 버튼 높이가 줄 높이를 넘지 않고, 알릴 말은 버튼 아래에 적지 않고
+   * 옆의 느낌표 아이콘 풀이(title)로 둔다(사장님 2026-09-19 "가져오기 하단에 글 나오지 않게"). 화면 읽기용 알림 자리는
+   * 그대로 남아 새 말을 읽어 준다. 다시 확인 중이라는 가벼운 말은 아이콘도 띄우지 않는다.
    */
   size?: 'md' | 'sm';
   className?: string;
@@ -85,9 +86,17 @@ export function CollectionStartControl({
   const runningScope = running?.scopeLabel ? `수집 중 · ${running.scopeLabel}` : '수집 중';
   const small = size === 'sm';
   const buttonSize = small ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-2 text-xs';
+  // 작은 모양에서 아이콘 풀이로 보일 말 — 다시 확인 중이라는 가벼운 말은 빼고 실제로 막히거나 틀린 것만.
+  const smallAlert = small
+    ? [
+      statusRead === 'unavailable' ? '수집 상태를 불러오지 못했습니다.' : null,
+      startBlockedReason && !startBlockedQuiet && !active ? startBlockedReason : null,
+      notice && notice.tone !== 'info' ? notice.message : null,
+    ].filter(Boolean).join(' ')
+    : '';
 
   return (
-    <div className={cn('flex shrink-0 flex-col items-end', small ? 'gap-1' : 'gap-1.5', className)}>
+    <div className={cn('flex shrink-0', small ? 'flex-row items-center gap-1' : 'flex-col items-end gap-1.5', className)}>
       {active ? (
         <div
           className={cn(
@@ -96,7 +105,12 @@ export function CollectionStartControl({
           )}
         >
           {!stopOnly && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--primary)]">
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]',
+                small ? 'whitespace-nowrap text-[11px]' : 'text-xs',
+              )}
+            >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {runningScope}
             </span>
@@ -120,7 +134,7 @@ export function CollectionStartControl({
               {stopOnly
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <XCircle className="h-3.5 w-3.5" />}
-              {state === 'stopping' ? '중단 요청 중…' : stopOnly ? '중단' : '수집 중단'}
+              {state === 'stopping' ? '중단 요청 중…' : stopOnly || small ? '중단' : '수집 중단'}
             </button>
           )}
           {runningLink && (
@@ -158,8 +172,13 @@ export function CollectionStartControl({
           {startButtonLabel(state, startLabel)}
         </button>
       )}
+      {smallAlert ? (
+        <span role="img" aria-label={smallAlert} title={smallAlert} className="inline-flex flex-none text-[var(--warning)]">
+          <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      ) : null}
       <div
-        className={cn('max-w-xs space-y-0.5 text-right text-[11px]', small && 'empty:-mt-1')}
+        className={cn(small ? 'sr-only' : 'max-w-xs space-y-0.5 text-right text-[11px]')}
         aria-live="polite"
       >
         {statusRead === 'unavailable' && (
