@@ -3,12 +3,13 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
+import { FileSpreadsheet, Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useAllGenerationsInProgress,
   useKidsPlayfulGenerationCancel,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
+import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -54,6 +55,8 @@ import {
 } from './lib/wing-registration-flow';
 import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
 import { useMallQuickRegister } from './hooks/useMallQuickRegister';
+import { useCandidateMallSheet } from './hooks/useCandidateMallSheet';
+import type { CandidateSalesProductsOutcome } from './lib/candidate-sales-products';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -86,6 +89,9 @@ export default function SourcingPage() {
     },
     onError: (message) => toast.error(message),
   });
+
+  // 몰 대량등록: 고른 수집상품 → 판매상품(이미 만든 것은 그대로) → 몰 대량등록 창.
+  const mallSheet = useCandidateMallSheet();
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
@@ -458,6 +464,22 @@ export default function SourcingPage() {
             <span className="text-sm font-black text-orange-900">
               {selectedIds.size}개 선택됨
             </span>
+            <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => mallSheet.start([...selectedIds])}
+              disabled={mallSheet.preparing}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-900 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {mallSheet.preparing ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <FileSpreadsheet size={15} />
+              )}
+              {mallSheet.preparing
+                ? `판매상품 만드는 중 ${mallSheet.progress?.done ?? 0}/${mallSheet.progress?.total ?? selectedIds.size}`
+                : '몰 대량등록'}
+            </button>
             <button
               type="button"
               onClick={() => runWingRegister([...selectedIds])}
@@ -471,6 +493,7 @@ export default function SourcingPage() {
               )}
               쿠팡 WING 엑셀 (상세 제외)
             </button>
+            </div>
           </div>
         )}
 
@@ -523,6 +546,14 @@ export default function SourcingPage() {
         }
       />
 
+      {mallSheet.outcome && (
+        <MallSheetDialog
+          salesProductIds={mallSheet.outcome.products.map((product) => product.salesProductId)}
+          intro={<CandidateSalesProductsIntro outcome={mallSheet.outcome} />}
+          onClose={mallSheet.close}
+        />
+      )}
+
       <WingRegistrationConfirmDialog
         draft={wingDraft}
         isSubmitting={wingSubmitting}
@@ -535,6 +566,29 @@ export default function SourcingPage() {
         onConfirm={handleWingConfirm}
         onSearchSellpia={searchSellpiaInventorySkus}
       />
+    </div>
+  );
+}
+
+/** 몰 대량등록 창 머리 — 고른 수집상품으로 판매상품을 몇 개 만들었고 무엇을 뺐는지. */
+function CandidateSalesProductsIntro({ outcome }: { outcome: CandidateSalesProductsOutcome }) {
+  return (
+    <div className="space-y-1">
+      <p>
+        수집상품으로 판매상품 <b className="tabular-nums">{outcome.products.length}</b>개를 준비했습니다
+        {' '}(새로 만듦 <span className="tabular-nums">{outcome.created}</span> · 이미 있던 것 <span className="tabular-nums">{outcome.reused}</span>).
+        {' '}판매상품 화면에서 고칠 수 있습니다.
+      </p>
+      {outcome.withoutDetail.length > 0 && (
+        <p className="text-amber-700">
+          상세페이지가 없어 상세설명 없이 만든 상품 {outcome.withoutDetail.length}개는 몰 엑셀에서 막힙니다 — 상세페이지를 저장한 뒤 다시 누르면 채웁니다.
+        </p>
+      )}
+      {outcome.skipped.length > 0 && (
+        <p className="text-amber-700" title={outcome.skipped.map((item) => `${item.name}: ${item.reason}`).join('\n')}>
+          만들지 않은 수집상품 {outcome.skipped.length}개 — {outcome.skipped[0]!.name}: {outcome.skipped[0]!.reason}
+        </p>
+      )}
     </div>
   );
 }

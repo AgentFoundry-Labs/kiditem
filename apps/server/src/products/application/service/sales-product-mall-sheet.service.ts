@@ -3,13 +3,17 @@ import {
   SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   SalesProductMallCategoryAssignRequestSchema,
   SalesProductMallSheetRequestSchema,
+  SalesProductPublicImagePendingRequestSchema,
+  SalesProductPublicImageSaveRequestSchema,
   type SalesProductMallCategoryAssignResult,
+  type SalesProductPublicImagePending,
   type SalesProductMallSheetCategory,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
   type SalesProductMallSheetRequest,
 } from '@kiditem/shared/sales-product';
 import {
+  isPublicImageUrl,
   missingFixedFields,
   resolveFixedValues,
   type MallBulkSheetSpec,
@@ -24,7 +28,13 @@ import {
 } from '../../domain/mall-bulk-sheet/mall-bulk-sheet-registry';
 import { MallCategoryLookup } from '../../domain/mall-bulk-sheet/mall-sheet-categories';
 import { MallCategorySuggester } from '../../domain/mall-bulk-sheet/mall-category-suggestions';
-import { toMallSheetProduct, type MallSheetSourceProduct } from '../../domain/mall-bulk-sheet/mall-sheet-product';
+import {
+  pendingPublicImages,
+  privateImageUrls,
+  toMallSheetProduct,
+  unreadableSheetImages,
+  type MallSheetSourceProduct,
+} from '../../domain/mall-bulk-sheet/mall-sheet-product';
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductRepositoryPort,
@@ -39,6 +49,11 @@ const CONTENT_TYPE: Record<MallBulkSheetSpec['template']['bookType'], string> = 
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
 };
+
+interface SheetContext extends MallSheetContext {
+  /** 우리 저장소 주소 → 몰이 읽는 공개 복사본. */
+  publicCopies: ReadonlyMap<string, string>;
+}
 
 export interface MallSheetFile {
   buffer: Buffer;
@@ -92,7 +107,7 @@ export class SalesProductMallSheetService {
     const missing = scope === 'missing' ? await this.repository.findMallSheetMissing(organizationId, spec.mallKeys) : null;
     const ids = missing?.salesProductIds ?? request.salesProductIds ?? [];
     const sources = await this.repository.readMallSheetProducts(organizationId, ids);
-    const context = await this.context(spec, request);
+    const context = await this.context(spec, request, sources, organizationId);
     const suggester = new MallCategorySuggester(await this.repository.listMallCategoryPaths(organizationId));
     const products = sources.map((source) => {
       const result = this.rowsFor(spec, source, context);
@@ -103,7 +118,8 @@ export class SalesProductMallSheetService {
         rows: result.problems.length ? 0 : result.rows.length,
         problems: result.problems,
         warnings: result.warnings,
-        categories: categoryStates(spec, source, context.categories, suggester),
+        unreadableImages: result.unreadableImages,
+        categories: categoryStates(spec, source, context, suggester),
       };
     });
     return {
@@ -125,11 +141,11 @@ export class SalesProductMallSheetService {
     if (ids.length > spec.maxProducts) {
       throw new BadRequestException(`${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.`);
     }
-    const context = await this.context(spec, request);
+    const sources = await this.repository.readMallSheetProducts(organizationId, ids);
+    const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
     if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
 
-    const sources = await this.repository.readMallSheetProducts(organizationId, ids);
     if (sources.length !== new Set(ids).size) throw new NotFoundException('없는 판매상품이 섞여 있습니다.');
     const rows: MallSheetRow[] = [];
     const blocked: string[] = [];
@@ -171,19 +187,62 @@ export class SalesProductMallSheetService {
     return spec;
   }
 
-  private async context(spec: MallBulkSheetSpec, request: SalesProductMallSheetRequest): Promise<MallSheetContext> {
+  private async context(
+    spec: MallBulkSheetSpec,
+    request: SalesProductMallSheetRequest,
+    sources: readonly MallSheetSourceProduct[],
+    organizationId: string,
+  ): Promise<SheetContext> {
     return {
       fixed: resolveFixedValues(spec, request.fixed),
       categories: new MallCategoryLookup(await this.files.categoryTables()),
+      publicCopies: await this.repository.readPublicImages(organizationId, sources.flatMap(privateImageUrls)),
     };
   }
 
-  private rowsFor(spec: MallBulkSheetSpec, source: MallSheetSourceProduct, context: MallSheetContext): MallSheetRowsResult {
-    const product = toMallSheetProduct(source, spec, context.categories);
+  private rowsFor(
+    spec: MallBulkSheetSpec,
+    source: MallSheetSourceProduct,
+    context: SheetContext,
+  ): MallSheetRowsResult & { unreadableImages: number } {
+    const product = toMallSheetProduct(source, spec, context.categories, context.publicCopies);
     if (product.options.length === 0) {
-      return { rows: [], problems: ['파는 단품이 없습니다(모든 단품이 품절 · 미사용).'], warnings: [] };
+      return { rows: [], problems: ['파는 단품이 없습니다(모든 단품이 품절 · 미사용).'], warnings: [], unreadableImages: 0 };
     }
-    return spec.rows(product, context);
+    const result = spec.rows(product, context);
+    // 몰이 못 읽는(우리 저장소) 사진이 남아 있으면 몰에서 깨진다. 사진 올리기로 공개 복사본을 먼저 만든다.
+    const unreadable = unreadableSheetImages(source, product);
+    if (unreadable.length === 0) return { ...result, unreadableImages: 0 };
+    return {
+      rows: [],
+      problems: [...result.problems, `몰이 못 읽는 사진 ${unreadable.length}장이 있습니다 — [사진 올리기]로 공개 주소를 먼저 만드세요.`],
+      warnings: result.warnings,
+      unreadableImages: unreadable.length,
+    };
+  }
+
+  /** 이 판매상품들의 사진 중 몰이 못 읽고 공개 복사본도 없는 주소 — 확장이 올린다. */
+  async pendingPublicImages(organizationId: string, body: unknown): Promise<SalesProductPublicImagePending> {
+    const parsed = SalesProductPublicImagePendingRequestSchema.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException('판매상품을 골라 주세요.');
+    const sources = await this.repository.readMallSheetProducts(organizationId, parsed.data.salesProductIds);
+    const copies = await this.repository.readPublicImages(organizationId, sources.flatMap(privateImageUrls));
+    const perProduct = sources.map((source) => pendingPublicImages(source, copies));
+    return {
+      urls: [...new Set(perProduct.flat())],
+      products: perProduct.filter((list) => list.length > 0).length,
+    };
+  }
+
+  /** 확장이 공개 저장소에 올린 사진 주소를 저장한다. 판매상품의 사진 주소는 그대로 둔다. */
+  async savePublicImages(organizationId: string, body: unknown): Promise<{ saved: number }> {
+    const parsed = SalesProductPublicImageSaveRequestSchema.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException('올린 사진 주소가 올바르지 않습니다.');
+    const images = parsed.data.images.filter((image) => isPublicImageUrl(image.publicUrl));
+    if (images.length !== parsed.data.images.length) throw new BadRequestException('공개 주소가 아닌 사진이 섞여 있습니다.');
+    const saved = await this.repository.savePublicImages(organizationId, images);
+    this.logger.log(`공개 사진 복사본 org=${organizationId} ${saved}장`);
+    return { saved };
   }
 }
 
@@ -191,10 +250,11 @@ export class SalesProductMallSheetService {
 function categoryStates(
   spec: MallBulkSheetSpec,
   source: MallSheetSourceProduct,
-  categories: MallCategoryLookup,
+  context: SheetContext,
   suggester: MallCategorySuggester,
 ): SalesProductMallSheetCategory[] {
-  const product = toMallSheetProduct(source, spec, categories);
+  const categories = context.categories;
+  const product = toMallSheetProduct(source, spec, categories, context.publicCopies);
   return spec.mallKeys.map((mallKey) => {
     const mall = product.malls[mallKey]!;
     const values = mall.values;
@@ -202,7 +262,7 @@ function categoryStates(
       ? 'set'
       : values[SALES_PRODUCT_SABANGNET_VALUE_KEYS.categoryPath]?.trim() ? 'sabangnet' : 'none';
     const resolved = spec.categoryBy === 'code' ? Boolean(mall.categoryCode) : Boolean(mall.categoryPath);
-    const guess = resolved ? null : suggester.suggest(source.id, mallKey);
+    const guess = resolved ? null : suggester.suggest(source.id, mallKey, source.name);
     return {
       mallKey,
       path: mall.categoryPath,

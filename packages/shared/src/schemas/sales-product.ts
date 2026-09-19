@@ -606,9 +606,11 @@ export const SalesProductMallSheetCategorySchema = z.object({
   /** 풀리지 않았을 때, 같은 상품이 다른 몰에서 쓰는 분류로 짐작한 이 몰 분류. 사람이 확인해 저장해야 쓴다. */
   suggestion: z.object({
     path: z.string(),
-    /** 투표한 몰들이 이 분류에 준 몫의 평균(0~1). */
+    /** 투표한 몰들(또는 비슷한 이름의 판매상품들)이 이 분류에 준 몫의 평균(0~1). */
     share: z.number(),
     voters: z.number().int(),
+    /** 짐작 근거: 같은 상품의 다른 몰 분류 · 이름이 비슷한 판매상품의 이 몰 분류. */
+    basis: z.enum(['other_malls', 'similar_names']),
     /** 이 분류가 번호로 풀리는가(번호로 받는 몰). */
     resolves: z.boolean(),
   }).nullable(),
@@ -634,6 +636,8 @@ export const SalesProductMallSheetCheckSchema = z.object({
     rows: z.number().int(),
     problems: z.array(z.string()),
     warnings: z.array(z.string()),
+    /** 이 파일에 들어갈 사진 중 몰이 못 읽어(우리 저장소) 막는 사진 수. [사진 올리기]가 공개 주소를 만든다. */
+    unreadableImages: z.number().int(),
     /** 이 파일이 다루는 몰마다의 분류. */
     categories: z.array(SalesProductMallSheetCategorySchema),
   })),
@@ -657,3 +661,57 @@ export const SalesProductMallCategoryAssignResultSchema = z.object({
   code: z.string().nullable(),
 });
 export type SalesProductMallCategoryAssignResult = z.infer<typeof SalesProductMallCategoryAssignResultSchema>;
+
+// ── 수집상품 → 판매상품(수집상품 화면에서 몰 대량등록) ─────────────────────────
+
+export const SALES_PRODUCT_FROM_CANDIDATES_MAX = 200;
+
+/**
+ * 수집상품 여러 개를 판매상품으로 만든다. 화면이 수집상품의 몰 공통 등록 초안으로 판매상품 내용을 만들어 보낸다. 같은
+ * 수집상품에서 이미 만든 판매상품이 있으면 새로 만들지 않고 그것을 쓴다(사람이 고친 값은 덮지 않고, 비어 있는 사진 ·
+ * 상세설명만 채운다).
+ */
+export const SalesProductFromCandidatesRequestSchema = z.object({
+  items: z.array(z.object({
+    candidateId: z.string().uuid(),
+    product: SalesProductCreateInputSchema,
+  }).strict()).min(1).max(SALES_PRODUCT_FROM_CANDIDATES_MAX),
+}).strict();
+export type SalesProductFromCandidatesRequest = z.input<typeof SalesProductFromCandidatesRequestSchema>;
+
+export const SalesProductFromCandidatesResultSchema = z.object({
+  products: z.array(z.object({
+    candidateId: z.string().uuid(),
+    salesProductId: z.string().uuid(),
+    code: z.string(),
+    /** 이번에 새로 만들었는가(false 면 이미 있던 판매상품). */
+    created: z.boolean(),
+  })),
+  created: z.number().int(),
+  reused: z.number().int(),
+});
+export type SalesProductFromCandidatesResult = z.infer<typeof SalesProductFromCandidatesResultSchema>;
+
+// ── 몰이 읽을 공개 사진 복사본 ───────────────────────────────────────────────
+
+/** 이 판매상품들의 사진 · 상세설명 사진 중 몰이 못 읽고(우리 저장소) 공개 복사본도 없는 주소. */
+export const SalesProductPublicImagePendingSchema = z.object({
+  urls: z.array(z.string()),
+  /** 그런 사진이 있는 판매상품 수. */
+  products: z.number().int(),
+});
+export type SalesProductPublicImagePending = z.infer<typeof SalesProductPublicImagePendingSchema>;
+
+export const SalesProductPublicImagePendingRequestSchema = z.object({
+  salesProductIds: z.array(z.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS),
+}).strict();
+
+/** 확장이 공개 저장소에 올린 결과를 저장한다. 판매상품의 사진 주소는 그대로 두고 복사본만 남긴다. */
+export const SalesProductPublicImageSaveRequestSchema = z.object({
+  images: z.array(z.object({
+    sourceUrl: z.string().trim().min(1).max(2000),
+    publicUrl: z.string().trim().url().max(2000),
+    host: z.string().trim().min(1).max(40),
+  }).strict()).min(1).max(500),
+}).strict();
+export type SalesProductPublicImageSaveRequest = z.input<typeof SalesProductPublicImageSaveRequestSchema>;

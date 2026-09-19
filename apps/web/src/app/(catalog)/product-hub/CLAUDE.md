@@ -12,8 +12,8 @@ This folder owns four surfaces:
   (preview, then commit), and the one-screen editor with the option table,
   per-option Sellpia link, and per-mall values (ADR-0014). Saving sends only
   changed fields; options follow the basics save with the returned version.
-  The mall bulk-sheet dialog downloads filled mall templates; the operator
-  uploads them to the mall.
+  The shared mall bulk-sheet dialog (`src/components/mall-sheet/`) downloads
+  filled mall templates; the operator uploads them to the mall.
 
 ## State Contract
 

@@ -1,5 +1,6 @@
 import { salesProductMallPrice, SALES_PRODUCT_SABANGNET_VALUE_KEYS } from '@kiditem/shared/sales-product';
 import {
+  detailImageUrls,
   isPublicImageUrl,
   type MallBulkSheetSpec,
   type MallSheetMallValues,
@@ -63,13 +64,77 @@ function joinText(parts: readonly (string | null | undefined)[], separator: stri
   return parts.map((part) => part?.trim()).filter(Boolean).join(separator);
 }
 
+/**
+ * 몰이 읽을 주소로 — 이미 공개된 주소는 그대로, 우리 저장소 주소는 공개 복사본으로. 복사본이 없으면 null.
+ */
+export function publicUrlOf(url: string, publicCopies: ReadonlyMap<string, string>): string | null {
+  if (isPublicImageUrl(url)) return url;
+  return publicCopies.get(url) ?? null;
+}
+
+/**
+ * 상세설명 HTML 의 사진 주소를 공개 복사본으로 바꾼다. 복사본이 없는 사진은 그대로 둔다(몰에서 깨진다).
+ *
+ * 바꾼 사진에는 `referrerpolicy="no-referrer"` 를 붙인다. 복사본이 있는 카카오 CDN 은 다른 몰 화면이 보내는 리퍼러를 보고
+ * 막는다 — 리퍼러를 보내지 않으면 열린다(확장 `detailImageHtml` 과 같은 까닭, 라이브 확인 2026-09-10).
+ */
+export function withPublicDetailImages(html: string | null, publicCopies: ReadonlyMap<string, string>): string | null {
+  if (!html) return html;
+  let result = html;
+  const copies: string[] = [];
+  for (const url of detailImageUrls(html)) {
+    const copy = isPublicImageUrl(url) ? null : publicCopies.get(url);
+    if (!copy) continue;
+    result = result.split(url).join(copy);
+    copies.push(copy);
+  }
+  if (copies.length === 0) return result;
+  return result.replace(/<img\b[^>]*>/gi, (tag) =>
+    copies.some((copy) => tag.includes(copy)) && !/\breferrerpolicy\s*=/i.test(tag)
+      ? tag.replace(/^<img\b/i, '<img referrerpolicy="no-referrer"')
+      : tag);
+}
+
+type ImageSource = Pick<MallSheetSourceProduct, 'imageUrls' | 'detailHtml' | 'overrides'>;
+
+/** 판매상품 사진 · 상세설명 사진(몰별 상세 포함) 중 몰이 못 읽는(우리 저장소) 주소. */
+export function privateImageUrls(source: ImageSource): string[] {
+  const urls = [
+    ...source.imageUrls,
+    ...detailImageUrls(source.detailHtml),
+    ...source.overrides.flatMap((override) => detailImageUrls(override.detailHtml)),
+  ];
+  return [...new Set(urls)].filter((url) => !isPublicImageUrl(url));
+}
+
+/** 몰이 못 읽고 공개 복사본도 아직 없는 주소 — [사진 올리기]가 올릴 것. */
+export function pendingPublicImages(source: ImageSource, publicCopies: ReadonlyMap<string, string>): string[] {
+  return privateImageUrls(source).filter((url) => !publicCopies.has(url));
+}
+
+/**
+ * 이 몰 엑셀에 들어갈 사진 중 몰이 못 읽는 주소. 대표 사진은 사방넷 주소로 물러설 수 있으면 막지 않지만(경고만),
+ * 상세설명 사진은 물러설 곳이 없어 남으면 몰 화면에서 깨진다.
+ */
+export function unreadableSheetImages(source: Pick<MallSheetSourceProduct, 'imageUrls'>, product: MallSheetProduct): string[] {
+  const main = product.imageSource === 'none' ? source.imageUrls.filter((url) => !isPublicImageUrl(url)) : [];
+  const detail = Object.values(product.malls)
+    .flatMap((mall) => detailImageUrls(mall.detailHtml))
+    .filter((url) => !isPublicImageUrl(url));
+  return [...new Set([...main, ...detail])];
+}
+
 /** 판매상품 한 건을 몰 규칙이 받는 모양으로 — 몰별 가격 · 이름 · 상세 · 카테고리 번호를 이 몰 기준으로 푼다. */
 export function toMallSheetProduct(
   source: MallSheetSourceProduct,
   spec: Pick<MallBulkSheetSpec, 'mallKeys'>,
   categories: MallCategoryLookup,
+  /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(사진 올리기로 만든 것). */
+  publicCopies: ReadonlyMap<string, string> = new Map(),
 ): MallSheetProduct {
-  const own = source.imageUrls.filter(isPublicImageUrl);
+  // 사진이 전부 몰이 읽는 주소로 바뀌어야 우리 사진을 쓴다. 하나라도 못 바꾸면 사방넷 원래 주소로 물러선다.
+  const mapped = source.imageUrls.map((url) => publicUrlOf(url, publicCopies));
+  const own = mapped.every((url): url is string => url !== null) ? mapped as string[] : [];
   const sabangnet = source.sabangnetImageUrls.filter(isPublicImageUrl);
   const imageSource = own.length ? 'own' : sabangnet.length ? 'sabangnet' : 'none';
 
@@ -85,9 +150,12 @@ export function toMallSheetProduct(
         || joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
       nameIsMallSpecific: Boolean(override?.name?.trim()),
       promoText: override?.promoText?.trim() || null,
-      detailHtml: override?.detailHtml?.trim()
-        || joinText([values[KEYS.detailTop], source.detailHtml, values[KEYS.detailBottom]], '\n')
-        || null,
+      detailHtml: withPublicDetailImages(
+        override?.detailHtml?.trim()
+          || joinText([values[KEYS.detailTop], source.detailHtml, values[KEYS.detailBottom]], '\n')
+          || null,
+        publicCopies,
+      ),
       categoryPath,
       categoryCode: explicitCode ?? categories.code(mallKey, categoryPath),
       values,

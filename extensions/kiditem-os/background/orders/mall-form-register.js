@@ -1140,6 +1140,34 @@
   /** 첨부 목록에서 올라간 파일 주소를 집는 자리. */
   const HOSTED_URL = /https?:\/\/[A-Za-z0-9.-]*kakaocdn\.net\/dn\/[^"'\s<>()]+/g;
 
+  /**
+   * 몰 대량등록 사진 올리기가 읽어도 되는 곳 — 우리 사진 저장소(로컬 · 사무실 MinIO)뿐이다. 매니페스트의
+   * host_permissions 와 같다. 아무 주소나 받아 공개 저장소로 옮기지 않는다.
+   */
+  const PUBLIC_IMAGE_SOURCE_ORIGINS = ["http://localhost:9000", "http://kiditem-office:9000"];
+  /** 한 번 부를 때 올리는 사진 수. 웹이 나눠 부르며 진행을 보인다. */
+  const PUBLIC_IMAGE_BATCH = 20;
+
+  /** 사진 올리기 요청의 주소 목록 — 우리 저장소 주소만, 겹치지 않게, 한 묶음까지. */
+  function publicImageSources(value) {
+    if (!Array.isArray(value) || value.length === 0) throw new Error("올릴 사진 주소가 없습니다.");
+    if (value.length > PUBLIC_IMAGE_BATCH) throw new Error(`사진은 한 번에 ${PUBLIC_IMAGE_BATCH}장까지 올립니다.`);
+    const urls = [];
+    for (const raw of value) {
+      let url;
+      try {
+        url = new URL(String(raw || "").trim());
+      } catch {
+        throw new Error("사진 주소가 올바르지 않습니다.");
+      }
+      if (!PUBLIC_IMAGE_SOURCE_ORIGINS.includes(url.origin)) {
+        throw new Error(`우리 사진 저장소 주소만 올립니다 — ${url.origin}`);
+      }
+      if (!urls.includes(url.href)) urls.push(url.href);
+    }
+    return urls;
+  }
+
   /** 올릴 때 쓸 파일명. 저장소가 확장자를 보므로 없으면 붙여 준다. */
   function detailFileName(sourceUrl, mime) {
     let base = "detail";
@@ -6054,13 +6082,14 @@
      * 그 폼이 쏘는 곳은 평범한 멀티파트 엔드포인트였다(라이브 확인 2026-09-10).
      * 도매꾹을 눌렀는데 다른 몰 창이 뜨는 일이 없어진다.
      */
-    async function hostDetailImage(host, sourceUrl) {
+    async function hostDetailImage(host, sourceUrl, options = {}) {
       const decode = (buffer) => new TextDecoder("euc-kr").decode(buffer);
 
       const source0 = await fetchApi(sourceUrl);
       if (!source0.ok) throw new Error(`상세 이미지를 읽지 못했습니다 — HTTP ${source0.status}`);
       const blob0 = await source0.blob();
       if (blob0.size > MAX_IMAGE_BYTES) throw new Error("상세 이미지가 8MB 를 넘습니다.");
+      if (options.imageOnly && !/^image\//i.test(blob0.type || "")) throw new Error("사진 파일이 아닙니다.");
 
       // 응답이 곧 주소인 업로더(온채널). 상품번호도 목록 읽기도 필요 없다.
       if (host.uploadField) {
@@ -6633,7 +6662,33 @@
       };
     }
 
-    return { register, listCategories };
+    /**
+     * 몰 대량등록 엑셀에 넣을 우리 사진을 우리 상점 첨부 저장소(키즈노트)에 올려 몰이 읽는 공개 주소를 받는다.
+     *
+     * 창을 열지 않고, 상품을 만들지 않는다(`hostDetailImage` 와 같은 길). 사진마다 결과를 따로 돌려주고, 로그아웃이면
+     * 나머지도 안 되니 멈춘다. 받은 주소를 우리 서버에 저장하는 것은 웹이 한다.
+     */
+    async function hostPublicImages(message) {
+      const urls = publicImageSources(message?.urls);
+      const host = DETAIL_HOSTS.kidsnote;
+      const images = [];
+      for (const sourceUrl of urls) {
+        try {
+          images.push({ sourceUrl, publicUrl: await hostDetailImage(host, sourceUrl, { imageOnly: true }) });
+        } catch (error) {
+          images.push({
+            sourceUrl,
+            error: error?.needsLogin ? `${host.loginLabel}에 로그인되어 있지 않습니다.` : (error?.message || String(error)),
+          });
+          if (error?.needsLogin) {
+            return { success: false, ok: false, needsLogin: true, host: host.label, loginLabel: host.loginLabel, images };
+          }
+        }
+      }
+      return { success: true, ok: true, host: host.label, images };
+    }
+
+    return { register, listCategories, hostPublicImages };
   }
 
   // 페이지 안에서 도는 함수들도 내보낸다. 이것들이 실제로 몰 화면에 들어가는
@@ -6643,6 +6698,8 @@
     create,
     SPECS,
     FILL_TIMEOUT_MS,
+    PUBLIC_IMAGE_SOURCE_ORIGINS,
+    PUBLIC_IMAGE_BATCH,
     // [등록]까지 누를 수 있는 몰(ADR-0015) — 몰마다 등록 버튼 · 결과 화면을 확인한 몰만.
     SUBMIT_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].submit)),
     pageFunctions: {

@@ -10,7 +10,7 @@ import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ExternalImagesNotice } from './components/ExternalImagesNotice';
 import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
-import { MallSheetDialog } from './components/MallSheetDialog';
+import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {

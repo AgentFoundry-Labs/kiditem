@@ -115,6 +115,7 @@ model Organization {
   channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
   salesProducts                               SalesProduct[]
+  salesProductPublicImages                    SalesProductPublicImage[]
   salesProductOptions                         SalesProductOption[]
   salesProductOptionComponents                SalesProductOptionComponent[]
   salesProductChannelOverrides                SalesProductChannelOverride[]
@@ -854,6 +855,8 @@ model SalesProduct {
   adminMemo           String?  @map("admin_memo")
   /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다.
   sourceRaw           Json?    @map("source_raw")
+  /// 수집상품에서 만든 판매상품이면 그 수집상품 id(Sourcing 소유, 외래키 없이 id 만). 같은 수집상품은 판매상품 하나다.
+  sourceCandidateId   String?  @map("source_candidate_id") @db.Uuid
   version             Int      @default(1)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -867,6 +870,7 @@ model SalesProduct {
   @@unique([organizationId, code])
   @@unique([organizationId, ownCode], map: "sales_products_org_own_code_key", where: raw("own_code IS NOT NULL"))
   @@unique([organizationId, sabangnetGoodsNo], map: "sales_products_org_sabangnet_goods_key", where: raw("sabangnet_goods_no IS NOT NULL"))
+  @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
   @@unique([id, organizationId], map: "sales_products_id_org_key")
   @@index([organizationId, status])
   @@index([organizationId, updatedAt, id])
@@ -964,4 +968,23 @@ model SalesProductChannelOverride {
   @@index([salesProductId, organizationId])
   @@index([channelAccountId, organizationId])
   @@map("sales_product_channel_overrides")
+}
+
+/// @namespace Core
+/// @describe Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014).
+model SalesProductPublicImage {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// 우리 저장소 주소(판매상품 사진 · 상세설명 속 사진).
+  sourceUrl      String   @map("source_url")
+  /// 몰이 가져갈 수 있는 공개 주소.
+  publicUrl      String   @map("public_url")
+  /// 올린 곳(`kidsnote` = 키즈노트 첨부 저장소).
+  host           String   @db.VarChar(40)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceUrl])
+  @@map("sales_product_public_images")
 }

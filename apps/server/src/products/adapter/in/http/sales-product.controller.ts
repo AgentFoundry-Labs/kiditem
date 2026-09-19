@@ -93,6 +93,24 @@ export class SalesProductController {
     return new StreamableFile(file.buffer);
   }
 
+  /** 판매상품 사진 중 몰이 못 읽는(우리 저장소) 사진 주소 — 확장이 공개 저장소에 올린다. */
+  @Post('public-images/pending')
+  pendingPublicImages(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.mallSheets.pendingPublicImages(organizationId, body);
+  }
+
+  /** 확장이 올린 공개 사진 주소를 저장한다. 판매상품의 사진 주소는 바꾸지 않는다. */
+  @Post('public-images')
+  savePublicImages(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.mallSheets.savePublicImages(organizationId, body);
+  }
+
   /** 몰 가격이 판매상품 기준과 다른 상품 × 몰 — 몰별 값으로 가져오면 무엇이 바뀌는지(쓰지 않는다). */
   @Get('mall-prices/adoption')
   previewMallPriceAdoption(@CurrentOrganization() organizationId: string) {
@@ -156,6 +174,15 @@ export class SalesProductController {
     @Body() body: unknown,
   ) {
     return this.salesProducts.create(organizationId, body);
+  }
+
+  /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(이미 만든 것은 그대로 쓴다). */
+  @Post('from-candidates')
+  createFromCandidates(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.salesProducts.createFromCandidates(organizationId, body);
   }
 
   @Post('imports/sabangnet')

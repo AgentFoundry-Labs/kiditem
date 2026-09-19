@@ -909,6 +909,12 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(mallFormRegister().register(msg));
   }
 
+  // 몰 대량등록 사진 올리기 — 우리 저장소 사진을 우리 상점 첨부 저장소(키즈노트)에 올려 공개 주소를 받는다.
+  // 상품을 만들지도 몰에 등록하지도 않는다. 사람이 [사진 올리기]를 누를 때만 온다.
+  if (msg?.action === "hostPublicImages") {
+    return respond(mallFormRegister().hostPublicImages(msg));
+  }
+
   // 몰 분류 목록 한 단. 읽기만 한다 — 폼을 열지도, 값을 넣지도 않는다.
   if (msg?.action === "listMallCategories") {
     return respond(mallFormRegister().listCategories(msg));
@@ -7843,6 +7849,8 @@ KidItemDomains.register({
     // 키즈노트 가격(가격 일괄수정 균일가, 1.2.25). 옛 확장은 카카오만 안다.
     mallPriceSendKidsnoteV1: true,
     mallPriceSendMalls: KidItemMallAvailabilitySend.PRICE_MALL_KEYS,
+    // 몰 대량등록 사진 올리기(1.2.27) — 우리 저장소 사진을 키즈노트 첨부 저장소에 올려 공개 주소를 받는다.
+    publicImageHostV1: true,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

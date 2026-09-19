@@ -1,6 +1,7 @@
 import {
   SabangnetImportPreviewSchema,
   SalesProductExternalImagesSchema,
+  SalesProductFromCandidatesResultSchema,
   SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
   SalesProductMallCategoriesSchema,
@@ -8,10 +9,13 @@ import {
   SalesProductMallPriceAdoptionSchema,
   SalesProductMallSheetCheckSchema,
   SalesProductMallSheetListSchema,
+  SalesProductPublicImagePendingSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
   type SalesProduct,
   type SalesProductExternalImages,
+  type SalesProductFromCandidatesRequest,
+  type SalesProductFromCandidatesResult,
   type SalesProductImageMirrorResult,
   type SalesProductMallCategories,
   type SalesProductMallCategoryAssignRequest,
@@ -19,6 +23,8 @@ import {
   type SalesProductMallPriceAdoption,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
+  type SalesProductPublicImagePending,
+  type SalesProductPublicImageSaveRequest,
   type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
@@ -49,6 +55,7 @@ export const salesProductKeys = {
   mallCategories: (mallKey: string) => ['sales-products', 'mall-categories', mallKey] as const,
   mallPriceAdoption: () => ['sales-products', 'mall-price-adoption'] as const,
   mallSheets: () => ['sales-products', 'mall-sheets'] as const,
+  publicImages: (salesProductIds: readonly string[]) => ['sales-products', 'public-images', [...salesProductIds].sort()] as const,
 };
 
 /** 몰 엑셀 요청 몸통. `salesProductIds` 를 비우면 이 몰에 아직 없는 판매상품을 서버가 고른다(확인만). */
@@ -146,6 +153,17 @@ export const salesProductApi = {
       fileName: fileNameFrom(response.headers.get('Content-Disposition')) ?? `${sheetKey}_대량등록.xlsx`,
     };
   },
+  /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(같은 수집상품에서 만든 것은 그대로 쓴다). */
+  createFromCandidates: async (body: SalesProductFromCandidatesRequest): Promise<SalesProductFromCandidatesResult> =>
+    SalesProductFromCandidatesResultSchema.parse(await apiClient.post<unknown>(`${BASE}/from-candidates`, body)),
+  /** 이 판매상품들의 사진 중 몰이 못 읽고(우리 저장소) 공개 주소도 아직 없는 것. */
+  pendingPublicImages: async (salesProductIds: string[]): Promise<SalesProductPublicImagePending> =>
+    SalesProductPublicImagePendingSchema.parse(
+      await apiClient.post<unknown>(`${BASE}/public-images/pending`, { salesProductIds }),
+    ),
+  /** 확장이 공개 저장소에 올린 사진 주소를 저장한다. 판매상품의 사진 주소는 그대로 둔다. */
+  savePublicImages: async (body: SalesProductPublicImageSaveRequest): Promise<{ saved: number }> =>
+    apiClient.post<{ saved: number }>(`${BASE}/public-images`, body),
   /** 여러 판매상품의 한 몰 분류를 정한다(몰별 값의 categoryPath). 몰은 건드리지 않는다. */
   assignMallCategory: async (body: SalesProductMallCategoryAssignRequest): Promise<SalesProductMallCategoryAssignResult> =>
     SalesProductMallCategoryAssignResultSchema.parse(await apiClient.post<unknown>(`${BASE}/mall-categories/assign`, body)),

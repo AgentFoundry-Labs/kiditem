@@ -11,7 +11,8 @@ owns physical stock quantities.
 
 - Canonical `MasterProduct` operations and category compatibility.
 - Sales products, their options, per-mall values, the Sabangnet workbook import,
-  and mall bulk-registration sheets filled from stored mall templates.
+  sales products made from collected candidates, and mall bulk-registration
+  sheets filled from stored mall templates with public copies of our photos.
 - Direct channel-option inventory composition.
 - Products-owned absolute ABC formula, evaluation, publication, current grade,
   and history.
@@ -44,6 +45,13 @@ owns physical stock quantities.
 - Mall bulk sheets only produce a file from the stored mall template; they
   never upload, never mark a listing registered, and save a suggested mall
   category only when an operator confirms it.
+- A collected candidate becomes at most one sales product
+  (`sourceCandidateId`). Converting it again reuses that product and fills
+  only empty photos or detail; operator edits are never overwritten.
+- Photos a mall cannot read (our storage) are swapped for their
+  `SalesProductPublicImage` copies only inside a sheet file. A sales product's
+  own image URLs are never rewritten, and a copy is saved only with a public
+  URL.
 - `MasterProduct` is the only ABC owner. Channel option inventory composition is
   logistics data and does not create a second product grade.
 - A channel option recipe is an atomic complete replacement of distinct,

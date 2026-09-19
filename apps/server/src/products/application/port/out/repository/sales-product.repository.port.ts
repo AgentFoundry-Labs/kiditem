@@ -56,6 +56,8 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
   sourceRaw: Record<string, string> | null;
+  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. */
+  sourceCandidateId?: string | null;
 }
 
 export interface SalesProductOptionState {
@@ -209,8 +211,22 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     mallKeys: readonly string[],
   ): Promise<{ salesProductIds: string[]; maybeListed: number }>;
-  /** 몰 분류 추천의 근거: 판매상품 × 몰의 분류 경로(사람이 정한 `categoryPath`, 없으면 사방넷 경로). */
-  listMallCategoryPaths(organizationId: string): Promise<{ salesProductId: string; mallKey: string; path: string }[]>;
+  /** 몰 분류 추천의 근거: 판매상품 × 몰의 분류 경로(사람이 정한 `categoryPath`, 없으면 사방넷 경로)와 판매상품 이름. */
+  listMallCategoryPaths(
+    organizationId: string,
+  ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
+  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만). */
+  findBySourceCandidates(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, { id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null }>>;
+  /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
+  readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
+  /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */
+  savePublicImages(
+    organizationId: string,
+    images: readonly { sourceUrl: string; publicUrl: string; host: string }[],
+  ): Promise<number>;
   /**
    * 상품 × 몰 계정의 몰별 값에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 줄이 없으면 만든다). 쓴 줄 수. 없는 판매상품
    * id 는 건너뛴다.

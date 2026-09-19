@@ -13,9 +13,15 @@ import {
   type MallSheetContext,
 } from './mall-bulk-sheet';
 import { MallCategoryLookup, parseCoupangPurchaseOption, type MallCategoryTables } from './mall-sheet-categories';
-import { MallCategorySuggester } from './mall-category-suggestions';
+import { MallCategorySuggester, nameBigrams } from './mall-category-suggestions';
 import { MALL_BULK_SHEET_UNAVAILABLE, MALL_BULK_SHEETS } from './mall-bulk-sheet-registry';
-import { mallDisplayName, toMallSheetProduct, type MallSheetSourceProduct } from './mall-sheet-product';
+import {
+  mallDisplayName,
+  pendingPublicImages,
+  toMallSheetProduct,
+  unreadableSheetImages,
+  type MallSheetSourceProduct,
+} from './mall-sheet-product';
 
 const TABLES: MallCategoryTables = {
   paths: {
@@ -130,6 +136,35 @@ describe('toMallSheetProduct', () => {
     expect(product.malls.gmarket!.categoryCode).toBe('100000042200001589300028350');
     expect(product.imageSource).toBe('sabangnet');
     expect(product.imageUrls).toEqual(['https://pic.sabangnet.co.kr/product_image/1.jpg', 'https://pic.sabangnet.co.kr/product_image/2.jpg']);
+  });
+
+  it('uses public copies of our photos and of detail images once every photo has one', () => {
+    const own = 'http://localhost:9000/kiditem/sales-products/a/images/1.jpg';
+    const detail = 'http://localhost:9000/kiditem/candidates/a/detail.jpg';
+    const input = source({ detailHtml: `<img src="${detail}"><img src="https://kiditem.diskn.com/x">` });
+    const copies = new Map([[own, 'https://kids-wi.kakaocdn.net/1.jpg']]);
+    expect(pendingPublicImages(input, copies)).toEqual([detail]);
+
+    const partial = toMallSheetProduct(input, kidsnoteSheet, lookup, copies);
+    expect(partial.imageSource).toBe('own');
+    expect(partial.imageUrls).toEqual(['https://kids-wi.kakaocdn.net/1.jpg']);
+    expect(unreadableSheetImages(input, partial)).toEqual([detail]);
+
+    copies.set(detail, 'https://kids-wi.kakaocdn.net/detail.jpg');
+    const full = toMallSheetProduct(input, kidsnoteSheet, lookup, copies);
+    expect(full.malls.kidsnote!.detailHtml).toContain('<img referrerpolicy="no-referrer" src="https://kids-wi.kakaocdn.net/detail.jpg">');
+    expect(full.malls.kidsnote!.detailHtml).toContain('<img src="https://kiditem.diskn.com/x">');
+    expect(full.malls.kidsnote!.detailHtml).not.toContain('localhost');
+    expect(unreadableSheetImages(input, full)).toEqual([]);
+    expect(pendingPublicImages(input, copies)).toEqual([]);
+  });
+
+  it('blocks our private photos only when there is no Sabangnet photo to fall back to', () => {
+    const fallback = toMallSheetProduct(source(), esmSheet, lookup);
+    expect(unreadableSheetImages(source(), fallback)).toEqual([]);
+    const fresh = source({ sabangnetImageUrls: [] });
+    expect(unreadableSheetImages(fresh, toMallSheetProduct(fresh, esmSheet, lookup)))
+      .toEqual(['http://localhost:9000/kiditem/sales-products/a/images/1.jpg']);
   });
 
   it('keeps our own images when they are public and drops options that are not selling', () => {
@@ -281,7 +316,9 @@ describe('sheet helpers', () => {
   it('treats our storage and private hosts as not reachable by malls', () => {
     expect(isPublicImageUrl('http://localhost:9000/kiditem/a.jpg')).toBe(false);
     expect(isPublicImageUrl('http://192.168.0.10/a.jpg')).toBe(false);
+    expect(isPublicImageUrl('http://kiditem-office:9000/kiditem/a.jpg')).toBe(false);
     expect(isPublicImageUrl('https://pic.sabangnet.co.kr/a.jpg')).toBe(true);
+    expect(isPublicImageUrl('//img.example.com/a.jpg')).toBe(true);
   });
 
   it('reads detail image urls in order once', () => {
@@ -314,11 +351,26 @@ describe('MallCategorySuggester', () => {
 
   it('suggests the target category most products with the same other-mall categories use', () => {
     const suggestion = new MallCategorySuggester(paths).suggest('p4', 'gmarket');
-    expect(suggestion).toEqual({ path: 'G>비눗방울놀이', share: 0.67, voters: 2 });
+    expect(suggestion).toEqual({ path: 'G>비눗방울놀이', share: 0.67, voters: 2, basis: 'other_malls' });
   });
 
   it('has nothing to say for a product without other-mall categories', () => {
     expect(new MallCategorySuggester(paths).suggest('unknown', 'gmarket')).toBeNull();
+  });
+
+  it('falls back to what products with similar names use in the target mall', () => {
+    const named = [
+      { salesProductId: 'n1', mallKey: '11st', path: '장난감>비눗방울', name: '3500 게틀링 비눗방울총(1p)' },
+      { salesProductId: 'n2', mallKey: '11st', path: '장난감>비눗방울', name: '돌고래 비눗방울총' },
+      { salesProductId: 'n3', mallKey: '11st', path: '문구>지우개', name: '과일 지우개 세트' },
+    ];
+    const suggestion = new MallCategorySuggester(named).suggest('new', '11st', '대용량 버블 비눗방울총');
+    expect(suggestion).toMatchObject({ path: '장난감>비눗방울', voters: 2, basis: 'similar_names' });
+    expect(new MallCategorySuggester(named).suggest('new', '11st', '원목 블록')).toBeNull();
+  });
+
+  it('cuts names into two-letter pieces without price codes, counts or bare numbers', () => {
+    expect([...nameBigrams('3500 비눗방울(10개) 2024')].sort()).toEqual(['눗방', '방울', '비눗']);
   });
 });
 

@@ -340,7 +340,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/orders` | Owner Domain | Orders, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, sales products with options and per-mall values plus the Sabangnet workbook import (`/api/products/sales-products`, ADR-0014), and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, sales products with options and per-mall values plus the Sabangnet workbook import, sales products made from collected candidates, and mall bulk-registration sheets (`/api/products/sales-products`, ADR-0014), and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
@@ -590,7 +590,9 @@ Notable route subtrees:
   registry used at registration confirmation. WING category selection uses the
   saved `ProductPreparation.registrationInput.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
-  call a runtime category-suggestion API.
+  call a runtime category-suggestion API. Its mall bulk-sheet action creates
+  sales products through the Products API and opens the shared
+  `src/components/mall-sheet/` dialog.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the marketplace registered
   product management surface backed by active `ChannelListing` rows with

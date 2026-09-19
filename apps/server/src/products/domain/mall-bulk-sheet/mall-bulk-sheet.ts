@@ -256,13 +256,16 @@ export function mallByteLength(text: string): number {
 export function isPublicImageUrl(url: string): boolean {
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    // `//cdn…` 처럼 앞을 뗀 주소는 몰 화면이 https 로 연다.
+    parsed = new URL(url.startsWith('//') ? `https:${url}` : url);
   } catch {
     return false;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
   const host = parsed.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return false;
+  // 점 없는 이름(`kiditem-office`)은 사무실 안에서만 풀린다.
+  if (!host.includes('.') && !host.startsWith('[')) return false;
   if (/^(127|10)\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return false;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === '0.0.0.0' || host === '[::1]') return false;
   return true;

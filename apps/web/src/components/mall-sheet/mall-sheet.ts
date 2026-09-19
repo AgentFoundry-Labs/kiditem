@@ -9,6 +9,8 @@ export interface MallSheetCategoryGroup {
   share: number;
   /** 추천 분류가 몰 번호로 풀리는가(번호로 받는 몰). */
   resolves: boolean;
+  /** 짐작 근거 — 같은 상품의 다른 몰 분류 · 이름이 비슷한 판매상품 · 둘이 섞임. 추천이 없으면 null. */
+  basis: 'other_malls' | 'similar_names' | 'mixed' | null;
   salesProductIds: string[];
   /** 같은 순서의 `코드 상품명` — 추천이 맞는지 사람이 볼 수 있게. */
   names: string[];
@@ -31,9 +33,11 @@ export function mallSheetCategoryGroups(
         share: 0,
         shareSum: 0,
         resolves: category.suggestion?.resolves ?? false,
+        basis: category.suggestion?.basis ?? null,
         salesProductIds: [],
         names: [],
       };
+      if (category.suggestion && group.basis !== category.suggestion.basis) group.basis = 'mixed';
       group.salesProductIds.push(product.salesProductId);
       group.names.push(`${product.code} ${product.name}`);
       group.shareSum += category.suggestion?.share ?? 0;

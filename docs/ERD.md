@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 23 |
 | [Channels](erd/channels.md) | 23 |
-| [Core](erd/core.md) | 20 |
+| [Core](erd/core.md) | 21 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
 | [Orders](erd/orders.md) | 11 |
@@ -107,6 +107,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SalesProductChannelOverride | Core | `sales_product_channel_overrides` | Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0014). |
 | SalesProductOption | Core | `sales_product_options` | One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0014). |
 | SalesProductOptionComponent | Core | `sales_product_option_components` | Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0014). |
+| SalesProductPublicImage | Core | `sales_product_public_images` | Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014). |
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | Core | `users` | Human or system account. Organization membership is the source of truth. |
 | SalesPlan | Finance | `sales_plans` | - |
@@ -1577,6 +1578,7 @@ erDiagram
     String importDeclarationNo
     String adminMemo
     Json sourceRaw
+    String sourceCandidateId
     Int version
     DateTime createdAt
     DateTime updatedAt
@@ -1624,6 +1626,14 @@ erDiagram
     Int quantity
     DateTime createdAt
     DateTime updatedAt
+  }
+  SalesProductPublicImage {
+    String id PK
+    String organizationId FK
+    String sourceUrl
+    String publicUrl
+    String host
+    DateTime createdAt
   }
   SellpiaInventorySku {
     String id PK
@@ -2785,6 +2795,7 @@ erDiagram
   Organization ||--o{ SalesProductChannelOverride : "organization"
   Organization ||--o{ SalesProductOption : "organization"
   Organization ||--o{ SalesProductOptionComponent : "organization"
+  Organization ||--o{ SalesProductPublicImage : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
   Organization ||--o{ SellpiaManualMatchAlias : "organization"

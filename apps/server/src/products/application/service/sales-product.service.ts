@@ -8,10 +8,12 @@ import {
 import {
   SalesProductChannelOverrideInputSchema,
   SalesProductCreateInputSchema,
+  SalesProductFromCandidatesRequestSchema,
   SalesProductListQuerySchema,
   SalesProductOptionsReplaceInputSchema,
   SalesProductUpdateInputSchema,
   type SalesProduct,
+  type SalesProductFromCandidatesResult,
   type SalesProductListResponse,
   type SalesProductMallCategories,
 } from '@kiditem/shared/sales-product';
@@ -71,6 +73,59 @@ export class SalesProductService {
       sourceRaw: null,
     }, plan);
     return this.get(organizationId, id);
+  }
+
+  /**
+   * 수집상품 여러 개를 판매상품으로 만든다(수집상품 화면의 몰 대량등록). 같은 수집상품에서 만든 판매상품이 있으면 새로
+   * 만들지 않고 그것을 쓴다 — 사람이 고친 값은 덮지 않고, 비어 있는 사진 · 상세설명만 채운다.
+   */
+  async createFromCandidates(organizationId: string, body: unknown): Promise<SalesProductFromCandidatesResult> {
+    const input = parseOrBadRequest(SalesProductFromCandidatesRequestSchema, body, '수집상품 내용이 올바르지 않습니다.');
+    const candidateIds = input.items.map((item) => item.candidateId);
+    if (new Set(candidateIds).size !== candidateIds.length) throw new BadRequestException('같은 수집상품이 두 번 있습니다.');
+    await this.assertSellpiaSkus(organizationId, input.items.flatMap((item) =>
+      item.product.options.flatMap((option) => option.components.map((component) => component.sellpiaInventorySkuId))));
+    const existing = await this.repository.findBySourceCandidates(organizationId, candidateIds);
+    const products: SalesProductFromCandidatesResult['products'] = [];
+    for (const item of input.items) {
+      const found = existing.get(item.candidateId);
+      if (found) {
+        const patch: Partial<SalesProductBasicsRecord> = {};
+        if (found.imageUrls.length === 0 && item.product.imageUrls.length > 0) patch.imageUrls = item.product.imageUrls;
+        if (!found.detailHtml?.trim() && item.product.detailHtml?.trim()) patch.detailHtml = item.product.detailHtml;
+        // 그사이 사람이 고쳤으면(버전이 다르면) 채우지 않는다.
+        if (Object.keys(patch).length > 0) await this.repository.updateBasics(organizationId, found.id, found.version, patch);
+        products.push({ candidateId: item.candidateId, salesProductId: found.id, code: found.code, created: false });
+        continue;
+      }
+      const code = await this.nextProductCode(organizationId);
+      const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
+        productCode: code,
+        existing: [],
+        options: item.product.options.map(toDraft),
+      }));
+      try {
+        const id = await this.repository.create(organizationId, {
+          ...basicsRecord(item.product),
+          code,
+          sabangnetGoodsNo: null,
+          optionAxes: item.product.optionAxes,
+          sourceRaw: null,
+          sourceCandidateId: item.candidateId,
+        }, plan);
+        products.push({ candidateId: item.candidateId, salesProductId: id, code, created: true });
+      } catch (error) {
+        // 같은 수집상품을 다른 곳에서 먼저 만들었으면 그것을 쓴다.
+        const made = (await this.repository.findBySourceCandidates(organizationId, [item.candidateId])).get(item.candidateId);
+        if (!made) throw error;
+        products.push({ candidateId: item.candidateId, salesProductId: made.id, code: made.code, created: false });
+      }
+    }
+    return {
+      products,
+      created: products.filter((product) => product.created).length,
+      reused: products.filter((product) => !product.created).length,
+    };
   }
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {

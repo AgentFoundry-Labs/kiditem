@@ -1,15 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, ImageUp, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SalesProductMallSheet, SalesProductMallSheetCheck } from '@kiditem/shared/sales-product';
+import {
+  SALES_PRODUCT_MALL_SHEET_MAX_IDS,
+  type SalesProductMallSheet,
+  type SalesProductMallSheetCheck,
+} from '@kiditem/shared/sales-product';
 import { downloadBlob } from '@/lib/browser-download';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { mallSheetCategoryGroups, readStoredFixed, storeFixed, type MallSheetCategoryGroup } from '../lib/mall-sheet';
+import { mallSheetCategoryGroups, readStoredFixed, storeFixed, type MallSheetCategoryGroup } from './mall-sheet';
+import { uploadPublicImages, type PublicImageUploadProgress } from './public-image-upload';
 
 const MALL_LABEL: Record<string, string> = {
   gmarket: 'G마켓',
@@ -21,12 +26,23 @@ const MALL_LABEL: Record<string, string> = {
 
 /**
  * 몰 대량등록 엑셀 — 판매상품으로 몰마다 다른 대량등록 양식을 채워 내려받는다. 여기서는 몰에 아무것도 보내지 않는다.
- * 사람이 파일을 몰 판매자센터에 올린다.
+ * 사람이 파일을 몰 판매자센터에 올린다. 판매상품 화면(이 몰에 없는 판매상품)과 수집상품 화면(고른 수집상품으로 만든
+ * 판매상품, `salesProductIds`)이 같은 창을 연다.
  *
- * 먼저 "이 몰에 없는 판매상품"을 확인하고, 분류가 없어 막힌 상품은 다른 몰 분류로 짐작한 추천을 확인해 저장한 뒤
- * 넣을 수 있는 상품만 골라 받는다.
+ * 확인 → 막힌 상품의 분류 추천을 확인해 저장 · 몰이 못 읽는 사진은 [사진 올리기] → 넣을 수 있는 상품만 골라 받는다.
  */
-export function MallSheetDialog({ onClose }: { onClose: () => void }) {
+export function MallSheetDialog({
+  onClose,
+  salesProductIds,
+  intro,
+}: {
+  onClose: () => void;
+  /** 이 판매상품들만 본다(수집상품 화면). 없으면 이 몰에 없는 판매상품을 서버가 고른다. */
+  salesProductIds?: readonly string[];
+  /** 머리 아래 한 줄(수집상품에서 판매상품을 몇 개 만들었는지 등). */
+  intro?: ReactNode;
+}) {
+  const preset = salesProductIds && salesProductIds.length > 0 ? salesProductIds : null;
   const sheets = useQuery({ queryKey: salesProductKeys.mallSheets(), queryFn: salesProductApi.mallSheets });
   const [sheetKey, setSheetKey] = useState('esm');
   const [fixedBySheet, setFixedBySheet] = useState<Record<string, Record<string, string>>>(() => readStoredFixed());
@@ -41,7 +57,10 @@ export function MallSheetDialog({ onClose }: { onClose: () => void }) {
   }, [sheet, fixedBySheet]);
 
   const runCheck = useMutation({
-    mutationFn: () => salesProductApi.checkMallSheet(sheet!.sheetKey, { fixed }),
+    mutationFn: () => salesProductApi.checkMallSheet(
+      sheet!.sheetKey,
+      preset ? { fixed, salesProductIds: [...preset] } : { fixed },
+    ),
     onSuccess: (result) => {
       setCheck(result);
       setSelected(new Set(result.products.filter((product) => product.problems.length === 0).map((product) => product.salesProductId)));
@@ -76,6 +95,14 @@ export function MallSheetDialog({ onClose }: { onClose: () => void }) {
     onError: (error) => toast.error(isApiError(error) ? error.detail : '몰 엑셀을 만들지 못했습니다.'),
   });
 
+  // 수집상품 화면에서 연 창은 상품이 이미 정해져 있다 — 몰을 고르면 바로 확인한다.
+  const checkedSheet = useRef<string | null>(null);
+  useEffect(() => {
+    if (!preset || !sheet || checkedSheet.current === sheet.sheetKey) return;
+    checkedSheet.current = sheet.sheetKey;
+    runCheck.mutate();
+  }, [preset, sheet, runCheck]);
+
   const chooseSheet = (next: string) => {
     setSheetKey(next);
     setCheck(null);
@@ -101,6 +128,7 @@ export function MallSheetDialog({ onClose }: { onClose: () => void }) {
             <p className="mt-1 text-sm text-slate-500">
               판매상품으로 몰마다 다른 대량등록 양식을 채워 내려받습니다. 여기서는 몰에 아무것도 보내지 않습니다 — 받은 파일을 몰 판매자센터에 올려 주세요.
             </p>
+            {intro && <div className="mt-2 text-sm text-slate-700">{intro}</div>}
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="닫기">
             <X size={18} />
@@ -138,10 +166,14 @@ export function MallSheetDialog({ onClose }: { onClose: () => void }) {
                   onClick={() => runCheck.mutate()}
                 >
                   <FileSpreadsheet size={16} aria-hidden />
-                  {runCheck.isPending ? '확인하는 중…' : `${sheet.label}에 없는 판매상품 확인`}
+                  {runCheck.isPending
+                    ? '확인하는 중…'
+                    : preset ? `고른 ${preset.length}개 다시 확인` : `${sheet.label}에 없는 판매상품 확인`}
                 </button>
                 <span className="text-xs text-slate-500">
-                  몰 상품과 이어지지 않았고 사방넷이 이 몰에 보낸 적도 없는 판매중 상품을 고릅니다.
+                  {preset
+                    ? '분류 · 사진 · 고정값을 고친 뒤에는 다시 확인을 눌러 주세요.'
+                    : '몰 상품과 이어지지 않았고 사방넷이 이 몰에 보낸 적도 없는 판매중 상품을 고릅니다.'}
                 </span>
               </div>
             </>
@@ -162,6 +194,7 @@ export function MallSheetDialog({ onClose }: { onClose: () => void }) {
               onToggleAll={(on) => setSelected(on ? new Set(readyIds) : new Set())}
               onAssign={(group, path) => assign.mutate({ mallKey: group.mallKey, path, salesProductIds: group.salesProductIds })}
               assigning={assign.isPending}
+              onImagesUploaded={() => runCheck.mutate()}
             />
           )}
         </div>
@@ -235,6 +268,7 @@ function CheckResult({
   onToggleAll,
   onAssign,
   assigning,
+  onImagesUploaded,
 }: {
   check: SalesProductMallSheetCheck;
   sheet: SalesProductMallSheet;
@@ -244,13 +278,24 @@ function CheckResult({
   onToggleAll: (on: boolean) => void;
   onAssign: (group: MallSheetCategoryGroup, path: string) => void;
   assigning: boolean;
+  onImagesUploaded: () => void;
 }) {
   const ready = check.products.filter((product) => product.problems.length === 0);
   const allOn = ready.length > 0 && ready.every((product) => selected.has(product.salesProductId));
+  // 사진 올리기는 사진 때문에 막힌 상품만 — 사방넷 사진으로 대신 넣는 상품은 경고로 두고 올리라고 하지 않는다.
+  const photoBlockedIds = useMemo(
+    () => check.products
+      .filter((product) => product.unreadableImages > 0)
+      .map((product) => product.salesProductId)
+      .slice(0, SALES_PRODUCT_MALL_SHEET_MAX_IDS),
+    [check],
+  );
   return (
     <section aria-label="확인 결과" className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-700">
-        <span>이 몰에 없는 판매상품 <b className="tabular-nums">{check.products.length}</b>개</span>
+        <span>
+          {check.scope === 'selected' ? '고른 판매상품' : '이 몰에 없는 판매상품'} <b className="tabular-nums">{check.products.length}</b>개
+        </span>
         <span className="inline-flex items-center gap-1 text-emerald-700">
           <CheckCircle2 size={14} aria-hidden /> 넣을 수 있음 <b className="tabular-nums">{check.ready}</b>
         </span>
@@ -266,6 +311,8 @@ function CheckResult({
       {check.missingFixed.length > 0 && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">비어 있는 고정값: {check.missingFixed.join(', ')}</p>
       )}
+
+      {photoBlockedIds.length > 0 && <PublicImagesPanel salesProductIds={photoBlockedIds} onUploaded={onImagesUploaded} />}
 
       {groups.length > 0 && <CategoryGroups sheet={sheet} groups={groups} onAssign={onAssign} assigning={assigning} />}
 
@@ -310,7 +357,11 @@ function CheckResult({
               );
             })}
             {check.products.length === 0 && (
-              <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-500">이 몰에 없는 판매상품이 없습니다.</td></tr>
+              <tr>
+                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                  {check.scope === 'selected' ? '고른 판매상품이 판매중이 아니거나 이미 이 몰에 있습니다.' : '이 몰에 없는 판매상품이 없습니다.'}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -335,7 +386,7 @@ function CategoryGroups({
       <div className="border-b border-slate-100 px-4 py-2.5">
         <p className="text-sm font-semibold text-slate-700">분류가 없어 막힌 상품</p>
         <p className="mt-0.5 text-xs text-slate-500">
-          같은 상품이 다른 몰에서 쓰는 분류로 이 몰 분류를 짐작했습니다. 짐작이라 틀릴 수 있어요 — 확인하고 고쳐서 저장하면 판매상품 몰별 값에 남습니다.
+          같은 상품이 다른 몰에서 쓰는 분류, 없으면 이름이 비슷한 판매상품이 이 몰에서 쓰는 분류로 짐작했습니다. 짐작이라 틀릴 수 있어요 — 확인하고 고쳐서 저장하면 판매상품 몰별 값에 남습니다.
           {sheet.categoryBy === 'code' ? ' 이 몰은 분류 번호로 받아, 몰 분류표에 있는 경로여야 합니다.' : ''}
         </p>
       </div>
@@ -348,6 +399,12 @@ function CategoryGroups({
   );
 }
 
+const BASIS_LABEL: Record<NonNullable<MallSheetCategoryGroup['basis']>, string> = {
+  other_malls: '다른 몰 분류',
+  similar_names: '비슷한 이름',
+  mixed: '다른 몰 분류 · 비슷한 이름',
+};
+
 function CategoryGroupRow({
   group,
   onAssign,
@@ -358,37 +415,56 @@ function CategoryGroupRow({
   assigning: boolean;
 }) {
   const [path, setPath] = useState(group.suggestion ?? '');
+  // 몰에서 판매상품이 쓴 분류 목록 — 칸에 들어갈 때 한 번 읽어 고를거리로 보인다.
+  const [wantsList, setWantsList] = useState(false);
+  const known = useQuery({
+    queryKey: salesProductKeys.mallCategories(group.mallKey),
+    queryFn: () => salesProductApi.mallCategories(group.mallKey),
+    enabled: wantsList,
+    staleTime: 5 * 60_000,
+  });
+  const mallLabel = MALL_LABEL[group.mallKey] ?? group.mallKey;
+  const listId = `mall-categories-${group.mallKey}-${group.salesProductIds[0]}`;
   return (
     <li className="px-4 py-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-      <span className="w-16 shrink-0 font-medium text-slate-700">{MALL_LABEL[group.mallKey] ?? group.mallKey}</span>
-      <span className="w-20 shrink-0 tabular-nums text-slate-500">{group.salesProductIds.length}개</span>
-      {group.suggestion ? (
-        <>
-          <input
-            value={path}
-            onChange={(event) => setPath(event.target.value)}
-            aria-label={`${MALL_LABEL[group.mallKey] ?? group.mallKey} 분류 경로`}
-            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
-          />
+        <span className="w-16 shrink-0 font-medium text-slate-700">{mallLabel}</span>
+        <span className="w-20 shrink-0 tabular-nums text-slate-500">{group.salesProductIds.length}개</span>
+        <input
+          value={path}
+          onChange={(event) => setPath(event.target.value)}
+          onFocus={() => setWantsList(true)}
+          list={listId}
+          placeholder="분류 경로를 적거나 목록에서 고르세요"
+          aria-label={`${mallLabel} 분류 경로`}
+          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
+        />
+        <datalist id={listId}>
+          {(known.data?.categories ?? []).slice(0, 300).map((category) => (
+            <option key={category.path} value={category.path}>{`${category.count}개`}</option>
+          ))}
+        </datalist>
+        {group.suggestion && path.trim() === group.suggestion && (
           <span className={cn('shrink-0 text-xs', group.resolves ? 'text-slate-500' : 'text-amber-700')}>
-            {group.resolves ? `짐작 ${Math.round(group.share * 100)}%` : '번호 없음'}
+            {group.resolves
+              ? `짐작 ${Math.round(group.share * 100)}%${group.basis ? ` · ${BASIS_LABEL[group.basis]}` : ''}`
+              : '번호 없음'}
           </span>
-          <button
-            type="button"
-            className="btn-secondary btn-sm shrink-0"
-            disabled={!path.trim() || assigning}
-            onClick={() => onAssign(group, path.trim())}
-          >
-            이 {group.salesProductIds.length}개에 저장
-          </button>
-        </>
-      ) : (
-        <span className="min-w-0 flex-1 text-slate-500">
-          추천이 없습니다 — 다른 몰 분류가 없는 상품이라 판매상품 편집의 몰별 값에서 하나씩 정해 주세요.
-        </span>
-      )}
+        )}
+        <button
+          type="button"
+          className="btn-secondary btn-sm shrink-0"
+          disabled={!path.trim() || assigning}
+          onClick={() => onAssign(group, path.trim())}
+        >
+          이 {group.salesProductIds.length}개에 저장
+        </button>
       </div>
+      {!group.suggestion && (
+        <p className="mt-1 pl-[9.5rem] text-xs text-slate-500">
+          추천이 없습니다 — 다른 몰 분류도 이름이 비슷한 판매상품도 없어요. 분류 경로를 적거나 목록에서 골라 저장하세요.
+        </p>
+      )}
       <details className="mt-1 pl-[9.5rem] text-xs text-slate-500">
         <summary className="cursor-pointer">상품 보기</summary>
         <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto">
@@ -396,5 +472,76 @@ function CategoryGroupRow({
         </ul>
       </details>
     </li>
+  );
+}
+
+/**
+ * 몰이 못 읽는 사진(우리 사진 저장소) — 확장이 우리 상점 첨부 저장소(키즈노트)에 올려 공개 주소를 만든다. 판매상품의
+ * 사진 주소는 그대로 두고, 엑셀을 만들 때만 공개 주소로 바꿔 넣는다.
+ */
+function PublicImagesPanel({ salesProductIds, onUploaded }: { salesProductIds: string[]; onUploaded: () => void }) {
+  const queryClient = useQueryClient();
+  const pending = useQuery({
+    queryKey: salesProductKeys.publicImages(salesProductIds),
+    queryFn: () => salesProductApi.pendingPublicImages(salesProductIds),
+  });
+  const [progress, setProgress] = useState<PublicImageUploadProgress | null>(null);
+  const stop = useRef<AbortController | null>(null);
+  const upload = useMutation({
+    mutationFn: () => {
+      stop.current = new AbortController();
+      return uploadPublicImages(pending.data?.urls ?? [], {
+        save: salesProductApi.savePublicImages,
+        onProgress: setProgress,
+        signal: stop.current.signal,
+      });
+    },
+    onSuccess: (result) => {
+      if (result.needsLogin) {
+        toast.error('키즈노트 관리자에 로그인되어 있지 않습니다. 로그인한 뒤 다시 누르세요.', {
+          description: result.saved > 0 ? `사진 ${result.saved}장은 올렸습니다.` : undefined,
+        });
+      } else if (result.failed.length > 0) {
+        toast.warning(`사진 ${result.saved}장을 올렸고 ${result.failed.length}장은 못 올렸습니다.`, {
+          description: result.failed[0]!.error,
+        });
+      } else {
+        toast.success(`사진 ${result.saved}장을 올렸습니다. 다시 확인합니다.`);
+      }
+      void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'public-images'] });
+      if (result.saved > 0) onUploaded();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : '사진을 올리지 못했습니다.'),
+    onSettled: () => {
+      setProgress(null);
+      stop.current = null;
+    },
+  });
+
+  const urls = pending.data?.urls ?? [];
+  if (urls.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm">
+      <div className="min-w-0">
+        <p className="font-semibold text-sky-900">
+          몰이 못 읽는 사진 <span className="tabular-nums">{urls.length}</span>장 · 판매상품 <span className="tabular-nums">{pending.data!.products}</span>개
+        </p>
+        <p className="mt-0.5 text-xs text-sky-800">
+          우리 사진 저장소는 몰 서버가 열지 못합니다. [사진 올리기]를 누르면 확장이 키즈노트 첨부 저장소에 올려 공개 주소를 만듭니다 — 키즈노트 관리자에 로그인해 두세요. 상품은 만들지 않습니다.
+        </p>
+      </div>
+      {upload.isPending ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="tabular-nums text-sky-900">
+            올리는 중 {progress?.done ?? 0}/{progress?.total ?? urls.length}
+          </span>
+          <button type="button" className="btn-secondary btn-sm" onClick={() => stop.current?.abort()}>그만</button>
+        </div>
+      ) : (
+        <button type="button" className="btn-primary btn-sm inline-flex shrink-0 items-center gap-1.5" onClick={() => upload.mutate()}>
+          <ImageUp size={15} aria-hidden /> 사진 올리기
+        </button>
+      )}
+    </div>
   );
 }

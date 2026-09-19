@@ -809,13 +809,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
 
   async listMallCategoryPaths(
     organizationId: string,
-  ): Promise<{ salesProductId: string; mallKey: string; path: string }[]> {
-    return this.prisma.$queryRaw<{ salesProductId: string; mallKey: string; path: string }[]>(Prisma.sql`
+  ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]> {
+    return this.prisma.$queryRaw<{ salesProductId: string; mallKey: string; path: string; name: string }[]>(Prisma.sql`
       SELECT o.sales_product_id::text AS "salesProductId",
         a.channel AS "mallKey",
-        coalesce(nullif(o.adapter_values->>'categoryPath', ''), o.adapter_values->>'sabangnetCategoryPath') AS path
+        coalesce(nullif(o.adapter_values->>'categoryPath', ''), o.adapter_values->>'sabangnetCategoryPath') AS path,
+        p.name AS name
       FROM sales_product_channel_overrides o
       JOIN channel_accounts a ON a.id = o.channel_account_id AND a.organization_id = o.organization_id
+      JOIN sales_products p ON p.id = o.sales_product_id AND p.organization_id = o.organization_id
       WHERE o.organization_id = ${organizationId}::uuid
         AND coalesce(nullif(o.adapter_values->>'categoryPath', ''), o.adapter_values->>'sabangnetCategoryPath', '') <> ''
     `);
@@ -867,6 +869,53 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       });
     }
     return written;
+  }
+
+  async findBySourceCandidates(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, { id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null }>> {
+    if (candidateIds.length === 0) return new Map();
+    const rows = await this.prisma.salesProduct.findMany({
+      where: { organizationId, sourceCandidateId: { in: [...candidateIds] } },
+      select: { id: true, code: true, version: true, imageUrls: true, detailHtml: true, sourceCandidateId: true },
+    });
+    return new Map(rows.map((row) => [row.sourceCandidateId!, {
+      id: row.id,
+      code: row.code,
+      version: row.version,
+      imageUrls: row.imageUrls,
+      detailHtml: row.detailHtml,
+    }]));
+  }
+
+  async readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>> {
+    const copies = new Map<string, string>();
+    const unique = [...new Set(sourceUrls)];
+    for (let start = 0; start < unique.length; start += 500) {
+      const rows = await this.prisma.salesProductPublicImage.findMany({
+        where: { organizationId, sourceUrl: { in: unique.slice(start, start + 500) } },
+        select: { sourceUrl: true, publicUrl: true },
+      });
+      for (const row of rows) copies.set(row.sourceUrl, row.publicUrl);
+    }
+    return copies;
+  }
+
+  async savePublicImages(
+    organizationId: string,
+    images: readonly { sourceUrl: string; publicUrl: string; host: string }[],
+  ): Promise<number> {
+    let saved = 0;
+    for (const image of images) {
+      await this.prisma.salesProductPublicImage.upsert({
+        where: { organizationId_sourceUrl: { organizationId, sourceUrl: image.sourceUrl } },
+        create: { organizationId, sourceUrl: image.sourceUrl, publicUrl: image.publicUrl, host: image.host },
+        update: { publicUrl: image.publicUrl, host: image.host },
+      });
+      saved += 1;
+    }
+    return saved;
   }
 
   async importSabangnet(
@@ -952,6 +1001,7 @@ function createData(record: SalesProductCreateRecord): Omit<Prisma.SalesProductU
     sabangnetGoodsNo: record.sabangnetGoodsNo,
     optionAxes: record.optionAxes,
     sourceRaw: record.sourceRaw ?? Prisma.JsonNull,
+    sourceCandidateId: record.sourceCandidateId ?? null,
   };
 }
 
