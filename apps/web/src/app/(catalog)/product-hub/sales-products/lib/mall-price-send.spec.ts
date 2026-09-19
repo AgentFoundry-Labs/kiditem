@@ -24,7 +24,7 @@ describe('sendMallPrice', () => {
     const result = await sendMallPrice('kakao', [{ code: '779522307', price: 2500 }]);
     expect(bridge.sendToExtension).toHaveBeenCalledWith(
       'ext',
-      { action: 'sendMallPrice', mallKey: 'kakao', items: [{ code: '779522307', price: 2500 }] },
+      { action: 'sendMallPrice', mallKey: 'kakao', items: [{ code: '779522307', price: 2500, ifPrice: null }] },
       expect.any(Number),
     );
     expect(result.results[0]).toMatchObject({ after: 2500, confirmed: true });

@@ -735,6 +735,17 @@ test('카카오 가격 — 0원 · 억 단위 같은 값은 아무것도 보내�
   assert.equal(log.tabs.length, 0);
 });
 
+test('카카오 가격 — 화면이 본 몰 가격(ifPrice)과 지금 몰 가격이 다르면 덮어쓰지 않는다', async () => {
+  const { api, log } = kakaoMall({ products: { 1: { salePrice: 990 }, 2: { salePrice: 950 } } });
+  const result = await api.sendPrice({
+    mallKey: 'kakao',
+    items: [{ code: '1', price: 950, ifPrice: 950 }, { code: '2', price: 950, ifPrice: 950 }],
+  });
+  assert.deepEqual(log.puts.map((edits) => edits.map((edit) => [edit.productId, edit.salePrice])), [[['2', 950]]]);
+  assert.equal(result.failed, 1);
+  assert.ok(result.warnings.some((warning) => warning.includes('990원으로 바뀌어')), result.warnings.join(' / '));
+});
+
 test('가격을 보낼 수 있는 몰은 카카오 톡스토어뿐이다(지금)', () => {
   assert.deepEqual([...loadModule().PRICE_MALL_KEYS], ['kakao']);
 });

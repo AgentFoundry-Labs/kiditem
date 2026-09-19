@@ -1955,6 +1955,13 @@
             failed += 1;
             continue;
           }
+          // 화면이 본 몰 가격(ifPrice)과 지금 몰 가격이 다르면 덮어쓰지 않는다 — 그사이 몰에서 바뀐 가격일 수 있다.
+          const current = Number(String(read.product.salePrice ?? "").replace(/[,\s원]/g, ""));
+          if (item.ifPrice !== null && current !== item.ifPrice) {
+            failed += 1;
+            warnings.push(`${item.code}: ${spec.label} 가격이 그사이 ${Number.isFinite(current) ? `${current.toLocaleString("ko-KR")}원` : "모르는 값"}으로 바뀌어 보내지 않았습니다. 몰 상품을 다시 가져온 뒤 보내세요.`);
+            continue;
+          }
           targets.push({ product: read.product, price: item.price });
         }
         if (targets.length === 0) return null;
@@ -3845,8 +3852,9 @@
     }
 
     /**
-     * 한 몰에 가격을 보낸다(가격 · 재고 · 상태 수정 보내기의 가격, KID-247). `items` 는 [{code, price}] — price 는 그 몰
-     * 판매가(원, 정수). 보낸 뒤 몰을 다시 읽어 확인한 것만 `confirmed` 다. 돌려주는 것은 상품코드와 가격뿐이다.
+     * 한 몰에 가격을 보낸다(가격 · 재고 · 상태 수정 보내기의 가격, KID-247). `items` 는 [{code, price, ifPrice?}] — price 는
+     * 그 몰 판매가(원, 정수), ifPrice 는 화면이 본 지금 몰 가격이다(다르면 보내지 않는다). 보낸 뒤 몰을 다시 읽어 확인한 것만
+     * `confirmed` 다. 돌려주는 것은 상품코드와 가격뿐이다.
      */
     async function sendPrice(msg) {
       const mallKey = String(msg?.mallKey || "");
@@ -3859,12 +3867,15 @@
       for (const raw of Array.isArray(msg?.items) ? msg.items : []) {
         const code = String(raw?.code || "").trim();
         const price = Number(raw?.price);
+        // 화면이 알고 있는 지금 몰 가격. 주면 몰 가격이 이 값일 때만 보낸다.
+        const ifPrice = raw?.ifPrice === null || raw?.ifPrice === undefined ? null : Number(raw.ifPrice);
         if (!code || seen.has(code)) continue;
         if (!Number.isInteger(price) || price < PRICE_MIN || price > PRICE_MAX) {
           return { success: false, error: `${code}: 가격은 ${PRICE_MIN}원 ~ ${PRICE_MAX.toLocaleString("ko-KR")}원 사이 정수여야 합니다.` };
         }
+        if (ifPrice !== null && !Number.isInteger(ifPrice)) return { success: false, error: `${code}: 지금 몰 가격 값이 올바르지 않습니다.` };
         seen.add(code);
-        items.push({ code, price });
+        items.push({ code, price, ifPrice });
       }
       if (items.length === 0) return { success: false, error: "가격을 보낼 상품이 없습니다." };
       if (items.length > PRICE_BATCH) return { success: false, error: `가격은 한 번에 ${PRICE_BATCH}개까지 보냅니다.` };

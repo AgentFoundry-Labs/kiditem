@@ -69,10 +69,10 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
   }, [product]);
   const [sendStates, setSendStates] = useState<Record<string, SendState>>({});
 
-  const sendPrice = async (listing: SalesProduct['channelListings'][number], price: number) => {
+  const sendPrice = async (listing: SalesProduct['channelListings'][number], price: number, ifPrice: number | null) => {
     setSendStates((current) => ({ ...current, [listing.id]: { status: 'sending' } }));
     try {
-      const result = await sendMallPrice(listing.mallKey, [{ code: listing.externalId, price }]);
+      const result = await sendMallPrice(listing.mallKey, [{ code: listing.externalId, price, ifPrice }]);
       const answer = result.results[0];
       const confirmed = result.confirmed > 0 && answer?.confirmed === true;
       const message = confirmed
@@ -162,7 +162,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
                     state={sendStates[listing.id]}
                     onConfirm={() => setSendStates((current) => ({ ...current, [listing.id]: { status: 'confirming' } }))}
                     onCancel={() => setSendStates(({ [listing.id]: _dropped, ...rest }) => rest)}
-                    onSend={(price) => void sendPrice(listing, price)}
+                    onSend={(price) => void sendPrice(listing, price, single?.mallPrice ?? null)}
                   />
                 </td>
               </tr>
@@ -208,6 +208,7 @@ function PriceSendCell({
           type="button"
           className="rounded bg-purple-600 px-2 py-0.5 font-semibold text-white hover:bg-purple-700"
           onClick={() => onSend(single.expected)}
+          title={single.mallPrice !== null ? `몰 ${formatWon(single.mallPrice)} → ${formatWon(single.expected)}` : undefined}
         >
           {formatWon(single.expected)} 보내기
         </button>

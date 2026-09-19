@@ -32,9 +32,13 @@ interface SendResponse extends Partial<MallPriceSendResult> {
   error?: string;
 }
 
+/**
+ * `ifPrice` 는 화면이 본 지금 몰 가격(몰 상품을 가져올 때 읽은 값)이다. 주면 몰 가격이 그 값일 때만 보낸다 — 그사이 몰에서
+ * 바뀐 가격을 모르고 덮어쓰지 않게.
+ */
 export async function sendMallPrice(
   mallKey: string,
-  items: readonly { code: string; price: number }[],
+  items: readonly { code: string; price: number; ifPrice?: number | null }[],
 ): Promise<MallPriceSendResult> {
   if (!canSendMallPrice(mallKey)) throw new Error('이 몰은 아직 가격을 보낼 수 없습니다.');
   const extensionId = await detectOrderCollectionExtensionId();
@@ -52,7 +56,11 @@ export async function sendMallPrice(
   try {
     response = await sendToExtension<SendResponse>(
       extensionId,
-      { action: 'sendMallPrice', mallKey, items: items.map((item) => ({ code: item.code, price: item.price })) },
+      {
+        action: 'sendMallPrice',
+        mallKey,
+        items: items.map((item) => ({ code: item.code, price: item.price, ifPrice: item.ifPrice ?? null })),
+      },
       SEND_TIMEOUT_MS,
     );
   } catch (error) {
