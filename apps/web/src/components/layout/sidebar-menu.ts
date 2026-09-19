@@ -97,7 +97,6 @@ export const menuSections: MenuSection[] = [
     label: '쇼핑몰 에이전트',
     collapsible: true,
     items: [
-      { href: '/agents/mall', label: '에이전트 홈', icon: Gauge },
       { href: '/mall-home', label: '쇼핑몰 홈', icon: Target },
       { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
       { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },

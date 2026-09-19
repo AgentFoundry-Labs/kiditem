@@ -41,7 +41,6 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub/matching', '상품 매칭'],
       ]],
       ['쇼핑몰 에이전트', [
-        ['/agents/mall', '에이전트 홈'],
         ['/mall-home', '쇼핑몰 홈'],
         ['/mall-channels', '쇼핑몰 현황'],
         ['/mall-listings', '상품 등록'],

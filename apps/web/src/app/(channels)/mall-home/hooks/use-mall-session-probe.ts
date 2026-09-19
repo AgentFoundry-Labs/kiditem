@@ -22,7 +22,7 @@ import {
 
 // v2: 결과가 셋(로그인됨 · 인증 필요 · 로그인 필요)으로 바뀌어 옛 캐시(확인 불가)를 읽지 않는다.
 const CACHE_KEY = 'kiditem.mall-home.session-probe.v2';
-/** 이 시간 안에 다시 열면 몰에 다시 묻지 않는다 — 몰에 부담을 주지 않게. */
+/** 이 시간 안에 다시 열면 이 탭에 둔 결과를 다시 보인다. 몰에 묻는 것은 누를 때뿐이다. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 /** 한 번에 확인하는 몰 수. */
 const CONCURRENCY = 3;
@@ -57,13 +57,14 @@ function writeCache(results: Record<string, MallSessionProbeResult>, fullAt: num
 }
 
 /**
- * 쇼핑몰 홈을 열면 연결된 몰마다 로그인 상태를 확인한다 — 로그인은 하지 않는다.
+ * 연결된 몰마다 로그인 상태를 확인한다 — 로그인은 하지 않는다. 쇼핑몰 홈을 열었다고 저절로 묻지 않는다
+ * (사장님 2026-09-19 "자동으로 로그인 확인하는 로직 … 막아놔라") — 사람이 '로그인 확인'을 누를 때만 몰에 묻고,
+ * 열 때는 이 탭에 10분 안에 둔 결과만 다시 보인다.
  *
  * 확장이 한 번에 세 몰씩 확인하고, 결과가 오는 대로 화면에 반영한다. 조용히 읽어 모르는 몰은
  * 확장이 관리자 화면을 백그라운드 탭에 열어 보고 바로 닫는다 — 그래서 결과는 로그인됨 ·
  * 인증 필요 · 로그인 필요 셋 중 하나다. 화면을 보지 못한 몰은 바로 로그인 필요로 내지 않고,
- * 다른 몰을 다 본 뒤 한 곳씩 한 번 더 본다. 10분 안에 다시 열면 이 탭에 둔 결과를 쓴다.
- * '다시 확인'은 바로 다시 묻는다. '실패만 다시 확인'은 로그인 필요 · 인증 필요로 나온 몰만,
+ * 다른 몰을 다 본 뒤 한 곳씩 한 번 더 본다. '로그인 확인' · '다시 확인'은 바로 묻는다. '실패만 다시 확인'은 로그인 필요 · 인증 필요로 나온 몰만,
  * `recheckMall` 은 한 몰만 다시 본다(로그인을 다시 시도한 뒤). 확장이 없거나 옛 버전이면
  * 확인하지 않고 그렇다고 알린다.
  *
@@ -92,6 +93,9 @@ export function useMallSessionProbe(
   const rememberedRef = useRef(remembered);
   const queryClientRef = useRef(queryClient);
   const siteUrlsRef = useRef(siteUrls);
+  const sitesReadyRef = useRef(sitesReady);
+  /** 사이트 주소를 받기 전에 누른 확인 — 받는 대로 한 번 돈다. */
+  const pendingCheckRef = useRef(false);
   const recordedRef = useRef(new Map<string, RecordedLoginCheck>());
   const resultsRef = useRef(results);
   useEffect(() => {
@@ -125,17 +129,10 @@ export function useMallSessionProbe(
   }, []);
 
   const run = useCallback(
-    async (force: boolean, only?: readonly string[]) => {
+    async (only?: readonly string[]) => {
       const all = keysKey ? keysKey.split(',') : [];
       const keys = only ? all.filter((key) => only.includes(key)) : all;
       if (keys.length === 0 || runningRef.current) return;
-      const cache = force ? null : readCache();
-      if (cache && Date.now() - cache.at < CACHE_TTL_MS && keys.every((key) => cache.results[key])) {
-        setResults(cache.results);
-        setCheckedAt(cache.at);
-        setStatus('done');
-        return;
-      }
       runningRef.current = true;
       try {
         const runtime = await detectMallSessionProbe();
@@ -188,19 +185,37 @@ export function useMallSessionProbe(
     [keysKey, apply],
   );
 
+  // 열 때는 몰에 묻지 않는다 — 이 탭에 10분 안에 둔 결과만 다시 보인다.
   useEffect(() => {
-    if (sitesReady) void run(false);
+    const cache = readCache();
+    if (!cache || Date.now() - cache.at >= CACHE_TTL_MS) return;
+    setResults(cache.results);
+    setCheckedAt(cache.at);
+    setStatus('done');
+  }, []);
+
+  useEffect(() => {
+    sitesReadyRef.current = sitesReady;
+    if (sitesReady && pendingCheckRef.current) {
+      pendingCheckRef.current = false;
+      void run();
+    }
   }, [run, sitesReady]);
 
   const recheck = useCallback(() => {
-    void run(true);
+    // 사이트 주소를 받기 전이면 주소가 필요한 몰이 '확인할 주소 없음'이 된다 — 받는 대로 돈다.
+    if (!sitesReadyRef.current) {
+      pendingCheckRef.current = true;
+      return;
+    }
+    void run();
   }, [run]);
 
   const recheckFailed = useCallback(() => {
     const failed = Object.values(resultsRef.current)
       .filter((result) => result.state !== 'signed_in')
       .map((result) => result.mallKey);
-    if (failed.length > 0) void run(true, failed);
+    if (failed.length > 0) void run(failed);
   }, [run]);
 
   /**

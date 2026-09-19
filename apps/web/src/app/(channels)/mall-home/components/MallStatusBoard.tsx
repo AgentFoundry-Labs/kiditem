@@ -194,11 +194,11 @@ function LoginSummary({ session }: { session: MallSessionView }) {
       <button
         type="button"
         onClick={recheck}
-        disabled={status === 'idle' || status === 'running'}
+        disabled={status === 'running'}
         className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <RefreshCw size={12} className={cn(status === 'running' && 'animate-spin')} aria-hidden />
-        다시 확인
+        {status === 'idle' ? '로그인 확인' : '다시 확인'}
       </button>
     </div>
   );
@@ -213,7 +213,8 @@ function pendingText(status: MallSessionView['status'], checking: number, versio
     case 'outdated':
       return `확장 ${version ?? '(버전 모름)'}에는 로그인 확인(${MALL_SESSION_PROBE_CAPABILITY})이 없습니다. 확장을 다시 불러오면 확인합니다.`;
     default:
-      return '로그인 상태 확인 준비 중';
+      // 열었다고 몰에 묻지 않는다(사장님 2026-09-19) — 누를 때만 확인한다.
+      return "로그인 상태는 '로그인 확인'을 누르면 몰마다 확인합니다.";
   }
 }
 
