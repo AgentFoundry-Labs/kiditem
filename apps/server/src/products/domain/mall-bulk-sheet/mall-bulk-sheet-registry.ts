@@ -16,6 +16,17 @@ export const MALL_BULK_SHEETS: readonly MallBulkSheetSpec[] = [
   kidsnoteSheet,
 ];
 
+/**
+ * 신규 등록 엑셀이 없는 몰(2026-09-20 공개 자료 · 판매자센터 조사, Linear KID-265). 이 몰은 폼 채우기 등록으로 간다.
+ * 쇼핑몰 현황의 대량등록 칸이 '불가'로 읽는다.
+ */
+export const MALL_BULK_SHEET_UNAVAILABLE: readonly { mallKey: string; reason: string }[] = [
+  { mallKey: 'lotte-on', reason: '롯데ON은 신규 등록 엑셀이 없습니다(일괄수정만). 상품등록 폼으로 올립니다.' },
+  { mallKey: 'kakao', reason: '카카오 톡스토어는 신규 등록 엑셀이 없습니다(상품 안의 옵션 엑셀만). 상품등록 폼으로 올립니다.' },
+  { mallKey: 'always', reason: '올웨이즈는 자체 등록 엑셀이 없습니다(수정용 엑셀만). 상품등록 폼으로 올립니다.' },
+  { mallKey: 'kkomangse', reason: '꼬망세는 대량등록 엑셀이 없습니다(한 건씩 등록). 상품등록 폼으로 올립니다.' },
+];
+
 export function findMallBulkSheet(sheetKey: string): MallBulkSheetSpec | null {
   return MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === sheetKey) ?? null;
 }

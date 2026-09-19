@@ -3,11 +3,14 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { registrationAdapterFor } from './adapters';
 import { mallPublishingApi } from './mall-publishing-api';
 import {
+  bulkNoteFor,
   capabilityTotals,
   mallCapabilities,
+  type MallBulkSheetFacts,
   ordersLabelFor,
   ordersNoteFor,
   registerNoteFor,
@@ -35,6 +38,13 @@ export function useMallCapabilityRows() {
     queryFn: mallPublishingApi.manifests,
   });
 
+  // 대량등록 칸의 판정 근거 — 판매상품의 몰 엑셀 목록. 못 받으면 칸은 '아직'으로 선다.
+  const mallSheetsQuery = useQuery({
+    queryKey: salesProductKeys.mallSheets(),
+    queryFn: salesProductApi.mallSheets,
+    staleTime: 5 * 60_000,
+  });
+
   const overview = overviewQuery.data;
 
   const rows = useMemo(() => {
@@ -43,6 +53,14 @@ export function useMallCapabilityRows() {
     const manifestByKey = new Map(manifests.map((manifest) => [manifest.key, manifest]));
     const names = new Map(channels.map((channel) => [channel.mallKey, channel.mallName]));
     const mallNameOf = (key: string) => names.get(key) ?? key;
+    const mallSheets = mallSheetsQuery.data;
+    const bulkSheets: MallBulkSheetFacts | null = Array.isArray(mallSheets?.sheets) && Array.isArray(mallSheets?.unavailable)
+      ? {
+        sheets: new Map(mallSheets.sheets.flatMap((sheet) =>
+          sheet.mallKeys.map((mallKey) => [mallKey, { label: sheet.label, mallKeys: sheet.mallKeys }] as const))),
+        unavailable: new Map(mallSheets.unavailable.map((item) => [item.mallKey, item.reason] as const)),
+      }
+      : null;
     return sortByCapability(
       channels.map((channel) => {
         // 제 어댑터가 없어도 다른 몰 등록에 함께 실리면(옥션 ← G마켓 ESM) 상품등록이 된다.
@@ -50,10 +68,11 @@ export function useMallCapabilityRows() {
         const manifest = manifestByKey.get(channel.mallKey) ?? null;
         return {
           channel,
-          capabilities: mallCapabilities(channel, { hasAdapter: Boolean(adapter), manifest }),
+          capabilities: mallCapabilities(channel, { hasAdapter: Boolean(adapter), manifest, bulkSheets }),
           notes: {
             orders: ordersNoteFor(channel),
             register: registerNoteFor(channel.mallKey, adapter, mallNameOf),
+            bulk: bulkNoteFor(channel.mallKey, bulkSheets, mallNameOf),
             soldout: soldOutNoteFor(manifest),
             resume: resumeNoteFor(manifest),
           },
@@ -63,7 +82,7 @@ export function useMallCapabilityRows() {
         };
       }),
     );
-  }, [overview, manifestsQuery.data]);
+  }, [overview, manifestsQuery.data, mallSheetsQuery.data]);
 
   const totals = useMemo(() => capabilityTotals(rows), [rows]);
 

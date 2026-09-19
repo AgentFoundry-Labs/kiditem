@@ -17,7 +17,11 @@ import {
   type MallSheetRow,
   type MallSheetRowsResult,
 } from '../../domain/mall-bulk-sheet/mall-bulk-sheet';
-import { findMallBulkSheet, MALL_BULK_SHEETS } from '../../domain/mall-bulk-sheet/mall-bulk-sheet-registry';
+import {
+  findMallBulkSheet,
+  MALL_BULK_SHEET_UNAVAILABLE,
+  MALL_BULK_SHEETS,
+} from '../../domain/mall-bulk-sheet/mall-bulk-sheet-registry';
 import { MallCategoryLookup } from '../../domain/mall-bulk-sheet/mall-sheet-categories';
 import { MallCategorySuggester } from '../../domain/mall-bulk-sheet/mall-category-suggestions';
 import { toMallSheetProduct, type MallSheetSourceProduct } from '../../domain/mall-bulk-sheet/mall-sheet-product';
@@ -77,6 +81,7 @@ export class SalesProductMallSheetService {
         })),
         notes: [...sheet.notes],
       })),
+      unavailable: MALL_BULK_SHEET_UNAVAILABLE.map((item) => ({ ...item })),
     };
   }
 

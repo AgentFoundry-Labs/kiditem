@@ -24,6 +24,7 @@ export const CAPABILITY_KEYS = [
   'orders',
   'tracking',
   'register',
+  'bulk',
   'soldout',
   'resume',
   'claims',
@@ -55,13 +56,26 @@ export interface MallManifestFacts {
   hazards: { soldOutDeletesListing: boolean };
 }
 
+/**
+ * 몰 대량등록 엑셀(판매상품 → 몰 양식)의 판정 근거 — 서버의 몰 엑셀 목록. 양식을 붙인 몰은 됨, 신규 등록 엑셀이
+ * 없는 몰은 불가, 나머지는 아직이다. 목록을 못 받았으면 null — 그때는 전부 아직이다.
+ */
+export interface MallBulkSheetFacts {
+  /** 몰 키 → 그 몰이 들어가는 엑셀(ESM 은 G마켓 · 옥션이 한 파일). */
+  sheets: ReadonlyMap<string, { label: string; mallKeys: readonly string[] }>;
+  /** 몰 키 → 신규 등록 엑셀이 없는 까닭. */
+  unavailable: ReadonlyMap<string, string>;
+}
+
 export function mallCapabilities(
-  channel: Pick<MallChannelSummary, 'collectsOrders' | 'uploadsTracking'>,
+  channel: Pick<MallChannelSummary, 'mallKey' | 'collectsOrders' | 'uploadsTracking'>,
   context: {
     /** 상품등록 어댑터가 있는가(다른 몰 등록에 함께 실리는 경우 포함). */
     hasAdapter: boolean;
     /** 서버 매니페스트. 못 받았으면 null — 그때는 없는 일로 단정하지 않는다. */
     manifest: MallManifestFacts | null;
+    /** 몰 대량등록 엑셀 목록. 못 받았으면 없음(null) — 대량등록 칸은 아직이다. */
+    bulkSheets?: MallBulkSheetFacts | null;
   },
 ): MallCapabilities {
   const { manifest } = context;
@@ -87,6 +101,11 @@ export function mallCapabilities(
     register: !applicable
       ? 'unavailable'
       : context.hasAdapter ? 'ready' : 'pending',
+    // 대량등록은 판매상품으로 그 몰 양식을 채워 받을 수 있을 때만 초록이다(서버의 몰 엑셀 목록). 몰에 신규 등록
+    // 엑셀이 없다고 확인된 곳은 빨강이다 — 그 몰은 상품등록(폼)으로 간다.
+    bulk: !applicable || context.bulkSheets?.unavailable.has(channel.mallKey)
+      ? 'unavailable'
+      : context.bulkSheets?.sheets.has(channel.mallKey) ? 'ready' : 'pending',
     update: onlyWhereApplicable,
     // 품절 송신은 확장이 그 몰 관리자에 직접 쓰는 몰만 초록이다(`soldOutRoute`).
     // 몰이 품절을 받는다는 사실만으로 켜지 않는다 — 그건 몰의 사정이고, 이 칸은
@@ -195,6 +214,23 @@ export function soldOutNoteFor(manifest: MallManifestFacts | null): string | nul
   return manifest.hazards?.soldOutDeletesListing
     ? '몰은 품절을 받지만 완전품절이 영구삭제라 판매중지로 보내야 합니다. 우리 송신 경로는 아직 없습니다.'
     : '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.';
+}
+
+/**
+ * 대량등록 줄에 붙는 사연 — 어디서 받는지(판매상품 화면), 한 파일에 함께 들어가는 몰, 엑셀이 없는 까닭.
+ */
+export function bulkNoteFor(
+  mallKey: string,
+  facts: MallBulkSheetFacts | null,
+  mallNameOf: (key: string) => string,
+): string | null {
+  if (!facts) return null;
+  const unavailable = facts.unavailable.get(mallKey);
+  if (unavailable) return unavailable;
+  const sheet = facts.sheets.get(mallKey);
+  if (!sheet) return null;
+  const together = sheet.mallKeys.length > 1 ? ` — ${sheet.mallKeys.map(mallNameOf).join('·')} 한 파일` : '';
+  return `판매상품 화면 [몰 대량등록 엑셀] › ${sheet.label}${together}에서 이 몰 양식을 채워 받습니다.`;
 }
 
 /**

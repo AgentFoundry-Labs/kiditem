@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import {
+  bulkNoteFor,
   capabilityTotals,
   mallCapabilities,
   ordersLabelFor,
@@ -10,6 +11,7 @@ import {
   resumeNoteFor,
   soldOutNoteFor,
   sortByCapability,
+  type MallBulkSheetFacts,
   type MallManifestFacts,
 } from './mall-capabilities';
 
@@ -55,11 +57,40 @@ describe('mallCapabilities', () => {
       inquiries: 'pending',
       inquiryReplies: 'pending',
       register: 'pending',
+      bulk: 'pending',
       update: 'pending',
       soldout: 'pending',
       resume: 'pending',
       stock: 'pending',
     });
+  });
+
+  const bulkSheets: MallBulkSheetFacts = {
+    sheets: new Map([
+      ['gmarket', { label: 'G마켓 · 옥션', mallKeys: ['gmarket', 'auction'] }],
+      ['auction', { label: 'G마켓 · 옥션', mallKeys: ['gmarket', 'auction'] }],
+    ]),
+    unavailable: new Map([['lotte-on', '롯데ON은 신규 등록 엑셀이 없습니다(일괄수정만).']]),
+  };
+
+  it('대량등록은 몰 엑셀 목록에 있는 몰만 됨, 신규 등록 엑셀이 없는 몰은 불가, 목록을 못 받으면 아직이다', () => {
+    const bulk = (mallKey: string, facts: MallBulkSheetFacts | null = bulkSheets, facts2 = manifest()) =>
+      mallCapabilities(channel({ mallKey }), { hasAdapter: true, manifest: facts2, bulkSheets: facts }).bulk;
+    expect(bulk('auction')).toBe('ready');
+    expect(bulk('lotte-on')).toBe('unavailable');
+    expect(bulk('ssg')).toBe('pending');
+    expect(bulk('auction', null)).toBe('pending');
+    expect(bulk('gmarket', bulkSheets, notApplicable)).toBe('unavailable');
+  });
+
+  it('대량등록 사연은 받는 곳과 한 파일에 함께 들어가는 몰, 또는 엑셀이 없는 까닭이다', () => {
+    const names = (key: string) => ({ gmarket: 'G마켓', auction: '옥션' } as Record<string, string>)[key] ?? key;
+    expect(bulkNoteFor('auction', bulkSheets, names)).toBe(
+      '판매상품 화면 [몰 대량등록 엑셀] › G마켓 · 옥션 — G마켓·옥션 한 파일에서 이 몰 양식을 채워 받습니다.',
+    );
+    expect(bulkNoteFor('lotte-on', bulkSheets, names)).toBe('롯데ON은 신규 등록 엑셀이 없습니다(일괄수정만).');
+    expect(bulkNoteFor('ssg', bulkSheets, names)).toBeNull();
+    expect(bulkNoteFor('auction', null, names)).toBeNull();
   });
 
   it('상품등록은 등록 어댑터가 있어야 초록이다', () => {
@@ -123,6 +154,7 @@ describe('mallCapabilities', () => {
       inquiries: 'pending',
       inquiryReplies: 'pending',
       register: 'pending',
+      bulk: 'pending',
       update: 'pending',
       soldout: 'pending',
       resume: 'pending',

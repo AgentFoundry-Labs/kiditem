@@ -575,7 +575,11 @@ export const SalesProductMallSheetSchema = z.object({
 });
 export type SalesProductMallSheet = z.infer<typeof SalesProductMallSheetSchema>;
 
-export const SalesProductMallSheetListSchema = z.object({ sheets: z.array(SalesProductMallSheetSchema) });
+export const SalesProductMallSheetListSchema = z.object({
+  sheets: z.array(SalesProductMallSheetSchema),
+  /** 신규 등록 엑셀이 없는 몰과 그 까닭 — 폼 채우기 등록으로 간다. */
+  unavailable: z.array(z.object({ mallKey: z.string(), reason: z.string() })),
+});
 export type SalesProductMallSheetList = z.infer<typeof SalesProductMallSheetListSchema>;
 
 export const SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1000;

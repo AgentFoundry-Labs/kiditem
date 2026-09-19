@@ -14,6 +14,7 @@ import {
 } from './mall-bulk-sheet';
 import { MallCategoryLookup, parseCoupangPurchaseOption, type MallCategoryTables } from './mall-sheet-categories';
 import { MallCategorySuggester } from './mall-category-suggestions';
+import { MALL_BULK_SHEET_UNAVAILABLE, MALL_BULK_SHEETS } from './mall-bulk-sheet-registry';
 import { mallDisplayName, toMallSheetProduct, type MallSheetSourceProduct } from './mall-sheet-product';
 
 const TABLES: MallCategoryTables = {
@@ -327,5 +328,13 @@ describe('mallDisplayName', () => {
     expect(mallDisplayName('700받아쓰기노트(10권)')).toBe('받아쓰기노트(10권)');
     expect(mallDisplayName('1+1 5000돌고래비눗방울')).toBe('1+1 5000돌고래비눗방울');
     expect(mallDisplayName('2024')).toBe('2024');
+  });
+});
+
+describe('mall bulk sheet registry', () => {
+  it('never lists a mall both as having a sheet and as having no bulk Excel', () => {
+    const covered = new Set(MALL_BULK_SHEETS.flatMap((sheet) => sheet.mallKeys));
+    expect(MALL_BULK_SHEET_UNAVAILABLE.filter((item) => covered.has(item.mallKey))).toEqual([]);
+    expect([...covered].sort()).toEqual(['11st', 'auction', 'coupang', 'gmarket', 'kidsnote']);
   });
 });

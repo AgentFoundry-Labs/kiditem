@@ -3,6 +3,7 @@
 import {
   Boxes,
   Download,
+  FileSpreadsheet,
   MessageCircleQuestion,
   MessageSquareReply,
   PackageCheck,
@@ -26,6 +27,7 @@ export const CAPABILITY_LABEL: Record<CapabilityKey, string> = {
   inquiries: '문의수집',
   inquiryReplies: '문의답변',
   register: '상품등록',
+  bulk: '대량등록',
   update: '상품수정',
   soldout: '품절관리',
   resume: '판매재개',
@@ -40,6 +42,7 @@ export const CAPABILITY_ICON = {
   inquiries: MessageCircleQuestion,
   inquiryReplies: MessageSquareReply,
   register: Send,
+  bulk: FileSpreadsheet,
   update: PencilLine,
   soldout: PackageX,
   resume: PackageCheck,
@@ -112,6 +115,11 @@ const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
     ready: '이 몰의 상품등록 폼을 채울 수 있습니다.',
     pending: '상품등록 경로가 아직 없습니다.',
     unavailable: '이 채널에는 상품등록 개념이 없습니다(발주를 받는 사입 채널).',
+  },
+  bulk: {
+    ready: '판매상품 화면 [몰 대량등록 엑셀]에서 이 몰 대량등록 양식을 채워 받습니다.',
+    pending: '이 몰 대량등록 엑셀 양식을 아직 붙이지 않았습니다.',
+    unavailable: '이 몰에는 신규 등록 엑셀이 없습니다 — 상품등록(폼)으로 올립니다.',
   },
   update: {
     ready: '이 몰에 등록된 상품의 수정(가격 · 상품명 · 상세)을 보낼 수 있습니다.',
