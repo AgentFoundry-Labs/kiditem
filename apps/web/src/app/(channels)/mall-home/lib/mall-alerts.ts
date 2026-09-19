@@ -6,6 +6,7 @@ import type {
 } from '@kiditem/shared/mall-operation-outcomes';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { formatNumber } from '@/lib/utils';
+import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 /**
  * 쇼핑몰 알림 — 쇼핑몰 홈 오른쪽 알림판에 무엇이 서는가.
@@ -148,7 +149,7 @@ export function derivedMallAlerts({
       id: 'derived:credentials',
       title: `로그인 정보가 비어 있는 몰 ${formatNumber(noLogin.length)}곳`,
       message: `${nameList(noLogin.map((channel) => channel.mallName))} — 아이디·비밀번호가 없으면 자동 로그인과 주문수집이 막힙니다.`,
-      href: '/mall-settings',
+      href: MALL_ACCOUNT_SETTINGS_HREF,
       hrefLabel: '계정 설정',
       mallKeys: noLogin.map((channel) => channel.mallKey),
       tileLabel: '로그인 정보 없음',
@@ -165,7 +166,7 @@ export function derivedMallAlerts({
       id: group.id,
       title: `직접 ${group.word}이 필요한 몰 ${formatNumber(malls.length)}곳`,
       message: `${nameList(malls.map((channel) => channel.mallName))} — 자동 ${group.word}을 더 시도하지 않습니다. 몰에서 직접 ${group.word}해 주세요.`,
-      href: '/mall-settings',
+      href: MALL_ACCOUNT_SETTINGS_HREF,
       hrefLabel: '쇼핑몰 계정',
       mallKeys: malls.map((channel) => channel.mallKey),
       tileLabel: `직접 ${group.word} 필요`,
@@ -177,7 +178,7 @@ export function derivedMallAlerts({
       id: 'derived:session-expired',
       title: `로그인이 풀린 몰 ${formatNumber(signedOut.length)}곳`,
       message: `${nameList(signedOut.map((channel) => channel.mallName))} — 이 브라우저에서 몰 관리자에 로그인해야 수집 · 등록이 됩니다.`,
-      href: '/mall-settings',
+      href: MALL_ACCOUNT_SETTINGS_HREF,
       hrefLabel: '로그인 테스트',
       mallKeys: signedOut.map((channel) => channel.mallKey),
       tileLabel: '로그인 필요',

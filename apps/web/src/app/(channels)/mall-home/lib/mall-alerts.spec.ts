@@ -109,7 +109,7 @@ describe('derivedMallAlerts', () => {
     expect(first?.title).toBe('로그인 정보가 비어 있는 몰 4곳');
     expect(first?.message).toContain('가몰, 나몰, 다몰 외 1곳');
     expect(first?.mallKeys).toEqual(['a', 'b', 'c', 'd']);
-    expect(first?.href).toBe('/mall-settings');
+    expect(first?.href).toBe('/mall-channels?account=all');
   });
 
   it('⭐ 확장이 확인한 결과 로그인이 풀린 몰을 한 알림으로 모은다', () => {

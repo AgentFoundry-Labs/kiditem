@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MallChannelsPage from './page';
 
@@ -16,6 +16,9 @@ import MallChannelsPage from './page';
 
 let overview: unknown;
 let manifests: unknown;
+/** 주소의 쿼리 — `?account=` 가 계정 설정 창을 연다. */
+let searchParams: URLSearchParams;
+const mockReplace = vi.fn();
 
 /** 쇼핑몰 계정 화면의 계정 목록 — 쇼핑몰 ID · 사용여부 칸이 읽는다. */
 let mallAccounts: unknown;
@@ -45,15 +48,24 @@ vi.mock('../_shared/MallAdminListingsImport', () => ({
   ),
 }));
 
-// 실제 next/link 는 aria-label 을 그대로 넘긴다. 아이콘만 있는 링크의 이름이 거기서 나온다.
-vi.mock('next/link', () => ({
-  default: ({
-    children,
-    href,
-    ...rest
-  }: { children: React.ReactNode; href: string } & Record<string, unknown>) => (
-    <a href={href} {...rest}>{children}</a>
-  ),
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockReplace }),
+  useSearchParams: () => searchParams,
+}));
+
+// 창 안의 편집(초안 · 비밀번호 보기 · 저장)은 창 스펙이 본다 — 여기서는 어떤 창이 열리는지만 본다.
+vi.mock('../../(orders)/mall-settings/components/MallAccountSettingsDialog', () => ({
+  MallAccountSettingsDialog: ({
+    target,
+    mallName,
+    onClose,
+  }: { target: string | null; mallName?: string; onClose: () => void }) =>
+    target === null ? null : (
+      <div role="dialog" aria-label={`계정 설정 창 ${target}`}>
+        {mallName}
+        <button type="button" onClick={onClose}>창 닫기</button>
+      </div>
+    ),
 }));
 
 function channel(overrides: Record<string, unknown> = {}) {
@@ -97,6 +109,8 @@ const manifest = (key: string, overrides: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
+  searchParams = new URLSearchParams();
+  mockReplace.mockReset();
   mallAccounts = [
     { key: 'kidsnote', loginId: 'store_kiditem', enabled: true },
     { key: 'coupang-direct', loginId: 'kiditem01', enabled: false },
@@ -193,7 +207,7 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     for (const word of ['됨', '아직', '불가']) expect(screen.getAllByText(word).length).toBeGreaterThan(0);
   });
 
-  it('⭐ 쇼핑몰 ID · 사용여부는 쇼핑몰 계정 화면의 값이다 — 계정이 없으면 없다고 적는다', () => {
+  it('⭐ 쇼핑몰 ID · 사용여부는 쇼핑몰 계정의 값이다 — 계정이 없으면 없다고 적는다', () => {
     overview = fourMalls();
     render(<MallChannelsPage />);
     expect(within(card('키즈노트')).getByText('store_kiditem')).toBeInTheDocument();
@@ -202,10 +216,29 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     expect(within(card('쿠팡 로켓')).getByText('kiditem01')).toBeInTheDocument();
     expect(within(card('쿠팡 로켓')).getByText('미사용')).toBeInTheDocument();
     expect(within(card('토스쇼핑')).getByText('계정 없음')).toBeInTheDocument();
-    expect(within(card('토스쇼핑')).getByRole('link', { name: '토스쇼핑 계정 설정' })).toHaveAttribute(
-      'href',
-      '/mall-settings',
-    );
+  });
+
+  it('⭐ 줄의 설정은 그 몰의 계정 설정 창을 연다 — 쇼핑몰 계정은 따로 된 화면이 아니다', () => {
+    overview = fourMalls();
+    render(<MallChannelsPage />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(within(card('토스쇼핑')).getByRole('button', { name: '토스쇼핑 계정 설정' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/mall-channels?account=toss', { scroll: false });
+    // 쿠팡 로켓의 계정은 '쿠팡직배송' 줄이다.
+    fireEvent.click(within(card('쿠팡 로켓')).getByRole('button', { name: '쿠팡 로켓 계정 설정' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/mall-channels?account=coupang-direct', { scroll: false });
+  });
+
+  it('주소의 ?account= 가 창을 열고, 닫으면 주소에서 지운다', () => {
+    overview = fourMalls();
+    searchParams = new URLSearchParams('account=coupang-direct');
+    render(<MallChannelsPage />);
+    const dialog = screen.getByRole('dialog', { name: '계정 설정 창 coupang-direct' });
+    expect(dialog).toHaveTextContent('쿠팡 로켓');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '창 닫기' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/mall-channels', { scroll: false });
   });
 
   it('⭐ 셀피아가 주문을 가져오는 몰은 "셀피아 주문수집 됨"으로 선다', () => {
@@ -348,11 +381,12 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     expect(within(card('쿠팡 로켓')).getByRole('img', { name: '재고송신 아직' })).toBeInTheDocument();
   });
 
-  it('없는 기능을 버튼으로 만들지 않는다 — 채널 추가 대신 계정 설정으로 보낸다', () => {
+  it('없는 기능을 버튼으로 만들지 않는다 — 채널 추가 대신 모든 몰의 계정 설정 창을 연다', () => {
     render(<MallChannelsPage />);
     // 몰 목록은 서버 고정 카탈로그다. 새로 만드는 API 가 없다.
     expect(screen.queryByText(/채널 추가/)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '계정 설정' })).toHaveAttribute('href', '/mall-settings');
+    fireEvent.click(screen.getByRole('button', { name: '계정 설정' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/mall-channels?account=all', { scroll: false });
   });
 
   it('⭐ 머리에서 사방넷 등록 상품을 한꺼번에 가져온다 — 몰마다 따로 누르지 않는다', () => {

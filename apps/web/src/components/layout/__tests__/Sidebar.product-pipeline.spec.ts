@@ -44,7 +44,6 @@ describe('Sidebar product pipeline navigation', () => {
         ['/agents/mall', '에이전트 홈'],
         ['/mall-home', '쇼핑몰 홈'],
         ['/mall-channels', '쇼핑몰 현황'],
-        ['/mall-settings', '쇼핑몰 계정'],
         ['/mall-listings', '상품 등록'],
         ['/mall-availability', '품절 관리'],
         ['/mall-tasks', '송신 내역'],

@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { Settings } from 'lucide-react';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { cn, formatNumber } from '@/lib/utils';
+import { mallAccountKeyFor } from '../../_shared/mall-account-settings-link';
 import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
 import {
   CAPABILITY_KEYS,
@@ -27,7 +27,7 @@ export interface ChannelTableRow {
   labels?: Partial<Record<CapabilityKey, string | null>>;
 }
 
-/** 쇼핑몰 계정 화면에 저장된 그 몰의 계정. 없으면 `null`. */
+/** 쇼핑몰 계정(설정 창)에 저장된 그 몰의 계정. 없으면 `null`. */
 export interface ChannelAccountInfo {
   loginId: string | null;
   enabled: boolean;
@@ -39,7 +39,7 @@ export interface ChannelAccountInfo {
  * 한 줄이 몰 하나다. 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정 · 등록 상품, 그리고 되는 일 열 칸.
  * 등록 상품은 그 몰의 상품을 가져온 적이 없으면 0 이 아니라 `—` 다(모른다). 사방넷은
  * 칸마다 켜고 끄는 스위치를 두지만, 우리 칸은 **그 일이 지금 되는지**를 말한다 — 누를 수 없는
- * 스위치를 그리면 켜 둔 줄 알고 기다리게 된다. 켜고 끄는 것은 계정 화면의 사용여부 하나다.
+ * 스위치를 그리면 켜 둔 줄 알고 기다리게 된다. 켜고 끄는 것은 설정 창의 사용여부 하나다.
  *
  * 칸 머리에는 연결된 몰 중 몇 곳에서 되는지가 선다. 표가 넓어 가로로 밀리므로 몰 이름 칸은
  * 왼쪽에 붙어 있다.
@@ -48,11 +48,14 @@ export function ChannelTable({
   rows,
   totals,
   accounts,
+  onOpenSettings,
 }: {
   rows: readonly ChannelTableRow[];
   totals: CapabilityTotals;
   /** 몰 키 → 쇼핑몰 계정. 아직 못 받았으면 `null`. */
   accounts: ReadonlyMap<string, ChannelAccountInfo> | null;
+  /** 그 몰의 계정 설정 창을 연다. 인자는 쇼핑몰 계정 키다(쿠팡 로켓은 '쿠팡직배송'). */
+  onOpenSettings: (accountKey: string) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -79,6 +82,7 @@ export function ChannelTable({
               key={row.channel.mallKey}
               row={row}
               account={accounts ? accountFor(accounts, row.channel.mallKey) : undefined}
+              onOpenSettings={() => onOpenSettings(mallAccountKeyFor(row.channel.mallKey))}
             />
           ))}
         </tbody>
@@ -95,16 +99,18 @@ function accountFor(
   accounts: ReadonlyMap<string, ChannelAccountInfo>,
   mallKey: string,
 ): ChannelAccountInfo | null {
-  return accounts.get(mallKey) ?? (mallKey === 'rocket' ? accounts.get('coupang-direct') ?? null : null);
+  return accounts.get(mallKey) ?? accounts.get(mallAccountKeyFor(mallKey)) ?? null;
 }
 
 function ChannelRow({
   row,
   account,
+  onOpenSettings,
 }: {
   row: ChannelTableRow;
   /** `undefined` 는 아직 못 받음, `null` 은 계정이 없음. */
   account: ChannelAccountInfo | null | undefined;
+  onOpenSettings: () => void;
 }) {
   const { channel, capabilities, notes, labels } = row;
   const logo = mallLogoPath(channel.mallKey);
@@ -140,13 +146,15 @@ function ChannelRow({
         <UsageBadge account={account} />
       </td>
       <td className="px-2 py-2 text-center">
-        <Link
-          href="/mall-settings"
+        <button
+          type="button"
+          onClick={onOpenSettings}
           aria-label={`${channel.mallName} 계정 설정`}
+          title="아이디 · 비밀번호 · 사이트 주소 · 로그인 테스트"
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
         >
           <Settings size={14} aria-hidden />
-        </Link>
+        </button>
       </td>
       <td
         className="px-2 py-2 text-right tabular-nums text-slate-700"

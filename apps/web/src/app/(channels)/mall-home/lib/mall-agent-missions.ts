@@ -1,4 +1,5 @@
 import type { CapabilityKey, CapabilityTotals } from '../../_shared/mall-capabilities';
+import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 /**
  * 쇼핑몰 에이전트의 미션.
@@ -110,7 +111,7 @@ export function buildMallAgentMissions(totals: CapabilityTotals | null): MallAge
       status: 'progress',
       now: '쇼핑몰 홈을 열면 확장이 몰 관리자 화면을 조용히 읽고, 그걸로 모르면 화면을 열어 보고 닫아 몰마다 로그인됨 · 인증 필요 · 로그인 필요를 보여 준다(로그인은 하지 않는다). 주문수집·상품등록 전에는 저장된 계정으로 자동 로그인을 시도하고, 캡차·OTP·토큰 방식 몰은 사람을 부른다.',
       next: '조용히 확인하는 몰을 늘리고, 로그인이 풀린 몰은 주문수집 시간 전에 미리 알린다.',
-      href: { path: '/mall-settings', label: '쇼핑몰 계정' },
+      href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '쇼핑몰 계정' },
     },
     {
       id: 'orders',

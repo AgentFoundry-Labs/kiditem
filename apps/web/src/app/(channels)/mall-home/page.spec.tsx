@@ -233,7 +233,7 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
     expect(within(aside).getByText('로그인 정보가 비어 있는 몰 1곳')).toBeInTheDocument();
     expect(within(aside).getByText('쿠팡 발주확인 대기 3건')).toBeInTheDocument();
     expect(within(aside).getByText('품절 후보 5개')).toBeInTheDocument();
-    expect(within(aside).getByRole('link', { name: /계정 설정/ })).toHaveAttribute('href', '/mall-settings');
+    expect(within(aside).getByRole('link', { name: /계정 설정/ })).toHaveAttribute('href', '/mall-channels?account=all');
     // 문제 있는 몰 타일은 빨갛다.
     expect(screen.getByRole('button', { name: '온채널 로그인 정보 없음' }).className).toContain('bg-red-50');
     expect(screen.getByRole('button', { name: /^쿠팡 로켓 / }).className).not.toContain('bg-red-50');
@@ -505,7 +505,7 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     expect(within(panel()).getByText('로그인이 풀린 몰 1곳')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^로그인 필요.*세션 풀림 1 · 계정 정보 없음 0$/ })).toHaveAttribute(
       'href',
-      '/mall-settings',
+      '/mall-channels?account=all',
     );
     // 확장에는 몰 키와 쇼핑몰 계정에 저장된 사이트 주소만 간다.
     expect(mockProbeMall.mock.calls).toEqual(expect.arrayContaining([

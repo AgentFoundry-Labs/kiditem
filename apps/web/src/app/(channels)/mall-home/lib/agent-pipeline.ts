@@ -1,6 +1,7 @@
 import type { CapabilityKey, CapabilityTotals } from '../../_shared/mall-capabilities';
 import { formatNumber } from '@/lib/utils';
 import type { MallAgentMission, MissionStatus } from './mall-agent-missions';
+import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 /**
  * 쇼핑몰 에이전트 파이프라인 — 에이전트가 일하는 순서와, 단계마다 그 단계의 일.
@@ -149,7 +150,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '로그인 정보 없는 몰',
         status: 'done',
         detail: amount(input.noLoginCount, '곳'),
-        href: { path: '/mall-settings', label: '계정 설정' },
+        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '계정 설정' },
       },
       {
         // 확장이 조용히 읽고, 모르면 화면을 열어 봐 몰마다 셋 중 하나로 답한다.
@@ -280,7 +281,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '자동 로그인',
         status: 'progress',
         detail: '저장된 계정으로 로그인한다. 캡차 · OTP 몰은 사람을 부른다.',
-        href: { path: '/mall-settings', label: '쇼핑몰 계정' },
+        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '쇼핑몰 계정' },
       },
       {
         id: 'act-tidy',
@@ -310,7 +311,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '몰 계정 비밀번호',
         status: 'done',
         detail: '사람이 계정 설정에서 직접 넣는다. 코드 · 기록에 남기지 않는다.',
-        href: { path: '/mall-settings', label: '쇼핑몰 계정' },
+        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '쇼핑몰 계정' },
       },
       {
         id: 'approve-tidy',
@@ -372,7 +373,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         detail: input.outcomes
           ? `최근 7일 로그인 기록 ${formatNumber(input.outcomes.loginRecords)}건`
           : PIPELINE_UNKNOWN,
-        href: { path: '/mall-settings', label: '로그인 테스트' },
+        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '로그인 테스트' },
       },
     ]),
   ];
