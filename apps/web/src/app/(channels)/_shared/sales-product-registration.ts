@@ -1,4 +1,4 @@
-import type { SalesProduct } from '@kiditem/shared/sales-product';
+import { salesProductMallPrice, type SalesProduct } from '@kiditem/shared/sales-product';
 import { salesProductApi } from '@/lib/sales-product-api';
 import {
   KIDITEM_MALL_DRAFT_DEFAULTS,
@@ -42,9 +42,7 @@ export function salesProductOptionPrice(
   extraPrice: number,
   override: { salePrice: number | null; priceRateBp: number | null } | undefined,
 ): number {
-  const base = override?.salePrice
-    ?? (override?.priceRateBp ? Math.round((product.salePrice * override.priceRateBp) / 10_000) : product.salePrice);
-  return Math.max(0, base + extraPrice);
+  return salesProductMallPrice({ salePrice: product.salePrice, extraPrice, override });
 }
 
 export function salesProductToMallProductDraft(product: SalesProduct, mallKey: string): MallProductDraft {

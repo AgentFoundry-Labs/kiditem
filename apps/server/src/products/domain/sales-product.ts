@@ -1,5 +1,6 @@
 import {
   nextSalesProductOptionCode,
+  salesProductMallPrice,
   salesProductOptionKey,
   type SalesProductOptionSupplyStatus,
   type SalesProductStatus,
@@ -172,11 +173,7 @@ export function resolveSalesProductOptionPrice(input: {
   extraPrice: number;
   override?: { salePrice: number | null; priceRateBp: number | null } | null;
 }): number {
-  const base = input.override?.salePrice
-    ?? (input.override?.priceRateBp
-      ? Math.round((input.salePrice * input.override.priceRateBp) / 10_000)
-      : input.salePrice);
-  return Math.max(0, base + input.extraPrice);
+  return salesProductMallPrice(input);
 }
 
 function blankToNull(value: string | null | undefined): string | null {

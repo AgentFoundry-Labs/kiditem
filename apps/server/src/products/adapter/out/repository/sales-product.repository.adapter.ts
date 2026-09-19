@@ -67,6 +67,11 @@ const DETAIL_INCLUDE = {
       status: true,
       isActive: true,
       channelAccount: { select: { channel: true, name: true } },
+      options: {
+        where: { isActive: true },
+        orderBy: { externalOptionId: 'asc' as const },
+        select: { id: true, externalOptionId: true, itemName: true, salePrice: true, salesProductOptionId: true },
+      },
     },
   },
 } satisfies Prisma.SalesProductInclude;
@@ -985,6 +990,7 @@ function toSalesProduct(
       displayName: listing.displayName,
       status: listing.status,
       isActive: listing.isActive,
+      options: listing.options,
     })),
   } satisfies SalesProduct;
 }

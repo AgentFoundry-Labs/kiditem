@@ -65,6 +65,22 @@ export function buildSalesProductOptionCombinations(axesValues: readonly (readon
 }
 
 /** 새 단품코드 — `{판매상품코드}-0001` 모양으로, 이미 쓴 번호 다음. */
+/**
+ * 몰로 보낼 단품 가격 — 판매가 + 추가금액. 그 몰의 몰별 값이 있으면 그 값(금액이 %보다 먼저)에 추가금액을 더한다.
+ * 서버 · 등록 초안 · 편집 화면이 모두 이 한 규칙을 쓴다.
+ */
+export function salesProductMallPrice(input: {
+  salePrice: number;
+  extraPrice: number;
+  override?: { salePrice: number | null; priceRateBp: number | null } | null;
+}): number {
+  const base = input.override?.salePrice
+    ?? (input.override?.priceRateBp
+      ? Math.round((input.salePrice * input.override.priceRateBp) / 10_000)
+      : input.salePrice);
+  return Math.max(0, base + input.extraPrice);
+}
+
 export function nextSalesProductOptionCode(productCode: string, existingCodes: readonly string[]): string {
   const prefix = `${productCode}-`;
   const used = existingCodes
@@ -266,6 +282,14 @@ export const SalesProductChannelListingSchema = z.object({
   displayName: z.string().nullable(),
   status: z.string().nullable(),
   isActive: z.boolean(),
+  /** 몰 옵션 — 가져올 때 읽은 몰 판매가와 이어진 단품. */
+  options: z.array(z.object({
+    id: z.string().uuid(),
+    externalOptionId: z.string(),
+    itemName: z.string().nullable(),
+    salePrice: z.number().int().nullable(),
+    salesProductOptionId: z.string().uuid().nullable(),
+  })),
 });
 export type SalesProductChannelListing = z.infer<typeof SalesProductChannelListingSchema>;
 

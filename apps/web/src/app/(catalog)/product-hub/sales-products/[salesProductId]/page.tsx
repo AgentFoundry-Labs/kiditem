@@ -13,6 +13,7 @@ import {
 } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
@@ -275,22 +276,7 @@ function Editor({ product }: { product: SalesProduct }) {
       </Section>
 
       <Section id="listings" title="몰에 올라간 상품">
-        {product.channelListings.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            아직 이 판매상품에 이어진 몰 상품이 없습니다. 몰에서 가져온 상품을 판매상품코드 · 셀피아 상품으로 잇는 일은 다음 단계에서 붙습니다.
-          </p>
-        ) : (
-          <ul className="divide-y divide-slate-100 text-sm">
-            {product.channelListings.map((listing) => (
-              <li key={listing.id} className="flex items-center gap-3 py-2">
-                <span className="w-28 font-medium text-slate-800">{listing.mallName}</span>
-                <span className="font-mono text-xs text-slate-500">{listing.externalId}</span>
-                <span className="min-w-0 flex-1 truncate text-slate-600">{listing.displayName}</span>
-                <span className="text-xs text-slate-500">{listing.status ?? ''}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ChannelListingsSection product={product} />
       </Section>
 
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
