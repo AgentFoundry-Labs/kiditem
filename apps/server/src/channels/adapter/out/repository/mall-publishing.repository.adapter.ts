@@ -249,7 +249,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             isActive: true,
             masterProductId: { not: null },
           } satisfies Prisma.ChannelListingWhereInput;
-          const [products, onSaleProducts] = await Promise.all([
+          const [products, onSaleProducts, onSaleLinkedListingCount] = await Promise.all([
             this.prisma.channelListing.findMany({
               where: linked,
               distinct: ['masterProductId'],
@@ -260,11 +260,25 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
               distinct: ['masterProductId'],
               select: { masterProductId: true },
             }),
+            // 판매중 리스팅 가운데 활성 옵션이 모두 셀피아 재고에 이어진 것 — 리스팅 단위 매칭률의 분자.
+            this.prisma.channelListing.count({
+              where: {
+                organizationId,
+                channelAccountId: row.channelAccountId,
+                isActive: true,
+                status: onSaleStatus,
+                options: {
+                  some: { isActive: true },
+                  every: { OR: [{ isActive: false }, { inventoryComponents: { some: {} } }] },
+                },
+              },
+            }),
           ]);
           return {
             channelAccountId: row.channelAccountId,
             productCount: products.length,
             onSaleProductCount: onSaleProducts.length,
+            onSaleLinkedListingCount,
           };
         }),
       ),
@@ -326,6 +340,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       onSaleListingCount: onSaleListingByAccount.get(account.id) ?? 0,
       productCount: productByAccount.get(account.id)?.productCount ?? 0,
       onSaleProductCount: productByAccount.get(account.id)?.onSaleProductCount ?? 0,
+      onSaleLinkedListingCount: productByAccount.get(account.id)?.onSaleLinkedListingCount ?? 0,
       optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
       matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
       onSaleOptionCount: optionsByAccount.get(account.id)?.onSaleOptionCount ?? 0,

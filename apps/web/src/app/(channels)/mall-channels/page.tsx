@@ -10,10 +10,10 @@ import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-m
 import { MallAccountSettingsDialog } from '../../(orders)/mall-settings/components/MallAccountSettingsDialog';
 import { MALL_ACCOUNT_SETTINGS_PARAM, mallAccountKeyFor } from '../_shared/mall-account-settings-link';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
-import { MALL_ADMIN_LISTING_MALL_KEYS } from '@kiditem/shared/mall-admin-listings';
+import { isMallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
 import { MallAdminListingsImport } from '../_shared/MallAdminListingsImport';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
-import { ChannelSummary } from './components/ChannelSummary';
+import { SellpiaDashboard } from './components/SellpiaDashboard';
 import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
 import { CapabilityLegend } from './components/CapabilityPill';
 
@@ -25,14 +25,15 @@ import { CapabilityLegend } from './components/CapabilityPill';
  * 설정은 그 몰, 머리의 계정 설정은 모든 몰의 계정 표를 연다. 편집 부품과 저장 API 는 계정 행의 작성자인 주문수집
  * 쪽(`app/(orders)/mall-settings`)에 그대로 있고 이 화면은 열기만 한다. 주소의 `?account=몰키|all` 이 그 창을 연다.
  *
- * 맨 위는 활성 상품 · 연결된 몰, 그 아래는 연결된 몰 **한 표**다(사방넷 스케줄러와 같은 모양,
+ * 맨 위는 셀피아 기준 대시보드(사장님 2026-09-19), 그 아래는 연결된 몰 **한 표**다(사방넷 스케줄러와 같은 모양,
  * 사장님 2026-09-17). 줄마다 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정과 되는 일 열 칸을 적고
  * **다 되는 몰부터** 둔다. 칸 머리에 몇 곳에서 되는지가 선다 — 초록 됨 · 회색 아직 · 빨강 불가.
  * 판정은 쇼핑몰 홈과 같은 곳(`useMallCapabilityRows`)에서 읽는다. 쇼핑몰 ID · 사용여부는
  * 쇼핑몰 계정의 값을 읽기만 한다(바꾸는 것은 설정 창).
  *
- * '등록 상품' 칸은 몰에 올라간 상품을 가져와야 채워진다. 사방넷을 쓰던 몰은 머리의
- * '사방넷에서 가져오기'가 사방넷 송신 기록으로 한꺼번에 채운다(KID-246).
+ * '등록 상품' 칸은 몰에 올라간 상품을 가져와야 채워진다. 몰 관리자에서 가져오는 몰은 그 몰 줄에서, 사방넷을
+ * 쓰던 몰은 표 아래 '사방넷에서 가져오기'가 사방넷 송신 기록으로 한꺼번에 채운다(KID-246). 머리에는 계정
+ * 설정만 둔다(사장님 2026-09-19 "상단에 잇는것들 … 버튼을 몰 옆에다가 정리해놔").
  *
  * 몰을 새로 만드는 기능은 없다. 몰 목록은 서버가 가진 고정 카탈로그이고, '연결'은
  * 그 중 하나에 계정을 채우는 일이다. 그래서 여기에 '채널 추가' 버튼을 두지 않고
@@ -74,23 +75,17 @@ export default function MallChannelsPage() {
             연결된 몰과 각 몰로 되는 일입니다.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {/* 몰을 늘리는 일은 읽기기 하나와 몰 표 한 줄이다. 화면이 몰 이름을 다시 적으면
-              읽기기를 붙여도 누를 자리가 없다(라이브 2026-09-18: 온채널 · 꼬망세). */}
-          {MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => (
-            <MallAdminListingsImport key={mallKey} mallKey={mallKey} />
-          ))}
-          <SabangnetListingsImport />
-          <button
-            type="button"
-            onClick={() => openSettings('all')}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Settings size={14} />
-            계정 설정
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => openSettings('all')}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Settings size={14} />
+          계정 설정
+        </button>
       </div>
+
+      <SellpiaDashboard connectedCount={overview ? overview.shop.connectedChannelCount : null} />
 
       {overviewQuery.isError ? (
         <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-600">
@@ -106,11 +101,6 @@ export default function MallChannelsPage() {
         </div>
       ) : (
         <>
-          <ChannelSummary
-            productCount={overview.shop.productCount}
-            connectedCount={overview.shop.connectedChannelCount}
-          />
-
           {rows.length > 0 ? (
             <section className="space-y-3">
               <div className="flex flex-wrap items-end justify-between gap-2">
@@ -125,6 +115,11 @@ export default function MallChannelsPage() {
                 totals={totals}
                 accounts={accounts}
                 onOpenSettings={openSettings}
+                // 몰을 늘리는 일은 읽기기 하나와 몰 표 한 줄이다. 화면이 몰 이름을 다시 적으면
+                // 읽기기를 붙여도 누를 자리가 없다(라이브 2026-09-18: 온채널 · 꼬망세).
+                renderImport={(mallKey) => (isMallAdminListingMallKey(mallKey)
+                  ? <MallAdminListingsImport mallKey={mallKey} layout="row" />
+                  : null)}
               />
             </section>
           ) : (
@@ -132,6 +127,20 @@ export default function MallChannelsPage() {
           )}
         </>
       )}
+
+      <section
+        aria-label="사방넷에서 가져오기"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+      >
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-slate-800">사방넷에서 가져오기</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            사방넷을 쓰는 몰의 등록 상품은 사방넷 송신 기록에서 한꺼번에 가져옵니다. 몰 관리자에서 가져오는 몰은 표의 그 몰
+            줄에서 가져옵니다.
+          </p>
+        </div>
+        <SabangnetListingsImport />
+      </section>
 
       <MallAccountSettingsDialog
         target={settingsTarget}

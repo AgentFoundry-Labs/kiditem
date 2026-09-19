@@ -522,6 +522,7 @@ export class MallPublishingService {
         productCount: account?.productCount ?? 0,
         onSaleProductCount: account?.onSaleProductCount ?? 0,
         onSaleListingCount: account?.onSaleListingCount ?? 0,
+        onSaleLinkedListingCount: account?.onSaleLinkedListingCount ?? 0,
         optionCount: account?.optionCount ?? 0,
         matchedOptionCount: account?.matchedOptionCount ?? 0,
         onSaleOptionCount: account?.onSaleOptionCount ?? 0,

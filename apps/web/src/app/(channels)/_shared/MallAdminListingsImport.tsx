@@ -23,12 +23,17 @@ import {
  * 상품마다 확인하지 않는다. 그 몰 상품 목록 전체를 한 번에 읽어 리스팅으로 바꾸고, 끝나면
  * 셀피아 SKU 에 잇는다. 완료를 본 화면이 한 번 잇고, 그 순간을 못 봤으면 '셀피아 상품에 연결'로
  * 다시 돌린다.
+ *
+ * `layout="row"` 는 쇼핑몰 현황 표의 그 몰 줄에 서는 작은 모양이다(사장님 2026-09-19 "버튼을 몰 옆에다가
+ * 정리해놔") — 같은 시작 · 연결이고 글자만 줄인다. 버튼 이름은 둘 다 같다.
  */
 export function MallAdminListingsImport({
   mallKey,
+  layout = 'bar',
   className,
 }: {
   mallKey: MallAdminListingMallKey;
+  layout?: 'bar' | 'row';
   className?: string;
 }) {
   const adapter = useMemo(() => mallAdminListingsCollection(mallKey), [mallKey]);
@@ -56,18 +61,65 @@ export function MallAdminListingsImport({
   const stopped = stoppedAttempt(latest);
   const failure = latest?.state === 'FAILED' && !stopped ? latest : null;
   const hasAccount = mall ? mall.channelAccountId !== null : true;
+  const statusTitle = publication
+    ? Object.entries(publication.statuses)
+        .map(([status, count]) => `${status} ${formatNumber(count)}`)
+        .join(' · ')
+    : undefined;
+  const canLink = listings > 0 && control.state !== 'running';
+
+  if (layout === 'row') {
+    return (
+      <div className={cn('flex items-start gap-1.5', className)}>
+        <CollectionStartControl
+          control={control}
+          startLabel="가져오기"
+          startAriaLabel={`${mallName}에서 가져오기`}
+          startTitle={`${mallName} 관리자 화면에서 등록된 상품(몰 상품코드)을 한 번에 가져옵니다. 몰에는 조회만 합니다.`}
+          onStart={() => control.start()}
+          onStop={control.stop}
+          startBlockedReason={!hasAccount ? MALL_ADMIN_NO_ACCOUNT : null}
+          size="sm"
+          className="items-start"
+        />
+        {canLink ? (
+          <button
+            type="button"
+            onClick={() => link.mutate()}
+            disabled={link.isPending}
+            aria-label="셀피아 상품에 연결"
+            title="가져온 리스팅을 몰에 적어 둔 셀피아 상품 이름으로 셀피아 상품에 잇습니다. 이미 이어진 리스팅은 건드리지 않습니다."
+            className="inline-flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {link.isPending
+              ? <Loader2 size={13} className="animate-spin" aria-hidden />
+              : <Link2 size={13} aria-hidden />}
+          </button>
+        ) : null}
+        <span className="flex min-h-[26px] flex-col justify-center text-[11px] leading-tight">
+          {completedAt ? (
+            <span className="whitespace-nowrap text-slate-500" title={statusTitle}>
+              {formatNumber(listings)}개 · {timeAgo(completedAt)}
+            </span>
+          ) : control.status ? (
+            <span className="whitespace-nowrap text-slate-400">아직 안 가져옴</span>
+          ) : null}
+          {stopped ? (
+            <span role="status" className="text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
+          ) : failure?.errorMessage ? (
+            <span role="status" className="max-w-[12rem] truncate text-red-600" title={failure.errorMessage}>
+              {failure.errorMessage}
+            </span>
+          ) : null}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className={cn('flex flex-wrap items-center justify-end gap-2', className)}>
       {completedAt ? (
-        <span
-          className="text-xs text-slate-500"
-          title={publication
-            ? Object.entries(publication.statuses)
-                .map(([status, count]) => `${status} ${formatNumber(count)}`)
-                .join(' · ')
-            : undefined}
-        >
+        <span className="text-xs text-slate-500" title={statusTitle}>
           {mallName} {formatNumber(listings)}개 · {timeAgo(completedAt)}
         </span>
       ) : control.status ? (
@@ -80,7 +132,7 @@ export function MallAdminListingsImport({
           {failure.errorMessage}
         </span>
       ) : null}
-      {listings > 0 && control.state !== 'running' ? (
+      {canLink ? (
         <button
           type="button"
           onClick={() => link.mutate()}

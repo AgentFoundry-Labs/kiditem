@@ -74,13 +74,13 @@ function mall(patch: Record<string, unknown> = {}) {
 
 let source: { malls: Array<Record<string, unknown>> };
 
-function renderImport() {
+function renderImport(layout: 'bar' | 'row' = 'bar') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <MallAdminListingsImport mallKey="kidkids" />
+      <MallAdminListingsImport mallKey="kidkids" layout={layout} />
     </QueryClientProvider>,
   );
   return client;
@@ -204,6 +204,24 @@ describe('몰 관리자 직접 가져오기', () => {
         ['/api/channels/product-mappings/auto-match', { channelAccountId: KIDKIDS_ACCOUNT }],
       ]);
     });
+  });
+
+  it('⭐ 쇼핑몰 현황의 몰 줄에서는 작게 서지만 같은 시작 · 연결이다 — 버튼 이름도 같다', async () => {
+    source = {
+      malls: [
+        mall({
+          latestAttempt: attempt('COMPLETE'),
+          latestComplete: attempt('COMPLETE'),
+          latestPublication: { listings: 3478, deactivated: 0, missingNames: 1484, statuses: { 판매중: 555 } },
+        }),
+        source.malls[1],
+      ],
+    };
+    renderImport('row');
+
+    expect(await screen.findByText(/^3,478개 · /)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '키드키즈에서 가져오기' })).toHaveTextContent('가져오기');
+    expect(screen.getByRole('button', { name: '셀피아 상품에 연결' })).toBeInTheDocument();
   });
 
   it('멈춘 가져오기는 실패가 아니라 중단으로 적는다', async () => {

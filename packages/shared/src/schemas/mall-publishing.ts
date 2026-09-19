@@ -302,8 +302,10 @@ export const MallChannelSummarySchema = z.object({
    * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다.
    */
   onSaleProductCount: z.number().default(0),
-  /** 활성 리스팅 가운데 판매중인 리스팅 수. */
+  /** 활성 리스팅 가운데 판매중인 리스팅 수 — 등록 상품 칸은 '판매중/전체' 리스팅이다. */
   onSaleListingCount: z.number().default(0),
+  /** 판매중 리스팅 가운데 활성 옵션이 모두 셀피아 재고에 이어진 리스팅 수 — 매칭률의 분자. */
+  onSaleLinkedListingCount: z.number().default(0),
   /**
    * 매칭률 — 이 몰의 활성 옵션 가운데 셀피아 재고 레시피가 붙은 비율의 재료다.
    * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다(그때는 0/0 이라 '—').

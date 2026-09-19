@@ -2,18 +2,15 @@
 
 import {
   Boxes,
-  Check,
   Download,
   MessageCircleQuestion,
   MessageSquareReply,
-  Minus,
   PackageCheck,
   PackageX,
   PencilLine,
   RotateCcw,
   Send,
   Truck,
-  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CapabilityKey, CapabilityState } from '../../_shared/mall-capabilities';
@@ -61,7 +58,7 @@ export const CAPABILITY_STATES = ['ready', 'pending', 'unavailable'] as const;
 /**
  * 상태의 채움색 — 요약 막대와 풀이 점이 같은 색을 쓴다.
  * 초록·빨강은 디자인 시스템의 성공·위험(`green`/`red` 600 계열)이고, 회색은 '아직'이다.
- * 색만으로 말하지 않는다 — 카드 줄에는 ✓ · – · ✕ 표시가, 막대 옆에는 글자 풀이가 붙는다.
+ * 색만으로 말하지 않는다 — 줄의 스위치에는 ON · OFF · 불가 글자가, 막대 옆에는 글자 풀이가 붙는다.
  */
 export const STATE_FILL: Record<CapabilityState, string> = {
   ready: 'bg-emerald-600',
@@ -69,13 +66,19 @@ export const STATE_FILL: Record<CapabilityState, string> = {
   unavailable: 'bg-red-600',
 };
 
-const STATE_TONE: Record<CapabilityState, string> = {
-  ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  pending: 'border-slate-200 bg-slate-50 text-slate-400',
-  unavailable: 'border-red-200 bg-red-50 text-red-600',
+/** 스위치 판의 색 — 켜짐은 초록 판, 꺼짐은 회색 판, 불가는 진한 빨강 판에 흰 글씨다(사장님 2026-09-19). */
+const SWITCH_TRACK: Record<CapabilityState, string> = {
+  ready: 'border-emerald-600 bg-emerald-500 text-white',
+  pending: 'border-slate-300 bg-slate-200 text-slate-500',
+  unavailable: 'border-red-700 bg-red-600 text-white',
 };
 
-const STATE_MARK = { ready: Check, pending: Minus, unavailable: X } as const;
+/** 스위치 판에 새기는 말. 셀피아처럼 다른 길로 되는 칸은 그 길 이름이 이 자리에 선다. */
+const SWITCH_WORD: Record<CapabilityState, string> = {
+  ready: 'ON',
+  pending: 'OFF',
+  unavailable: '불가',
+};
 
 const SUPPLY_CHANNEL = '발주를 받는 사입 채널에는 이 일이 없습니다.';
 
@@ -133,9 +136,10 @@ const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
 };
 
 /**
- * 표의 한 칸 — 이 몰로 그 일이 되는가. 되는 칸은 ✓ 만, 셀피아처럼 다른 길로 되는 칸은 그 이름만
- * 적는다(사장님 2026-09-19 "체크 됨이 아니라 그냥 체크 표시만 … 셀피아는 셀피아만"). 아직 · 불가는
- * – · ✕ 에 글자를 함께 둔다. 칸의 이름(`aria-label`)은 언제나 '일 이름 + 됨/아직/불가'다.
+ * 표의 한 칸 — 이 몰로 그 일이 되는가. 모양은 사방넷처럼 ON/OFF 스위치다(사장님 2026-09-19 "이 방식처럼"):
+ * 되면 초록 판에 손잡이가 오른쪽(ON), 아직이면 회색 판에 손잡이가 왼쪽(OFF), 그 몰에 없는 일은 진한 빨강 판(불가).
+ * 셀피아로 되는 칸은 ON 자리에 '셀피아'라고 적는다. **누르는 스위치가 아니다** — 켜고 끄는 것은 설정 창의 사용여부
+ * 하나이고, 이 칸은 그 일이 지금 되는지만 말한다. 칸의 이름(`aria-label`)은 언제나 '일 이름 + 됨/아직/불가'다.
  *
  * `label` 은 칸 이름을 바꿔 부를 때(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'), `note` 는
  * 기본 설명 대신 붙는 사연이다(옥션: G마켓 등록에 함께 올라감 · 완전품절이 영구삭제인 몰).
@@ -151,30 +155,30 @@ export function CapabilityCell({
   note?: string | null;
   label?: string | null;
 }) {
-  const Mark = STATE_MARK[state];
   const name = label || CAPABILITY_LABEL[kind];
-  // 셀피아처럼 길이 다른 초록은 칸 안에 그 길 이름만 적는다.
+  // 셀피아처럼 길이 다른 초록은 ON 자리에 그 길 이름을 적는다.
   const via = label && state === 'ready' ? label.replace(CAPABILITY_LABEL[kind], '').trim() : '';
+  const on = state === 'ready';
   return (
     <span
       role="img"
       aria-label={`${name} ${STATE_WORD[state]}`}
       title={note || STATE_HINT[kind][state]}
       className={cn(
-        'inline-flex min-w-[3.25rem] items-center justify-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold',
-        STATE_TONE[state],
+        'relative inline-flex h-5 w-14 flex-none items-center rounded-full border text-[9px] font-bold shadow-inner',
+        SWITCH_TRACK[state],
       )}
     >
-      {via ? (
-        via
-      ) : state === 'ready' ? (
-        <Mark size={13} className="flex-none" aria-hidden />
-      ) : (
-        <>
-          <Mark size={11} className="flex-none" aria-hidden />
-          {STATE_WORD[state]}
-        </>
-      )}
+      <span
+        aria-hidden
+        className={cn(
+          'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow ring-1 ring-black/5',
+          on ? 'right-px' : 'left-px',
+        )}
+      />
+      <span aria-hidden className={cn('w-full whitespace-nowrap', on ? 'pl-1.5 pr-5 text-left' : 'pl-5 pr-1.5 text-right')}>
+        {via || SWITCH_WORD[state]}
+      </span>
     </span>
   );
 }
