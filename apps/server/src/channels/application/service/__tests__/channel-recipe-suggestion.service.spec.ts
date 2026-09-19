@@ -131,12 +131,13 @@ describe('ChannelRecipeSuggestionService', () => {
 
     const result = await service.suggest(organizationId, optionId);
 
-    expect(result.status).toBe('quantity_review');
+    // 몰 상품코드 칸의 셀피아 코드가 맞으면 묶음 표기가 없어도 1개다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+    expect(result.status).toBe('unique_code');
     expect(evidence.findByCodes).toHaveBeenCalledWith(organizationId, ['MODEL-001', 'SP-001']);
     expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledWith(organizationId, ['001234567890']);
     expect(evidence.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['키즈식판']);
-    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(true);
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(false);
+    expect(result.recommendedQuantity).toBe(1);
   });
 
   it('retains an incompatible barcode candidate as a blocking conflict', async () => {

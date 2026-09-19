@@ -3,6 +3,7 @@ import {
   normalizeChannelRecipeName,
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidate,
+  channelTitleContainsSkuName,
 } from './channel-recipe-name-matcher';
 
 const sku = (code: string, name: string, optionName: string | null = null) => ({
@@ -92,4 +93,16 @@ describe('channel recipe name matcher', () => {
       .toBe(normalizeChannelRecipeName('할로윈호박열쇠고리'));
   });
 
+});
+
+describe('channelTitleContainsSkuName', () => {
+  it('셀피아 이름(값 · 묶음 표기를 뗀 것)이 몰 제목 안에 그대로 있으면 같은 상품이다', () => {
+    const title = [{ listingName: '톡톡 팝콘 플레이 장난감 어린이 완구 크리스마스 어린이날선물', itemName: null }];
+    expect(channelTitleContainsSkuName(title, '3000톡톡팝콘플레이')).toBe(true);
+    expect(channelTitleContainsSkuName(title, '2500머그컵딸깍키링')).toBe(false);
+  });
+
+  it('너무 짧은 셀피아 이름은 보지 않는다', () => {
+    expect(channelTitleContainsSkuName([{ listingName: '공 놀이 세트', itemName: null }], '1000공')).toBe(false);
+  });
 });

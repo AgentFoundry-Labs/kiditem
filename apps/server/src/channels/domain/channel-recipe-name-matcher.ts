@@ -72,6 +72,21 @@ export function normalizeChannelRecipeName(value: string | null): string {
     .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
+/**
+ * 몰 제목 안에 셀피아 상품 이름이 그대로 들어 있는가. 몰 제목은 셀피아 이름에 설명을 덧붙인 것이 많아(`톡톡 팝콘 플레이
+ * 장난감 어린이 완구 …` ⇢ `3000톡톡팝콘플레이`) 이름 점수는 낮아도 같은 상품이다(라이브 2026-09-19: 셀피아 코드가 맞는
+ * 판매중 옵션 556개 중 137개). 값 · 묶음 표기를 뗀 셀피아 이름이 세 글자 이상일 때만 본다.
+ */
+export function channelTitleContainsSkuName(
+  options: readonly ChannelRecipeNameOption[],
+  skuName: string | null,
+): boolean {
+  const name = normalizeChannelRecipeName(skuName);
+  if (name.length < 3) return false;
+  return options.some((option) => [option.listingName, option.itemName]
+    .some((value) => normalizeChannelRecipeName(value).includes(name)));
+}
+
 export function scoreChannelRecipeNameCandidate(
   options: ChannelRecipeNameOption[],
   sku: ChannelRecipeNameSku,

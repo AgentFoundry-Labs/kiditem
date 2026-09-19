@@ -191,6 +191,57 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     });
   });
 
+  /**
+   * 같은 상품은 몰마다 같은 제목으로 올린다(사장님 2026-09-19). 셀피아 이름과 달라 못 찾는 몰 상품도, 다른 몰에서 같은
+   * 제목으로 이미 이어진 레시피가 한 가지면 그대로 잇는다 — 몰에 적힌 코드가 다른 상품이면 잇지 않는다.
+   */
+  it('links an unmatched listing to the single recipe of a same-title listing in another mall', async () => {
+    const skuId = '00000000-0000-4000-8000-000000000201';
+    const title = '[펜시네] 주사위 열쇠고리 파티선물 답례품';
+    const run = async (sellerSku: string | null) => {
+      const create = vi.fn().mockResolvedValue({ id: 'component-1' });
+      const findMany = vi.fn(async (query: { where: Record<string, any>; select: Record<string, any> }) => {
+        if (query.where.options) return [{ id: 'listing-gmarket' }];
+        if (query.select.id === true && Object.keys(query.select).length === 1) return [{ id: 'listing-onch' }];
+        if (query.where.id?.in?.includes('listing-gmarket')) {
+          return [{ id: 'listing-gmarket', displayName: title, options: [{ inventoryComponents: [{ sellpiaInventorySkuId: skuId, quantity: 1 }] }] }];
+        }
+        return [{
+          id: 'listing-onch',
+          displayName: title,
+          channelName: title,
+          rawJson: null,
+          masterProductId: null,
+          options: [{ id: 'option-onch', itemName: null, sellerSku, modelNumber: null, barcode: null, inventoryComponents: [] }],
+        }];
+      });
+      const repository = new ChannelProductMatchingRepositoryAdapter({
+        $transaction: vi.fn(async (callback) => callback({
+          $queryRaw: vi.fn().mockResolvedValue([]),
+          masterProductAbcFormulaState: { upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }) },
+          channelListing: { findMany, findFirst: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+          sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+          masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
+          sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([
+            { id: skuId, code: '10482-1', name: '3500애니멀회전주사위키링', optionName: null, barcode: null, masterProductId: 'master-product' },
+            { id: '00000000-0000-4000-8000-000000000202', code: '10406-1', name: '2500머그컵딸깍키링', optionName: null, barcode: null, masterProductId: 'master-product' },
+          ]) },
+          channelListingOptionInventoryComponent: { create },
+        })),
+      } as never);
+      await repository.autoMatch({ organizationId, channelAccountId: 'account-onch' });
+      return create;
+    };
+
+    const linked = await run(null);
+    expect(linked).toHaveBeenCalledWith({
+      data: { organizationId, channelListingOptionId: 'option-onch', sellpiaInventorySkuId: skuId, quantity: 1 },
+    });
+    // 몰에 적힌 셀피아 코드가 다른 상품(머그컵 키링)이면 제목으로 덮지 않는다.
+    const conflicting = await run('10406-1');
+    expect(conflicting).not.toHaveBeenCalled();
+  });
+
   it('does not use a confirmed Rocket CSV barcode when the Sellpia name is incompatible', async () => {
     const create = vi.fn().mockResolvedValue({ id: 'component-1' });
     const repository = new ChannelProductMatchingRepositoryAdapter({

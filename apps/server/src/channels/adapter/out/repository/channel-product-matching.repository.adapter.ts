@@ -18,10 +18,16 @@ import {
 } from '../../../../inventory/read/inventory-availability';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
 import {
+  channelTitleContainsSkuName,
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidateIfComparable,
   type ChannelRecipeNameOption,
 } from '../../../domain/channel-recipe-name-matcher';
+import {
+  siblingRecipeFor,
+  siblingTitleKey,
+  type SiblingRecipe,
+} from '../../../domain/channel-recipe-sibling';
 import {
   PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
   type ProductChannelOptionRecipeMutationPort,
@@ -434,6 +440,7 @@ implements ChannelProductMatchingRepositoryPort {
         expectedMasterProductId?: string;
         components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
       }> = [];
+      const siblingRecipesByTitle = await readSiblingRecipesByTitle(tx, input.organizationId);
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
         for (const option of listing.options) {
@@ -452,6 +459,7 @@ implements ChannelProductMatchingRepositoryPort {
                 nameOptions,
                 toSuggestionSku(sku),
               ),
+              skuNameInTitle: channelTitleContainsSkuName(nameOptions, sku.name),
               sku: toSuggestionSku(sku),
             }));
           });
@@ -519,6 +527,25 @@ implements ChannelProductMatchingRepositoryPort {
           const targetSku = proposal
             ? activeSkuById.get(proposal.sellpiaInventorySkuId)
             : null;
+          // 셀피아 쪽 증거로 못 이으면, 몰끼리 같은 제목으로 이미 이어진 리스팅의 레시피를 쓴다(`channel-recipe-sibling`).
+          if (!proposal && option.inventoryComponents.length === 0 && listing.options.length === 1) {
+            const key = siblingTitleKey(listing.displayName);
+            const sibling = key
+              ? siblingRecipeFor(
+                (siblingRecipesByTitle.get(key) ?? []).filter((recipe) => recipe.listingId !== listing.id),
+                codeEvidence.map((item) => item.sku.sellpiaInventorySkuId),
+              )
+              : null;
+            const siblingSku = sibling ? activeSkuById.get(sibling.sellpiaInventorySkuId) : null;
+            if (sibling && siblingSku?.masterProductId && activeMasterProductIds.has(siblingSku.masterProductId)) {
+              mutations.push({
+                channelListingOptionId: option.id,
+                expectedMasterProductId: siblingSku.masterProductId,
+                components: [{ sellpiaInventorySkuId: sibling.sellpiaInventorySkuId, quantity: sibling.quantity }],
+              });
+            }
+            continue;
+          }
           if (!proposal || !targetSku?.masterProductId
             || !activeMasterProductIds.has(targetSku.masterProductId)
             || !Number.isSafeInteger(quantity) || (quantity ?? 0) <= 0) continue;
@@ -682,6 +709,50 @@ implements ChannelProductMatchingRepositoryPort {
       })),
     }));
   }
+}
+
+/**
+ * 이미 이어진 한 옵션 리스팅의 제목 → 레시피(구성품 하나). 조직 전체에서 읽는다 — 몰 하나만 이을 때도 다른 몰의 연결을
+ * 쓴다. 관계까지 읽으므로 번호를 먼저 읽고 묶음으로 나눈다(`LISTING_LOAD_BATCH`).
+ */
+async function readSiblingRecipesByTitle(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<Map<string, Array<SiblingRecipe & { listingId: string }>>> {
+  const ids = (await tx.channelListing.findMany({
+    where: {
+      organizationId,
+      isActive: true,
+      options: { some: { organizationId, inventoryComponents: { some: {} } } },
+    },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  })).map((row) => row.id);
+  const siblings = await loadByIdBatches(ids, (chunk) => tx.channelListing.findMany({
+    where: { organizationId, id: { in: chunk } },
+    select: {
+      id: true,
+      displayName: true,
+      options: {
+        where: { organizationId },
+        select: { inventoryComponents: { select: { sellpiaInventorySkuId: true, quantity: true } } },
+      },
+    },
+  }));
+  const byTitle = new Map<string, Array<SiblingRecipe & { listingId: string }>>();
+  for (const sibling of siblings) {
+    const components = sibling.options.length === 1 ? sibling.options[0]!.inventoryComponents : [];
+    const key = components.length === 1 ? siblingTitleKey(sibling.displayName) : null;
+    if (!key) continue;
+    const recipes = byTitle.get(key) ?? [];
+    recipes.push({
+      listingId: sibling.id,
+      sellpiaInventorySkuId: components[0]!.sellpiaInventorySkuId,
+      quantity: components[0]!.quantity,
+    });
+    byTitle.set(key, recipes);
+  }
+  return byTitle;
 }
 
 function toInventorySkuIdentity(

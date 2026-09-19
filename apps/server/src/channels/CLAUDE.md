@@ -64,6 +64,9 @@ sync, registration, matching, and capacity behavior is executable in
 - Candidate rows are transient evidence. Automatic matching may fill an empty
   recipe when a typed identifier or one clearly separated name candidate has
   no identifier/spec/option conflict and the selling quantity is confirmed.
+  A name-corroborated Sellpia code in `sellerSku` counts as one unit, and a
+  same-title listing in another mall may lend its single recipe (see the
+  runbook).
   Ambiguous evidence, conflicting options, unknown quantities, raw aliases,
   and AI output require review. Never rewrite a confirmed recipe automatically.
 - Confirmed recipes survive recollection. Matching state derives from recipe

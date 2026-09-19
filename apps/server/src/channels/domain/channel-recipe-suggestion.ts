@@ -42,6 +42,8 @@ type CodeEvidence = {
   kind: 'seller_sku_code' | 'model_number_code';
   channelValue: string;
   nameCompatibilityScore?: number | null;
+  /** 셀피아 상품 이름이 몰 제목 안에 그대로 들어 있다 — 이름 점수가 낮아도 이름이 맞는 것으로 본다. */
+  skuNameInTitle?: boolean;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -258,10 +260,14 @@ export function classifyChannelRecipeSuggestion(
       return decision(base, strongEvidence, 'identifier_name_mismatch', 'operator_review', null,
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
+    // 몰 상품코드 칸에 셀피아 코드가 그대로 적혀 있으면(사방넷 모델명 · 몰 자체코드) 셀피아는 주문 하나에 그 코드 하나를
+    // 뺀다. 제목에 묶음 수가 없거나 서로 어긋나도 1개로 잇는다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+    const sellerCodeUnit = strongEvidence.some((item) => item.evidence.kind === 'seller_sku_code') ? 1 : null;
     const quantity = manualMatchQuantity
       ?? inferRecipeQuantity(
         input.options.flatMap((option) => [option.listingName, option.itemName]),
-      );
+      )
+      ?? sellerCodeUnit;
     if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
@@ -431,7 +437,7 @@ function titleQuantityCounts(value: string): number[] {
 function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
   if (input.nameOptionEvidence.length > 0) return false;
   const scores = [
-    ...input.codeEvidence.map((item) => item.nameCompatibilityScore),
+    ...input.codeEvidence.map((item) => (item.skuNameInTitle ? 1 : item.nameCompatibilityScore)),
     ...input.barcodeEvidence
       .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
       .map((item) => item.nameCompatibilityScore),

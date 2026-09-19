@@ -214,24 +214,82 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.proposals).toEqual([]);
   });
 
-  it('requires quantity review for an exact seller SKU without selling-unit evidence', () => {
+  /**
+   * 몰 상품코드 칸(사방넷 모델명 · 몰 자체코드)의 셀피아 코드가 맞으면 셀피아는 주문 하나에 그 코드 하나를 뺀다 — 제목에
+   * 묶음 수가 없거나 어긋나도 1개로 잇는다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+   */
+  it('⭐ auto-applies an exact seller SKU code as one unit when the title has no selling-unit evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
 
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(1);
     expect(result.proposals).toEqual([expect.objectContaining({
       sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
-      requiresQuantityConfirmation: true,
-      recommendedQuantity: null,
+      requiresQuantityConfirmation: false,
+      recommendedQuantity: 1,
       evidence: [{
         kind: 'seller_sku_code',
         channelValue: 'SP-001',
         normalizedValue: 'SP-001',
       }],
     })]);
+  });
+
+  it('uses one unit for an exact seller SKU code even when title pack counts disagree', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{
+        channelListingOptionId: '00000000-0000-4000-8000-000000000001',
+        listingName: '플라잉 캐치 프로펠라 1p 프로펠라3p 줄을 잡아 당겨요',
+        itemName: null,
+        sellerSku: '10074-1',
+        modelNumber: null,
+        barcode: null,
+      }],
+      codeEvidence: [{ kind: 'seller_sku_code', channelValue: '10074-1', sku: sku({ code: '10074-1', name: '5000플라잉캐치프로펠라' }) }],
+    }));
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(1);
+  });
+
+  it('keeps a model-number code without selling-unit evidence under quantity review', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{ kind: 'model_number_code', channelValue: 'SP-001', sku: sku() }],
+    }));
+    expect(result.status).toBe('quantity_review');
+    expect(result.recommendedQuantity).toBeNull();
+  });
+
+  /**
+   * 몰 제목은 셀피아 이름에 설명을 덧붙인 것이 많아 이름 점수가 낮다. 셀피아 이름이 제목 안에 그대로 있으면 같은 상품이고,
+   * 전혀 다른 이름이면 잘못 적힌 코드라 사람이 본다(라이브 2026-09-19: 플라잉 팽이에 머그컵 키링 코드).
+   */
+  it('trusts a seller SKU code whose Sellpia name sits inside the title, but reviews an unrelated one', () => {
+    const contained = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{
+        kind: 'seller_sku_code',
+        channelValue: '10227-1',
+        nameCompatibilityScore: 0.31,
+        skuNameInTitle: true,
+        sku: sku({ code: '10227-1', name: '3000톡톡팝콘플레이' }),
+      }],
+    }));
+    expect(contained.status).toBe('unique_code');
+    expect(contained.automationDecision).toBe('auto_apply');
+
+    const unrelated = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{
+        kind: 'seller_sku_code',
+        channelValue: '10406-1',
+        nameCompatibilityScore: 0,
+        skuNameInTitle: false,
+        sku: sku({ code: '10406-1', name: '2500머그컵딸깍키링' }),
+      }],
+    }));
+    expect(unrelated.status).toBe('identifier_name_mismatch');
+    expect(unrelated.automationDecision).toBe('operator_review');
   });
 
   it('infers the deduction quantity from matching pack-like title text', () => {

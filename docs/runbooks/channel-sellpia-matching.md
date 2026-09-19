@@ -94,7 +94,16 @@ quantity is a verified positive integer. A typed identifier or one clearly
 separated high-confidence name candidate may supply the identity when product,
 option, color, size, and quantity evidence do not conflict. The common title
 quantity rule applies to every channel: for example, `10개입` becomes 10 and
-`2개입 x 3세트` becomes 6. Automatic matching preserves every existing recipe.
+`2개입 x 3세트` becomes 6. An exact Sellpia code in the listing's own code
+field (`sellerSku`: the Sabangnet model or a mall seller code) is one unit when
+the title gives no single pack count, because Sellpia deducts one of that code
+per ordered unit (owner decision 2026-09-19). That code still needs name
+corroboration — a compatible name score or the Sellpia name contained in the
+title; an unrelated name stays for review. A single-option listing whose title
+(spaces, punctuation, and case ignored; digits kept; at least six characters)
+equals already-linked single-option listings in any mall inherits their recipe
+when they all share one recipe and no typed code points elsewhere.
+Automatic matching preserves every existing recipe.
 Ambiguous candidates, conflicting identifiers/specifications/title quantities,
 an uncertain pack/BOM, an unconfirmed barcode, a raw alias, unknown quantity,
 or AI evidence requires operator review.
