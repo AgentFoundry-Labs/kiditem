@@ -4,7 +4,12 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { salesProductMallPrice, type SalesProduct } from '@kiditem/shared/sales-product';
 import { cn } from '@/lib/utils';
-import { canSendMallPrice, sendMallPrice } from '../lib/mall-price-send';
+import {
+  canSendMallPrice,
+  MALL_PRICE_SEND_NOTE,
+  mallPriceResendAllowed,
+  sendMallPrice,
+} from '../lib/mall-price-send';
 import { formatWon } from '../lib/sales-product-labels';
 
 interface ListingPriceRow {
@@ -172,7 +177,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       </div>
       <p className="text-xs text-slate-400">
         몰 가격은 몰에서 가져올 때 읽은 값입니다. 몰마다 가격의 뜻이 다를 수 있습니다(할인 전 가격을 주는 몰 등). 가격
-        보내기는 판매상품 기준 가격을 그 몰에 보내고 몰을 다시 읽어 확인합니다 — 지금은 카카오 톡스토어만 됩니다.
+        보내기는 판매상품 기준 가격을 그 몰에 보내고 몰을 다시 읽어 확인합니다 — 지금은 카카오 톡스토어 · 키즈노트가 됩니다.
       </p>
     </div>
   );
@@ -196,22 +201,29 @@ function PriceSendCell({
 }) {
   if (!canSendMallPrice(listing.mallKey)) return <span className="text-slate-300">아직 안 됨</span>;
   if (!single) return <span className="text-slate-400">옵션마다 가격</span>;
+  if (single.mallPrice === single.expected && !mallPriceResendAllowed(listing.mallKey) && !state) {
+    return <span className="text-slate-400">같은 가격</span>;
+  }
+  const note = MALL_PRICE_SEND_NOTE[listing.mallKey];
   if (state?.status === 'sending') return <span className="text-slate-500">보내는 중…</span>;
   if (state?.status === 'done') {
     return <span className={state.confirmed ? 'text-emerald-700' : 'text-amber-700'}>{state.message}</span>;
   }
   if (state?.status === 'confirming') {
     return (
-      <span className="inline-flex items-center gap-1">
-        <button type="button" className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-slate-100" onClick={onCancel}>취소</button>
-        <button
-          type="button"
-          className="rounded bg-purple-600 px-2 py-0.5 font-semibold text-white hover:bg-purple-700"
-          onClick={() => onSend(single.expected)}
-          title={single.mallPrice !== null ? `몰 ${formatWon(single.mallPrice)} → ${formatWon(single.expected)}` : undefined}
-        >
-          {formatWon(single.expected)} 보내기
-        </button>
+      <span className="inline-flex flex-col items-end gap-0.5">
+        {note && <span className="max-w-[14rem] text-right text-amber-700">{note}</span>}
+        <span className="inline-flex items-center gap-1">
+          <button type="button" className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-slate-100" onClick={onCancel}>취소</button>
+          <button
+            type="button"
+            className="rounded bg-purple-600 px-2 py-0.5 font-semibold text-white hover:bg-purple-700"
+            onClick={() => onSend(single.expected)}
+            title={single.mallPrice !== null ? `몰 ${formatWon(single.mallPrice)} → ${formatWon(single.expected)}` : undefined}
+          >
+            {formatWon(single.expected)} 보내기
+          </button>
+        </span>
       </span>
     );
   }

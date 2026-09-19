@@ -25,8 +25,13 @@
   const PRICE_BATCH = 50;
   const PRICE_MIN = 10;
   const PRICE_MAX = 10000000;
-  /** 가격을 보낼 줄 아는 몰의 경로 이름(스펙 칸). 카카오 톡스토어는 [선택 수정]에 판매가 칸이 같이 실린다. */
-  const PRICE_SENDERS = ["gridStock"];
+  /**
+   * 가격을 보낼 줄 아는 몰의 경로 이름(스펙 칸). 카카오 톡스토어는 [선택 수정]에 판매가 칸이 같이 실리고, 키즈노트는 판매 상품
+   * 내역의 가격 일괄수정(균일가)이다.
+   */
+  const PRICE_SENDERS = ["gridStock", "stateBatch"];
+  /** 키즈노트 가격 일괄수정 화면 문구 그대로의 뜻 — 가격을 바꾸면 본사 승인 전까지 판매가 멈춘다. */
+  const KIDSNOTE_PRICE_NOTE = "키즈노트는 가격을 바꾸면 본사 승인 전까지 그 상품 판매가 멈춥니다.";
   /** 몰 관리자를 몰아치지 않는다. 한 건 보내고 쉬는 간격. */
   const PACE_MS = 700;
   /**
@@ -764,10 +769,11 @@
   }
 
   /**
-   * 키즈노트 판매 상품 내역 한 쪽을 읽는다 — 줄마다 상품번호(pno)와 상태 글자. `withForm` 이면 [상태/노출일괄수정] 폼
-   * (`edt_layer_4`)이 보낼 값도 모아 온다(목록 화면이 넣어 둔 `w` · `prd_no` 포함). 읽기만 한다. 워커가 인자로만 넘긴다.
+   * 키즈노트 판매 상품 내역 한 쪽을 읽는다 — 줄마다 상품번호(pno) · 상태 글자 · 판매가. `withForm` 이면 `formId` 폼
+   * ([상태/노출일괄수정] `edt_layer_4`, 가격 일괄수정 `edt_layer_2`)이 보낼 값도 모아 온다(목록 화면이 넣어 둔 `w` · `prd_no`
+   * 포함). 읽기만 한다. 워커가 인자로만 넘긴다.
    */
-  async function kidsnoteListOnPage(listPath, page, pageSize, withForm) {
+  async function kidsnoteListOnPage(listPath, page, pageSize, withForm, formId = "edt_layer_4") {
     try {
       const params = new URLSearchParams({ body: "2010", row: String(pageSize), page: String(page) });
       const response = await fetch(`${listPath}?${params.toString()}`, { credentials: "include", cache: "no-store" });
@@ -779,21 +785,28 @@
       if (!list) return doc.querySelector('input[type="password"]') ? { loggedOut: true } : { error: "list_form" };
       const boxes = [...list.querySelectorAll('input[name="check_pno[]"]')];
       let statIndex = -1;
+      let priceIndex = -1;
       const table = boxes[0]?.closest("table");
       if (table) {
         const headRow = [...table.querySelectorAll("tr")].find((tr) => tr.querySelector("th"));
         const heads = headRow ? [...headRow.cells].map((cell) => cell.textContent.replace(/\s+/g, "")) : [];
         statIndex = heads.indexOf("상태");
+        priceIndex = heads.indexOf("판매가");
       }
       if (boxes.length > 0 && statIndex < 0) return { error: "status_column" };
-      const rows = boxes.map((box) => ({
-        pno: String(box.value || ""),
-        stat: String(box.closest("tr")?.cells?.[statIndex]?.textContent || "").replace(/\s+/g, " ").trim(),
-      }));
+      const rows = boxes.map((box) => {
+        const cells = box.closest("tr")?.cells;
+        const digits = priceIndex >= 0 ? String(cells?.[priceIndex]?.textContent || "").replace(/[^0-9]/g, "") : "";
+        return {
+          pno: String(box.value || ""),
+          stat: String(cells?.[statIndex]?.textContent || "").replace(/\s+/g, " ").trim(),
+          price: /^\d{1,10}$/.test(digits) ? Number(digits) : null,
+        };
+      });
       let form = null;
       if (withForm) {
-        const edit = doc.getElementById("edt_layer_4");
-        if (!edit) return { error: "state_form" };
+        const edit = doc.getElementById(formId);
+        if (!edit) return { error: formId === "edt_layer_4" ? "state_form" : "price_form" };
         form = [...new FormData(edit)].map(([name, value]) => [name, String(value)]);
       }
       return { rows, form };
@@ -2654,14 +2667,16 @@
      * 키즈노트 판매 상품 내역을 100개씩 넘기며 찾는 상품의 상태를 모은다. 다 찾았거나 마지막 쪽이면 멈춘다.
      * `withForm` 이면 첫 쪽에서 [상태/노출일괄수정] 폼 값도 받아 온다.
      */
-    async function readKidsnoteRows(spec, run, codes, withForm) {
+    async function readKidsnoteRows(spec, run, codes, withForm, formId) {
       const api = spec.stateBatch;
       const wanted = new Set(codes);
       const rows = new Map();
       let form = null;
       for (let page = 1; page <= api.maxPages; page += 1) {
         if (page > 1) await sleep(KIDSNOTE_PAGE_PACE_MS);
-        const answer = await run(kidsnoteListOnPage, [api.listPath, page, api.pageSize, Boolean(withForm && page === 1)]);
+        const answer = await run(kidsnoteListOnPage, [
+          api.listPath, page, api.pageSize, Boolean(withForm && page === 1), formId || "edt_layer_4",
+        ]);
         if (answer?.loggedOut) return { loggedOut: true };
         if (!Array.isArray(answer?.rows)) return { error: answer?.error || "목록 조회 실패" };
         if (withForm && page === 1) form = answer.form;
@@ -3852,6 +3867,90 @@
     }
 
     /**
+     * 키즈노트 가격. 판매 상품 내역의 가격 일괄수정 폼(`edt_layer_2`)을 "균일가 적용 · 선택한 상품 · 판매가를 X원으로" 보낸
+     * 것과 같은 요청이다(exec=sell_prc, 2026-09-20 화면 확인). 같은 가격끼리 묶어 보내고 목록을 다시 읽어 판매가를 확인한다.
+     * ⚠️ 키즈노트는 가격을 바꾸면 본사 승인 전까지 그 상품 판매를 멈춘다(화면 문구) — 결과에 늘 그 말을 싣는다.
+     */
+    async function sendPriceByKidsnote(spec, items) {
+      const api = spec.stateBatch;
+      const warnings = [KIDSNOTE_PRICE_NOTE];
+      const valid = items.filter((item) => /^\d{1,10}$/.test(item.code));
+      let failed = items.length - valid.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      const results = [];
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (valid.length === 0) return null;
+        const before = await readKidsnoteRows(spec, run, valid.map((item) => item.code), true, "edt_layer_2");
+        if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품목록을 읽지 못했습니다(${before.error}).` };
+        const names = new Set((before.form || []).map(([name]) => name));
+        const exec = (before.form || []).find(([name]) => name === "exec")?.[1];
+        if (!["body", "nums", "exec", "where", "prc_chg_type", "o3", "replace_prc"].every((name) => names.has(name)) || exec !== "sell_prc") {
+          return { success: false, error: `${spec.label} 가격 일괄수정 화면이 바뀌어 보내지 않았습니다.` };
+        }
+        const byPrice = new Map();
+        for (const item of valid) {
+          const row = before.rows.get(item.code);
+          if (!row) {
+            failed += 1;
+            warnings.push(`${item.code}: ${spec.label} 상품목록에서 찾지 못했습니다.`);
+            continue;
+          }
+          if (item.ifPrice !== null && row.price !== item.ifPrice) {
+            failed += 1;
+            warnings.push(`${item.code}: ${spec.label} 가격이 그사이 ${row.price === null ? "모르는 값" : `${row.price.toLocaleString("ko-KR")}원`}으로 바뀌어 보내지 않았습니다. 몰 상품을 다시 가져온 뒤 보내세요.`);
+            continue;
+          }
+          byPrice.set(item.price, [...(byPrice.get(item.price) || []), { code: item.code, before: row.price }]);
+        }
+        const accepted = [];
+        for (const [price, group] of byPrice) {
+          for (let start = 0; start < group.length; start += api.pageSize) {
+            const chunk = group.slice(start, start + api.pageSize);
+            // 화면 폼 그대로 — 고른 상품(nums), "선택한 상품의"(where=1), 균일가(prc_chg_type=2) · 판매가(o3) · 새 가격만 채운다.
+            const pairs = before.form.map(([name, current]) => {
+              if (name === "nums") return [name, chunk.map((entry) => `@${entry.code}`).join("")];
+              if (name === "where") return [name, "1"];
+              if (name === "prc_chg_type") return [name, "2"];
+              if (name === "o3") return [name, "sell_prc"];
+              if (name === "replace_prc") return [name, String(price)];
+              return [name, current];
+            });
+            if (!pairs.some(([name]) => name === "prc_chg_type")) pairs.push(["prc_chg_type", "2"]);
+            const answer = await run(kidsnoteSaveOnPage, [api.savePath, pairs]);
+            if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+            if (answer?.status !== 200) {
+              failed += chunk.length;
+              warnings.push(`${spec.label}이 가격 변경을 받지 않았습니다(HTTP ${answer?.status ?? 0}).`);
+            } else {
+              sent += chunk.length;
+              accepted.push(...chunk.map((entry) => ({ ...entry, price })));
+            }
+            await sleep(PACE_MS);
+          }
+        }
+        if (accepted.length === 0) return null;
+        let after = null;
+        for (let attempt = 0; attempt <= KIDSNOTE_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(KIDSNOTE_RECHECK_MS);
+          after = await readKidsnoteRows(spec, run, accepted.map((entry) => entry.code), false);
+          if (after.rows && accepted.every((entry) => after.rows.get(entry.code)?.price === entry.price)) break;
+        }
+        for (const entry of accepted) {
+          const now = after?.rows?.get(entry.code)?.price ?? null;
+          const ok = now === entry.price;
+          if (ok) confirmed += 1;
+          results.push({ code: entry.code, before: entry.before, after: now, confirmed: ok });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, sent, failed, confirmed, results, warnings };
+    }
+
+    /**
      * 한 몰에 가격을 보낸다(가격 · 재고 · 상태 수정 보내기의 가격, KID-247). `items` 는 [{code, price, ifPrice?}] — price 는
      * 그 몰 판매가(원, 정수), ifPrice 는 화면이 본 지금 몰 가격이다(다르면 보내지 않는다). 보낸 뒤 몰을 다시 읽어 확인한 것만
      * `confirmed` 다. 돌려주는 것은 상품코드와 가격뿐이다.
@@ -3881,6 +3980,7 @@
       if (items.length > PRICE_BATCH) return { success: false, error: `가격은 한 번에 ${PRICE_BATCH}개까지 보냅니다.` };
       try {
         if (spec.gridStock) return await sendPriceByKakaoGrid(spec, items);
+        if (spec.stateBatch) return await sendPriceByKidsnote(spec, items);
         return { success: false, error: `가격 경로를 아는 몰이 아닙니다: ${mallKey}` };
       } catch (error) {
         return { success: false, error: error?.message || String(error) };

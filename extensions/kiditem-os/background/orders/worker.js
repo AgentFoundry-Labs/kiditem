@@ -7837,6 +7837,8 @@ KidItemDomains.register({
     mallAvailabilityThirtymallV1: true,
     // 몰 가격 보내기(1.2.24, KID-247). 옛 확장은 이 액션을 모른다 — 웹은 이 값이 없는 확장으로 가격을 보내지 않는다.
     mallPriceSendV1: true,
+    // 키즈노트 가격(가격 일괄수정 균일가, 1.2.25). 옛 확장은 카카오만 안다.
+    mallPriceSendKidsnoteV1: true,
     mallPriceSendMalls: KidItemMallAvailabilitySend.PRICE_MALL_KEYS,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,

@@ -10,13 +10,30 @@ import {
  */
 
 /** 가격을 보낼 수 있는 몰. 확장 `mall-availability-send.js` 의 `PRICE_MALL_KEYS` 와 같아야 한다. */
-export const MALL_PRICE_SEND_MALLS = ['kakao'] as const;
+export const MALL_PRICE_SEND_MALLS = ['kakao', 'kidsnote'] as const;
 
 export function canSendMallPrice(mallKey: string): boolean {
   return (MALL_PRICE_SEND_MALLS as readonly string[]).includes(mallKey);
 }
 
-const PRICE_CAPABILITY = 'mallPriceSendV1';
+/** 이 몰로 가격을 보내는 확장만 가진 능력 — 옛 확장이 모르는 몰로 보내지 않게. */
+const PRICE_CAPABILITY: Record<string, string> = {
+  kakao: 'mallPriceSendV1',
+  kidsnote: 'mallPriceSendKidsnoteV1',
+};
+
+/**
+ * 가격을 바꾸면 몰이 따로 하는 일 — 보내기 전 확인 단계에 그대로 보인다. 키즈노트는 화면 문구 그대로(사장님 2026-09-20:
+ * 붙이되 경고, 시험은 다음 실제 가격 변경 때).
+ */
+export const MALL_PRICE_SEND_NOTE: Readonly<Record<string, string>> = {
+  kidsnote: '키즈노트는 가격을 바꾸면 본사 승인 전까지 그 상품 판매가 멈춥니다.',
+};
+
+/** 같은 가격을 다시 보내면 안 되는 몰 — 보내는 것만으로 판매가 멈추는 몰은 가격이 다를 때만 보낸다. */
+export function mallPriceResendAllowed(mallKey: string): boolean {
+  return !MALL_PRICE_SEND_NOTE[mallKey];
+}
 const SEND_TIMEOUT_MS = 180_000;
 
 export interface MallPriceSendResult {
@@ -45,7 +62,7 @@ export async function sendMallPrice(
   if (!extensionId) {
     throw new Error('확장프로그램이 필요합니다. KidItem 확장을 켜고 그 몰 관리자에 로그인한 뒤 다시 보내세요.');
   }
-  const runtime = await detectOrderCollectionExtensionRuntime(1200, [PRICE_CAPABILITY]);
+  const runtime = await detectOrderCollectionExtensionRuntime(1200, [PRICE_CAPABILITY[mallKey] ?? 'mallPriceSendV1']);
   if (runtime.status !== 'ready') {
     throw new Error(
       `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 가격 보내기를 모릅니다. `

@@ -746,8 +746,8 @@ test('카카오 가격 — 화면이 본 몰 가격(ifPrice)과 지금 몰 가�
   assert.ok(result.warnings.some((warning) => warning.includes('990원으로 바뀌어')), result.warnings.join(' / '));
 });
 
-test('가격을 보낼 수 있는 몰은 카카오 톡스토어뿐이다(지금)', () => {
-  assert.deepEqual([...loadModule().PRICE_MALL_KEYS], ['kakao']);
+test('가격을 보낼 수 있는 몰은 카카오 톡스토어 · 키즈노트다(지금)', () => {
+  assert.deepEqual([...loadModule().PRICE_MALL_KEYS].sort(), ['kakao', 'kidsnote']);
 });
 
 test('카카오 — 로그인 화면이면 아무것도 보내지 않는다', async () => {
@@ -1692,10 +1692,10 @@ test('아이스크림몰 지금 상태 읽기 — 판매중이면 모름, 품절
 const KIDSNOTE = 'https://shop.kidsnote.com';
 
 function kidsnoteListHtml(rows, allPnos) {
-  const body = rows.map(([pno, stat]) => `<tr>
+  const body = rows.map(([pno, stat, price = 1950]) => `<tr>
       <td><input type="checkbox" name="check_pno[]" id="check_pno" value="${pno}"><input type="hidden" name="pno[]" value="${pno}"></td>
       <td>1</td><td><img></td><td><span>2128-${pno}</span><a href="./?body=product@product_register&pno=${pno}">상품</a></td>
-      <td>26/09/16</td><td>1,950 원</td><td>3,000 원</td><td>0 원</td><td>${stat}</td><td>회</td>
+      <td>26/09/16</td><td>${price.toLocaleString('ko-KR')} 원</td><td>3,000 원</td><td>0 원</td><td>${stat}</td><td>회</td>
     </tr>`).join('');
   return `<html><body>
     <form name="prdFrm" id="prdFrm" method="post" action="/_manage/index.php">
@@ -1718,12 +1718,36 @@ function kidsnoteListHtml(rows, allPnos) {
       <label><input type="radio" name="perm_dtl" value="" checked> 변화없음</label><label><input type="radio" name="perm_dtl" value="Y"> 노출</label>
       <label><input type="radio" name="perm_sch" value="" checked> 변화없음</label><label><input type="radio" name="perm_sch" value="Y"> 노출</label>
       <input type="submit" value="확인">
+    </form>
+    <form id="edt_layer_2" method="post" action="./" target="hidden1" onsubmit="return edtConfirm(this)">
+      <input type="hidden" name="body" value="product@product_price.exe">
+      <input type="hidden" name="w" value=" and p.partner_no='367' and p.stat!=5">
+      <input type="hidden" name="prd_no" value="${allPnos.join(',')}">
+      <input type="hidden" name="nums" value="">
+      <input type="hidden" name="exec" value="sell_prc">
+      <input type="hidden" name="ori_no" value="">
+      <textarea name="partner_cmt"></textarea>
+      <label><input type="radio" name="prc_chg_type" value="1" checked> 할인 적용</label>
+      <label><input type="radio" name="prc_chg_type" value="2"> 균일가 적용</label>
+      <select name="where"><option value="1">선택한 상품</option><option value="2">현재 검색된 모든 상품</option></select>
+      <select name="o1"><option value="normal_prc">소비자가</option><option value="sell_prc">판매가</option></select>
+      <input type="text" name="p1" value="">
+      <select name="p2"><option value="1">%</option><option value="2">원</option></select>
+      <select name="p3"><option value="-">할인</option><option value="+">할증</option></select>
+      <select name="o2"><option value="normal_prc">소비자가</option><option value="sell_prc">판매가</option></select>
+      <select name="r1"><option value="1">1</option><option value="10">10</option></select>
+      <select name="r2"><option value="1">내림</option><option value="2">반올림</option></select>
+      <select name="o3"><option value="normal_prc">소비자가</option><option value="sell_prc">판매가</option></select>
+      <input type="text" name="replace_prc" value="">
+      <input type="submit" value="확인">
     </form></body></html>`;
 }
 
 function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStatus = 200 } = {}) {
   // 목록 순서 = 넣은 순서. 상태 글자는 화면 그대로(정상 · 품절 · 숨김).
-  const state = new Map(Object.entries(products).map(([pno, stat]) => [pno, { stat, previous: null }]));
+  const state = new Map(Object.entries(products).map(([pno, value]) => [pno, typeof value === 'string'
+    ? { stat: value, price: 1950, previous: null }
+    : { price: 1950, ...value, previous: null }]));
   const log = { tabs: [], removed: [], pages: [], saves: [] };
   let listReads = 0;
   let saved = false;
@@ -1741,7 +1765,7 @@ function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStat
       const lagging = saved && listReads <= lagReads;
       const all = [...state.entries()];
       const rows = all.slice((page - 1) * size, page * size)
-        .map(([pno, product]) => [pno, lagging && product.previous ? product.previous : product.stat]);
+        .map(([pno, product]) => [pno, lagging && product.previous ? product.previous : product.stat, product.price]);
       return { url: url.href, ok: true, status: 200, text: async () => kidsnoteListHtml(rows, all.map(([pno]) => pno)) };
     }
     if (url.pathname === '/_manage/' && init.method === 'POST') {
@@ -1750,6 +1774,13 @@ function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStat
       log.saves.push(body);
       if (saveStatus !== 200) return { url: url.href, ok: false, status: saveStatus, text: async () => '' };
       const form = new URLSearchParams(init.body);
+      if (form.get('exec') === 'sell_prc') {
+        assert.equal(form.get('prc_chg_type'), '2');
+        assert.equal(form.get('o3'), 'sell_prc');
+        for (const pno of form.get('nums').split('@').filter(Boolean)) state.get(pno).price = Number(form.get('replace_prc'));
+        saved = true;
+        return { url: url.href, ok: true, status: 200, text: async () => "<script>alert('수정되었습니다.');</script>" };
+      }
       const next = { 2: '정상', 3: '품절', 4: '숨김' }[form.get('change_stat')];
       for (const pno of form.get('nums').split('@').filter(Boolean)) {
         const product = state.get(pno);
@@ -2670,3 +2701,39 @@ test('떠리몰 지금 상태 — 살 수 있으면 재고 모름, 아니면 몰
   assert.deepEqual(plain(result.missing), ['999999999']);
   assert.equal(log.puts.length, 0, '읽기만 한다');
 });
+
+test('⭐ 키즈노트 가격은 가격 일괄수정(균일가 · 선택한 상품 · 판매가)으로 같은 가격끼리 묶어 보내고, 목록을 다시 읽어 확인한다', async () => {
+  const { api, log, state } = kidsnoteMall({
+    products: { 155982: { stat: '정상', price: 1950 }, 187336: { stat: '정상', price: 700 }, 114708: { stat: '품절', price: 1200 } },
+  });
+  const result = await api.sendPrice({
+    mallKey: 'kidsnote',
+    items: [
+      { code: '155982', price: 2000, ifPrice: 1950 },
+      { code: '187336', price: 2000, ifPrice: 700 },
+      { code: '114708', price: 1300, ifPrice: 1100 },
+      { code: '999999', price: 1000 },
+    ],
+  });
+  assert.equal(log.saves.length, 1, '같은 가격(2,000원) 두 상품을 한 번에 보낸다 — 가격이 바뀐 상품은 보내지 않는다');
+  const sentForm = new Map(log.saves[0]);
+  assert.equal(sentForm.get('exec'), 'sell_prc');
+  assert.equal(sentForm.get('where'), '1');
+  assert.equal(sentForm.get('prc_chg_type'), '2');
+  assert.equal(sentForm.get('o3'), 'sell_prc');
+  assert.equal(sentForm.get('replace_prc'), '2000');
+  assert.equal(sentForm.get('nums'), '@155982@187336');
+  assert.equal(state.get('155982').price, 2000);
+  assert.equal(state.get('114708').price, 1200, '그사이 바뀐 가격은 덮어쓰지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.failed, 2, '가격이 바뀐 1 + 목록에 없는 1');
+  assert.deepEqual(plain(result.results), [
+    { code: '155982', before: 1950, after: 2000, confirmed: true },
+    { code: '187336', before: 700, after: 2000, confirmed: true },
+  ]);
+  assert.ok(result.warnings[0].includes('본사 승인 전까지'), result.warnings.join(' / '));
+  assert.ok(result.warnings.some((warning) => warning.includes('1,200원으로 바뀌어')), result.warnings.join(' / '));
+});
+
