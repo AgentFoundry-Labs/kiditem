@@ -24,7 +24,9 @@ function account(overrides: Partial<MallListingAccountRow> = {}): MallListingAcc
     channel: 'coupang',
     name: 'Coupang Wing',
     listingCount: 1230,
+    onSaleListingCount: 0,
     productCount: 456,
+    onSaleProductCount: 0,
     optionCount: 0,
     matchedOptionCount: 0,
     onSaleOptionCount: 0,
@@ -324,6 +326,20 @@ describe('channelOverview', () => {
     });
     const overview = await service.channelOverview(ORG);
     expect(overview.channels[0]?.orderCount).toBe(113);
+  });
+
+  it('등록 상품 칸의 판매중 수를 함께 싣는다 — 판매중/전체', async () => {
+    const service = build({
+      mallAccounts: [mallAccount()],
+      listingAccounts: [account({ productCount: 719, onSaleProductCount: 484, listingCount: 3478, onSaleListingCount: 555 })],
+    });
+    const [channel] = (await service.channelOverview(ORG)).channels;
+    expect(channel).toMatchObject({
+      productCount: 719,
+      onSaleProductCount: 484,
+      listingCount: 3478,
+      onSaleListingCount: 555,
+    });
   });
 
   it('보낼 수 있는 몰 수를 따로 센다', async () => {

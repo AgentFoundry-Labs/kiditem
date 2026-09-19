@@ -226,27 +226,47 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     });
     if (grouped.length === 0) return [];
 
-    const [accounts, productCounts, optionCounts] = await Promise.all([
+    const onSaleStatus = { in: [...PUBLISHED_LISTING_STATUSES] };
+    const [accounts, onSaleListings, productCounts, optionCounts] = await Promise.all([
       this.prisma.channelAccount.findMany({
         where: { organizationId, id: { in: grouped.map((row) => row.channelAccountId) } },
         select: { id: true, channel: true, name: true },
       }),
+      this.prisma.channelListing.groupBy({
+        by: ['channelAccountId'],
+        where: { organizationId, isActive: true, status: onSaleStatus },
+        _count: { _all: true },
+      }),
+      /*
+        상품 수는 서로 다른 마스터로 센다. 판매중 상품은 그 몰에 판매중 리스팅이 하나라도 있는 마스터다 —
+        등록 상품 칸이 '판매중/전체'로 선다(사장님 2026-09-19).
+      */
       Promise.all(
-        grouped.map(async (row) => ({
-          channelAccountId: row.channelAccountId,
-          productCount: (
-            await this.prisma.channelListing.findMany({
-              where: {
-                organizationId,
-                channelAccountId: row.channelAccountId,
-                isActive: true,
-                masterProductId: { not: null },
-              },
+        grouped.map(async (row) => {
+          const linked = {
+            organizationId,
+            channelAccountId: row.channelAccountId,
+            isActive: true,
+            masterProductId: { not: null },
+          } satisfies Prisma.ChannelListingWhereInput;
+          const [products, onSaleProducts] = await Promise.all([
+            this.prisma.channelListing.findMany({
+              where: linked,
               distinct: ['masterProductId'],
               select: { masterProductId: true },
-            })
-          ).length,
-        })),
+            }),
+            this.prisma.channelListing.findMany({
+              where: { ...linked, status: onSaleStatus },
+              distinct: ['masterProductId'],
+              select: { masterProductId: true },
+            }),
+          ]);
+          return {
+            channelAccountId: row.channelAccountId,
+            productCount: products.length,
+            onSaleProductCount: onSaleProducts.length,
+          };
+        }),
       ),
       /*
         매칭률 — 활성 옵션 가운데 셀피아 레시피가 붙은 것. 레시피가 매칭의 결과물이다.
@@ -268,7 +288,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           } satisfies Prisma.ChannelListingOptionWhereInput;
           const onSale = {
             ...scope,
-            listing: { ...scope.listing, status: { in: [...PUBLISHED_LISTING_STATUSES] } },
+            listing: { ...scope.listing, status: onSaleStatus },
           } satisfies Prisma.ChannelListingOptionWhereInput;
           const matched = { inventoryComponents: { some: {} } };
           const [optionCount, matchedOptionCount, onSaleOptionCount, onSaleMatchedOptionCount] =
@@ -290,9 +310,10 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     ]);
 
     const countByAccount = new Map(grouped.map((row) => [row.channelAccountId, row._count._all]));
-    const productByAccount = new Map(
-      productCounts.map((row) => [row.channelAccountId, row.productCount]),
+    const onSaleListingByAccount = new Map(
+      onSaleListings.map((row) => [row.channelAccountId, row._count._all]),
     );
+    const productByAccount = new Map(productCounts.map((row) => [row.channelAccountId, row]));
     const optionsByAccount = new Map(
       optionCounts.map((row) => [row.channelAccountId, row]),
     );
@@ -302,7 +323,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       channel: account.channel,
       name: account.name,
       listingCount: countByAccount.get(account.id) ?? 0,
-      productCount: productByAccount.get(account.id) ?? 0,
+      onSaleListingCount: onSaleListingByAccount.get(account.id) ?? 0,
+      productCount: productByAccount.get(account.id)?.productCount ?? 0,
+      onSaleProductCount: productByAccount.get(account.id)?.onSaleProductCount ?? 0,
       optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
       matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
       onSaleOptionCount: optionsByAccount.get(account.id)?.onSaleOptionCount ?? 0,

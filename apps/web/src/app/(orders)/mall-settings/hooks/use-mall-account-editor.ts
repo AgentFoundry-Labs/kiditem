@@ -57,17 +57,15 @@ export function useMallAccountEditor() {
   );
 
   /**
-   * 저장된 비밀번호는 눈 아이콘을 누른 그 몰만 그때 불러온다. 목록을 열었다고 미리 받아두지 않는다. 불러온 값은
-   * 초안에 넣되 seed 로도 남겨, 보기만 한 것을 변경으로 세지 않는다.
+   * 저장된 비밀번호를 보인다. 목록을 열었다고 27개를 미리 받아두지 않는다 — 표는 눈 아이콘을 누른 그 몰만,
+   * 몰 하나의 설정 창은 열 때 그 몰만 그때 불러온다. 불러온 값은 초안에 넣되 seed 로도 남겨, 보기만 한 것을
+   * 변경으로 세지 않는다. 이미 불러왔으면 다시 받지 않는다 — 가렸다 다시 볼 때 고쳐 쓰던 값을 덮지 않는다.
    */
-  const toggleReveal = useCallback(
+  const reveal = useCallback(
     async (mallKey: string, mallName: string) => {
-      if (revealedKeys.has(mallKey)) {
-        setRevealedKeys((current) => {
-          const next = new Set(current);
-          next.delete(mallKey);
-          return next;
-        });
+      if (revealedKeys.has(mallKey)) return;
+      if (drafts[mallKey]?.seededPassword !== undefined) {
+        setRevealedKeys((current) => new Set(current).add(mallKey));
         return;
       }
       setRevealingKey(mallKey);
@@ -87,7 +85,22 @@ export function useMallAccountEditor() {
         setRevealingKey(null);
       }
     },
-    [changeDraft, revealedKeys],
+    [changeDraft, drafts, revealedKeys],
+  );
+
+  const toggleReveal = useCallback(
+    async (mallKey: string, mallName: string) => {
+      if (!revealedKeys.has(mallKey)) {
+        await reveal(mallKey, mallName);
+        return;
+      }
+      setRevealedKeys((current) => {
+        const next = new Set(current);
+        next.delete(mallKey);
+        return next;
+      });
+    },
+    [reveal, revealedKeys],
   );
 
   /** 저장한 몰의 초안과 펼친 비밀번호를 버린다. 창을 닫으면 편집 전체가 사라지므로 따로 부르지 않는다. */
@@ -163,6 +176,7 @@ export function useMallAccountEditor() {
     savingKey,
     loginTest,
     changeDraft,
+    reveal,
     toggleReveal,
     saveRow,
     saveAll,

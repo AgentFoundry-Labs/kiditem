@@ -7,9 +7,9 @@ import { MallAccountSettingsDialog } from './MallAccountSettingsDialog';
 /**
  * 쇼핑몰 현황이 여는 계정 설정 창이 지키는 것(사장님 2026-09-19 "… 모달로 빼던지 비번 변경은?").
  *
- *  1. 몰 하나의 창에서 비밀번호를 바꾼다 — 새 비밀번호를 적고 저장하면 그 값을 보낸다.
- *  2. 저장된 비밀번호는 눈을 누른 그때만 불러오고, 보기만 한 것은 변경이 아니다.
- *  3. `all` 은 예전 쇼핑몰 계정 화면의 표 전체다.
+ *  1. 몰 하나의 창에서 비밀번호를 바꾼다 — 고쳐 쓰고 저장하면 그 값을 보낸다.
+ *  2. 몰 하나의 창은 저장된 비밀번호를 열자마자 보인다("기존 비밀번호 보이게 해줘야지"). 보기만 한 것은 변경이 아니다.
+ *  3. `all` 은 예전 쇼핑몰 계정 화면의 표 전체다 — 27개 비밀번호를 한꺼번에 받지 않는다.
  */
 
 let accounts: OrderCollectionMallAccount[];
@@ -66,16 +66,17 @@ beforeEach(() => {
 });
 
 describe('쇼핑몰 계정 설정 창', () => {
-  it('⭐ 몰 하나의 창에서 비밀번호를 바꾼다 — 새 비밀번호를 적고 저장하면 그 값을 보낸다', async () => {
+  it('⭐ 몰 하나의 창에서 비밀번호를 바꾼다 — 고쳐 쓰고 저장하면 그 값을 보낸다', async () => {
     const user = userEvent.setup();
     render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
 
     const dialog = screen.getByRole('dialog', { name: '키즈노트 계정 설정' });
     const save = within(dialog).getByRole('button', { name: '저장' });
+    const input = await within(dialog).findByDisplayValue('saved-pass');
     expect(save).toBeDisabled();
-    expect(within(dialog).getByText('바꾸려면 새 비밀번호를 적고 저장하세요. 비워 두면 그대로입니다.')).toBeInTheDocument();
 
-    await user.type(within(dialog).getByLabelText('키즈노트 비밀번호'), 'new-pass');
+    await user.clear(input);
+    await user.type(input, 'new-pass');
     expect(within(dialog).getByText('저장하면 이 비밀번호로 바뀝니다.')).toBeInTheDocument();
     await user.click(save);
 
@@ -89,24 +90,38 @@ describe('쇼핑몰 계정 설정 창', () => {
     });
   });
 
-  it('저장된 비밀번호는 눈을 누른 그때만 불러오고, 보기만 한 것은 변경이 아니다', async () => {
+  it('⭐ 몰 하나의 창은 저장된 비밀번호를 열자마자 보인다 — 보기만 한 것은 변경이 아니다', async () => {
     const user = userEvent.setup();
     render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
-    expect(mockPassword).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: '키즈노트 비밀번호 보기' }));
-
+    const input = await screen.findByDisplayValue('saved-pass');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(mockPassword).toHaveBeenCalledTimes(1);
     expect(mockPassword).toHaveBeenCalledWith('kidsnote');
-    expect(screen.getByLabelText('키즈노트 비밀번호')).toHaveValue('saved-pass');
+    expect(screen.getByText('저장된 비밀번호입니다. 바꾸려면 고쳐 쓰고 저장하세요.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
+
+    // 눈으로 가렸다 다시 보면 받아 둔 값을 그대로 쓴다 — 다시 부르지 않는다.
+    await user.click(screen.getByRole('button', { name: '키즈노트 비밀번호 가리기' }));
+    expect(input).toHaveAttribute('type', 'password');
+    await user.click(screen.getByRole('button', { name: '키즈노트 비밀번호 보기' }));
+    expect(input).toHaveAttribute('type', 'text');
+    expect(mockPassword).toHaveBeenCalledTimes(1);
   });
 
-  it('`all` 은 모든 몰의 계정 표다', () => {
+  it('저장된 비밀번호가 없는 몰은 부르지 않는다', () => {
+    render(<MallAccountSettingsDialog target="onch" onClose={vi.fn()} />);
+    expect(screen.getByLabelText('온채널 비밀번호')).toHaveValue('');
+    expect(mockPassword).not.toHaveBeenCalled();
+  });
+
+  it('`all` 은 모든 몰의 계정 표다 — 비밀번호를 한꺼번에 받지 않는다', () => {
     render(<MallAccountSettingsDialog target="all" onClose={vi.fn()} />);
     const dialog = screen.getByRole('dialog', { name: '쇼핑몰 계정' });
     expect(within(dialog).getByText('키즈노트')).toBeInTheDocument();
     expect(within(dialog).getByText('온채널')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /변경사항 저장/ })).toBeDisabled();
+    expect(mockPassword).not.toHaveBeenCalled();
   });
 
   it('계정 목록에 없는 몰은 없다고 적는다', () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Settings } from 'lucide-react';
+import { ExternalLink, Settings } from 'lucide-react';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { cn, formatNumber } from '@/lib/utils';
 import { mallAccountKeyFor } from '../../_shared/mall-account-settings-link';
@@ -31,13 +31,16 @@ export interface ChannelTableRow {
 export interface ChannelAccountInfo {
   loginId: string | null;
   enabled: boolean;
+  /** 계정에 저장된 사이트 주소. 몰 칸을 누르면 여기로 간다. */
+  siteUrl: string | null;
 }
 
 /**
  * 연결된 몰 표 — 사방넷 스케줄러와 같은 모양이다(사장님 2026-09-17).
  *
  * 한 줄이 몰 하나다. 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정 · 등록 상품, 그리고 되는 일 열 칸.
- * 등록 상품은 그 몰의 상품을 가져온 적이 없으면 0 이 아니라 `—` 다(모른다). 사방넷은
+ * 몰 칸을 누르면 계정에 저장된 사이트 주소가 새 탭으로 열린다(사장님 2026-09-19).
+ * 등록 상품은 '판매중/전체'이고, 그 몰의 상품을 가져온 적이 없으면 0 이 아니라 `—` 다(모른다). 사방넷은
  * 칸마다 켜고 끄는 스위치를 두지만, 우리 칸은 **그 일이 지금 되는지**를 말한다 — 누를 수 없는
  * 스위치를 그리면 켜 둔 줄 알고 기다리게 된다. 켜고 끄는 것은 설정 창의 사용여부 하나다.
  *
@@ -67,7 +70,7 @@ export function ChannelTable({
             <th scope="col" className="px-2 py-2.5 text-left">쇼핑몰 ID</th>
             <th scope="col" className="px-2 py-2.5 text-center">사용여부</th>
             <th scope="col" className="px-2 py-2.5 text-center">설정</th>
-            <th scope="col" className="px-2 py-2.5 text-right">등록 상품</th>
+            <th scope="col" className="px-2 py-2.5 text-right" title="판매중 상품 / 등록 상품">등록 상품<span className="ml-1 font-normal text-slate-400">판매중/전체</span></th>
             <th scope="col" className="px-2 py-2.5 text-right" title="판매중 옵션 기준">매칭률<span className="ml-1 font-normal text-slate-400">판매중</span></th>
             {CAPABILITY_KEYS.map((key) => (
               <th key={key} scope="col" className="px-1.5 py-2.5 text-center align-top">
@@ -113,31 +116,26 @@ function ChannelRow({
   onOpenSettings: () => void;
 }) {
   const { channel, capabilities, notes, labels } = row;
-  const logo = mallLogoPath(channel.mallKey);
+  const siteUrl = openableSiteUrl(account?.siteUrl);
   return (
     <tr className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
-      <th scope="row" className="sticky left-0 z-10 bg-white px-3 py-2 text-left font-normal">
-        <span className="flex items-center gap-2">
-          {logo ? (
-            // eslint-disable-next-line @next/next/no-img-element -- public 정적 파일
-            <img
-              src={logo}
-              alt=""
-              className="h-7 w-7 flex-none rounded-lg border border-slate-200 bg-white object-contain p-0.5"
-            />
-          ) : (
-            <span
-              aria-hidden
-              className={cn(
-                'flex h-7 w-7 flex-none items-center justify-center rounded-lg text-[10px] font-bold',
-                mallAccentClass(channel.mallKey),
-              )}
-            >
-              {mallMonogram(channel.mallName)}
-            </span>
-          )}
-          <span className="truncate text-[13px] font-semibold text-slate-900">{channel.mallName}</span>
-        </span>
+      <th scope="row" className="sticky left-0 z-10 bg-white p-0 text-left font-normal">
+        {siteUrl ? (
+          <a
+            href={siteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`${siteUrl} 열기`}
+            className="group flex items-center gap-2 px-3 py-2 hover:bg-slate-50"
+          >
+            <MallIdentity channel={channel} />
+            <ExternalLink size={12} aria-hidden className="flex-none text-slate-300 group-hover:text-slate-600" />
+          </a>
+        ) : (
+          <span className="flex items-center gap-2 px-3 py-2">
+            <MallIdentity channel={channel} />
+          </span>
+        )}
       </th>
       <td className="max-w-[10rem] truncate px-2 py-2 text-slate-600" title={account?.loginId ?? undefined}>
         {account === undefined ? '…' : account?.loginId ?? '—'}
@@ -157,12 +155,22 @@ function ChannelRow({
         </button>
       </td>
       <td
-        className="px-2 py-2 text-right tabular-nums text-slate-700"
+        className="whitespace-nowrap px-2 py-2 text-right tabular-nums"
         title={channel.imported
-          ? `리스팅 ${formatNumber(channel.listingCount)}개 · 주문 ${formatNumber(channel.orderCount)}건`
+          ? [
+            `등록 상품 ${formatNumber(channel.productCount)}개 중 ${formatNumber(channel.onSaleProductCount)}개가 판매중입니다.`,
+            `몰에 올라간 리스팅 ${formatNumber(channel.listingCount)}개 중 판매중 ${formatNumber(channel.onSaleListingCount)}개 · 주문 ${formatNumber(channel.orderCount)}건`,
+          ].join('\n')
           : '이 몰의 상품을 아직 가져오지 않았습니다 — 0 이 아니라 모릅니다.'}
       >
-        {channel.imported ? formatNumber(channel.productCount) : <span className="text-slate-300">—</span>}
+        {channel.imported ? (
+          <>
+            <span className="font-semibold text-slate-800">{formatNumber(channel.onSaleProductCount)}</span>
+            <span className="text-slate-400">/{formatNumber(channel.productCount)}</span>
+          </>
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
       </td>
       <MatchRateCell channel={channel} />
       {CAPABILITY_KEYS.map((key) => (
@@ -172,6 +180,40 @@ function ChannelRow({
       ))}
     </tr>
   );
+}
+
+/** 몰 로고(없으면 머리글자)와 이름. */
+function MallIdentity({ channel }: { channel: MallChannelSummary }) {
+  const logo = mallLogoPath(channel.mallKey);
+  return (
+    <>
+      {logo ? (
+        // eslint-disable-next-line @next/next/no-img-element -- public 정적 파일
+        <img
+          src={logo}
+          alt=""
+          className="h-7 w-7 flex-none rounded-lg border border-slate-200 bg-white object-contain p-0.5"
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            'flex h-7 w-7 flex-none items-center justify-center rounded-lg text-[10px] font-bold',
+            mallAccentClass(channel.mallKey),
+          )}
+        >
+          {mallMonogram(channel.mallName)}
+        </span>
+      )}
+      <span className="truncate text-[13px] font-semibold text-slate-900">{channel.mallName}</span>
+    </>
+  );
+}
+
+/** 링크로 열 수 있는 사이트 주소만 — 계정 칸은 사람이 적은 글이라 http(s) 가 아니면 걸지 않는다. */
+function openableSiteUrl(value: string | null | undefined): string | null {
+  const url = value?.trim();
+  return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
 /**

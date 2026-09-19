@@ -1,9 +1,9 @@
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 /**
- * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17):
- * 주문수집 · 클레임수집 · 운송장 송신 · 문의수집 · 문의답변 · 상품등록 · 상품수정 ·
- * 품절관리 · 판매재개 · 재고송신. 사방넷의 상품상태송신 한 칸을 품절관리 · 판매재개 둘로 가른다 —
+ * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17).
+ * 칸 순서는 자주 보는 일부터다(사장님 2026-09-19): 주문수집 · 운송장 송신 · 상품등록 · 품절관리 ·
+ * 판매재개, 그 뒤에 클레임수집 · 문의수집 · 문의답변 · 상품수정 · 재고송신. 사방넷의 상품상태송신 한 칸을 품절관리 · 판매재개 둘로 가른다 —
  * 몰마다 둘이 따로 되는지가 보여야 한다(사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지
  * 구별해놔줘").
  *
@@ -22,14 +22,14 @@ export type CapabilityState = 'ready' | 'pending' | 'unavailable';
 
 export const CAPABILITY_KEYS = [
   'orders',
-  'claims',
   'tracking',
-  'inquiries',
-  'inquiryReplies',
   'register',
-  'update',
   'soldout',
   'resume',
+  'claims',
+  'inquiries',
+  'inquiryReplies',
+  'update',
   'stock',
 ] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];

@@ -133,7 +133,9 @@ const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
 };
 
 /**
- * 표의 한 칸 — 이 몰로 그 일이 되는가. 색만으로 말하지 않고 ✓ · – · ✕ 와 글자를 함께 둔다.
+ * 표의 한 칸 — 이 몰로 그 일이 되는가. 되는 칸은 ✓ 만, 셀피아처럼 다른 길로 되는 칸은 그 이름만
+ * 적는다(사장님 2026-09-19 "체크 됨이 아니라 그냥 체크 표시만 … 셀피아는 셀피아만"). 아직 · 불가는
+ * – · ✕ 에 글자를 함께 둔다. 칸의 이름(`aria-label`)은 언제나 '일 이름 + 됨/아직/불가'다.
  *
  * `label` 은 칸 이름을 바꿔 부를 때(셀피아가 주문을 가져오는 몰의 '셀피아 주문수집'), `note` 는
  * 기본 설명 대신 붙는 사연이다(옥션: G마켓 등록에 함께 올라감 · 완전품절이 영구삭제인 몰).
@@ -151,8 +153,8 @@ export function CapabilityCell({
 }) {
   const Mark = STATE_MARK[state];
   const name = label || CAPABILITY_LABEL[kind];
-  // 셀피아처럼 길이 다른 초록은 칸 안에 그 이름을 짧게 적는다.
-  const word = label && state === 'ready' ? label.replace(CAPABILITY_LABEL[kind], '').trim() || STATE_WORD[state] : STATE_WORD[state];
+  // 셀피아처럼 길이 다른 초록은 칸 안에 그 길 이름만 적는다.
+  const via = label && state === 'ready' ? label.replace(CAPABILITY_LABEL[kind], '').trim() : '';
   return (
     <span
       role="img"
@@ -163,8 +165,16 @@ export function CapabilityCell({
         STATE_TONE[state],
       )}
     >
-      <Mark size={11} className="flex-none" aria-hidden />
-      {word}
+      {via ? (
+        via
+      ) : state === 'ready' ? (
+        <Mark size={13} className="flex-none" aria-hidden />
+      ) : (
+        <>
+          <Mark size={11} className="flex-none" aria-hidden />
+          {STATE_WORD[state]}
+        </>
+      )}
     </span>
   );
 }

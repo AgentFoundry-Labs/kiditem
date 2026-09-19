@@ -46,6 +46,13 @@ export interface MallListingAccountRow {
   listingCount: number;
   /** 이 계정에 올라간 서로 다른 상품 수. */
   productCount: number;
+  /**
+   * 그 가운데 판매중 리스팅이 하나라도 있는 상품 수. 쇼핑몰 현황의 등록 상품 칸은 이 값/productCount 다
+   * (사장님 2026-09-19 "등록상품중 실제 판매중인 상품으로 해서 4/5 이런식으로").
+   */
+  onSaleProductCount: number;
+  /** 활성 리스팅 가운데 판매중인 리스팅 수. */
+  onSaleListingCount: number;
   /** 이 계정의 활성 옵션 수. 매칭률의 분모다. */
   optionCount: number;
   /** 그 가운데 셀피아 재고 레시피가 있는 옵션 수. 매칭률의 분자다. */

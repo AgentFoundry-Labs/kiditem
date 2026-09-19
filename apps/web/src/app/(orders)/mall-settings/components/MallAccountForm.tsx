@@ -28,8 +28,8 @@ const READINESS_TONE: Record<string, string> = {
 const FIELD = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-purple-400';
 
 /**
- * 몰 하나의 계정 — 쇼핑몰 현황의 설정 창에서 쓴다. 표(`MallAccountTable`)와 같은 초안 · 저장 규칙이다: 비밀번호는
- * 눈 아이콘을 누를 때만 불러오고, 새 비밀번호를 적고 저장하면 바뀌며, 비워 두면 그대로다.
+ * 몰 하나의 계정 — 쇼핑몰 현황의 설정 창에서 쓴다. 표(`MallAccountTable`)와 같은 초안 · 저장 규칙이다: 저장된
+ * 비밀번호는 창이 열 때 불러와 보이고(눈 아이콘으로 가린다), 고쳐 쓰고 저장하면 바뀌며, 비워 두면 그대로다.
  */
 export function MallAccountForm({
   row,
@@ -60,6 +60,7 @@ export function MallAccountForm({
 }) {
   const { account, draft } = row;
   const passwordChanged = isPasswordChanged(draft);
+  const passwordLoaded = draft.seededPassword !== undefined;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -116,7 +117,7 @@ export function MallAccountForm({
             type={revealed ? 'text' : 'password'}
             value={draft.password}
             onChange={(event) => onChange({ password: event.target.value })}
-            placeholder={account.hasPassword ? '새 비밀번호' : '비밀번호'}
+            placeholder={revealing ? '저장된 비밀번호를 불러오는 중' : account.hasPassword ? '새 비밀번호' : '비밀번호'}
             autoComplete="new-password"
             aria-label={`${account.name} 비밀번호`}
             className={FIELD}
@@ -144,9 +145,11 @@ export function MallAccountForm({
         <p className={cn('mt-1 text-[11px]', passwordChanged ? 'text-purple-700' : 'text-slate-400')}>
           {passwordChanged
             ? '저장하면 이 비밀번호로 바뀝니다.'
-            : account.hasPassword
-              ? '바꾸려면 새 비밀번호를 적고 저장하세요. 비워 두면 그대로입니다.'
-              : '비밀번호를 적고 저장하세요.'}
+            : passwordLoaded
+              ? '저장된 비밀번호입니다. 바꾸려면 고쳐 쓰고 저장하세요.'
+              : account.hasPassword
+                ? '바꾸려면 새 비밀번호를 적고 저장하세요. 비워 두면 그대로입니다.'
+                : '비밀번호를 적고 저장하세요.'}
         </p>
       </div>
 

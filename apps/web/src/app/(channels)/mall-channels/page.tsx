@@ -58,7 +58,7 @@ export default function MallChannelsPage() {
     if (!Array.isArray(accountsQuery.data)) return accountsQuery.isError ? new Map() : null;
     return new Map(accountsQuery.data.map((account) => [
       account.key,
-      { loginId: account.loginId ?? null, enabled: account.enabled },
+      { loginId: account.loginId ?? null, enabled: account.enabled, siteUrl: account.siteUrl ?? null },
     ]));
   }, [accountsQuery.data, accountsQuery.isError]);
 

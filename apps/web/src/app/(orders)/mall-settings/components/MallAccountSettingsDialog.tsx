@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AlertCircle, Loader2, Save, X } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
@@ -14,8 +15,9 @@ export type MallAccountSettingsTarget = string | 'all';
 /**
  * 쇼핑몰 계정 설정 창 — 쇼핑몰 현황이 연다(사장님 2026-09-19 "쇼핑몰계정 페이지를 쇼핑몰 현황으로 넣어서 합쳐줘라
  * 설정으로 해서 모달로 … 비번 변경은?"). 몰 하나는 그 몰의 아이디 · 비밀번호(보기 · 변경) · 사이트 주소 · 사용 ·
- * 로그인 테스트, `all` 은 예전 쇼핑몰 계정 화면의 표 전체다. 편집은 창이 열린 동안만 살고, 닫으면 저장하지 않은
- * 초안은 버린다.
+ * 로그인 테스트, `all` 은 예전 쇼핑몰 계정 화면의 표 전체다. 몰 하나의 창은 저장된 비밀번호를 열자마자 보인다
+ * (사장님 2026-09-19 "기존 비밀번호 보이게 해줘야지") — 표는 27개를 한꺼번에 받지 않도록 눈 아이콘을 누른 몰만이다.
+ * 편집은 창이 열린 동안만 살고, 닫으면 저장하지 않은 초안은 버린다.
  */
 export function MallAccountSettingsDialog({
   target,
@@ -53,9 +55,22 @@ function SettingsBody({
   mallName?: string;
 }) {
   const editor = useMallAccountEditor();
-  const { mallsQuery, rows, summary } = editor;
+  const { mallsQuery, rows, summary, reveal } = editor;
   const row = target === 'all' ? null : rows.find((candidate) => candidate.account.key === target) ?? null;
   const title = target === 'all' ? '쇼핑몰 계정' : `${row?.account.name ?? mallName ?? '몰'} 계정 설정`;
+
+  // 저장된 비밀번호는 창을 열 때 한 번, 저장해 계정이 바뀌면 다시 한 번 불러온다. 못 불러와도 되풀이하지 않고,
+  // 눈으로 가린 것 · 고쳐 쓰는 중인 것은 건드리지 않는다.
+  const revealedRevision = useRef<string | null>(null);
+  const revision = row?.account.hasPassword
+    ? `${row.account.key}|${row.account.updatedAt ?? ''}|${row.account.passwordUpdatedAt ?? ''}`
+    : null;
+  const untouched = row ? row.draft.seededPassword === undefined && row.draft.password === '' : false;
+  useEffect(() => {
+    if (!row || revision === null || !untouched || revealedRevision.current === revision) return;
+    revealedRevision.current = revision;
+    void reveal(row.account.key, row.account.name);
+  }, [reveal, revision, row, untouched]);
 
   return (
     <>

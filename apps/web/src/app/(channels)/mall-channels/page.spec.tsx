@@ -8,8 +8,8 @@ import MallChannelsPage from './page';
  *  1. **모르는 것을 0 으로 찍지 않는다.** 리스팅을 한 번도 가져오지 않은 몰에 등록 상품 0 을
  *     세우면 "이 몰엔 아무것도 없다"로 읽힌다. 실제로는 "우리가 아직 안 가져왔다"이다. 그 칸은 `—` 다.
  *  2. **연결된 몰은 한 표다 — 사방넷 스케줄러와 같은 모양.** 줄마다 쇼핑몰 · 쇼핑몰 ID ·
- *     사용여부 · 설정 · 등록 상품, 그리고 되는 일 열 칸(주문수집 · 클레임수집 · 운송장 송신 ·
- *     문의수집 · 문의답변 · 상품등록 · 상품수정 · 품절관리 · 판매재개 · 재고송신)이 초록(됨) ·
+ *     사용여부 · 설정 · 등록 상품, 그리고 되는 일 열 칸(주문수집 · 운송장 송신 · 상품등록 ·
+ *     품절관리 · 판매재개 · 클레임수집 · 문의수집 · 문의답변 · 상품수정 · 재고송신)이 초록(됨) ·
  *     회색(아직) · 빨강(불가)으로 선다. 다 되는 몰부터 선다.
  *  3. **칸 머리가 몇 곳에서 되는지 말한다.** 맨 위 요약은 활성 상품 · 연결된 몰 둘이다.
  */
@@ -79,8 +79,10 @@ function channel(overrides: Record<string, unknown> = {}) {
     collectsOrders: false,
     uploadsTracking: false,
     listingCount: 1230,
+    onSaleListingCount: 1000,
     orderCount: 0,
     productCount: 456,
+    onSaleProductCount: 400,
     readiness: 'ready',
     ...overrides,
   };
@@ -112,7 +114,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   mockReplace.mockReset();
   mallAccounts = [
-    { key: 'kidsnote', loginId: 'store_kiditem', enabled: true },
+    { key: 'kidsnote', loginId: 'store_kiditem', enabled: true, siteUrl: 'https://shop.kidsnote.com/_manage/' },
     { key: 'coupang-direct', loginId: 'kiditem01', enabled: false },
   ];
   manifests = [
@@ -185,17 +187,18 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
       '쇼핑몰 ID',
       '사용여부',
       '설정',
-      '등록 상품',
+      '등록 상품판매중/전체',
       '매칭률판매중',
+      // 자주 보는 일부터(사장님 2026-09-19), 나머지는 뒤로.
       '주문수집',
-      '클레임수집',
       '운송장 송신',
-      '문의수집',
-      '문의답변',
       '상품등록',
-      '상품수정',
       '품절관리',
       '판매재개',
+      '클레임수집',
+      '문의수집',
+      '문의답변',
+      '상품수정',
       '재고송신',
     ]);
     // 같은 몰이 두 번 서지 않는다.
@@ -216,6 +219,15 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     expect(within(card('쿠팡 로켓')).getByText('kiditem01')).toBeInTheDocument();
     expect(within(card('쿠팡 로켓')).getByText('미사용')).toBeInTheDocument();
     expect(within(card('토스쇼핑')).getByText('계정 없음')).toBeInTheDocument();
+  });
+
+  it('⭐ 몰 칸을 누르면 계정에 저장된 사이트가 새 탭으로 열린다 — 주소가 없으면 링크가 아니다', () => {
+    overview = fourMalls();
+    render(<MallChannelsPage />);
+    const link = within(card('키즈노트')).getByRole('link', { name: '키즈노트' });
+    expect(link).toHaveAttribute('href', 'https://shop.kidsnote.com/_manage/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(within(card('토스쇼핑')).queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('⭐ 줄의 설정은 그 몰의 계정 설정 창을 연다 — 쇼핑몰 계정은 따로 된 화면이 아니다', () => {
@@ -253,15 +265,17 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     render(<MallChannelsPage />);
 
     const orders = within(card('11번가')).getByRole('img', { name: '셀피아 주문수집 됨' });
-    expect(orders).toHaveTextContent('셀피아');
+    // 셀피아 칸은 '셀피아'만 — 체크 없이(사장님 2026-09-19).
+    expect(orders).toHaveTextContent(/^셀피아$/);
+    expect(orders.querySelector('svg')).toBeNull();
     expect(orders).toHaveAttribute('title', expect.stringContaining('셀피아 주문수집으로 들어옵니다'));
   });
 
-  it('가져온 몰은 등록 상품 수를 보여준다', () => {
+  it('⭐ 가져온 몰의 등록 상품은 판매중/전체다', () => {
     render(<MallChannelsPage />);
-    const coupang = card('쿠팡(마켓플레이스)');
-    expect(within(coupang).getByText('456')).toBeInTheDocument();
-    expect(within(coupang).getByTitle('리스팅 1,230개 · 주문 0건')).toBeInTheDocument();
+    const registered = within(card('쿠팡(마켓플레이스)')).getByTitle(/등록 상품 456개 중 400개가 판매중입니다/);
+    expect(registered).toHaveTextContent('400/456');
+    expect(registered).toHaveAttribute('title', expect.stringContaining('리스팅 1,230개 중 판매중 1,000개 · 주문 0건'));
   });
 
   it('⭐ 안 가져온 몰은 0 대신 — 를 찍는다', () => {
@@ -276,7 +290,10 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     render(<MallChannelsPage />);
     expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '상품등록 됨' })).toBeInTheDocument();
     expect(within(card('쿠팡(마켓플레이스)')).getByRole('img', { name: '주문수집 아직' })).toBeInTheDocument();
-    expect(within(card('키즈노트')).getByRole('img', { name: '주문수집 됨' })).toBeInTheDocument();
+    // 되는 칸은 체크만 — '됨' 글자를 적지 않는다(사장님 2026-09-19).
+    const ready = within(card('키즈노트')).getByRole('img', { name: '주문수집 됨' });
+    expect(ready).toHaveTextContent(/^$/);
+    expect(ready.querySelector('svg')).not.toBeNull();
     expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 불가' })).toBeInTheDocument();
     expect(within(card('토스쇼핑')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
   });
