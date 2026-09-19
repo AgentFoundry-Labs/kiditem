@@ -21,6 +21,7 @@ import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/product
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
 import { ProductRecipeMutationModule } from './product-recipe-mutation.module';
+import { SalesProductModule } from './sales-product.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ProductRecipeMutationModule } from './product-recipe-mutation.module';
     AiModule,
     ProductAbcReadModule,
     ProductRecipeMutationModule,
+    SalesProductModule,
   ],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [

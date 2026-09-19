@@ -26,6 +26,7 @@ model SellpiaInventorySku {
   masterProduct                           MasterProduct?                           @relation("MasterProductInventorySkus", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lastImportRun                           SourceImportRun?                         @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  salesProductOptionComponents            SalesProductOptionComponent[]
   supplierProducts                        SupplierProduct[]                        @relation("SupplierProductSellpiaInventorySku")
   purchaseOrderItems                      PurchaseOrderItem[]                      @relation("PurchaseOrderItemSellpiaInventorySku")
   stockTransfers                          StockTransfer[]                          @relation("StockTransferSellpiaInventorySku")

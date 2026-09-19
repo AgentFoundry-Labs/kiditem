@@ -140,6 +140,7 @@ erDiagram
 | SellpiaInventorySku | organization | references external | Core | Organization |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Channels | SellpiaManualMatchAlias |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ChannelListingOptionInventoryComponent |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | SalesProductOptionComponent |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | PurchaseOrderItem |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | SupplierProduct |

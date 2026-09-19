@@ -99,6 +99,7 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/mall-home', label: '쇼핑몰 홈', icon: Target },
       { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
+      { href: '/product-hub/sales-products', label: '판매상품', icon: Boxes },
       { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },
       { href: '/mall-availability', label: '품절 관리', icon: PackageX },
       { href: '/mall-tasks', label: '송신 내역', icon: ClipboardList },

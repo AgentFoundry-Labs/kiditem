@@ -23,6 +23,10 @@
 | MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
+| SalesProduct | `sales_products` | Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0013). |
+| SalesProductChannelOverride | `sales_product_channel_overrides` | Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0013). |
+| SalesProductOption | `sales_product_options` | One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0013). |
+| SalesProductOptionComponent | `sales_product_option_components` | Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0013). |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | `users` | Human or system account. Organization membership is the source of truth. |
 
@@ -69,6 +73,7 @@ erDiagram
     String channelAccountId FK
     String sourceCandidateId FK
     String masterProductId FK
+    String salesProductId FK
     String externalId
     String channelName
     String displayName
@@ -102,6 +107,7 @@ erDiagram
     Json attributesJson
     Json rawJson
     String lastImportRunId FK
+    String salesProductOptionId FK
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -237,6 +243,91 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SalesProduct {
+    String id PK
+    String organizationId FK
+    String code
+    String ownCode
+    String sabangnetGoodsNo
+    String name
+    String shortName
+    String englishName
+    String printName
+    String modelName
+    String modelNo
+    String brand
+    String manufacturer
+    String originCountry
+    String originRegion
+    StringArray keywords
+    String standardCategory
+    String status
+    String taxType
+    String deliveryFeeType
+    Int deliveryFee
+    Int costPrice
+    Int salePrice
+    Int tagPrice
+    StringArray optionAxes
+    Boolean stockManaged
+    Boolean optionsLocked
+    StringArray imageUrls
+    String detailHtml
+    StringArray extraDetailHtml
+    String noticeCategory
+    StringArray noticeValues
+    Json certifications
+    String importDeclarationNo
+    String adminMemo
+    Json sourceRaw
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductChannelOverride {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String channelAccountId FK
+    Int salePrice
+    Int priceRateBp
+    Int costPrice
+    String name
+    String detailHtml
+    String promoText
+    String noticeCategory
+    Int stockPercent
+    Json adapterValues
+    Json sourceRaw
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOption {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String optionCode
+    StringArray values
+    String optionKey
+    String alias
+    String barcode
+    Int extraPrice
+    String supplyStatus
+    Int safetyStock
+    Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOptionComponent {
+    String id PK
+    String organizationId FK
+    String salesProductOptionId FK
+    String sellpiaInventorySkuId FK
+    Int quantity
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourceImportRun {
     String id PK
     String organizationId FK
@@ -291,6 +382,7 @@ erDiagram
     DateTime updatedAt
   }
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
+  ChannelAccount ||--o{ SalesProductChannelOverride : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing o|--o| MasterProduct : "originChannelListing"
@@ -313,7 +405,16 @@ erDiagram
   Organization ||--o{ MasterProductAbcFormulaVersion : "organization"
   Organization ||--o{ MasterProductAbcGradeHistory : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
+  Organization ||--o{ SalesProduct : "organization"
+  Organization ||--o{ SalesProductChannelOverride : "organization"
+  Organization ||--o{ SalesProductOption : "organization"
+  Organization ||--o{ SalesProductOptionComponent : "organization"
   Organization ||--o{ SourceImportRun : "organization"
+  SalesProduct o|--o{ ChannelListing : "salesProduct"
+  SalesProduct ||--o{ SalesProductChannelOverride : "salesProduct"
+  SalesProduct ||--o{ SalesProductOption : "salesProduct"
+  SalesProductOption o|--o{ ChannelListingOption : "salesProductOption"
+  SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
@@ -486,6 +587,7 @@ erDiagram
 | Organization | organization | referenced by external | Supply | SupplierProduct |
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | SystemSetting |
+| SalesProductOptionComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |

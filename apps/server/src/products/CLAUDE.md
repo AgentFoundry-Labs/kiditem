@@ -10,6 +10,7 @@ owns physical stock quantities.
 ## Owned Surfaces
 
 - Canonical `MasterProduct` operations and category compatibility.
+- Sales products, their options, per-mall values, and the Sabangnet workbook import.
 - Direct channel-option inventory composition.
 - Products-owned absolute ABC formula, evaluation, publication, current grade,
   and history.
@@ -34,6 +35,11 @@ owns physical stock quantities.
 
 - Do not recreate `ProductVariant`, `ProductVariantComponent`, an operating
   option table, a master-level inventory recipe, or a second stock balance.
+- `SalesProduct` / `SalesProductOption` (판매상품 · 단품) are the registration
+  definition sent to malls ([ADR-0013](../../../../docs/adr/0013-sales-products-are-a-products-owned-registration-definition.md)).
+  An option's Sellpia composition is declared intent: it never feeds capacity
+  and is copied only into an empty channel option recipe when that option is
+  linked. Only `SalesProductService` and the Sabangnet import write them.
 - `MasterProduct` is the only ABC owner. Channel option inventory composition is
   logistics data and does not create a second product grade.
 - A channel option recipe is an atomic complete replacement of distinct,

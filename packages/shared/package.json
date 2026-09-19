@@ -180,6 +180,11 @@
       "import": "./dist/mall-admin-listings.js",
       "require": "./dist/mall-admin-listings.cjs"
     },
+    "./sales-product": {
+      "types": "./dist/sales-product.d.ts",
+      "import": "./dist/sales-product.js",
+      "require": "./dist/sales-product.cjs"
+    },
     "./coupang-catalog-snapshot": {
       "types": "./dist/coupang-catalog-snapshot.d.ts",
       "import": "./dist/coupang-catalog-snapshot.js",
@@ -376,6 +381,9 @@
       ],
       "mall-admin-listings": [
         "dist/mall-admin-listings.d.ts"
+      ],
+      "sales-product": [
+        "dist/sales-product.d.ts"
       ],
       "coupang-catalog-snapshot": [
         "dist/coupang-catalog-snapshot.d.ts"

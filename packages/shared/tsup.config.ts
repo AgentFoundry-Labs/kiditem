@@ -37,6 +37,7 @@ export default defineConfig({
     'src/rocket-purchase-preview.ts',
     'src/sabangnet-mall-listings.ts',
     'src/mall-admin-listings.ts',
+    'src/sales-product.ts',
     'src/coupang-catalog-snapshot.ts',
     'src/identifiers/index.ts',
     'src/agent-interaction/index.ts',

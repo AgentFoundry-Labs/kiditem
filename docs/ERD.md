@@ -28,7 +28,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 23 |
 | [Channels](erd/channels.md) | 23 |
-| [Core](erd/core.md) | 16 |
+| [Core](erd/core.md) | 20 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
 | [Orders](erd/orders.md) | 11 |
@@ -103,6 +103,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | MasterProductAbcGradeHistory | Core | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
+| SalesProduct | Core | `sales_products` | Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0013). |
+| SalesProductChannelOverride | Core | `sales_product_channel_overrides` | Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0013). |
+| SalesProductOption | Core | `sales_product_options` | One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0013). |
+| SalesProductOptionComponent | Core | `sales_product_option_components` | Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0013). |
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | Core | `users` | Human or system account. Organization membership is the source of truth. |
 | SalesPlan | Finance | `sales_plans` | - |
@@ -387,6 +391,7 @@ erDiagram
     String channelAccountId FK
     String sourceCandidateId FK
     String masterProductId FK
+    String salesProductId FK
     String externalId
     String channelName
     String displayName
@@ -478,6 +483,7 @@ erDiagram
     Json attributesJson
     Json rawJson
     String lastImportRunId FK
+    String salesProductOptionId FK
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -1534,6 +1540,91 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SalesProduct {
+    String id PK
+    String organizationId FK
+    String code
+    String ownCode
+    String sabangnetGoodsNo
+    String name
+    String shortName
+    String englishName
+    String printName
+    String modelName
+    String modelNo
+    String brand
+    String manufacturer
+    String originCountry
+    String originRegion
+    StringArray keywords
+    String standardCategory
+    String status
+    String taxType
+    String deliveryFeeType
+    Int deliveryFee
+    Int costPrice
+    Int salePrice
+    Int tagPrice
+    StringArray optionAxes
+    Boolean stockManaged
+    Boolean optionsLocked
+    StringArray imageUrls
+    String detailHtml
+    StringArray extraDetailHtml
+    String noticeCategory
+    StringArray noticeValues
+    Json certifications
+    String importDeclarationNo
+    String adminMemo
+    Json sourceRaw
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductChannelOverride {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String channelAccountId FK
+    Int salePrice
+    Int priceRateBp
+    Int costPrice
+    String name
+    String detailHtml
+    String promoText
+    String noticeCategory
+    Int stockPercent
+    Json adapterValues
+    Json sourceRaw
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOption {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String optionCode
+    StringArray values
+    String optionKey
+    String alias
+    String barcode
+    Int extraPrice
+    String supplyStatus
+    Int safetyStock
+    Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOptionComponent {
+    String id PK
+    String organizationId FK
+    String salesProductOptionId FK
+    String sellpiaInventorySkuId FK
+    Int quantity
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SellpiaInventorySku {
     String id PK
     String organizationId FK
@@ -2541,6 +2632,7 @@ erDiagram
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
   ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
+  ChannelAccount ||--o{ SalesProductChannelOverride : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelAccount ||--o{ SourcingLaunchCandidate : "targetChannelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
@@ -2689,6 +2781,10 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
   Organization ||--o{ SalesPlan : "organization"
+  Organization ||--o{ SalesProduct : "organization"
+  Organization ||--o{ SalesProductChannelOverride : "organization"
+  Organization ||--o{ SalesProductOption : "organization"
+  Organization ||--o{ SalesProductOptionComponent : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
   Organization ||--o{ SellpiaManualMatchAlias : "organization"
@@ -2754,10 +2850,16 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
+  SalesProduct o|--o{ ChannelListing : "salesProduct"
+  SalesProduct ||--o{ SalesProductChannelOverride : "salesProduct"
+  SalesProduct ||--o{ SalesProductOption : "salesProduct"
+  SalesProductOption o|--o{ ChannelListingOption : "salesProductOption"
+  SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaInventorySku ||--o{ ChannelListingOptionInventoryComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
+  SellpiaInventorySku ||--o{ SalesProductOptionComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ SellpiaManualMatchAlias : "sellpiaInventorySku"
   SellpiaInventorySku o|--o{ SellpiaProductMonthlySales : "frozenSellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"

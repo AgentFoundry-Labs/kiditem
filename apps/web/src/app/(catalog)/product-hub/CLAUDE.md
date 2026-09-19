@@ -2,12 +2,16 @@ Before working in this directory, always read this document first rather than re
 
 # product-hub — Product Operations Center
 
-This folder owns three surfaces:
+This folder owns four surfaces:
 
 - `/product-hub`: canonical product operations;
 - `/product-hub/[id]`: product metadata, channel options, recipes, and
   capacity;
-- `/product-hub/matching`: channel option recipe review.
+- `/product-hub/matching`: channel option recipe review;
+- `/product-hub/sales-products`: 판매상품 list, Sabangnet workbook import
+  (preview, then commit), and the one-screen editor with the option table,
+  per-option Sellpia link, and per-mall values (ADR-0013). Saving sends only
+  changed fields; options follow the basics save with the returned version.
 
 ## State Contract
 
