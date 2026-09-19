@@ -14,6 +14,7 @@ interface Row {
   id: string;
   code: string;
   version: number;
+  status?: string;
   imageUrls: string[];
   detailHtml: string | null;
   name: string;
@@ -30,7 +31,7 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
     listCodesWithPrefix: async (_org: string, prefix: string) => rows.map((row) => row.code).filter((code) => code.startsWith(prefix)),
     findBySourceCandidates: async (_org: string, ids: readonly string[]) => new Map(rows
       .filter((row) => row.sourceCandidateId && ids.includes(row.sourceCandidateId))
-      .map((row) => [row.sourceCandidateId!, { ...row, imageUrls: [...row.imageUrls] }])),
+      .map((row) => [row.sourceCandidateId!, { status: 'active', ...row, imageUrls: [...row.imageUrls] }])),
     create: async (_org: string, record: SalesProductCreateRecord) => {
       if (record.sourceCandidateId === options.raceOn) {
         // 다른 요청이 같은 수집상품으로 먼저 만들었다.
@@ -97,6 +98,17 @@ describe('SalesProductService.createFromCandidates', () => {
       items: [{ candidateId: CANDIDATE_A, product: product('비눗방울총') }],
     });
     expect(result.products).toEqual([{ candidateId: CANDIDATE_A, salesProductId: 'raced', code: 'K000099', created: false }]);
+  });
+
+  it('revives a sales product that was sent back to the collected products, keeping its code', async () => {
+    const { rows, service } = setup([
+      { id: 'made', code: 'K000004', version: 2, status: 'archived', imageUrls: ['https://img.example.com/a.jpg'], detailHtml: '<p>상세</p>', name: '되돌린 상품', sourceCandidateId: CANDIDATE_A },
+    ]);
+    const result = await service.createFromCandidates(ORG, {
+      items: [{ candidateId: CANDIDATE_A, product: product('되돌린 상품', ['https://img.example.com/b.jpg']) }],
+    });
+    expect(result.products).toEqual([{ candidateId: CANDIDATE_A, salesProductId: 'made', code: 'K000004', created: false }]);
+    expect(rows[0]).toMatchObject({ status: 'active', imageUrls: ['https://img.example.com/a.jpg'], version: 3 });
   });
 
   it('refuses the same collected product twice in one request', async () => {

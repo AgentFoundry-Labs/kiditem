@@ -48,6 +48,10 @@ owns physical stock quantities.
 - A collected candidate becomes at most one sales product
   (`sourceCandidateId`). Converting it again reuses that product and fills
   only empty photos or detail; operator edits are never overwritten.
+- Sending a candidate-made sales product back to 수집상품 archives it instead
+  of deleting it, so its code is never reused and converting the candidate
+  again revives it. A product linked to a live mall listing or option is not
+  sent back.
 - Photos a mall cannot read (our storage) are swapped for their
   `SalesProductPublicImage` copies only inside a sheet file. A sales product's
   own image URLs are never rewritten, and a copy is saved only with a public

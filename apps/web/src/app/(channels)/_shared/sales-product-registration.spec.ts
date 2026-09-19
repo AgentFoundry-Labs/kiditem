@@ -16,6 +16,7 @@ function product(): SalesProduct {
     code: '100300',
     ownCode: null,
     sabangnetGoodsNo: '100300',
+    sourceCandidateId: null,
     name: '애니멀 만능패드',
     shortName: '만능패드',
     englishName: null,

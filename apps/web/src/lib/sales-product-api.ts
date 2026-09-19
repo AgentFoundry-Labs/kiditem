@@ -81,6 +81,9 @@ export const salesProductApi = {
     apiClient.getParsed(`${BASE}/${id}`, SalesProductSchema),
   update: async (id: string, body: SalesProductUpdateInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.patch<unknown>(`${BASE}/${id}`, body)),
+  /** 수집상품으로 되돌리기(수집상품에서 만든 판매상품만). 지우지 않고 내려 두며, 다시 올리면 되살아난다. */
+  demoteToCandidate: async (id: string, expectedVersion: number): Promise<SalesProduct> =>
+    SalesProductSchema.parse(await apiClient.post<unknown>(`${BASE}/${id}/demote`, { expectedVersion })),
   replaceOptions: async (id: string, body: SalesProductOptionsReplaceInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.put<unknown>(`${BASE}/${id}/options`, body)),
   upsertChannelOverride: async (

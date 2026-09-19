@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Save } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Save, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SALES_PRODUCT_DELIVERY_FEE_TYPES,
@@ -13,6 +14,7 @@ import {
 } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
@@ -33,6 +35,7 @@ import {
   SALES_PRODUCT_STATUS_TONE,
   TAX_TYPE_LABEL,
 } from '../lib/sales-product-labels';
+import { salesProductDemoteState } from '../lib/sales-product-demote';
 
 const SECTIONS = [
   { id: 'basics', label: '기본 정보' },
@@ -122,6 +125,28 @@ function Editor({ product }: { product: SalesProduct }) {
   const set = <K extends keyof BasicsDraft>(key: K, value: BasicsDraft[K]) =>
     setBasics((current) => ({ ...current, [key]: value }));
 
+  // 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품만. 지우지 않고 내려 두어, 다시 올리면 같은 코드로 되살아난다.
+  const router = useRouter();
+  const showConfirm = useStore((store) => store.showConfirm);
+  const demoteState = salesProductDemoteState(product);
+  const demote = useMutation({
+    mutationFn: () => salesProductApi.demoteToCandidate(product.id, product.version),
+    onSuccess: (next) => {
+      queryClient.setQueryData(salesProductKeys.detail(product.id), next);
+      void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
+      toast.success(`${product.code}을(를) 수집상품으로 되돌렸습니다.`);
+      router.push('/product-hub/sales-products');
+    },
+    onError: (error) => toast.error(isApiError(error) ? error.detail : '수집상품으로 되돌리지 못했습니다.'),
+  });
+  const askDemote = () => showConfirm({
+    title: '수집상품으로 되돌릴까요?',
+    message: `${product.code} ${product.name}이(가) 판매상품 목록과 몰 대량등록에서 빠집니다. 지우지는 않아서 코드와 몰별 값이 남고, `
+      + '수집상품 화면에서 다시 [몰 대량등록]을 누르면 그대로 되살아납니다.',
+    confirmText: '되돌리기',
+    onConfirm: () => demote.mutate(),
+  });
+
   return (
     <div className="space-y-5 pb-24">
       <BackLink />
@@ -131,12 +156,32 @@ function Editor({ product }: { product: SalesProduct }) {
             <span className="font-mono">판매상품코드 {product.code}</span>
             {product.sabangnetGoodsNo && <span>· 사방넷 품번 {product.sabangnetGoodsNo}</span>}
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
-              {SALES_PRODUCT_STATUS_LABEL[product.status]}
+              {demoteState.kind === 'demoted' ? '수집상품으로 되돌림' : SALES_PRODUCT_STATUS_LABEL[product.status]}
             </span>
+            {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
           </div>
           <h1 className="page-title mt-1 truncate" title={product.name}>{product.name}</h1>
         </div>
+        {(demoteState.kind === 'ready' || demoteState.kind === 'blocked') && (
+          <button
+            type="button"
+            className="btn-secondary inline-flex shrink-0 items-center gap-1.5 disabled:opacity-50"
+            disabled={demoteState.kind === 'blocked' || dirty || demote.isPending}
+            title={demoteState.kind === 'blocked' ? demoteState.reason : dirty ? '고친 내용을 저장한 뒤 되돌리세요.' : undefined}
+            onClick={askDemote}
+          >
+            <Undo2 size={16} aria-hidden />
+            {demote.isPending ? '되돌리는 중…' : '수집상품으로 되돌리기'}
+          </button>
+        )}
       </header>
+
+      {demoteState.kind === 'demoted' && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          수집상품으로 되돌린 판매상품입니다 — 판매상품 목록과 몰 대량등록에서 빠져 있습니다. 수집상품 화면에서 이 상품을 골라
+          [몰 대량등록]을 누르면 같은 코드({product.code})와 몰별 값 그대로 다시 올라옵니다.
+        </p>
+      )}
 
       <nav aria-label="편집 칸" className="sticky top-0 z-10 -mx-1 flex flex-wrap gap-1 bg-slate-50/90 px-1 py-2 backdrop-blur">
         {SECTIONS.map((section) => (

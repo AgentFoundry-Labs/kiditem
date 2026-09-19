@@ -76,9 +76,9 @@ listing/content-workspace identifiers.
 [몰 대량등록] turns each selected candidate's neutral mall draft into a sales
 product through the Products-owned
 `POST /api/products/sales-products/from-candidates` (the same candidate reuses
-its sales product), skipping candidates without a sale price, then opens the
-shared mall bulk-sheet dialog for those sales products. It never changes
-candidate status or creates a preparation.
+its sales product and revives one sent back to 수집상품), skipping candidates
+without a sale price, then opens the shared mall bulk-sheet dialog for those
+sales products. It never changes candidate status or creates a preparation.
 
 ## Boundary Rules
 

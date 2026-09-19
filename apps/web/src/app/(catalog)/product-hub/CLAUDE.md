@@ -13,7 +13,9 @@ This folder owns four surfaces:
   per-option Sellpia link, and per-mall values (ADR-0014). Saving sends only
   changed fields; options follow the basics save with the returned version.
   The shared mall bulk-sheet dialog (`src/components/mall-sheet/`) downloads
-  filled mall templates; the operator uploads them to the mall.
+  filled mall templates; the operator uploads them to the mall. The editor
+  sends a sales product made from a collected product back to 수집상품
+  (archived, revived by promoting it again).
 
 ## State Contract
 

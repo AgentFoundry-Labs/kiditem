@@ -211,6 +211,16 @@ export class SalesProductController {
     return this.salesProducts.get(organizationId, salesProductId);
   }
 
+  /** 수집상품에서 만든 판매상품을 수집상품으로 되돌린다(지우지 않고 `archived`, 다시 올리면 되살아난다). */
+  @Post(':salesProductId/demote')
+  demoteToCandidate(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @Body() body: unknown,
+  ) {
+    return this.salesProducts.demoteToCandidate(organizationId, salesProductId, body);
+  }
+
   @Patch(':salesProductId')
   update(
     @CurrentOrganization() organizationId: string,

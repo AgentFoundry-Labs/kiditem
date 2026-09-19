@@ -60,6 +60,16 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   sourceCandidateId?: string | null;
 }
 
+/** 수집상품에서 만든 판매상품 — 다시 올릴 때 새로 만들지 않고 쓰는 데 필요한 것만. */
+export interface SalesProductFromCandidateRecord {
+  id: string;
+  code: string;
+  version: number;
+  status: SalesProductStatus;
+  imageUrls: string[];
+  detailHtml: string | null;
+}
+
 export interface SalesProductOptionState {
   productCode: string;
   version: number;
@@ -215,11 +225,11 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만). */
+  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만, 수집상품으로 되돌린 것 포함). */
   findBySourceCandidates(
     organizationId: string,
     candidateIds: readonly string[],
-  ): Promise<Map<string, { id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null }>>;
+  ): Promise<Map<string, SalesProductFromCandidateRecord>>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */

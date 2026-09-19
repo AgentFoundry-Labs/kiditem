@@ -208,6 +208,15 @@ export const SalesProductUpdateInputSchema = SalesProductBasicsInputSchema.parti
 }).strict();
 export type SalesProductUpdateInput = z.input<typeof SalesProductUpdateInputSchema>;
 
+/**
+ * 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품을 `archived` 로 내린다(코드 · 몰별 값은 남긴다). 같은 수집상품을
+ * 다시 판매상품으로 올리면 이 판매상품이 되살아난다.
+ */
+export const SalesProductDemoteRequestSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+}).strict();
+export type SalesProductDemoteRequest = z.input<typeof SalesProductDemoteRequestSchema>;
+
 /** 옵션 전체 교체. 연결된 단품은 지우지 않고 `unused` 로 남긴다. */
 export const SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
   expectedVersion: z.number().int().min(1),
@@ -298,6 +307,8 @@ export const SalesProductSchema = z.object({
   code: z.string(),
   ownCode: z.string().nullable(),
   sabangnetGoodsNo: z.string().nullable(),
+  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. 이 판매상품만 수집상품으로 되돌릴 수 있다. */
+  sourceCandidateId: z.string().uuid().nullable(),
   name: z.string(),
   shortName: z.string().nullable(),
   englishName: z.string().nullable(),

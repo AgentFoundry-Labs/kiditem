@@ -8,6 +8,7 @@ import {
 import {
   SalesProductChannelOverrideInputSchema,
   SalesProductCreateInputSchema,
+  SalesProductDemoteRequestSchema,
   SalesProductFromCandidatesRequestSchema,
   SalesProductListQuerySchema,
   SalesProductOptionsReplaceInputSchema,
@@ -93,8 +94,13 @@ export class SalesProductService {
         const patch: Partial<SalesProductBasicsRecord> = {};
         if (found.imageUrls.length === 0 && item.product.imageUrls.length > 0) patch.imageUrls = item.product.imageUrls;
         if (!found.detailHtml?.trim() && item.product.detailHtml?.trim()) patch.detailHtml = item.product.detailHtml;
-        // 그사이 사람이 고쳤으면(버전이 다르면) 채우지 않는다.
-        if (Object.keys(patch).length > 0) await this.repository.updateBasics(organizationId, found.id, found.version, patch);
+        // 수집상품으로 되돌렸던 판매상품은 다시 올리면 같은 코드 · 몰별 값 그대로 되살아난다.
+        if (found.status === 'archived') patch.status = 'active';
+        const updated = Object.keys(patch).length > 0
+          ? await this.repository.updateBasics(organizationId, found.id, found.version, patch)
+          : true;
+        // 그사이 사람이 고쳤으면(버전이 다르면) 채우지 않는다. 되살려야 하는데 못 했으면 다시 누르게 한다.
+        if (!updated && patch.status) throw new ConflictException(VERSION_CONFLICT);
         products.push({ candidateId: item.candidateId, salesProductId: found.id, code: found.code, created: false });
         continue;
       }
@@ -126,6 +132,27 @@ export class SalesProductService {
       created: products.filter((product) => product.created).length,
       reused: products.filter((product) => !product.created).length,
     };
+  }
+
+  /**
+   * 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품만, 몰에 올라간 상품과 이어져 있지 않을 때 `archived` 로 내린다.
+   * 지우지 않는다: 코드 · 몰별 값이 남아 같은 수집상품을 다시 올리면 그대로 되살아나고, 코드가 다른 상품에 다시 쓰이지 않는다.
+   */
+  async demoteToCandidate(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {
+    const input = parseOrBadRequest(SalesProductDemoteRequestSchema, body, '버전이 필요합니다.');
+    const product = await this.get(organizationId, salesProductId);
+    if (!product.sourceCandidateId) {
+      throw new BadRequestException('수집상품에서 만든 판매상품만 수집상품으로 되돌릴 수 있습니다.');
+    }
+    const linkedListings = product.channelListings.filter((listing) => listing.isActive).length;
+    const linkedOptions = product.options.reduce((sum, option) => sum + option.linkedChannelOptionCount, 0);
+    if (linkedListings > 0 || linkedOptions > 0) {
+      throw new ConflictException('몰에 올라간 상품과 이어져 있어 되돌릴 수 없습니다. 몰에서 내리고 연결을 끊은 뒤 되돌리세요.');
+    }
+    if (product.status === 'archived') return product;
+    const updated = await this.repository.updateBasics(organizationId, salesProductId, input.expectedVersion, { status: 'archived' });
+    if (!updated) throw new ConflictException(VERSION_CONFLICT);
+    return this.get(organizationId, salesProductId);
   }
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {

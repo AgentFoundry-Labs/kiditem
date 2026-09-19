@@ -37,6 +37,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
+  SalesProductFromCandidateRecord,
   SalesProductImportResult,
   SalesProductOptionState,
   SalesProductRepositoryPort,
@@ -874,16 +875,17 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async findBySourceCandidates(
     organizationId: string,
     candidateIds: readonly string[],
-  ): Promise<Map<string, { id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null }>> {
+  ): Promise<Map<string, SalesProductFromCandidateRecord>> {
     if (candidateIds.length === 0) return new Map();
     const rows = await this.prisma.salesProduct.findMany({
       where: { organizationId, sourceCandidateId: { in: [...candidateIds] } },
-      select: { id: true, code: true, version: true, imageUrls: true, detailHtml: true, sourceCandidateId: true },
+      select: { id: true, code: true, version: true, status: true, imageUrls: true, detailHtml: true, sourceCandidateId: true },
     });
     return new Map(rows.map((row) => [row.sourceCandidateId!, {
       id: row.id,
       code: row.code,
       version: row.version,
+      status: row.status as SalesProductStatus,
       imageUrls: row.imageUrls,
       detailHtml: row.detailHtml,
     }]));
@@ -1192,6 +1194,7 @@ function toSalesProduct(
     code: row.code,
     ownCode: row.ownCode,
     sabangnetGoodsNo: row.sabangnetGoodsNo,
+    sourceCandidateId: row.sourceCandidateId,
     name: row.name,
     shortName: row.shortName,
     englishName: row.englishName,
