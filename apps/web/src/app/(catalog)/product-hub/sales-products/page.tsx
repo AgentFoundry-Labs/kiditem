@@ -37,7 +37,7 @@ export default function SalesProductsPage() {
 }
 
 /**
- * 판매상품 목록(ADR-0013) — 사방넷 상품조회처럼 한 곳에서 찾고, 누르면 한 번에 편집한다.
+ * 판매상품 목록(ADR-0014) — 사방넷 상품조회처럼 한 곳에서 찾고, 누르면 한 번에 편집한다.
  * 조건 · 쪽은 주소가 기준이다.
  */
 function SalesProductsContent() {

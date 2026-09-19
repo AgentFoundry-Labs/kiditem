@@ -46,7 +46,7 @@ const SECTIONS = [
 ] as const;
 
 /**
- * 판매상품 편집(ADR-0013) — 사방넷 상품조회수정처럼 한 화면에서 기본 · 가격 · 옵션 · 이미지 · 상세 · 고시 ·
+ * 판매상품 편집(ADR-0014) — 사방넷 상품조회수정처럼 한 화면에서 기본 · 가격 · 옵션 · 이미지 · 상세 · 고시 ·
  * 몰별 값을 고친다. '저장'은 바뀐 칸만 보내고, 옵션은 기본 칸을 저장한 다음 버전으로 이어 보낸다.
  */
 export default function SalesProductEditorPage({ params }: { params: Promise<{ salesProductId: string }> }) {

@@ -23,10 +23,10 @@
 | MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
-| SalesProduct | `sales_products` | Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0013). |
-| SalesProductChannelOverride | `sales_product_channel_overrides` | Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0013). |
-| SalesProductOption | `sales_product_options` | One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0013). |
-| SalesProductOptionComponent | `sales_product_option_components` | Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0013). |
+| SalesProduct | `sales_products` | Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0014). |
+| SalesProductChannelOverride | `sales_product_channel_overrides` | Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0014). |
+| SalesProductOption | `sales_product_options` | One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0014). |
+| SalesProductOptionComponent | `sales_product_option_components` | Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0014). |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | `users` | Human or system account. Organization membership is the source of truth. |
 

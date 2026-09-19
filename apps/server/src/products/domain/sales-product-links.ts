@@ -1,7 +1,7 @@
 import type { SalesProductLinkResult, SalesProductLinkSource } from '@kiditem/shared/sales-product';
 
 /**
- * 몰에 올라간 상품(채널 리스팅) ↔ 판매상품 잇기 계획(ADR-0013) — 순수 함수.
+ * 몰에 올라간 상품(채널 리스팅) ↔ 판매상품 잇기 계획(ADR-0014) — 순수 함수.
  *
  * 코드가 정확히 같을 때만 잇는다(이름으로 잇지 않는다). 근거가 둘 이상이면 모두 같은 판매상품을 가리켜야 하고,
  * 이미 다른 판매상품에 이어진 몰 상품은 건드리지 않는다. 옵션은 몰 상품 · 판매상품 모두 옵션이 하나일 때만

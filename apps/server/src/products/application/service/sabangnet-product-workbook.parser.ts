@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import type { SabangnetImportIssue, SabangnetWorkbookKind } from '@kiditem/shared/sales-product';
 
 /**
- * 사방넷에서 내려받은 상품 엑셀을 읽는다(ADR-0013, KID-264).
+ * 사방넷에서 내려받은 상품 엑셀을 읽는다(ADR-0014, KID-264).
  *
  * - `products`: 사방넷상품대량수정 수정파일 · 사방넷상품대량등록 샘플 양식(품번코드가 없으면 자체상품코드가 키).
  * - `options`: 사방넷단품대량수정 수정파일(단품코드 · 옵션상세명칭 · 추가금액 · 공급상태).

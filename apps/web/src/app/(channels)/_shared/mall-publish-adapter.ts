@@ -79,7 +79,7 @@ export interface MallPublishItem {
   name: string;
   salePrice: number | null;
   thumbnailUrl: string | null;
-  /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0013 이전과 같다). */
+  /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0014 이전과 같다). */
   source?: 'candidate' | 'sales_product';
   /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
   optionCount?: number;
@@ -141,7 +141,7 @@ export interface MallPublishAdapter {
    * 옵션 한 줄로 줄여 보내면 몰에서 다른 옵션을 살 길이 없다.
    */
   supportsOptions?: boolean;
-  /** 판매상품(ADR-0013)에서 보낼 수 있는가. 쿠팡 윙 엑셀은 아직 수집상품만 받는다. */
+  /** 판매상품(ADR-0014)에서 보낼 수 있는가. 쿠팡 윙 엑셀은 아직 수집상품만 받는다. */
   acceptsSalesProducts?: boolean;
   /** 이 몰이 요구하는 값. 화면이 이 선언으로 입력칸을 그린다. */
   fields: readonly MallFieldSpec[];

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
 /**
- * 판매상품(사방넷 품번)과 단품(옵션) 계약 — ADR-0013.
+ * 판매상품(사방넷 품번)과 단품(옵션) 계약 — ADR-0014.
  *
  * 몰에 보낼 상품을 한 번 편집하고 여러 몰로 보낸다. 판매상품은 등록용 정의일 뿐 재고 · ABC 정체성이
  * 아니고, 단품의 셀피아 구성은 선언이다(연결한 채널 옵션의 빈 레시피를 채울 때만 복사된다).
@@ -379,7 +379,7 @@ export const SalesProductListResponseSchema = z.object({
 });
 export type SalesProductListResponse = z.infer<typeof SalesProductListResponseSchema>;
 
-// ── 몰 상품 ↔ 판매상품 잇기(ADR-0013) ─────────────────────────────────
+// ── 몰 상품 ↔ 판매상품 잇기(ADR-0014) ─────────────────────────────────
 
 /**
  * 잇는 근거 — 모두 코드가 정확히 같은 경우만이다(이름으로 잇지 않는다).

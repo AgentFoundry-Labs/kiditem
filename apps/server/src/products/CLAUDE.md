@@ -36,7 +36,7 @@ owns physical stock quantities.
 - Do not recreate `ProductVariant`, `ProductVariantComponent`, an operating
   option table, a master-level inventory recipe, or a second stock balance.
 - `SalesProduct` / `SalesProductOption` (판매상품 · 단품) are the registration
-  definition sent to malls ([ADR-0013](../../../../docs/adr/0013-sales-products-are-a-products-owned-registration-definition.md)).
+  definition sent to malls ([ADR-0014](../../../../docs/adr/0014-sales-products-are-a-products-owned-registration-definition.md)).
   An option's Sellpia composition is declared intent: it never feeds capacity
   and is copied only into an empty channel option recipe when that option is
   linked. Only `SalesProductService` and the Sabangnet import write them.

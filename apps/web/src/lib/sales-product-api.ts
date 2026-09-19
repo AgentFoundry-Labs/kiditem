@@ -28,7 +28,7 @@ import { apiClient } from '@/lib/api-client';
 const BASE = '/api/products/sales-products';
 
 /**
- * 판매상품(ADR-0013) 조회 키. 전역 `queryKeys` 가 다른 작업에서 고쳐지는 중이라 이 화면 안에 둔다 —
+ * 판매상품(ADR-0014) 조회 키. 전역 `queryKeys` 가 다른 작업에서 고쳐지는 중이라 이 화면 안에 둔다 —
  * 판매상품을 읽는 곳이 둘이 되면 전역 키로 옮긴다.
  */
 export const salesProductKeys = {

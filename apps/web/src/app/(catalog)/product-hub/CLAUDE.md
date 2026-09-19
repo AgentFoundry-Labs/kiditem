@@ -10,7 +10,7 @@ This folder owns four surfaces:
 - `/product-hub/matching`: channel option recipe review;
 - `/product-hub/sales-products`: 판매상품 list, Sabangnet workbook import
   (preview, then commit), and the one-screen editor with the option table,
-  per-option Sellpia link, and per-mall values (ADR-0013). Saving sends only
+  per-option Sellpia link, and per-mall values (ADR-0014). Saving sends only
   changed fields; options follow the basics save with the returned version.
 
 ## State Contract

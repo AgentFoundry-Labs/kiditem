@@ -32,7 +32,7 @@ const MAX_WORKBOOK_SIZE = 30 * 1024 * 1024;
 const WORKBOOK_EXTENSIONS = /\.(xlsx|xls)$/i;
 
 /**
- * 판매상품 · 단품(ADR-0013). 조직은 세션에서만 온다. 사방넷 엑셀 가져오기는 `dryRun=true` 로 먼저
+ * 판매상품 · 단품(ADR-0014). 조직은 세션에서만 온다. 사방넷 엑셀 가져오기는 `dryRun=true` 로 먼저
  * 무엇이 바뀔지 보고, 같은 파일로 다시 불러 확정한다.
  */
 @Controller('products/sales-products')

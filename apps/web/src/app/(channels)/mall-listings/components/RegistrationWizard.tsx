@@ -68,7 +68,7 @@ export function RegistrationWizard() {
 
   const run = useMallPublishRun();
 
-  // 판매상품(ADR-0013)이 기본이다 — 한 번 편집한 상품을 몰로 보낸다. 수집상품에서 바로 보내는 길은 남겨 둔다.
+  // 판매상품(ADR-0014)이 기본이다 — 한 번 편집한 상품을 몰로 보낸다. 수집상품에서 바로 보내는 길은 남겨 둔다.
   const [source, setSource] = useState<ProductSource>('sales_product');
   const [search, setSearch] = useState('');
 

@@ -22,7 +22,7 @@ channel option. `SellpiaInventorySku` is the physical stock authority. There is
 no intermediate ProductVariant or second recipe layer. Multiple channel
 products/options may consume one MasterProduct. A listing-level MasterProduct
 is merely an automatic single-product summary. A sales product option's Sellpia
-composition (ADR-0013) is a declaration only: matching may copy it into an
+composition (ADR-0014) is a declaration only: matching may copy it into an
 empty channel option recipe, and capacity never reads it.
 
 Inventory freshness and publication are owned by

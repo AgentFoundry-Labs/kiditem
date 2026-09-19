@@ -10,7 +10,7 @@ import { prepareMallRegistration } from '../../(product-pipeline)/product-pipeli
 import type { MallPublishItem } from './mall-publish-adapter';
 
 /**
- * 판매상품(ADR-0013) → 몰 중립 등록 초안.
+ * 판매상품(ADR-0014) → 몰 중립 등록 초안.
  *
  * 판매상품은 한 번 편집한 값이고, 몰마다 다른 것(판매가 · 상품명 · 상세)은 그 몰 계정의 몰별 값이
  * 이긴다. 옵션은 미사용이 아닌 단품마다 한 줄 — 품절 단품은 재고 0 으로 보낸다.

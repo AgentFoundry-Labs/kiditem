@@ -32,7 +32,7 @@ export const SALES_PRODUCT_CODE_PREFIX = 'K';
 const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장하세요.';
 
 /**
- * 판매상품 · 단품의 유일한 쓰기 길(ADR-0013). 검증은 공유 Zod 계약으로 끝내고, 셀피아 SKU 는 이 조직의
+ * 판매상품 · 단품의 유일한 쓰기 길(ADR-0014). 검증은 공유 Zod 계약으로 끝내고, 셀피아 SKU 는 이 조직의
  * 활성 SKU 인지 확인한 뒤에만 단품 구성으로 받는다. 구성은 선언일 뿐 채널 레시피를 건드리지 않는다.
  */
 @Injectable()

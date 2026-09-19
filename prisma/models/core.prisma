@@ -663,7 +663,7 @@ model ChannelListing {
   channelAccountId  String  @map("channel_account_id") @db.Uuid
   sourceCandidateId String? @map("source_candidate_id") @db.Uuid
   masterProductId   String? @map("master_product_id") @db.Uuid
-  /// 이 몰 상품이 어느 판매상품인가(ADR-0013). Products 링크 포트만 쓴다.
+  /// 이 몰 상품이 어느 판매상품인가(ADR-0014). Products 링크 포트만 쓴다.
   salesProductId    String? @map("sales_product_id") @db.Uuid
 
   externalId String @map("external_id")
@@ -751,7 +751,7 @@ model ChannelListingOption {
   attributesJson       Json?   @map("attributes_json")
   rawJson              Json?   @map("raw_json")
   lastImportRunId      String? @map("last_import_run_id") @db.Uuid
-  /// 이 몰 옵션이 어느 단품인가(ADR-0013). Products 링크 포트만 쓴다.
+  /// 이 몰 옵션이 어느 단품인가(ADR-0014). Products 링크 포트만 쓴다.
   salesProductOptionId String? @map("sales_product_option_id") @db.Uuid
 
   isActive Boolean @default(true) @map("is_active")
@@ -806,7 +806,7 @@ model ChannelListingOptionInventoryComponent {
 }
 
 /// @namespace Core
-/// @describe Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0013).
+/// @describe Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0014).
 model SalesProduct {
   id                  String   @id @default(uuid()) @db.Uuid
   organizationId      String   @map("organization_id") @db.Uuid
@@ -874,7 +874,7 @@ model SalesProduct {
 }
 
 /// @namespace Core
-/// @describe One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0013).
+/// @describe One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0014).
 model SalesProductOption {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
@@ -910,7 +910,7 @@ model SalesProductOption {
 }
 
 /// @namespace Core
-/// @describe Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0013).
+/// @describe Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0014).
 model SalesProductOptionComponent {
   id                    String   @id @default(uuid()) @db.Uuid
   organizationId        String   @map("organization_id") @db.Uuid
@@ -931,7 +931,7 @@ model SalesProductOptionComponent {
 }
 
 /// @namespace Core
-/// @describe Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0013).
+/// @describe Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0014).
 model SalesProductChannelOverride {
   id               String  @id @default(uuid()) @db.Uuid
   organizationId   String  @map("organization_id") @db.Uuid

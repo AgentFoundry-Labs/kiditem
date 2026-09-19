@@ -145,7 +145,7 @@ beforeEach(() => {
   readMallAvailabilityManyMock.mockReturnValue(new Promise(() => {}));
 });
 
-describe('판매상품에서 등록 (ADR-0013)', () => {
+describe('판매상품에서 등록 (ADR-0014)', () => {
   it('판매상품이 기본 출처이고, 옵션 상품은 옵션 채우기가 없는 몰에서 막힌다', () => {
     render(<MallListingsPage />);
     goToWizard('sales_product');
