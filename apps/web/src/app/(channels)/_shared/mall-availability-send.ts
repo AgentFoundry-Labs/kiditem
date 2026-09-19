@@ -3,6 +3,7 @@ import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { mallStopBadge, type MallStopKind } from './mall-presentation';
 
 /**
  * 몰 품절 송신 호출.
@@ -165,10 +166,10 @@ export async function readMallAvailabilityMany(
 
 export interface MallLiveSummary {
   /**
-   * 칸 색. 품절 처리로 생기는 것(품절 · 판매중지)은 sold_out, 몰이 막은 것(판매불가 · 판매금지)은 blocked, 아직 판매 전인
-   * 것(미승인 · 판매대기)은 pending, 끝났거나 숨긴 것(판매종료 · 숨김)은 ended.
+   * 칸 색(`MALL_STOP_TONE`). 품절 처리로 생기는 것(품절 · 판매중지)은 sold_out, 몰이 막은 것(판매불가 · 판매금지)은 blocked,
+   * 아직 판매 전인 것(미승인 · 판매대기)은 pending, 끝났거나 숨긴 것(판매종료 · 숨김)은 ended.
    */
-  tone: 'sold_out' | 'partial' | 'blocked' | 'pending' | 'ended' | 'on_sale' | 'rocket';
+  tone: MallStopKind | 'on_sale' | 'rocket';
   /** 칸 창의 한 줄("지금 …"). */
   label: string;
   /** 칸 알약에 쓰는 짧은 말. 판매 가능 · 로켓그로스는 칸이 알약을 바꾸지 않아 없다. */
@@ -201,22 +202,17 @@ export function mallSoldOutNote(mallKey: string): string | null {
 }
 
 /**
- * 몰이 준 "지금 못 사는" 상태 글자를 칸의 말로 나눈다 — 칸이 뭐든 '품절' 로 적으면 옥션이 막은 판매불가도 우리가 품절
- * 처리한 것처럼 보인다(사장님 2026-09-19 "품절이 아니라 미승인이나 판매불가로 해줘야지").
+ * 몰이 준 "지금 못 사는" 상태 글자를 칸의 말로 — 칸이 뭐든 '품절' 로 적으면 옥션이 막은 판매불가도 우리가 품절 처리한
+ * 것처럼 보인다(사장님 2026-09-19). 갈래와 말은 가져온 상태와 같은 표(`mallStopBadge`)를 쓴다.
  */
-const BLOCKED_WORDS: ReadonlySet<string> = new Set(['판매불가', '판매금지']);
-const UNAPPROVED_WORDS: ReadonlySet<string> = new Set(['등록대기', '승인대기']);
-const NOT_YET_WORDS: ReadonlySet<string> = new Set(['판매대기', '전시전']);
-const ENDED_WORDS: ReadonlySet<string> = new Set(['판매종료', '숨김']);
-
 function statedSummary(word: string): MallLiveSummary {
-  // 판매 재개는 우리가 멈춘 상태만 푼다 — 몰이 막은 것은 몰에서 사유를 풀어야 한다.
-  if (BLOCKED_WORDS.has(word)) return { tone: 'blocked', label: `${word} — 몰이 막은 상태라 판매 재개로 풀리지 않습니다`, badge: word };
-  if (UNAPPROVED_WORDS.has(word)) return { tone: 'pending', label: `미승인 · ${word}`, badge: '미승인' };
-  if (NOT_YET_WORDS.has(word)) return { tone: 'pending', label: word, badge: word };
-  if (ENDED_WORDS.has(word)) return { tone: 'ended', label: word, badge: word };
-  // 품절 · SKU품절 · 판매중지 — 품절 처리가 만드는 상태다.
-  return { tone: 'sold_out', label: word, badge: word };
+  const stop = mallStopBadge(word);
+  // 모르는 말은 못 사는 것으로 두되 몰의 말 그대로 적는다.
+  if (!stop) return { tone: 'sold_out', label: word, badge: word };
+  // 판매 재개는 우리가 멈춘 상태만 푼다 — 몰이 막은 것은 몰에서 까닭을 풀어야 한다.
+  if (stop.kind === 'blocked') return { tone: 'blocked', label: `${word} — 몰이 막은 상태라 판매 재개로 풀리지 않습니다`, badge: stop.label };
+  if (stop.label !== word) return { tone: stop.kind, label: `${stop.label} · ${word}`, badge: stop.label };
+  return { tone: stop.kind, label: word, badge: stop.label };
 }
 
 /** 받침에 맞춘 목적격 조사(을 · 를). */

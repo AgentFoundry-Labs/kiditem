@@ -129,9 +129,9 @@ export function mallHazardBadges(manifest: MallAdapterManifestView): MallHazardB
 /**
  * 매트릭스 칸 하나의 표시.
  *
- * 색은 사람이 무엇을 해야 하는지로 정한다 — 초록은 손댈 것 없음, 빨강은 지금
- * 고쳐야 함, 호박색은 확인이 필요함, 회색은 아직 시작하지 않음. 상태 이름이
- * 아니라 대응이 기준이다.
+ * 색은 사람이 무엇을 해야 하는지로 정한다 — 초록은 손댈 것 없음, 빨강은 못 파는 것(품절 · 판매중지)과
+ * 고쳐야 할 오류, 주황은 확인이 필요함, 하늘은 승인 · 판매 시작을 기다림, 회색은 끝났거나 아직 시작하지
+ * 않음. 가져온 원문이 아는 말이면 이 표 대신 `listingStatePill` 이 그 말로 적는다.
  */
 export interface MallListingStatePresentation {
   label: string;
@@ -155,8 +155,8 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
   },
   reviewing: {
     label: '검수중',
-    tone: 'bg-amber-50 text-amber-700',
-    dot: 'bg-amber-500',
+    tone: 'bg-sky-50 text-sky-700',
+    dot: 'bg-sky-500',
     attention: false,
   },
   preparing: {
@@ -173,8 +173,8 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
   },
   paused: {
     label: '판매중지',
-    tone: 'bg-slate-100 text-slate-600',
-    dot: 'bg-slate-400',
+    tone: 'bg-rose-50 text-rose-700',
+    dot: 'bg-rose-500',
     attention: false,
   },
   discontinued: {
@@ -196,6 +196,72 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
     attention: false,
   },
 };
+
+/**
+ * 칸이 "지금 못 사는" 까닭의 갈래. 사방넷 · 몰 관리자에서 가져온 상태와 확장이 몰에서 지금 읽은 상태가 같은 말 · 같은 색을
+ * 쓴다 — 같은 판매중지가 여기선 빨강, 저기선 회색이면 안 되고, 옥션이 막은 판매불가를 품절로 적어서도 안 된다(사장님
+ * 2026-09-19 "품절이 아니라 미승인이나 판매불가로 해줘야지" · "색상 같은데?").
+ */
+export type MallStopKind = 'sold_out' | 'partial' | 'blocked' | 'pending' | 'ended';
+
+export const MALL_STOP_TONE: Record<MallStopKind, string> = {
+  // 품절 처리가 만드는 것(품절 · 판매중지)은 빨강이다(사장님 2026-09-18 "품절은 빨간색으로").
+  sold_out: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
+  partial: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200',
+  // 몰이 막은 것 — 판매 재개로 풀리지 않고 몰에서 까닭을 봐야 한다.
+  blocked: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200',
+  pending: 'bg-sky-50 text-sky-700 ring-1 ring-sky-200',
+  ended: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+};
+
+export interface MallStopBadge {
+  kind: MallStopKind;
+  /** 칸 알약의 말. 승인 전 상태는 사장님 말로 '미승인', 사방넷 일시중지는 몰이 받는 말 그대로 '판매중지'. */
+  label: string;
+}
+
+const STOP_WORDS: Readonly<Record<string, MallStopBadge>> = {
+  품절: { kind: 'sold_out', label: '품절' },
+  SKU품절: { kind: 'sold_out', label: 'SKU품절' },
+  완전품절: { kind: 'sold_out', label: '완전품절' },
+  판매중지: { kind: 'sold_out', label: '판매중지' },
+  일시중지: { kind: 'sold_out', label: '판매중지' },
+  비활성: { kind: 'sold_out', label: '판매중지' },
+  판매불가: { kind: 'blocked', label: '판매불가' },
+  판매금지: { kind: 'blocked', label: '판매금지' },
+  보류: { kind: 'blocked', label: '보류' },
+  반려: { kind: 'blocked', label: '반려' },
+  승인반려: { kind: 'blocked', label: '승인반려' },
+  등록대기: { kind: 'pending', label: '미승인' },
+  승인대기: { kind: 'pending', label: '미승인' },
+  대기중: { kind: 'pending', label: '미승인' },
+  판매대기: { kind: 'pending', label: '판매대기' },
+  전시전: { kind: 'pending', label: '전시전' },
+  판매종료: { kind: 'ended', label: '판매종료' },
+  단종: { kind: 'ended', label: '단종' },
+  숨김: { kind: 'ended', label: '숨김' },
+  미노출: { kind: 'ended', label: '미노출' },
+};
+
+/** 몰 · 사방넷이 준 상태 글자 하나의 갈래. 아는 말이 아니면 null(`사방넷 ` 머리는 떼고 본다). */
+export function mallStopBadge(word: string | null | undefined): MallStopBadge | null {
+  const key = String(word ?? '').replace(/^사방넷\s+/, '').trim();
+  return Object.prototype.hasOwnProperty.call(STOP_WORDS, key) ? STOP_WORDS[key] : null;
+}
+
+/**
+ * 가져온 상태의 칸 알약. 판매중 · 미등록이 아닌데 원문이 아는 말이면 그 말과 그 갈래 색으로(몰 관리자 품절이 '판매중지',
+ * 판매종료가 '단종' 으로 접히지 않게), 아니면 우리 어휘 표로 적는다.
+ */
+export function listingStatePill(
+  state: MallListingState,
+  rawStatus: string | null | undefined,
+): { label: string; tone: string; kind: MallStopKind | null } {
+  const stop = state === 'published' || state === 'unregistered' ? null : mallStopBadge(rawStatus);
+  if (stop) return { label: stop.label, tone: MALL_STOP_TONE[stop.kind], kind: stop.kind };
+  const presentation = MALL_LISTING_STATE_PRESENTATION[state];
+  return { label: presentation.label, tone: presentation.tone, kind: null };
+}
 
 /**
  * 몰 표시색.

@@ -19,7 +19,7 @@ import type { MallListingMatrixColumn, MallListingState } from '@kiditem/shared/
 import { cn } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
-import { MALL_LISTING_STATE_PRESENTATION } from '../../_shared/mall-presentation';
+import { listingStatePill } from '../../_shared/mall-presentation';
 import {
   availabilityOutcome,
   mallReadLagsAfterSend,
@@ -271,7 +271,8 @@ export function CellActionPopover({
 
   const cellStyle = useAnchoredStyle(anchor, 256);
   const specs = mallActionSpecs(column);
-  const presentation = MALL_LISTING_STATE_PRESENTATION[state];
+  // 표 칸과 같은 말 · 같은 색(가져온 원문이 아는 말이면 그 말로).
+  const presentation = listingStatePill(state, rawStatus);
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
 

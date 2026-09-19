@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  listingStatePill,
   mallAccentClass,
   mallMonogram,
+  mallStopBadge,
   productMonogram,
   MALL_LISTING_STATE_PRESENTATION,
+  MALL_STOP_TONE,
 } from './mall-presentation';
 
 describe('mallAccentClass', () => {
@@ -64,5 +67,39 @@ describe('productMonogram', () => {
 
   it('몰 이름 규칙과는 다르다 — 11번가는 몰에서 숫자를 지키다', () => {
     expect(mallMonogram('11번가')).toBe('1');
+  });
+});
+
+/**
+ * 같은 판매중지가 몰에서 지금 읽은 칸은 빨강, 사방넷에서 가져온 칸은 회색이었다(사장님 2026-09-19 "색상 같은데?").
+ * 가져온 상태와 지금 읽은 상태가 한 표에서 말과 색을 받는다.
+ */
+describe('mallStopBadge · listingStatePill', () => {
+  it('판매중지는 어디서 왔든 빨강이다', () => {
+    expect(mallStopBadge('사방넷 일시중지')).toEqual({ kind: 'sold_out', label: '판매중지' });
+    expect(mallStopBadge('판매중지')).toEqual({ kind: 'sold_out', label: '판매중지' });
+    expect(listingStatePill('paused', '사방넷 일시중지')).toEqual({ label: '판매중지', tone: MALL_STOP_TONE.sold_out, kind: 'sold_out' });
+    // 원문이 아는 말이 아니어도(영문 paused) 판매중지는 빨강이다.
+    expect(listingStatePill('paused', 'paused')).toMatchObject({ label: '판매중지', kind: null });
+    expect(listingStatePill('paused', 'paused').tone).toContain('rose');
+  });
+
+  it('몰 관리자 품절 · 판매종료 · 사방넷 완전품절을 판매중지 · 단종으로 접지 않는다', () => {
+    expect(listingStatePill('paused', '품절')).toMatchObject({ label: '품절', kind: 'sold_out' });
+    expect(listingStatePill('paused', '미노출')).toMatchObject({ label: '미노출', kind: 'ended' });
+    expect(listingStatePill('paused', '보류')).toMatchObject({ label: '보류', kind: 'blocked' });
+    expect(listingStatePill('discontinued', '판매종료')).toMatchObject({ label: '판매종료', kind: 'ended' });
+    expect(listingStatePill('discontinued', '사방넷 완전품절')).toMatchObject({ label: '완전품절', kind: 'sold_out' });
+    expect(listingStatePill('reviewing', '사방넷 대기중')).toMatchObject({ label: '미승인', kind: 'pending' });
+    expect(listingStatePill('reviewing', '승인대기')).toMatchObject({ label: '미승인', kind: 'pending' });
+    expect(listingStatePill('error', '반려')).toMatchObject({ label: '반려', kind: 'blocked' });
+  });
+
+  it('판매중 · 미등록 · 모르는 말은 우리 어휘 그대로다', () => {
+    expect(listingStatePill('published', '사방넷 공급중')).toMatchObject({ label: '등록', kind: null });
+    expect(listingStatePill('unregistered', null)).toMatchObject({ label: '미등록', kind: null });
+    expect(listingStatePill('unknown', '미확인')).toMatchObject({ label: '확인필요', kind: null });
+    expect(mallStopBadge('toString')).toBeNull();
+    expect(mallStopBadge(null)).toBeNull();
   });
 });
