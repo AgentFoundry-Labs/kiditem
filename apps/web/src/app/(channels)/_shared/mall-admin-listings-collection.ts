@@ -2,6 +2,7 @@
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import {
+  MALL_ADMIN_LISTING_READERS,
   MALL_ADMIN_LISTINGS_PRODUCER,
   type MallAdminListingMallKey,
   type MallAdminListingsSource,
@@ -47,13 +48,19 @@ export function mallFrom(
   return status?.malls.find((mall) => mall.mallKey === mallKey) ?? null;
 }
 
+/** 그 몰을 읽는 확장 기능들. 나중에 붙은 몰은 그 읽기기가 든 확장이어야 한다(옛 확장은 몰을 몰라 형식 오류로 멈춘다). */
+export function mallAdminCapabilities(mallKey: MallAdminListingMallKey): string[] {
+  const reader = MALL_ADMIN_LISTING_READERS[mallKey];
+  return 'capability' in reader ? [MALL_ADMIN_LISTINGS_CAPABILITY, reader.capability] : [MALL_ADMIN_LISTINGS_CAPABILITY];
+}
+
 function startMallAdmin(mallKey: MallAdminListingMallKey): () => Promise<CollectionStartOutcome> {
   return () =>
     startWebOpenedCollection({
       detectExtension: async () => {
-        const runtime = await detectOrderCollectionExtensionRuntime(1_200, [MALL_ADMIN_LISTINGS_CAPABILITY]);
+        const runtime = await detectOrderCollectionExtensionRuntime(1_200, mallAdminCapabilities(mallKey));
         if (runtime.status === 'incompatible') {
-          throw new Error('주문수집 확장프로그램이 이전 버전입니다. 확장을 새로고침(1.0.99 이상)한 뒤 다시 가져와 주세요.');
+          throw new Error('주문수집 확장프로그램이 이전 버전입니다. 확장을 새로고침(1.2.22 이상)한 뒤 다시 가져와 주세요.');
         }
         if (runtime.status !== 'ready') {
           throw new Error('주문수집 확장프로그램을 찾지 못했습니다. 확장을 켜고 몰에 로그인한 뒤 다시 가져와 주세요.');

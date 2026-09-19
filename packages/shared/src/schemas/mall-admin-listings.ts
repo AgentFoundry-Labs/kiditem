@@ -91,11 +91,92 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 100,
     detailNames: false,
   },
+  /*
+    사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
+    몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
+    1.2.22(`mallAdminListingsMallsV2`)부터 읽는다.
+  */
+  /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
+  domeggook: {
+    mallName: '도매꾹',
+    origin: 'https://www.domeggook.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
+  kidsnote: {
+    mallName: '키즈노트',
+    origin: 'https://shop.kidsnote.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
+  '11st': {
+    mallName: '11번가',
+    origin: 'https://soffice.11st.co.kr',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /**
+   * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
+   * 1,584 · 지마켓 934 · 옥션 754). 몰 상품코드는 사방넷 모양 `{사이트상품번호}_{마스터상품번호}`.
+   */
+  gmarket: {
+    mallName: '지마켓',
+    origin: 'https://item.esmplus.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  auction: {
+    mallName: '옥션',
+    origin: 'https://item.esmplus.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
+  kakao: {
+    mallName: '카카오 톡스토어',
+    origin: 'https://shopping-seller.kakao.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
+  'lotte-on': {
+    mallName: '롯데ON',
+    origin: 'https://store.lotteon.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
+  smartstore: {
+    mallName: '스마트스토어',
+    origin: 'https://sell.smartstore.naver.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
+  'teacher-mall': {
+    mallName: '티쳐몰',
+    origin: 'https://shop.teacherville.co.kr',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;
   pageSize: number;
   detailNames: boolean;
+  /** 이 몰을 읽는 확장 기능 이름. 없으면 첫 읽기기(`mallAdminListingsSourceOwnerV1`)부터 읽는다. */
+  capability?: string;
 }>;
 export type MallAdminListingMallKey = keyof typeof MALL_ADMIN_LISTING_READERS;
 export const MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
@@ -201,6 +282,11 @@ export type MallAdminListingsSource = z.infer<typeof MallAdminListingsSourceSche
 export const MallAdminListingRowSchema = z.object({
   /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
   mallProductCode: requiredText(60),
+  /**
+   * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
+   * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
+   */
+  alternateCodes: z.array(requiredText(60)).max(3).optional(),
   productName: requiredText(400),
   /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
   sellpiaName: requiredText(400).nullable(),

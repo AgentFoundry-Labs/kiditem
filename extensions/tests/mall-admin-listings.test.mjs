@@ -631,7 +631,10 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
     new URL("../kiditem-os/background/orders/mall-admin-listings.js", import.meta.url),
     "utf8",
   );
-  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"], ["https://zzogzzog1.cafe24.com", "100", "100"], ["https://partner.shopby.co.kr", "100", "100"]]) {
+  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"], ["https://zzogzzog1.cafe24.com", "100", "100"], ["https://partner.shopby.co.kr", "100", "100"],
+    ["https://www.domeggook.com", "500", "500"], ["https://shop.kidsnote.com", "100", "100"], ["https://soffice.11st.co.kr", "100", "100"],
+    ["https://item.esmplus.com", "500", "500"], ["https://shopping-seller.kakao.com", "100", "100"], ["https://store.lotteon.com", "100", "100"],
+    ["https://sell.smartstore.naver.com", "100", "100"], ["https://shop.teacherville.co.kr", "100", "100"]]) {
     assert.match(contract, new RegExp(`origin: '${origin}'`));
     assert.match(collector, new RegExp(`origin: "${origin}"`));
     assert.match(contract, new RegExp(`pageSize: ${contractSize},`));
@@ -644,6 +647,11 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.ok(manifest.host_permissions.includes("https://alwayz-seller-back.ilevit.com/*"));
   assert.ok(manifest.host_permissions.includes("https://zzogzzog1.cafe24.com/*"));
   assert.ok(manifest.host_permissions.includes("https://partner.shopby.co.kr/*"));
+  for (const host of ["https://*.domeggook.com/*", "https://shop.kidsnote.com/*", "https://soffice.11st.co.kr/*", "https://item.esmplus.com/*",
+    "https://shopping-seller.kakao.com/*", "https://store.lotteon.com/*", "https://soapi.lotteon.com/*", "https://sell.smartstore.naver.com/*",
+    "https://shop.teacherville.co.kr/*"]) {
+    assert.ok(manifest.host_permissions.includes(host), host);
+  }
   const owners = readFileSync(
     new URL("../kiditem-os/background/source-owner-manifest.js", import.meta.url),
     "utf8",
@@ -651,6 +659,9 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.match(owners, /"orders\.mall_admin_listings": "channels"/);
   const worker = readFileSync(new URL("../kiditem-os/background/orders/worker.js", import.meta.url), "utf8");
   assert.match(worker, /mallAdminListingsSourceOwnerV1: true/);
+  // 사방넷으로만 가져오던 몰은 이 기능이 있는 확장부터 읽는다 — 웹이 그 몰을 가져오기 전에 확인한다.
+  assert.match(worker, /mallAdminListingsMallsV2: true/);
+  assert.match(contract, /capability: 'mallAdminListingsMallsV2'/);
   assert.match(worker, /collectMallAdminListings: \{/);
   assert.match(worker, /session\?\.producer === "orders\.mall_admin_listings"/);
 });
@@ -931,4 +942,263 @@ test("떠리몰 — 로그인 쿠키가 없거나 401 이면 로그인이 필요
   assert.deepEqual(unknown.result, { success: false, errorCode: "mall_contract_drift", stage: "sale_setting" });
   const shifted = await runThirtymallReader({ products: [shopbyProduct(1), shopbyProduct(2)], totalShift: 1 });
   assert.deepEqual(shifted.result, { success: false, errorCode: "mall_total_changed" });
+});
+
+// ── 사방넷으로만 가져오던 몰(2026-09-19) — 몰 상품코드가 사방넷 모양 그대로여야 이어진 레시피를 그대로 쓴다. ──
+
+function pageContextFor(origin, extra = {}) {
+  return vm.createContext({
+    Date, Map, Set, URL, URLSearchParams, JSON, Number, Array, String, Math, Object, RegExp,
+    AbortController,
+    setTimeout: (callback) => setTimeout(callback, 0),
+    clearTimeout,
+    DOMParser,
+    location: new URL(`${origin}/`),
+    ...extra,
+  });
+}
+
+function readerIn(context, name) {
+  const source = loadSource(["../kiditem-os/background/orders/mall-admin-listings.js"]);
+  return vm.runInContext(`(${source.KidItemMallAdminListings[name].toString()})`, context);
+}
+
+const planFor = (mallKey, sourceOrigin, pageSize) => ({ ...kidkidsPlan, mallKey, sourceOrigin, pageSize });
+const jsonAnswer = (url, payload, status = 200) => ({ ok: status >= 200 && status < 300, status, url, json: async () => payload, text: async () => JSON.stringify(payload) });
+
+test("⭐ 도매꾹 — 목록 조회를 500개씩 전체 수만큼 읽고, 진행상태 · 진열을 몰 글자로, 상품번호를 몰 상품코드로 넘긴다", async () => {
+  const DOME = "https://www.domeggook.com";
+  const items = Array.from({ length: 3 }, (_, index) => ({
+    no: String(19840000 + index),
+    title: `[키드아이템] 상품 ${index}`,
+    status: index === 1 ? "기간종료" : "진행중",
+    disp: index === 2 ? "진열안함" : "진열함",
+    amt_dome: "1,200",
+    code: index === 0 ? "1234-1" : "",
+    dateReg: "2026.08.10 15:12:20",
+    img: '<a href="https://cdn1.domeggook.com/upload/item/a.jpg" target="_blank"><img src="https://cdn1.domeggook.com/upload/item/a.jpg"></a>',
+  }));
+  const requests = [];
+  const context = pageContextFor(DOME, {
+    fetch: async (url) => {
+      const parsed = new URL(url, `${DOME}/`);
+      requests.push([parsed.pathname, parsed.searchParams.get("pg"), parsed.searchParams.get("sz"), parsed.searchParams.get("nos")]);
+      return jsonAnswer(parsed.href, { res: true, cnt: String(items.length), dat: items });
+    },
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readDomeggookListings")(planFor("domeggook", DOME, 500), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(requests, [["/sc/item/lst", "1", "500", ""]]);
+  const byCode = new Map(result.snapshot.rows.map((row) => [row.mallProductCode, row]));
+  assert.deepEqual(byCode.get("19840000"), {
+    mallProductCode: "19840000",
+    productName: "[키드아이템] 상품 0",
+    sellpiaName: null,
+    sellerCode: "1234-1",
+    salePrice: 1200,
+    statusWords: ["진행중", "진열함"],
+    registeredOn: "2026-08-10",
+    imageUrl: "https://cdn1.domeggook.com/upload/item/a.jpg",
+  });
+  assert.deepEqual(byCode.get("19840002").statusWords, ["진행중", "진열안함"]);
+  assert.deepEqual(result.snapshot.collection, { totalRecords: 3, recordsRead: 3, pagesRead: 1, totalPages: 1, detailsRead: 0, detailsMissing: 0 });
+});
+
+test("⭐ 11번가 — 전체 수를 주지 않는 목록을 한 쪽이 덜 찰 때까지 읽고, 판매상태 코드를 화면 글자로 넘긴다", async () => {
+  const ST11 = "https://soffice.11st.co.kr";
+  const codes = { 0: "103", 1: "105", 2: "108", 3: "104" };
+  const items = Array.from({ length: 150 }, (_, index) => ({
+    prdNo: String(3352000000 + index),
+    prdNm: `상품 ${index}`,
+    selStatCd: codes[index] ?? "103",
+    selPrc: 5000,
+    createDt: "2026/08/10",
+    sellerPrdCd: index === 0 ? "8801234567890" : null,
+  }));
+  const starts = [];
+  const context = pageContextFor(ST11, {
+    fetch: async (url) => {
+      const parsed = new URL(url, `${ST11}/`);
+      const start = Number(parsed.searchParams.get("start"));
+      const limit = Number(parsed.searchParams.get("limit"));
+      starts.push([start, limit, parsed.searchParams.get("prdNo")]);
+      // TOTAL_COUNT 는 "한 쪽 + 1" 이다 — 믿지 않는다.
+      const payload = { TOTAL_COUNT: String(limit + 1), DATA_LIST: items.slice(start, start + limit) };
+      return { ok: true, status: 200, url: parsed.href, text: async () => `(${JSON.stringify(payload)})` };
+    },
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "read11stListings")(planFor("11st", ST11, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(starts, [[0, 100, ""], [100, 100, ""]]);
+  const byCode = new Map(result.snapshot.rows.map((row) => [row.mallProductCode, row]));
+  assert.deepEqual(byCode.get("3352000000").statusWords, ["판매중"]);
+  assert.equal(byCode.get("3352000000").sellerCode, "8801234567890");
+  assert.deepEqual(byCode.get("3352000001").statusWords, ["판매중지"]);
+  assert.deepEqual(byCode.get("3352000002").statusWords, ["판매금지"]);
+  assert.deepEqual(byCode.get("3352000003").statusWords, ["품절"]);
+  assert.equal(byCode.get("3352000001").registeredOn, "2026-08-10");
+  assert.deepEqual(result.snapshot.collection, { totalRecords: 150, recordsRead: 150, pagesRead: 2, totalPages: 2, detailsRead: 0, detailsMissing: 0 });
+});
+
+test("⭐ 지마켓 · 옥션 — 마스터 목록을 끝까지 읽고 그 사이트 것만, 사방넷 모양 `{사이트번호}_{마스터번호}` 로 넘긴다", async () => {
+  const ESM = "https://item.esmplus.com";
+  const items = [
+    { goodsNo: "9000000001", goodsName: "둘 다", siteGoodsNo: { gmkt: "2057000001", iac: "F209000001" }, sellStatus: { gmkt: "11", iac: "21" }, price: { gmkt: 5000, iac: 5100 }, managedCode: "1234-1", createdDate: "2026-08-10 10:00:00", imgUrl: "http://gdimg.gmarket.co.kr/a.jpg" },
+    { goodsNo: "9000000002", goodsName: "지마켓만", siteGoodsNo: { gmkt: "2057000002", iac: null }, sellStatus: { gmkt: "31", iac: null }, price: { gmkt: 3000, iac: null }, managedCode: "", createdDate: "2026-08-11 10:00:00", imgUrl: null },
+    { goodsNo: "9000000003", goodsName: "옥션만", siteGoodsNo: { gmkt: null, iac: "C302000003" }, sellStatus: { gmkt: null, iac: "22" }, price: { gmkt: null, iac: 2000 }, managedCode: null, createdDate: "2026-08-12 10:00:00", imgUrl: null },
+  ];
+  const run = async (mallKey) => {
+    const context = pageContextFor(ESM, {
+      fetch: async (url, init) => {
+        const body = JSON.parse(init.body);
+        const start = (body.pageIndex - 1) * body.pageSize;
+        return jsonAnswer(new URL(url, `${ESM}/`).href, { resultCode: 0, data: { totalCount: items.length, pageSize: body.pageSize, pageIndex: body.pageIndex, items: items.slice(start, start + body.pageSize) } });
+      },
+    });
+    return JSON.parse(JSON.stringify(await readerIn(context, "readEsmListings")(planFor(mallKey, ESM, 500), 1000, 0, 1)));
+  };
+  const gmarket = await run("gmarket");
+  assert.equal(gmarket.success, true);
+  assert.deepEqual(gmarket.snapshot.rows.map((row) => [row.mallProductCode, row.alternateCodes, row.statusWords[0]]), [
+    ["2057000001_9000000001", ["2057000001"], "판매중"],
+    ["2057000002_9000000002", ["2057000002"], "SKU품절"],
+  ]);
+  assert.equal(gmarket.snapshot.rows[0].imageUrl, "https://gdimg.gmarket.co.kr/a.jpg");
+  assert.equal(gmarket.snapshot.rows[0].sellerCode, "1234-1");
+  assert.equal(gmarket.snapshot.collection.totalRecords, 2);
+  const auction = await run("auction");
+  assert.deepEqual(auction.snapshot.rows.map((row) => [row.mallProductCode, row.statusWords[0], row.salePrice]), [
+    ["C302000003_9000000003", "판매불가", 2000],
+    ["F209000001_9000000001", "판매중지", 5100],
+  ]);
+});
+
+test("⭐ 카카오 톡스토어 — 목록 API 를 100개씩 0쪽부터 읽고, 판매상태 · 전시를 몰 글자로 넘긴다", async () => {
+  const KAKAO = "https://shopping-seller.kakao.com";
+  const contents = Array.from({ length: 120 }, (_, index) => ({
+    id: String(793412000 + index),
+    name: `상품 ${index}`,
+    displayedSaleStatus: index === 1 ? "판매중지" : "판매중",
+    displayStatus: index === 2 ? "전시안함" : "전시함",
+    salePrice: "4900",
+    storeManagementCode: index === 0 ? "1234-1" : "-",
+    createdAt: "2026-08-10 10:00:00",
+    imageUrl: "https://st.kakaocdn.net/a.jpg",
+  }));
+  const pages = [];
+  const context = pageContextFor(KAKAO, {
+    fetch: async (url) => {
+      const parsed = new URL(url, `${KAKAO}/`);
+      const page = Number(parsed.searchParams.get("page"));
+      const size = Number(parsed.searchParams.get("size"));
+      pages.push(page);
+      return jsonAnswer(parsed.href, { contents: contents.slice(page * size, page * size + size), totalCount: contents.length, last: (page + 1) * size >= contents.length });
+    },
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readKakaoListings")(planFor("kakao", KAKAO, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(pages, [0, 1]);
+  const byCode = new Map(result.snapshot.rows.map((row) => [row.mallProductCode, row]));
+  assert.deepEqual(byCode.get("793412000").statusWords, ["판매중", "전시함"]);
+  assert.equal(byCode.get("793412000").sellerCode, "1234-1");
+  assert.equal(byCode.get("793412001").sellerCode, null);
+  assert.deepEqual(byCode.get("793412001").statusWords, ["판매중지", "전시함"]);
+  assert.deepEqual(byCode.get("793412002").statusWords, ["판매중", "전시안함"]);
+  assert.equal(result.snapshot.rows.length, 120);
+});
+
+test("⭐ 키즈노트 — 판매 상품 내역을 100개씩 전체 수만큼 읽고, 상태 칸을 머리 이름으로 찾아 넘긴다", async () => {
+  const KIDSNOTE = "https://shop.kidsnote.com";
+  const total = 130;
+  const pageHtml = (page) => {
+    const rows = Array.from({ length: total }, (_, index) => index).slice((page - 1) * 100, page * 100).map((index) => `
+      <tr><td><input type="checkbox" name="check_pno[]" value="${155000 + index}"></td><td>${index}</td>
+      <td><img src="https://kids-wi.kakaocdn.net/dn/${index}.jpg"></td>
+      <td><div class="box_setup"><a href="#">상품 ${index}</a><a href="#">복사</a></div></td>
+      <td>26/08/10</td><td>1,200 원</td><td>2,000 원</td><td>0 원</td>
+      <td>${index === 1 ? "품절" : index === 2 ? "숨김" : "정상"}</td><td></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>999</td></tr>`).join("");
+    return `<html><body><p>현재 검색된 모든 상품(${total}개)의</p><form name="prdFrm"><table>
+      <tr><th></th><th>번호</th><th>이미지</th><th>상품명</th><th>등록일</th><th>판매가</th><th>소비자가</th><th>적립금</th><th>상태</th><th>판매설정</th><th>조회</th><th>주문</th><th>판매</th><th>관심</th><th>담기</th><th>재고</th></tr>
+      ${rows}</table></form></body></html>`;
+  };
+  const pages = [];
+  const context = pageContextFor(KIDSNOTE, {
+    fetch: async (url) => {
+      const parsed = new URL(url, `${KIDSNOTE}/`);
+      pages.push([parsed.searchParams.get("body"), parsed.searchParams.get("row"), parsed.searchParams.get("page")]);
+      const page = Number(parsed.searchParams.get("page"));
+      return { ok: true, status: 200, url: parsed.href, text: async () => pageHtml(page) };
+    },
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readKidsnoteListings")(planFor("kidsnote", KIDSNOTE, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(pages, [["2010", "100", "1"], ["2010", "100", "2"]]);
+  const byCode = new Map(result.snapshot.rows.map((row) => [row.mallProductCode, row]));
+  assert.deepEqual(byCode.get("155000"), {
+    mallProductCode: "155000",
+    productName: "상품 0",
+    sellpiaName: null,
+    sellerCode: null,
+    salePrice: 1200,
+    statusWords: ["정상"],
+    registeredOn: "2026-08-10",
+    imageUrl: "https://kids-wi.kakaocdn.net/dn/0.jpg",
+  });
+  assert.deepEqual(byCode.get("155001").statusWords, ["품절"]);
+  assert.deepEqual(byCode.get("155002").statusWords, ["숨김"]);
+  assert.deepEqual(result.snapshot.collection, { totalRecords: 130, recordsRead: 130, pagesRead: 2, totalPages: 2, detailsRead: 0, detailsMissing: 0 });
+});
+
+test("롯데ON — 화면 함수로 머리를 붙여 상품 조회를 한 쪽이 덜 찰 때까지 읽는다(토큰은 밖으로 나가지 않는다)", async () => {
+  const LOTTE = "https://store.lotteon.com";
+  const data = Array.from({ length: 3 }, (_, index) => ({ spdNo: `LO21000000${index}`, spdNm: `상품 ${index}`, slStatCd: ["SALE", "SOUT", "END"][index], slPrc: 3000 }));
+  const sent = [];
+  class FakeXhr {
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader() {}
+    send(body) {
+      sent.push(JSON.parse(body));
+      this.status = 200;
+      this.responseText = JSON.stringify({ returnCode: "SUCCESS", data });
+      setTimeout(() => this.onload(), 0);
+    }
+  }
+  const context = pageContextFor(LOTTE, {
+    gcm: { _sbm_setRequestHeader: (xhr) => xhr.setRequestHeader("Authorization", "Bearer secret") },
+    sessionStorage: { getItem: (key) => (key === "AuthToken" ? "secret" : null) },
+    XMLHttpRequest: FakeXhr,
+  });
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readLotteonListings")(planFor("lotte-on", LOTTE, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(sent, [{ pageNo: 1, rowsPerPage: 100 }]);
+  assert.deepEqual(result.snapshot.rows.map((row) => [row.mallProductCode, row.statusWords[0]]), [
+    ["LO210000000", "판매중"], ["LO210000001", "품절"], ["LO210000002", "판매종료"],
+  ]);
+  assert.ok(!JSON.stringify(result).includes("secret"), "결과에 토큰이 없다");
+});
+
+test("스마트스토어 — 화면의 $http 로 원상품 목록을 읽고, 채널상품번호를 코드로 · 원상품번호를 다른 코드로 넘긴다", async () => {
+  const NAVER = "https://sell.smartstore.naver.com";
+  const content = [
+    { id: 10091000001, name: "상품 A", productStatusType: "SALE", salePrice: 5000, singleChannelProducts: [{ channelProductNo: 5441000001 }], sellerManagementCode: "1234-1", regDate: "2026-08-10T10:00:00" },
+    { id: 10091000002, name: "상품 B", productStatusType: "SUSPENSION", salePrice: 6000, singleChannelProducts: [{ channelProductNo: 5441000002 }] },
+  ];
+  const calls = [];
+  const $http = async (config) => {
+    calls.push(config.data);
+    return { status: 200, data: { content, totalElements: content.length, totalPages: 1 } };
+  };
+  const context = pageContextFor(NAVER, {
+    document: { body: {} },
+    window: { angular: { element: () => ({ injector: () => ({ get: () => $http }) }) } },
+  });
+  context.location = { hostname: "sell.smartstore.naver.com", href: `${NAVER}/#/products/origin-list` };
+  const result = JSON.parse(JSON.stringify(await readerIn(context, "readSmartstoreListings")(planFor("smartstore", NAVER, 100), 1000, 0, 1)));
+  assert.equal(result.success, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ searchOrderType: "REG_DATE", page: 0, size: 100 }]);
+  assert.deepEqual(result.snapshot.rows.map((row) => [row.mallProductCode, row.alternateCodes, row.statusWords[0]]), [
+    ["5441000001", ["10091000001"], "판매중"],
+    ["5441000002", ["10091000002"], "판매중지"],
+  ]);
+  assert.equal(result.snapshot.rows[0].sellerCode, "1234-1");
 });

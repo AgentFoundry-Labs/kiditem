@@ -11,7 +11,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { MallAdminListingsImport } from './MallAdminListingsImport';
-import { linkMallAdminListings } from './mall-admin-listings-collection';
+import { linkMallAdminListings, mallAdminCapabilities } from './mall-admin-listings-collection';
 
 /**
  * 몰 관리자 직접 가져오기(KID-246 2단계).
@@ -291,5 +291,14 @@ describe('linkMallAdminListings', () => {
       failed: false,
     });
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('mallAdminCapabilities', () => {
+  it('⭐ 사방넷으로만 가져오던 몰은 그 읽기기가 든 확장(1.2.22)이어야 가져온다 — 옛 확장은 몰을 몰라 형식 오류로 멈춘다', () => {
+    expect(mallAdminCapabilities('kidkids')).toEqual(['mallAdminListingsSourceOwnerV1']);
+    for (const mallKey of ['domeggook', 'kidsnote', '11st', 'gmarket', 'auction', 'kakao', 'lotte-on', 'smartstore', 'teacher-mall'] as const) {
+      expect(mallAdminCapabilities(mallKey)).toEqual(['mallAdminListingsSourceOwnerV1', 'mallAdminListingsMallsV2']);
+    }
   });
 });

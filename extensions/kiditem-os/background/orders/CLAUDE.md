@@ -99,7 +99,12 @@ registration, and Coupang cookie-overflow recovery.
   the run. 떠리몰 (Shopby partner admin) calls the list screen's admin API
   (`admin-api.e-ncp.com`) from inside the partner page with the partner
   cookie token and the list screen as `ClientLocation` (omitting it is a 403);
-  the token never leaves that page.
+  the token never leaves that page. Malls that Sabangnet used to carry (도매꾹,
+  키즈노트, 11번가, 지마켓·옥션, 카카오, 롯데ON, 스마트스토어, 티쳐몰) need
+  `mallAdminListingsMallsV2` and must emit Sabangnet's product-code shape (ESM
+  `{site}_{master}`; other numbers go in `alternateCodes`) so existing recipes
+  survive. 11번가 and 롯데ON give no total, so a short page ends the read.
+  롯데ON and 스마트스토어 run in the page's MAIN world (page header functions).
 
 ## Sellpia And Rocket Boundaries
 

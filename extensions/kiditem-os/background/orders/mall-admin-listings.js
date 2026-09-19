@@ -1059,6 +1059,1013 @@
     }
   }
 
+  // 도매꾹 상품공급사센터 안에서 돈다. 상품조회/수정 목록(`/sc/item/lstAll`)이 부르는 목록 조회(`/sc/item/lst`, JSON)를
+  // 검색 폼 기본값 그대로(상품번호 칸만 비움) 한 쪽 500개씩 읽는다(라이브 2026-09-19: 493개 = 1쪽). 답의 `cnt` 가 전체 수다.
+  // 몰 상품코드는 도매꾹 상품번호(no)이고, 상태는 진행상태(진행중 · 기간종료 · 승인대기)와 진열(진열함 · 진열안함) 두 칸이다.
+  async function readDomeggookListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const BASE = [["ktype", "no"], ["nos", ""], ["ttl", ""], ["st", ""], ["chn[]", "dome"], ["chn[]", "supply"],
+      ["sec[]", "sell"], ["sec[]", "shop"], ["ca1", "00"], ["ca2", "00"], ["ca3", "00"], ["ca4", "00"], ["idx", ""],
+      ["qty", ""], ["disp", ""], ["rmp", ""], ["format", "grid"], ["so", "rd"]];
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    function price(value) {
+      const digits = String(value ?? "").replace(/[,\s원]/g, "");
+      if (!/^\d{1,10}$/.test(digits)) return null;
+      const amount = Number(digits);
+      return amount <= 1_000_000_000 ? amount : null;
+    }
+
+    function imageOf(html) {
+      const match = /(?:src|href)=["'](https:\/\/[^"']+\.(?:jpe?g|png|gif|webp)[^"']*)["']/i.exec(String(html ?? ""));
+      return match && match[1].length <= 2000 ? match[1] : null;
+    }
+
+    async function list(page) {
+      const params = new URLSearchParams();
+      for (const [key, value] of BASE) params.append(key, value);
+      params.append("pg", String(page));
+      params.append("sz", String(plan.pageSize));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch(`/sc/item/lst?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: { accept: "application/json", "x-requested-with": "XMLHttpRequest" },
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || /login/i.test(landed.pathname)) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const json = await response.json().catch(() => null);
+        if (!json || typeof json !== "object") throw new Error("INVALID_RESPONSE");
+        if (json.res !== true) {
+          if (/로그인|login/i.test(String(json.msg ?? ""))) throw new Error("LOGIN_REQUIRED");
+          drift("res");
+        }
+        if (!Array.isArray(json.dat)) drift("dat");
+        return json;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      const first = await list(1);
+      const total = Number(first.cnt);
+      if (!Number.isInteger(total) || total < 0) drift("total");
+      if (total > ROW_LIMIT) drift("row_limit");
+      const totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
+      if (totalPages > PAGE_LIMIT) drift("page_limit");
+      const rows = [];
+      const seen = new Set();
+      for (let page = 1; page <= totalPages; page += 1) {
+        if (page > 1 && requestDelayMs > 0) await wait(requestDelayMs);
+        const answer = page === 1 ? first : await list(page);
+        if (Number(answer.cnt) !== total) return fail("mall_total_changed");
+        for (const item of answer.dat) {
+          const mallProductCode = String(item?.no ?? "");
+          if (!/^\d{5,10}$/.test(mallProductCode)) drift("item_no");
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(item.title, 400);
+          if (!productName) drift("title");
+          const progress = text(item.status, 20);
+          const shown = text(item.disp, 20);
+          if (!progress || !shown) drift("status");
+          const registered = /^(\d{4})\.(\d{2})\.(\d{2})/.exec(String(item.dateReg ?? ""));
+          const image = imageOf(item.img);
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            // 자체상품코드 칸. 셀피아 코드를 심어 두면 코드로 잇는다(지금은 전부 비어 있다).
+            sellerCode: text(item.code, 60),
+            salePrice: price(item.amt_dome),
+            statusWords: [progress, shown],
+            registeredOn: registered ? `${registered[1]}-${registered[2]}-${registered[3]}` : null,
+            ...(image ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (rows.length !== total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: total,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 키즈노트(WISA 스마트윙 관리자) 안에서 돈다. 판매 상품 내역(`body=2010`)을 100개씩 1쪽부터 끝까지 읽는다(라이브
+  // 2026-09-19: 1,107개 = 12쪽). 전체 수는 화면의 "현재 검색된 모든 상품(1,107개)" 이다. 몰 상품코드는 상품번호(pno)이고
+  // 상태는 상태 칸(정상 · 품절 · 숨김) 그대로다. 칸은 머리 이름으로 찾는다.
+  async function readKidsnoteListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    function price(value) {
+      const digits = String(value ?? "").replace(/[,\s원]/g, "");
+      if (!/^\d{1,10}$/.test(digits)) return null;
+      const amount = Number(digits);
+      return amount <= 1_000_000_000 ? amount : null;
+    }
+
+    async function page(number) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const params = new URLSearchParams({ body: "2010", row: String(plan.pageSize), page: String(number) });
+        const response = await fetch(`/_manage/?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || /login/i.test(landed.pathname + landed.search)) {
+          throw new Error("LOGIN_REQUIRED");
+        }
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        const list = doc.querySelector('form[name="prdFrm"], form#prdFrm');
+        if (!list) {
+          if (doc.querySelector('input[type="password"]')) throw new Error("LOGIN_REQUIRED");
+          drift("list_form");
+        }
+        return doc;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function totalOf(doc) {
+      const match = /모든\s*상품\s*\(\s*([0-9,]+)\s*개\s*\)/.exec(doc.body?.textContent ?? "");
+      if (!match) drift("total");
+      return Number(match[1].replace(/,/g, ""));
+    }
+
+    function columns(doc) {
+      const box = doc.querySelector('form[name="prdFrm"] input[name="check_pno[]"], form#prdFrm input[name="check_pno[]"]');
+      const table = box?.closest("table");
+      if (!table) return null;
+      const headRow = [...table.querySelectorAll("tr")].find((tr) => tr.querySelector("th"));
+      const heads = headRow ? [...headRow.cells].map((cell) => cell.textContent.replace(/\s+/g, "")) : [];
+      const at = (name) => heads.indexOf(name);
+      const found = { name: at("상품명"), date: at("등록일"), price: at("판매가"), state: at("상태"), image: at("이미지") };
+      if (found.name < 0 || found.state < 0) drift("columns");
+      return found;
+    }
+
+    try {
+      const first = await page(1);
+      const total = totalOf(first);
+      if (!Number.isInteger(total) || total < 0) drift("total");
+      if (total > ROW_LIMIT) drift("row_limit");
+      const totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
+      if (totalPages > PAGE_LIMIT) drift("page_limit");
+      const rows = [];
+      const seen = new Set();
+      for (let number = 1; number <= totalPages; number += 1) {
+        if (number > 1 && requestDelayMs > 0) await wait(requestDelayMs);
+        const doc = number === 1 ? first : await page(number);
+        if (totalOf(doc) !== total) return fail("mall_total_changed");
+        const at = columns(doc);
+        const boxes = [...doc.querySelectorAll('form[name="prdFrm"] input[name="check_pno[]"], form#prdFrm input[name="check_pno[]"]')];
+        if (boxes.length > 0 && !at) drift("columns");
+        for (const box of boxes) {
+          const mallProductCode = String(box.value ?? "");
+          if (!/^\d{2,10}$/.test(mallProductCode)) drift("pno");
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const cells = [...(box.closest("tr")?.cells ?? [])];
+          const nameCell = cells[at.name];
+          const productName = text(nameCell?.querySelector("a")?.textContent ?? nameCell?.textContent ?? "", 400);
+          if (!productName) drift("product_name");
+          const state = text(cells[at.state]?.textContent ?? "", 20);
+          if (!state) drift("state");
+          const registered = at.date >= 0 ? /(\d{2})\/(\d{2})\/(\d{2})/.exec(cells[at.date]?.textContent ?? "") : null;
+          const src = at.image >= 0 ? cells[at.image]?.querySelector("img")?.getAttribute("src") ?? "" : "";
+          const image = /^https:\/\//.test(src) && src.length <= 2000 ? src : null;
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            sellerCode: null,
+            salePrice: at.price >= 0 ? price(cells[at.price]?.textContent) : null,
+            statusWords: [state],
+            registeredOn: registered ? `20${registered[1]}-${registered[2]}-${registered[3]}` : null,
+            ...(image ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (rows.length !== total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: total,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 11번가 셀러오피스(상품조회/수정) 안에서 돈다. 목록 조회(`getSellProductListJSON`)를 검색 폼 기본값 그대로(상품번호
+  // 칸만 비움) 100개씩 앞에서부터 읽는다(라이브 2026-09-19: 900개 = 9쪽). 이 조회의 TOTAL_COUNT 는 전체 수가 아니라
+  // "한 쪽 + 1"(다음이 있다는 표시)이라, 한 쪽이 덜 차면 끝이다. 판매상태 코드는 목록 화면의 표 그대로다.
+  async function read11stListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const STATUS = { 101: "승인대기", 102: "전시전", 103: "판매중", 104: "품절", 105: "판매중지", 106: "판매종료", 108: "판매금지", 109: "승인거부" };
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    async function list(start) {
+      const params = new URLSearchParams({
+        method: "getSellProductListJSON", srchTyp: "prdNew", start: String(start), limit: String(plan.pageSize),
+        prdNo: "", prdNm: "", searchType: "PRDNO", dateType: "CREATE", category1: "", category2: "", category3: "",
+        category4: "", chkSelStatCds: "", selMthdCd: "", createDt: "", createDtTo: "", stckQty: "", remainSelDt: "",
+        premiumAplDt: "", dlvCstInstBasiCd: "", dlvCstPayTypCd: "", premiumPlusAplDt: "", dlvClf: "", dlvClfDtl: "",
+        data: "", searchListingItemClsf: "", mobilePrdYn: "", shopNo: "", prdTypCd: "", omPrdYn: "", svcAreaCd: "",
+        isPaging: "Y", reglDlvYn: "N", mnbdClfCd: "", stdPrdYn: "", sendClfCd: "ALL", selStopRsnCd: "",
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch(`/product/SellProductAjaxAction.tmall?${params.toString()}`, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || /login/i.test(landed.pathname)) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const body = (await response.text()).trim();
+        if (!/^[({]/.test(body)) {
+          if (/login|로그인/i.test(body)) throw new Error("LOGIN_REQUIRED");
+          throw new Error("INVALID_RESPONSE");
+        }
+        let json = null;
+        try {
+          json = JSON.parse(body.replace(/^\(/, "").replace(/\)$/, ""));
+        } catch {
+          throw new Error("INVALID_RESPONSE");
+        }
+        if (!Array.isArray(json?.DATA_LIST)) drift("data_list");
+        return json.DATA_LIST;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      const rows = [];
+      const seen = new Set();
+      let pages = 0;
+      for (let start = 0; ; start += plan.pageSize) {
+        if (pages >= PAGE_LIMIT) drift("page_limit");
+        if (pages > 0 && requestDelayMs > 0) await wait(requestDelayMs);
+        const items = await list(start);
+        pages += 1;
+        for (const item of items) {
+          const mallProductCode = String(item?.prdNo ?? "");
+          if (!/^\d{6,12}$/.test(mallProductCode)) drift("prd_no");
+          // 앞에서부터 세는 쪽이라, 읽는 사이 상품이 늘면 같은 상품이 다음 쪽에 또 온다.
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(item.prdNm, 400);
+          if (!productName) drift("prd_nm");
+          const status = STATUS[String(item.selStatCd ?? "")];
+          if (!status) drift("sel_stat_cd");
+          const amount = Number(item.selPrc);
+          const registered = /^(\d{4})\/(\d{2})\/(\d{2})/.exec(String(item.createDt ?? ""));
+          const sellerCode = text(String(item.sellerPrdCd ?? ""), 60);
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            // 판매자 상품코드 칸. 셀피아 코드를 심어 두면 코드로 잇는다.
+            sellerCode: sellerCode && sellerCode !== "null" ? sellerCode : null,
+            salePrice: Number.isInteger(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null,
+            statusWords: [status],
+            registeredOn: registered ? `${registered[1]}-${registered[2]}-${registered[3]}` : null,
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+        if (items.length < plan.pageSize) break;
+      }
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      // 전체 수를 따로 주지 않는 목록이다 — 끝까지 읽은 줄 수가 전체다. 쪽 수는 그 수로 센다.
+      const totalPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: rows.length,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 지마켓 · 옥션(ESM Plus 상품 조회/수정) 안에서 돈다. 목록 검색(`POST /api/ea/goods/search`)을 검색 조건 없이 500개씩
+  // 1쪽부터 읽는다(라이브 2026-09-19: 마스터 1,584개 = 4쪽, 지마켓 934 · 옥션 754). 한 마스터가 두 사이트에 함께 있을 수
+  // 있어 계획의 몰(gmarket → gmkt, auction → iac)에 올라간 것만 고른다. 몰 상품코드는 사방넷이 쓰던 모양 그대로
+  // `{사이트상품번호}_{마스터상품번호}` 이고, 사방넷이 사이트 번호만 준 상품이 있어 그 번호를 다른 코드로 함께 싣는다.
+  // 판매상태 코드는 목록 화면의 칸 그대로다(01 등록대기 · 11 판매가능 · 21 판매중지 · 22 판매불가 · 31 SKU품절).
+  async function readEsmListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const SITE = { gmarket: "gmkt", auction: "iac" }[plan.mallKey];
+    const STATUS = { "01": "등록대기", 11: "판매중", 21: "판매중지", 22: "판매불가", 31: "SKU품절" };
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    async function search(pageIndex) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch("/api/ea/goods/search", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: { goodsIds: "", sellStatus: [], category: {}, registrationDate: {}, shipping: {}, additionalService: [] },
+            pageIndex,
+            pageSize: plan.pageSize,
+          }),
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || /login|signin/i.test(landed.pathname)) throw new Error("LOGIN_REQUIRED");
+        if (response.status === 401 || response.status === 403) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const json = await response.json().catch(() => null);
+        if (!json || typeof json !== "object") throw new Error("INVALID_RESPONSE");
+        const data = json.data;
+        if (!data || !Array.isArray(data.items)) drift("items");
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      if (!SITE) drift("site");
+      const first = await search(1);
+      const total = first.totalCount;
+      if (!Number.isInteger(total) || total < 0) drift("total");
+      if (total > ROW_LIMIT) drift("row_limit");
+      const masterPages = Math.max(1, Math.ceil(total / plan.pageSize));
+      if (masterPages > PAGE_LIMIT) drift("page_limit");
+      const rows = [];
+      const masters = new Set();
+      const seen = new Set();
+      for (let pageIndex = 1; pageIndex <= masterPages; pageIndex += 1) {
+        if (pageIndex > 1 && requestDelayMs > 0) await wait(requestDelayMs);
+        const data = pageIndex === 1 ? first : await search(pageIndex);
+        if (data.totalCount !== total) return fail("mall_total_changed");
+        for (const item of data.items) {
+          const goodsNo = String(item?.goodsNo ?? "");
+          if (!/^\d{6,12}$/.test(goodsNo)) drift("goods_no");
+          if (masters.has(goodsNo)) return fail("mall_total_changed");
+          masters.add(goodsNo);
+          const siteNo = item?.siteGoodsNo?.[SITE];
+          if (siteNo === null || siteNo === undefined || siteNo === "") continue;
+          const siteGoodsNo = String(siteNo);
+          if (!/^[A-Z]?\d{6,12}$/.test(siteGoodsNo)) drift("site_goods_no");
+          const mallProductCode = `${siteGoodsNo}_${goodsNo}`;
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(item.goodsName, 400);
+          if (!productName) drift("goods_name");
+          const status = STATUS[String(item?.sellStatus?.[SITE] ?? "")];
+          if (!status) drift("sell_status");
+          const amount = Number(item?.price?.[SITE]);
+          const registered = /^(\d{4}-\d{2}-\d{2})/.exec(String(item.createdDate ?? ""));
+          const image = typeof item.imgUrl === "string" && /^https?:\/\//.test(item.imgUrl)
+            ? item.imgUrl.replace(/^http:\/\//, "https://")
+            : null;
+          rows.push({
+            mallProductCode,
+            // 사방넷은 마스터 번호 없이 사이트 번호만 준 상품이 있다 — 그 번호로 이미 이어진 리스팅을 쓴다.
+            alternateCodes: [siteGoodsNo],
+            productName,
+            sellpiaName: null,
+            // 판매자관리코드 칸. 셀피아 코드를 심어 두면 코드로 잇는다.
+            sellerCode: text(item.managedCode, 60),
+            salePrice: Number.isInteger(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null,
+            statusWords: [status],
+            registeredOn: registered ? registered[1] : null,
+            ...(image && image.length <= 2000 ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (masters.size !== total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      // 마스터 목록을 끝까지 읽고 이 사이트 것만 골랐다 — 이 몰의 전체는 고른 줄 수다.
+      const totalPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: rows.length,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 카카오 톡스토어 판매자센터 안에서 돈다. 상품조회 화면이 부르는 목록 API(`GET /api/tstore/products`)를 100개씩 0쪽부터
+  // 읽는다(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 톡스토어 상품번호(id)이고, 상태는 판매상태(판매중 · 판매중지 ·
+  // 품절 · 판매금지)와 전시(전시함 · 전시안함) 두 칸이다.
+  async function readKakaoListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    async function list(page) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const params = new URLSearchParams({ size: String(plan.pageSize), page: String(page) });
+        const response = await fetch(`/api/tstore/products?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || response.status === 401 || response.status === 403) {
+          throw new Error("LOGIN_REQUIRED");
+        }
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const json = await response.json().catch(() => null);
+        if (!json || typeof json !== "object") throw new Error("INVALID_RESPONSE");
+        if (!Array.isArray(json.contents)) drift("contents");
+        return json;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      const first = await list(0);
+      const total = first.totalCount;
+      if (!Number.isInteger(total) || total < 0) drift("total");
+      if (total > ROW_LIMIT) drift("row_limit");
+      const totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
+      if (totalPages > PAGE_LIMIT) drift("page_limit");
+      const rows = [];
+      const seen = new Set();
+      for (let page = 0; page < totalPages; page += 1) {
+        if (page > 0 && requestDelayMs > 0) await wait(requestDelayMs);
+        const answer = page === 0 ? first : await list(page);
+        if (answer.totalCount !== total) return fail("mall_total_changed");
+        for (const product of answer.contents) {
+          const mallProductCode = String(product?.id ?? "");
+          if (!/^\d{5,12}$/.test(mallProductCode)) drift("product_id");
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(product.name, 400);
+          if (!productName) drift("product_name");
+          const sale = text(product.displayedSaleStatus, 20);
+          const shown = text(product.displayStatus, 20);
+          if (!sale || !shown) drift("status");
+          const digits = String(product.salePrice ?? "").replace(/[,\s원]/g, "");
+          const amount = /^\d{1,10}$/.test(digits) ? Number(digits) : null;
+          const code = text(product.storeManagementCode, 60);
+          const registered = /^(\d{4}-\d{2}-\d{2})/.exec(String(product.createdAt ?? ""));
+          const image = typeof product.imageUrl === "string" && /^https:\/\//.test(product.imageUrl)
+            && product.imageUrl.length <= 2000 ? product.imageUrl : null;
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            // 판매자관리코드 칸. 셀피아 코드를 심어 두면 코드로 잇는다(비었으면 "-").
+            sellerCode: code && code !== "-" ? code : null,
+            salePrice: amount !== null && amount <= 1_000_000_000 ? amount : null,
+            statusWords: [sale, shown],
+            registeredOn: registered ? registered[1] : null,
+            ...(image ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (rows.length !== total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: total,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 롯데ON 판매자센터 화면 안(MAIN)에서 돈다. 상품 조회(`selectProductList`, soapi)를 판매자상품번호 칸 없이 100개씩 1쪽부터
+  // 읽는다. 요청 머리(토큰 · 시간대 · 기기)는 화면이 요청마다 쓰는 함수(`gcm._sbm_setRequestHeader`)로 붙이고 토큰은 밖으로
+  // 나가지 않는다. 전체 수 칸을 모르는 답이라 한 쪽이 덜 차면 끝이다. 몰 상품코드는 판매자상품번호(spdNo, `LO…`)다.
+  async function readLotteonListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const API = "https://soapi.lotteon.com/soapi/v1/product/information/selectProductList";
+    const STATUS = { SALE: "판매중", SOUT: "품절", STP: "판매중지", END: "판매종료" };
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    function first(row, keys) {
+      for (const key of keys) {
+        const value = row?.[key];
+        if (value !== undefined && value !== null && value !== "") return value;
+      }
+      return null;
+    }
+
+    try {
+      const deadline = Date.now() + 20_000;
+      const ready = () => typeof gcm !== "undefined" && gcm && typeof gcm._sbm_setRequestHeader === "function"
+        && Boolean(sessionStorage.getItem("AuthToken"));
+      while (!ready()) {
+        if (/login/i.test(location.href) || Date.now() > deadline) return fail("mall_login_required");
+        await wait(500);
+      }
+      const post = (body) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", API, true);
+        xhr.timeout = requestTimeoutMs;
+        xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+        xhr.setRequestHeader("Accept", "application/json");
+        gcm._sbm_setRequestHeader(xhr);
+        xhr.onload = () => {
+          if (xhr.status === 401 || xhr.status === 403) return reject(new Error("LOGIN_REQUIRED"));
+          if (xhr.status < 200 || xhr.status >= 300) return reject(new Error("NETWORK_FAILED"));
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error("INVALID_RESPONSE"));
+          }
+        };
+        xhr.ontimeout = () => reject(Object.assign(new Error("timeout"), { name: "AbortError" }));
+        xhr.onerror = () => reject(new Error("NETWORK_FAILED"));
+        xhr.send(JSON.stringify(body));
+      });
+
+      const rows = [];
+      const seen = new Set();
+      let pages = 0;
+      for (let pageNo = 1; ; pageNo += 1) {
+        if (pages >= PAGE_LIMIT) drift("page_limit");
+        if (pages > 0 && requestDelayMs > 0) await wait(requestDelayMs);
+        const json = await post({ pageNo, rowsPerPage: plan.pageSize });
+        pages += 1;
+        if (json?.returnCode !== "SUCCESS") drift("return_code");
+        if (!Array.isArray(json.data)) drift("data");
+        for (const item of json.data) {
+          const mallProductCode = String(item?.spdNo ?? "");
+          if (!/^LO\d{4,20}$/.test(mallProductCode)) drift("spd_no");
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(String(first(item, ["spdNm", "pdNm", "prdNm", "sitmNm"]) ?? ""), 400);
+          if (!productName) drift("product_name");
+          const code = String(item.slStatCd ?? "");
+          const status = STATUS[code] ?? text(String(first(item, ["slStatNm", "slStatCdNm"]) ?? code), 20);
+          if (!status) drift("sl_stat_cd");
+          const amount = Number(first(item, ["slPrc", "salePrc", "dcPrc"]));
+          const registered = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(String(first(item, ["regDttm", "regDt", "fstRegDttm"]) ?? ""));
+          const sellerCode = text(String(first(item, ["epdNo", "eitmNo", "trPdNo"]) ?? ""), 60);
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            sellerCode,
+            salePrice: Number.isInteger(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null,
+            statusWords: [status],
+            registeredOn: registered ? `${registered[1]}-${registered[2]}-${registered[3]}` : null,
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+        if (json.data.length < plan.pageSize) break;
+      }
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      const totalPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: rows.length,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 네이버 스마트스토어센터(원상품 목록) 화면 안(MAIN)에서 돈다. 목록 검색(`POST /api/products/list/search`)을 화면 자신의
+  // Angular `$http` 로 검색어 없이 100개씩 0쪽부터 읽는다 — 화면 인터셉터가 붙이는 머리가 그대로 실린다. 사방넷이 채널상품번호와
+  // 원상품번호를 섞어 줬으므로 채널상품번호를 몰 상품코드로, 원상품번호를 다른 코드로 함께 싣는다(이미 이어진 쪽을 쓴다).
+  async function readSmartstoreListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const STATUS = {
+      SALE: "판매중", OUTOFSTOCK: "품절", SUSPENSION: "판매중지", WAIT: "판매대기", UNADMISSION: "승인대기",
+      REJECTION: "승인거부", PROHIBITION: "판매금지", CLOSE: "판매종료", DELETE: "삭제",
+    };
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    try {
+      const deadline = Date.now() + 20_000;
+      let injector = null;
+      while (!injector) {
+        try {
+          injector = window.angular ? window.angular.element(document.body).injector() : null;
+        } catch {
+          injector = null;
+        }
+        if (injector) break;
+        if (location.hostname !== "sell.smartstore.naver.com" || Date.now() > deadline) return fail("mall_login_required");
+        await wait(500);
+      }
+      const $http = injector.get("$http");
+      const search = async (page) => {
+        try {
+          const response = await $http({
+            method: "POST",
+            url: "/api/products/list/search",
+            timeout: requestTimeoutMs,
+            data: { searchOrderType: "REG_DATE", page, size: plan.pageSize },
+          });
+          return response?.data;
+        } catch (failure) {
+          const status = Number(failure?.status) || 0;
+          if (status === 401 || status === 403) throw new Error("LOGIN_REQUIRED");
+          if (status === -1) throw Object.assign(new Error("timeout"), { name: "AbortError" });
+          throw new Error("NETWORK_FAILED");
+        }
+      };
+
+      const first = await search(0);
+      if (!first || !Array.isArray(first.content)) drift("content");
+      const total = Number(first.totalElements);
+      if (!Number.isInteger(total) || total < 0) drift("total");
+      if (total > ROW_LIMIT) drift("row_limit");
+      const totalPages = Math.max(1, Math.ceil(total / plan.pageSize));
+      if (totalPages > PAGE_LIMIT) drift("page_limit");
+      const rows = [];
+      const seen = new Set();
+      for (let page = 0; page < totalPages; page += 1) {
+        if (page > 0 && requestDelayMs > 0) await wait(requestDelayMs);
+        const data = page === 0 ? first : await search(page);
+        if (!data || !Array.isArray(data.content)) drift("content");
+        if (Number(data.totalElements) !== total) return fail("mall_total_changed");
+        for (const product of data.content) {
+          const originNo = String(product?.id ?? product?.originProductNo ?? "");
+          if (!/^\d{6,15}$/.test(originNo)) drift("origin_no");
+          const channel = Array.isArray(product.singleChannelProducts) ? product.singleChannelProducts[0] ?? null : null;
+          const channelNo = channel?.channelProductNo === undefined || channel?.channelProductNo === null
+            ? "" : String(channel.channelProductNo);
+          const mallProductCode = /^\d{6,15}$/.test(channelNo) ? channelNo : originNo;
+          if (seen.has(mallProductCode)) return fail("mall_total_changed");
+          seen.add(mallProductCode);
+          const productName = text(String(product.name ?? product.productName ?? channel?.name ?? ""), 400);
+          if (!productName) drift("product_name");
+          const statusType = String(product.productStatusType ?? channel?.statusType ?? "");
+          const status = STATUS[statusType];
+          if (!status) drift("status_type");
+          const amount = Number(product.salePrice ?? channel?.salePrice);
+          const registered = /^(\d{4}-\d{2}-\d{2})/.exec(String(product.regDate ?? product.createdDate ?? ""));
+          const code = text(String(product.sellerManagementCode ?? ""), 60);
+          const imageSource = product.representativeImage?.url ?? product.representImage?.url ?? null;
+          const image = typeof imageSource === "string" && /^https:\/\//.test(imageSource) && imageSource.length <= 2000
+            ? imageSource : null;
+          rows.push({
+            mallProductCode,
+            ...(mallProductCode !== originNo ? { alternateCodes: [originNo] } : {}),
+            productName,
+            sellpiaName: null,
+            // 판매자 관리코드 칸. 셀피아 코드를 심어 두면 코드로 잇는다.
+            sellerCode: code,
+            salePrice: Number.isInteger(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null,
+            statusWords: [status],
+            registeredOn: registered ? registered[1] : null,
+            ...(image ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (rows.length !== total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: total,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+  // 티쳐몰(퍼스트몰 selleradmin) 안에서 돈다. 판매상품 목록(`/selleradmin/goods/catalog`)을 100개씩 1쪽부터 읽는다. 줄마다
+  // 상품번호(goods_seq)와 승인 · 판매 상태(`승인 정상` · `미승인 품절` …)가 있다. 한 쪽이 덜 차면 끝이다. 몰 상품코드는 상품번호다.
+  async function readTeacherListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+
+    async function page(number) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const params = new URLSearchParams({ page: String(number), perpage: String(plan.pageSize) });
+        const response = await fetch(`/selleradmin/goods/catalog?${params.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== location.origin || landed.pathname !== "/selleradmin/goods/catalog") {
+          throw new Error("LOGIN_REQUIRED");
+        }
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        if (doc.querySelector('input[type="password"]')) throw new Error("LOGIN_REQUIRED");
+        return doc;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      const rows = [];
+      const seen = new Set();
+      let pages = 0;
+      for (let number = 1; ; number += 1) {
+        if (pages >= PAGE_LIMIT) drift("page_limit");
+        if (pages > 0 && requestDelayMs > 0) await wait(requestDelayMs);
+        const doc = await page(number);
+        pages += 1;
+        const boxes = [...doc.querySelectorAll('input[name="goods_seq[]"]')];
+        if (number === 1 && boxes.length === 0 && !doc.querySelector("table")) drift("list");
+        let fresh = 0;
+        for (const box of boxes) {
+          const mallProductCode = String(box.value ?? "");
+          if (!/^\d{3,10}$/.test(mallProductCode)) drift("goods_seq");
+          // 마지막 쪽을 넘긴 쪽 번호에 마지막 쪽을 다시 주는 목록이 있다 — 겹치면 끝이다.
+          if (seen.has(mallProductCode)) continue;
+          seen.add(mallProductCode);
+          fresh += 1;
+          const tr = box.closest("tr");
+          const rowText = (tr?.textContent ?? "").replace(/\s+/g, " ");
+          const state = /(미승인|승인)\s*(정상|품절|재고확보중|판매중지)/.exec(rowText);
+          if (!state) drift("state");
+          const link = [...(tr?.querySelectorAll("a") ?? [])]
+            .map((anchor) => text(anchor.textContent ?? "", 400))
+            .filter((value) => value && value.length >= 2 && !/^(수정|보기|복사|삭제|미리보기)$/.test(value))
+            .sort((left, right) => right.length - left.length)[0] ?? null;
+          if (!link) drift("goods_name");
+          const amount = /([0-9][0-9,]{0,12})\s*원/.exec(rowText);
+          const registered = /(\d{4})-(\d{2})-(\d{2})/.exec(rowText);
+          const src = tr?.querySelector("img")?.getAttribute("src") ?? "";
+          const image = /^https:\/\//.test(src) && src.length <= 2000 ? src : null;
+          rows.push({
+            mallProductCode,
+            productName: link,
+            sellpiaName: null,
+            sellerCode: null,
+            salePrice: amount ? Number(amount[1].replace(/,/g, "")) : null,
+            statusWords: [state[1], state[2]],
+            registeredOn: registered ? `${registered[1]}-${registered[2]}-${registered[3]}` : null,
+            ...(image ? { imageUrl: image } : {}),
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+        if (boxes.length < plan.pageSize || fresh === 0) break;
+      }
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      const totalPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: rows.length,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
   // 몰 키 → 읽기기. 서버 계약(`@kiditem/shared/mall-admin-listings`)의 몰 표와 같아야 한다.
   const READERS = Object.freeze({
     kidkids: Object.freeze({
@@ -1120,6 +2127,78 @@
       // 상품정보 조회/수정 화면. 로그인이 풀렸으면 로그인 화면으로 넘어가고 파트너 쿠키가 없다.
       startPath: "/product/list",
       read: readThirtymallListings,
+    }),
+    domeggook: Object.freeze({
+      mallName: "도매꾹",
+      origin: "https://www.domeggook.com",
+      // 목록 조회 한 쪽 최대(상품번호 칸이 받는 500개). 전체가 한 쪽에 들어온다(493개).
+      pageSize: 500,
+      startPath: "/sc/item/lstAll",
+      read: readDomeggookListings,
+    }),
+    kidsnote: Object.freeze({
+      mallName: "키즈노트",
+      origin: "https://shop.kidsnote.com",
+      // 판매 상품 내역 한 쪽 최대(화면의 '100개씩').
+      pageSize: 100,
+      startPath: "/_manage/?body=2010",
+      read: readKidsnoteListings,
+    }),
+    "11st": Object.freeze({
+      mallName: "11번가",
+      origin: "https://soffice.11st.co.kr",
+      pageSize: 100,
+      // 상품조회/수정 화면.
+      startPath: "/view/8006",
+      read: read11stListings,
+    }),
+    gmarket: Object.freeze({
+      mallName: "지마켓",
+      origin: "https://item.esmplus.com",
+      // 목록 검색 한 쪽 최대. 마스터 상품 기준이다.
+      pageSize: 500,
+      startPath: "/goods/list",
+      read: readEsmListings,
+    }),
+    auction: Object.freeze({
+      mallName: "옥션",
+      origin: "https://item.esmplus.com",
+      pageSize: 500,
+      startPath: "/goods/list",
+      read: readEsmListings,
+    }),
+    kakao: Object.freeze({
+      mallName: "카카오 톡스토어",
+      origin: "https://shopping-seller.kakao.com",
+      pageSize: 100,
+      // 상품조회 화면. 목록 API 는 이 화면의 로그인으로 부른다.
+      startPath: "/product/store-seller/list",
+      read: readKakaoListings,
+    }),
+    "lotte-on": Object.freeze({
+      mallName: "롯데ON",
+      origin: "https://store.lotteon.com",
+      pageSize: 100,
+      // 판매자센터 첫 화면. 요청 머리를 붙이는 화면 함수가 여기 있어 화면 안(MAIN)에서 읽는다.
+      startPath: "/cm/main/index_SO.wsp",
+      world: "MAIN",
+      read: readLotteonListings,
+    }),
+    smartstore: Object.freeze({
+      mallName: "스마트스토어",
+      origin: "https://sell.smartstore.naver.com",
+      pageSize: 100,
+      // 원상품 목록 화면. 화면 자신의 Angular $http 로 불러야 해 화면 안(MAIN)에서 읽는다.
+      startPath: "/#/products/origin-list",
+      world: "MAIN",
+      read: readSmartstoreListings,
+    }),
+    "teacher-mall": Object.freeze({
+      mallName: "티쳐몰",
+      origin: "https://shop.teacherville.co.kr",
+      pageSize: 100,
+      startPath: "/selleradmin/goods/catalog",
+      read: readTeacherListings,
     }),
   });
 
@@ -1240,10 +2319,12 @@
         attached = true;
         await waitForTabReady(chromeApi, tab.id, tabReadyTimeoutMs);
         await assertCollectionActive(collection, plan.mallKey);
+        // 화면 함수로 요청 머리를 붙이는 몰(롯데ON · 스마트스토어)은 화면 안(MAIN)에서 읽는다.
         const injected = await chromeApi.scripting.executeScript({
           target: { tabId: tab.id },
           func: reader.read,
           args: [plan, requestTimeoutMs, requestDelayMs, concurrency],
+          ...(reader.world ? { world: reader.world } : {}),
         });
         await assertCollectionActive(collection, plan.mallKey);
         const result = injected?.[0]?.result;
@@ -1287,5 +2368,13 @@
     readAlwayzListings,
     readArt09Listings,
     readThirtymallListings,
+    readDomeggookListings,
+    readKidsnoteListings,
+    read11stListings,
+    readEsmListings,
+    readKakaoListings,
+    readLotteonListings,
+    readSmartstoreListings,
+    readTeacherListings,
   });
 })(globalThis);

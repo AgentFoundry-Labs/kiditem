@@ -9,6 +9,7 @@ import {
   mallAdminListingStatus,
   mallAdminStatusCounts,
   mallAdminSubmissionProblem,
+  resolveMallAdminRowCodes,
 } from './mall-admin-listings';
 
 const RUN = '99999999-9999-4999-8999-999999999999';
@@ -91,6 +92,22 @@ describe('mallAdminListingStatus', () => {
     expect(mallAdminListingStatus('thirtymall', ['판매금지', '품절'])).toBe('보류');
     expect(mallAdminListingStatus('thirtymall', ['승인거부', '판매금지', '품절'])).toBe('반려');
     expect(mallAdminListingStatus('thirtymall', ['판매종료'])).toBe('판매종료');
+  });
+
+  it('⭐ 사방넷으로만 가져오던 몰 — 몰 글자를 같은 어휘로 접는다(품절 송신이 만드는 글자는 품절 · 판매중지)', () => {
+    expect(mallAdminListingStatus('domeggook', ['진행중', '진열함'])).toBe('판매중');
+    expect(mallAdminListingStatus('domeggook', ['진행중', '진열안함'])).toBe('품절');
+    expect(mallAdminListingStatus('domeggook', ['기간종료', '진열안함'])).toBe('판매종료');
+    expect(mallAdminListingStatus('kidsnote', ['숨김'])).toBe('미노출');
+    expect(mallAdminListingStatus('11st', ['판매중지'])).toBe('일시중지');
+    expect(mallAdminListingStatus('11st', ['판매금지'])).toBe('보류');
+    expect(mallAdminListingStatus('gmarket', ['SKU품절'])).toBe('품절');
+    expect(mallAdminListingStatus('auction', ['판매불가'])).toBe('보류');
+    expect(mallAdminListingStatus('kakao', ['판매중', '전시안함'])).toBe('미노출');
+    expect(mallAdminListingStatus('lotte-on', ['품절'])).toBe('품절');
+    expect(mallAdminListingStatus('smartstore', ['판매중지'])).toBe('일시중지');
+    expect(mallAdminListingStatus('teacher-mall', ['미승인', '정상'])).toBe('승인대기');
+    expect(mallAdminListingStatus('teacher-mall', ['승인', '재고확보중'])).toBe('품절');
   });
 
   it('모르는 글자는 짐작하지 않고 몰 글자를 그대로 둔다', () => {
@@ -223,5 +240,28 @@ describe('mallAdminListingProducts', () => {
       row({ mallProductCode: '3', statusWords: ['영구품절'] }),
     ]);
     expect(mallAdminStatusCounts(products)).toEqual({ 판매중: 1, 품절: 1, 판매종료: 1 });
+  });
+});
+
+describe('resolveMallAdminRowCodes', () => {
+  it('⭐ 사방넷이 다른 번호로 준 상품은 그 번호의 리스팅을 쓴다 — 레시피가 거기 붙어 있다', () => {
+    const rows = [
+      row({ mallProductCode: '2057000001_9000000001', alternateCodes: ['2057000001'] }),
+      row({ mallProductCode: '2057000002_9000000002', alternateCodes: ['2057000002'] }),
+    ];
+    const resolved = resolveMallAdminRowCodes(rows, new Set(['2057000001', '2057000002_9000000002']));
+    expect(resolved.map((item) => item.mallProductCode)).toEqual(['2057000001', '2057000002_9000000002']);
+    // 다른 코드 칸은 서버 안에서만 쓰고 발행하지 않는다.
+    expect(resolved.every((item) => !('alternateCodes' in item))).toBe(true);
+  });
+
+  it('처음 보는 상품은 제 번호다 — 다른 줄의 번호나 이미 고른 번호는 고르지 않는다', () => {
+    const rows = [
+      row({ mallProductCode: '5441000001', alternateCodes: ['10091000001'] }),
+      row({ mallProductCode: '5441000002', alternateCodes: ['10091000001'] }),
+      row({ mallProductCode: '5441000003', alternateCodes: ['5441000001'] }),
+    ];
+    const resolved = resolveMallAdminRowCodes(rows, new Set(['10091000001', '5441000001']));
+    expect(resolved.map((item) => item.mallProductCode)).toEqual(['5441000001', '10091000001', '5441000003']);
   });
 });

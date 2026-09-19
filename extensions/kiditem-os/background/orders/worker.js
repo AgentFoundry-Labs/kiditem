@@ -7792,6 +7792,8 @@ KidItemDomains.register({
     sabangnetMallListingsSourceOwnerV1: true,
     // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
     mallAdminListingsSourceOwnerV1: true,
+    // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.
+    mallAdminListingsMallsV2: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

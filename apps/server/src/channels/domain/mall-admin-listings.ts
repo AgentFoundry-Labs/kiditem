@@ -110,6 +110,90 @@ const STATUS_RULES: Record<
     ['판매대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
     ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
+  /*
+    도매꾹: 진행상태(진행중 · 기간종료 · 승인대기)와 진열(진열함 · 진열안함)이 따로 온다(라이브 2026-09-19, 493개: 진행중 435 ·
+    기간종료 57 · 승인대기 1, 진열안함 139). 우리 품절 송신이 진열안함이라 진열안함은 품절이다.
+  */
+  domeggook: [
+    ['승인대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['기간종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['진열안함', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['진행중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  // 키즈노트: 상태 칸 하나 — 정상 · 품절 · 숨김(라이브 2026-09-19, 1,107개: 497 · 325 · 285). 숨김은 사장님이 숨긴 것이다.
+  kidsnote: [
+    ['숨김', MALL_ADMIN_LISTING_STATUS.hidden],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['정상', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  /*
+    11번가: 판매상태 코드 표 그대로(목록 화면 select, 라이브 2026-09-19: 판매중 363 · 품절 4 · 판매중지 514 · 판매금지 19).
+    우리 품절 송신이 판매중지다.
+  */
+  '11st': [
+    ['승인거부', MALL_ADMIN_LISTING_STATUS.rejected],
+    ['판매금지', MALL_ADMIN_LISTING_STATUS.held],
+    ['승인대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['전시전', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  /*
+    지마켓 · 옥션(ESM): 판매상태 코드 01 등록대기 · 11 판매가능 · 21 판매중지 · 22 판매불가 · 31 SKU품절(목록 화면의 칸 수로
+    맞춤, 라이브 2026-09-19). 판매불가는 몰이 막은 것이고, 우리 품절 송신이 판매중지다.
+  */
+  gmarket: [
+    ['판매불가', MALL_ADMIN_LISTING_STATUS.held],
+    ['등록대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['SKU품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  auction: [
+    ['판매불가', MALL_ADMIN_LISTING_STATUS.held],
+    ['등록대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['SKU품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  // 카카오 톡스토어: 판매상태(판매중 · 판매중지 · 품절 · 판매금지)와 전시(전시함 · 전시안함)(라이브 2026-09-19, 386개).
+  kakao: [
+    ['판매금지', MALL_ADMIN_LISTING_STATUS.held],
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['전시안함', MALL_ADMIN_LISTING_STATUS.hidden],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  // 롯데ON: 판매상태 코드 SALE 판매중 · SOUT 품절 · STP 판매중지 · END 판매종료(상품 조회 칸 그대로).
+  'lotte-on': [
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  // 스마트스토어: 원상품 판매상태(productStatusType). 우리 품절 송신이 판매중지다.
+  smartstore: [
+    ['승인거부', MALL_ADMIN_LISTING_STATUS.rejected],
+    ['판매금지', MALL_ADMIN_LISTING_STATUS.held],
+    ['승인대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['삭제', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  // 티쳐몰(퍼스트몰): 승인(승인 · 미승인)과 상태(정상 · 품절 · 재고확보중 · 판매중지). 우리 품절 송신은 재고 0 이다.
+  'teacher-mall': [
+    ['미승인', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['재고확보중', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['정상', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
 };
 
 /**
@@ -230,6 +314,27 @@ function productFromRow(
 }
 
 /** 발행할 리스팅. 몰 상품코드 순서로 정렬한다. */
+/**
+ * 다른 번호로 이미 이어진 리스팅이 있으면 그 번호를 쓴다 — 사방넷이 ESM 사이트번호만, 스마트스토어 원상품번호로 준 상품은
+ * 그 번호의 리스팅에 레시피가 붙어 있다. `existing` 은 이 몰 계정에 이미 있는 리스팅의 외부 ID 다. 자기 번호가 이미 있으면
+ * 그대로 두고, 다른 줄의 번호나 이미 고른 번호는 고르지 않는다.
+ */
+export function resolveMallAdminRowCodes(
+  rows: readonly MallAdminListingRow[],
+  existing: ReadonlySet<string>,
+): MallAdminListingRow[] {
+  const primary = new Set(rows.map((row) => row.mallProductCode));
+  const taken = new Set<string>();
+  return rows.map(({ alternateCodes, ...row }) => {
+    const alternate = existing.has(row.mallProductCode)
+      ? undefined
+      : (alternateCodes ?? []).find((code) => existing.has(code) && !primary.has(code) && !taken.has(code));
+    const mallProductCode = alternate ?? row.mallProductCode;
+    taken.add(mallProductCode);
+    return { ...row, mallProductCode };
+  });
+}
+
 export function mallAdminListingProducts(
   plan: MallAdminListingsPlan,
   rows: readonly MallAdminListingRow[],

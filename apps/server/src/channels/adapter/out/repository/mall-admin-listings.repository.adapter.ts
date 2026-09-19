@@ -31,6 +31,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type { MallAdminListingsRepositoryPort } from '../../../application/port/out/repository/mall-admin-listings.repository.port';
 import {
   mallAdminListingProducts,
+  resolveMallAdminRowCodes,
   mallAdminStatusCounts,
   mallAdminSubmissionProblem,
 } from '../../../domain/mall-admin-listings';
@@ -186,7 +187,19 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
         ));
       }
 
-      const products = mallAdminListingProducts(plan, rows);
+      // 사방넷이 다른 번호로 준 상품은 그 번호의 리스팅에 레시피가 붙어 있다 — 그 번호가 이 계정에 있으면 그 번호를 쓴다.
+      const candidateCodes = [...new Set(rows.flatMap((row) => row.alternateCodes ?? []))];
+      const existingCodes = candidateCodes.length === 0
+        ? new Set<string>()
+        : new Set((await tx.channelListing.findMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: plan.channelAccountId,
+            externalId: { in: [...candidateCodes, ...rows.map((row) => row.mallProductCode)] },
+          },
+          select: { externalId: true },
+        })).map((listing) => listing.externalId));
+      const products = mallAdminListingProducts(plan, resolveMallAdminRowCodes(rows, existingCodes));
       let mappingChanged = false;
       if (products.length > 0) {
         const upserted = await upsertChannelCatalogIdentities(tx, {
