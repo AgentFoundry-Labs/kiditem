@@ -19,6 +19,7 @@ import { SalesProductService } from '../../../application/service/sales-product.
 import { SabangnetProductImportService } from '../../../application/service/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../../../application/service/sales-product-link.service';
 import { SalesProductImageService } from '../../../application/service/sales-product-image.service';
+import { SalesProductMallPriceService } from '../../../application/service/sales-product-mall-price.service';
 
 interface UploadedWorkbookFile {
   originalname: string;
@@ -41,7 +42,20 @@ export class SalesProductController {
     private readonly sabangnetImport: SabangnetProductImportService,
     private readonly links: SalesProductLinkService,
     private readonly images: SalesProductImageService,
+    private readonly mallPrices: SalesProductMallPriceService,
   ) {}
+
+  /** 몰 가격이 판매상품 기준과 다른 상품 × 몰 — 몰별 값으로 가져오면 무엇이 바뀌는지(쓰지 않는다). */
+  @Get('mall-prices/adoption')
+  previewMallPriceAdoption(@CurrentOrganization() organizationId: string) {
+    return this.mallPrices.adopt(organizationId, false);
+  }
+
+  /** 몰 가격을 몰별 값으로 저장한다. 몰은 건드리지 않는다. */
+  @Post('mall-prices/adoption')
+  applyMallPriceAdoption(@CurrentOrganization() organizationId: string) {
+    return this.mallPrices.adopt(organizationId, true);
+  }
 
   /** 이 몰에서 판매상품이 쓴 사방넷 분류 — 등록 화면의 분류 칸 고를거리. */
   @Get('mall-categories')

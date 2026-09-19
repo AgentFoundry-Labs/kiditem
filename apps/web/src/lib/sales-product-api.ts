@@ -4,12 +4,14 @@ import {
   SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
   SalesProductMallCategoriesSchema,
+  SalesProductMallPriceAdoptionSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
   type SalesProduct,
   type SalesProductExternalImages,
   type SalesProductImageMirrorResult,
   type SalesProductMallCategories,
+  type SalesProductMallPriceAdoption,
   type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
@@ -37,6 +39,7 @@ export const salesProductKeys = {
   mallAccounts: () => ['sales-products', 'mall-accounts'] as const,
   externalImages: () => ['sales-products', 'external-images'] as const,
   mallCategories: (mallKey: string) => ['sales-products', 'mall-categories', mallKey] as const,
+  mallPriceAdoption: () => ['sales-products', 'mall-price-adoption'] as const,
 };
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
@@ -76,6 +79,12 @@ export const salesProductApi = {
     SalesProductMallCategoriesSchema.parse(
       await apiClient.get<unknown>(`${BASE}/mall-categories?mallKey=${encodeURIComponent(mallKey)}`),
     ),
+  /** 몰 가격이 판매상품 기준과 다른 상품 × 몰 — 몰별 값으로 가져오면 바뀔 것(쓰지 않는다). */
+  previewMallPriceAdoption: async (): Promise<SalesProductMallPriceAdoption> =>
+    SalesProductMallPriceAdoptionSchema.parse(await apiClient.get<unknown>(`${BASE}/mall-prices/adoption`)),
+  /** 몰 가격을 몰별 값으로 저장한다. 몰은 건드리지 않는다. */
+  applyMallPriceAdoption: async (): Promise<SalesProductMallPriceAdoption> =>
+    SalesProductMallPriceAdoptionSchema.parse(await apiClient.post<unknown>(`${BASE}/mall-prices/adoption`)),
   /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
   externalImages: async (): Promise<SalesProductExternalImages> =>
     SalesProductExternalImagesSchema.parse(await apiClient.get<unknown>(`${BASE}/images/external`)),

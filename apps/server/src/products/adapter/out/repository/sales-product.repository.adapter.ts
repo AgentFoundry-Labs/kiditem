@@ -28,6 +28,10 @@ import type {
   SalesProductLinkPlan,
 } from '../../../domain/sales-product-links';
 import type {
+  MallPriceCandidateListingOption,
+  MallPriceCandidateProduct,
+} from '../../../domain/sales-product-mall-prices';
+import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
@@ -522,6 +526,56 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       }
     }
     return fingerprints;
+  }
+
+  async readMallPriceCandidates(organizationId: string): Promise<{
+    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    listingOptions: MallPriceCandidateListingOption[];
+  }> {
+    const [products, listingOptions] = await Promise.all([
+      this.prisma.salesProduct.findMany({
+        where: { organizationId },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          salePrice: true,
+          options: { select: { id: true, extraPrice: true } },
+          channelOverrides: { select: { channelAccountId: true, salePrice: true, priceRateBp: true } },
+        },
+      }),
+      this.prisma.$queryRaw<{ channel_account_id: string; sales_product_option_id: string; sale_price: number | null }[]>(Prisma.sql`
+        SELECT l.channel_account_id, o.sales_product_option_id, o.sale_price
+        FROM channel_listing_options o
+        JOIN channel_listings l ON l.id = o.listing_id AND l.organization_id = o.organization_id
+        WHERE o.organization_id = ${organizationId}::uuid
+          AND o.is_active = true AND l.is_active = true
+          AND o.sales_product_option_id IS NOT NULL
+      `),
+    ]);
+    return {
+      products: products.map(({ channelOverrides, ...product }) => ({ ...product, overrides: channelOverrides })),
+      listingOptions: listingOptions.map((row) => ({
+        channelAccountId: row.channel_account_id,
+        salesProductOptionId: row.sales_product_option_id,
+        salePrice: row.sale_price,
+      })),
+    };
+  }
+
+  async setChannelOverrideSalePrices(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; salePrice: number }[],
+  ): Promise<number> {
+    for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
+      const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
+      await this.prisma.$transaction(async (tx) => {
+        for (const write of chunk) {
+          await upsertOverride(tx, organizationId, write.salesProductId, write.channelAccountId, { salePrice: write.salePrice });
+        }
+      }, TRANSACTION_OPTIONS);
+    }
+    return writes.length;
   }
 
   async readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {

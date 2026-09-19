@@ -9,6 +9,7 @@ import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ExternalImagesNotice } from './components/ExternalImagesNotice';
+import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -88,6 +89,7 @@ function SalesProductsContent() {
       </header>
 
       <ExternalImagesNotice />
+      <MallPriceAdoptionNotice />
 
       <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryCard icon={Package} label="판매상품" value={data?.summary.total} active={focus === 'all'} onClick={() => navigate({ focus: 'all' })} />

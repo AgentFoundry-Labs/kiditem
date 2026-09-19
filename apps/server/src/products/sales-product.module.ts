@@ -3,6 +3,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { ProductRecipeMutationModule } from './product-recipe-mutation.module';
 import { SalesProductLinkService } from './application/service/sales-product-link.service';
 import { SalesProductImageService } from './application/service/sales-product-image.service';
+import { SalesProductMallPriceService } from './application/service/sales-product-mall-price.service';
 import { SalesProductImageMirrorAdapter } from './adapter/out/storage/sales-product-image-mirror.adapter';
 import { SALES_PRODUCT_IMAGE_MIRROR_PORT } from './application/port/out/storage/sales-product-image-mirror.port';
 import { SalesProductController } from './adapter/in/http/sales-product.controller';
@@ -24,6 +25,7 @@ import { SalesProductService } from './application/service/sales-product.service
     SabangnetProductImportService,
     SalesProductLinkService,
     SalesProductImageService,
+    SalesProductMallPriceService,
     SalesProductRepositoryAdapter,
     { provide: SALES_PRODUCT_REPOSITORY_PORT, useExisting: SalesProductRepositoryAdapter },
     SalesProductImageMirrorAdapter,

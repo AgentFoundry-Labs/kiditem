@@ -10,6 +10,10 @@ import type {
 } from '@kiditem/shared/sales-product';
 import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product';
 import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product-links';
+import type {
+  MallPriceCandidateListingOption,
+  MallPriceCandidateProduct,
+} from '../../../../domain/sales-product-mall-prices';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
 
@@ -158,6 +162,16 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     codes: readonly string[],
   ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
+  /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
+  readMallPriceCandidates(organizationId: string): Promise<{
+    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    listingOptions: MallPriceCandidateListingOption[];
+  }>;
+  /** 상품 × 몰 계정의 몰별 판매가만 쓴다(다른 칸은 그대로, 줄이 없으면 만든다). 쓴 줄 수. */
+  setChannelOverrideSalePrices(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; salePrice: number }[],
+  ): Promise<number>;
   /** 가져오기: 판매상품코드 → id(이미 있는 것만). */
   readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>>;
   /**
