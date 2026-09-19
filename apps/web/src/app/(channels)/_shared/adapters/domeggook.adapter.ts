@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   domeggookFormFromDraft,
@@ -163,7 +163,7 @@ export const domeggookAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'domeggook');
     const form = domeggookFormFromDraft(draft, {
       unitQty: parsePositive(values.unitQty, 1),
       quantity: parsePositive(values.quantity, 1),

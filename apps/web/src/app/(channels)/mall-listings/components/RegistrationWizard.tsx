@@ -7,6 +7,7 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { productsApi } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { MALL_PUBLISH_ADAPTERS, getMallPublishAdapter } from '../../_shared/adapters';
 import {
@@ -23,6 +24,8 @@ import { StepValues } from './StepValues';
 import { StepDispatch } from './StepDispatch';
 
 const PAGE_SIZE = 25;
+
+type ProductSource = 'sales_product' | 'candidate';
 
 const STEPS = [
   { id: 1, label: '상품' },
@@ -65,10 +68,22 @@ export function RegistrationWizard() {
 
   const run = useMallPublishRun();
 
+  // 판매상품(ADR-0013)이 기본이다 — 한 번 편집한 상품을 몰로 보낸다. 수집상품에서 바로 보내는 길은 남겨 둔다.
+  const [source, setSource] = useState<ProductSource>('sales_product');
+  const [search, setSearch] = useState('');
+
   const productsQuery = useQuery({
     queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(PAGE_SIZE), surface: 'mall-listings' }),
     queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
     placeholderData: keepPreviousData,
+    enabled: source === 'candidate',
+  });
+
+  const salesQuery = useQuery({
+    queryKey: salesProductKeys.list({ page, limit: PAGE_SIZE, query: search || undefined, focus: 'all' }),
+    queryFn: () => salesProductApi.list({ page, limit: PAGE_SIZE, query: search || undefined, focus: 'all' }),
+    placeholderData: keepPreviousData,
+    enabled: source === 'sales_product',
   });
 
   const targetsQuery = useQuery({
@@ -77,15 +92,30 @@ export function RegistrationWizard() {
   });
 
   const pageItems = useMemo<MallPublishItem[]>(
-    () =>
-      (productsQuery.data?.items ?? []).map((product) => ({
+    () => source === 'sales_product'
+      ? (salesQuery.data?.items ?? []).map((product) => ({
+        candidateId: product.id,
+        name: product.name,
+        salePrice: product.salePrice,
+        thumbnailUrl: product.imageUrl,
+        source: 'sales_product' as const,
+        optionCount: product.optionAxes.length > 0 ? product.optionCount : 1,
+      }))
+      : (productsQuery.data?.items ?? []).map((product) => ({
         candidateId: product.id,
         name: product.name,
         salePrice: product.price_krw ?? null,
         thumbnailUrl: product.thumbnailUrl ?? null,
+        source: 'candidate' as const,
       })),
-    [productsQuery.data],
+    [source, productsQuery.data, salesQuery.data],
   );
+
+  const changeSource = useCallback((next: ProductSource) => {
+    setSource(next);
+    setPage(1);
+    setSelectedItems(new Map());
+  }, []);
 
   const items = useMemo(() => [...selectedItems.values()], [selectedItems]);
 
@@ -168,17 +198,27 @@ export function RegistrationWizard() {
       {targetsQuery.isError ? (
         <ErrorBox error={targetsQuery.error} fallback="몰 목록을 불러오지 못했습니다." />
       ) : null}
-      {productsQuery.isError ? (
+      {source === 'candidate' && productsQuery.isError ? (
         <ErrorBox error={productsQuery.error} fallback="수집 상품을 불러오지 못했습니다." />
+      ) : null}
+      {source === 'sales_product' && salesQuery.isError ? (
+        <ErrorBox error={salesQuery.error} fallback="판매상품을 불러오지 못했습니다." />
       ) : null}
 
       {step === 1 ? (
         <StepProducts
+          source={source}
+          onSourceChange={changeSource}
+          search={search}
+          onSearch={(next) => {
+            setSearch(next);
+            setPage(1);
+          }}
           items={pageItems}
-          total={productsQuery.data?.total ?? 0}
+          total={(source === 'sales_product' ? salesQuery.data?.total : productsQuery.data?.total) ?? 0}
           page={page}
           limit={PAGE_SIZE}
-          loading={productsQuery.isLoading}
+          loading={source === 'sales_product' ? salesQuery.isLoading : productsQuery.isLoading}
           selected={new Set(selectedItems.keys())}
           onPageChange={setPage}
           onToggle={toggleProduct}

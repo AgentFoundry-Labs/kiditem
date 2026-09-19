@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import { alwayzFormFromDraft } from '../../../(product-pipeline)/product-pipeline/_shared/lib/alwayz-registration-form';
 import { formatNumber } from '@/lib/utils';
@@ -104,7 +104,7 @@ export const alwayzAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'always');
     const form = alwayzFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
       teamPrice: parsePositive(values.teamPrice, 0),

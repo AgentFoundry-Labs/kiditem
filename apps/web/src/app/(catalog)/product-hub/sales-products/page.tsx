@@ -9,7 +9,7 @@ import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
-import { salesProductApi, salesProductKeys } from './lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   formatWon,
   SALES_PRODUCT_STATUS_LABEL,

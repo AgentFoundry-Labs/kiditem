@@ -37,6 +37,31 @@ vi.mock('@tanstack/react-query', () => ({
     if (queryKey.includes('availability-preview')) {
       return { data: { candidates: [] }, isLoading: false, isError: false, error: null };
     }
+    if (queryKey.includes('sales-products')) {
+      return {
+        data: {
+          items: [
+            {
+              id: 's1', code: '100300', ownCode: null, name: '애니멀 만능패드', status: 'active', salePrice: 5900,
+              imageUrl: null, optionAxes: ['색상'], optionCount: 3, sellingOptionCount: 3, unlinkedOptionCount: 0,
+              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+            },
+            {
+              id: 's2', code: '100017', ownCode: null, name: '투명우산 그리기', status: 'active', salePrice: 2880,
+              imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1, unlinkedOptionCount: 0,
+              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+            },
+          ],
+          total: 2,
+          page: 1,
+          limit: 25,
+          summary: { total: 2, withOptions: 1, withUnlinkedOptions: 0 },
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      };
+    }
     if (queryKey.includes('listing-matrix')) {
       return {
         data: matrixData,
@@ -90,9 +115,10 @@ vi.mock('../_shared/MallAdminListingsImport', () => ({
 
 let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
 
-/** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. */
-function goToWizard() {
+/** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. 기본 출처는 판매상품이다. */
+function goToWizard(source: 'candidate' | 'sales_product' = 'candidate') {
   fireEvent.click(screen.getByRole('button', { name: '새 등록' }));
+  if (source === 'candidate') fireEvent.click(screen.getByRole('tab', { name: '수집 상품' }));
 }
 
 function selectProduct(name: string) {
@@ -117,6 +143,21 @@ beforeEach(() => {
   generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
   // 기본은 읽는 중 그대로 둔다 — 창의 버튼을 세는 테스트가 읽기 결과에 흔들리지 않게.
   readMallAvailabilityManyMock.mockReturnValue(new Promise(() => {}));
+});
+
+describe('판매상품에서 등록 (ADR-0013)', () => {
+  it('판매상품이 기본 출처이고, 옵션 상품은 옵션 채우기가 없는 몰에서 막힌다', () => {
+    render(<MallListingsPage />);
+    goToWizard('sales_product');
+    expect(screen.getByRole('tab', { name: '판매상품' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('옵션 3')).toBeInTheDocument();
+    selectProduct('애니멀 만능패드');
+    selectProduct('투명우산 그리기');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+    expect(screen.getByText(/옵션 3개 상품입니다\. 키즈노트 옵션 채우기가 아직 없어 보내지 않습니다\./)).toBeInTheDocument();
+  });
 });
 
 describe('상품 등록 (N × M)', () => {

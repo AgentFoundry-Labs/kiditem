@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ESMPLUS_NOTICE_GROUP,
@@ -171,7 +171,7 @@ export const esmplusAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'gmarket');
     // 공통 안전인증번호 칸은 초안 고시로 넘긴다 — 폼 빌더는 초안만 본다.
     const certNumber = values.certNumber?.trim();
     const withCert = certNumber

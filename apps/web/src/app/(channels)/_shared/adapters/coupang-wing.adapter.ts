@@ -50,6 +50,8 @@ export const coupangWingAdapter: MallPublishAdapter = {
   mallKey: 'coupang',
   mallName: '쿠팡 WING',
   mode: 'excel',
+  // 윙 엑셀은 서버가 수집상품에서 만든다 — 판매상품은 아직 받지 않는다.
+  acceptsSalesProducts: false,
   // 한 파일에 전부 담긴다. 화면이 작업을 쪼개지 않는다.
   batchSize: Number.POSITIVE_INFINITY,
   requiresOperatorSubmit: true,

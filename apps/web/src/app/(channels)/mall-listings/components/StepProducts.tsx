@@ -1,10 +1,17 @@
 'use client';
 
+import { useState } from 'react';
+import { Search } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
 import type { MallPublishItem } from '../../_shared/mall-publish-adapter';
 
 interface StepProductsProps {
+  /** 판매상품(한 번 편집한 상품)에서 보내는가, 수집상품에서 바로 보내는가. */
+  source: 'sales_product' | 'candidate';
+  onSourceChange: (source: 'sales_product' | 'candidate') => void;
+  search: string;
+  onSearch: (search: string) => void;
   items: MallPublishItem[];
   total: number;
   page: number;
@@ -23,6 +30,10 @@ interface StepProductsProps {
  * 고르게 되고, 그게 지금까지 몰별 버튼이 하나씩 늘어난 이유다.
  */
 export function StepProducts({
+  source,
+  onSourceChange,
+  search,
+  onSearch,
   items,
   total,
   page,
@@ -41,13 +52,38 @@ export function StepProducts({
         <h2 className="text-sm font-semibold text-slate-900">
           등록할 상품
           <span className="ml-2 text-xs font-normal text-slate-400">
-            수집 상품 {formatNumber(total)}건
+            {source === 'sales_product' ? '판매상품' : '수집 상품'} {formatNumber(total)}건
           </span>
         </h2>
-        <p className="text-xs text-slate-400">
-          선택은 페이지를 넘겨도 유지됩니다.
-        </p>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1" role="tablist" aria-label="상품 출처">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === 'sales_product'}
+              className={cn('tab', source === 'sales_product' ? 'tab-active' : 'tab-inactive')}
+              onClick={() => onSourceChange('sales_product')}
+            >
+              판매상품
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === 'candidate'}
+              className={cn('tab', source === 'candidate' ? 'tab-active' : 'tab-inactive')}
+              onClick={() => onSourceChange('candidate')}
+            >
+              수집 상품
+            </button>
+          </div>
+          {source === 'sales_product' && <SearchBox value={search} onSearch={onSearch} />}
+        </div>
       </div>
+      <p className="text-xs text-slate-400">
+        {source === 'sales_product'
+          ? '판매상품은 옵션 · 몰별 값까지 그대로 보냅니다. 옵션이 여러 개인 상품은 옵션 채우기가 되는 몰에만 갑니다. 선택은 페이지를 넘겨도 유지됩니다.'
+          : '선택은 페이지를 넘겨도 유지됩니다.'}
+      </p>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
@@ -76,7 +112,7 @@ export function StepProducts({
             ) : items.length === 0 ? (
               <tr>
                 <td colSpan={3} className="px-3 py-6 text-center text-sm text-slate-400">
-                  수집 상품이 없습니다.
+                  {source === 'sales_product' ? '판매상품이 없습니다. 판매상품에서 사방넷 엑셀을 가져오거나 새로 만드세요.' : '수집 상품이 없습니다.'}
                 </td>
               </tr>
             ) : (
@@ -111,6 +147,11 @@ export function StepProducts({
                           <span className="h-9 w-9 flex-none rounded border border-slate-200 bg-slate-50" />
                         )}
                         <span className="line-clamp-2 text-slate-800">{item.name}</span>
+                        {(item.optionCount ?? 1) > 1 && (
+                          <span className="flex-none rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                            옵션 {item.optionCount}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
@@ -129,5 +170,27 @@ export function StepProducts({
         <Pagination page={page} limit={limit} total={total} onPageChange={onPageChange} />
       </div>
     </section>
+  );
+}
+
+function SearchBox({ value, onSearch }: { value: string; onSearch: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <form
+      className="relative"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSearch(draft.trim());
+      }}
+    >
+      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="판매상품 찾기"
+        aria-label="판매상품 찾기"
+        className="w-56 rounded-lg border border-slate-200 py-1.5 pl-8 pr-3 text-sm"
+      />
+    </form>
   );
 }

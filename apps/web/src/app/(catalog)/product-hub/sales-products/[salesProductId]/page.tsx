@@ -15,7 +15,7 @@ import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
-import { salesProductApi, salesProductKeys } from '../lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   basicsFromProduct,
   basicsPatch,

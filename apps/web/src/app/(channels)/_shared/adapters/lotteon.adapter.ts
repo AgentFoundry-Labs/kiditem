@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   LOTTEON_DEFAULT_CATEGORY,
@@ -148,7 +148,7 @@ export const lotteonAdapter: MallPublishAdapter = {
         error: '롯데ON 표준카테고리 코드 형식이 틀렸습니다.',
       };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'lotte-on');
     const certNumber = values.certNumber?.trim();
     const form = lotteonFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),

@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   onchannelFormFromDraft,
@@ -154,7 +154,7 @@ export const onchannelAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'onch');
     const form = onchannelFormFromDraft(draft, {
       supplyPrice: parsePositive(values.supplyPrice, 0),
       packQuantity: parsePositive(values.packQuantity, 1),

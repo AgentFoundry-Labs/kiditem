@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ELEVENST_SALE_PERIOD,
@@ -133,7 +133,7 @@ export const elevenstAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, '11st');
     const form = elevenstFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
       ...(parsePositive(values.consumerPrice, 0) > 0

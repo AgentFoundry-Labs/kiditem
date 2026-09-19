@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KKOMANGSE_COMMISSION_RATE,
@@ -148,7 +148,7 @@ export const kkomangseAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'kkomangse');
     const certNumber = values.certNumber?.trim();
     const category = parseCategory(values.categoryCodes);
     const form = kkomangseFormFromDraft(draft, {

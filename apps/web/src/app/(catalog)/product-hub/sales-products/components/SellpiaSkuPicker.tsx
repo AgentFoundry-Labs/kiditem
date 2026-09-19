@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, X } from 'lucide-react';
 import type { ProductRecipeComponentCandidate } from '@kiditem/shared/product-operations';
-import { salesProductApi, salesProductKeys } from '../lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 
 /**
  * 셀피아 상품 하나를 고른다. 재고 관리 화면과 같은 검색(상품코드 · 이름 · 바코드)을 쓰고, 고른 것은

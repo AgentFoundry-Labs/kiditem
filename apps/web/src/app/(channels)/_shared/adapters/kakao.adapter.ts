@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KAKAO_DELIVERY_TEMPLATE,
@@ -151,7 +151,7 @@ export const kakaoAdapter: MallPublishAdapter = {
         error: '톡스토어 카테고리 코드 형식이 틀렸습니다.',
       };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'kakao');
     const certNumber = values.certNumber?.trim();
     const form = kakaoFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),

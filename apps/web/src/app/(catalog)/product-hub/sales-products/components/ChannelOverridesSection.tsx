@@ -6,7 +6,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { SalesProduct, SalesProductChannelOverride } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
-import { salesProductApi, salesProductKeys } from '../lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { formatWon } from '../lib/sales-product-labels';
 
 interface OverrideDraft {

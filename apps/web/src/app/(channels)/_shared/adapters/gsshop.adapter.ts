@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   GSSHOP_BRAND,
@@ -195,7 +195,7 @@ export const gsshopAdapter: MallPublishAdapter = {
         error: codeProblem ?? 'GS샵 분류·전시 카테고리 형식이 틀렸습니다.',
       };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'gs-shop');
     const certNumber = values.certNumber?.trim();
     const supplierProductCode = values.gsshopSupplierCode?.trim();
     const form = gsshopFormFromDraft(draft, {

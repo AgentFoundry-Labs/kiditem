@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   SSG_BRAND_NAME,
@@ -170,7 +170,7 @@ export const ssgAdapter: MallPublishAdapter = {
     if (!display || !standard) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '신세계 카테고리 형식이 틀렸습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'ssg');
     const certNumber = values.certNumber?.trim();
     const form = ssgFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),

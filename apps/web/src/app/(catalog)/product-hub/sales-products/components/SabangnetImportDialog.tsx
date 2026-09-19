@@ -6,7 +6,7 @@ import { FileSpreadsheet, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { SabangnetImportPreview } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
-import { salesProductApi, salesProductKeys } from '../lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 
 const KIND_LABEL: Record<SabangnetImportPreview['files'][number]['kind'], string> = {
   products: '상품(사방넷상품대량수정)',

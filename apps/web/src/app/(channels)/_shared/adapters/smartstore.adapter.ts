@@ -1,6 +1,6 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
-  prepareMallRegistration,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   SMARTSTORE_BRAND_NAME,
@@ -154,7 +154,7 @@ export const smartstoreAdapter: MallPublishAdapter = {
     if (!category) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '스마트스토어 카테고리 형식이 틀렸습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'smartstore');
     const certNumber = values.certNumber?.trim();
     const form = smartstoreFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),

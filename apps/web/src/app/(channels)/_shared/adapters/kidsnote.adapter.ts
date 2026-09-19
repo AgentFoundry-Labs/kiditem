@@ -1,3 +1,4 @@
+import { prepareRegistration } from '../sales-product-registration';
 import {
   fillKidsnoteRegistrationForm,
   prepareKidsnoteRegistration,
@@ -158,7 +159,9 @@ export const kidsnoteAdapter: MallPublishAdapter = {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
     const categoryKey = values.category ?? KIDSNOTE_DEFAULT_CATEGORY;
-    const { draft } = await prepareKidsnoteRegistration(item.candidateId);
+    const { draft } = item.source === 'sales_product'
+      ? await prepareRegistration(item, 'kidsnote')
+      : await prepareKidsnoteRegistration(item.candidateId);
     const result = await fillKidsnoteRegistrationForm(draft, {
       ...(isCategoryKey(categoryKey) ? { category: categoryKey } : {}),
       quantity: parseQuantity(values.quantity),

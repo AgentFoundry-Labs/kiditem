@@ -74,10 +74,15 @@ export interface MallPreviewRow {
 
 /** 어댑터에 넘기는 상품 한 건. 목록에서 바로 얻을 수 있는 것만 담는다. */
 export interface MallPublishItem {
+  /** 수집상품 id, 또는 `source: 'sales_product'` 이면 판매상품 id. */
   candidateId: string;
   name: string;
   salePrice: number | null;
   thumbnailUrl: string | null;
+  /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0013 이전과 같다). */
+  source?: 'candidate' | 'sales_product';
+  /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
+  optionCount?: number;
 }
 
 export interface MallSendInput {
@@ -131,6 +136,13 @@ export interface MallPublishAdapter {
   batchSize: number;
   /** 마지막 제출을 사람이 눌러야 하는가. 승인제 몰은 항상 true. */
   requiresOperatorSubmit: boolean;
+  /**
+   * 옵션 여러 개(단품 둘 이상)를 몰 폼 · 파일에 채울 수 있는가. 아니면 옵션 상품은 이 몰로 보내지 않는다 —
+   * 옵션 한 줄로 줄여 보내면 몰에서 다른 옵션을 살 길이 없다.
+   */
+  supportsOptions?: boolean;
+  /** 판매상품(ADR-0013)에서 보낼 수 있는가. 쿠팡 윙 엑셀은 아직 수집상품만 받는다. */
+  acceptsSalesProducts?: boolean;
   /** 이 몰이 요구하는 값. 화면이 이 선언으로 입력칸을 그린다. */
   fields: readonly MallFieldSpec[];
   /** 송신 없이 값만 보여준다. */
@@ -159,6 +171,18 @@ export function defaultAdapterValues(
  * 진짜 0원은 초안을 만든 뒤 `mallProductDraftGaps` 가 잡는다 — 그때는 해석된 값이라
  * 판정이 정확하다.
  */
+/**
+ * 상품의 출처 · 옵션 수로 이 몰에 못 보내는 이유. 어댑터마다 다시 적지 않고 계획이 한 번 본다.
+ */
+export function itemSourceProblem(adapter: MallPublishAdapter, item: MallPublishItem): string | null {
+  if (item.source !== 'sales_product') return null;
+  if (adapter.acceptsSalesProducts === false) return `${adapter.mallName}는 아직 판매상품에서 보낼 수 없습니다(수집상품만).`;
+  if ((item.optionCount ?? 1) > 1 && !adapter.supportsOptions) {
+    return `옵션 ${item.optionCount}개 상품입니다. ${adapter.mallName} 옵션 채우기가 아직 없어 보내지 않습니다.`;
+  }
+  return null;
+}
+
 export function listPriceProblem(salePrice: number | null): string | null {
   if (salePrice === null) return null;
   if (salePrice > 0) return null;

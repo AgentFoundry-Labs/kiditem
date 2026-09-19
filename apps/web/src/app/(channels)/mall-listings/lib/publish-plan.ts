@@ -1,7 +1,8 @@
-import type {
-  MallPublishAdapter,
-  MallPublishItem,
-  MallSendOutcome,
+import {
+  itemSourceProblem,
+  type MallPublishAdapter,
+  type MallPublishItem,
+  type MallSendOutcome,
 } from '../../_shared/mall-publish-adapter';
 
 /**
@@ -77,7 +78,8 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
     const sendable: MallPublishItem[] = [];
 
     for (const item of input.items) {
-      const reasons = adapter.validate(item, values);
+      const sourceProblem = itemSourceProblem(adapter, item);
+      const reasons = sourceProblem ? [sourceProblem] : adapter.validate(item, values);
       if (reasons.length > 0) {
         blocks.push({
           mallKey: adapter.mallKey,
