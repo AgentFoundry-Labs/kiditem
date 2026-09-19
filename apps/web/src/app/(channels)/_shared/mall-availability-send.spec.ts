@@ -210,21 +210,39 @@ describe('몰 지금 재고', () => {
 
   it('재고 수를 주지 않는 몰(올웨이즈)은 판매중이면 "판매 가능"만 말한다', () => {
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }])).toEqual({ tone: 'on_sale', label: '판매 가능' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0', badge: '품절' });
     // 품절인지만 주는 몰은 '재고 0' 이라고 적지 않는다 — 판매안함(아트공구)은 재고가 0 인 것이 아니다.
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'art09')).toEqual({ tone: 'sold_out', label: '품절' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'always')).toEqual({ tone: 'sold_out', label: '품절' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'lotte-on')).toEqual({ tone: 'sold_out', label: '품절' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '품절' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'kidsnote')).toEqual({ tone: 'sold_out', label: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'art09')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'always')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'lotte-on')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'kidsnote')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
     // ESM · 11번가 · 스마트스토어는 품절을 판매중지로 보낸다 — 그 몰의 말 그대로 적는다.
     for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) {
-      expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], mall)).toEqual({ tone: 'sold_out', label: '판매중지' });
+      expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], mall)).toEqual({ tone: 'sold_out', label: '판매중지', badge: '판매중지' });
     }
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }], 'smartstore')).toEqual({ tone: 'on_sale', label: '판매 가능' });
     // 몰이 준 상태 글자가 있으면 그대로 적는다 — 11번가 품절(재고 0)은 판매중지가 아니다.
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '품절' }], '11st')).toEqual({ tone: 'sold_out', label: '품절' });
-    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '판매종료' }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '판매종료' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '품절' }], '11st')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
+    expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state: '판매종료' }], 'icecream-mall')).toEqual({ tone: 'ended', label: '판매종료', badge: '판매종료' });
+  });
+
+  /**
+   * 옥션이 막은 판매불가를 칸이 '품절' 로 적어 우리가 품절 처리한 것처럼 보였다(사장님 2026-09-19 "품절이 아니라 미승인이나
+   * 판매불가로 해줘야지"). 칸은 몰의 말로, 까닭마다 다른 색으로 적는다.
+   */
+  it('못 사는 까닭을 품절로 뭉개지 않는다 — 판매불가 · 미승인 · 판매종료는 그 말로 적는다', () => {
+    const stated = (state: string, mall = 'auction') => summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false, state }], mall);
+    expect(stated('판매불가')).toEqual({ tone: 'blocked', label: '판매불가 — 몰이 막은 상태라 판매 재개로 풀리지 않습니다', badge: '판매불가' });
+    expect(stated('판매금지', 'smartstore')).toMatchObject({ tone: 'blocked', badge: '판매금지' });
+    expect(stated('등록대기')).toEqual({ tone: 'pending', label: '미승인 · 등록대기', badge: '미승인' });
+    expect(stated('승인대기', '11st')).toEqual({ tone: 'pending', label: '미승인 · 승인대기', badge: '미승인' });
+    expect(stated('판매대기', 'smartstore')).toEqual({ tone: 'pending', label: '판매대기', badge: '판매대기' });
+    expect(stated('전시전', '11st')).toMatchObject({ tone: 'pending', badge: '전시전' });
+    expect(stated('숨김', 'kidsnote')).toEqual({ tone: 'ended', label: '숨김', badge: '숨김' });
+    // 품절 처리가 만드는 상태는 빨간 품절 계열 그대로다.
+    expect(stated('판매중지')).toEqual({ tone: 'sold_out', label: '판매중지', badge: '판매중지' });
+    expect(stated('SKU품절', 'gmarket')).toEqual({ tone: 'sold_out', label: 'SKU품절', badge: 'SKU품절' });
   });
 
   it('롯데ON 은 보낸 직후 다시 읽지 않는다 — 조회가 옛 판매상태를 섞어 준다', () => {
@@ -261,13 +279,13 @@ describe('몰 지금 재고', () => {
 
   it('재고 0 이면 품절, 일부면 몇 개 품절, 아니면 판매 가능이다', () => {
     const option = (stock: number, rocket = false) => ({ optionCode: String(stock), stock, rocket });
-    expect(summarizeLiveAvailability([option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
-    expect(summarizeLiveAvailability([option(0), option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 옵션 2개 모두 재고 0' });
-    expect(summarizeLiveAvailability([option(0), option(5)])).toEqual({ tone: 'partial', label: '옵션 2개 중 1개 품절' });
+    expect(summarizeLiveAvailability([option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0', badge: '품절' });
+    expect(summarizeLiveAvailability([option(0), option(0)])).toEqual({ tone: 'sold_out', label: '품절 · 옵션 2개 모두 재고 0', badge: '품절' });
+    expect(summarizeLiveAvailability([option(0), option(5)])).toEqual({ tone: 'partial', label: '옵션 2개 중 1개 품절', badge: '일부 품절' });
     expect(summarizeLiveAvailability([option(1861)])).toEqual({ tone: 'on_sale', label: '판매 가능 · 재고 1,861' });
     expect(summarizeLiveAvailability([option(3), option(5)])).toEqual({ tone: 'on_sale', label: '판매 가능 · 옵션 2개 재고 있음' });
     expect(summarizeLiveAvailability([option(0, true)]).tone).toBe('rocket');
-    expect(summarizeLiveAvailability([option(0), option(9, true)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0' });
+    expect(summarizeLiveAvailability([option(0), option(9, true)])).toEqual({ tone: 'sold_out', label: '품절 · 재고 0', badge: '품절' });
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Check, ChevronDown, CircleSlash, PackageX, PauseCircle, X } from 'lucide-react';
+import { AlertTriangle, Ban, Check, ChevronDown, CircleSlash, Clock, PackageX, PauseCircle, X } from 'lucide-react';
 import type {
   MallListingMatrixColumn,
   MallListingMatrixRow,
@@ -16,6 +16,7 @@ import {
   mallMonogram,
   productMonogram,
 } from '../../_shared/mall-presentation';
+import type { MallLiveSummary } from '../../_shared/mall-availability-send';
 import { CellActionPopover, RowActionMenu } from './ListingActionMenus';
 import {
   liveCellKey,
@@ -91,7 +92,7 @@ export function ListingMatrixTable({
     null,
   );
   const { topRef, bodyRef, scrollWidth, overflowing } = useSyncedHorizontalScroll();
-  // 몰 지금 재고(쿠팡 윙). 품절이면 칸이 빨간 '품절'이 된다.
+  // 몰 지금 상태. 못 사면 칸이 몰의 말(품절 · 판매중지 · 판매불가 · 미승인 …)로 바뀐다.
   const live = useMallLiveAvailability(columns, loading ? [] : rows);
 
   return (
@@ -531,11 +532,24 @@ function ProductThumbnail({
   );
 }
 
-/** 몰 지금 재고가 품절 · 일부 품절이면 칸이 그것을 먼저 말한다. 품절은 빨강이다(사장님 2026-09-18). */
-const LIVE_PILL = {
-  sold_out: { label: '품절', tone: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' },
-  partial: { label: '일부 품절', tone: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
-} as const;
+type LivePillTone = Exclude<MallLiveSummary['tone'], 'on_sale' | 'rocket'>;
+
+/**
+ * 몰에서 지금 못 사는 칸은 그 까닭을 먼저 말한다 — 몰이 준 말 그대로. 품절 처리로 생기는 품절 · 판매중지는 빨강이다(사장님
+ * 2026-09-18). 몰이 막은 판매불가 · 판매금지는 주황, 아직 판매 전(미승인 · 판매대기)은 하늘, 끝난 것(판매종료 · 숨김)은 회색이다
+ * (사장님 2026-09-19 "품절이 아니라 미승인이나 판매불가로 해줘야지").
+ */
+const LIVE_PILL: Record<LivePillTone, { tone: string; icon: typeof Check }> = {
+  sold_out: { tone: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200', icon: PackageX },
+  partial: { tone: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200', icon: PackageX },
+  blocked: { tone: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200', icon: Ban },
+  pending: { tone: 'bg-sky-50 text-sky-700 ring-1 ring-sky-200', icon: Clock },
+  ended: { tone: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200', icon: CircleSlash },
+};
+
+function livePillTone(summary: MallLiveSummary): LivePillTone | null {
+  return summary.tone === 'on_sale' || summary.tone === 'rocket' ? null : summary.tone;
+}
 
 function StatePill({
   state,
@@ -552,19 +566,18 @@ function StatePill({
   imported: boolean;
   live?: MallLiveCell | null;
 }) {
-  const liveTone = live?.status === 'ready' && (live.summary.tone === 'sold_out' || live.summary.tone === 'partial')
-    ? live.summary.tone
-    : null;
+  const liveTone = live?.status === 'ready' ? livePillTone(live.summary) : null;
   if (live?.status === 'ready' && liveTone) {
     const pill = LIVE_PILL[liveTone];
+    const PillIcon = pill.icon;
     const time = live.readAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     return (
       <span
-        title={`몰 지금 재고: ${live.summary.label} (${time} 확인)${rawStatus ? `\n몰 판매상태: ${rawStatus}` : ''}`}
+        title={`몰에서 지금: ${live.summary.label} (${time} 확인)${rawStatus ? `\n가져온 몰 상태: ${rawStatus}` : ''}`}
         className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold', pill.tone)}
       >
-        <PackageX size={11} />
-        {pill.label}
+        <PillIcon size={11} />
+        {live.summary.badge ?? '품절'}
       </span>
     );
   }

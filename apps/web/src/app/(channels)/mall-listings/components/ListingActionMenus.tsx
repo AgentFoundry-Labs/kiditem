@@ -194,6 +194,9 @@ interface CellActionPopoverProps {
 const LIVE_TONE: Record<MallLiveSummary['tone'], string> = {
   sold_out: 'bg-rose-50 text-rose-700',
   partial: 'bg-amber-50 text-amber-800',
+  blocked: 'bg-orange-50 text-orange-700',
+  pending: 'bg-sky-50 text-sky-700',
+  ended: 'bg-slate-100 text-slate-600',
   on_sale: 'bg-emerald-50 text-emerald-700',
   rocket: 'bg-slate-50 text-slate-600',
 };

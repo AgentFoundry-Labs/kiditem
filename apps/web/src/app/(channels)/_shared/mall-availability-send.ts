@@ -164,8 +164,15 @@ export async function readMallAvailabilityMany(
 }
 
 export interface MallLiveSummary {
-  tone: 'sold_out' | 'partial' | 'on_sale' | 'rocket';
+  /**
+   * 칸 색. 품절 처리로 생기는 것(품절 · 판매중지)은 sold_out, 몰이 막은 것(판매불가 · 판매금지)은 blocked, 아직 판매 전인
+   * 것(미승인 · 판매대기)은 pending, 끝났거나 숨긴 것(판매종료 · 숨김)은 ended.
+   */
+  tone: 'sold_out' | 'partial' | 'blocked' | 'pending' | 'ended' | 'on_sale' | 'rocket';
+  /** 칸 창의 한 줄("지금 …"). */
   label: string;
+  /** 칸 알약에 쓰는 짧은 말. 판매 가능 · 로켓그로스는 칸이 알약을 바꾸지 않아 없다. */
+  badge?: string;
 }
 
 /**
@@ -193,6 +200,25 @@ export function mallSoldOutNote(mallKey: string): string | null {
   return null;
 }
 
+/**
+ * 몰이 준 "지금 못 사는" 상태 글자를 칸의 말로 나눈다 — 칸이 뭐든 '품절' 로 적으면 옥션이 막은 판매불가도 우리가 품절
+ * 처리한 것처럼 보인다(사장님 2026-09-19 "품절이 아니라 미승인이나 판매불가로 해줘야지").
+ */
+const BLOCKED_WORDS: ReadonlySet<string> = new Set(['판매불가', '판매금지']);
+const UNAPPROVED_WORDS: ReadonlySet<string> = new Set(['등록대기', '승인대기']);
+const NOT_YET_WORDS: ReadonlySet<string> = new Set(['판매대기', '전시전']);
+const ENDED_WORDS: ReadonlySet<string> = new Set(['판매종료', '숨김']);
+
+function statedSummary(word: string): MallLiveSummary {
+  // 판매 재개는 우리가 멈춘 상태만 푼다 — 몰이 막은 것은 몰에서 사유를 풀어야 한다.
+  if (BLOCKED_WORDS.has(word)) return { tone: 'blocked', label: `${word} — 몰이 막은 상태라 판매 재개로 풀리지 않습니다`, badge: word };
+  if (UNAPPROVED_WORDS.has(word)) return { tone: 'pending', label: `미승인 · ${word}`, badge: '미승인' };
+  if (NOT_YET_WORDS.has(word)) return { tone: 'pending', label: word, badge: word };
+  if (ENDED_WORDS.has(word)) return { tone: 'ended', label: word, badge: word };
+  // 품절 · SKU품절 · 판매중지 — 품절 처리가 만드는 상태다.
+  return { tone: 'sold_out', label: word, badge: word };
+}
+
 /** 받침에 맞춘 목적격 조사(을 · 를). */
 export function withObjectParticle(word: string): string {
   const last = word.trim().slice(-1);
@@ -207,14 +233,18 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[], ma
   if (editable.length === 0) return { tone: 'rocket', label: '로켓그로스 상품 — 쿠팡 재고입니다' };
   const soldOut = editable.filter((option) => option.stock === 0).length;
   if (soldOut === editable.length) {
-    // 몰이 준 상태 글자가 있으면 그대로(11번가 품절 · 스마트스토어 판매대기처럼 판매중지가 아닌 것도 있다).
+    // 몰이 준 상태 글자가 있으면 그대로(11번가 품절 · 옥션 판매불가 · 스마트스토어 판매대기처럼 판매중지가 아닌 것도 있다).
     const stated = editable.length === 1 ? editable[0].state?.trim() : undefined;
-    if (stated) return { tone: 'sold_out', label: stated };
-    if (mallKey && SUSPENSION_MALLS.has(mallKey)) return { tone: 'sold_out', label: '판매중지' };
-    if (mallKey && SOLD_OUT_FLAG_MALLS.has(mallKey)) return { tone: 'sold_out', label: '품절' };
-    return { tone: 'sold_out', label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0` };
+    if (stated) return statedSummary(stated);
+    if (mallKey && SUSPENSION_MALLS.has(mallKey)) return { tone: 'sold_out', label: '판매중지', badge: '판매중지' };
+    if (mallKey && SOLD_OUT_FLAG_MALLS.has(mallKey)) return { tone: 'sold_out', label: '품절', badge: '품절' };
+    return {
+      tone: 'sold_out',
+      label: editable.length === 1 ? '품절 · 재고 0' : `품절 · 옵션 ${editable.length}개 모두 재고 0`,
+      badge: '품절',
+    };
   }
-  if (soldOut > 0) return { tone: 'partial', label: `옵션 ${editable.length}개 중 ${soldOut}개 품절` };
+  if (soldOut > 0) return { tone: 'partial', label: `옵션 ${editable.length}개 중 ${soldOut}개 품절`, badge: '일부 품절' };
   const only = editable.length === 1 ? editable[0].stock : null;
   return {
     tone: 'on_sale',
