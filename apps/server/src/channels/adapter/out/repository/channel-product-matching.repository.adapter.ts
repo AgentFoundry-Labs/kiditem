@@ -39,6 +39,29 @@ const READ_TRANSACTION_OPTIONS = {
   isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
 } as const;
 
+/**
+ * 리스팅을 옵션 · 구성품과 함께 읽을 때 한 번에 불러오는 수. 관계를 읽는 쿼리에 부모 번호가 파라미터로 실려, 한 번에 다
+ * 읽으면 PostgreSQL 파라미터 한도(32,767)를 넘는다(2026-09-19: 리스팅 16,081 · 옵션 17,098 에서 품절 관리 미리보기가
+ * P2029 "query parameter limit" 로 깨졌다). 셀피아 SKU 신원도 같은 까닭으로 나눠 읽는다.
+ */
+const LISTING_LOAD_BATCH = 2_000;
+const INVENTORY_IDENTITY_BATCH = 5_000;
+
+/** 순서대로 읽어 둔 번호를 묶음마다 불러와 그 순서로 되돌린다. 사이에 없어진 번호는 빠진다. */
+async function loadByIdBatches<T extends { id: string }>(
+  ids: readonly string[],
+  load: (chunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const byId = new Map<string, T>();
+  for (let start = 0; start < ids.length; start += LISTING_LOAD_BATCH) {
+    for (const row of await load(ids.slice(start, start + LISTING_LOAD_BATCH))) byId.set(row.id, row);
+  }
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+}
+
 function listingSelect(organizationId: string) {
   return {
     id: true,
@@ -297,12 +320,18 @@ implements ChannelProductMatchingRepositoryPort {
     channelAccountId?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
+      // 몰을 고르지 않으면 모든 리스팅이다 — 번호만 먼저 읽고 묶음으로 나눠 불러온다(`LISTING_LOAD_BATCH`).
+      const listingIds = (await tx.channelListing.findMany({
+        where: {
+          organizationId: input.organizationId,
+          ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      })).map((row) => row.id);
       const [listings, aliases] = await Promise.all([
-        tx.channelListing.findMany({
-          where: {
-            organizationId: input.organizationId,
-            ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
-          },
+        loadByIdBatches(listingIds, (chunk) => tx.channelListing.findMany({
+          where: { organizationId: input.organizationId, id: { in: chunk } },
           select: {
             id: true,
             displayName: true,
@@ -327,7 +356,7 @@ implements ChannelProductMatchingRepositoryPort {
               },
             },
           },
-        }),
+        })),
         tx.sellpiaManualMatchAlias.findMany({
           where: { organizationId: input.organizationId },
           select: {
@@ -583,43 +612,52 @@ implements ChannelProductMatchingRepositoryPort {
     scope: 'matching' | 'availability',
   ): Promise<ListingRow[]> {
     const search = query.search?.trim();
-    const listings: RawListingRow[] = await prisma.channelListing.findMany({
-      where: {
-        ...(scope === 'matching'
-          ? matchingListingWhere(organizationId)
-          : availabilityListingWhere(organizationId, query.channelAccountId)),
-        ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
-        ...(query.optionIds ? {
-          options: { some: { organizationId, id: { in: query.optionIds } } },
-        } : {}),
-        ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
-        ...(search ? {
-          OR: [
-            { externalId: { contains: search, mode: 'insensitive' } },
-            { displayName: { contains: search, mode: 'insensitive' } },
-            { channelName: { contains: search, mode: 'insensitive' } },
-            { options: { some: {
-              organizationId,
-              OR: [
-                { externalOptionId: { contains: search, mode: 'insensitive' } },
-                { sellerSku: { contains: search, mode: 'insensitive' } },
-                { itemName: { contains: search, mode: 'insensitive' } },
-              ],
-            } } },
-          ],
-        } : {}),
-      },
-      select: listingSelect(organizationId),
+    const where: Prisma.ChannelListingWhereInput = {
+      ...(scope === 'matching'
+        ? matchingListingWhere(organizationId)
+        : availabilityListingWhere(organizationId, query.channelAccountId)),
+      ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
+      ...(query.optionIds ? {
+        options: { some: { organizationId, id: { in: query.optionIds } } },
+      } : {}),
+      ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
+      ...(search ? {
+        OR: [
+          { externalId: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+          { channelName: { contains: search, mode: 'insensitive' } },
+          { options: { some: {
+            organizationId,
+            OR: [
+              { externalOptionId: { contains: search, mode: 'insensitive' } },
+              { sellerSku: { contains: search, mode: 'insensitive' } },
+              { itemName: { contains: search, mode: 'insensitive' } },
+            ],
+          } } },
+        ],
+      } : {}),
+    };
+    // 번호만 순서대로 읽고, 옵션 · 구성품까지는 묶음으로 나눠 불러온다(`LISTING_LOAD_BATCH`).
+    const orderedIds = (await prisma.channelListing.findMany({
+      where,
+      select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    })).map((row) => row.id);
+    const listings: RawListingRow[] = await loadByIdBatches(orderedIds, (chunk) => prisma.channelListing.findMany({
+      where: { organizationId, id: { in: chunk } },
+      select: listingSelect(organizationId),
+    }));
     const inventorySkuIds = [...new Set(listings.flatMap((listing) =>
       listing.options.flatMap((option) => option.inventoryComponents.map(
         (component) => component.sellpiaInventorySkuId,
       ))))];
-    const identities = await readInventorySkuIdentities(prisma, {
-      organizationId,
-      selector: { kind: 'ids', values: inventorySkuIds },
-    });
+    const identities: InventorySkuReadModel[] = [];
+    for (let start = 0; start < inventorySkuIds.length; start += INVENTORY_IDENTITY_BATCH) {
+      identities.push(...await readInventorySkuIdentities(prisma, {
+        organizationId,
+        selector: { kind: 'ids', values: inventorySkuIds.slice(start, start + INVENTORY_IDENTITY_BATCH) },
+      }));
+    }
     const identityById = new Map(identities.map((identity) => [
       identity.sellpiaInventorySkuId,
       toInventorySkuIdentity(identity),
