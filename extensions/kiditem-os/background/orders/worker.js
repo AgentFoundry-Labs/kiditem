@@ -924,6 +924,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(mallAvailabilitySend().read(msg));
   }
 
+  // 몰 가격 보내기(KID-247). 사람이 판매상품 화면에서 누른 가격만 보내고, 몰을 다시 읽어 확인한다.
+  if (msg?.action === "sendMallPrice") {
+    return respond(mallAvailabilitySend().sendPrice(msg));
+  }
+
   if (msg?.action === "collectSellpiaManualMatch") {
     try {
       const parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(rawMessage);
@@ -7830,6 +7835,9 @@ KidItemDomains.register({
     // 떠리몰(샵바이 파트너 어드민)을 상품 목록 판매설정(판매중지 · 판매가능)과 같은 요청으로 보낸다(1.2.21). 옛 확장은 떠리몰
     // 길이 없다 — 웹은 이 값이 없는 확장으로 떠리몰을 보내지 않는다.
     mallAvailabilityThirtymallV1: true,
+    // 몰 가격 보내기(1.2.24, KID-247). 옛 확장은 이 액션을 모른다 — 웹은 이 값이 없는 확장으로 가격을 보내지 않는다.
+    mallPriceSendV1: true,
+    mallPriceSendMalls: KidItemMallAvailabilitySend.PRICE_MALL_KEYS,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

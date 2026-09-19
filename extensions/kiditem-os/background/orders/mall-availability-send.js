@@ -21,6 +21,12 @@
   //    몰이 뭐라고 답했는지까지만 말한다. 반영은 몰 재조회가 답한다.
 
   const SEND_TIMEOUT_MS = 180000;
+  /** 가격 보내기: 한 번에 보낼 상품 수와 받아들이는 가격(원). 오타로 0원 · 억 단위가 나가지 않게 막는다. */
+  const PRICE_BATCH = 50;
+  const PRICE_MIN = 10;
+  const PRICE_MAX = 10000000;
+  /** 가격을 보낼 줄 아는 몰의 경로 이름(스펙 칸). 카카오 톡스토어는 [선택 수정]에 판매가 칸이 같이 실린다. */
+  const PRICE_SENDERS = ["gridStock"];
   /** 몰 관리자를 몰아치지 않는다. 한 건 보내고 쉬는 간격. */
   const PACE_MS = 700;
   /**
@@ -1917,6 +1923,83 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /**
+     * 카카오 톡스토어 가격. [선택 수정]과 같은 모양으로 지금 값(상품명 · 관리코드 · 재고 · 전시상태)을 그대로 싣고 판매가만
+     * 바꿔 보낸 뒤, 다시 읽어 판매가가 바뀐 것을 센다. 옵션이 있는 상품은 옵션마다 가격이라 보내지 않는다. 같은 가격도
+     * 보낸다 — 가격 경로를 몰에서 확인하는 시험이 같은 가격 다시 보내기다(사장님 2026-09-19).
+     */
+    async function sendPriceByKakaoGrid(spec, items) {
+      const grid = spec.gridStock;
+      const warnings = [];
+      const valid = items.filter((item) => /^\d{1,15}$/.test(item.code));
+      let failed = items.length - valid.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let withOptions = 0;
+      const results = [];
+      const halted = await withSellerPage(spec, grid.pageUrl, async (run) => {
+        const targets = [];
+        for (let index = 0; index < valid.length; index += 1) {
+          if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
+          const item = valid[index];
+          const read = await readKakaoProduct(spec, run, item.code);
+          if (read.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+          if (!read.product) {
+            failed += 1;
+            warnings.push(`${item.code}: ${spec.label}에서 찾지 못했습니다${read.error ? `(${read.error})` : ""}.`);
+            continue;
+          }
+          if (read.product.optionSetting && read.product.optionSetting !== "미설정") {
+            withOptions += 1;
+            failed += 1;
+            continue;
+          }
+          targets.push({ product: read.product, price: item.price });
+        }
+        if (targets.length === 0) return null;
+        // [선택 수정]이 만드는 모양 그대로 — 판매가만 바꾸고 나머지는 읽은 값 그대로. 판매가는 읽은 값과 같은 형(숫자 · 글자)으로.
+        const edits = targets.map(({ product, price }) => ({
+          name: product.name,
+          salePrice: typeof product.salePrice === "number" ? price : String(price),
+          storeManagementCode: product.storeManagementCode ?? "",
+          stockQuantity: product.stockQuantity,
+          productId: product.id,
+          displayStatus: product.displayStatusType,
+        }));
+        const answer = await run(requestOnPage, [
+          grid.gridPath, "PUT", "application/json", JSON.stringify(edits),
+        ]);
+        if (answer.status < 200 || answer.status >= 300) {
+          failed += targets.length;
+          const reason = answer.json?.message || answer.json?.errorMessage || "";
+          warnings.push(`${spec.label}이 가격 변경을 받지 않았습니다(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+          return null;
+        }
+        const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+        sent += counted ?? targets.length;
+        if (counted !== null && counted < targets.length) {
+          failed += targets.length - counted;
+          warnings.push(`${spec.label}이 ${targets.length}건 중 ${counted}건만 바꿨다고 답했습니다.`);
+        }
+        for (const { product, price } of targets) {
+          await sleep(WING_PRODUCT_PACE_MS);
+          const after = await readKakaoProduct(spec, run, product.id);
+          const now = after.product ? Number(String(after.product.salePrice ?? "").replace(/[,\s원]/g, "")) : null;
+          const before = Number(String(product.salePrice ?? "").replace(/[,\s원]/g, ""));
+          const ok = now === price;
+          if (ok) confirmed += 1;
+          results.push({ code: String(product.id), before: Number.isFinite(before) ? before : null, after: Number.isFinite(now) ? now : null, confirmed: ok });
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (withOptions > 0) {
+        warnings.push(`옵션이 있는 상품 ${withOptions}개는 옵션마다 가격이라 보내지 않았습니다 — ${spec.label}에서 옵션 가격을 고쳐 주세요.`);
+      }
+      return { success: true, sent, failed, confirmed, results, warnings };
+    }
+
     /** 올웨이즈 상품 상태를 읽는다(soldOut). 로그인이 풀렸으면 { loggedOut }. */
     async function readAlwayzItems(spec, run, itemIds) {
       const api = spec.itemApi;
@@ -3761,7 +3844,39 @@
       }
     }
 
-    return { send, read };
+    /**
+     * 한 몰에 가격을 보낸다(가격 · 재고 · 상태 수정 보내기의 가격, KID-247). `items` 는 [{code, price}] — price 는 그 몰
+     * 판매가(원, 정수). 보낸 뒤 몰을 다시 읽어 확인한 것만 `confirmed` 다. 돌려주는 것은 상품코드와 가격뿐이다.
+     */
+    async function sendPrice(msg) {
+      const mallKey = String(msg?.mallKey || "");
+      const spec = SPECS[mallKey];
+      if (!spec || !PRICE_SENDERS.some((key) => spec[key])) {
+        return { success: false, error: `가격 경로를 아는 몰이 아닙니다: ${mallKey || "(없음)"}` };
+      }
+      const seen = new Set();
+      const items = [];
+      for (const raw of Array.isArray(msg?.items) ? msg.items : []) {
+        const code = String(raw?.code || "").trim();
+        const price = Number(raw?.price);
+        if (!code || seen.has(code)) continue;
+        if (!Number.isInteger(price) || price < PRICE_MIN || price > PRICE_MAX) {
+          return { success: false, error: `${code}: 가격은 ${PRICE_MIN}원 ~ ${PRICE_MAX.toLocaleString("ko-KR")}원 사이 정수여야 합니다.` };
+        }
+        seen.add(code);
+        items.push({ code, price });
+      }
+      if (items.length === 0) return { success: false, error: "가격을 보낼 상품이 없습니다." };
+      if (items.length > PRICE_BATCH) return { success: false, error: `가격은 한 번에 ${PRICE_BATCH}개까지 보냅니다.` };
+      try {
+        if (spec.gridStock) return await sendPriceByKakaoGrid(spec, items);
+        return { success: false, error: `가격 경로를 아는 몰이 아닙니다: ${mallKey}` };
+      } catch (error) {
+        return { success: false, error: error?.message || String(error) };
+      }
+    }
+
+    return { send, read, sendPrice };
   }
 
   root.KidItemMallAvailabilitySend = {
@@ -3777,5 +3892,7 @@
         || SPECS[key].useFlag || SPECS[key].shopbySaleSetting,
     )),
     SEND_TIMEOUT_MS,
+    // 가격을 보낼 수 있는 몰(KID-247).
+    PRICE_MALL_KEYS: Object.keys(SPECS).filter((key) => PRICE_SENDERS.some((sender) => Boolean(SPECS[key][sender]))),
   };
 })(typeof self !== "undefined" ? self : globalThis);

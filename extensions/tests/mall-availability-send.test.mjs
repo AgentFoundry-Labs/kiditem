@@ -626,7 +626,9 @@ function kakaoMall({ products = {}, tabUrl = 'https://shopping-seller.kakao.com/
           assert.equal(contentType, 'application/json');
           const edits = JSON.parse(body);
           log.puts.push(edits);
-          if (gridStatus === 200) for (const edit of edits) state.get(String(edit.productId)).stockQuantity = edit.stockQuantity;
+          if (gridStatus === 200) {
+            for (const edit of edits) Object.assign(state.get(String(edit.productId)), { stockQuantity: edit.stockQuantity, salePrice: edit.salePrice });
+          }
           return [{ result: { status: gridStatus, json: gridStatus === 200 ? { successCount: edits.length } : { message: '수정할 수 없는 상품입니다' }, preview: '', url: '' } }];
         }
         throw new Error(`unexpected ${method} ${path}`);
@@ -687,6 +689,54 @@ test('카카오 — 열린 판매자센터 화면이 있으면 그 화면을 빌
   assert.equal(result.failed, 1);
   assert.equal(result.confirmed, 0);
   assert.ok(result.warnings.some((warning) => warning.includes('수정할 수 없는 상품입니다')), result.warnings.join(' / '));
+});
+
+test('⭐ 카카오 가격은 [선택 수정]과 같은 모양으로 판매가만 바꾼다 — 재고 · 이름 · 전시상태는 읽은 그대로, 다시 읽어 확인', async () => {
+  const { api, log, state } = kakaoMall({
+    products: {
+      779522307: { name: '애니멀 회전 주사위 키링', salePrice: 2220, storeManagementCode: 'ABC', stockQuantity: 37 },
+      711073894: { optionSetting: '설정' },
+      700000001: { salePrice: 1500 },
+    },
+  });
+  const result = await api.sendPrice({
+    mallKey: 'kakao',
+    items: [{ code: '779522307', price: 2500 }, { code: '711073894', price: 3000 }, { code: '700000001', price: 1500 }, { code: 'X-1', price: 1000 }],
+  });
+
+  assert.deepEqual(plain(log.puts), [[
+    { name: '애니멀 회전 주사위 키링', salePrice: 2500, storeManagementCode: 'ABC', stockQuantity: 37, productId: '779522307', displayStatus: 'OPEN' },
+    { name: '상품 700000001', salePrice: 1500, storeManagementCode: '', stockQuantity: 999, productId: '700000001', displayStatus: 'OPEN' },
+  ]], '같은 가격도 보낸다 — 경로 시험이 같은 가격 다시 보내기다');
+  assert.equal(state.get('779522307').salePrice, 2500);
+  assert.equal(state.get('779522307').stockQuantity, 37, '재고는 건드리지 않는다');
+  assert.equal(state.get('711073894').salePrice, 2220, '옵션 상품은 건드리지 않는다');
+  assert.equal(result.success, true);
+  assert.equal(result.sent, 2);
+  assert.equal(result.confirmed, 2);
+  assert.equal(result.failed, 2, '옵션 상품 1 + 모양이 틀린 번호 1');
+  assert.deepEqual(plain(result.results), [
+    { code: '779522307', before: 2220, after: 2500, confirmed: true },
+    { code: '700000001', before: 1500, after: 1500, confirmed: true },
+  ]);
+  assert.ok(result.warnings.some((warning) => warning.includes('옵션이 있는 상품 1개')), result.warnings.join(' / '));
+  assert.deepEqual(log.removed, [11], '연 탭은 닫는다');
+});
+
+test('카카오 가격 — 0원 · 억 단위 같은 값은 아무것도 보내지 않고 거절한다 · 모르는 몰도 거절한다', async () => {
+  const { api, log } = kakaoMall({ products: { 1: {} } });
+  const zero = await api.sendPrice({ mallKey: 'kakao', items: [{ code: '1', price: 0 }] });
+  assert.equal(zero.success, false);
+  const huge = await api.sendPrice({ mallKey: 'kakao', items: [{ code: '1', price: 120000000 }] });
+  assert.equal(huge.success, false);
+  const unknown = await api.sendPrice({ mallKey: 'domeggook', items: [{ code: '1', price: 1000 }] });
+  assert.match(unknown.error, /가격 경로를 아는 몰이 아닙니다/);
+  assert.equal(log.puts.length, 0);
+  assert.equal(log.tabs.length, 0);
+});
+
+test('가격을 보낼 수 있는 몰은 카카오 톡스토어뿐이다(지금)', () => {
+  assert.deepEqual([...loadModule().PRICE_MALL_KEYS], ['kakao']);
 });
 
 test('카카오 — 로그인 화면이면 아무것도 보내지 않는다', async () => {
