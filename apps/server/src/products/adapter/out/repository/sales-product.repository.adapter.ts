@@ -516,6 +516,18 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return fingerprints;
   }
 
+  async findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>> {
+    const codes = new Map<string, string>();
+    for (let start = 0; start < ownCodes.length; start += 500) {
+      const rows = await this.prisma.salesProduct.findMany({
+        where: { organizationId, ownCode: { in: ownCodes.slice(start, start + 500) } },
+        select: { code: true, ownCode: true },
+      });
+      for (const row of rows) if (row.ownCode) codes.set(row.ownCode, row.code);
+    }
+    return codes;
+  }
+
   async listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[] }[]> {
     return this.prisma.salesProduct.findMany({
       where: { organizationId },

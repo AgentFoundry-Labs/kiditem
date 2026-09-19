@@ -84,6 +84,8 @@ export function buildSabangnetImportPlan(input: {
   overrides: readonly SabangnetChannelOverrideRow[];
   skus: readonly SellpiaInventorySkuReadModel[];
   accounts: readonly { id: string; channel: string }[];
+  /** 자체상품코드 → 이미 있는 판매상품코드. 대량등록 양식처럼 품번코드 없이 온 줄이 같은 상품을 찾는다. */
+  existingCodeByOwnCode?: ReadonlyMap<string, string>;
 }): SabangnetImportPlan {
   const issues: SabangnetImportIssue[] = [];
   const skuByCode = new Map(input.skus.filter((sku) => sku.isActive).map((sku) => [sku.code, sku]));
@@ -112,7 +114,8 @@ export function buildSabangnetImportPlan(input: {
 
   const products: PlannedSabangnetProduct[] = [];
   for (const row of input.products) {
-    const code = (row.goodsNo ?? row.ownCode)!;
+    // 사방넷처럼 자체상품코드가 같으면 같은 상품이다. 품번코드가 없는 새 상품은 자체상품코드를 판매상품코드로 쓴다.
+    const code = (row.goodsNo ?? (row.ownCode ? input.existingCodeByOwnCode?.get(row.ownCode) : undefined) ?? row.ownCode)!;
     if (seenCodes.has(code)) {
       issues.push({ kind: 'products', row: row.row, code, message: '같은 품번이 두 번 있어 뒤 줄을 넘겼습니다.' });
       continue;

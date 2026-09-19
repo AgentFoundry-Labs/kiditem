@@ -86,16 +86,20 @@ export class SabangnetProductImportService {
       };
     }
 
-    const [skus, accounts] = await Promise.all([
+    const productRows = products.rows as SabangnetProductRow[];
+    const ownCodesWithoutGoodsNo = productRows.flatMap((row) => (!row.goodsNo && row.ownCode ? [row.ownCode] : []));
+    const [skus, accounts, existingCodeByOwnCode] = await Promise.all([
       this.sellpiaSkus.listActiveForMatching(organizationId),
       this.repository.listChannelAccounts(organizationId),
+      this.repository.findCodesByOwnCodes(organizationId, ownCodesWithoutGoodsNo),
     ]);
     const plan = buildSabangnetImportPlan({
-      products: products.rows as SabangnetProductRow[],
+      products: productRows,
       options: (byKind.get('options')?.rows ?? []) as SabangnetOptionRow[],
       overrides: (byKind.get('channel_overrides')?.rows ?? []) as SabangnetChannelOverrideRow[],
       skus,
       accounts,
+      existingCodeByOwnCode,
     });
     const codes = plan.products.map((product) => product.create.code);
     const [states, fingerprints] = await Promise.all([

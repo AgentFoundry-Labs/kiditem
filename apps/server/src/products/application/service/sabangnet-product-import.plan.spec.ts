@@ -155,6 +155,26 @@ describe('Sabangnet workbook import', () => {
     expect(plan.skippedByShop).toEqual({ shop0004: 1 });
   });
 
+  it('reads the bulk registration form and finds an existing product by its own code', () => {
+    const rows = parse<SabangnetProductRow>(workbook('상품관리 > 사방넷상품대량등록', [
+      '상품명', '자체상품코드', '옵션제목(1)', '옵션상세명칭(1)', '판매가', '대표이미지',
+    ], [
+      ['투명우산 그리기', 'KID-UMB', '단품', null, 2880, 'https://pic.example/u.jpg'],
+      ['새 스티커', 'KID-NEW', '색상', '빨강,파랑', 1500, null],
+    ]));
+    const plan = buildSabangnetImportPlan({
+      products: rows,
+      options: [],
+      overrides: [],
+      skus: [],
+      accounts: [],
+      existingCodeByOwnCode: new Map([['KID-UMB', '100017']]),
+    });
+    expect(plan.products.map((product) => [product.create.code, product.create.ownCode, product.create.sabangnetGoodsNo]))
+      .toEqual([['100017', 'KID-UMB', null], ['KID-NEW', 'KID-NEW', null]]);
+    expect(plan.products[1]!.options.map((option) => option.optionCode)).toEqual(['KID-NEW-0001', 'KID-NEW-0002']);
+  });
+
   it('builds option combinations from the product sheet when no option file is given', () => {
     const plan = buildSabangnetImportPlan({ products, options: [], overrides: [], skus: [], accounts: [] });
     expect(plan.products[1]!.options.map((option) => [option.optionCode, option.values])).toEqual([

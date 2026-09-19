@@ -156,6 +156,8 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     codes: readonly string[],
   ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
+  /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
+  findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
   listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[] }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
