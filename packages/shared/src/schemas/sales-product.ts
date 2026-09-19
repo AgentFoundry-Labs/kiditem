@@ -355,10 +355,37 @@ export const SalesProductListResponseSchema = z.object({
 });
 export type SalesProductListResponse = z.infer<typeof SalesProductListResponseSchema>;
 
+// ── 몰 상품 ↔ 판매상품 잇기(ADR-0013) ─────────────────────────────────
+
+/**
+ * 잇는 근거 — 모두 코드가 정확히 같은 경우만이다(이름으로 잇지 않는다).
+ * - `sabangnet_record`: 사방넷 송신 기록에서 가져온 몰 상품의 사방넷 품번
+ * - `send_record_file`: 사방넷 쇼핑몰상품수정 다운로드의 (쇼핑몰, 쇼핑몰상품코드) → 품번
+ * - `seller_code`: 몰에 적힌 판매자 상품코드 = 판매상품 자체상품코드
+ */
+export const SALES_PRODUCT_LINK_SOURCES = ['sabangnet_record', 'send_record_file', 'seller_code'] as const;
+export const SalesProductLinkSourceSchema = z.enum(SALES_PRODUCT_LINK_SOURCES);
+export type SalesProductLinkSource = z.infer<typeof SalesProductLinkSourceSchema>;
+
+export const SalesProductLinkResultSchema = z.object({
+  /** 이번에 판매상품을 새로 이은 몰 상품 수. */
+  linkedListings: z.number().int(),
+  /** 이미 이어져 있던 몰 상품 수(그대로 둔다). */
+  alreadyLinked: z.number().int(),
+  /** 몰 옵션 ↔ 단품을 이은 수(옵션 하나인 상품끼리만). */
+  linkedOptions: z.number().int(),
+  /** 비어 있던 몰 옵션 레시피를 단품의 셀피아 구성으로 채운 수. */
+  recipesFilled: z.number().int(),
+  /** 근거가 서로 다른 판매상품을 가리켜 잇지 않은 몰 상품 수. */
+  conflicts: z.number().int(),
+  bySource: z.record(SalesProductLinkSourceSchema, z.number().int()),
+});
+export type SalesProductLinkResult = z.infer<typeof SalesProductLinkResultSchema>;
+
 // ── 사방넷 엑셀 가져오기 ──────────────────────────────────────────────
 
 /** 사방넷에서 내려받는 파일 종류. 머리 이름으로 알아본다. */
-export const SABANGNET_WORKBOOK_KINDS = ['products', 'options', 'channel_overrides'] as const;
+export const SABANGNET_WORKBOOK_KINDS = ['products', 'options', 'channel_overrides', 'send_records'] as const;
 export const SabangnetWorkbookKindSchema = z.enum(SABANGNET_WORKBOOK_KINDS);
 export type SabangnetWorkbookKind = z.infer<typeof SabangnetWorkbookKindSchema>;
 
@@ -394,5 +421,7 @@ export const SabangnetImportPreviewSchema = z.object({
   }),
   issues: z.array(SabangnetImportIssueSchema).max(200),
   issueCount: z.number().int(),
+  /** 몰에 올라간 상품 ↔ 판매상품 잇기 결과. 옮길 때는 늘 잇고, 송신 기록 없이 미리볼 때만 null. */
+  links: SalesProductLinkResultSchema.nullable(),
 });
 export type SabangnetImportPreview = z.infer<typeof SabangnetImportPreviewSchema>;

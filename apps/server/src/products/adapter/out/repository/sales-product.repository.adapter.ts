@@ -23,6 +23,11 @@ import {
   type SalesProductOptionReplacementPlan,
 } from '../../../domain/sales-product';
 import type {
+  LinkCandidateListing,
+  LinkCandidateProduct,
+  SalesProductLinkPlan,
+} from '../../../domain/sales-product-links';
+import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
@@ -361,6 +366,120 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       select: { id: true, channel: true, name: true },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  async readLinkCandidates(organizationId: string): Promise<{
+    listings: LinkCandidateListing[];
+    products: LinkCandidateProduct[];
+  }> {
+    const [listingRows, optionRows, products] = await Promise.all([
+      this.prisma.$queryRaw<{
+        id: string;
+        channel: string;
+        external_id: string;
+        source: string | null;
+        sabangnet_product_no: string | null;
+        seller_code: string | null;
+        sales_product_id: string | null;
+      }[]>(Prisma.sql`
+        SELECT l.id, a.channel, l.external_id,
+          l.raw_json->>'source' AS source,
+          l.raw_json->>'sabangnetProductNo' AS sabangnet_product_no,
+          l.raw_json->>'sellerCode' AS seller_code,
+          l.sales_product_id
+        FROM channel_listings l
+        JOIN channel_accounts a ON a.id = l.channel_account_id AND a.organization_id = l.organization_id
+        WHERE l.organization_id = ${organizationId}::uuid AND l.is_active = true
+      `),
+      this.prisma.$queryRaw<{
+        id: string;
+        listing_id: string;
+        sales_product_option_id: string | null;
+        has_recipe: boolean;
+      }[]>(Prisma.sql`
+        SELECT o.id, o.listing_id, o.sales_product_option_id,
+          EXISTS (
+            SELECT 1 FROM channel_listing_option_inventory_components c
+            WHERE c.channel_listing_option_id = o.id AND c.organization_id = o.organization_id
+          ) AS has_recipe
+        FROM channel_listing_options o
+        WHERE o.organization_id = ${organizationId}::uuid AND o.is_active = true
+      `),
+      this.prisma.salesProduct.findMany({
+        where: { organizationId, status: { not: 'archived' } },
+        select: {
+          id: true,
+          code: true,
+          ownCode: true,
+          options: {
+            select: {
+              id: true,
+              supplyStatus: true,
+              components: { select: { sellpiaInventorySkuId: true, quantity: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    const optionsByListing = new Map<string, LinkCandidateListing['options']>();
+    for (const option of optionRows) {
+      optionsByListing.set(option.listing_id, [
+        ...(optionsByListing.get(option.listing_id) ?? []),
+        { id: option.id, salesProductOptionId: option.sales_product_option_id, hasRecipe: option.has_recipe },
+      ]);
+    }
+    return {
+      listings: listingRows.map((row) => ({
+        id: row.id,
+        channel: row.channel,
+        externalId: row.external_id,
+        source: row.source,
+        sabangnetProductNo: row.sabangnet_product_no,
+        sellerCode: row.seller_code,
+        salesProductId: row.sales_product_id,
+        options: optionsByListing.get(row.id) ?? [],
+      })),
+      products,
+    };
+  }
+
+  async applyLinks(
+    organizationId: string,
+    plan: Pick<SalesProductLinkPlan, 'listingLinks' | 'optionLinks'>,
+  ): Promise<{ listings: number; options: number }> {
+    const listingsByProduct = groupIds(plan.listingLinks, (link) => link.salesProductId, (link) => link.channelListingId);
+    const optionsBySalesOption = groupIds(
+      plan.optionLinks,
+      (link) => link.salesProductOptionId,
+      (link) => link.channelListingOptionId,
+    );
+    let listings = 0;
+    let options = 0;
+    const productEntries = [...listingsByProduct.entries()];
+    for (let start = 0; start < productEntries.length; start += 100) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const [salesProductId, ids] of productEntries.slice(start, start + 100)) {
+          const updated = await tx.channelListing.updateMany({
+            where: { id: { in: ids }, organizationId, salesProductId: null },
+            data: { salesProductId },
+          });
+          listings += updated.count;
+        }
+      }, TRANSACTION_OPTIONS);
+    }
+    const optionEntries = [...optionsBySalesOption.entries()];
+    for (let start = 0; start < optionEntries.length; start += 200) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const [salesProductOptionId, ids] of optionEntries.slice(start, start + 200)) {
+          const updated = await tx.channelListingOption.updateMany({
+            where: { id: { in: ids }, organizationId, salesProductOptionId: null },
+            data: { salesProductOptionId },
+          });
+          options += updated.count;
+        }
+      }, TRANSACTION_OPTIONS);
+    }
+    return { listings, options };
   }
 
   async readImportFingerprints(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {
@@ -755,4 +874,10 @@ function toSalesProduct(
 function isStringRecord(value: Prisma.JsonValue | null): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     && Object.values(value).every((item) => typeof item === 'string');
+}
+
+function groupIds<T>(items: readonly T[], key: (item: T) => string, value: (item: T) => string): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const item of items) grouped.set(key(item), [...(grouped.get(key(item)) ?? []), value(item)]);
+  return grouped;
 }

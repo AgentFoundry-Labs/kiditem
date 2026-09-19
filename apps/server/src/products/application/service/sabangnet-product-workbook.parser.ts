@@ -89,8 +89,23 @@ export interface SabangnetChannelOverrideRow {
   raw: Record<string, string>;
 }
 
+/**
+ * 사방넷 쇼핑몰상품수정 다운로드 한 줄 — 몰 × 상품 송신 기록. 몰 로그인 ID(쇼핑몰ID) 칸은 읽지 않는다.
+ */
+export interface SabangnetSendRecordRow {
+  row: number;
+  shopCode: string;
+  mallProductCode: string;
+  goodsNo: string;
+  additionCode: string | null;
+  categoryCode: string | null;
+  sentStatus: string | null;
+  sentPrice: number | null;
+}
+
 export type ParsedSabangnetWorkbook =
   | { kind: 'products'; name: string; rows: SabangnetProductRow[]; issues: SabangnetImportIssue[] }
+  | { kind: 'send_records'; name: string; rows: SabangnetSendRecordRow[]; issues: SabangnetImportIssue[] }
   | { kind: 'options'; name: string; rows: SabangnetOptionRow[]; issues: SabangnetImportIssue[] }
   | { kind: 'channel_overrides'; name: string; rows: SabangnetChannelOverrideRow[]; issues: SabangnetImportIssue[] };
 
@@ -181,6 +196,7 @@ export function recomputeSheetRange(sheet: XLSX.WorkSheet): string | null {
 
 export function detectSabangnetWorkbookKind(headers: readonly string[]): SabangnetWorkbookKind | null {
   const has = (name: string) => headers.includes(name);
+  if (has('쇼핑몰상품코드') && has('쇼핑몰코드') && has('품번코드')) return 'send_records';
   if (has('쇼핑몰코드') && has('품번코드')) return 'channel_overrides';
   if (has('사방넷상품코드') && has('옵션상세명칭')) return 'options';
   if (has('상품명') && (has('품번코드') || has('자체상품코드')) && headers.some((header) => header.startsWith('옵션제목'))) {
@@ -194,11 +210,12 @@ export function parseSabangnetWorkbook(buffer: Buffer, name: string): ParsedSaba
   const kind = detectSabangnetWorkbookKind(table.headers);
   if (!kind) {
     throw new SabangnetWorkbookFormatError(
-      `${name}: 사방넷 상품대량수정 · 단품대량수정 · 쇼핑몰별별도정보 파일이 아닙니다.`,
+      `${name}: 사방넷 상품대량수정 · 단품대량수정 · 쇼핑몰별별도정보 · 쇼핑몰상품수정 다운로드 파일이 아닙니다.`,
     );
   }
   if (kind === 'products') return { kind, name, ...parseProducts(table) };
   if (kind === 'options') return { kind, name, ...parseOptions(table) };
+  if (kind === 'send_records') return { kind, name, ...parseSendRecords(table) };
   return { kind, name, ...parseChannelOverrides(table) };
 }
 
@@ -403,6 +420,36 @@ function parseChannelOverrides(
       costPrice: sabangnetNumber(get(['쇼핑몰원가'])),
       stockPercent: sabangnetNumber(get(['재고분할퍼센트'])),
       raw: rawRecord(table.headers, cells),
+    });
+  }
+  return { rows, issues };
+}
+
+function parseSendRecords(
+  table: SheetTable,
+): { rows: SabangnetSendRecordRow[]; issues: SabangnetImportIssue[] } {
+  const col = columnReader(table.headers);
+  const issues: SabangnetImportIssue[] = [];
+  const rows: SabangnetSendRecordRow[] = [];
+  for (const { row, cells } of table.dataRows) {
+    const get = (names: readonly string[]) => col.get(cells, names);
+    const shopCode = cellText(get(['쇼핑몰코드']));
+    const mallProductCode = cellText(get(['쇼핑몰상품코드']));
+    const goodsNo = cellText(get(['품번코드']));
+    if (!/^shop\d{4}$/.test(shopCode) || !goodsNo) {
+      issues.push({ kind: 'send_records', row, code: goodsNo || null, message: '쇼핑몰코드 또는 품번코드가 비어 있습니다.' });
+      continue;
+    }
+    if (!mallProductCode) continue;
+    rows.push({
+      row,
+      shopCode,
+      mallProductCode,
+      goodsNo,
+      additionCode: textOrNull(get(['부가정보코드'])),
+      categoryCode: textOrNull(get(['카테고리코드'])),
+      sentStatus: textOrNull(get(['상품상태(송신)'])),
+      sentPrice: sabangnetNumber(get(['판매가(송신)'])),
     });
   }
   return { rows, issues };

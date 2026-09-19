@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SabangnetImportPreview } from '@kiditem/shared/sales-product';
+import type { SabangnetImportPreview, SalesProductLinkResult } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 
@@ -12,7 +12,16 @@ const KIND_LABEL: Record<SabangnetImportPreview['files'][number]['kind'], string
   products: '상품(사방넷상품대량수정)',
   options: '단품(사방넷단품대량수정)',
   channel_overrides: '몰별 값(쇼핑몰별별도정보관리)',
+  send_records: '송신 기록(쇼핑몰상품수정 다운로드)',
 };
+
+const LINK_SOURCE_LABEL: Record<keyof SalesProductLinkResult['bySource'], string> = {
+  sabangnet_record: '사방넷 기록',
+  send_record_file: '송신 기록 파일',
+  seller_code: '판매자 상품코드',
+};
+
+const MAX_FILES = 4;
 
 /**
  * 사방넷에서 내려받은 엑셀을 그대로 올린다. 먼저 미리보기로 무엇이 바뀌는지 보고, 같은 파일로 옮긴다 —
@@ -28,7 +37,9 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
     onSuccess: (result) => {
       setPreview(result);
       if (!result.dryRun) {
-        toast.success(`옮겼습니다 — 새로 ${result.products.created} · 고침 ${result.products.updated} · 그대로 ${result.products.unchanged}`);
+        toast.success(result.products.total > 0
+          ? `옮겼습니다 — 새로 ${result.products.created} · 고침 ${result.products.updated} · 그대로 ${result.products.unchanged}`
+          : `몰 상품 ${result.links?.linkedListings ?? 0}개를 판매상품과 이었습니다`);
         void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
       }
     },
@@ -38,7 +49,7 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
   });
 
   const pick = (list: FileList | null) => {
-    setFiles(list ? [...list].slice(0, 3) : []);
+    setFiles(list ? [...list].slice(0, MAX_FILES) : []);
     setPreview(null);
   };
 
@@ -49,8 +60,9 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">사방넷 엑셀 가져오기</h2>
             <p className="mt-1 text-sm text-slate-500">
-              사방넷 <b>상품대량수정</b> 수정파일은 꼭, <b>단품대량수정</b> · <b>쇼핑몰별별도정보관리</b> 수정파일은 함께 올리면
-              옵션과 몰별 값까지 옮깁니다. 같은 파일을 다시 올려도 바뀐 것만 고칩니다.
+              사방넷 <b>상품대량수정</b> 수정파일에 <b>단품대량수정</b> · <b>쇼핑몰별별도정보관리</b>를 함께 올리면 옵션과 몰별
+              값까지 옮깁니다. <b>쇼핑몰상품수정</b> 다운로드를 더하면 몰에 올라간 상품도 판매상품과 잇습니다(그 파일만 올려도
+              됩니다). 같은 파일을 다시 올려도 바뀐 것만 고칩니다.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="닫기">
@@ -60,7 +72,7 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
 
         <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500 hover:border-purple-300">
           <Upload size={20} aria-hidden />
-          <span>엑셀 파일 고르기(.xlsx, 3개까지)</span>
+          <span>엑셀 파일 고르기(.xlsx, {MAX_FILES}개까지)</span>
           <input
             type="file"
             accept=".xlsx,.xls"
@@ -108,6 +120,7 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
 
 function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
   const skipped = Object.entries(preview.channelOverrides.skippedByShop);
+  const hasProducts = preview.files.some((file) => file.kind === 'products');
   return (
     <section aria-label={preview.dryRun ? '미리보기' : '옮긴 결과'} className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
       <p className="font-semibold text-slate-800">{preview.dryRun ? '옮기면 이렇게 됩니다' : '옮겼습니다'}</p>
@@ -116,24 +129,27 @@ function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
           <li key={file.name}>{KIND_LABEL[file.kind]}: {file.rows.toLocaleString()}줄</li>
         ))}
       </ul>
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-slate-700">
-        <dt>판매상품</dt>
-        <dd className="tabular-nums">
-          {preview.products.total.toLocaleString()}개 (새로 {preview.products.created} · 고침 {preview.products.updated} · 그대로 {preview.products.unchanged})
-        </dd>
-        <dt>옵션(단품)</dt>
-        <dd className="tabular-nums">
-          {preview.options.total.toLocaleString()}줄 · 옵션 상품 {preview.options.withOptionsProducts}개
-        </dd>
-        <dt>셀피아 연결</dt>
-        <dd className="tabular-nums">
-          {preview.options.linked.toLocaleString()}줄 연결 · {preview.options.unlinked.toLocaleString()}줄은 화면에서 골라야 함
-        </dd>
-        <dt>몰별 값</dt>
-        <dd className="tabular-nums">
-          {preview.channelOverrides.saved.toLocaleString()}줄 / {preview.channelOverrides.total.toLocaleString()}줄
-        </dd>
-      </dl>
+      {hasProducts && (
+        <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-slate-700">
+          <dt>판매상품</dt>
+          <dd className="tabular-nums">
+            {preview.products.total.toLocaleString()}개 (새로 {preview.products.created} · 고침 {preview.products.updated} · 그대로 {preview.products.unchanged})
+          </dd>
+          <dt>옵션(단품)</dt>
+          <dd className="tabular-nums">
+            {preview.options.total.toLocaleString()}줄 · 옵션 상품 {preview.options.withOptionsProducts}개
+          </dd>
+          <dt>셀피아 연결</dt>
+          <dd className="tabular-nums">
+            {preview.options.linked.toLocaleString()}줄 연결 · {preview.options.unlinked.toLocaleString()}줄은 화면에서 골라야 함
+          </dd>
+          <dt>몰별 값</dt>
+          <dd className="tabular-nums">
+            {preview.channelOverrides.saved.toLocaleString()}줄 / {preview.channelOverrides.total.toLocaleString()}줄
+          </dd>
+        </dl>
+      )}
+      {preview.links && <LinkSummary links={preview.links} dryRun={preview.dryRun} />}
       {skipped.length > 0 && (
         <p className="mt-2 text-xs text-slate-500">
           우리 몰 계정이 없어 넘긴 몰: {skipped.map(([shop, count]) => `${shop} ${count}줄`).join(' · ')}
@@ -150,5 +166,32 @@ function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
         </details>
       )}
     </section>
+  );
+}
+
+function LinkSummary({ links, dryRun }: { links: SalesProductLinkResult; dryRun: boolean }) {
+  const sources = (Object.keys(LINK_SOURCE_LABEL) as (keyof SalesProductLinkResult['bySource'])[])
+    .filter((source) => (links.bySource[source] ?? 0) > 0)
+    .map((source) => `${LINK_SOURCE_LABEL[source]} ${links.bySource[source]!.toLocaleString()}`);
+  return (
+    <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 border-t border-slate-200 pt-3 text-slate-700">
+      <dt>몰 상품 잇기</dt>
+      <dd className="tabular-nums">
+        {links.linkedListings.toLocaleString()}개 {dryRun ? '이음' : '이었음'}
+        {sources.length > 0 && <span className="text-slate-500"> ({sources.join(' · ')})</span>}
+      </dd>
+      <dt>이미 이어짐</dt>
+      <dd className="tabular-nums">{links.alreadyLinked.toLocaleString()}개</dd>
+      <dt>옵션 · 셀피아 구성</dt>
+      <dd className="tabular-nums">
+        옵션 {links.linkedOptions.toLocaleString()}개 · 빈 레시피 {links.recipesFilled.toLocaleString()}개 채움
+      </dd>
+      {links.conflicts > 0 && (
+        <>
+          <dt className="text-amber-800">근거가 엇갈림</dt>
+          <dd className="tabular-nums text-amber-800">{links.conflicts.toLocaleString()}개는 잇지 않음</dd>
+        </>
+      )}
+    </dl>
   );
 }

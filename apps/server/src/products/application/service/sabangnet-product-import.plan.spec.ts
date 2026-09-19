@@ -8,6 +8,7 @@ import {
   type SabangnetChannelOverrideRow,
   type SabangnetOptionRow,
   type SabangnetProductRow,
+  type SabangnetSendRecordRow,
 } from './sabangnet-product-workbook.parser';
 
 /** 사방넷 수정파일 모양: 제목 줄 · 머리 줄 · '▶' 설명 줄 · 자료. */
@@ -92,6 +93,21 @@ describe('Sabangnet workbook import', () => {
     expect(products[1]!.optionValueLists).toEqual([['파랑', '노랑', '핑크']]);
     expect(options.map((row) => row.optionCode)).toEqual(['100017-0001', '100300-0001', '100300-0002', '100300-0003']);
     expect(overrides[0]).toMatchObject({ shopCode: 'shop0387', salePrice: 3100, name: '투명우산 (보리보리)' });
+  });
+
+  it('reads the send-record download without the mall login column', () => {
+    const buffer = workbook('상품관리 > 쇼핑몰상품수정', ['쇼핑몰코드', '쇼핑몰ID', '쇼핑몰상품코드', '품번코드', '판매가(송신)'], [
+      ['shop0387', 'seller-login', '438217859', '100017', 3100],
+      ['shop0387', 'seller-login', '', '100300', 3100],
+      ['', 'seller-login', '1', '100300', 0],
+    ]);
+    const parsed = parseSabangnetWorkbook(buffer, '쇼핑몰상품수정_다운로드.xlsx');
+    expect(parsed.kind).toBe('send_records');
+    expect(parsed.rows as SabangnetSendRecordRow[]).toEqual([expect.objectContaining({
+      shopCode: 'shop0387', mallProductCode: '438217859', goodsNo: '100017', sentPrice: 3100,
+    })]);
+    expect(parsed.issues).toHaveLength(1);
+    expect(JSON.stringify(parsed.rows)).not.toContain('seller-login');
   });
 
   it('refuses a workbook that is not a Sabangnet export', () => {

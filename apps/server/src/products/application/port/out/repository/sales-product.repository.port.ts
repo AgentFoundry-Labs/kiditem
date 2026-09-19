@@ -9,6 +9,7 @@ import type {
   SalesProductTaxType,
 } from '@kiditem/shared/sales-product';
 import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product';
+import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product-links';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
 
@@ -140,6 +141,16 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     writes: readonly SabangnetImportProductWrite[],
   ): Promise<SalesProductImportResult>;
+  /** 잇기 후보: 이 조직의 활성 몰 상품(옵션 · 레시피 유무)과 판매상품(단품 · 셀피아 구성). */
+  readLinkCandidates(organizationId: string): Promise<{
+    listings: LinkCandidateListing[];
+    products: LinkCandidateProduct[];
+  }>;
+  /** 몰 상품 · 몰 옵션에 판매상품 · 단품을 잇는다. 이미 이어진 칸은 덮지 않는다. 쓴 수를 돌려준다. */
+  applyLinks(
+    organizationId: string,
+    plan: Pick<SalesProductLinkPlan, 'listingLinks' | 'optionLinks'>,
+  ): Promise<{ listings: number; options: number }>;
   /** 가져오기 미리보기: 코드별 지금 버전 · 내용 해시. */
   readImportFingerprints(organizationId: string, codes: readonly string[]): Promise<Map<string, string>>;
 }

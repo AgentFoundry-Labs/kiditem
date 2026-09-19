@@ -17,6 +17,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SalesProductService } from '../../../application/service/sales-product.service';
 import { SabangnetProductImportService } from '../../../application/service/sabangnet-product-import.service';
+import { SalesProductLinkService } from '../../../application/service/sales-product-link.service';
 
 interface UploadedWorkbookFile {
   originalname: string;
@@ -37,7 +38,19 @@ export class SalesProductController {
   constructor(
     private readonly salesProducts: SalesProductService,
     private readonly sabangnetImport: SabangnetProductImportService,
+    private readonly links: SalesProductLinkService,
   ) {}
+
+  /** 몰에 올라간 상품을 판매상품과 잇는다(코드가 정확히 같을 때만). `dryRun=true` 면 세기만 한다. */
+  @Post('links/auto')
+  autoLink(
+    @CurrentOrganization() organizationId: string,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    return dryRun === 'true'
+      ? this.links.preview(organizationId)
+      : this.links.autoLink(organizationId);
+  }
 
   @Get()
   list(
@@ -57,7 +70,7 @@ export class SalesProductController {
 
   @Post('imports/sabangnet')
   @UseInterceptors(
-    FilesInterceptor('files', 3, {
+    FilesInterceptor('files', 4, {
       limits: { fileSize: MAX_WORKBOOK_SIZE },
       fileFilter: (_req, file, cb) => {
         if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);

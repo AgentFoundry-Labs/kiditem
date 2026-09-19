@@ -15,7 +15,9 @@ import {
   type SabangnetImportProductWrite,
   type SalesProductRepositoryPort,
 } from '../port/out/repository/sales-product.repository.port';
-import { buildSabangnetImportPlan } from './sabangnet-product-import.plan';
+import { buildSabangnetImportPlan, sabangnetShopMallKey } from './sabangnet-product-import.plan';
+import { SalesProductLinkService } from './sales-product-link.service';
+import type { SendRecordLink } from '../../domain/sales-product-links';
 import {
   parseSabangnetWorkbook,
   SabangnetWorkbookFormatError,
@@ -23,6 +25,7 @@ import {
   type SabangnetChannelOverrideRow,
   type SabangnetOptionRow,
   type SabangnetProductRow,
+  type SabangnetSendRecordRow,
 } from './sabangnet-product-workbook.parser';
 
 export interface UploadedWorkbook {
@@ -30,7 +33,7 @@ export interface UploadedWorkbook {
   buffer: Buffer;
 }
 
-const MAX_FILES = 3;
+const MAX_FILES = 4;
 
 /**
  * 사방넷 엑셀 가져오기(KID-264). 같은 파일을 두 번 올려도 결과가 같다 — 판매상품코드(사방넷 품번)로 찾아
@@ -45,6 +48,7 @@ export class SabangnetProductImportService {
     private readonly repository: SalesProductRepositoryPort,
     @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
     private readonly sellpiaSkus: SellpiaInventorySkuReadPort,
+    private readonly links: SalesProductLinkService,
   ) {}
 
   async import(
@@ -61,8 +65,18 @@ export class SabangnetProductImportService {
       byKind.set(workbook.kind, workbook);
     }
     const products = byKind.get('products');
+    const sendRecords = toSendRecordLinks((byKind.get('send_records')?.rows ?? []) as SabangnetSendRecordRow[]);
+    if (!products && !byKind.has('send_records')) {
+      throw new BadRequestException('사방넷상품대량수정(또는 대량등록) 파일이나 쇼핑몰상품수정 다운로드 파일이 있어야 합니다.');
+    }
     if (!products) {
-      throw new BadRequestException('사방넷상품대량수정(또는 대량등록) 파일이 있어야 합니다.');
+      // 송신 기록만 올렸다 — 상품은 그대로 두고 몰 상품만 잇는다.
+      return {
+        ...emptyPreview(dryRun, parsed),
+        links: dryRun
+          ? await this.links.preview(organizationId, sendRecords)
+          : await this.links.autoLink(organizationId, sendRecords),
+      };
     }
 
     const [skus, accounts] = await Promise.all([
@@ -137,10 +151,13 @@ export class SabangnetProductImportService {
       },
       issues: issues.slice(0, 200),
       issueCount: issues.length,
+      links: null,
     };
-    if (dryRun) return preview;
+    if (dryRun) return { ...preview, links: sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null };
 
     const result = await this.repository.importSabangnet(organizationId, writes);
+    // 옮긴 판매상품을 몰에 올라간 상품과 잇는다(사방넷 기록 · 판매자 상품코드 · 올린 송신 기록).
+    const links = await this.links.autoLink(organizationId, sendRecords);
     this.logger.log(
       `사방넷 가져오기 org=${organizationId} 새로 ${result.created} · 고침 ${result.updated} · 그대로 ${result.unchanged} · 몰별 값 ${result.overridesSaved}`,
     );
@@ -148,8 +165,29 @@ export class SabangnetProductImportService {
       ...preview,
       products: { ...preview.products, created: result.created, updated: result.updated, unchanged: result.unchanged },
       channelOverrides: { ...preview.channelOverrides, saved: result.overridesSaved },
+      links,
     };
   }
+}
+
+function toSendRecordLinks(rows: readonly SabangnetSendRecordRow[]): SendRecordLink[] {
+  return rows.flatMap((row) => {
+    const mallKey = sabangnetShopMallKey(row.shopCode);
+    return mallKey ? [{ mallKey, mallProductCode: row.mallProductCode, goodsNo: row.goodsNo }] : [];
+  });
+}
+
+function emptyPreview(dryRun: boolean, parsed: readonly ParsedSabangnetWorkbook[]): SabangnetImportPreview {
+  return {
+    dryRun,
+    files: parsed.map((workbook) => ({ name: workbook.name, kind: workbook.kind, rows: workbook.rows.length })),
+    products: { total: 0, created: 0, updated: 0, unchanged: 0 },
+    options: { total: 0, withOptionsProducts: 0, linked: 0, unlinked: 0 },
+    channelOverrides: { total: 0, saved: 0, skippedByShop: {} },
+    issues: parsed.flatMap((workbook) => workbook.issues).slice(0, 200),
+    issueCount: parsed.reduce((sum, workbook) => sum + workbook.issues.length, 0),
+    links: null,
+  };
 }
 
 function parseOrBadRequest(file: UploadedWorkbook): ParsedSabangnetWorkbook {
