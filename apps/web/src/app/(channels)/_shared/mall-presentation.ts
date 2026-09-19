@@ -149,49 +149,51 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
 > = {
   published: {
     label: '등록',
-    tone: 'bg-green-50 text-green-700',
+    // 쇼핑몰 현황의 ON 스위치처럼 꽉 찬 초록(사장님 2026-09-19 "색상 좀 진하게 쇼핑몰 현황처럼").
+    tone: 'bg-emerald-600 text-white',
     dot: 'bg-green-600',
     attention: false,
   },
   reviewing: {
     label: '검수중',
-    tone: 'bg-sky-50 text-sky-700',
+    tone: 'bg-sky-600 text-white',
     dot: 'bg-sky-500',
     attention: false,
   },
   preparing: {
     label: '준비중',
-    tone: 'bg-slate-100 text-slate-600',
+    tone: 'bg-slate-500 text-white',
     dot: 'bg-slate-400',
     attention: false,
   },
   error: {
     label: '오류',
-    tone: 'bg-red-50 text-red-700',
+    tone: 'bg-red-600 text-white',
     dot: 'bg-red-600',
     attention: true,
   },
   paused: {
     label: '판매중지',
-    tone: 'bg-rose-50 text-rose-700',
+    tone: 'bg-rose-600 text-white',
     dot: 'bg-rose-500',
     attention: false,
   },
   discontinued: {
     label: '단종',
-    tone: 'bg-slate-100 text-slate-500',
+    tone: 'bg-slate-400 text-white',
     dot: 'bg-slate-300',
     attention: false,
   },
   unknown: {
     label: '확인필요',
-    tone: 'bg-orange-50 text-orange-700',
+    tone: 'bg-orange-500 text-white',
     dot: 'bg-orange-500',
     attention: true,
   },
   unregistered: {
     label: '미등록',
-    tone: 'bg-slate-50 text-slate-400',
+    // 없는 것은 비워 둔 칸처럼 옅게 — 꽉 찬 칸 사이에서 '아직 안 올린 곳'이 한눈에 비어 보이게.
+    tone: 'bg-slate-100 text-slate-400',
     dot: 'bg-slate-200',
     attention: false,
   },
@@ -205,13 +207,14 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
 export type MallStopKind = 'sold_out' | 'partial' | 'blocked' | 'pending' | 'ended';
 
 export const MALL_STOP_TONE: Record<MallStopKind, string> = {
-  // 품절 처리가 만드는 것(품절 · 판매중지)은 빨강이다(사장님 2026-09-18 "품절은 빨간색으로").
-  sold_out: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
-  partial: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200',
+  // 품절 처리가 만드는 것(품절 · 판매중지)은 빨강이다(사장님 2026-09-18 "품절은 빨간색으로"). 칸은 쇼핑몰 현황 스위치처럼
+  // 꽉 찬 색에 흰 글씨다(사장님 2026-09-19 "색상 좀 진하게").
+  sold_out: 'bg-rose-600 text-white',
+  partial: 'bg-amber-500 text-white',
   // 몰이 막은 것 — 판매 재개로 풀리지 않고 몰에서 까닭을 봐야 한다.
-  blocked: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200',
-  pending: 'bg-sky-50 text-sky-700 ring-1 ring-sky-200',
-  ended: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+  blocked: 'bg-orange-600 text-white',
+  pending: 'bg-sky-600 text-white',
+  ended: 'bg-slate-500 text-white',
 };
 
 export interface MallStopBadge {

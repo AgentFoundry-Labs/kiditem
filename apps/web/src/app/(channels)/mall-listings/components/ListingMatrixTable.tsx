@@ -604,7 +604,7 @@ function StatePill({
     <span
       title={title || undefined}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold',
         pill.tone,
         // 가져오지 않은 열의 미등록은 사실이 아니라 공백이다. 더 흐리게 둔다.
         !imported && state === 'unregistered' && 'opacity-40',

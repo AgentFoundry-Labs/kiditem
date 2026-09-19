@@ -179,7 +179,9 @@ function LoginSummary({ session }: { session: MallSessionView }) {
             {checkedAt !== null ? ` · ${timeAgo(new Date(checkedAt))} 확인` : ''}
           </span>
         ) : (
-          <span>{pendingText(status, counts.checking, extensionVersion)}</span>
+          <span title={status === 'idle' ? "로그인 상태는 '로그인 확인'을 누르면 몰마다 확인합니다." : undefined}>
+            {pendingText(status, counts.checking, extensionVersion)}
+          </span>
         )}
       </span>
       <button
@@ -213,8 +215,8 @@ function pendingText(status: MallSessionView['status'], checking: number, versio
     case 'outdated':
       return `확장 ${version ?? '(버전 모름)'}에는 로그인 확인(${MALL_SESSION_PROBE_CAPABILITY})이 없습니다. 확장을 다시 불러오면 확인합니다.`;
     default:
-      // 열었다고 몰에 묻지 않는다(사장님 2026-09-19) — 누를 때만 확인한다.
-      return "로그인 상태는 '로그인 확인'을 누르면 몰마다 확인합니다.";
+      // 열었다고 몰에 묻지 않는다(사장님 2026-09-19) — 누를 때만 확인한다. 풀이는 마우스를 올리면 보인다.
+      return '로그인 확인 전';
   }
 }
 
@@ -252,7 +254,8 @@ function MallTile({
       onClick={onClick}
       disabled={busy}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-wait disabled:opacity-60',
+        // 칸마다 줄 수가 달라도 높이가 같게 — 세 줄(이름 · 상태 · 때와 로그인) 높이로 고정한다.
+        'flex h-[76px] w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-wait disabled:opacity-60',
         selected
           ? 'border-primary bg-primary-soft'
           : problem

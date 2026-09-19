@@ -551,7 +551,8 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     );
     render(<MallListingsPage />);
     const pill = await screen.findByText('품절');
-    expect(pill).toHaveClass('text-rose-700');
+    // 품절은 꽉 찬 빨강에 흰 글씨(쇼핑몰 현황 스위치처럼, 사장님 2026-09-19).
+    expect(pill).toHaveClass('bg-rose-600', 'text-white');
     expect(readMallAvailabilityManyMock).toHaveBeenCalledWith('coupang', ['16290876620']);
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     const panel = screen.getByRole('dialog');

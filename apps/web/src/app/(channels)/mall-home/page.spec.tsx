@@ -198,12 +198,25 @@ function pipelineColumns(): HTMLElement[] {
 }
 
 describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
-  it('⭐ 대시보드 3 : 알림판 1 — 알림판이 오른쪽 1/4 에 선다', () => {
+  it('⭐ 대시보드 3 : 알림판 1 — 알림판이 오른쪽 1/4 에 서고, 그 위에 AI 비용이 작게 선다', () => {
     render(<MallHomePage />);
     const aside = panel();
-    expect(aside.className).toContain('xl:col-span-1');
-    expect(aside.parentElement?.className).toContain('xl:grid-cols-4');
-    expect(aside.parentElement?.firstElementChild?.className).toContain('xl:col-span-3');
+    const column = aside.parentElement as HTMLElement;
+    expect(column.className).toContain('xl:col-span-1');
+    expect(column.parentElement?.className).toContain('xl:grid-cols-4');
+    expect(column.parentElement?.firstElementChild?.className).toContain('xl:col-span-3');
+    // 오른쪽 칸 맨 위가 AI 비용이고 알림판이 남은 높이를 채운다(사장님 2026-09-19).
+    expect(column.firstElementChild).toBe(screen.getByRole('region', { name: 'AI 비용' }));
+    expect(aside.className).toContain('flex-1');
+  });
+
+  it('⭐ 자동 운전은 카드가 아니라 머리의 스위치다 — 쇼핑몰 현황 왼쪽', () => {
+    render(<MallHomePage />);
+    const header = screen.getByRole('heading', { name: '쇼핑몰 에이전트' }).closest('header') as HTMLElement;
+    const controls = within(header).getByRole('group', { name: '에이전트 자동 운전' });
+    expect(within(controls).getByRole('button', { name: /자동 운전 시작|멈추기/ })).toBeInTheDocument();
+    expect(controls.compareDocumentPosition(within(header).getByRole('link', { name: /쇼핑몰 현황/ })) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
   });
 
   it('⭐ 알림판은 몰 알림만 모은다 — 광고 알림은 빠진다', () => {
@@ -310,7 +323,7 @@ describe('쇼핑몰 홈 — AI 비용', () => {
     render(<MallHomePage />);
     const cost = screen.getByRole('region', { name: 'AI 비용' });
     expect(within(cost).getByText('$1.25')).toBeInTheDocument();
-    expect(within(cost).getByText('12회')).toBeInTheDocument();
+    expect(within(cost).getByText(/호출 12회 · 토큰 39,600/)).toBeInTheDocument();
     expect(aiUsageKey?.[2]).toMatchObject({ agent: 'mall' });
   });
 });
@@ -427,7 +440,7 @@ describe('쇼핑몰 홈 — 에이전트 파이프라인', () => {
   it('⭐ 알림판은 몰별 상태까지만 — 파이프라인은 그 아래 넓게 선다', () => {
     render(<MallHomePage />);
     const aside = panel();
-    const grid = aside.parentElement as HTMLElement;
+    const grid = aside.parentElement?.parentElement as HTMLElement;
     expect(within(grid.firstElementChild as HTMLElement).getByRole('heading', { name: /몰별 상태/ })).toBeInTheDocument();
     expect(aside.className).not.toContain('xl:sticky');
     const pipeline = screen.getByRole('list', { name: '에이전트 파이프라인' });
@@ -524,7 +537,7 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     answer({ onch: 'signed_in', rocket: 'signed_in' });
     render(<MallHomePage />);
 
-    expect(loginStatus()).toHaveTextContent("로그인 상태는 '로그인 확인'을 누르면 몰마다 확인합니다.");
+    expect(loginStatus()).toHaveTextContent('로그인 확인 전');
     expect(mockDetectProbe).not.toHaveBeenCalled();
     expect(mockProbeMall).not.toHaveBeenCalled();
 

@@ -44,6 +44,7 @@ export function MallAlertPanel({
   onFilterChange,
   mall,
   onClearMall,
+  className,
 }: {
   alerts: readonly AlertItem[];
   derived: readonly DerivedMallAlert[];
@@ -53,6 +54,8 @@ export function MallAlertPanel({
   onFilterChange: (filter: MallAlertFilter) => void;
   mall: { key: string; name: string } | null;
   onClearMall: () => void;
+  /** 둘러싼 칸이 높이를 나눠 줄 때(쇼핑몰 홈 오른쪽 칸: AI 비용 아래 남은 높이). */
+  className?: string;
 }) {
   const inMall = (item: AlertItem) => !mall || mallKeyOfAlert(item) === mall.key;
   const scopedAlerts = alerts.filter(inMall);
@@ -70,7 +73,7 @@ export function MallAlertPanel({
     <aside
       id="mall-alerts"
       aria-label="쇼핑몰 알림"
-      className="relative order-first min-w-0 scroll-mt-6 xl:order-none xl:col-span-1 xl:min-h-[24rem]"
+      className={cn('relative min-w-0 scroll-mt-6 xl:min-h-[24rem]', className)}
     >
       <div className="flex flex-col rounded-xl border border-slate-200 bg-white xl:absolute xl:inset-0">
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">

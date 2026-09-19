@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader2, Settings, Share2 } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
+import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
 import { MallAccountSettingsDialog } from '../../(orders)/mall-settings/components/MallAccountSettingsDialog';
@@ -25,7 +26,7 @@ import { CapabilityLegend } from './components/CapabilityPill';
  * 설정은 그 몰, 머리의 계정 설정은 모든 몰의 계정 표를 연다. 편집 부품과 저장 API 는 계정 행의 작성자인 주문수집
  * 쪽(`app/(orders)/mall-settings`)에 그대로 있고 이 화면은 열기만 한다. 주소의 `?account=몰키|all` 이 그 창을 연다.
  *
- * 맨 위는 셀피아 기준 대시보드(사장님 2026-09-19), 그 아래는 연결된 몰 **한 표**다(사방넷 스케줄러와 같은 모양,
+ * 맨 위는 셀피아 영역(사장님 2026-09-19), 그 아래는 연동된 쇼핑몰 **한 표**다(사방넷 스케줄러와 같은 모양,
  * 사장님 2026-09-17). 줄마다 쇼핑몰 · 쇼핑몰 ID · 사용여부 · 설정과 되는 일 열 칸을 적고
  * **다 되는 몰부터** 둔다. 칸 머리에 몇 곳에서 되는지가 선다 — 초록 됨 · 회색 아직 · 빨강 불가.
  * 판정은 쇼핑몰 홈과 같은 곳(`useMallCapabilityRows`)에서 읽는다. 쇼핑몰 ID · 사용여부는
@@ -85,7 +86,7 @@ export default function MallChannelsPage() {
         </button>
       </div>
 
-      <SellpiaDashboard connectedCount={overview ? overview.shop.connectedChannelCount : null} />
+      <SellpiaDashboard />
 
       {overviewQuery.isError ? (
         <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-600">
@@ -105,8 +106,10 @@ export default function MallChannelsPage() {
             <section className="space-y-3">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <h2 className="section-title">
-                  연결된 몰
-                  <span className="ml-2 text-xs font-normal text-slate-400">다 되는 몰부터</span>
+                  연동된 쇼핑몰
+                  <span className="ml-2 text-sm font-semibold tabular-nums text-slate-400">
+                    {formatNumber(overview.shop.connectedChannelCount)}곳
+                  </span>
                 </h2>
                 <CapabilityLegend />
               </div>

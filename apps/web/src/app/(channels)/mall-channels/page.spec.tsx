@@ -168,15 +168,17 @@ const fourMalls = () => ({
 });
 
 describe('쇼핑몰 현황 — 맨 위 요약', () => {
-  it('⭐ 맨 위는 셀피아 기준이다 — 셀피아 상품 · 재고 있음 · 품절 · 몰에 연결 · 연결된 몰', () => {
+  it('⭐ 맨 위는 셀피아 영역이다 — 셀피아 상품 · 재고 있음 · 품절 · 몰에 연결, 연동된 쇼핑몰 수는 표 머리에', () => {
     render(<MallChannelsPage />);
-    const summary = screen.getByRole('region', { name: '셀피아 기준 요약' });
+    const summary = screen.getByRole('region', { name: '셀피아' });
+    expect(within(summary).getByRole('heading', { name: '셀피아' })).toBeInTheDocument();
     expect(within(summary).getByText('1,828개')).toBeInTheDocument();
     expect(within(summary).getByText('949개')).toBeInTheDocument();
     expect(within(summary).getByText('879개')).toBeInTheDocument();
     expect(within(summary).getByText('1,065개')).toBeInTheDocument();
     expect(within(summary).getByText('미연결 763개')).toBeInTheDocument();
-    expect(within(summary).getByText('25곳')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^연동된 쇼핑몰\s*25곳$/ })).toBeInTheDocument();
+    expect(screen.queryByText('다 되는 몰부터')).not.toBeInTheDocument();
     // 상품 마스터 수는 셀피아와 같은 코드의 중복 마스터가 섞여 크게 나온다 — 적지 않는다.
     expect(screen.queryByText('활성 상품')).not.toBeInTheDocument();
     expect(screen.queryByText('2,951')).not.toBeInTheDocument();
@@ -189,7 +191,7 @@ describe('쇼핑몰 현황 — 맨 위 요약', () => {
       totalSkus: 0, linkedSkus: 0, unlinkedSkus: 0, inStockSkus: 0, outOfStockSkus: 0, totalUnits: 0, pricedAssetValue: 0, unpricedSkuCount: 0,
     }, latestImport: null };
     render(<MallChannelsPage />);
-    const summary = screen.getByRole('region', { name: '셀피아 기준 요약' });
+    const summary = screen.getByRole('region', { name: '셀피아' });
     expect(within(summary).getByText('셀피아 재고를 아직 가져오지 않았습니다.')).toBeInTheDocument();
     expect(within(summary).queryByText('0개')).not.toBeInTheDocument();
   });
@@ -221,7 +223,7 @@ describe('쇼핑몰 현황 — 맨 위 요약', () => {
 describe('쇼핑몰 현황 — 연결된 몰 표', () => {
   it('⭐ 사방넷 스케줄러와 같은 칸으로 선다', () => {
     render(<MallChannelsPage />);
-    expect(screen.getByRole('heading', { name: /연결된 몰/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /연동된 쇼핑몰/ })).toBeInTheDocument();
     const headers = screen.getAllByRole('columnheader').map((cell) => cell.textContent?.replace(/[\d/\s]+$/, '').trim());
     expect(headers).toEqual([
       '쇼핑몰',

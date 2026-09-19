@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Link2, Package, PackageCheck, PackageX, Plug, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Link2, Package, PackageCheck, PackageX, Warehouse, type LucideIcon } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
@@ -33,14 +33,15 @@ interface Figure {
 }
 
 /**
- * 쇼핑몰 현황 맨 위 — 셀피아 기준 대시보드(사장님 2026-09-19 "셀피아 기준 대시보드를 상단에 해놔").
+ * 쇼핑몰 현황 맨 위 — 셀피아 영역(사장님 2026-09-19 "셀피아 기준 대시보드를 상단에 해놔" · "상단에 셀피아 영역으로 해서
+ * 해놔"). 셀피아라는 이름 아래 네 칸을 한 판으로 묶고, 연동된 쇼핑몰 수는 아래 표 머리가 말한다.
  *
  * 숫자는 재고 owner 의 셀피아 스냅샷 요약을 읽기만 한다: 셀피아에 지금 있는 상품, 그 가운데 재고 있음 · 품절(재고 0),
  * 몰 리스팅에 이어진 상품. 카드를 누르면 그 조건으로 거른 재고 화면이 열린다. 상품 마스터 수는 적지 않는다 —
  * 셀피아와 같은 코드로 만들어진 중복 마스터가 섞여 있어 '활성 상품'이 셀피아보다 크게 나온다(라이브 2026-09-19:
  * 마스터 2,918 · 셀피아 1,828).
  */
-export function SellpiaDashboard({ connectedCount }: { connectedCount: number | null }) {
+export function SellpiaDashboard() {
   const snapshotQuery = useQuery({
     queryKey: queryKeys.inventory.snapshot(sellpiaInventoryKeyParams(SUMMARY_PARAMS)),
     queryFn: () => listSellpiaInventorySkus(SUMMARY_PARAMS),
@@ -97,19 +98,23 @@ export function SellpiaDashboard({ connectedCount }: { connectedCount: number | 
       tone: 'default',
       href: '/inventory-hub?linkStatus=unlinked',
     },
-    {
-      label: '연결된 몰',
-      value: connectedCount,
-      unit: '곳',
-      caption: '계정이 연결된 몰',
-      icon: Plug,
-      tone: 'default',
-    },
   ];
 
   return (
-    <section aria-label="셀피아 기준 요약" className="grid grid-cols-2 gap-3 md:grid-cols-5">
-      {figures.map((figure) => <FigureCard key={figure.label} figure={figure} />)}
+    <section aria-label="셀피아" className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="section-title flex items-center gap-2">
+          <Warehouse className="h-5 w-5 text-slate-600" aria-hidden />
+          셀피아
+        </h2>
+        <Link href="/inventory-hub" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
+          재고 관리
+          <ArrowRight size={12} aria-hidden />
+        </Link>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {figures.map((figure) => <FigureCard key={figure.label} figure={figure} />)}
+      </div>
     </section>
   );
 }
