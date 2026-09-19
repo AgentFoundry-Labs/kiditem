@@ -4,22 +4,27 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Query,
+  Res,
+  StreamableFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SalesProductService } from '../../../application/service/sales-product.service';
 import { SabangnetProductImportService } from '../../../application/service/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../../../application/service/sales-product-link.service';
 import { SalesProductImageService } from '../../../application/service/sales-product-image.service';
 import { SalesProductMallPriceService } from '../../../application/service/sales-product-mall-price.service';
+import { SalesProductMallSheetService } from '../../../application/service/sales-product-mall-sheet.service';
 
 interface UploadedWorkbookFile {
   originalname: string;
@@ -43,7 +48,50 @@ export class SalesProductController {
     private readonly links: SalesProductLinkService,
     private readonly images: SalesProductImageService,
     private readonly mallPrices: SalesProductMallPriceService,
+    private readonly mallSheets: SalesProductMallSheetService,
   ) {}
+
+  /** 몰 대량등록 엑셀 목록 — 몰마다 고정값 칸과 기본값. */
+  @Get('mall-sheets')
+  mallSheetList() {
+    return this.mallSheets.list();
+  }
+
+  /** 몰 엑셀에 무엇이 들어가고 무엇이 막히는지(파일은 만들지 않는다). id 를 비우면 이 몰에 없는 판매상품. */
+  @Post('mall-sheets/:sheetKey/check')
+  checkMallSheet(
+    @CurrentOrganization() organizationId: string,
+    @Param('sheetKey') sheetKey: string,
+    @Body() body: unknown,
+  ) {
+    return this.mallSheets.check(organizationId, sheetKey, body);
+  }
+
+  /** 여러 판매상품의 한 몰 분류를 정한다(몰별 값의 categoryPath). 몰은 건드리지 않는다. */
+  @Post('mall-categories/assign')
+  assignMallCategory(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.mallSheets.assignCategory(organizationId, body);
+  }
+
+  /** 고른 판매상품으로 채운 몰 양식 파일. 몰에 올리지 않는다 — 사람이 몰 판매자센터에 올린다. */
+  @Post('mall-sheets/:sheetKey/file')
+  @Header('Access-Control-Expose-Headers', 'Content-Disposition')
+  async mallSheetFile(
+    @CurrentOrganization() organizationId: string,
+    @Param('sheetKey') sheetKey: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.mallSheets.file(organizationId, sheetKey, body);
+    response.setHeader('Content-Disposition', contentDisposition(file.fileName));
+    response.setHeader('Content-Type', file.contentType);
+    response.setHeader('X-Mall-Sheet-Products', String(file.products));
+    response.setHeader('X-Mall-Sheet-Rows', String(file.rows));
+    return new StreamableFile(file.buffer);
+  }
 
   /** 몰 가격이 판매상품 기준과 다른 상품 × 몰 — 몰별 값으로 가져오면 무엇이 바뀌는지(쓰지 않는다). */
   @Get('mall-prices/adoption')
@@ -179,4 +227,9 @@ function optionalInt(value: string | undefined): number | undefined {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) throw new BadRequestException('limit · skip 은 0 이상의 정수입니다.');
   return parsed;
+}
+
+function contentDisposition(fileName: string): string {
+  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

@@ -549,3 +549,107 @@ export const SalesProductMallPriceAdoptionSchema = z.object({
 });
 export type SalesProductMallPriceAdoption = z.infer<typeof SalesProductMallPriceAdoptionSchema>;
 
+
+// ── 몰 대량등록 엑셀(판매상품 → 몰 양식) ─────────────────────────────────────
+
+/** 몰 대량등록 엑셀 하나 — 화면이 몰을 고르고 고정값 칸을 그린다. */
+export const SalesProductMallSheetSchema = z.object({
+  sheetKey: z.string(),
+  label: z.string(),
+  /** 이 파일이 올라가는 몰 키(ESM 은 G마켓 · 옥션 둘). */
+  mallKeys: z.array(z.string()),
+  /** 몰 분류를 번호로 받는가(`code`, 몰 카테고리표로 경로를 번호로 바꾼다), 이름 그대로 받는가(`name`). */
+  categoryBy: z.enum(['code', 'name']),
+  /** 몰이 한 파일에 받는 상품 수. */
+  maxProducts: z.number().int(),
+  /** 몰 계정에 한 번 정하는 값(출하지 코드 · 스토어명 …)과 기본값. */
+  fixedFields: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    required: z.boolean(),
+    defaultValue: z.string(),
+    help: z.string().nullable(),
+  })),
+  /** 올리는 곳 · 올린 뒤 할 일. */
+  notes: z.array(z.string()),
+});
+export type SalesProductMallSheet = z.infer<typeof SalesProductMallSheetSchema>;
+
+export const SalesProductMallSheetListSchema = z.object({ sheets: z.array(SalesProductMallSheetSchema) });
+export type SalesProductMallSheetList = z.infer<typeof SalesProductMallSheetListSchema>;
+
+export const SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1000;
+
+export const SalesProductMallSheetRequestSchema = z.object({
+  /** 비우면(확인만) 이 몰에 아직 없는 판매상품 — 몰 상품과 이어지지 않았고 사방넷이 보낸 적도 없는 것. */
+  salesProductIds: z.array(z.string().uuid()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
+  /** 고정값. 빈 칸은 기본값을 쓴다. */
+  fixed: z.record(z.string(), z.string().max(1000)).default({}),
+}).strict();
+export type SalesProductMallSheetRequest = z.infer<typeof SalesProductMallSheetRequestSchema>;
+
+/**
+ * 상품 × 몰 분류 — 몰 엑셀은 이 몰 분류가 있어야(번호로 받는 몰은 번호로 바뀌어야) 넣는다.
+ * `source`: `set` 사람이 정한 값 · `sabangnet` 사방넷에서 옮긴 경로 · `none` 없음.
+ */
+export const SalesProductMallSheetCategorySchema = z.object({
+  mallKey: z.string(),
+  path: z.string().nullable(),
+  code: z.string().nullable(),
+  source: z.enum(['set', 'sabangnet', 'none']),
+  /** 엑셀에 넣을 수 있는가(번호로 받는 몰은 번호가, 이름으로 받는 몰은 경로가 있어야). */
+  resolved: z.boolean(),
+  /** 풀리지 않았을 때, 같은 상품이 다른 몰에서 쓰는 분류로 짐작한 이 몰 분류. 사람이 확인해 저장해야 쓴다. */
+  suggestion: z.object({
+    path: z.string(),
+    /** 투표한 몰들이 이 분류에 준 몫의 평균(0~1). */
+    share: z.number(),
+    voters: z.number().int(),
+    /** 이 분류가 번호로 풀리는가(번호로 받는 몰). */
+    resolves: z.boolean(),
+  }).nullable(),
+});
+export type SalesProductMallSheetCategory = z.infer<typeof SalesProductMallSheetCategorySchema>;
+
+export const SalesProductMallSheetCheckSchema = z.object({
+  sheetKey: z.string(),
+  /** `missing`: 이 몰에 없는 판매상품을 서버가 골랐다. `selected`: 보낸 id 그대로. */
+  scope: z.enum(['selected', 'missing']),
+  /** 비어 있는 필수 고정값 이름. 있으면 파일을 만들지 않는다. */
+  missingFixed: z.array(z.string()),
+  /**
+   * `missing` 에서 뺀 판매상품 수 — 몰 상품과 이어지지 않았지만 사방넷이 이 몰에 보낸 적이 있어 이미 올라가 있을 수
+   * 있는 것. 다시 올리면 몰에 같은 상품이 둘 생긴다.
+   */
+  maybeListed: z.number().int(),
+  products: z.array(z.object({
+    salesProductId: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+    /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
+    rows: z.number().int(),
+    problems: z.array(z.string()),
+    warnings: z.array(z.string()),
+    /** 이 파일이 다루는 몰마다의 분류. */
+    categories: z.array(SalesProductMallSheetCategorySchema),
+  })),
+  ready: z.number().int(),
+  blocked: z.number().int(),
+});
+export type SalesProductMallSheetCheck = z.infer<typeof SalesProductMallSheetCheckSchema>;
+
+/** 여러 판매상품의 한 몰 분류를 한 번에 정한다(몰별 값의 `categoryPath`). */
+export const SalesProductMallCategoryAssignRequestSchema = z.object({
+  mallKey: z.string().trim().min(1).max(40),
+  path: z.string().trim().min(1).max(300),
+  salesProductIds: z.array(z.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS),
+}).strict();
+export type SalesProductMallCategoryAssignRequest = z.infer<typeof SalesProductMallCategoryAssignRequestSchema>;
+
+export const SalesProductMallCategoryAssignResultSchema = z.object({
+  /** 바뀐 상품 × 몰 줄 수(이미 같은 분류면 세지 않는다). */
+  written: z.number().int(),
+  /** 몰 카테고리표에서 이 경로의 번호(번호로 받는 몰). 없으면 null — 엑셀은 여전히 막힌다. */
+  code: z.string().nullable(),
+});
+export type SalesProductMallCategoryAssignResult = z.infer<typeof SalesProductMallCategoryAssignResultSchema>;

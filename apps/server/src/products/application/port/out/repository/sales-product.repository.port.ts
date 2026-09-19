@@ -14,6 +14,7 @@ import type {
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
 } from '../../../../domain/sales-product-mall-prices';
+import type { MallSheetSourceProduct } from '../../../../domain/mall-bulk-sheet/mall-sheet-product';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
 
@@ -198,6 +199,26 @@ export interface SalesProductRepositoryPort {
     expectedVersion: number;
     imageUrls: string[];
   }): Promise<boolean>;
+  /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. */
+  readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<MallSheetSourceProduct[]>;
+  /**
+   * 몰 엑셀: 이 몰들에 아직 없는 판매중 판매상품 — 그 몰 상품과 이어지지 않았고 사방넷이 그 몰에 보낸 적도 없는 것.
+   * `maybeListed` 는 이어지지 않았지만 사방넷이 보낸 적이 있어 뺀 수.
+   */
+  findMallSheetMissing(
+    organizationId: string,
+    mallKeys: readonly string[],
+  ): Promise<{ salesProductIds: string[]; maybeListed: number }>;
+  /** 몰 분류 추천의 근거: 판매상품 × 몰의 분류 경로(사람이 정한 `categoryPath`, 없으면 사방넷 경로). */
+  listMallCategoryPaths(organizationId: string): Promise<{ salesProductId: string; mallKey: string; path: string }[]>;
+  /**
+   * 상품 × 몰 계정의 몰별 값에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 줄이 없으면 만든다). 쓴 줄 수. 없는 판매상품
+   * id 는 건너뛴다.
+   */
+  setMallCategoryPaths(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
+  ): Promise<number>;
 }
 
 export type { SalesProductChannelOverrideInput };

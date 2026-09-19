@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { Suspense, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { FileSpreadsheet, Layers, Link2Off, Package, Search } from 'lucide-react';
+import { FileSpreadsheet, Layers, Link2Off, Package, Search, Store } from 'lucide-react';
 import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ExternalImagesNotice } from './components/ExternalImagesNotice';
 import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
+import { MallSheetDialog } from './components/MallSheetDialog';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -49,6 +50,7 @@ function SalesProductsContent() {
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
   const [draft, setDraft] = useState(search);
   const [importing, setImporting] = useState(false);
+  const [makingSheet, setMakingSheet] = useState(false);
 
   const query = { focus, query: search || undefined, page, limit: PAGE_SIZE };
   const list = useQuery({
@@ -82,10 +84,16 @@ function SalesProductsContent() {
             몰에 보낼 상품을 한 번 편집하고 여러 몰로 보냅니다. 옵션마다 셀피아 상품을 이어 두면 재고 · 품절이 따라갑니다.
           </p>
         </div>
-        <button type="button" className="btn-primary inline-flex items-center gap-1.5" onClick={() => setImporting(true)}>
-          <FileSpreadsheet size={16} aria-hidden />
-          사방넷 엑셀 가져오기
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary inline-flex items-center gap-1.5" onClick={() => setMakingSheet(true)}>
+            <Store size={16} aria-hidden />
+            몰 대량등록 엑셀
+          </button>
+          <button type="button" className="btn-primary inline-flex items-center gap-1.5" onClick={() => setImporting(true)}>
+            <FileSpreadsheet size={16} aria-hidden />
+            사방넷 엑셀 가져오기
+          </button>
+        </div>
       </header>
 
       <ExternalImagesNotice />
@@ -235,6 +243,7 @@ function SalesProductsContent() {
       </section>
 
       {importing && <SabangnetImportDialog onClose={() => setImporting(false)} />}
+      {makingSheet && <MallSheetDialog onClose={() => setMakingSheet(false)} />}
     </div>
   );
 }

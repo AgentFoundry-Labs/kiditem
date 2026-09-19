@@ -10,7 +10,8 @@ owns physical stock quantities.
 ## Owned Surfaces
 
 - Canonical `MasterProduct` operations and category compatibility.
-- Sales products, their options, per-mall values, and the Sabangnet workbook import.
+- Sales products, their options, per-mall values, the Sabangnet workbook import,
+  and mall bulk-registration sheets filled from stored mall templates.
 - Direct channel-option inventory composition.
 - Products-owned absolute ABC formula, evaluation, publication, current grade,
   and history.
@@ -40,6 +41,9 @@ owns physical stock quantities.
   An option's Sellpia composition is declared intent: it never feeds capacity
   and is copied only into an empty channel option recipe when that option is
   linked. Only `SalesProductService` and the Sabangnet import write them.
+- Mall bulk sheets only produce a file from the stored mall template; they
+  never upload, never mark a listing registered, and save a suggested mall
+  category only when an operator confirms it.
 - `MasterProduct` is the only ABC owner. Channel option inventory composition is
   logistics data and does not create a second product grade.
 - A channel option recipe is an atomic complete replacement of distinct,

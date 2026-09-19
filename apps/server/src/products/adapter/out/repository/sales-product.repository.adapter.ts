@@ -31,6 +31,7 @@ import type {
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
 } from '../../../domain/sales-product-mall-prices';
+import type { MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
 import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
@@ -688,6 +689,186 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return result.count === 1;
   }
 
+  async readMallSheetProducts(
+    organizationId: string,
+    salesProductIds: readonly string[],
+  ): Promise<MallSheetSourceProduct[]> {
+    if (salesProductIds.length === 0) return [];
+    const rows = await this.prisma.salesProduct.findMany({
+      where: { organizationId, id: { in: [...salesProductIds] } },
+      orderBy: { code: 'asc' },
+      select: {
+        id: true,
+        code: true,
+        ownCode: true,
+        name: true,
+        brand: true,
+        manufacturer: true,
+        modelName: true,
+        modelNo: true,
+        originCountry: true,
+        keywords: true,
+        taxType: true,
+        salePrice: true,
+        tagPrice: true,
+        imageUrls: true,
+        detailHtml: true,
+        noticeCategory: true,
+        certifications: true,
+        optionAxes: true,
+        sourceRaw: true,
+        options: {
+          orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
+          select: { optionCode: true, values: true, extraPrice: true, barcode: true, supplyStatus: true },
+        },
+        channelOverrides: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            salePrice: true,
+            priceRateBp: true,
+            name: true,
+            detailHtml: true,
+            promoText: true,
+            adapterValues: true,
+            channelAccount: { select: { channel: true } },
+          },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      ownCode: row.ownCode,
+      name: row.name,
+      brand: row.brand,
+      manufacturer: row.manufacturer,
+      modelName: row.modelName,
+      modelNo: row.modelNo,
+      originCountry: row.originCountry,
+      keywords: row.keywords,
+      taxType: row.taxType as SalesProductTaxType,
+      salePrice: row.salePrice,
+      tagPrice: row.tagPrice,
+      imageUrls: row.imageUrls,
+      detailHtml: row.detailHtml,
+      noticeCategory: row.noticeCategory,
+      certificationNumbers: parseCertifications(row.certifications).map((item) => item.number),
+      optionAxes: row.optionAxes,
+      options: row.options.map((option) => ({
+        code: option.optionCode,
+        values: option.values,
+        extraPrice: option.extraPrice,
+        barcode: option.barcode,
+        supplyStatus: option.supplyStatus,
+      })),
+      overrides: row.channelOverrides.map((override) => ({
+        mallKey: override.channelAccount.channel,
+        salePrice: override.salePrice,
+        priceRateBp: override.priceRateBp,
+        name: override.name,
+        detailHtml: override.detailHtml,
+        promoText: override.promoText,
+        adapterValues: isStringRecord(override.adapterValues) ? override.adapterValues : {},
+      })),
+      sabangnetImageUrls: sabangnetImageUrls(row.sourceRaw),
+    }));
+  }
+
+  async findMallSheetMissing(
+    organizationId: string,
+    mallKeys: readonly string[],
+  ): Promise<{ salesProductIds: string[]; maybeListed: number }> {
+    const accounts = await this.prisma.channelAccount.findMany({
+      where: { organizationId, channel: { in: [...mallKeys] } },
+      select: { id: true },
+    });
+    const accountIds = accounts.map((account) => account.id);
+    const products = await this.prisma.salesProduct.findMany({
+      where: { organizationId, status: 'active' },
+      orderBy: { code: 'asc' },
+      select: {
+        id: true,
+        channelListings: {
+          where: { isActive: true, channelAccountId: { in: accountIds } },
+          select: { id: true },
+          take: 1,
+        },
+        channelOverrides: {
+          where: { channelAccountId: { in: accountIds }, sourceRaw: { not: Prisma.DbNull } },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    const unlisted = products.filter((product) => product.channelListings.length === 0);
+    return {
+      salesProductIds: unlisted.filter((product) => product.channelOverrides.length === 0).map((product) => product.id),
+      maybeListed: unlisted.filter((product) => product.channelOverrides.length > 0).length,
+    };
+  }
+
+  async listMallCategoryPaths(
+    organizationId: string,
+  ): Promise<{ salesProductId: string; mallKey: string; path: string }[]> {
+    return this.prisma.$queryRaw<{ salesProductId: string; mallKey: string; path: string }[]>(Prisma.sql`
+      SELECT o.sales_product_id::text AS "salesProductId",
+        a.channel AS "mallKey",
+        coalesce(nullif(o.adapter_values->>'categoryPath', ''), o.adapter_values->>'sabangnetCategoryPath') AS path
+      FROM sales_product_channel_overrides o
+      JOIN channel_accounts a ON a.id = o.channel_account_id AND a.organization_id = o.organization_id
+      WHERE o.organization_id = ${organizationId}::uuid
+        AND coalesce(nullif(o.adapter_values->>'categoryPath', ''), o.adapter_values->>'sabangnetCategoryPath', '') <> ''
+    `);
+  }
+
+  async setMallCategoryPaths(
+    organizationId: string,
+    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
+  ): Promise<number> {
+    let written = 0;
+    for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
+      const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
+      await this.prisma.$transaction(async (tx) => {
+        const products = new Set((await tx.salesProduct.findMany({
+          where: { organizationId, id: { in: chunk.map((write) => write.salesProductId) } },
+          select: { id: true },
+        })).map((row) => row.id));
+        const existing = await tx.salesProductChannelOverride.findMany({
+          where: {
+            organizationId,
+            OR: chunk.map((write) => ({ salesProductId: write.salesProductId, channelAccountId: write.channelAccountId })),
+          },
+          select: { id: true, salesProductId: true, channelAccountId: true, adapterValues: true },
+        });
+        const byPair = new Map(existing.map((row) => [`${row.salesProductId}|${row.channelAccountId}`, row]));
+        for (const write of chunk) {
+          if (!products.has(write.salesProductId)) continue;
+          const row = byPair.get(`${write.salesProductId}|${write.channelAccountId}`);
+          if (!row) {
+            await tx.salesProductChannelOverride.create({
+              data: {
+                organizationId,
+                salesProductId: write.salesProductId,
+                channelAccountId: write.channelAccountId,
+                adapterValues: { categoryPath: write.path },
+              },
+            });
+            written += 1;
+            continue;
+          }
+          const current = isStringRecord(row.adapterValues) ? row.adapterValues : {};
+          if (current.categoryPath === write.path) continue;
+          await tx.salesProductChannelOverride.updateMany({
+            where: { id: row.id, organizationId },
+            data: { adapterValues: { ...current, categoryPath: write.path }, version: { increment: 1 } },
+          });
+          written += 1;
+        }
+      });
+    }
+    return written;
+  }
+
   async importSabangnet(
     organizationId: string,
     writes: readonly SabangnetImportProductWrite[],
@@ -1063,4 +1244,17 @@ function groupIds<T>(items: readonly T[], key: (item: T) => string, value: (item
   const grouped = new Map<string, string[]>();
   for (const item of items) grouped.set(key(item), [...(grouped.get(key(item)) ?? []), value(item)]);
   return grouped;
+}
+
+/** 사방넷에서 옮긴 원문 줄의 사진 주소 — `대표이미지`, 그다음 `부가이미지1` · `부가이미지2` … 순서. */
+function sabangnetImageUrls(sourceRaw: Prisma.JsonValue | null): string[] {
+  if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return [];
+  const raw = sourceRaw as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  const extras = Object.entries(raw)
+    .map(([key, value]) => ({ order: /^부가이미지(\d+)$/.exec(key)?.[1], url: text(value) }))
+    .filter((entry): entry is { order: string; url: string } => Boolean(entry.order && entry.url))
+    .sort((left, right) => Number(left.order) - Number(right.order))
+    .map((entry) => entry.url);
+  return [text(raw['대표이미지']), ...extras].filter((url, index, all) => url && all.indexOf(url) === index);
 }

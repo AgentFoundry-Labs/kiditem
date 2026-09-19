@@ -4,14 +4,21 @@ import {
   SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
   SalesProductMallCategoriesSchema,
+  SalesProductMallCategoryAssignResultSchema,
   SalesProductMallPriceAdoptionSchema,
+  SalesProductMallSheetCheckSchema,
+  SalesProductMallSheetListSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
   type SalesProduct,
   type SalesProductExternalImages,
   type SalesProductImageMirrorResult,
   type SalesProductMallCategories,
+  type SalesProductMallCategoryAssignRequest,
+  type SalesProductMallCategoryAssignResult,
   type SalesProductMallPriceAdoption,
+  type SalesProductMallSheetCheck,
+  type SalesProductMallSheetList,
   type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
@@ -24,6 +31,7 @@ import {
 } from '@kiditem/shared/product-operations';
 import { MallChannelOverviewSchema } from '@kiditem/shared/mall-publishing';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 
 const BASE = '/api/products/sales-products';
 
@@ -40,7 +48,14 @@ export const salesProductKeys = {
   externalImages: () => ['sales-products', 'external-images'] as const,
   mallCategories: (mallKey: string) => ['sales-products', 'mall-categories', mallKey] as const,
   mallPriceAdoption: () => ['sales-products', 'mall-price-adoption'] as const,
+  mallSheets: () => ['sales-products', 'mall-sheets'] as const,
 };
+
+/** 몰 엑셀 요청 몸통. `salesProductIds` 를 비우면 이 몰에 아직 없는 판매상품을 서버가 고른다(확인만). */
+export interface MallSheetRequestBody {
+  salesProductIds?: string[];
+  fixed: Record<string, string>;
+}
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
   const params = new URLSearchParams();
@@ -100,6 +115,40 @@ export const salesProductApi = {
       ? [{ channelAccountId: channel.channelAccountId, mallKey: channel.mallKey, mallName: channel.mallName }]
       : []);
   },
+  /** 몰 대량등록 엑셀 목록 — 몰마다 고정값 칸과 기본값. */
+  mallSheets: async (): Promise<SalesProductMallSheetList> =>
+    SalesProductMallSheetListSchema.parse(await apiClient.get<unknown>(`${BASE}/mall-sheets`)),
+  /** 몰 엑셀에 무엇이 들어가고 무엇이 막히는지(파일은 만들지 않는다). */
+  checkMallSheet: async (sheetKey: string, body: MallSheetRequestBody): Promise<SalesProductMallSheetCheck> =>
+    SalesProductMallSheetCheckSchema.parse(
+      await apiClient.post<unknown>(`${BASE}/mall-sheets/${encodeURIComponent(sheetKey)}/check`, body),
+    ),
+  /** 고른 판매상품으로 채운 몰 양식 파일(바이트와 파일 이름). 몰에 올리지 않는다. */
+  downloadMallSheet: async (
+    sheetKey: string,
+    body: Required<MallSheetRequestBody>,
+  ): Promise<{ blob: Blob; fileName: string }> => {
+    const response = await apiClient.fetchRaw(`${BASE}/mall-sheets/${encodeURIComponent(sheetKey)}/file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      throw new ApiError(
+        response.status,
+        typeof payload?.error === 'string' ? payload.error : null,
+        typeof payload?.message === 'string' ? payload.message : '몰 엑셀을 만들지 못했습니다.',
+      );
+    }
+    return {
+      blob: await response.blob(),
+      fileName: fileNameFrom(response.headers.get('Content-Disposition')) ?? `${sheetKey}_대량등록.xlsx`,
+    };
+  },
+  /** 여러 판매상품의 한 몰 분류를 정한다(몰별 값의 categoryPath). 몰은 건드리지 않는다. */
+  assignMallCategory: async (body: SalesProductMallCategoryAssignRequest): Promise<SalesProductMallCategoryAssignResult> =>
+    SalesProductMallCategoryAssignResultSchema.parse(await apiClient.post<unknown>(`${BASE}/mall-categories/assign`, body)),
   searchSellpiaSkus: async (search: string): Promise<ProductRecipeComponentCandidate[]> => {
     const params = new URLSearchParams({ search, limit: '20', stockStatus: 'all' });
     const response = await apiClient.getParsed(
@@ -109,3 +158,16 @@ export const salesProductApi = {
     return response.items;
   },
 };
+
+function fileNameFrom(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+  return /filename="([^"]+)"/i.exec(disposition)?.[1] ?? null;
+}
