@@ -79,6 +79,20 @@ describe('mallAdminListingStatus', () => {
     expect(mallAdminListingStatus('icecream-mall', ['판매종료', '전시'])).toBe('판매종료');
   });
 
+  /**
+   * 떠리몰(샵바이)은 승인상태 · 판매설정 · 판매상태 · 품절 여부가 따로 온다. 판매자가 멈춘 판매중지는 품절 · 미노출로 접지
+   * 않는다(사장님 2026-09-19 — 못 사는 까닭을 몰의 말로), 몰이 막은 것이 먼저다.
+   */
+  it('떠리몰 — 판매중지는 멈춤, 판매금지 · 승인거부가 먼저다', () => {
+    expect(mallAdminListingStatus('thirtymall', ['판매중'])).toBe('판매중');
+    expect(mallAdminListingStatus('thirtymall', ['판매중지'])).toBe('일시중지');
+    expect(mallAdminListingStatus('thirtymall', ['판매중지', '품절'])).toBe('일시중지');
+    expect(mallAdminListingStatus('thirtymall', ['품절'])).toBe('품절');
+    expect(mallAdminListingStatus('thirtymall', ['판매금지', '품절'])).toBe('보류');
+    expect(mallAdminListingStatus('thirtymall', ['승인거부', '판매금지', '품절'])).toBe('반려');
+    expect(mallAdminListingStatus('thirtymall', ['판매종료'])).toBe('판매종료');
+  });
+
   it('모르는 글자는 짐작하지 않고 몰 글자를 그대로 둔다', () => {
     expect(mallAdminListingStatus('icecream-mall', ['임시저장', '전시'])).toBe('임시저장 · 전시');
     expect(mallAdminListingStatus('kidkids', ['미인증'])).toBe('미인증');

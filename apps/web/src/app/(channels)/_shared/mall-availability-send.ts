@@ -33,8 +33,8 @@ const READ_TIMEOUT_MS = 90_000;
  */
 const SEND_CHUNK: Partial<Record<string, number>> = {
   coupang: 10, kakao: 20, kkomangse: 20, 'teacher-mall': 20,
-  // ESM 은 상품마다 한 번씩 보내고, 스마트스토어는 일괄변경 결과를 기다린다.
-  gmarket: 50, auction: 50, smartstore: 50,
+  // ESM 은 상품마다 한 번씩 보내고, 스마트스토어는 일괄변경 결과를 기다린다. 떠리몰은 묶음마다 보내고 다시 읽는다.
+  gmarket: 50, auction: 50, smartstore: 50, thirtymall: 50,
 };
 
 /**
@@ -45,7 +45,7 @@ const SEND_CHUNK: Partial<Record<string, number>> = {
  */
 export const MALL_AVAILABILITY_SEND_MALLS = [
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
-  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
+  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'thirtymall',
 ] as const;
 
 export type MallAvailabilitySendMall = typeof MALL_AVAILABILITY_SEND_MALLS[number];
@@ -78,6 +78,8 @@ const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
   auction: 'mallAvailabilityMarketsV1',
   '11st': 'mallAvailabilityMarketsV1',
   smartstore: 'mallAvailabilityMarketsV1',
+  // 1.2.21 전 확장은 떠리몰 길이 없다.
+  thirtymall: 'mallAvailabilityThirtymallV1',
 };
 // 티쳐몰 · 롯데ON · 아트공구는 옛 확장이 모르는 몰이라 확장이 "품절 경로를 아는 몰이 아닙니다"로 거절한다.
 
@@ -93,7 +95,7 @@ export function canSendMallAvailability(mallKey: string): mallKey is MallAvailab
  */
 export const MALL_AVAILABILITY_READ_MALLS = [
   'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'kkomangse', 'teacher-mall', 'icecream-mall', 'kidsnote',
-  'gmarket', 'auction', '11st', 'smartstore', 'kidkids',
+  'gmarket', 'auction', '11st', 'smartstore', 'kidkids', 'thirtymall',
 ] as const;
 
 export function canReadMallAvailability(mallKey: string): boolean {
@@ -183,10 +185,11 @@ export interface MallLiveSummary {
  */
 const SOLD_OUT_FLAG_MALLS: ReadonlySet<string> = new Set([
   'always', 'art09', 'lotte-on', 'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'kidkids',
+  'thirtymall',
 ]);
 
-/** 품절을 판매중지로 보내는 몰(ESM · 11번가 · 스마트스토어) — 칸은 '품절' 이 아니라 그 몰의 말 그대로 '판매중지' 라고 적는다. */
-const SUSPENSION_MALLS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore']);
+/** 품절을 판매중지로 보내는 몰(ESM · 11번가 · 스마트스토어 · 떠리몰) — 칸은 '품절' 이 아니라 그 몰의 말 그대로 '판매중지' 라고 적는다. */
+const SUSPENSION_MALLS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']);
 
 /** 이 몰에서 "품절 처리"가 실제로 하는 일의 이름 — 알림 문장에 쓴다. */
 export function mallSoldOutWord(mallKey: string): '판매중지' | '품절' {

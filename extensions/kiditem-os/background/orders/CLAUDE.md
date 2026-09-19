@@ -96,7 +96,10 @@ registration, and Coupang cookie-overflow recovery.
   stays in that page and is never returned. 아트공구 (Cafe24 supplier admin)
   reads the product list 100 rows per page; each row's checkbox carries the
   product number and its display/selling state, and an overlapping page stops
-  the run.
+  the run. 떠리몰 (Shopby partner admin) calls the list screen's admin API
+  (`admin-api.e-ncp.com`) from inside the partner page with the partner
+  cookie token and the list screen as `ClientLocation` (omitting it is a 403);
+  the token never leaves that page.
 
 ## Sellpia And Rocket Boundaries
 

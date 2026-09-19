@@ -7823,6 +7823,9 @@ KidItemDomains.register({
     // 키드키즈를 상품코드 검색 + [일시품절]과 같은 폼(commitType=change_use_flag, EUC-KR)으로 보낸다(1.2.20). 옛 확장은
     // 틀린 값을 목록 1쪽에서만 보냈다 — 웹은 이 값이 없는 확장으로 키드키즈를 보내지 않는다.
     mallAvailabilityKidkidsUseFlagV1: true,
+    // 떠리몰(샵바이 파트너 어드민)을 상품 목록 판매설정(판매중지 · 판매가능)과 같은 요청으로 보낸다(1.2.21). 옛 확장은 떠리몰
+    // 길이 없다 — 웹은 이 값이 없는 확장으로 떠리몰을 보내지 않는다.
+    mallAvailabilityThirtymallV1: true,
     // 몰 지금 재고 읽기(보내지 않는다).
     mallAvailabilityRead: true,
     mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,

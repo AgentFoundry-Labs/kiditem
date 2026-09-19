@@ -93,6 +93,9 @@ describe('mallStopBadge · listingStatePill', () => {
     expect(listingStatePill('reviewing', '사방넷 대기중')).toMatchObject({ label: '미승인', kind: 'pending' });
     expect(listingStatePill('reviewing', '승인대기')).toMatchObject({ label: '미승인', kind: 'pending' });
     expect(listingStatePill('error', '반려')).toMatchObject({ label: '반려', kind: 'blocked' });
+    // 떠리몰 판매중지는 우리 어휘 `일시중지` 로 들어온다 — 칸은 판매중지(빨강)로 적는다.
+    expect(listingStatePill('paused', '일시중지')).toMatchObject({ label: '판매중지', kind: 'sold_out' });
+    expect(mallStopBadge('승인거부')).toEqual({ kind: 'blocked', label: '승인거부' });
   });
 
   it('판매중 · 미등록 · 모르는 말은 우리 어휘 그대로다', () => {

@@ -631,7 +631,7 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
     new URL("../kiditem-os/background/orders/mall-admin-listings.js", import.meta.url),
     "utf8",
   );
-  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"], ["https://zzogzzog1.cafe24.com", "100", "100"]]) {
+  for (const [origin, contractSize, collectorSize] of [[KIDKIDS, "20_000", "20000"], [ICECREAM, "10_000", "10000"], ["https://alwayzseller.ilevit.com", "100", "100"], ["https://zzogzzog1.cafe24.com", "100", "100"], ["https://partner.shopby.co.kr", "100", "100"]]) {
     assert.match(contract, new RegExp(`origin: '${origin}'`));
     assert.match(collector, new RegExp(`origin: "${origin}"`));
     assert.match(contract, new RegExp(`pageSize: ${contractSize},`));
@@ -643,6 +643,7 @@ test("읽기기 몰 표가 서버 계약과 같고, 두 몰 호스트가 권한�
   assert.ok(manifest.host_permissions.includes("https://alwayzseller.ilevit.com/*"));
   assert.ok(manifest.host_permissions.includes("https://alwayz-seller-back.ilevit.com/*"));
   assert.ok(manifest.host_permissions.includes("https://zzogzzog1.cafe24.com/*"));
+  assert.ok(manifest.host_permissions.includes("https://partner.shopby.co.kr/*"));
   const owners = readFileSync(
     new URL("../kiditem-os/background/source-owner-manifest.js", import.meta.url),
     "utf8",
@@ -819,4 +820,115 @@ test("아트공구 — 쪽이 겹치거나 읽는 사이 수가 바뀌면 저장
 test("아트공구 — 로그인 화면으로 넘어가면 로그인이 필요하다고 답한다", async () => {
   const { result } = await runArt09Reader({ serve: () => ({ landed: "https://eclogin.cafe24.com/Shop/" }) });
   assert.deepEqual(result, { success: false, errorCode: "mall_login_required" });
+});
+
+// 떠리몰(샵바이 파트너 어드민) — 목록 화면이 부르는 상품 검색 API 를 겉 화면 안에서 100개씩 읽는다(라이브 2026-09-19: 479개 = 5쪽).
+const SHOPBY = "https://partner.shopby.co.kr";
+const thirtymallPlan = { ...kidkidsPlan, mallKey: "thirtymall", sourceOrigin: SHOPBY, pageSize: 100 };
+
+function shopbyProduct(index, overrides = {}) {
+  return {
+    mallProductNo: 132150000 + index,
+    mallNo: 78859,
+    productName: `야광 안테나 지시봉 ${index} (24개) (업체별도 무료배송)`,
+    applyStatusType: "FINISHED",
+    saleStatusType: "ON_SALE",
+    saleSettingStatusType: "AVAILABLE_FOR_SALE",
+    isSoldOut: false,
+    salePrice: 8000,
+    productManagementCd: "",
+    registerDateTime: "2026-08-10 15:12:20",
+    mainImageUrl: "//shopby-images.cdn-nhncommerce.com/a.jpg",
+    ...overrides,
+  };
+}
+
+async function runThirtymallReader({ products, cookie = "a=1; SHOPBY_PARTNER_SESSAT=tok-page-123; b=2", totalShift = 0, status = 200 } = {}) {
+  const requests = [];
+  const context = loadSource(["../kiditem-os/background/orders/mall-admin-listings.js"]);
+  const pageContext = vm.createContext({
+    Date, Map, Set, URL, JSON, Number, Array, String, Math,
+    AbortController,
+    setTimeout: (callback) => setTimeout(callback, 0),
+    clearTimeout,
+    decodeURIComponent,
+    document: { cookie },
+    fetch: async (url, init) => {
+      const parsed = new URL(url);
+      const body = JSON.parse(init.body);
+      requests.push({ origin: parsed.origin, path: parsed.pathname, method: init.method, headers: init.headers, body });
+      if (status !== 200) return { ok: false, status, json: async () => ({ code: "A0003" }) };
+      const total = products.length + totalShift;
+      const start = (body.page - 1) * body.size;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ totalCount: total, totalPage: Math.max(1, Math.ceil(total / body.size)), contents: products.slice(start, start + body.size), lastId: null }),
+      };
+    },
+  });
+  const reader = vm.runInContext(`(${context.KidItemMallAdminListings.readThirtymallListings.toString()})`, pageContext);
+  const result = await reader(structuredClone(thirtymallPlan), 1000, 0, 1);
+  return { result: JSON.parse(JSON.stringify(result)), requests };
+}
+
+test("⭐ 떠리몰 — 검색 API 를 100개씩 1쪽부터 다 돌고, 승인 · 판매설정 · 판매상태 · 품절을 몰 글자로, 고른 칸만 넘긴다", async () => {
+  const products = Array.from({ length: 205 }, (_, index) => shopbyProduct(index));
+  products[1] = shopbyProduct(1, { saleSettingStatusType: "STOP_SELLING" });
+  products[2] = shopbyProduct(2, { saleSettingStatusType: "PROHIBITION_SALE", isSoldOut: true });
+  products[3] = shopbyProduct(3, { applyStatusType: "APPROVAL_REJECTION", saleStatusType: "PRE_APPROVAL_STATUS" });
+  products[4] = shopbyProduct(4, { isSoldOut: true, productManagementCd: "INV-10471-1" });
+  const { result, requests } = await runThirtymallReader({ products });
+  assert.equal(result.success, true);
+  assert.deepEqual(requests.map((request) => [request.origin, request.path, request.method, request.body.page]), [
+    ["https://admin-api.e-ncp.com", "/products/search", "POST", 1],
+    ["https://admin-api.e-ncp.com", "/products/search", "POST", 2],
+    ["https://admin-api.e-ncp.com", "/products/search", "POST", 3],
+  ]);
+  for (const request of requests) {
+    assert.equal(request.headers.accessToken, "tok-page-123");
+    assert.equal(request.headers.Version, "1.0");
+    // 화면 주소가 없으면 샵바이가 403 "권한이 없습니다" 로 막는다.
+    assert.equal(request.headers.ClientLocation, "https://partner-remote.shopby.co.kr/product/management/list");
+    assert.deepEqual(request.body.mallNos, [78859]);
+    assert.equal(request.body.size, 100);
+    assert.deepEqual(request.body.periodInfo, { type: "REGISTER_DATE", period: { startYmdt: "2000-01-01 00:00:00", endYmdt: "2999-12-31 23:59:59" } });
+    assert.deepEqual(request.body.saleSettingStatus, { isAll: true, types: [] });
+  }
+  assert.ok(!JSON.stringify(result).includes("tok-page-123"), "결과에 토큰이 없다");
+  const { rows, collection } = result.snapshot;
+  assert.equal(rows.length, 205);
+  assert.deepEqual(collection, { totalRecords: 205, recordsRead: 205, pagesRead: 3, totalPages: 3, detailsRead: 0, detailsMissing: 0 });
+  const byCode = new Map(rows.map((row) => [row.mallProductCode, row]));
+  assert.deepEqual(byCode.get("132150000"), {
+    mallProductCode: "132150000",
+    // 몰이 모든 상품에 붙이는 "(업체별도 무료배송)"은 뗀다.
+    productName: "야광 안테나 지시봉 0 (24개)",
+    sellpiaName: null,
+    sellerCode: null,
+    salePrice: 8000,
+    statusWords: ["판매중"],
+    registeredOn: "2026-08-10",
+    // 스킴 없이 오는 사진 주소는 https 로 채운다.
+    imageUrl: "https://shopby-images.cdn-nhncommerce.com/a.jpg",
+  });
+  assert.deepEqual(byCode.get("132150001").statusWords, ["판매중지"]);
+  assert.deepEqual(byCode.get("132150002").statusWords, ["판매금지", "품절"]);
+  assert.deepEqual(byCode.get("132150003").statusWords, ["승인거부"]);
+  assert.deepEqual(byCode.get("132150004").statusWords, ["품절"]);
+  assert.equal(byCode.get("132150004").sellerCode, "INV-10471-1");
+});
+
+test("떠리몰 — 로그인 쿠키가 없거나 401 이면 로그인이 필요하고, 403 · 모르는 상태 · 수 변화는 저장하지 않는다", async () => {
+  const noCookie = await runThirtymallReader({ products: [shopbyProduct(1)], cookie: "a=1" });
+  assert.deepEqual(noCookie.result, { success: false, errorCode: "mall_login_required" });
+  assert.equal(noCookie.requests.length, 0);
+  const expired = await runThirtymallReader({ products: [shopbyProduct(1)], status: 401 });
+  assert.deepEqual(expired.result, { success: false, errorCode: "mall_login_required" });
+  const forbidden = await runThirtymallReader({ products: [shopbyProduct(1)], status: 403 });
+  assert.deepEqual(forbidden.result, { success: false, errorCode: "mall_contract_drift", stage: "forbidden" });
+  const unknown = await runThirtymallReader({ products: [shopbyProduct(1, { saleSettingStatusType: "SOMETHING_NEW" })] });
+  assert.deepEqual(unknown.result, { success: false, errorCode: "mall_contract_drift", stage: "sale_setting" });
+  const shifted = await runThirtymallReader({ products: [shopbyProduct(1), shopbyProduct(2)], totalShift: 1 });
+  assert.deepEqual(shifted.result, { success: false, errorCode: "mall_total_changed" });
 });

@@ -41,8 +41,8 @@ describe('MALL_ADAPTER_MANIFESTS', () => {
    * 지마켓 · 옥션 · 11번가 · 스마트스토어는 몰 API 는 확인 전이지만, 품절 · 재개만 그 몰 관리자 화면의 요청으로 열었다
    * (사장님 2026-09-19). 등록 · 수정 · 재고는 여전히 닫혀 있다.
    */
-  it('⭐ opens only the sold-out axis on the four marketplaces', () => {
-    for (const key of ['gmarket', 'auction', '11st', 'smartstore']) {
+  it('⭐ opens only the sold-out axis on the four marketplaces and 떠리몰', () => {
+    for (const key of ['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']) {
       const entry = getMallAdapterManifest(key)!;
       expect(entry.unverified).toBe(true);
       expect(entry.supports).toEqual({

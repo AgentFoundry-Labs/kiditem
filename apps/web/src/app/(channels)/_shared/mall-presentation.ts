@@ -232,6 +232,7 @@ const STOP_WORDS: Readonly<Record<string, MallStopBadge>> = {
   보류: { kind: 'blocked', label: '보류' },
   반려: { kind: 'blocked', label: '반려' },
   승인반려: { kind: 'blocked', label: '승인반려' },
+  승인거부: { kind: 'blocked', label: '승인거부' },
   등록대기: { kind: 'pending', label: '미승인' },
   승인대기: { kind: 'pending', label: '미승인' },
   대기중: { kind: 'pending', label: '미승인' },

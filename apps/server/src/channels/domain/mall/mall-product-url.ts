@@ -33,6 +33,8 @@ const RULES: Readonly<Record<string, ProductUrlRule>> = {
   'icecream-mall': (code) => (/^\d{1,15}$/.test(code) ? `https://www.i-screammall.co.kr/goods/detail/${code}` : null),
   kidkids: (code) => (/^\d{1,10}$/.test(code) ? `https://mall.kidkids.net/html/product.htm?gc=${code}` : null),
   art09: (code) => (/^\d{1,12}$/.test(code) ? `https://art09.co.kr/product/detail.html?product_no=${code}` : null),
+  // 떠리몰(샵바이) 매장은 상품번호(mallProductNo)를 `detail?id=` 로 연다(2026-09-19 브라우저로 확인).
+  thirtymall: (code) => (/^\d{6,12}$/.test(code) ? `https://thirtymall.com/detail?id=${code}` : null),
 };
 
 export function mallProductUrl(

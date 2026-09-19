@@ -11,6 +11,7 @@ describe('mallProductUrl', () => {
     expect(mallProductUrl('art09', '109704')).toBe('https://art09.co.kr/product/detail.html?product_no=109704');
     expect(mallProductUrl('teacher-mall', '1241718')).toBe('https://shop.teacherville.co.kr/goods/view?no=1241718');
     expect(mallProductUrl('domeggook', '64621152')).toBe('https://domeggook.com/64621152');
+    expect(mallProductUrl('thirtymall', '131987854')).toBe('https://thirtymall.com/detail?id=131987854');
   });
 
   it('ESM 은 사방넷 코드의 앞쪽 사이트상품번호로 연다(옛 옥션 번호도)', () => {

@@ -73,6 +73,8 @@ describe('resolveMallListingState', () => {
     ['승인대기', 'reviewing'],
     ['판매종료', 'discontinued'],
     ['반려', 'error'],
+    // 판매자가 멈춘 것(떠리몰 판매중지). 쿠팡 원문 `판매중지`(단종)와 다른 글자다.
+    ['일시중지', 'paused'],
   ] as const)('몰 화면에서 직접 읽은 %s 를 %s 로 접고, 경고를 붙이지 않는다', (status, expected) => {
     const result = resolveMallListingState({ hasListing: true, listingStatus: status });
     expect(result.state).toBe(expected);

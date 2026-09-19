@@ -76,6 +76,7 @@ const LISTING_STATUS_MAP: Record<string, MallListingState> = {
   [MALL_ADMIN_LISTING_STATUS.awaitingApproval]: 'reviewing',
   [MALL_ADMIN_LISTING_STATUS.ended]: 'discontinued',
   [MALL_ADMIN_LISTING_STATUS.rejected]: 'error',
+  [MALL_ADMIN_LISTING_STATUS.stopped]: 'paused',
   // 크롤로 존재만 확인한 리스팅. 몰이 상태를 준 적이 없다.
   observed: 'unknown',
   '미확인': 'unknown',

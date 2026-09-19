@@ -448,6 +448,30 @@
         batchSize: 50,
       },
     },
+    /**
+     * 떠리몰(샵바이 파트너 어드민). 품절 = **판매중지(STOP_SELLING)**, 판매 재개 = **판매가능(AVAILABLE_FOR_SALE)** — 상품정보
+     * 조회/수정 목록의 판매설정 칸을 바꾼 것과 같은 요청이다(2026-09-19, 화면 번들 putProductsSaleStatus 로 확인).
+     *
+     *  - PUT admin-api.e-ncp.com `/products/sale-status` 에 `{productNos, saleSettingStatusType}` → `{failures}`. 머리는 화면처럼
+     *    accessToken(파트너 로그인 쿠키) · Version 1.0 · ClientLocation(목록 화면 주소 — 없으면 403 "권한이 없습니다").
+     *    토큰은 화면 안에서만 쓴다.
+     *  - 지금 상태는 `POST /products/search-by-key {mallNos, mallProductNos}` 로 읽는다(판매설정 · 판매상태 · 품절 여부).
+     *  - ⚠️ 판매금지(PROHIBITION_SALE)는 되돌릴 수 없다 — 보내지도 풀지도 않는다. 재개는 판매중지인 상품만 푼다.
+     */
+    thirtymall: {
+      label: "떠리몰",
+      origin: "https://partner.shopby.co.kr",
+      shopbySaleSetting: {
+        pageUrl: "https://partner.shopby.co.kr/product/list",
+        apiOrigin: "https://admin-api.e-ncp.com",
+        searchPath: "/products/search-by-key",
+        updatePath: "/products/sale-status",
+        clientLocation: "https://partner-remote.shopby.co.kr/product/management/list",
+        tokenCookie: "SHOPBY_PARTNER_SESSAT",
+        mallNo: 78859,
+        batchSize: 50,
+      },
+    },
   };
 
   /** 이 몰은 아직 경로가 없다. 화면이 버튼을 세우지 않게 이름만 남긴다. */
@@ -963,6 +987,61 @@
         total: counted && counted[1] !== "" ? Number(counted[1]) : null,
         done: counted && counted[2] !== "" ? Number(counted[2]) : null,
         alert: alerted ? alerted[2].slice(0, 160) : null,
+      };
+    } catch (error) {
+      return { status: 0, error: String(error?.message || error).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 샵바이 파트너 어드민 화면(partner.shopby.co.kr) 안에서 admin API 요청 하나를 보낸다 — 파트너 로그인 쿠키의 토큰을 머리에
+   * 싣고(밖으로 내보내지 않는다) 목록 화면 주소를 ClientLocation 으로 단다. `kind` 는 search(상품번호로 지금 상태) ·
+   * status(판매설정 변경). 우리가 쓰는 칸만 추린다. 워커가 인자로만 넘긴다.
+   */
+  async function shopbyApiOnPage(api, kind, payload) {
+    try {
+      const hit = document.cookie.split(";").map((part) => part.trim())
+        .find((part) => part.startsWith(`${api.tokenCookie}=`));
+      const token = hit ? decodeURIComponent(hit.slice(api.tokenCookie.length + 1)) : "";
+      if (!token) return { status: 401, loggedOut: true };
+      const response = await fetch(`${api.apiOrigin}${kind === "search" ? api.searchPath : api.updatePath}`, {
+        method: kind === "search" ? "POST" : "PUT",
+        cache: "no-store",
+        headers: { accessToken: token, Version: "1.0", ClientLocation: api.clientLocation, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+      if (response.status === 401) return { status: 401, loggedOut: true };
+      if (!response.ok) {
+        const said = data && typeof data === "object" ? data.message : null;
+        return { status: response.status, message: said ? String(said).slice(0, 160) : null };
+      }
+      if (kind === "search") {
+        if (!Array.isArray(data)) return { status: response.status, error: "search" };
+        return {
+          status: response.status,
+          rows: data.map((row) => ({
+            no: String(row?.mallProductNo ?? ""),
+            mallNo: Number(row?.mallNo),
+            saleStatusType: row?.saleStatusType ?? null,
+            saleSettingStatusType: row?.saleSettingStatusType ?? null,
+            applyStatusType: row?.applyStatusType ?? null,
+            isSoldOut: row?.isSoldOut === true,
+          })),
+        };
+      }
+      const failures = Array.isArray(data?.failures) ? data.failures : null;
+      return {
+        status: response.status,
+        failures: failures
+          ? failures.slice(0, 50).map((entry) => {
+            const no = entry?.productNo ?? entry?.mallProductNo ?? null;
+            return {
+              no: no === null || no === undefined ? null : String(no),
+              message: entry?.message ? String(entry.message).slice(0, 120) : null,
+            };
+          })
+          : null,
       };
     } catch (error) {
       return { status: 0, error: String(error?.message || error).slice(0, 200) };
@@ -3015,6 +3094,175 @@
       return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
 
+    /** 떠리몰 상품을 상품번호로 읽는다(묶음마다). 로그인이 풀렸으면 { loggedOut }. */
+    async function readShopbyRows(spec, run, codes) {
+      const api = spec.shopbySaleSetting;
+      const rows = new Map();
+      for (let start = 0; start < codes.length; start += api.batchSize) {
+        const group = codes.slice(start, start + api.batchSize);
+        const answer = await run(shopbyApiOnPage, [api, "search", { mallNos: [api.mallNo], mallProductNos: group }]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+        for (const row of answer.rows) {
+          if (row.mallNo === api.mallNo && group.includes(row.no)) rows.set(row.no, row);
+        }
+        if (start + api.batchSize < codes.length) await sleep(ESM_PACE_MS);
+      }
+      return { rows };
+    }
+
+    /** 떠리몰 상품 한 줄의 지금 모습 — 살 수 있으면 true, 아니면 몰의 말(판매중지 · 판매금지 · 품절 …). */
+    function shopbyWord(row) {
+      const apply = String(row.applyStatusType ?? "");
+      if (/REJECTION$/.test(apply)) return "승인거부";
+      if (/READY$/.test(apply)) return "승인대기";
+      if (row.saleSettingStatusType === "PROHIBITION_SALE") return "판매금지";
+      if (row.saleSettingStatusType === "STOP_SELLING") return "판매중지";
+      if (row.saleStatusType === "END_SALE") return "판매종료";
+      if (row.saleStatusType === "WAITING_SALE") return "판매대기";
+      if (row.isSoldOut) return "품절";
+      if (row.saleSettingStatusType === "AVAILABLE_FOR_SALE" && ["ON_SALE", "ON_PRE_SALE"].includes(row.saleStatusType)) return true;
+      return "확인필요";
+    }
+
+    /**
+     * 떠리몰 판매중지 / 판매가능. 상품번호로 지금 상태를 읽고, 목록의 판매설정 변경과 같은 요청을 묶음마다 보낸 뒤 다시 읽어
+     * 확인한다. 판매금지는 건드리지 않는다.
+     */
+    async function sendByShopbySaleSetting(spec, codes, resume) {
+      const api = spec.shopbySaleSetting;
+      const wanted = resume ? "AVAILABLE_FOR_SALE" : "STOP_SELLING";
+      const warnings = [];
+      const products = [...new Set(codes)].filter((code) => /^\d{6,12}$/.test(code));
+      let failed = codes.length - products.length;
+      if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      let halt = null;
+      let left = 0;
+      const loggedOutMessage = `${spec.label} 파트너 어드민 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
+      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+        if (products.length === 0) return null;
+        const before = await readShopbyRows(spec, run, products);
+        if (before.loggedOut) return { success: false, error: loggedOutMessage };
+        if (!before.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${before.error}).` };
+        const found = products.filter((code) => before.rows.has(code));
+        const missing = products.length - found.length;
+        if (missing > 0) {
+          failed += missing;
+          warnings.push(`${missing}건은 ${spec.label}에서 찾지 못했습니다.`);
+        }
+        const row = (code) => before.rows.get(code);
+        let targets;
+        if (resume) {
+          // 판매중지만 푼다. 판매금지는 몰이 막은 것이라(되돌릴 수 없는 상태) 풀지 않는다.
+          targets = found.filter((code) => row(code).saleSettingStatusType === "STOP_SELLING");
+          const selling = found.filter((code) => shopbyWord(row(code)) === true);
+          already += selling.length;
+          const prohibited = found.filter((code) => row(code).saleSettingStatusType === "PROHIBITION_SALE").length;
+          const stockOut = found.filter((code) => row(code).saleSettingStatusType === "AVAILABLE_FOR_SALE"
+            && shopbyWord(row(code)) === "품절").length;
+          const other = found.length - targets.length - selling.length - prohibited - stockOut;
+          if (prohibited > 0) {
+            failed += prohibited;
+            warnings.push(`${prohibited}건은 ${spec.label}이 판매금지한 상품이라 풀지 않았습니다 — 파트너 어드민에서 까닭을 확인하세요.`);
+          }
+          if (stockOut > 0) {
+            failed += stockOut;
+            warnings.push(`${stockOut}건은 재고가 없어 품절입니다 — 판매 재개로 풀리지 않습니다.`);
+          }
+          if (other > 0) {
+            failed += other;
+            warnings.push(`${other}건은 ${spec.label}에서 판매중지가 아니라(판매종료 · 승인 전 등) 풀 것이 없습니다.`);
+          }
+        } else {
+          // 살 수 있는 상품만 멈춘다. 판매중지 · 판매금지 · 품절 · 판매종료 · 승인 전은 이미 못 산다.
+          targets = found.filter((code) => shopbyWord(row(code)) === true);
+          already += found.length - targets.length;
+        }
+        const accepted = [];
+        for (let start = 0; start < targets.length; start += api.batchSize) {
+          const group = targets.slice(start, start + api.batchSize);
+          // 화면 목록처럼 상품번호를 숫자로 싣는다(샵바이 상품번호는 안전한 정수 범위다).
+          const answer = await run(shopbyApiOnPage, [api, "status", {
+            productNos: group.map((code) => Number(code)),
+            saleSettingStatusType: wanted,
+          }]);
+          if (answer?.loggedOut) {
+            halt = loggedOutMessage;
+            left = targets.length - start;
+            return null;
+          }
+          if (!Array.isArray(answer?.failures)) {
+            failed += group.length;
+            warnings.push(`${spec.label}이 판매설정 변경을 받지 않았습니다: ${answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`}`);
+            continue;
+          }
+          const refused = new Set(answer.failures.map((entry) => entry.no).filter(Boolean));
+          const ok = group.filter((code) => !refused.has(code));
+          sent += ok.length;
+          accepted.push(...ok);
+          const said = answer.failures.map((entry) => entry.message).filter(Boolean).slice(0, 2).join(" / ");
+          if (ok.length < group.length) {
+            failed += group.length - ok.length;
+            warnings.push(`${spec.label}이 ${group.length}건 중 ${group.length - ok.length}건을 바꾸지 않았습니다${said ? ` — ${said}` : ""}.`);
+          }
+          // 실패 줄에 상품번호가 없으면 어느 상품인지 모른다 — 보낸 것으로 두고 다시 읽어 확인한다.
+          const unnamed = answer.failures.filter((entry) => !entry.no).length;
+          if (unnamed > 0) warnings.push(`${spec.label}이 ${unnamed}건 실패를 알렸습니다${said ? ` — ${said}` : ""}. 다시 읽어 확인합니다.`);
+          if (start + api.batchSize < targets.length) await sleep(ESM_PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= MARKET_RECHECK_TIMES; attempt += 1) {
+          if (attempt > 0) await sleep(MARKET_RECHECK_MS);
+          const after = await readShopbyRows(spec, run, accepted);
+          if (!after.rows) continue;
+          seen = accepted.filter((code) => after.rows.get(code)?.saleSettingStatusType === wanted).length;
+          // 재개했는데 재고가 없으면 판매가능이어도 품절로 보인다 — 마지막으로 읽은 한 번만 말한다.
+          if (resume && (seen >= accepted.length || attempt === MARKET_RECHECK_TIMES)) {
+            const stockOut = accepted.filter((code) => after.rows.get(code)?.isSoldOut === true).length;
+            if (stockOut > 0) warnings.push(`${stockOut}건은 재고가 없어 판매 재개 뒤에도 ${spec.label}에 품절로 보입니다.`);
+          }
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${spec.label}에서 바뀐 상태를 다시 읽지 못했습니다. 상품정보 조회/수정에서 확인하세요.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) {
+            warnings.push(`${spec.label} 목록이 ${accepted.length - seen}건을 아직 옛 상태로 보여 줍니다 — 상품정보 조회/수정에서 확인하세요.`);
+          }
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed, confirmed, already, warnings, left });
+      return { success: true, sent: sent + already, failed, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+
+    /** 떠리몰 지금 상태. 판매가능 · 판매중이고 재고가 있으면 살 수 있고, 아니면 몰의 말(판매중지 · 판매금지 · 품절 …)이다. */
+    async function readByShopbySaleSetting(spec, codes) {
+      const valid = [...new Set(codes)].filter((code) => /^\d{6,12}$/.test(code)).slice(0, READ_LIMIT);
+      if (valid.length === 0) return { success: false, error: `읽을 ${spec.label} 상품번호가 없습니다.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(spec, spec.shopbySaleSetting.pageUrl, async (run) => {
+        const read = await readShopbyRows(spec, run, valid);
+        if (read.loggedOut) return { success: false, error: `${spec.label} 파트너 어드민 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
+        if (!read.rows) return { success: false, error: `${spec.label} 상품을 읽지 못했습니다(${read.error}).` };
+        found = valid.filter((code) => read.rows.has(code)).map((code) => {
+          const word = shopbyWord(read.rows.get(code));
+          return { code, options: [flagOption(code, word === true, word === true ? null : word)] };
+        });
+        missing = valid.filter((code) => !read.rows.has(code));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+
     /** 키드키즈 한 줄을 상품코드 검색으로 읽는다. 로그인이 풀렸으면 { loggedOut }. */
     async function readKidkidsRow(spec, run, code) {
       return run(kidkidsRowOnPage, [spec.useFlag.listPath, code]);
@@ -3178,10 +3426,10 @@
       // [판매안함] · [판매함] 버튼, 롯데ON 은 상품정보일괄수정 팝업의 [저장], 꼬망세는 줄마다 있는 [개별수정],
       // 티쳐몰은 [실물] 일괄 업데이트의 [업데이트하기], 아이스크림몰은 단품 판매상태 일괄 변경 창의 [적용], 키즈노트는
       // [상태/노출일괄수정]의 [확인], 지마켓 · 옥션은 ESM [판매 상태 변경], 11번가는 [판매중지] · [판매중지 해제] 확인 창,
-      // 스마트스토어는 판매상태 변경과 같은 요청이다.
+      // 스마트스토어는 판매상태 변경과 같은 요청, 떠리몰은 상품 목록 판매설정(판매중지 · 판매가능)과 같은 요청이다.
       if (spec.gridStock || spec.itemApi || spec.sellingState || spec.saleStatus || spec.directChange || spec.batchStock
         || spec.goodsSaleState || spec.stateBatch || spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus
-        || spec.useFlag) {
+        || spec.useFlag || spec.shopbySaleSetting) {
         try {
           if (spec.gridStock) return await sendByKakaoGrid(spec, codes, resume);
           if (spec.itemApi) return await sendByAlwayzItems(spec, codes, resume);
@@ -3194,6 +3442,7 @@
           if (spec.st11SellStatus) return await sendBySt11SellStatus(spec, codes, resume);
           if (spec.naverStatus) return await sendBySmartstoreStatus(spec, codes, resume);
           if (spec.useFlag) return await sendByKidkidsUseFlag(spec, codes, resume);
+          if (spec.shopbySaleSetting) return await sendByShopbySaleSetting(spec, codes, resume);
           return await sendBySellingState(spec, codes, resume);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
@@ -3482,13 +3731,13 @@
       return { success: true, products: found, missing };
     }
 
-    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세 · 티쳐몰 · 아이스크림몰 · 키즈노트 · 지마켓 · 옥션 · 11번가 · 스마트스토어). 읽기만 한다. */
+    /** 한 몰의 지금 재고를 읽는다(쿠팡 윙 · 카카오 톡스토어 · 올웨이즈 · 아트공구 · 롯데ON · 꼬망세 · 티쳐몰 · 아이스크림몰 · 키즈노트 · 지마켓 · 옥션 · 11번가 · 스마트스토어 · 키드키즈 · 떠리몰). 읽기만 한다. */
     async function read(msg) {
       const mallKey = String(msg?.mallKey || "");
       const spec = SPECS[mallKey];
       if (!spec?.optionStock && !spec?.gridStock && !spec?.itemApi && !spec?.sellingState && !spec?.saleStatus
         && !spec?.directChange && !spec?.batchStock && !spec?.goodsSaleState && !spec?.stateBatch && !spec?.esmSellStatus
-        && !spec?.st11SellStatus && !spec?.naverStatus && !spec?.useFlag) {
+        && !spec?.st11SellStatus && !spec?.naverStatus && !spec?.useFlag && !spec?.shopbySaleSetting) {
         return { success: false, error: `지금 재고를 읽을 수 있는 몰이 아닙니다: ${mallKey || "(없음)"}` };
       }
       const codes = (Array.isArray(msg?.codes) ? msg.codes : [])
@@ -3505,6 +3754,7 @@
         if (spec.stateBatch) return await readByKidsnoteState(spec, codes);
         if (spec.esmSellStatus || spec.st11SellStatus || spec.naverStatus) return await readByMarketStatus(spec, codes);
         if (spec.useFlag) return await readByKidkidsUseFlag(spec, codes);
+        if (spec.shopbySaleSetting) return await readByShopbySaleSetting(spec, codes);
         return await readByOptionStock(spec, codes);
       } catch (error) {
         return { success: false, error: error?.message || String(error) };
@@ -3524,7 +3774,7 @@
       SPECS[key].optionStock || SPECS[key].gridStock || SPECS[key].itemApi || SPECS[key].sellingState
         || SPECS[key].saleStatus || SPECS[key].directChange || SPECS[key].batchStock || SPECS[key].goodsSaleState
         || SPECS[key].stateBatch || SPECS[key].esmSellStatus || SPECS[key].st11SellStatus || SPECS[key].naverStatus
-        || SPECS[key].useFlag,
+        || SPECS[key].useFlag || SPECS[key].shopbySaleSetting,
     )),
     SEND_TIMEOUT_MS,
   };

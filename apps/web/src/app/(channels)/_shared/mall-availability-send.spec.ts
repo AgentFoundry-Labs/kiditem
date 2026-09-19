@@ -67,7 +67,7 @@ describe('품절 송신 결과', () => {
     expect(canSendMallAvailability('art09')).toBe(true);
     expect(canSendMallAvailability('icecream-mall')).toBe(true);
     expect(canSendMallAvailability('kidsnote')).toBe(true);
-    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) expect(canSendMallAvailability(mall)).toBe(true);
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']) expect(canSendMallAvailability(mall)).toBe(true);
     expect(canSendMallAvailability('gs-shop')).toBe(false);
   });
 });
@@ -204,7 +204,7 @@ describe('몰 지금 재고', () => {
     expect(canReadMallAvailability('art09')).toBe(true);
     expect(canReadMallAvailability('icecream-mall')).toBe(true);
     expect(canReadMallAvailability('kidsnote')).toBe(true);
-    for (const mall of ['gmarket', 'auction', '11st', 'smartstore', 'kidkids']) expect(canReadMallAvailability(mall)).toBe(true);
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore', 'kidkids', 'thirtymall']) expect(canReadMallAvailability(mall)).toBe(true);
     expect(canReadMallAvailability('domeggook')).toBe(false);
   });
 
@@ -218,7 +218,7 @@ describe('몰 지금 재고', () => {
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'icecream-mall')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], 'kidsnote')).toEqual({ tone: 'sold_out', label: '품절', badge: '품절' });
     // ESM · 11번가 · 스마트스토어는 품절을 판매중지로 보낸다 — 그 몰의 말 그대로 적는다.
-    for (const mall of ['gmarket', 'auction', '11st', 'smartstore']) {
+    for (const mall of ['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']) {
       expect(summarizeLiveAvailability([{ optionCode: 'a', stock: 0, rocket: false }], mall)).toEqual({ tone: 'sold_out', label: '판매중지', badge: '판매중지' });
     }
     expect(summarizeLiveAvailability([{ optionCode: 'a', stock: null, rocket: false }], 'smartstore')).toEqual({ tone: 'on_sale', label: '판매 가능' });
@@ -334,6 +334,15 @@ describe('꼬망세는 새 방식을 아는 확장으로만 보낸다', () => {
     });
     await expect(sendMallAvailability('kidkids', ['1090904'])).rejects.toThrow(/1\.2\.19.*새로고침/);
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityKidkidsUseFlagV1']);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('떠리몰은 떠리몰 길(판매설정 판매중지 · 판매가능)을 아는 확장으로만 보낸다', async () => {
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
+      status: 'incompatible', extensionId: 'ext', version: '1.2.20', missingCapabilities: ['mallAvailabilityThirtymallV1'],
+    });
+    await expect(sendMallAvailability('thirtymall', ['131987854'])).rejects.toThrow(/1\.2\.20.*새로고침/);
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallAvailabilityThirtymallV1']);
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 

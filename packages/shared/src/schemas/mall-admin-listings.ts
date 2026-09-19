@@ -80,6 +80,17 @@ export const MALL_ADMIN_LISTING_READERS = {
     pageSize: 100,
     detailNames: false,
   },
+  /**
+   * 떠리몰(샵바이 파트너 어드민). 상품정보 조회/수정 화면이 부르는 상품 검색 API(`admin-api.e-ncp.com`
+   * `POST /products/search`)를 화면 안에서 100개씩 1쪽부터 읽는다(라이브 2026-09-19: 479개 = 5쪽). 몰 상품코드는
+   * 샵바이 상품번호(mallProductNo)다. 토큰은 화면 쿠키에서 화면 안에서만 쓴다.
+   */
+  thirtymall: {
+    mallName: '떠리몰',
+    origin: 'https://partner.shopby.co.kr',
+    pageSize: 100,
+    detailNames: false,
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;

@@ -30,6 +30,9 @@ export const MALL_ADMIN_LISTING_STATUS = {
   awaitingApproval: '승인대기',
   ended: '판매종료',
   rejected: '반려',
+  // 판매자가 멈춘 것(떠리몰 판매설정 판매중지). 품절 · 미노출과 달리 판매자가 판매 재개로 푼다. 쿠팡 원문 `판매중지` 는
+  // 단종으로 접히므로 글자를 따로 둔다 — 칸은 이 글자를 "판매중지"로 적는다.
+  stopped: '일시중지',
 } as const;
 export type MallAdminListingStatus =
   (typeof MALL_ADMIN_LISTING_STATUS)[keyof typeof MALL_ADMIN_LISTING_STATUS];
@@ -91,6 +94,21 @@ const STATUS_RULES: Record<
     ['판매안함', MALL_ADMIN_LISTING_STATUS.soldOut],
     ['진열안함', MALL_ADMIN_LISTING_STATUS.hidden],
     ['판매함', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  /*
+    떠리몰(샵바이): 승인상태 · 판매설정 · 판매상태 · 품절 여부가 따로 온다(라이브 2026-09-19, 479개: 판매가능 판매중 44 ·
+    판매중지 356 · 재고 품절 50 · 판매금지 23 · 승인거부 6). 몰이 막은 것(승인거부 · 판매금지)이 먼저고, 끝난 것,
+    판매자가 멈춘 것, 재고 품절, 판매 전 순이다.
+  */
+  thirtymall: [
+    ['승인거부', MALL_ADMIN_LISTING_STATUS.rejected],
+    ['판매금지', MALL_ADMIN_LISTING_STATUS.held],
+    ['승인대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['판매중지', MALL_ADMIN_LISTING_STATUS.stopped],
+    ['품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
   ],
 };
 

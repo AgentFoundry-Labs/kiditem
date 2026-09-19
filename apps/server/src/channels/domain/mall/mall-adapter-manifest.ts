@@ -233,15 +233,16 @@ const NO_LIMIT: MallAdapterLimits = {
  */
 const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
-  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore',
+  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'thirtymall',
 ]);
 
 /**
  * 품절을 **판매중지**로 보내는 몰. 그 몰 관리자의 품절 길이 판매중지다 — ESM(지마켓 · 옥션)은 재고를 1 이상만 받아
  * 재고 0 으로 품절을 못 만들고, 11번가 · 스마트스토어는 목록의 판매상태 변경이 판매중지 · 판매중이다(사방넷도 이 몰들의
- * 일시중지를 판매중지로 보냈다). 화면이 "품절"이 아니라 "판매중지"로 말하게 한다.
+ * 일시중지를 판매중지로 보냈다). 떠리몰(샵바이)은 상품 목록의 판매설정 판매가능 · 판매중지다. 화면이 "품절"이 아니라
+ * "판매중지"로 말하게 한다.
  */
-const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore']);
+const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']);
 
 /**
  * 품절을 **옵션 단위**로 보내는 몰. 쿠팡 윙은 옵션 재고를 0 으로 둔다(윙에서 품절 = 재고 0, 판매중지와 다르다).
@@ -428,7 +429,8 @@ const SEEDS: readonly ManifestSeed[] = [
     name: '떠리몰',
     kind: 'api',
     difficulty: 'medium',
-    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2).
+    // 새 주문수집 몰이다. 문서로 확인한 API 경로는 아직 우리 코드로 검증하지 않았다(KID-105 Q2). 품절 · 재개만
+    // 샵바이 파트너 어드민 상품 목록의 판매설정 요청으로 연다(`soldOutRoute`, 사장님 2026-09-19 "떠리몰도 해줘").
     unverified: true,
     supports: {
       createListing: true, updateListing: true,
@@ -436,7 +438,7 @@ const SEEDS: readonly ManifestSeed[] = [
     },
     hazards: { irreversibleStates: ['PROHIBITION'] },
     limits: { maxPerRequest: 100 },
-    note: '샵바이. 옵션 forcedSoldOut 이 true/false 양방향이고 saleStatusType READY↔STOP 도 대칭. 리스팅 단위 soldout 은 "TRUE일 경우만 품절처리"라 단방향이므로 옵션축을 쓴다. ⚠️ PROHIBITION 은 비가역 — 자동화에서 절대 금지.',
+    note: '샵바이. 옵션 forcedSoldOut 이 true/false 양방향이고 saleStatusType READY↔STOP 도 대칭. 리스팅 단위 soldout 은 "TRUE일 경우만 품절처리"라 단방향이므로 옵션축을 쓴다. ⚠️ PROHIBITION 은 비가역 — 자동화에서 절대 금지. 우리 품절 길은 파트너 어드민 상품정보 조회/수정 목록의 판매설정 칸 그대로다(2026-09-19, 화면 번들로 확인): PUT admin-api.e-ncp.com/products/sale-status {productNos, saleSettingStatusType: STOP_SELLING(판매중지) | AVAILABLE_FOR_SALE(판매가능)} → {failures}. 요청 머리는 accessToken(파트너 쿠키) · Version 1.0 · ClientLocation(목록 화면 주소 — 없으면 403 권한 없음). 지금 상태는 POST /products/search-by-key. 판매금지(PROHIBITION_SALE)는 보내지도 풀지도 않는다.',
   },
 
   // ── API 는 있으나 스펙/엔드포인트가 확인되지 않은 몰 ────────────────────────
