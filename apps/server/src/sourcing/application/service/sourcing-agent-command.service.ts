@@ -178,6 +178,16 @@ export class SourcingAgentCommandService {
         colorVariantNames: data.colorVariantNames ?? null,
         boxSetStatus: data.boxSetStatus ?? null,
         boxSetQuantity: data.boxSetQuantity ?? null,
+        // 사방넷 신규등록과 같은 칸 — 상품 등록 초안에서 받은 값이 판매상품까지 간다.
+        salePrice: positiveOrNull(data.salePrice),
+        tagPrice: positiveOrNull(data.tagPrice),
+        costPrice: positiveOrNull(data.costPrice),
+        brand: trimmedOrNull(data.brand),
+        manufacturer: trimmedOrNull(data.manufacturer),
+        originCountry: trimmedOrNull(data.originCountry),
+        modelName: trimmedOrNull(data.modelName),
+        ownCode: trimmedOrNull(data.ownCode),
+        taxType: data.taxType === 'tax_free' ? 'tax_free' : null,
         thumbnailUrl,
         thumbnailUrls: allThumbnailUrls,
         imageUrls,
@@ -203,4 +213,14 @@ export class SourcingAgentCommandService {
     };
   }
 
+}
+
+/** 0 이하 · 숫자가 아니면 null. 사방넷 가격 칸은 "안 적음"과 0원을 구분한다. */
+function positiveOrNull(value: number | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+function trimmedOrNull(value: string | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
 }

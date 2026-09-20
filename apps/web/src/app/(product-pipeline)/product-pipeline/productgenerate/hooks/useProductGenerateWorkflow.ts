@@ -89,6 +89,15 @@ export function useProductGenerateWorkflow() {
         colorVariantNames: form.colorVariantNames,
         boxSetStatus: form.boxSetStatus,
         boxSetQuantity: form.boxSetQuantity,
+        salePrice: form.salePrice,
+        tagPrice: form.tagPrice,
+        costPrice: form.costPrice,
+        brand: form.brand,
+        manufacturer: form.manufacturer,
+        originCountry: form.originCountry,
+        modelName: form.modelName,
+        ownCode: form.ownCode,
+        taxType: form.taxType,
       });
       const fingerprint = JSON.stringify(payload);
       const idempotencyKey = pendingRequest.current?.fingerprint === fingerprint

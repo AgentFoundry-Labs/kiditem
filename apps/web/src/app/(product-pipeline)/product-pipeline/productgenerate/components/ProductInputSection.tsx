@@ -34,8 +34,10 @@ import type {
 import { ProductImageInputs } from './ProductImageInputs';
 import {
   Field,
+  MoneyInput,
   SelectField,
   SizeInput,
+  TextInput,
   formatSizeFields,
   joinOptions,
   parseSizeFields,
@@ -81,6 +83,25 @@ interface ProductInputSectionProps {
   setColorVariantStatus: (value: ColorVariantStatus) => void;
   colorVariantNames: string;
   setColorVariantNames: (value: string) => void;
+  // 사방넷 신규등록과 같은 칸 — 여기서 받으면 판매상품까지 간다.
+  salePrice: string;
+  setSalePrice: (value: string) => void;
+  tagPrice: string;
+  setTagPrice: (value: string) => void;
+  costPrice: string;
+  setCostPrice: (value: string) => void;
+  brand: string;
+  setBrand: (value: string) => void;
+  manufacturer: string;
+  setManufacturer: (value: string) => void;
+  originCountry: string;
+  setOriginCountry: (value: string) => void;
+  modelName: string;
+  setModelName: (value: string) => void;
+  ownCode: string;
+  setOwnCode: (value: string) => void;
+  taxType: 'taxable' | 'tax_free';
+  setTaxType: (value: 'taxable' | 'tax_free') => void;
   rawOptions: string;
   setRawOptions: (value: string) => void;
   images: string[];
@@ -166,6 +187,24 @@ export default function ProductInputSection({
   setColorVariantStatus,
   colorVariantNames,
   setColorVariantNames,
+  salePrice,
+  setSalePrice,
+  tagPrice,
+  setTagPrice,
+  costPrice,
+  setCostPrice,
+  brand,
+  setBrand,
+  manufacturer,
+  setManufacturer,
+  originCountry,
+  setOriginCountry,
+  modelName,
+  setModelName,
+  ownCode,
+  setOwnCode,
+  taxType,
+  setTaxType,
   rawOptions,
   setRawOptions,
   images,
@@ -444,6 +483,47 @@ export default function ProductInputSection({
               className="min-h-[132px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
             />
           </Field>
+
+          {/* 사방넷 신규등록의 가격정보 · 기본정보와 같은 칸이다. 비워 두면 수집상품 상세에서 채운다. */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="판매가">
+              <MoneyInput value={salePrice} onChange={setSalePrice} placeholder="예: 3900" />
+            </Field>
+            <Field label="TAG가(소비자가)">
+              <MoneyInput value={tagPrice} onChange={setTagPrice} placeholder="예: 5900" />
+            </Field>
+            <Field label="원가(공급가)">
+              <MoneyInput value={costPrice} onChange={setCostPrice} placeholder="예: 1800" />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="브랜드">
+              <TextInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" />
+            </Field>
+            <Field label="제조사">
+              <TextInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" />
+            </Field>
+            <Field label="원산지(제조국)">
+              <TextInput value={originCountry} onChange={setOriginCountry} placeholder="예: 중국" />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="모델명">
+              <TextInput value={modelName} onChange={setModelName} placeholder="예: 10290-1" />
+            </Field>
+            <Field label="자체상품코드">
+              <TextInput value={ownCode} onChange={setOwnCode} placeholder="우리끼리 쓰는 코드" />
+            </Field>
+            <Field label="세금구분">
+              <SelectField
+                value={taxType}
+                onChange={(value) => setTaxType(value === 'tax_free' ? 'tax_free' : 'taxable')}
+                options={[{ value: 'taxable', label: '과세' }, { value: 'tax_free', label: '면세' }]}
+              />
+            </Field>
+          </div>
 
           <Field label="제품 사이즈">
             <div className="grid gap-3 md:grid-cols-3">

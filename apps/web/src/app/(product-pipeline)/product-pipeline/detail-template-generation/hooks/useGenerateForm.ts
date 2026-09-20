@@ -196,6 +196,16 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const [colorVariantStatus, setColorVariantStatus] = useState<ColorVariantStatus>('auto');
   const [colorVariantNames, setColorVariantNames] = useState('');
   const [rawOptions, setRawOptions] = useState('');
+  // 사방넷 신규등록과 같은 칸. 여기서 받으면 수집상품을 거쳐 판매상품까지 그대로 간다.
+  const [salePrice, setSalePrice] = useState('');
+  const [tagPrice, setTagPrice] = useState('');
+  const [costPrice, setCostPrice] = useState('');
+  const [brand, setBrand] = useState('');
+  const [manufacturer, setManufacturer] = useState('');
+  const [originCountry, setOriginCountry] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [ownCode, setOwnCode] = useState('');
+  const [taxType, setTaxType] = useState<'taxable' | 'tax_free'>('taxable');
   const [images, setImages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isPrefilling, setIsPrefilling] = useState(false);
@@ -638,6 +648,24 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setColorVariantNames,
     rawOptions,
     setRawOptions,
+    salePrice,
+    setSalePrice,
+    tagPrice,
+    setTagPrice,
+    costPrice,
+    setCostPrice,
+    brand,
+    setBrand,
+    manufacturer,
+    setManufacturer,
+    originCountry,
+    setOriginCountry,
+    modelName,
+    setModelName,
+    ownCode,
+    setOwnCode,
+    taxType,
+    setTaxType,
     images,
     setImages,
     isLoading,

@@ -142,6 +142,15 @@ export interface ProductBasics {
    */
   salePriceSource?: SalePriceSource;
   discountRate: number;
+  /** 사방넷 신규등록과 같은 칸(상품 등록 초안에서 받는다). 판매상품으로 만들 때 그대로 간다. */
+  costPrice?: number;
+  brand?: string;
+  manufacturer?: string;
+  originCountry?: string;
+  modelName?: string;
+  ownCode?: string;
+  /** `taxable` 과세 · `tax_free` 면세. */
+  taxType?: string;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
   thumbnailUrls: string[];
@@ -194,6 +203,13 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'boxSetQuantity'
   | 'salePrice'
   | 'originalPrice'
+  | 'costPrice'
+  | 'brand'
+  | 'manufacturer'
+  | 'originCountry'
+  | 'modelName'
+  | 'ownCode'
+  | 'taxType'
   | 'discountRate'
   | 'rocketBundleQuantity'
   | 'rocketUnitCost'

@@ -28,6 +28,15 @@ export interface ProductBasics {
   originalPrice: number;
   salePrice: number;
   salePriceSource: SalePriceSource;
+  /** 사방넷 신규등록과 같은 칸(상품 등록 초안에서 받는다). 판매상품으로 만들 때 그대로 간다. */
+  costPrice: number;
+  brand: string;
+  manufacturer: string;
+  originCountry: string;
+  modelName: string;
+  ownCode: string;
+  /** `taxable` 과세 · `tax_free` 면세. */
+  taxType: string;
   discountRate: number;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
@@ -181,7 +190,8 @@ export function buildProductBasics({
   // 수기 입력이 항상 이긴다. 셀피아 판매가는 수기 값이 비어 있을 때만 채우는
   // 폴백이며, 사용자가 고친 값을 절대 덮어쓰지 않는다. 준비 registrationInput 이
   // 없으면 후보 수기 저장값(manual)도 사용자 입력으로 취급한다.
-  const inputSalePrice = num(input.salePrice) || num(manual.salePrice);
+  // 상품 등록 초안이 적어 준 값도 사람이 넣은 값이다(rawData). 수기 저장값 다음 순서로 읽는다.
+  const inputSalePrice = num(input.salePrice) || num(manual.salePrice) || num(raw.salePrice);
   const fallbackSalePrice = num(sellpiaSalePrice);
   const salePrice = inputSalePrice > 0 ? inputSalePrice : fallbackSalePrice;
   const salePriceSource: SalePriceSource =
@@ -208,7 +218,14 @@ export function buildProductBasics({
     colorVariantNames: str(input.colorVariantNames) ?? str(manual.colorVariantNames) ?? str(raw.colorVariantNames) ?? '',
     boxSetStatus: str(input.boxSetStatus) ?? str(manual.boxSetStatus) ?? str(raw.boxSetStatus) ?? '',
     boxSetQuantity: str(input.boxSetQuantity) ?? str(manual.boxSetQuantity) ?? str(raw.boxSetQuantity) ?? '',
-    originalPrice: num(input.originalPrice) || num(manual.originalPrice),
+    originalPrice: num(input.originalPrice) || num(manual.originalPrice) || num(raw.tagPrice),
+    costPrice: num(input.costPrice) || num(manual.costPrice) || num(raw.costPrice),
+    brand: str(input.brand) ?? str(manual.brand) ?? str(raw.brand) ?? '',
+    manufacturer: str(input.manufacturer) ?? str(manual.manufacturer) ?? str(raw.manufacturer) ?? '',
+    originCountry: str(input.originCountry) ?? str(manual.originCountry) ?? str(raw.originCountry) ?? '',
+    modelName: str(input.modelName) ?? str(manual.modelName) ?? str(raw.modelName) ?? '',
+    ownCode: str(input.ownCode) ?? str(manual.ownCode) ?? str(raw.ownCode) ?? '',
+    taxType: str(input.taxType) ?? str(manual.taxType) ?? str(raw.taxType) ?? 'taxable',
     salePrice,
     salePriceSource,
     discountRate: num(input.discountRate) || num(manual.discountRate),

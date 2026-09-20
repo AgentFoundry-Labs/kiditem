@@ -32,13 +32,18 @@ export function salesProductInputFromCandidate(
   const listPrice = variant?.listPrice ?? 0;
   const certification = detail.basicInfo.kcCertificationNumber?.trim();
   const keywords = [...new Set(draft.keywords.map((keyword) => keyword.trim().slice(0, MAX_KEYWORD_LENGTH)).filter(Boolean))];
+  // 상품 등록 초안에서 받은 사방넷 칸이 있으면 그것이 이긴다(사람이 적은 값이다).
+  const basics = detail.basicInfo;
   return {
     name: draft.displayName.trim().slice(0, 255),
-    brand: draft.brand,
-    manufacturer: draft.maker,
-    originCountry: draft.notice.fields.제조국 ?? null,
+    ownCode: basics.ownCode?.trim() || null,
+    modelName: basics.modelName?.trim() || null,
+    brand: basics.brand?.trim() || draft.brand,
+    manufacturer: basics.manufacturer?.trim() || draft.maker,
+    originCountry: basics.originCountry?.trim() || (draft.notice.fields.제조국 ?? null),
     keywords: keywords.slice(0, MAX_KEYWORDS),
-    taxType: 'taxable',
+    taxType: basics.taxType === 'tax_free' ? 'tax_free' : 'taxable',
+    costPrice: basics.costPrice && basics.costPrice > 0 ? basics.costPrice : null,
     salePrice,
     tagPrice: listPrice > salePrice ? listPrice : null,
     imageUrls: [...new Set([draft.representativeImageUrl, ...draft.additionalImageUrls].filter(Boolean))].slice(0, MAX_IMAGES),

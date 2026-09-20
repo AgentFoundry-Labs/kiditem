@@ -90,6 +90,43 @@ export function SizeInput({ label, value, onChange, placeholder }: SizeInputProp
   );
 }
 
+const INPUT_CLASS = 'h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]';
+
+interface ValueInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}
+
+export function TextInput({ value, onChange, placeholder }: ValueInputProps) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      className={INPUT_CLASS}
+    />
+  );
+}
+
+/** 원 단위 금액. 숫자 · 쉼표만 받는다(사방넷 가격 칸과 같은 뜻). */
+export function MoneyInput({ value, onChange, placeholder }: ValueInputProps) {
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={(event) => onChange(event.target.value.replace(/[^\d,]/g, ''))}
+        placeholder={placeholder}
+        className={`${INPUT_CLASS} pr-8 text-right tabular-nums`}
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">원</span>
+    </div>
+  );
+}
+
 export function parseSizeFields(value: string): ProductSizeFields {
   const text = value.trim();
   const pick = (labels: string[]): string => {

@@ -72,6 +72,24 @@ function ProductGeneratePageContent() {
     duplicateWorkspace,
     handleDuplicateCheck,
     handleLoadDuplicateLatest,
+    salePrice,
+    setSalePrice,
+    tagPrice,
+    setTagPrice,
+    costPrice,
+    setCostPrice,
+    brand,
+    setBrand,
+    manufacturer,
+    setManufacturer,
+    originCountry,
+    setOriginCountry,
+    modelName,
+    setModelName,
+    ownCode,
+    setOwnCode,
+    taxType,
+    setTaxType,
   } = form;
 
   return (
@@ -121,6 +139,24 @@ function ProductGeneratePageContent() {
           setColorVariantStatus={setColorVariantStatus}
           colorVariantNames={colorVariantNames}
           setColorVariantNames={setColorVariantNames}
+          salePrice={salePrice}
+          setSalePrice={setSalePrice}
+          tagPrice={tagPrice}
+          setTagPrice={setTagPrice}
+          costPrice={costPrice}
+          setCostPrice={setCostPrice}
+          brand={brand}
+          setBrand={setBrand}
+          manufacturer={manufacturer}
+          setManufacturer={setManufacturer}
+          originCountry={originCountry}
+          setOriginCountry={setOriginCountry}
+          modelName={modelName}
+          setModelName={setModelName}
+          ownCode={ownCode}
+          setOwnCode={setOwnCode}
+          taxType={taxType}
+          setTaxType={setTaxType}
           rawOptions={rawOptions}
           setRawOptions={setRawOptions}
           images={images}
