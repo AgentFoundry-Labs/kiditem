@@ -73,12 +73,53 @@ export function salesProductMallPrice(input: {
   salePrice: number;
   extraPrice: number;
   override?: { salePrice: number | null; priceRateBp: number | null } | null;
+  /**
+   * 몰별 값이 없을 때 쓸 적용율(만분율). 사방넷의 `쇼핑몰별별도정보 › 적용율(%)` 과 같은 뜻이다.
+   * 주지 않으면 지금까지처럼 판매상품 기준가가 그대로 간다 — 이미 몰에 올라간 가격을 말없이 바꾸지 않으려고
+   * 부르는 쪽이 정한다.
+   */
+  defaultRateBp?: number | null;
 }): number {
-  const base = input.override?.salePrice
-    ?? (input.override?.priceRateBp
-      ? Math.round((input.salePrice * input.override.priceRateBp) / 10_000)
-      : input.salePrice);
+  if (input.override?.salePrice) return Math.max(0, input.override.salePrice + input.extraPrice);
+  // 사람이 적은 비율은 적은 그대로 계산한다(예전 그대로).
+  if (input.override?.priceRateBp) {
+    return Math.max(0, Math.round((input.salePrice * input.override.priceRateBp) / 10_000) + input.extraPrice);
+  }
+  // 몰 기본 적용율로 정한 값은 10원 단위로 맞춘다 — 사방넷이 그렇게 넣어 두었고, 스마트스토어처럼 10원 단위만
+  // 받는 몰이 있다.
+  const rateBp = input.defaultRateBp ?? null;
+  const base = rateBp ? Math.round((input.salePrice * rateBp) / 10_000 / 10) * 10 : input.salePrice;
   return Math.max(0, base + input.extraPrice);
+}
+
+/**
+ * 몰 기본 적용율(만분율) — 사방넷 `쇼핑몰별별도정보` 의 적용율을 우리 실데이터에서 되살린 값이다.
+ *
+ * 2026-09-20 기준, 사방넷에서 옮겨온 몰별 금액 ÷ 판매상품 기준가의 **중앙값**이다(판매중 상품, 표본 5건 이상).
+ * 몰 대량등록 엑셀처럼 **새로 등록할 가격을 정할 때만** 쓴다. 이미 올라간 상품의 가격 송신에는 쓰지 않는다.
+ * 표본: 스마트스토어 691 · 보리보리 690 · 도매꾹 688 · GS샵 561 · SSG 465 · 옥션 396 · 카카오 272 ·
+ * 키즈노트 185 · 티쳐몰 130 · 롯데ON 70 · 쿠팡 63 · G마켓 41 · 11번가 15 · 토스 8.
+ */
+export const MALL_DEFAULT_PRICE_RATE_BP: Readonly<Record<string, number>> = {
+  smartstore: 10_400,
+  boribori: 10_600,
+  domeggook: 9_000,
+  'gs-shop': 10_600,
+  ssg: 10_800,
+  auction: 10_200,
+  kakao: 9_700,
+  kidsnote: 10_300,
+  'teacher-mall': 10_300,
+  'lotte-on': 9_500,
+  coupang: 10_200,
+  gmarket: 10_000,
+  '11st': 9_800,
+  toss: 10_000,
+};
+
+/** 그 몰의 기본 적용율. 표본이 없어 정하지 않은 몰은 null(기준가 그대로). */
+export function mallDefaultPriceRateBp(mallKey: string): number | null {
+  return MALL_DEFAULT_PRICE_RATE_BP[mallKey] ?? null;
 }
 
 export function nextSalesProductOptionCode(productCode: string, existingCodes: readonly string[]): string {

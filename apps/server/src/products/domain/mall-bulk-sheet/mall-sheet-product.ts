@@ -1,4 +1,9 @@
-import { mallDisplayName, salesProductMallPrice, SALES_PRODUCT_SABANGNET_VALUE_KEYS } from '@kiditem/shared/sales-product';
+import {
+  mallDefaultPriceRateBp,
+  mallDisplayName,
+  salesProductMallPrice,
+  SALES_PRODUCT_SABANGNET_VALUE_KEYS,
+} from '@kiditem/shared/sales-product';
 import {
   detailImageUrls,
   isPublicImageUrl,
@@ -160,7 +165,14 @@ export function toMallSheetProduct(
     const categoryPath = ownPath ?? borrowed;
     const explicitCode = values.categoryCode?.trim() || null;
     malls[mallKey] = {
-      salePrice: salesProductMallPrice({ salePrice: source.salePrice, extraPrice: 0, override }),
+      // 몰별 금액 · 비율이 없으면 그 몰의 기본 적용율로 계산한다(사방넷 `쇼핑몰별별도정보 › 적용율`과 같다).
+      // 이 값은 새로 등록할 가격이다 — 이미 몰에 올라간 상품의 가격 송신은 이 경로를 쓰지 않는다.
+      salePrice: salesProductMallPrice({
+        salePrice: source.salePrice,
+        extraPrice: 0,
+        override,
+        defaultRateBp: mallDefaultPriceRateBp(mallKey),
+      }),
       name: override?.name?.trim()
         || joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
       nameIsMallSpecific: Boolean(override?.name?.trim()),
