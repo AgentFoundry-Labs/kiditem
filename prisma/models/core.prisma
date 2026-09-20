@@ -36,6 +36,7 @@ model Organization {
   thumbnailTrackingDailySnapshots    ThumbnailTrackingDailySnapshot[]
   reviews                            Review[]
   alerts                             Alert[]
+  todoItems                          TodoItem[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]

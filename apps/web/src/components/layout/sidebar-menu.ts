@@ -6,6 +6,7 @@ import {
   Boxes,
   Building2,
   ClipboardList,
+  CheckSquare,
   Compass,
   FileSpreadsheet,
   Flame,
@@ -55,6 +56,7 @@ export const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
+      { href: '/todo', label: 'TO DO LIST', icon: CheckSquare },
     ],
   },
   {

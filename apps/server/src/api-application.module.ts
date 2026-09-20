@@ -8,6 +8,7 @@ import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-ht
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
 import { AlertsModule } from './alerts/alerts.module';
+import { TodoModule } from './todo/todo.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
@@ -45,6 +46,7 @@ function apiThrottleLimitPerMinute(): number {
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: apiThrottleLimitPerMinute() }]),
     PrismaModule,
     AlertsModule,
+    TodoModule,
     AuthModule,
     CommonModule,
     StorageModule,
