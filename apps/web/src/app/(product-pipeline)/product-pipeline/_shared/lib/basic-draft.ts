@@ -27,6 +27,18 @@ export interface BasicDraft {
   discountRate: string;
   rocketBundleQuantity: string;
   rocketUnitCost: string;
+  // 사방넷 신규등록과 같은 칸(상품 등록 초안에서 받는다). 판매상품으로 만들 때 그대로 간다.
+  costPrice: string;
+  brand: string;
+  manufacturer: string;
+  originCountry: string;
+  modelName: string;
+  ownCode: string;
+  taxType: string;
+  deliveryFee: string;
+  deliveryFeeType: string;
+  certificationIssuer: string;
+  certificationField: string;
 }
 
 export function basicDraftFrom({
@@ -64,6 +76,17 @@ export function basicDraftFrom({
     discountRate: moneyInputValue(basicInfo?.discountRate ?? editData.discountRate),
     rocketBundleQuantity: bundleQuantity > 0 ? String(bundleQuantity) : '1',
     rocketUnitCost: unitCost > 0 ? String(unitCost) : '',
+    costPrice: moneyInputValue(basicInfo?.costPrice),
+    brand: basicInfo?.brand ?? '',
+    manufacturer: basicInfo?.manufacturer ?? '',
+    originCountry: basicInfo?.originCountry ?? '',
+    modelName: basicInfo?.modelName ?? '',
+    ownCode: basicInfo?.ownCode ?? '',
+    taxType: basicInfo?.taxType ?? '',
+    deliveryFee: moneyInputValue(basicInfo?.deliveryFee),
+    deliveryFeeType: basicInfo?.deliveryFeeType ?? '',
+    certificationIssuer: basicInfo?.certificationIssuer ?? '',
+    certificationField: basicInfo?.certificationField ?? '',
   };
 }
 
@@ -106,6 +129,17 @@ export function productBasicsInputFromDraft(
     discountRate: parseMoney(draft.discountRate),
     rocketBundleQuantity: parseQuantity(draft.rocketBundleQuantity),
     rocketUnitCost: parseMoney(draft.rocketUnitCost),
+    costPrice: parseMoney(draft.costPrice),
+    brand: draft.brand.trim(),
+    manufacturer: draft.manufacturer.trim(),
+    originCountry: draft.originCountry.trim(),
+    modelName: draft.modelName.trim(),
+    ownCode: draft.ownCode.trim(),
+    taxType: draft.taxType,
+    deliveryFee: parseMoney(draft.deliveryFee),
+    deliveryFeeType: draft.deliveryFeeType,
+    certificationIssuer: draft.certificationIssuer.trim(),
+    certificationField: draft.certificationField.trim(),
   };
 }
 
