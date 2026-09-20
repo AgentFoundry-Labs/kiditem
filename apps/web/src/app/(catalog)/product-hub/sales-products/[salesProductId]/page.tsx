@@ -228,6 +228,11 @@ function Editor({ product }: { product: SalesProduct }) {
               onChange={(event) => set('keywords', event.target.value.split(',').map((word) => word.trim()).filter(Boolean))}
               className={inputClass}
             />
+            {/* 온채널 대량등록은 제목 키워드를 5개 이상 받는다 — 모자라면 그 몰 엑셀에서 빠진다. */}
+            <p className={cn('mt-1 text-xs', basics.keywords.length < 5 ? 'text-amber-700' : 'text-slate-500')}>
+              {basics.keywords.length}개
+              {basics.keywords.length < 5 && ' — 온채널 대량등록은 5개 이상이 필요합니다.'}
+            </p>
           </Field>
         </div>
       </Section>
