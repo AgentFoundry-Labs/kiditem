@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
-import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
-import { SellpiaImportRunRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-import-run.repository.adapter';
-import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
-import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/service/sellpia-inventory-file.validator';
-import { SellpiaInventoryImportService } from '../../../../../inventory/application/service/sellpia-inventory-import.service';
+import { SellpiaImportRunRepositoryAdapter } from '../../../../../inventory/adapter/out/persistence/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter';
+import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/usecase/sellpia-inventory-file.validator';
+import { SellpiaInventoryImportService } from '../../../../../inventory/application/usecase/sellpia-inventory-import.service';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -29,7 +29,10 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new MallPublishingRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new MallPublishingRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
   });
 
   afterAll(async () => {
@@ -162,7 +165,6 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const inventory = new SellpiaInventoryImportService(
         new SellpiaImportRunRepositoryAdapter(prisma as never, alerts),
         new SellpiaSnapshotPublicationRepositoryAdapter(prisma as never, alerts),
-        new ConfirmedChannelComponentReferenceRepositoryAdapter(prisma as never),
         new SellpiaInventoryFileValidator(),
       );
       await expect(inventory.importInventory({

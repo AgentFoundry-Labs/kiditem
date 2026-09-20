@@ -9,7 +9,7 @@ import type {
 class ChannelProductMatchingRepositoryAdapter
   extends ChannelProductMatchingRepositoryAdapterImpl {
   constructor(prisma: unknown) {
-    super(withPublishedInventory(prisma) as never, {
+    super(withPublishedInventory(prisma) as never, inventoryTransactionalRead() as never, inventorySkuRead() as never, {
       applyPreservingRecipesInTransaction: async (
         transaction: object,
         input: {
@@ -43,6 +43,88 @@ class ChannelProductMatchingRepositoryAdapter
       },
     } as never);
   }
+}
+
+function inventoryRows(context: { client: unknown }) {
+  const client = context.client as {
+    sellpiaInventorySku?: {
+      findMany?: (query: Record<string, unknown>) => Promise<unknown[]>;
+    };
+  };
+  if (!client.sellpiaInventorySku?.findMany) return Promise.resolve([]);
+  return client.sellpiaInventorySku.findMany({
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      optionName: true,
+      barcode: true,
+      purchasePrice: true,
+      salePrice: true,
+      isActive: true,
+      masterProductId: true,
+      currentStock: true,
+    },
+  });
+}
+
+function toInventoryIdentity(row: Record<string, any>) {
+  return {
+    sellpiaInventorySkuId: row.id,
+    code: row.code ?? '',
+    name: row.name ?? '',
+    optionName: row.optionName ?? null,
+    barcode: row.barcode ?? null,
+    purchasePrice: row.purchasePrice ?? null,
+    salePrice: row.salePrice ?? null,
+    isActive: row.isActive ?? true,
+    masterProductId: row.masterProductId ?? null,
+  };
+}
+
+function inventoryTransactionalRead() {
+  return {
+    lock: vi.fn().mockResolvedValue({}),
+    readSkuIdentities: vi.fn(async (context: { client: unknown }) => {
+      const rows = await inventoryRows(context);
+      return rows.map((row) => toInventoryIdentity(row as Record<string, any>));
+    }),
+    readAvailability: vi.fn(async (
+      context: { client: unknown },
+      _lock: unknown,
+      input: { sellpiaInventorySkuIds: string[] },
+    ) => {
+      const rows = await inventoryRows(context);
+      const byId = new Map(rows.map((row) => [
+        (row as Record<string, any>).id,
+        row as Record<string, any>,
+      ]));
+      return {
+        snapshot: {
+          collected: true,
+          generation: '1',
+          verifiedAt: '2026-09-01T00:00:00.000Z',
+        },
+        items: input.sellpiaInventorySkuIds.map((id) => ({
+          sellpiaInventorySkuId: id,
+          currentStock: Math.max(0, byId.get(id)?.currentStock ?? 0),
+          generation: '1',
+        })),
+      };
+    }),
+  };
+}
+
+function inventorySkuRead() {
+  return {
+    findByIds: vi.fn(async (organizationId: string, ids: string[]) => {
+      void organizationId;
+      const rows = await inventoryRows({ client: {} });
+      return rows
+        .filter((row) => ids.includes((row as Record<string, any>).id))
+        .map((row) => toInventoryIdentity(row as Record<string, any>));
+    }),
+  };
 }
 
 function withPublishedInventory(prisma: unknown) {

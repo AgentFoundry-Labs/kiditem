@@ -61,7 +61,8 @@ describe('InventoryTable', () => {
     expect(screen.getByText('매입가')).toBeInTheDocument();
     expect(screen.getByText('판매가')).toBeInTheDocument();
     expect(screen.getByText('현재고')).toBeInTheDocument();
-    expect(screen.getByText('활성')).toBeInTheDocument();
+    expect(screen.queryByText('활성')).not.toBeInTheDocument();
+    expect(screen.queryByText('비활성')).not.toBeInTheDocument();
     expect(screen.getByText('최종 가져오기')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Sellpia SKU ID' })).not.toBeInTheDocument();
     expect(screen.queryByText(item.sellpiaInventorySkuId)).not.toBeInTheDocument();

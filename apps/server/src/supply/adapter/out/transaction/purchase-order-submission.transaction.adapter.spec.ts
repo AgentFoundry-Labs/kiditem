@@ -1,9 +1,11 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { AppException } from '@kiditem/shared/server-errors';
 import { describe, expect, it, vi } from 'vitest';
 import { PurchaseOrderSubmissionTransactionAdapter } from './purchase-order-submission.transaction.adapter';
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
+const INVENTORY_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
 const FENCE = '00000000-0000-4000-8000-000000000099';
 
 function makePrisma(input: {
@@ -17,6 +19,10 @@ function makePrisma(input: {
     freshnessFence: input.fence ?? FENCE,
     freshnessGeneration: 7n,
     lastVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
+    lastCompletedImportRunId: INVENTORY_ATTEMPT_ID,
+    requestedGeneration: 7n,
+    activeGeneration: null,
+    failedGeneration: null,
     databaseNow: new Date('2026-07-16T00:05:00.000Z'),
   }];
   const order = input.orderOrganizationId === 'other'
@@ -24,6 +30,7 @@ function makePrisma(input: {
     : [{ id: ORDER_ID, status: input.orderStatus ?? 'pending' }];
   const tx = {
     $queryRaw: vi.fn()
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(state)
       .mockResolvedValueOnce(order),
@@ -130,9 +137,10 @@ function prepareInput(requiresProvider = true) {
     idempotencyKey: 'submit-1',
     requestHash: 'a'.repeat(64),
     userId: 'user-1',
-    freshnessFence: FENCE,
-    freshnessLastVerifiedAt: '2026-07-16T00:00:00.000Z',
-    freshnessExpiresAt: '2026-07-16T00:10:00.000Z',
+    inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+    inventoryFence: FENCE,
+    inventoryGeneration: '7',
+    inventoryCompletedAt: '2026-07-16T00:00:00.000Z',
     requiresProvider,
     externalOrder: {
       externalOrderPlatform: null,
@@ -145,7 +153,7 @@ function prepareInput(requiresProvider = true) {
 describe('PurchaseOrderSubmissionTransactionAdapter', () => {
   it('validates the active actor before mutating draft to pending', async () => {
     const { prisma, tx } = makeLockedOrderPrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await adapter.prepareDraft({
       organizationId: 'org-1',
@@ -165,7 +173,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('rejects an inactive actor without mutating draft status', async () => {
     const { prisma, tx } = makeLockedOrderPrisma({ membership: null });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepareDraft({
       organizationId: 'org-1',
@@ -178,7 +186,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('rejects a non-normalized idempotency key without mutating draft status', async () => {
     const { prisma, tx } = makeLockedOrderPrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepareDraft({
       organizationId: 'org-1',
@@ -192,7 +200,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
   it('returns the reference-safe error before mutating a cross-tenant order', async () => {
     const { prisma, tx } = makeLockedOrderPrisma();
     tx.$queryRaw.mockReset().mockResolvedValueOnce([]);
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepareDraft({
       organizationId: 'other-org',
@@ -208,7 +216,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       orderStatus: 'pending',
       unresolvedAttemptCount: 1,
     });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const result = await adapter.deletePurchaseOrder({
       organizationId: 'org-1',
@@ -232,7 +240,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
         databaseNow: new Date('2026-07-16T00:05:00.000Z'),
       },
     });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.reconcile({
       organizationId: 'org-1',
@@ -247,15 +255,14 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('locks freshness and purchase-order rows before atomically ordering a providerless order', async () => {
     const { prisma, tx } = makePrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const result = await adapter.prepare(prepareInput(false));
 
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
-    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
       tx.purchaseOrder.updateMany.mock.invocationCallOrder[0],
     );
-    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+    expect(tx.$queryRaw.mock.invocationCallOrder[3]).toBeLessThan(
       tx.purchaseOrder.updateMany.mock.invocationCallOrder[0],
     );
     expect(tx.purchaseOrder.updateMany).toHaveBeenCalledWith({
@@ -272,7 +279,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('creates one prepared intent only after the fence and active identities pass', async () => {
     const { prisma, tx } = makePrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const result = await adapter.prepare(prepareInput());
 
@@ -291,7 +298,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('rejects a missing owner request hash before locking persistent state', async () => {
     const { prisma, tx } = makePrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepare({
       ...prepareInput(),
@@ -304,7 +311,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
   it('rejects an opaque fence mismatch as freshness-required', async () => {
     const { prisma, tx } = makePrisma({ fence: '00000000-0000-4000-8000-000000000100' });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepare(prepareInput())).rejects.toMatchObject({
       code: 'SELLPIA_SYNC_REQUIRED',
@@ -312,30 +319,30 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 
-  it('rechecks the Inventory-owned expiry against database time', async () => {
+  it('rejects a completed attempt that is no longer the Inventory owner snapshot', async () => {
     const { prisma, tx } = makePrisma();
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepare({
       ...prepareInput(),
-      freshnessExpiresAt: '2026-07-16T00:05:00.000Z',
+      inventoryAttemptId: '00000000-0000-4000-8000-000000000099',
     })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 
-  it('distinguishes inactive products from cross-tenant/reference failures', async () => {
-    const inactiveHarness = makePrisma({ active: false });
-    const inactive = new PurchaseOrderSubmissionTransactionAdapter(
-      inactiveHarness.prisma as never,
-    );
-    await expect(inactive.prepare(prepareInput())).rejects.toMatchObject({
-      code: 'PURCHASE_ITEM_INACTIVE',
-    });
+  it('does not apply a TTL to a named completed collection', async () => {
+    const { prisma, tx } = makePrisma();
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
+    await expect(adapter.prepare(prepareInput())).resolves.toMatchObject({ kind: 'created' });
+    expect(tx.purchaseOrderSubmissionAttempt.create).toHaveBeenCalledOnce();
+  });
+
+  it('preserves cross-tenant reference failures', async () => {
     const crossTenantHarness = makePrisma({ orderOrganizationId: 'other' });
     const crossTenant = new PurchaseOrderSubmissionTransactionAdapter(
       crossTenantHarness.prisma as never,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     await expect(crossTenant.prepare(prepareInput())).rejects.toMatchObject({
       code: 'PURCHASE_REFERENCE_INVALID',
     });
@@ -351,7 +358,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       requestHash: 'a'.repeat(64),
       createdAt: new Date('2026-07-16T00:04:00.000Z'),
     } });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const result = await adapter.prepare(prepareInput());
 
@@ -370,7 +377,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       requestHash: 'a'.repeat(64),
       createdAt: new Date('2026-07-15T23:49:59.000Z'),
     } });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const result = await adapter.prepare(prepareInput());
 
@@ -396,7 +403,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
   it('rejects an actor that is not active in the organization', async () => {
     const { prisma, tx } = makePrisma();
     tx.organizationMembership.findFirst.mockResolvedValue(null);
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepare(prepareInput())).rejects.toBeInstanceOf(AppException);
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
@@ -410,7 +417,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       requestHash: 'a'.repeat(64),
       createdAt: new Date('2026-07-16T00:04:00.000Z'),
     } });
-    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.prepare({
       ...prepareInput(),

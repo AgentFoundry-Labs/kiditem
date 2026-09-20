@@ -63,7 +63,7 @@ const product = {
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
-  inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+  inventory: { skuCount: 1, measuredSkuCount: 1 },
   inventoryUnits: 24,
   channelListings: [{
     id: '33333333-3333-4333-8333-333333333333',

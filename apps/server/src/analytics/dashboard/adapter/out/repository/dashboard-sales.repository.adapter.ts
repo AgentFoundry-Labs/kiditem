@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import {
@@ -6,6 +6,10 @@ import {
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
 import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from "../../../../../inventory/application/port/in/stock/inventory-transactional-read.port";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
@@ -38,7 +42,11 @@ interface TopProductRawRow {
  */
 @Injectable()
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   /**
    * KST today KPI with the owner's completeness verdict intact.
@@ -255,6 +263,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
+      this.inventoryTransactionalRead,
     );
     return new Map(rows.map((row) => [row.listingId, row]));
   }

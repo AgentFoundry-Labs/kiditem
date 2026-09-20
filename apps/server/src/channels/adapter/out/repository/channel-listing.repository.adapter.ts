@@ -38,7 +38,7 @@ const listingSelect = {
     select: {
       salePrice: true,
       inventoryComponents: {
-        select: { sellpiaInventorySku: { select: { isActive: true } } },
+        select: { sellpiaInventorySkuId: true },
       },
     },
   },
@@ -110,7 +110,7 @@ const workspaceSelect = {
       attributesJson: true,
       rawJson: true,
       inventoryComponents: {
-        select: { sellpiaInventorySku: { select: { isActive: true } } },
+        select: { sellpiaInventorySkuId: true },
       },
     },
   },
@@ -513,17 +513,13 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 function aggregateMappingStatus(
   _masterProductId: string | null,
   options: Array<{
-    inventoryComponents: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
+    inventoryComponents: Array<{ sellpiaInventorySkuId: string }>;
   }>,
 ): 'matched' | 'unmatched' | 'needs_review' {
   if (options.length === 0 || options.every((option) => option.inventoryComponents.length === 0)) {
     return 'unmatched';
   }
-  if (options.some((option) =>
-    option.inventoryComponents.length === 0
-    || option.inventoryComponents.some(
-      (component) => !component.sellpiaInventorySku.isActive,
-    ))) {
+  if (options.some((option) => option.inventoryComponents.length === 0)) {
     return 'needs_review';
   }
   return 'matched';

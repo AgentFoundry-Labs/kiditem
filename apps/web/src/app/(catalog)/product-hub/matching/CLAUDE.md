@@ -20,7 +20,7 @@ component recipe.
   clearly separated name candidate with no identifier/spec/option conflict and
   a confirmed positive selling quantity. Ambiguous, conflicting, alias-only,
   unknown-quantity, or AI evidence requires operator review.
-- Manual replacement accepts active Sellpia identities and positive component
+- Manual replacement accepts Sellpia identities and positive component
   quantities and replaces the whole recipe. Never silently merge or flatten a
   bundle. Automatic matching never overwrites confirmed evidence.
 - Channel images and derived product summaries are read-time display values;

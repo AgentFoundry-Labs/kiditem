@@ -1,3 +1,6 @@
+import { InventoryItemNotFoundError } from '../application/exception/inventory-operation.error';
+import { ReturnTransfersService } from '../../orders/return-transfers/return-transfers.service';
+import { InventoryTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
@@ -9,8 +12,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
-import { TransfersService } from '../application/service/transfers.service';
+import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository.adapter';
+import { TransfersService } from '../application/usecase/transfers.service';
 
 const SELLPIA_INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000001';
 const FOREIGN_SELLPIA_INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000005';
@@ -85,7 +88,7 @@ describe('stock transfer tenant boundary (PG integration)', () => {
       fromWarehouseId: OWN_WAREHOUSE_ID,
       toWarehouseId: FOREIGN_WAREHOUSE_ID,
       quantity: 1,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toBeInstanceOf(InventoryItemNotFoundError);
 
     await expect(prisma.stockTransfer.count()).resolves.toBe(0);
   });
@@ -110,16 +113,16 @@ describe('stock transfer tenant boundary (PG integration)', () => {
       fromWarehouseId: OWN_WAREHOUSE_ID,
       toWarehouseId: OWN_WAREHOUSE_2_ID,
       quantity: 1,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toBeInstanceOf(InventoryItemNotFoundError);
 
-    await expect(prisma.returnTransfer.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        rtNumber: 'RT-FOREIGN-SKU',
-        sellpiaInventorySkuId: FOREIGN_SELLPIA_INVENTORY_SKU_ID,
-        quantity: 1,
-      },
-    })).rejects.toThrow();
+    const returns = new ReturnTransfersService(
+      prisma as unknown as PrismaService,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
+    await expect(returns.create(TEST_ORGANIZATION_ID, {
+      sellpiaInventorySkuId: FOREIGN_SELLPIA_INVENTORY_SKU_ID,
+      quantity: 1,
+    })).rejects.toBeInstanceOf(NotFoundException);
 
     await expect(prisma.stockTransfer.count()).resolves.toBe(0);
     await expect(prisma.returnTransfer.count()).resolves.toBe(0);
@@ -144,9 +147,6 @@ describe('stock transfer tenant boundary (PG integration)', () => {
       toWarehouseId: OWN_WAREHOUSE_2_ID,
       quantity: 2,
     });
-    await service.update(transfer.id, { status: 'in_transit' }, TEST_ORGANIZATION_ID);
-    await service.update(transfer.id, { status: 'completed' }, TEST_ORGANIZATION_ID);
-
     const movement = await prisma.returnTransfer.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,

@@ -62,6 +62,6 @@ describe('SellpiaProductSalesModule wiring', () => {
 
     expect(binding?.useExisting).toBe(SellpiaProfitabilitySourceService);
     expect(exports).toContain(SELLPIA_PROFITABILITY_SOURCE_READ_PORT);
-    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule]);
+    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule, InventoryModule]);
   });
 });

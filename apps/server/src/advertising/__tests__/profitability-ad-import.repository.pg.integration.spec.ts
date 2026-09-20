@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
@@ -1023,7 +1024,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     const failingOwner = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
       failingAlerts,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(failingOwner.finalizeAttempt(fence(replacement))).rejects.toThrow(
       'alert write failed',
@@ -1223,7 +1224,7 @@ function createOwner(prisma: PrismaClient): ProfitabilityAdImportRepositoryAdapt
   return new ProfitabilityAdImportRepositoryAdapter(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
-  );
+   new InventoryTransactionalReadRepositoryAdapter());
 }
 
 async function uploadAllSlices(

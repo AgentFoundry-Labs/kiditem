@@ -763,29 +763,19 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
     }).strict(),
     z.object({
       status: z.literal('mapping_required'),
-      reason: z.enum(['not_found', 'inactive_candidate', 'ambiguous_barcode']),
+      reason: z.enum(['not_found', 'ambiguous_barcode']),
       candidateCount: z.number().int().nonnegative(),
     }).strict(),
     z.object({
       status: z.literal('matched'),
       sellpiaInventorySkuId: z.string().uuid(),
       currentStock: z.number().int().nonnegative(),
-      availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
       inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
       destinations: z.array(SellpiaProductDestinationSchema),
     }).strict(),
   ],
-).superRefine((resolution, ctx) => {
-  if (resolution.status !== 'matched') return;
-  if (resolution.availableStock !== resolution.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+);
 
 export const SellpiaProductSalesRowSchema = z.object({
   productCode: z.string(),

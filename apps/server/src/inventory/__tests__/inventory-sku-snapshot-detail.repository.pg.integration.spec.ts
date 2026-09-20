@@ -6,8 +6,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/persistence/inventory-sku-snapshot-list.repository.adapter';
+import { InventorySkuSnapshotListService } from '../application/usecase/inventory-sku-snapshot-list.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
@@ -88,7 +88,7 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
       linkedChannelOptionCount: 0,
     });
     await expect(service.getSnapshot(TEST_ORGANIZATION_ID, other.id)).rejects.toMatchObject({
-      status: 404,
+      name: 'FactNotFoundError',
     });
   });
 });

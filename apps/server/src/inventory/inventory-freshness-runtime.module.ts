@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
-import { InventoryAvailabilityRepositoryAdapter } from './adapter/out/repository/inventory-availability.repository.adapter';
+import { SellpiaInventoryFreshnessRepositoryAdapter } from './adapter/out/persistence/sellpia-inventory-freshness.repository.adapter';
+import { InventoryAvailabilityRepositoryAdapter } from './adapter/out/persistence/inventory-availability.repository.adapter';
 import {
   INVENTORY_AVAILABILITY_PORT,
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
-  SELLPIA_INVENTORY_FRESHNESS_PORT,
+  SELLPIA_INVENTORY_COLLECTION_STATUS_PORT,
 } from './application/port/in/stock';
-import { INVENTORY_AVAILABILITY_REPOSITORY_PORT } from './application/port/out/repository/inventory-availability.repository.port';
-import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/sellpia-inventory-freshness.repository.port';
-import { InventoryAvailabilityService } from './application/service/inventory-availability.service';
-import { SellpiaInventoryFreshnessService } from './application/service/sellpia-inventory-freshness.service';
+import { INVENTORY_AVAILABILITY_REPOSITORY_PORT } from './application/port/out/persistence/inventory-availability.repository.port';
+import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from './application/port/out/persistence/sellpia-inventory-freshness.repository.port';
+import { InventoryAvailabilityService } from './application/usecase/inventory-availability.service';
+import { SellpiaInventoryFreshnessService } from './application/usecase/sellpia-inventory-freshness.service';
 
 @Module({
   imports: [PrismaModule],
@@ -32,7 +32,7 @@ import { SellpiaInventoryFreshnessService } from './application/service/sellpia-
       useExisting: SellpiaInventoryFreshnessRepositoryAdapter,
     },
     {
-      provide: SELLPIA_INVENTORY_FRESHNESS_PORT,
+      provide: SELLPIA_INVENTORY_COLLECTION_STATUS_PORT,
       useExisting: SellpiaInventoryFreshnessService,
     },
     {
@@ -41,7 +41,7 @@ import { SellpiaInventoryFreshnessService } from './application/service/sellpia-
     },
   ],
   exports: [
-    SELLPIA_INVENTORY_FRESHNESS_PORT,
+    SELLPIA_INVENTORY_COLLECTION_STATUS_PORT,
     SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
     INVENTORY_AVAILABILITY_PORT,
   ],

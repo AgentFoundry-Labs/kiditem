@@ -24,9 +24,8 @@ export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema
 export const ProductInventoryFactsSchema = z.object({
   skuCount: z.number().int().nonnegative(),
   measuredSkuCount: z.number().int().nonnegative(),
-  inactiveSkuCount: z.number().int().nonnegative(),
-}).strict().refine((facts) => facts.inactiveSkuCount <= facts.measuredSkuCount
-  && facts.measuredSkuCount <= facts.skuCount, 'inventory counts must be nested subsets');
+}).strict().refine((facts) => facts.measuredSkuCount <= facts.skuCount,
+  'inventory counts must be nested subsets');
 export type ProductInventoryFacts = z.infer<typeof ProductInventoryFactsSchema>;
 
 export const ProductOperationsInventoryFocusSchema = z.enum([
@@ -349,23 +348,13 @@ export const ProductChannelListingSummarySchema = z.object({
     inventoryComponents: z.array(z.object({
       id: z.string().uuid(),
       sellpiaInventorySkuId: z.string().uuid(),
-      code: z.string().min(1),
-      name: z.string().min(1),
+      code: z.string().min(1).nullable(),
+      name: z.string().min(1).nullable(),
       optionName: z.string().nullable(),
       barcode: z.string().nullable(),
       currentStock: z.number().int().nonnegative().nullable(),
-      availableStock: z.number().int().nonnegative().nullable(),
-      isActive: z.boolean().nullable(),
       quantity: z.number().int().positive(),
-    }).strict().superRefine((component, ctx) => {
-      if (component.availableStock !== component.currentStock) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['availableStock'],
-          message: 'availableStock must equal currentStock',
-        });
-      }
-    })).max(50),
+    }).strict()).max(50),
   }).strict()),
 }).strict();
 export type ProductChannelListingSummary = z.infer<

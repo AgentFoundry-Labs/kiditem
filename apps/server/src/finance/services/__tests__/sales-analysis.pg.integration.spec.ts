@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { SalesAnalysisService } from '../sales-analysis.service';
@@ -13,7 +14,7 @@ import {
 } from '../../../test-helpers/finance-seeds';
 
 const prisma = makeTestPrisma();
-const service = new SalesAnalysisService(prisma as any);
+const service = new SalesAnalysisService(prisma as any, new InventoryTransactionalReadRepositoryAdapter());
 
 async function setupChannelFixture(organizationId: string, channel: string, suffix: string) {
   const master = await setupMaster(prisma, { organizationId, code: `M-${suffix}`, name: `Product ${suffix}` });

@@ -5,7 +5,6 @@ const active = {
   id: '11111111-1111-4111-8111-111111111111',
   code: 'PRODUCT-CODE',
   barcode: 'BARCODE-1',
-  isActive: true,
 };
 
 describe('createSellpiaProductInventoryResolver', () => {
@@ -37,16 +36,15 @@ describe('createSellpiaProductInventoryResolver', () => {
       .toEqual({ status: 'matched', sellpiaInventorySkuId: barcode.id });
   });
 
-  it('does not silently choose an inactive exact candidate', () => {
+  it('resolves an exact candidate regardless of inventory lifecycle metadata', () => {
     const resolve = createSellpiaProductInventoryResolver([
-      { ...active, isActive: false },
+      active,
     ]);
 
     expect(resolve({ productCode: active.code, optionCode: '', barcode: null }))
       .toEqual({
-        status: 'mapping_required',
-        reason: 'inactive_candidate',
-        candidateCount: 1,
+        status: 'matched',
+        sellpiaInventorySkuId: active.id,
       });
   });
 

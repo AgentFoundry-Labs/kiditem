@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -14,8 +15,10 @@ import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-produ
 import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/repository/master-product-contribution.repository.adapter';
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -62,17 +65,24 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
 
     const prismaService = prisma as unknown as PrismaService;
     const alerts = new SourceFailureAlerts(prismaService);
-    sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    sellpia = new SellpiaProfitabilitySourceService(
+      prismaService,
+      alerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter());
     profitability = new MasterProductProfitabilityReadService(
       sellpia,
       advertising,
       prismaService,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
-    const abcRepository = new MasterProductAbcRepositoryAdapter(prismaService);
+    const abcRepository = new MasterProductAbcRepositoryAdapter(
+      prismaService,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
     const abcRead = new ProductAbcReadService(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
       new CatalogDisplayMediaRepositoryAdapter(prismaService),
@@ -82,16 +92,30 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       inventory,
       displayMedia,
       abcRead,
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
     recipes = new ProductChannelOptionRecipeMutationService(
-      new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+      new ProductChannelOptionRecipeMutationRepositoryAdapter(
+        prismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ),
     );
     products = new ProductOperationsService(
-      new ProductOperationsRepositoryAdapter(prismaService),
+      new ProductOperationsRepositoryAdapter(
+        prismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+        new SellpiaInventorySkuReadService(
+          new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+        ),
+      ),
       inventory,
       new SellpiaProductSalesService(prismaService, inventoryReader),
       displayMedia,
-      new ProductOperationsDataStatusRepositoryAdapter(prismaService, profitability),
+      new ProductOperationsDataStatusRepositoryAdapter(
+        prismaService,
+        profitability,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ),
       new MasterProductContributionReadService(
         new MasterProductContributionRepositoryAdapter(prismaService),
       ),
@@ -171,7 +195,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
           sellpiaInventorySkuId: fixture.normal.skuId,
           quantity: 2,
           currentStock: 37,
-          availableStock: 37,
         }],
       }] }],
     });
@@ -354,7 +377,10 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     // Products reads mapping generation 1 and captures its targets. Before the
     // evidence load reads the mapping, the operator replaces a recipe and both
     // sources complete on generation 2.
-    const repository = new MasterProductAbcRepositoryAdapter(prisma as unknown as PrismaService);
+    const repository = new MasterProductAbcRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
     const listTargets = repository.listCurrentAbcTargetIds.bind(repository);
     repository.listCurrentAbcTargetIds = async (organizationId) => {
       const targets = await listTargets(organizationId);

@@ -392,19 +392,19 @@ machine.
   TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
 
-## Sellpia Inventory And Rocket Confirmation (`0.1.19`–`0.1.20`) Verification Contract
+## Sellpia Inventory And Rocket Verification Contract
 
-Sellpia 최신성은 한 종류의 테스트로 증명하지 않는다. 각 위험은 판정 권한이
+Sellpia 수집과 재고 반영은 한 종류의 테스트로 증명하지 않는다. 각 위험은 판정 권한이
 있는 가장 낮은 tier에서 고정한다.
 
 | 위험 | 필수 증거 |
 |---|---|
-| 10분 TTL, 2분 settle/5분 cap, 3분 same-hash confirmation, 90초 lease/20초 heartbeat | shared/domain unit boundary tests |
+| 성공·실패·취소·마지막 성공 상태, 빈 전체 결과와 불완전 결과 구분, 실행 lease/heartbeat | shared/domain 및 원천 계약 tests |
 | generation/fence/owner race, full-file rollback, duplicate/hash publication, Supply lock + attempt uniqueness | real PostgreSQL integration |
 | DTO/auth role/organization context, controller action-body contract | server unit/E2E + IDOR/tenant scanners |
 | Chrome extension login/HTML/workbook/timeout/focus behavior | Node extension contract tests; 실제 Chrome는 safe smoke만 |
-| automatic web claim/join/heartbeat/cancel, one-retry purchase recovery, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
-| `MasterProduct.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
+| shared collection start/join/cancel, exact completion before purchase/Rocket calculation, failure without old-stock fallback, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
+| `SellpiaInventorySku.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
 | Rocket confirmation is idempotent, generation/recipe-fenced, concurrency-safe, releasable, and has no provider/stock-write lane | Rocket confirmation PostgreSQL integration, server policy/service tests, workbook contract, and `rocket-purchase-decision-boundary.spec.ts` |
 | schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD sync gate |
 

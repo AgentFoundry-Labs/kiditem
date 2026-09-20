@@ -4,18 +4,8 @@ import { zIsoDate } from './common.js';
 export const InventorySkuAvailabilitySchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
   currentStock: z.number().int().nonnegative(),
-  availableStock: z.number().int().nonnegative(),
-  isActive: z.boolean(),
   generation: z.string().regex(/^\d+$/).nullable(),
-}).strict().superRefine((availability, ctx) => {
-  if (availability.availableStock !== availability.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+}).strict();
 export type InventorySkuAvailability = z.infer<
   typeof InventorySkuAvailabilitySchema
 >;
@@ -38,13 +28,6 @@ export const InventoryAvailabilityBatchSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ['snapshot'],
         message: 'Uncollected snapshot must not include generation or verifiedAt',
-      });
-    }
-    if (batch.items.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['items'],
-        message: 'Uncollected snapshot must not include inventory items',
       });
     }
     return;

@@ -11,6 +11,7 @@ import {
   FactConflictError,
   FactInputError,
   FactNotFoundError,
+  FactReferenceError,
 } from '../../errors/fact-errors';
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
@@ -41,6 +42,18 @@ function makePrismaError(code: string, message: string) {
 
 describe('GlobalExceptionFilter', () => {
   const filter = new GlobalExceptionFilter();
+
+  it('maps framework-free collection conflicts and reference errors at the HTTP boundary', () => {
+    const conflict = makeHost();
+    const attemptId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    filter.catch(new FactConflictError('Already running', { code: 'ATTEMPT_IN_PROGRESS', attemptId }), conflict.host);
+    expect(conflict.status).toHaveBeenCalledWith(409);
+    expect(conflict.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'ATTEMPT_IN_PROGRESS', attemptId }));
+    const reference = makeHost();
+    filter.catch(new FactReferenceError('Missing SKU', 'PURCHASE_REFERENCE_INVALID'), reference.host);
+    expect(reference.status).toHaveBeenCalledWith(422);
+    expect(reference.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'PURCHASE_REFERENCE_INVALID' }));
+  });
 
   it('AppException → extracts code + status + message', () => {
     const { host, status, json } = makeHost();

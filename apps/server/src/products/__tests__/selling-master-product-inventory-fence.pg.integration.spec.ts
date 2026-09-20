@@ -7,10 +7,12 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { listSellingMasterProductIds } from '../adapter/out/repository/selling-master-product.query';
 
 describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
   let prisma: PrismaClient;
+  const inventory = new InventoryTransactionalReadRepositoryAdapter();
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -26,7 +28,7 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('includes only positive stock published by the latest complete inventory run', async () => {
+  it('uses current positive stock without per-row collection membership', async () => {
     const verifiedAt = new Date('2026-09-13T00:00:00.000Z');
     const publishedRun = await prisma.sourceImportRun.create({
       data: {
@@ -67,16 +69,16 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
       code: 'PUBLISHED',
       lastImportRunId: publishedRun.id,
     });
-    await seedSellingProduct({
+    const retainedProductId = await seedSellingProduct({
       prisma,
       accountId: account.id,
-      code: 'STALE',
+      code: 'RETAINED',
       lastImportRunId: null,
     });
 
     await expect(prisma.$transaction((tx) =>
-      listSellingMasterProductIds(tx, TEST_ORGANIZATION_ID)))
-      .resolves.toEqual([publishedProductId]);
+      listSellingMasterProductIds(tx, TEST_ORGANIZATION_ID, undefined, inventory)))
+      .resolves.toEqual([publishedProductId, retainedProductId].sort());
   });
 });
 

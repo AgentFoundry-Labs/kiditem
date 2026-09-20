@@ -12,7 +12,7 @@ describe('Sellpia product inventory projection', () => {
       product('row-1', 'SKU-1', [30, 30]),
       product('row-2', 'SKU-1', [20, 20]),
     ];
-    const candidates = [{ id: SKU_ID, code: 'SKU-1', barcode: null, isActive: true }];
+    const candidates = [{ id: SKU_ID, code: 'SKU-1', barcode: null }];
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
 
     const result = projectSellpiaProductInventory({
@@ -23,8 +23,6 @@ describe('Sellpia product inventory projection', () => {
         items: [{
           sellpiaInventorySkuId: SKU_ID,
           currentStock: 100,
-          availableStock: 100,
-          isActive: true,
           generation: '12',
         }],
       },
@@ -61,7 +59,6 @@ describe('Sellpia product inventory projection', () => {
       inventoryResolution: {
         status: 'matched',
         currentStock: 100,
-        availableStock: 100,
         salesRowCount: 2,
         inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222' },
       },
@@ -109,7 +106,7 @@ describe('Sellpia product inventory projection', () => {
   it('keeps each matched destination attached to its own provider image', () => {
     const products = [product('row-1', 'SKU-1', [10, 10])];
     const resolved = resolveSellpiaProductInventoryRows(products, [
-      { id: SKU_ID, code: 'SKU-1', barcode: null, isActive: true },
+      { id: SKU_ID, code: 'SKU-1', barcode: null },
     ]);
     const result = projectSellpiaProductInventory({
       products,
@@ -119,8 +116,6 @@ describe('Sellpia product inventory projection', () => {
         items: [{
           sellpiaInventorySkuId: SKU_ID,
           currentStock: 100,
-          availableStock: 100,
-          isActive: true,
           generation: '12',
         }],
       },

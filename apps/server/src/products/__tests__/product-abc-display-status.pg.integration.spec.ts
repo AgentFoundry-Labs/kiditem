@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions';
 import {
@@ -13,8 +14,10 @@ import { buildDashboardContext } from '../../analytics/dashboard/domain/context'
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
@@ -66,14 +69,21 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     const prismaService = prisma as unknown as PrismaService;
     const alerts = new SourceFailureAlerts(prismaService);
-    sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
-    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService);
+    sellpia = new SellpiaProfitabilitySourceService(
+      prismaService,
+      alerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter());
+    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, new InventoryTransactionalReadRepositoryAdapter());
     inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
     productAbc = new ProductAbcReadService(
-      new MasterProductAbcRepositoryAdapter(prismaService),
+      new MasterProductAbcRepositoryAdapter(
+        prismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ),
       evidence,
     );
     dashboard = new DashboardInventoryService(
@@ -82,6 +92,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         productAbc,
         // The panel's rows come from the alerts module, not from this adapter.
         alerts,
+        new InventoryTransactionalReadRepositoryAdapter(),
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(
@@ -89,13 +100,24 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       inventory,
       { findDisplayMedia: async () => new Map() },
       productAbc,
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
     productHub = new ProductOperationsService(
-      new ProductOperationsRepositoryAdapter(prismaService),
+      new ProductOperationsRepositoryAdapter(
+        prismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+        new SellpiaInventorySkuReadService(
+          new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+        ),
+      ),
       inventory,
       { findByMasterProductIds: async () => new Map() } as never,
       { findDisplayMedia: async () => new Map() } as never,
-      new ProductOperationsDataStatusRepositoryAdapter(prismaService, evidence),
+      new ProductOperationsDataStatusRepositoryAdapter(
+        prismaService,
+        evidence,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ),
       { readContribution: async () => null } as never,
       { replaceRecipe: async () => ({ masterProductId: null }) } as never,
     );
@@ -300,7 +322,10 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       update: { activeFormulaVersionId: formula.id, formulaRevision: 1 },
     });
     await expect(new MasterProductAbcService(
-      new MasterProductAbcRepositoryAdapter(prisma as never), evidence,
+      new MasterProductAbcRepositoryAdapter(
+        prisma as never,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ), evidence,
     ).recalculate({ organizationId: TEST_ORGANIZATION_ID }))
       .resolves.toMatchObject({ outcome: 'PUBLISHED', classifiedProductCount: 1 });
     return product.id;

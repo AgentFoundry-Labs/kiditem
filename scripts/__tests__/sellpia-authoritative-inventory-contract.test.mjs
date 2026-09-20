@@ -56,7 +56,7 @@ const supply = readFileSync(
 );
 
 const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
-  "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
+  "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
@@ -83,6 +83,8 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-export.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-source.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/sellpia-inventory-sku-history.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/stock-transfers-reader.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc-publication.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc-recipe-flow.pg.integration.spec.ts",
@@ -169,7 +171,7 @@ describe("Sellpia authoritative final-schema contract", () => {
     );
   });
 
-  it("persists organization-scoped Sellpia freshness without a native enum", () => {
+  it("persists organization-scoped Sellpia collection control without a native enum", () => {
     const state = modelBlock(inventory, "SellpiaInventoryState");
     for (const field of [
       "organizationId",
@@ -177,9 +179,6 @@ describe("Sellpia authoritative final-schema contract", () => {
       "sourceAccountKey",
       "lastVerifiedAt",
       "lastCompletedImportRunId",
-      "refreshRequestedAt",
-      "refreshReason",
-      "syncNotBefore",
       "activeSyncToken",
       "activeSyncOwnerUserId",
       "activeSyncStartedAt",

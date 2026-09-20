@@ -4,6 +4,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Inject,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -20,7 +21,10 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { businessDateKey } from '../../common/kst';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../common/operator-cancel';
-import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import {
   ALERT_DEDUPE_KEY,
   ATTEMPT_TTL_MS,
@@ -79,6 +83,8 @@ export class SellpiaProfitabilitySourceService
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async beginAttempt(
@@ -182,15 +188,14 @@ export class SellpiaProfitabilitySourceService
       assertCoveredMonths(plan, normalized.coveredMonths);
       await assertMappingGeneration(tx, attempt);
 
-      const identities = await readInventorySkuIdentities(tx, {
-        organizationId,
-        selector: { kind: 'all' },
-      });
+      const identities = await this.inventoryTransactionalRead.readSkuIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'all' } },
+      );
       const candidates: InventoryCandidate[] = identities.map((identity) => ({
         id: identity.sellpiaInventorySkuId,
         code: identity.code,
         barcode: identity.barcode,
-        isActive: identity.isActive,
         masterProductId: identity.masterProductId,
       }));
       const facts = freezeFacts(attemptId, plan, normalized.products, candidates);

@@ -37,8 +37,7 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      (await this.inventorySkus.findByIds(organizationId, ids))
-        .filter((sku) => sku.isActive),
+      await this.inventorySkus.findByIds(organizationId, ids),
     );
   }
 
@@ -87,7 +86,7 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
     ]));
     return skus.map((sku) => {
       const stock = availabilityBySkuId.get(sku.sellpiaInventorySkuId);
-      return toEvidenceSku(sku, stock?.isActive === true ? stock.currentStock : null);
+      return toEvidenceSku(sku, stock?.currentStock ?? null);
     });
   }
 }

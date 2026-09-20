@@ -1,8 +1,9 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
-import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../../inventory/application/usecase/inventory-availability.service';
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
 import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
 import { MasterProductAbcService } from '../../../products/application/service/master-product-abc.service';
@@ -31,24 +32,26 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     const alerts = new SourceFailureAlerts(prisma as never);
-    sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
-    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
+    const inventoryTransactionalRead = new InventoryTransactionalReadRepositoryAdapter();
+    sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
+    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new InventoryTransactionalReadRepositoryAdapter());
     availability = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prisma as never),
     );
     const productAbc = new ProductAbcReadService(
-      new MasterProductAbcRepositoryAdapter(prisma as never), evidence,
+      new MasterProductAbcRepositoryAdapter(prisma as never, inventoryTransactionalRead), evidence,
     );
     dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(
       prisma as never,
       productAbc,
       // The panel's rows come from the alerts module, not from this adapter.
       alerts,
+      inventoryTransactionalRead,
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       availability,
-      { findDisplayMedia: async () => new Map() }, productAbc);
+      { findDisplayMedia: async () => new Map() }, productAbc, inventoryTransactionalRead);
   });
 
   it('reports source attention for a product without complete evidence without inventing C', async () => {
@@ -312,7 +315,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       create: { organizationId: TEST_ORGANIZATION_ID, activeFormulaVersionId: formula.id, formulaRevision: 1 },
       update: { activeFormulaVersionId: formula.id, formulaRevision: 1 },
     });
-    await expect(new MasterProductAbcService(new MasterProductAbcRepositoryAdapter(prisma as never), evidence)
+    await expect(new MasterProductAbcService(new MasterProductAbcRepositoryAdapter(prisma as never, new InventoryTransactionalReadRepositoryAdapter()), evidence)
       .recalculate({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ outcome: 'PUBLISHED', classifiedProductCount: 1 });
     return attempt.plan.to;
   }

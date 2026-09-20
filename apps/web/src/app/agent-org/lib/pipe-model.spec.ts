@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryCollectionStatusView } from '@kiditem/shared/sellpia-inventory-freshness';
 import { buildPipeSnapshot, mergeStageViews, type PipeInputs, type PipeStageView } from './pipe-model';
 import { PIPE_STAGES } from './pipe-stages';
 
@@ -65,7 +65,7 @@ function inputs(overrides: Partial<PipeInputs> = {}): PipeInputs {
       ],
       failed: false,
     },
-    freshness: { data: null, failed: false },
+    collectionStatus: { data: null, failed: false },
     confirm: { data: null, failed: false },
     loginBlocks: [],
     ...overrides,
@@ -243,7 +243,7 @@ describe('원인이 같으면 한 장이다', () => {
   });
 });
 
-describe('신선도', () => {
+describe('셀피아 재고 수집 상태', () => {
   it('⭐ 신호 단계가 하루 반 넘게 성공이 없으면 오래됨이다', () => {
     const snapshot = buildPipeSnapshot(
       inputs({ alerts: { data: [alert({ sourceType: 'coupang_keyword_serp', status: 'RESOLVED', updatedAt: ago(40 * 60) })], failed: false } }),
@@ -252,27 +252,29 @@ describe('신선도', () => {
     expect(snapshot.inbox[0]).toMatchObject({ key: 'stale:keyword', state: 'stale' });
   });
 
-  it('셀피아 재고가 새로고침이 필요하면 오래됨, 로그인이 풀려 실패했으면 외부 막힘이다', () => {
-    const view = (status: SellpiaInventoryFreshnessView['status'], errorCode: string | null = null) =>
+  it('셀피아 재고가 미수집이면 수집 필요, 로그인이 풀려 실패했으면 외부 막힘이다', () => {
+    const view = (status: SellpiaInventoryCollectionStatusView['status'], errorCode: string | null = null) =>
       stage(
         buildPipeSnapshot(
           inputs({
-            freshness: {
+            collectionStatus: {
               data: {
                 status,
-                lastVerifiedAt: ago(90),
-                lastAttempt: errorCode ? { status: 'failed', errorCode, errorMessage: null, attemptedAt: ago(3) } : null,
+                lastCompletedAttemptId: null,
+                lastCompletedAt: status === 'complete' ? ago(90) : null,
+                lastAttemptId: null,
+                lastAttempt: errorCode ? { errorCode, errorMessage: null, attemptedAt: ago(3) } : null,
                 activeSync: null,
-              } as unknown as SellpiaInventoryFreshnessView,
+              } as unknown as SellpiaInventoryCollectionStatusView,
               failed: false,
             },
           }),
         ).stages,
         'inventory',
       ).state;
-    expect(view('refresh_required')).toBe('stale');
+    expect(view('not_collected')).toBe('failed');
     expect(view('failed', 'sellpia_login_required')).toBe('blocked_external');
-    expect(view('fresh')).toBe('done');
+    expect(view('complete')).toBe('done');
   });
 });
 
@@ -369,15 +371,17 @@ describe('몰 연결', () => {
 
 describe('한 박스에 두 단계 — 합친 상태', () => {
   const syncing = {
-    status: 'syncing',
-    lastVerifiedAt: ago(90),
+    status: 'running',
+    lastCompletedAt: ago(90),
+    lastCompletedAttemptId: null,
+    lastAttemptId: null,
     lastAttempt: null,
     activeSync: { startedAt: ago(4) },
-  } as unknown as SellpiaInventoryFreshnessView;
+  } as unknown as SellpiaInventoryCollectionStatusView;
 
   /** 한쪽이 일하는 중인데 다른 쪽 기록이 없다고 박스를 '모름'으로 칠하면 일하는 게 안 보인다. */
   it('⭐ 기록이 없는 쪽의 모름이 다른 쪽의 진짜 활동을 가리지 않는다', () => {
-    const { stages } = buildPipeSnapshot(inputs({ freshness: { data: syncing, failed: false } }));
+    const { stages } = buildPipeSnapshot(inputs({ collectionStatus: { data: syncing, failed: false } }));
     const merged = mergeStageViews([stage(stages, 'cs'), stage(stages, 'inventory')]);
     expect(stage(stages, 'cs').state).toBe('unknown');
     expect(merged.def.id).toBe('cs');
@@ -388,7 +392,7 @@ describe('한 박스에 두 단계 — 합친 상태', () => {
   it('둘 중 사람이 먼저 봐야 할 상태가 박스의 상태가 된다', () => {
     const { stages } = buildPipeSnapshot(
       inputs({
-        freshness: { data: syncing, failed: false },
+        collectionStatus: { data: syncing, failed: false },
         alerts: { data: [alert({ message: '주문 목록 시간 초과' })], failed: false },
       }),
     );

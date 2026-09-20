@@ -8,8 +8,11 @@ import {
   INVENTORY_AVAILABILITY_PORT,
   type InventoryAvailabilityPort,
 } from '../../inventory/application/port/in/stock/inventory-availability.port';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
@@ -32,6 +35,8 @@ export class SellpiaProductInventoryReader {
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async project(
@@ -39,10 +44,10 @@ export class SellpiaProductInventoryReader {
     products: readonly SellpiaProductInventoryProjectionInput[],
   ) {
     const candidates = await this.prisma.$transaction(async (tx) => {
-      const identities = await readInventorySkuIdentities(tx, {
-        organizationId,
-        selector: { kind: 'all' },
-      });
+      const identities = await this.inventoryTransactionalRead.readSkuIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'all' } },
+      );
       const masterProductIds = [...new Set(identities.flatMap((identity) =>
         identity.masterProductId ? [identity.masterProductId] : []))];
       const masterProducts = masterProductIds.length > 0
@@ -56,7 +61,6 @@ export class SellpiaProductInventoryReader {
         id: identity.sellpiaInventorySkuId,
         code: identity.code,
         barcode: identity.barcode,
-        isActive: identity.isActive,
         masterProduct: identity.masterProductId
           ? masterById.get(identity.masterProductId) ?? null
           : null,

@@ -1,3 +1,5 @@
+import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
@@ -33,6 +35,7 @@ describe('Statistics flow (PG integration)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
         StatisticsService,
         { provide: PrismaService, useValue: prisma },
       ],

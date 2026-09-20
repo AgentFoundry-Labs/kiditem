@@ -30,8 +30,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Channels](erd/channels.md) | 23 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
-| [Inventory](erd/inventory.md) | 6 |
-| [Orders](erd/orders.md) | 11 |
+| [Inventory](erd/inventory.md) | 5 |
+| [Orders](erd/orders.md) | 12 |
 | [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 4 |
@@ -105,7 +105,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | Core | `users` | Human or system account. Organization membership is the source of truth. |
 | SalesPlan | Finance | `sales_plans` | - |
-| CoupangShipmentDateSummary | Inventory | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
@@ -114,6 +113,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | Orders | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | Orders | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
+| CoupangShipmentDateSummary | Orders | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderCollectionArtifact | Orders | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
@@ -498,7 +498,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelListingOptionId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     Int quantity
     DateTime createdAt
     DateTime updatedAt
@@ -1336,7 +1336,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -1364,7 +1364,7 @@ erDiagram
     String organizationId FK
     String rtNumber
     String orderId
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String optionName
     Int quantity
     String status
@@ -1476,7 +1476,7 @@ erDiagram
     String id PK
     String organizationId FK
     String confirmationLineId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     Int unitsPerSale
     Int quantity
     DateTime createdAt
@@ -1568,7 +1568,7 @@ erDiagram
     String id PK
     String organizationId FK
     String snapshotId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String aliasTitle
     String normalizedAlias
     Int itemCount
@@ -1615,7 +1615,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String masterProductId FK
     String productCode
     String optionCode
@@ -2188,7 +2188,7 @@ erDiagram
   StockTransfer {
     String id PK
     String organizationId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String optionName
     String fromWarehouseId FK
     String toWarehouseId FK
@@ -2280,7 +2280,7 @@ erDiagram
     String id PK
     String organizationId FK
     String supplierId FK
-    String sellpiaInventorySkuId FK,UK
+    String sellpiaInventorySkuId UK
     Int supplyPrice
     Int minOrderQty
     Boolean isPrimary
@@ -2739,14 +2739,6 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
-  SellpiaInventorySku ||--o{ ChannelListingOptionInventoryComponent : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ SellpiaManualMatchAlias : "sellpiaInventorySku"
-  SellpiaInventorySku o|--o{ SellpiaProductMonthlySales : "frozenSellpiaInventorySku"
-  SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ SupplierProduct : "sellpiaInventorySku"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   SourceImportRun ||--o{ ChannelAdListingProductMonthlyFact : "sourceImportRun"

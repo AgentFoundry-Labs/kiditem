@@ -421,7 +421,7 @@ erDiagram
     String id PK
     String organizationId FK
     String snapshotId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String aliasTitle
     String normalizedAlias
     Int itemCount
@@ -447,7 +447,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String masterProductId FK
     String productCode
     String optionCode
@@ -545,10 +545,8 @@ erDiagram
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaManualMatchAlias | organization | references external | Core | Organization |
-| SellpiaManualMatchAlias | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaManualMatchSnapshot | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | frozenMasterProduct | references external | Core | MasterProduct |
-| SellpiaProductMonthlySales | frozenSellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |

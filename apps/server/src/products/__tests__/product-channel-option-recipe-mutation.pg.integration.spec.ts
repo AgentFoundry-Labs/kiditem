@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -23,6 +24,7 @@ describe('Products channel-option recipe mutation boundary (PG integration)', ()
     recipes = new ProductChannelOptionRecipeMutationService(
       new ProductChannelOptionRecipeMutationRepositoryAdapter(
         prisma as unknown as PrismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
       ),
     );
   });

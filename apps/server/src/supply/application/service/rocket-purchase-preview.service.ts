@@ -43,7 +43,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
   async preview(input: {
     organizationId: string;
     userId: string;
-    inventoryRequirement: 'advisory' | 'fresh';
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
     const parsed = RocketPurchasePreviewRequestSchema.safeParse(input.request);
@@ -53,7 +52,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       channelAccountId: parsed.data.channelAccountId,
       sourceImportRunId: parsed.data.sourceImportRunId,
     });
-    const { sourceImportRunId: _sourceId, ...decisionFields } = parsed.data;
+    const { sourceImportRunId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
     const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
     if (!decision.success) throw new BadRequestException(decision.error.message);
     const request = decision.data;
@@ -87,7 +86,6 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           optionName: component.optionName,
           quantity: component.quantity,
           currentStock: component.currentStock,
-          isActive: component.isActive,
         })) ?? [],
       };
     });
@@ -100,39 +98,19 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       editedQuantities: request.editedQuantities,
       clampEditedQuantities: request.clampEditedQuantities,
     }));
-    let inventoryGeneration: string | null = null;
-    if (
-      input.inventoryRequirement === 'fresh'
-      && sellpiaInventorySkuIds.length > 0
-    ) {
-      const gated = await this.freshness.readFreshCapacityOrRequest({
-        organizationId: input.organizationId,
-        sellpiaInventorySkuIds,
-      });
-      if (gated.status === 'refresh_required') {
-        return {
-          status: 'freshness_pending',
-          collectionRunId: request.collection.collectionRunId,
-          catalog: catalog.catalog,
-          requestedGeneration: gated.requestedGeneration,
-          rows: calculateRows(),
-        };
-      }
-      inventoryGeneration = gated.generation;
-      const inventorySkuById = new Map(gated.inventorySkus.map((sku) =>
-        [sku.sellpiaInventorySkuId, sku]));
-      for (const row of previewRows) {
-        row.components = row.components.map((component) => {
-          const inventorySku = inventorySkuById.get(
-            component.sellpiaInventorySkuId,
-          );
-          return {
-            ...component,
-            currentStock: inventorySku?.currentStock ?? null,
-            isActive: inventorySku?.isActive ?? null,
-          };
-        });
-      }
+    const collected = await this.freshness.requireCollectedStock({
+      organizationId: input.organizationId,
+      attemptId: inventoryAttemptId,
+      sellpiaInventorySkuIds,
+    });
+    const inventoryGeneration = collected.generation;
+    const stockById = new Map(collected.inventorySkus.map((sku) =>
+      [sku.sellpiaInventorySkuId, sku.currentStock]));
+    for (const row of previewRows) {
+      row.components = row.components.map((component) => ({
+        ...component,
+        currentStock: stockById.get(component.sellpiaInventorySkuId) ?? null,
+      }));
     }
 
     return {

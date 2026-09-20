@@ -37,6 +37,10 @@ vi.mock(
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 
+function inventoryTransactionalRead() {
+  return { readSkuIdentities: vi.fn().mockResolvedValue([]) } as never;
+}
+
 /**
  * The ranking settles profit through `buildPerListingProfit`, whose own
  * behavior is proved against PostgreSQL in its spec and in the dashboard sales
@@ -189,6 +193,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]),
+      inventoryTransactionalRead(),
     );
     mockedReadProductAbcPublication.mockResolvedValue({
       currentFormulaRevision: 1,
@@ -232,6 +237,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const result = await repository.fetchTopProducts(
@@ -274,6 +280,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 12,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
@@ -296,7 +303,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -321,7 +328,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
       const settled = vi
         .spyOn(
           repository as unknown as {
@@ -357,6 +364,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);

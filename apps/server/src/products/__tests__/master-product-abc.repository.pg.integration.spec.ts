@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -26,7 +27,10 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new MasterProductAbcRepositoryAdapter(prisma as never);
+    repository = new MasterProductAbcRepositoryAdapter(
+      prisma as never,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
   });
 
   afterAll(async () => {
@@ -218,7 +222,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.$transaction(async (tx) => {
       const inTransaction = new MasterProductAbcRepositoryAdapter({
         $transaction: (run: (client: Prisma.TransactionClient) => Promise<unknown>) => run(tx),
-      } as never);
+      } as never, new InventoryTransactionalReadRepositoryAdapter());
 
       await expect(inTransaction.publish(publication({
         formulaVersionId,
@@ -730,8 +734,12 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
   advertisingRunId: string;
 }> {
   const alerts = new SourceFailureAlerts(prisma as never);
-  const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+  const sellpia = new SellpiaProfitabilitySourceService(
+    prisma as never,
+    alerts,
+    new InventoryTransactionalReadRepositoryAdapter(),
+  );
+  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
   const sellpiaAttempt = await sellpia.beginAttempt(
     TEST_ORGANIZATION_ID,
     `abc-${randomUUID()}`,

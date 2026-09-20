@@ -66,7 +66,7 @@ const state = vi.hoisted(() => ({
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
-      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 0, measuredSkuCount: 0 },
       channelCount: 1,
       channelStatus: 'partial' as const,
       activeChannels: [{

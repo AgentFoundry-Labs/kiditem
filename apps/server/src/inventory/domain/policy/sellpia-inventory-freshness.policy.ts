@@ -1,26 +1,27 @@
 import {
-  deriveSellpiaInventoryFreshness,
+  deriveSellpiaInventoryCollectionStatus,
   type SellpiaInventoryCollectionFailureCode,
-  type SellpiaInventoryFreshnessStatus,
-  type SellpiaInventoryFreshnessView,
-  type SellpiaInventoryRefreshReason,
+  type SellpiaInventoryCollectionStatus,
+  type SellpiaInventoryCollectionStatusView,
+  type SellpiaInventoryCollectionTrigger,
+  type SellpiaInventoryStoredCollectionTrigger,
   type SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
 export const SELLPIA_SOURCE_ACCOUNT_KEY = 'kiditem' as const;
-export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
-// HTTP accepts only manual/retry. This policy also preserves established
-// internal inventory triggers when replaying an existing generation.
-type SellpiaInventoryRequestReason = SellpiaInventoryRefreshReason;
-export type SellpiaInventoryFreshnessState = {
+
+/** The database row is an organization-scoped collection control record. */
+export type SellpiaInventoryCollectionState = {
   organizationId: string;
   sourceOrigin: string;
   sourceAccountKey: string | null;
+  /** Source completion time. Kept under the migration-era column name. */
   lastVerifiedAt: Date | null;
   lastCompletedImportRunId: string | null;
+  /** Request/lease fields remain internal fencing facts, not public freshness. */
   refreshRequestedAt: Date | null;
-  refreshReason: SellpiaInventoryRefreshReason | null;
+  refreshReason: SellpiaInventoryStoredCollectionTrigger | null;
   requestedSyncScope: SellpiaSyncScope;
   syncNotBefore: Date | null;
   activeSyncToken: string | null;
@@ -39,15 +40,15 @@ export type SellpiaInventoryFreshnessState = {
   freshnessFence: string;
 };
 
-export type SellpiaInventoryFreshnessStatePatch = Partial<
-  Omit<SellpiaInventoryFreshnessState, 'organizationId'>
+export type SellpiaInventoryCollectionStatePatch = Partial<
+  Omit<SellpiaInventoryCollectionState, 'organizationId'>
 >;
 
-export function createInitialFreshnessState(input: {
+export function createInitialCollectionState(input: {
   organizationId: string;
   now: Date;
   freshnessFence: string;
-}): SellpiaInventoryFreshnessState {
+}): SellpiaInventoryCollectionState {
   return {
     organizationId: input.organizationId,
     sourceOrigin: SELLPIA_SOURCE_ORIGIN,
@@ -75,14 +76,13 @@ export function createInitialFreshnessState(input: {
   };
 }
 
-export function deriveFreshnessStatus(
-  state: SellpiaInventoryFreshnessState,
+export function deriveCollectionStatus(
+  state: SellpiaInventoryCollectionState,
   now: Date,
-): SellpiaInventoryFreshnessStatus {
+): SellpiaInventoryCollectionStatus {
   if (hasExpiredCurrentAttempt(state, now)) return 'failed';
-  return deriveSellpiaInventoryFreshness({
+  return deriveSellpiaInventoryCollectionStatus({
     now,
-    lastVerifiedAt: state.lastVerifiedAt,
     requestedGeneration: state.requestedGeneration,
     verifiedGeneration: state.verifiedGeneration,
     failedGeneration: state.failedGeneration,
@@ -90,13 +90,14 @@ export function deriveFreshnessStatus(
   });
 }
 
-export function toFreshnessView(
-  state: SellpiaInventoryFreshnessState,
+export function toCollectionStatusView(
+  state: SellpiaInventoryCollectionState,
   now: Date,
   userId: string | null,
   leaseAttemptId: string | null,
-): SellpiaInventoryFreshnessView {
-  const status = deriveFreshnessStatus(state, now);
+  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedImportRunId,
+): SellpiaInventoryCollectionStatusView {
+  const status = deriveCollectionStatus(state, now);
   const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
   const activeSync = hasLiveLease(state, now)
     && state.activeSyncToken
@@ -104,7 +105,6 @@ export function toFreshnessView(
     && state.activeSyncStartedAt
     && state.activeSyncLeaseExpiresAt
     ? {
-      // The lease token is the attempt's write fence; the view names the attempt.
       attemptId: leaseAttemptId,
       generation: state.activeGeneration.toString(),
       scope: state.activeSyncScope ?? 'inventory',
@@ -116,15 +116,15 @@ export function toFreshnessView(
   const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
     ? {
       attemptedAt: state.activeSyncStartedAt.toISOString(),
-      trigger: state.refreshReason,
+      trigger: publicTrigger(state.refreshReason),
       scope: state.activeSyncScope ?? state.requestedSyncScope,
-      errorCode: null,
+      errorCode: 'sellpia_background_timeout',
       errorMessage: 'Sellpia inventory collection attempt expired.',
     }
     : state.lastAttemptAt
       ? {
         attemptedAt: state.lastAttemptAt.toISOString(),
-        trigger: state.refreshReason,
+        trigger: publicTrigger(state.refreshReason),
         scope: state.lastAttemptSyncScope ?? 'inventory',
         errorCode: state.lastErrorCode,
         errorMessage: state.lastErrorMessage,
@@ -144,23 +144,26 @@ export function toFreshnessView(
         accountKey: null,
         confirmed: false,
       },
-    lastVerifiedAt: state.lastVerifiedAt?.toISOString() ?? null,
-    expiresAt: state.lastVerifiedAt
-      ? new Date(state.lastVerifiedAt.getTime() + SELLPIA_FRESHNESS_TTL_MS).toISOString()
-      : null,
     requestedGeneration: state.requestedGeneration.toString(),
     verifiedGeneration: state.verifiedGeneration.toString(),
-    refreshRequestedAt: state.refreshRequestedAt?.toISOString() ?? null,
-    refreshReason: state.refreshReason,
-    requestedSyncScope: state.requestedSyncScope,
-    syncNotBefore: state.syncNotBefore?.toISOString() ?? null,
+    lastCompletedAttemptId: state.lastCompletedImportRunId,
+    lastCompletedAt: state.lastVerifiedAt?.toISOString() ?? null,
+    lastAttemptId,
     activeSync,
     lastAttempt,
   };
 }
 
+function publicTrigger(
+  trigger: SellpiaInventoryStoredCollectionTrigger | null,
+): SellpiaInventoryCollectionTrigger | null {
+  return trigger && trigger !== 'ttl_expired' && trigger !== 'purchase_preflight'
+    ? trigger
+    : null;
+}
+
 function hasExpiredCurrentAttempt(
-  state: SellpiaInventoryFreshnessState,
+  state: SellpiaInventoryCollectionState,
   now: Date,
 ): boolean {
   return state.activeGeneration !== null
@@ -171,9 +174,9 @@ function hasExpiredCurrentAttempt(
 }
 
 export function planSourceBindingConfirmation(
-  state: SellpiaInventoryFreshnessState,
+  state: SellpiaInventoryCollectionState,
   freshnessFence: string,
-): SellpiaInventoryFreshnessStatePatch {
+): SellpiaInventoryCollectionStatePatch {
   return {
     sourceOrigin: SELLPIA_SOURCE_ORIGIN,
     sourceAccountKey: SELLPIA_SOURCE_ACCOUNT_KEY,
@@ -181,13 +184,13 @@ export function planSourceBindingConfirmation(
   };
 }
 
-export function planRefreshRequest(
-  state: SellpiaInventoryFreshnessState,
-  reason: SellpiaInventoryRequestReason,
+export function planCollectionRequest(
+  state: SellpiaInventoryCollectionState,
+  reason: SellpiaInventoryStoredCollectionTrigger,
   scope: SellpiaSyncScope,
   now: Date,
   freshnessFence: string,
-): SellpiaInventoryFreshnessStatePatch {
+): SellpiaInventoryCollectionStatePatch {
   const liveGeneration = hasLiveLease(state, now)
     ? state.activeGeneration
     : null;
@@ -226,7 +229,7 @@ export function planRefreshRequest(
 }
 
 export function hasLiveLease(
-  state: SellpiaInventoryFreshnessState,
+  state: SellpiaInventoryCollectionState,
   now: Date,
 ): boolean {
   return state.activeSyncLeaseExpiresAt !== null
@@ -234,7 +237,7 @@ export function hasLiveLease(
 }
 
 export function isSourceBindingConfirmed(
-  state: SellpiaInventoryFreshnessState,
+  state: SellpiaInventoryCollectionState,
 ): boolean {
   return state.sourceOrigin === SELLPIA_SOURCE_ORIGIN
     && state.sourceAccountKey === SELLPIA_SOURCE_ACCOUNT_KEY;

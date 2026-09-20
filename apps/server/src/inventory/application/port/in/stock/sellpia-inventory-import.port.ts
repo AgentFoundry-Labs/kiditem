@@ -1,6 +1,6 @@
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 import type {
-  SellpiaInventoryRefreshReason,
+  SellpiaInventoryCollectionTrigger,
   SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
@@ -22,7 +22,7 @@ export type SellpiaInventorySourcePlan = {
   sourceType: 'sellpia_inventory';
   parserVersion: 'sellpia-inventory-v1';
   scope: SellpiaSyncScope;
-  trigger: SellpiaInventoryRefreshReason;
+  trigger: SellpiaInventoryCollectionTrigger;
   sourceOrigin: 'https://kiditem.sellpia.com';
   sourceAccountKey: 'kiditem';
   generation: string;
@@ -54,7 +54,7 @@ export interface SellpiaInventoryImportPort {
     userId: string;
     idempotencyKey: string;
     scope: SellpiaSyncScope;
-    trigger?: SellpiaInventoryRefreshReason;
+    trigger?: SellpiaInventoryCollectionTrigger;
   }): Promise<SellpiaInventorySourceAttempt>;
 
   readAttempt(input: {

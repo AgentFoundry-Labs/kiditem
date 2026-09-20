@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -378,31 +379,45 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
 
 function abcService(prisma: PrismaClient): MasterProductAbcService {
   return new MasterProductAbcService(
-    new MasterProductAbcRepositoryAdapter(prisma as never),
+    new MasterProductAbcRepositoryAdapter(
+      prisma as never,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    ),
     profitabilityEvidence(prisma),
   );
 }
 
 function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
   return new ProductAbcReadService(
-    new MasterProductAbcRepositoryAdapter(prisma as never),
+    new MasterProductAbcRepositoryAdapter(
+      prisma as never,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    ),
     profitabilityEvidence(prisma),
   ).readAbc({ organizationId: TEST_ORGANIZATION_ID, masterProductIds });
 }
 
 function productOperationsDataStatus(prisma: PrismaClient): ProductOperationsDataStatusService {
   return new ProductOperationsDataStatusService(
-    new ProductOperationsDataStatusRepositoryAdapter(prisma as never, profitabilityEvidence(prisma)),
+    new ProductOperationsDataStatusRepositoryAdapter(
+      prisma as never,
+      profitabilityEvidence(prisma),
+      new InventoryTransactionalReadRepositoryAdapter(),
+    ),
   );
 }
 
 function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitabilityReadService {
   const alerts = new SourceFailureAlerts(prisma as never);
   return new MasterProductProfitabilityReadService(
-    new SellpiaProfitabilitySourceService(prisma as never, alerts),
-    new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts),
+    new SellpiaProfitabilitySourceService(
+      prisma as never,
+      alerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    ),
+    new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter()),
     prisma as never,
-  );
+   new InventoryTransactionalReadRepositoryAdapter());
 }
 
 async function seedFormulaState(prisma: PrismaClient): Promise<string> {
@@ -582,8 +597,12 @@ async function collectSources(
   options: { skuCode: string; daysAgo: number; holeMonthsBack?: number },
 ): Promise<{ cutoff: string }> {
   const alerts = new SourceFailureAlerts(prisma as never);
-  const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+  const sellpia = new SellpiaProfitabilitySourceService(
+    prisma as never,
+    alerts,
+    new InventoryTransactionalReadRepositoryAdapter(),
+  );
+  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(Date.now() - options.daysAgo * 86_400_000));
   try {
@@ -656,7 +675,7 @@ async function collectAt(
   vi.setSystemTime(new Date(options.at));
   if (source === 'advertising') {
     // A Rocket-only fixture has no retained Coupang account, so its plan is empty.
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
     const attempt = await advertising.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       idempotencyKey: `abc-ad-${randomUUID()}`,
@@ -704,7 +723,11 @@ async function collectAt(
     });
     return status.latestComplete!.coveredThrough;
   }
-  const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+  const sellpia = new SellpiaProfitabilitySourceService(
+    prisma as never,
+    alerts,
+    new InventoryTransactionalReadRepositoryAdapter(),
+  );
   const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-${randomUUID()}`);
   const months = attempt.plan.coveredMonths.map((yearMonth) => ({
     yearMonth,
@@ -750,6 +773,7 @@ async function startNewerSellpiaAttempt(
   const sellpia = new SellpiaProfitabilitySourceService(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
+    new InventoryTransactionalReadRepositoryAdapter(),
   );
   const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-newer-${randomUUID()}`);
   if (outcome === 'FAILED') {

@@ -1,12 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { readOrderIdentityFact } from '../read/order-facts.reader';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 
 @Injectable()
 export class ReturnTransfersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   private generateRtNumber(): string {
     const now = new Date();
@@ -24,6 +31,7 @@ export class ReturnTransfersService {
       hydrateInventorySkus(
         tx,
         organizationId,
+        this.inventoryTransactionalRead,
         await tx.returnTransfer.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -34,10 +42,13 @@ export class ReturnTransfersService {
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
     return this.prisma.$transaction(async (tx) => {
-      const [sellpiaInventorySku] = await readInventorySkuIdentities(tx, {
+      const [sellpiaInventorySku] = await this.inventoryTransactionalRead.readSkuIdentities(
+        { client: tx },
+        {
         organizationId,
         selector: { kind: 'ids', values: [dto.sellpiaInventorySkuId] },
-      });
+        },
+      );
       if (!sellpiaInventorySku?.isActive) {
         throw new NotFoundException('Sellpia inventory SKU not found');
       }
@@ -64,7 +75,12 @@ export class ReturnTransfersService {
           notes: dto.notes,
         },
       });
-      return (await hydrateInventorySkus(tx, organizationId, [created]))[0]!;
+      return (await hydrateInventorySkus(
+        tx,
+        organizationId,
+        this.inventoryTransactionalRead,
+        [created],
+      ))[0]!;
     });
   }
 
@@ -94,7 +110,12 @@ export class ReturnTransfersService {
           }),
         },
       });
-      return (await hydrateInventorySkus(tx, organizationId, [updated]))[0]!;
+      return (await hydrateInventorySkus(
+        tx,
+        organizationId,
+        this.inventoryTransactionalRead,
+        [updated],
+      ))[0]!;
     });
   }
 }
@@ -102,21 +123,25 @@ export class ReturnTransfersService {
 async function hydrateInventorySkus<
   T extends { sellpiaInventorySkuId: string },
 >(
-  tx: Parameters<typeof readInventorySkuIdentities>[0],
+  tx: object,
   organizationId: string,
+  inventory: InventoryTransactionalReadPort,
   rows: T[],
 ) {
-  const identities = await readInventorySkuIdentities(tx, {
-    organizationId,
-    selector: {
-      kind: 'ids',
-      values: [
-        ...new Set(
-          rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
-        ),
-      ],
+  const identities = await inventory.readSkuIdentities(
+    { client: tx },
+    {
+      organizationId,
+      selector: {
+        kind: 'ids',
+        values: [
+          ...new Set(
+            rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+          ),
+        ],
+      },
     },
-  });
+  );
   const byId = new Map(
     identities.map((identity) => [identity.sellpiaInventorySkuId, identity]),
   );

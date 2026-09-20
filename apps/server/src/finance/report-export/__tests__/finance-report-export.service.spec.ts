@@ -168,7 +168,7 @@ describe('FinanceReportExportService', () => {
     expect(headerRow(workbook, '광고현황')).not.toContain('광고등급');
     expect(result.fileName).toMatch(/^통합리포트_2026-08_\d{4}-\d{2}-\d{2}\.xlsx$/);
     expect(listings.list).toHaveBeenCalledWith(ORG, expect.objectContaining({ tab: 'registered' }));
-    expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, expect.objectContaining({ activeStatus: 'active' }));
+    expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, { page: 1, limit: 200 });
     expect(advertising.getHubData).toHaveBeenCalledWith(ORG);
     expect(profitLoss.findAll).toHaveBeenCalledWith(ORG, 2026, 8, NOW);
   });

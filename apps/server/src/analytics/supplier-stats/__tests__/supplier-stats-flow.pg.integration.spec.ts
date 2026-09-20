@@ -1,3 +1,6 @@
+import { SELLPIA_INVENTORY_SKU_READ_PORT } from '../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+import { SellpiaInventorySkuReadService } from '../../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
@@ -22,6 +25,7 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
     const module = await Test.createTestingModule({
       providers: [
         SupplierStatsService,
+        { provide: SELLPIA_INVENTORY_SKU_READ_PORT, useValue: new SellpiaInventorySkuReadService(new SellpiaInventorySkuReadRepositoryAdapter(prisma as never)) },
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -424,4 +428,19 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
     })]);
     expect(report.items[0]).not.toHaveProperty('optionId');
   });
+  it('keeps supplier policy history but omits a deleted or foreign inventory identity', async () => {
+    const physical = await seedPhysicalProduct(TEST_ORGANIZATION_ID, 'DELETED', 'Synthetic SKU');
+    const supplier = await seedSupplierPolicy({
+      organizationId: TEST_ORGANIZATION_ID, supplierName: 'Synthetic supplier',
+      sellpiaInventorySkuId: physical.id, supplyPrice: 100,
+    });
+    await prisma.sellpiaInventorySku.delete({ where: { id: physical.id } });
+    expect(await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id)).toMatchObject({ items: [] });
+    expect(await prisma.supplierProduct.findFirst({ where: { supplierId: supplier.id } }))
+      .toMatchObject({ sellpiaInventorySkuId: physical.id });
+    const foreign = await seedPhysicalProduct(OTHER_ORGANIZATION_ID, 'FOREIGN', 'Foreign synthetic SKU');
+    await prisma.supplierProduct.updateMany({ where: { supplierId: supplier.id }, data: { sellpiaInventorySkuId: foreign.id } });
+    expect(await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id)).toMatchObject({ items: [] });
+  });
+
 });

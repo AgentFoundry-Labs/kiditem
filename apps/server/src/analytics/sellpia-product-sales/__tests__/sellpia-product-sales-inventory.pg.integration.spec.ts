@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -8,8 +9,8 @@ import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-sour
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
-import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../../inventory/application/usecase/inventory-availability.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -38,9 +39,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     );
     const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
-      new SellpiaProfitabilitySourceService(prismaService, alerts),
-      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts), prismaService,
-    );
+      new SellpiaProfitabilitySourceService(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter()),
+      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter()), prismaService,
+     new InventoryTransactionalReadRepositoryAdapter());
     service = new SellpiaProductSalesService(
       prismaService,
       new SellpiaProductInventoryReader(
@@ -48,9 +49,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         inventory,
         { findDisplayMedia: async () => new Map() },
         new ProductAbcReadService(
-          new MasterProductAbcRepositoryAdapter(prismaService), evidence,
+          new MasterProductAbcRepositoryAdapter(prismaService, new InventoryTransactionalReadRepositoryAdapter()), evidence,
         ),
-      ),
+       new InventoryTransactionalReadRepositoryAdapter()),
     );
     profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);
   });
@@ -64,7 +65,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     await seedBaseFixture(prisma);
     const owner = new SellpiaProfitabilitySourceService(
       prisma as never, new SourceFailureAlerts(prisma as never),
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     async function publishEmpty(organizationId: string) {
       const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');
       await owner.submitAttempt(organizationId, attempt.attemptId, {
@@ -205,18 +206,17 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     );
 
     expect(byProductCode['P-PRIMARY'].inventoryResolution).toMatchObject({
-      status: 'matched', currentStock: 7, availableStock: 7,
+      status: 'matched', currentStock: 7,
     });
     expect(byProductCode['MISSING-OPTION'].inventoryResolution).toMatchObject({
-      status: 'matched', currentStock: 9, availableStock: 9,
+      status: 'matched', currentStock: 9,
     });
     expect(byProductCode['MISSING-BARCODE'].inventoryResolution).toMatchObject({
-      status: 'matched', currentStock: 11, availableStock: 11,
+      status: 'matched', currentStock: 11,
     });
-    expect(byProductCode['INACTIVE-CODE'].inventoryResolution).toEqual({
-      status: 'mapping_required',
-      reason: 'inactive_candidate',
-      candidateCount: 1,
+    expect(byProductCode['INACTIVE-CODE'].inventoryResolution).toMatchObject({
+      status: 'matched',
+      currentStock: 13,
     });
     expect(byProductCode['DUPLICATE-BARCODE'].inventoryResolution).toEqual({
       status: 'mapping_required',
@@ -293,7 +293,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       inventoryResolution: {
         status: 'matched',
         currentStock: 200,
-        availableStock: 200,
       },
       monthsOfAvailableStockLeft: 0.5,
       reorderPoint: 600,
@@ -310,7 +309,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       inventoryResolution: {
         status: 'matched',
         currentStock: 50,
-        availableStock: 50,
       },
       deadStock: true,
       deadStockReason: '재고 정체(2개월+ 미판매)',
@@ -568,7 +566,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       inventoryResolution: {
         status: 'matched',
         currentStock: 100,
-        availableStock: 100,
       },
       monthsOfAvailableStockLeft: 1,
       needsReorder: true,

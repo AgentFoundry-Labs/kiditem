@@ -2,7 +2,6 @@ export type SellpiaProductInventoryCandidate = Readonly<{
   id: string;
   code: string;
   barcode: string | null;
-  isActive: boolean;
 }>;
 
 export type SellpiaProductInventoryEvidence = Readonly<{
@@ -18,7 +17,7 @@ export type SellpiaProductInventoryCandidateResolution =
   }>
   | Readonly<{
     status: 'mapping_required';
-    reason: 'not_found' | 'inactive_candidate' | 'ambiguous_barcode';
+    reason: 'not_found' | 'ambiguous_barcode';
     candidateCount: number;
   }>;
 
@@ -65,13 +64,6 @@ export function createSellpiaProductInventoryResolver(
 function resolveSingle(
   candidate: SellpiaProductInventoryCandidate,
 ): SellpiaProductInventoryCandidateResolution {
-  if (!candidate.isActive) {
-    return {
-      status: 'mapping_required',
-      reason: 'inactive_candidate',
-      candidateCount: 1,
-    };
-  }
   return {
     status: 'matched',
     sellpiaInventorySkuId: candidate.id,

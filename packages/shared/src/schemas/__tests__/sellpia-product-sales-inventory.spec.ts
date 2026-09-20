@@ -121,7 +121,6 @@ function salesRow() {
       status: 'matched',
       sellpiaInventorySkuId: INVENTORY_SKU_ID,
       currentStock: 30,
-      availableStock: 30,
       salesRowCount: 1,
       inventoryProduct: {
         masterProductId: MASTER_PRODUCT_ID,
@@ -145,7 +144,6 @@ describe('Sellpia product-sales inventory contracts', () => {
 
     for (const reason of [
       'not_found',
-      'inactive_candidate',
       'ambiguous_barcode',
     ] as const) {
       expect(SellpiaProductInventoryResolutionSchema.parse({
@@ -200,7 +198,7 @@ describe('Sellpia product-sales inventory contracts', () => {
     })).toThrow();
   });
 
-  it('rejects inconsistent matched availability', () => {
+  it('rejects the retired duplicate stock field', () => {
     expect(() => SellpiaProductInventoryResolutionSchema.parse({
       ...salesRow().inventoryResolution,
       availableStock: 29,

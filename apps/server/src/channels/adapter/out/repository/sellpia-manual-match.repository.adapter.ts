@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -35,8 +36,11 @@ import {
   completedCatalogRunWhere,
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
-import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionContext,
+  type InventoryTransactionalReadPort,
+} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
@@ -64,6 +68,8 @@ implements SellpiaManualMatchRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async getCurrentStatus(
@@ -121,7 +127,8 @@ implements SellpiaManualMatchRepositoryPort {
       requestBody: {},
     });
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventory(tx, input.organizationId);
+      const inventoryContext = { client: tx };
+      await this.inventoryTransactionalRead.lock(inventoryContext, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const now = new Date();
       const existing = await findAttemptByIdempotency(
@@ -140,7 +147,11 @@ implements SellpiaManualMatchRepositoryPort {
         return controlAttempt(existing);
       }
 
-      const active = await listActiveSkus(tx, input.organizationId);
+      const active = await listActiveSkus(
+        this.inventoryTransactionalRead,
+        inventoryContext,
+        input.organizationId,
+      );
       const targetCodes = normalizeTargetCodes(active.map((sku) => sku.code));
       const running = await tx.sourceImportRun.findFirst({
         where: {
@@ -225,7 +236,7 @@ implements SellpiaManualMatchRepositoryPort {
     snapshot: SellpiaManualMatchSnapshot;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventory(tx, input.organizationId);
+      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -248,7 +259,11 @@ implements SellpiaManualMatchRepositoryPort {
       );
 
       assertSnapshotMatchesPlan(input.snapshot, plan);
-      const active = await listActiveSkus(tx, input.organizationId);
+      const active = await listActiveSkus(
+        this.inventoryTransactionalRead,
+        { client: tx },
+        input.organizationId,
+      );
       assertTargetCodesUnchanged(active, plan.targetCodes);
       const activeByCode = new Map(active.map((sku) => [sku.code, sku]));
       const currentChannelAliases = await listCurrentChannelAliasCandidates(
@@ -318,7 +333,7 @@ implements SellpiaManualMatchRepositoryPort {
     errorMessage: string;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventory(tx, input.organizationId);
+      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -368,7 +383,7 @@ implements SellpiaManualMatchRepositoryPort {
     attemptId: string;
   }): Promise<SellpiaManualMatchPublicAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaInventory(tx, input.organizationId);
+      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
@@ -507,10 +522,14 @@ async function listCurrentChannelAliasCandidates(
   return [...candidates].sort();
 }
 
-async function listActiveSkus(tx: Transaction, organizationId: string): Promise<ActiveSku[]> {
-  const identities = await readInventorySkuIdentities(tx, {
+async function listActiveSkus(
+  inventory: InventoryTransactionalReadPort,
+  context: InventoryTransactionContext<Transaction>,
+  organizationId: string,
+): Promise<ActiveSku[]> {
+  const identities = await inventory.readSkuIdentities(context, {
     organizationId,
-    selector: { kind: 'active' },
+    selector: { kind: 'all' },
   });
   return identities.map(({ sellpiaInventorySkuId, code }) => ({
     id: sellpiaInventorySkuId,

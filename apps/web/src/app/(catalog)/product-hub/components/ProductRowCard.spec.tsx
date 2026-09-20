@@ -124,7 +124,7 @@ describe('ProductRowCard', () => {
     render(<ProductRowCard product={{
       ...product(),
       inventoryUnits: null,
-      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 0 },
     }} />);
 
     expect(screen.getAllByText('미수집')).not.toHaveLength(0);
@@ -210,7 +210,7 @@ function product(): MasterProductOperationsListItem {
     },
     channelOptionSummary: { total: 1, active: 1, configured: 0, warning: 1 },
     inventoryUnits: 0,
-    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    inventory: { skuCount: 0, measuredSkuCount: 0 },
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [{

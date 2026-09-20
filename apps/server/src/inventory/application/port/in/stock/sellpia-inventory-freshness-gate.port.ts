@@ -1,39 +1,16 @@
-export type SellpiaFreshCapacity = {
-  fence: string;
-  generation: string;
-  lastVerifiedAt: string;
-  expiresAt: string;
-  inventorySkus: Array<{
-    sellpiaInventorySkuId: string;
-    currentStock: number;
-    availableStock: number;
-    isActive: boolean;
-  }>;
-};
-
-export type SellpiaFreshCapacityPreflightResult =
-  | ({ status: 'fresh' } & SellpiaFreshCapacity)
-  | { status: 'refresh_required'; requestedGeneration: string };
-
 export interface SellpiaInventoryFreshnessGatePort {
-  assertFreshAndActive(input: {
+  requireCollectedStock(input: {
     organizationId: string;
+    attemptId: string;
     sellpiaInventorySkuIds: string[];
   }): Promise<{
+    attemptId: string;
     fence: string;
-    lastVerifiedAt: string;
-    expiresAt: string;
+    generation: string;
+    completedAt: string;
+    inventorySkus: Array<{ sellpiaInventorySkuId: string; currentStock: number }>;
   }>;
 
-  readFreshCapacity(input: {
-    organizationId: string;
-    sellpiaInventorySkuIds: string[];
-  }): Promise<SellpiaFreshCapacity>;
-
-  readFreshCapacityOrRequest(input: {
-    organizationId: string;
-    sellpiaInventorySkuIds: string[];
-  }): Promise<SellpiaFreshCapacityPreflightResult>;
 }
 
 export const SELLPIA_INVENTORY_FRESHNESS_GATE_PORT = Symbol(

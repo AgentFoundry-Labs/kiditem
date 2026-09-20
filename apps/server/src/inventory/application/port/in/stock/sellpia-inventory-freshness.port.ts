@@ -1,19 +1,19 @@
 import type {
-  SellpiaInventoryFreshnessView,
+  SellpiaInventoryCollectionStatusView,
   SellpiaInventorySourceBindingRequest,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 type ActorScope = { organizationId: string; userId: string };
 
-export interface SellpiaInventoryFreshnessPort {
-  getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView>;
+export interface SellpiaInventoryCollectionStatusPort {
+  getState(input: ActorScope): Promise<SellpiaInventoryCollectionStatusView>;
 
   confirmSourceBinding(
     input: ActorScope & SellpiaInventorySourceBindingRequest,
-  ): Promise<SellpiaInventoryFreshnessView>;
+  ): Promise<SellpiaInventoryCollectionStatusView>;
 
 }
 
-export const SELLPIA_INVENTORY_FRESHNESS_PORT = Symbol(
-  'SELLPIA_INVENTORY_FRESHNESS_PORT',
+export const SELLPIA_INVENTORY_COLLECTION_STATUS_PORT = Symbol(
+  'SELLPIA_INVENTORY_COLLECTION_STATUS_PORT',
 );

@@ -45,6 +45,8 @@ import {
 } from '../../../common/kst';
 import { ProfitLossService } from '../../../finance/services/profit-loss.service';
 import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { periodOf } from './test-helpers/period';
 import type { PrismaClient } from '@prisma/client';
 
@@ -71,6 +73,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
+        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
         { provide: PrismaService, useValue: prisma },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
@@ -1160,7 +1163,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const REQUESTED = ['2026-03-01', '2026-03-02', '2026-03-03'];
 
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
-      return new ProfitCalculationRepositoryAdapter(prisma as unknown as PrismaService);
+      return new ProfitCalculationRepositoryAdapter(
+        prisma as unknown as PrismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      );
     }
 
     let coverageListingId: string | null = null;
@@ -1338,7 +1344,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         },
       });
       await publishedRows();
-      const failed = await new ProfitCalculationRepositoryAdapter(broken as unknown as PrismaService)
+      const failed = await new ProfitCalculationRepositoryAdapter(
+        broken as unknown as PrismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
       const emptyPublication = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
@@ -1491,11 +1500,17 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     async function profitEverywhere() {
       const client = prisma as unknown as PrismaService;
-      const card = await new ProfitCalculationRepositoryAdapter(client)
+      const card = await new ProfitCalculationRepositoryAdapter(
+        client,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
-      const topProducts = await new DashboardSalesRepositoryAdapter(client)
+      const topProducts = await new DashboardSalesRepositoryAdapter(
+        client,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client)
+      const profitLoss = await new ProfitLossService(client, new InventoryTransactionalReadRepositoryAdapter())
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

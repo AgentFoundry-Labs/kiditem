@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   StatisticsCategoriesResponse,
@@ -27,6 +27,10 @@ import {
   type PerListingProfit,
   type ProfitWindowFacts,
 } from '../../common/per-listing-profit';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import {
   readListingOptionOrderFacts,
   readOrderWindowFacts,
@@ -69,6 +73,8 @@ function paretoBand(cumulativePercent: number): 'top70' | 'next20' | 'tail10' {
 export class StatisticsService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   /**
@@ -89,7 +95,12 @@ export class StatisticsService {
   private readFacts(organizationId: string, period: string | undefined, now: Date): Promise<ProfitWindowFacts> {
     const window = this.resolveWindow(period, now);
     return this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      (tx) => readProfitWindowFacts(
+        tx,
+        organizationId,
+        window,
+        this.inventoryTransactionalRead,
+      ),
       REPEATABLE_READ,
     );
   }

@@ -3,6 +3,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
 import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AlertsModule } from '../../alerts/alerts.module';
+import { InventoryModule } from '../../inventory/inventory.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashboard-sales.repository.adapter';
@@ -50,7 +51,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule],
+  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, InventoryModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

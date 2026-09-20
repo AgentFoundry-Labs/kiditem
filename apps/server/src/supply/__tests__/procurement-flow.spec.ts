@@ -469,6 +469,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const controller = new Controller({}, {}, previews);
     const body = {
       action: 'previewRocket',
+      inventoryAttemptId: '99999999-9999-4999-8999-999999999999',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       sourceImportRunId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
@@ -484,17 +485,17 @@ describe('ProcurementController purchase submission boundary', () => {
     expect(previews.preview).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       userId: 'authenticated-user',
-      inventoryRequirement: 'advisory',
       request: {
         channelAccountId: body.channelAccountId,
         sourceImportRunId: body.sourceImportRunId,
+        inventoryAttemptId: body.inventoryAttemptId,
         editedQuantities: body.editedQuantities,
         clampEditedQuantities: true,
       },
     });
   });
 
-  it('allows Rocket export preflight to require fresh inventory explicitly', async () => {
+  it('carries the completed inventory attempt for Rocket export preflight', async () => {
     const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
     const Controller = ProcurementController as unknown as new (
       procurement: Record<string, unknown>,
@@ -504,7 +505,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const controller = new Controller({}, {}, previews);
     const body = {
       action: 'previewRocket',
-      inventoryRequirement: 'fresh',
+      inventoryAttemptId: '99999999-9999-4999-8999-999999999999',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       sourceImportRunId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
@@ -518,7 +519,7 @@ describe('ProcurementController purchase submission boundary', () => {
     );
 
     expect(previews.preview).toHaveBeenCalledWith(expect.objectContaining({
-      inventoryRequirement: 'fresh',
+      request: expect.objectContaining({ inventoryAttemptId: body.inventoryAttemptId }),
     }));
   });
 
@@ -545,6 +546,7 @@ describe('ProcurementController purchase submission boundary', () => {
       {
         action: 'submit',
         id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        inventoryAttemptId: '0187e942-9098-7382-9a22-c5b821f2f5d2',
         idempotencyKey: 'stable-submit-key',
       } as never,
     );
@@ -552,9 +554,11 @@ describe('ProcurementController purchase submission boundary', () => {
     expect(submissions.submit).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      inventoryAttemptId: '0187e942-9098-7382-9a22-c5b821f2f5d2',
       idempotencyKey: 'stable-submit-key',
       requestHash: canonicalOwnerInputHash({
         purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        inventoryAttemptId: '0187e942-9098-7382-9a22-c5b821f2f5d2',
       }),
       userId: '00000000-0000-4000-8000-000000000001',
     });

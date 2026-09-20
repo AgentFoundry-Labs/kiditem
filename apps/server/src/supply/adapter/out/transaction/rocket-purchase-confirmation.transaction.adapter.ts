@@ -21,8 +21,7 @@ import {
   type RocketWorkbookWorkflowStatus,
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
+import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -71,6 +70,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
     private readonly prisma: PrismaService,
     @Inject(ROCKET_WORKBOOK_PROGRESS_PORT)
     private readonly progress: RocketWorkbookProgressPort,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventory: InventoryTransactionalReadPort,
   ) {}
 
   async exportWorkbook(
@@ -144,6 +145,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         input.organizationId,
         input.preview.inventoryGeneration,
         decisions,
+        this.inventory,
       );
 
       const artifactSha256 = createHash('sha256')
@@ -209,14 +211,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
                   unitsPerSale: allocation.unitsPerSale,
                   quantity: allocation.quantity,
                   organization: { connect: { id: input.organizationId } },
-                  sellpiaInventorySku: {
-                    connect: {
-                      id_organizationId: {
-                        id: allocation.sellpiaInventorySkuId,
-                        organizationId: input.organizationId,
-                      },
-                    },
-                  },
+                  sellpiaInventorySkuId: allocation.sellpiaInventorySkuId,
                 })),
               },
             })),
@@ -448,6 +443,7 @@ async function assertInventoryGeneration(
   organizationId: string,
   generation: string | null,
   decisions: WorkbookDecision[],
+  inventory: InventoryTransactionalReadPort,
 ): Promise<void> {
   if (generation === null) return;
   const sellpiaInventorySkuIds = [
@@ -459,8 +455,8 @@ async function assertInventoryGeneration(
       ),
     ),
   ];
-  const inventoryLock = await lockSellpiaInventory(tx, organizationId);
-  const current = await readInventoryAvailability(tx, inventoryLock, {
+  const inventoryLock = await inventory.lock({ client: tx }, organizationId);
+  const current = await inventory.readAvailability({ client: tx }, inventoryLock, {
     organizationId,
     sellpiaInventorySkuIds,
   });
@@ -498,7 +494,7 @@ function buildDecisions(
     if (
       !source.channelListingOptionId ||
       source.components.length === 0 ||
-      source.components.some((component) => component.isActive !== true)
+      source.components.some((component) => component.currentStock === null)
     ) {
       throw new ConflictException(
         'Every Rocket workbook line requires a current confirmed recipe.',

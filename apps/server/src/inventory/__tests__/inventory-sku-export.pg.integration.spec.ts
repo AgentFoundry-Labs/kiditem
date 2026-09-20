@@ -6,9 +6,9 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
-import { InventorySkuExportService } from '../application/service/inventory-sku-export.service';
+import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/persistence/inventory-sku-snapshot-list.repository.adapter';
+import { InventorySkuSnapshotListService } from '../application/usecase/inventory-sku-snapshot-list.service';
+import { InventorySkuExportService } from '../application/usecase/inventory-sku-export.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -97,7 +97,6 @@ describe('InventorySkuExportService (PG integration)', () => {
 
     const exportPromise = exporter.export(TEST_ORGANIZATION_ID, {
       stockStatus: 'all',
-      activeStatus: 'active',
     });
     await rowsReady;
 
@@ -159,7 +158,6 @@ describe('InventorySkuExportService (PG integration)', () => {
 
     const current = await snapshots.listSnapshotForExport(TEST_ORGANIZATION_ID, {
       stockStatus: 'all',
-      activeStatus: 'active',
     });
     expect(current.latestImport).toMatchObject({
       id: afterRun.id,

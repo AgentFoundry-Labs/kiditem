@@ -1,6 +1,6 @@
 import {
-  SellpiaInventoryFreshnessViewSchema,
-  type SellpiaInventoryFreshnessView,
+  SellpiaInventoryCollectionStatusViewSchema,
+  type SellpiaInventoryCollectionStatusView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   InventorySkuSnapshotListResponseSchema,
@@ -10,10 +10,10 @@ import {
 } from '@kiditem/shared/inventory';
 import { apiClient } from './api-client';
 
-const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
+const COLLECTION_STATUS_PATH = '/api/inventory/sellpia-collection-status';
 const HISTORY_PATH = '/api/inventory/sellpia-sync/import-runs';
 const CURRENT_BASIS_PATH = '/api/inventory/sellpia-skus?page=1&limit=1';
-export type SellpiaInventoryFreshnessWithBlockers = SellpiaInventoryFreshnessView;
+export type SellpiaInventoryCollectionStatusWithBlockers = SellpiaInventoryCollectionStatusView;
 
 function historyPath(params: { page?: number; limit?: number }): string {
   const search = new URLSearchParams();
@@ -23,16 +23,16 @@ function historyPath(params: { page?: number; limit?: number }): string {
   return suffix ? `${HISTORY_PATH}?${suffix}` : HISTORY_PATH;
 }
 
-async function parseFreshness(
+async function parseCollectionStatus(
   operation: Promise<unknown>,
-): Promise<SellpiaInventoryFreshnessView> {
-  return SellpiaInventoryFreshnessViewSchema.parse(await operation);
+): Promise<SellpiaInventoryCollectionStatusView> {
+  return SellpiaInventoryCollectionStatusViewSchema.parse(await operation);
 }
 
-export const sellpiaInventoryFreshnessApi = {
-  getState: () => parseFreshness(apiClient.get(FRESHNESS_PATH)),
+export const sellpiaInventoryCollectionStatusApi = {
+  getState: () => parseCollectionStatus(apiClient.get(COLLECTION_STATUS_PATH)),
 
-  confirmSourceBinding: () => parseFreshness(apiClient.post(`${FRESHNESS_PATH}/source-binding`, {
+  confirmSourceBinding: () => parseCollectionStatus(apiClient.post(`${COLLECTION_STATUS_PATH}/source-binding`, {
     sourceOrigin: 'https://kiditem.sellpia.com',
     sourceAccountKey: 'kiditem',
     confirmed: true,

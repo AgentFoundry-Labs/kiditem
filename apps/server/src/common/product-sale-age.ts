@@ -4,7 +4,12 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { PrismaService } from '../prisma/prisma.service';
-import { readInventorySaleAgeMappings } from '../inventory/read/inventory-availability';
+import type { InventoryTransactionalReadPort } from '../inventory/application/port/in/stock/inventory-transactional-read.port';
+
+export type InventorySaleAgeReader = Pick<
+  InventoryTransactionalReadPort,
+  'readSaleAgeMappings'
+>;
 
 
 type SaleAgeDb = PrismaService | Prisma.TransactionClient;
@@ -26,6 +31,7 @@ export async function readProductSaleAgeEvidence(
   organizationId: string,
   masterProductIds: readonly string[],
   cutoffDate: string | null,
+  inventory: InventorySaleAgeReader,
 ): Promise<readonly ProductSaleAgeEvidence[]> {
   const ids = [...new Set(masterProductIds)].sort();
   const evidence = new Map<string, ProductSaleAgeEvidence>(ids.map((masterProductId) => [
@@ -37,7 +43,11 @@ export async function readProductSaleAgeEvidence(
   // Transaction clients are single-connection clients. Keep these reads
   // sequential when called from the repeatable product snapshot; overlapping
   // them makes PrismaPg queue one query behind another on the same client.
-  const listings = await readInventorySaleAgeMappings(db, organizationId, ids);
+  const listings = await inventory.readSaleAgeMappings(
+    { client: db },
+    organizationId,
+    ids,
+  );
   const saleAgeRaw = await readSaleAgeRaw(
     db,
     organizationId,
@@ -55,7 +65,6 @@ export async function readProductSaleAgeEvidence(
       && listing.options.every((option) => option.components.length > 0
         && option.components.every((component) =>
           component.quantity > 0
-          && component.isActive
           && component.masterProductId !== null
           && component.masterProductActive));
     if (!hasCompleteRecipe) continue;
@@ -68,7 +77,6 @@ export async function readProductSaleAgeEvidence(
         const masterProductId = component.masterProductId;
         if (
           component.quantity <= 0
-          || !component.isActive
           || !masterProductId
           || !component.masterProductActive
         ) continue;

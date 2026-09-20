@@ -25,7 +25,7 @@
 // published nothing for a requested day withholds profit. A failed read is
 // distinct from both and keeps `adEvidenceError`.
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
@@ -33,7 +33,10 @@ import {
   readOrderLineWindowFacts,
   type OrderWindowFacts,
 } from '../../../../../orders/read/order-facts.reader';
-import { readInventorySkuIdentities } from '../../../../../inventory/read/inventory-availability';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import {
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
@@ -73,7 +76,11 @@ export class ProfitCalculationRepositoryAdapter
 {
   private readonly logger = new Logger(ProfitCalculationRepositoryAdapter.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   async calculateForRange(
     organizationId: string,
@@ -392,7 +399,7 @@ export class ProfitCalculationRepositoryAdapter
       const accountById = new Map(accounts.map((account) => [account.id, account]));
       const inventorySkuIds = [...new Set(options.flatMap((option) =>
         option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-      const identities = await readInventorySkuIdentities(tx, {
+      const identities = await this.inventoryTransactionalRead.readSkuIdentities({ client: tx }, {
         organizationId,
         selector: { kind: 'ids', values: inventorySkuIds },
       });

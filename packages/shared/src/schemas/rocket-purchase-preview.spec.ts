@@ -324,7 +324,6 @@ describe('Rocket purchase preview contract', () => {
           optionName: null,
           quantity: 1,
           currentStock: 5,
-          isActive: true,
         }],
       }],
     });
@@ -391,48 +390,11 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/plannedDeliveryDate/i);
   });
 
-  it('parses a freshness-pending checkpoint with immediately visible advisory rows', () => {
-    const response = RocketPurchasePreviewResponseSchema.parse({
-      status: 'freshness_pending',
-      collectionRunId: RUN_ID,
-      catalog: publication(),
-      requestedGeneration: '8',
-      rows: [{
-        poLineId: request().rows[0]!.poLineId,
-        poNumber: '1001',
-        productNo: 'P-1',
-        productName: '로켓 상품',
-        plannedDeliveryDate: '2026-07-20',
-        orderQuantity: 4,
-        recommendedQuantity: 2,
-        maxQuantity: 2,
-        editedQuantity: null,
-        reason: 'insufficient_capacity',
-        channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
-        masterProductId: MASTER_PRODUCT_ID,
-        components: [{
-          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-          code: 'SP-100',
-          name: 'Sellpia 연결 상품',
-          optionName: null,
-          quantity: 1,
-          currentStock: 2,
-          isActive: true,
-        }],
-      }],
-    });
-
-    expect(response).toMatchObject({
-      status: 'freshness_pending',
-      collectionRunId: RUN_ID,
-      requestedGeneration: '8',
-      rows: [expect.objectContaining({ poLineId: request().rows[0]!.poLineId })],
-    });
-    expect(response).not.toHaveProperty('inventoryGeneration');
-    expect(() => RocketPurchasePreviewResponseSchema.parse({
-      ...response,
-      inventoryGeneration: '7',
-    })).toThrow();
+  it('rejects advisory calculations made before inventory collection completes', () => {
+    expect(RocketPurchasePreviewResponseSchema.safeParse({
+      status: 'freshness_pending', collectionRunId: RUN_ID,
+      catalog: publication(), requestedGeneration: '8', rows: [],
+    }).success).toBe(false);
   });
 
   it('accepts current stock as the only Rocket stock quantity', () => {
@@ -443,7 +405,6 @@ describe('Rocket purchase preview contract', () => {
       optionName: null,
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     })).toEqual({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
       code: 'SP-100',
@@ -451,7 +412,6 @@ describe('Rocket purchase preview contract', () => {
       optionName: null,
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     });
     expect(() => RocketPurchasePreviewComponentSchema.parse({
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
@@ -461,7 +421,6 @@ describe('Rocket purchase preview contract', () => {
       quantity: 1,
       currentStock: 5,
       availableStock: 4,
-      isActive: true,
     })).toThrow();
   });
 
@@ -473,7 +432,6 @@ describe('Rocket purchase preview contract', () => {
       optionName: '랜덤',
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     })).toMatchObject({
       code: 'SP-100',
       name: 'Sellpia 연결 상품',

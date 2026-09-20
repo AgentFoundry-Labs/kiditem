@@ -109,7 +109,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelListingOptionId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     Int quantity
     DateTime createdAt
     DateTime updatedAt
@@ -364,7 +364,6 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | MasterProduct | frozenMasterProduct | referenced by external | Channels | SellpiaProductMonthlySales |
 | MasterProduct | masterProduct | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
@@ -417,7 +416,6 @@ erDiagram
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
 | Organization | organization | referenced by external | Channels | SellpiaSalesDailySnapshot |
 | Organization | organization | referenced by external | Finance | SalesPlan |
-| Organization | organization | referenced by external | Inventory | CoupangShipmentDateSummary |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | SellpiaInventorySku |
 | Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
@@ -426,6 +424,7 @@ erDiagram
 | Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportConsumption |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportReceipt |
+| Organization | organization | referenced by external | Orders | CoupangShipmentDateSummary |
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
@@ -497,8 +496,8 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaProductMonthlySales |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaSalesDailySnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Inventory | CoupangShipmentDateSummary |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | CoupangDirectTransportConsumption |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | CoupangShipmentDateSummary |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Review |

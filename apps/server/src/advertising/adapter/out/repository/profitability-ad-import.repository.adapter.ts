@@ -1,7 +1,9 @@
+import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
+  Inject,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -204,6 +206,8 @@ export class ProfitabilityAdImportRepositoryAdapter
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventory: InventoryTransactionalReadPort,
   ) {}
 
   async beginAttempt(input: {
@@ -819,7 +823,7 @@ export class ProfitabilityAdImportRepositoryAdapter
 
   private async listFrozenListings(tx: Transaction, organizationId: string, accountIds: readonly string[]) {
     if (accountIds.length === 0) return [];
-    return tx.channelListing.findMany({
+    const listings = await tx.channelListing.findMany({
       where: {
         organizationId,
         channelAccountId: { in: [...accountIds] },
@@ -835,13 +839,28 @@ export class ProfitabilityAdImportRepositoryAdapter
             inventoryComponents: {
               select: {
                 quantity: true,
-                sellpiaInventorySku: { select: { masterProductId: true } },
+                sellpiaInventorySkuId: true,
               },
             },
           },
         },
       },
     });
+    const identities = await this.inventory.readSkuIdentities({ client: tx }, {
+      organizationId,
+      selector: { kind: 'ids', values: [...new Set(listings.flatMap((listing) =>
+        listing.options.flatMap((option) => option.inventoryComponents.map((component) => component.sellpiaInventorySkuId))))] },
+    });
+    const byId = new Map(identities.map((identity) => [identity.sellpiaInventorySkuId, identity]));
+    return listings.map((listing) => ({
+      ...listing,
+      options: listing.options.map((option) => ({
+        inventoryComponents: option.inventoryComponents.map((component) => ({
+          quantity: component.quantity,
+          sellpiaInventorySku: { masterProductId: byId.get(component.sellpiaInventorySkuId)?.masterProductId ?? null },
+        })),
+      })),
+    }));
   }
 
   private async resolveTargetRows(

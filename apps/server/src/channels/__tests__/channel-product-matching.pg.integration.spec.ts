@@ -4,8 +4,11 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -35,8 +38,15 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     repository = new ChannelProductMatchingRepositoryAdapter(
       prismaService,
+      new InventoryTransactionalReadRepositoryAdapter(),
+      new SellpiaInventorySkuReadService(
+        new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+      ),
       new ProductChannelOptionRecipeMutationService(
-        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(
+          prismaService,
+          new InventoryTransactionalReadRepositoryAdapter(),
+        ),
       ),
     );
     service = new ChannelProductMatchingService(
@@ -143,6 +153,28 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         inventoryComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2, currentStock: 12 }],
       },
     });
+  });
+
+  it('keeps deleted recipe IDs readable without inventing stock or relinking a same-code SKU', async () => {
+    const product = await createProduct('KI-DELETED', 'Deleted identity');
+    const sku = await createInventorySku('SKU-DELETED', 12, product.id);
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, {});
+    await prisma.channelListingOptionInventoryComponent.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id,
+      sellpiaInventorySkuId: sku.id, quantity: 2,
+    } });
+    await prisma.sellpiaInventorySku.delete({ where: { id: sku.id } });
+    await createInventorySku('SKU-DELETED', 99, product.id);
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+    expect(queue.options.find((row) => row.option.id === option.id)).toMatchObject({
+      capacity: null,
+      option: { inventoryComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2, code: null, name: null, currentStock: null }] },
+    });
+    const rows = await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {});
+    expect(rows.find((row) => row.option.id === option.id)?.inventoryComponents).toMatchObject([
+      { sellpiaInventorySkuId: sku.id, quantity: 2, code: null, name: null },
+    ]);
   });
 
   it('uses the latest source-evidenced sale status without requiring traffic evidence', async () => {

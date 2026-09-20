@@ -2,6 +2,7 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { collectSellpiaInventoryBeforeCalculation } from '@/app/(inventory)/_shared/collect-sellpia-before-calculation';
 import { downloadBlob } from '@/lib/browser-download';
 import {
   loadSavedRocketCollection,
@@ -20,6 +21,8 @@ import type {
   RocketSavedPoCollection,
 } from '@kiditem/shared/rocket-purchase-preview';
 
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'org' } }) }));
+vi.mock('@/app/(inventory)/_shared/collect-sellpia-before-calculation', () => ({ collectSellpiaInventoryBeforeCalculation: vi.fn() }));
 vi.mock('@/lib/rocket-purchase-preview-api', () => ({
   previewRocketPurchases: vi.fn(),
 }));
@@ -48,35 +51,20 @@ const SHORTAGE_REASON = '협력사 재고부족 - 수요예측 오류' as const;
 describe('useRocketPurchaseWorkflow', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(collectSellpiaInventoryBeforeCalculation).mockResolvedValue(SKU_ID);
   });
 
-  it('shows advisory rows, asks for inventory collection and recalculates only when the operator retries', async () => {
+  it('waits for Sellpia collection before calling preview and does not calculate on failure', async () => {
     const source = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
-    vi.mocked(previewRocketPurchases)
-      .mockResolvedValueOnce({
-        status: 'freshness_pending',
-        collectionRunId: source.collection.collectionRunId,
-        catalog: catalogPublication(ACCOUNT_A, SOURCE_A, 1),
-        requestedGeneration: '12',
-        rows: [previewRow('LINE-A', null, 2)],
-      })
-      .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 3)]));
+    vi.mocked(collectSellpiaInventoryBeforeCalculation).mockRejectedValueOnce(new Error('collection failed'));
+    vi.mocked(previewRocketPurchases).mockResolvedValue(preview(source, [previewRow('LINE-A', null, 3)]));
     const hook = renderWorkflow({ channelAccountId: ACCOUNT_A, savedSourceImportRunId: SOURCE_A });
-
-    await waitFor(() => expect(hook.result.current.stage).toBe('inventory_collection_required'));
-    expect(hook.result.current.inventoryCollectionRequired).toBe(true);
-    expect(hook.result.current.error).toBe('재고 수집이 필요합니다.');
-    expect(hook.result.current.preview?.rows.map(({ poLineId }) => poLineId)).toEqual(['LINE-A']);
-    expect(previewRocketPurchases).toHaveBeenCalledTimes(1);
-
+    await waitFor(() => expect(hook.result.current.error).not.toBeNull());
+    expect(previewRocketPurchases).not.toHaveBeenCalled();
     act(() => hook.result.current.retryInventoryAndPreview());
-
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
-    expect(previewRocketPurchases).toHaveBeenCalledTimes(2);
-    expect(hook.result.current.error).toBeNull();
-    expect(hook.result.current.inventoryCollectionRequired).toBe(false);
-    expect(hook.result.current.displayPreview?.rows[0]?.recommendedQuantity).toBe(3);
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({ inventoryAttemptId: SKU_ID }));
   });
 
   it('reuses the loaded source when only the delivery date changes', async () => {
@@ -502,7 +490,7 @@ describe('useRocketPurchaseWorkflow', () => {
       editedQuantities: { 'LINE-A': 4 },
       clampEditedQuantities: true,
       previewScope: 'confirmation_requested',
-    }), { inventoryRequirement: 'fresh' });
+    }));
     expect(buildRocketConfirmationWorkbook).toHaveBeenCalledWith(expect.objectContaining({
       workbookRows: [{
         poLineId: 'LINE-A',

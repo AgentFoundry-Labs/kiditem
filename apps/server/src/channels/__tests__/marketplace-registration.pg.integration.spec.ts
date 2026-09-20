@@ -9,6 +9,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
 
@@ -239,7 +240,10 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
     return new MarketplaceRegistrationRepositoryAdapter(
       prismaService,
       new ProductChannelOptionRecipeMutationService(
-        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(
+          prismaService,
+          new InventoryTransactionalReadRepositoryAdapter(),
+        ),
       ),
     );
   }

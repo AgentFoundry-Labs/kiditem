@@ -9,6 +9,7 @@ describe('Rocket COMPLETE source reference', () => {
     const request = {
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       sourceImportRunId: '22222222-2222-4222-8222-222222222222',
+      inventoryAttemptId: '44444444-4444-4444-8444-444444444444',
       editedQuantities: {},
       previewScope: 'confirmation_requested',
     };
@@ -41,6 +42,7 @@ describe('Rocket COMPLETE source reference', () => {
     const request = {
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       sourceImportRunId: '22222222-2222-4222-8222-222222222222',
+      inventoryAttemptId: '44444444-4444-4444-8444-444444444444',
       idempotencyKey: '33333333-3333-4333-8333-333333333333',
       editedQuantities: { line: 1 }, selectedPoLineIds: ['line'], shortageReasons: {},
       artifactFileName: 'confirmation.xlsx',

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ProfitabilityEvidenceModule } from '../finance/profitability-evidence.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
 import { PRODUCT_ABC_READ_PORT } from './application/port/in/product-abc-read.port';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
@@ -11,7 +12,7 @@ import { ProductAbcReadService } from './application/service/product-abc-read.se
  * imports them back). Mirrors `ProfitabilityEvidenceModule`.
  */
 @Module({
-  imports: [ProfitabilityEvidenceModule],
+  imports: [ProfitabilityEvidenceModule, InventoryModule],
   providers: [
     MasterProductAbcRepositoryAdapter,
     {

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   ProductAbcFormulaPayloadSchema,
@@ -10,6 +10,7 @@ import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readProductAbcPublication } from '../../../read/product-abc-publication.reader';
 import { listSellingMasterProductIds } from './selling-master-product.query';
+import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import type {
   MasterProductAbcCandidateRecord,
   MasterProductAbcFormulaStateRecord,
@@ -45,7 +46,11 @@ type ExistingAbcRow = Readonly<{
 
 @Injectable()
 export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   async getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord> {
     const row = await readFormulaState(this.prisma, organizationId, false);
@@ -64,7 +69,12 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
 
   async listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]> {
     return this.prisma.$transaction(
-      (tx) => listSellingMasterProductIds(tx, organizationId),
+      (tx) => listSellingMasterProductIds(
+        tx,
+        organizationId,
+        undefined,
+        this.inventoryTransactionalRead,
+      ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
@@ -72,7 +82,7 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
   async publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult> {
     assertPublicationInput(input);
     return this.prisma.$transaction(
-      (tx) => publishTx(tx, input),
+      (tx) => publishTx(tx, input, this.inventoryTransactionalRead),
       { maxWait: 10_000, timeout: 30_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
   }
@@ -82,6 +92,7 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
 async function publishTx(
   tx: Prisma.TransactionClient,
   input: ProductAbcPublicationInput,
+  inventoryTransactionalRead: InventoryTransactionalReadPort,
 ): Promise<MasterProductAbcPublicationResult> {
   // Source owners lock source terminality before taking the shared mapping
   // fence. ABC follows the same order, then serializes its own publication.
@@ -112,7 +123,12 @@ async function publishTx(
   }
 
   const targetProductIds = uniqueSorted(
-    await listSellingMasterProductIds(tx, input.organizationId),
+    await listSellingMasterProductIds(
+      tx,
+      input.organizationId,
+      undefined,
+      inventoryTransactionalRead,
+    ),
   );
   if (!sameIds(targetProductIds, input.targetProductIds)) return inputChanged();
   const currentSaleAgeInputs = await readProductSaleAgeEvidence(
@@ -120,6 +136,7 @@ async function publishTx(
     input.organizationId,
     targetProductIds,
     input.actualCutoff,
+    inventoryTransactionalRead,
   );
   if (!sameSaleAgeInputs(input.saleAgeInputs, currentSaleAgeInputs, targetProductIds)) {
     return inputChanged();

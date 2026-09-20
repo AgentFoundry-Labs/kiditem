@@ -1,3 +1,4 @@
+import { InventoryModule } from '../../inventory/inventory.module';
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,6 +14,7 @@ describe('AdvertisingModule retained wiring', () => {
   it('uses direct Advertising source owners without an Operations dependency', () => {
     const imports = Reflect.getMetadata('imports', AdvertisingModule) ?? [];
     expect(imports).toEqual([
+      InventoryModule,
       PrismaModule,
       AlertsModule,
       AiModule,

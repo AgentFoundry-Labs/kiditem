@@ -1,5 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  SELLPIA_INVENTORY_SKU_READ_PORT,
+  type SellpiaInventorySkuReadPort,
+} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
 import type {
   ChannelRecipeSuggestionContext,
   ChannelRecipeSuggestionContextRepositoryPort,
@@ -8,7 +12,11 @@ import type {
 @Injectable()
 export class ChannelRecipeSuggestionContextRepositoryAdapter
 implements ChannelRecipeSuggestionContextRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
+    private readonly inventorySkus: SellpiaInventorySkuReadPort,
+  ) {}
 
   async getContext(
     organizationId: string,
@@ -36,12 +44,21 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
           select: {
             quantity: true,
             createdAt: true,
-            sellpiaInventorySku: { select: { id: true, code: true } },
+            sellpiaInventorySkuId: true,
           },
         },
       },
     });
     if (!selected) return null;
+
+    const inventorySkus = await this.inventorySkus.findByIds(
+      organizationId,
+      selected.inventoryComponents.map((component) => component.sellpiaInventorySkuId),
+    );
+    const inventorySkuById = new Map(inventorySkus.map((sku) => [
+      sku.sellpiaInventorySkuId,
+      sku,
+    ]));
 
     const options = await this.prisma.channelListingOption.findMany({
       where: { id: selected.id, organizationId },
@@ -61,14 +78,17 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         modelNumber: option.modelNumber,
         barcode: option.barcode,
       })),
-      existingComponents: selected.inventoryComponents.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySku.id,
-        code: component.sellpiaInventorySku.code,
-        quantity: component.quantity,
-        source: 'manual' as const,
-        confirmedBy: null,
-        confirmedAt: component.createdAt,
-      })),
+      existingComponents: selected.inventoryComponents.flatMap((component) => {
+        const sku = inventorySkuById.get(component.sellpiaInventorySkuId);
+        return sku ? [{
+          sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
+          code: sku.code,
+          quantity: component.quantity,
+          source: 'manual' as const,
+          confirmedBy: null,
+          confirmedAt: component.createdAt,
+        }] : [];
+      }),
     };
   }
 }

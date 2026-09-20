@@ -5,13 +5,13 @@ import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the Inventory port/adapter contract:
 //
-//   - PrismaService is imported only under `inventory/adapter/out/repository/**`.
+//   - PrismaService is imported only under `inventory/adapter/out/persistence/**`.
 //   - `*persistence.ts` is not used as final naming under `apps/server/src/inventory`.
 //   - `application/**` does not import Prisma client/types.
-//   - `application/service/**` does not import `adapter/out/**` or products
+//   - `application/usecase/**` does not import `adapter/out/**` or products
 //     implementation details. Concrete adapters reach application code only
 //     via Nest token bindings to ports.
-//   - Controllers (`adapter/in/http/**`) depend on `application/port/in/**`,
+//   - Controllers (`adapter/in/web/**`) depend on `application/port/in/**`,
 //     not on concrete application services.
 //   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma,
 //     PrismaService, HTTP DTO classes, or any incoming-adapter module.
@@ -44,8 +44,6 @@ describe('Inventory architecture contract', () => {
       const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
       expect(block, `${modelName} must carry sellpiaInventorySkuId`)
         .toContain('sellpiaInventorySkuId');
-      expect(block, `${modelName} must relate to SellpiaInventorySku`)
-        .toContain('SellpiaInventorySku');
       expect(block).not.toMatch(/\boptionId\b/);
     }
   });
@@ -74,20 +72,20 @@ describe('Inventory architecture contract', () => {
       `--type ts --files-with-matches 'inventory-sellpia:' ${serverSrc} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(hits).toEqual([
-      path.join(inventoryRel(), 'transaction/sellpia-inventory-lock.ts'),
+      path.join(inventoryRel(), 'adapter/out/persistence/transaction/sellpia-inventory-lock.ts'),
     ]);
   });
 
-  it('PrismaService is imported only under inventory/adapter/out/repository/**', () => {
+  it('PrismaService is imported only under inventory/adapter/out/persistence/**', () => {
     const inv = inventoryRel();
-    const allowedPrefix = path.join(inv, 'adapter/out/repository') + path.sep;
+    const allowedPrefix = path.join(inv, 'adapter/out/persistence') + path.sep;
     const hits = rg(
       `--type ts --files-with-matches 'PrismaService' ${inv} --glob '!**/__tests__/**'`,
     );
     const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
@@ -114,9 +112,9 @@ describe('Inventory architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('application/service/** does not import adapter/out/**', () => {
+  it('application/usecase/** does not import adapter/out/**', () => {
     const inv = inventoryRel();
-    const serviceGlob = path.join(inv, 'application/service') + '/**';
+    const serviceGlob = path.join(inv, 'application/usecase') + '/**';
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
@@ -126,9 +124,9 @@ describe('Inventory architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('application/service/** does not import products module/services directly', () => {
+  it('application/usecase/** does not import products module/services directly', () => {
     const inv = inventoryRel();
-    const serviceGlob = path.join(inv, 'application/service') + '/**';
+    const serviceGlob = path.join(inv, 'application/usecase') + '/**';
     const hits = rg(
       `--type ts --files-with-matches 'ProductsModule|BundleStockService|products/application|products/adapter|products/domain' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
@@ -138,11 +136,11 @@ describe('Inventory architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('adapter/in/http/** controllers depend on application/port/in/**, not concrete services', () => {
+  it('adapter/in/web/** controllers depend on application/port/in/**, not concrete services', () => {
     const inv = inventoryRel();
-    const httpGlob = path.join(inv, 'adapter/in/http') + '/**';
+    const httpGlob = path.join(inv, 'adapter/in/web') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches 'application/service/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'application/usecase/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
@@ -150,11 +148,22 @@ describe('Inventory architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('cross-domain production code uses published Inventory ports, not concrete read or lock adapters', () => {
+    const serverSrc = path.dirname(inventoryRel());
+    const hits = rg(
+      `--type ts --files-with-matches 'inventory/(adapter/out/persistence/(read|transaction)|read|transaction)/' ${serverSrc} --glob '!inventory/**' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `cross-domain code must use Inventory application ports instead of concrete read/transaction implementations:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
     const inv = inventoryRel();
     const domainGlob = path.join(inv, 'domain') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/http|\\.dto'\
+      `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/web|\\.dto'\
        --glob '${domainGlob}' --glob '!**/__tests__/**'`,
     );
     expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);

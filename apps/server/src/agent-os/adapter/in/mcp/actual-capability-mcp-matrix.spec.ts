@@ -131,7 +131,10 @@ const scenarios: readonly InvocationScenario[] = [
     unitPriceCny: 1,
     moq: 1,
   }, { orderId: 'purchase-order-1', status: 'draft' }),
-  scenario('supply.submit_purchase_order', 'supply.submitPurchaseOrder', 'high', { purchaseOrderId: PURCHASE_ORDER_ID }, {
+  scenario('supply.submit_purchase_order', 'supply.submitPurchaseOrder', 'high', {
+    purchaseOrderId: PURCHASE_ORDER_ID,
+    inventoryAttemptId: '00000000-0000-4000-8000-000000000008',
+  }, {
     orderId: 'purchase-order-1',
     status: 'ordered',
   }),

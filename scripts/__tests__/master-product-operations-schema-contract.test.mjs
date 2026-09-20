@@ -84,7 +84,6 @@ describe('master-product operations final schema contract', () => {
       'sellpiaInventorySkuId',
       'quantity',
       'channelListingOption',
-      'sellpiaInventorySku',
     ]);
     assert.match(component, /^\s*quantity\s+Int\s*$/m);
     assert.match(
@@ -95,10 +94,8 @@ describe('master-product operations final schema contract', () => {
       component,
       /@relation\(fields: \[channelListingOptionId, organizationId\], references: \[id, organizationId\]/,
     );
-    assert.match(
-      component,
-      /@relation\(fields: \[sellpiaInventorySkuId, organizationId\], references: \[id, organizationId\]/,
-    );
+    rejectFields(component, ['sellpiaInventorySku']);
+    assert.match(component, /@@index\(\[(?:organizationId, )?sellpiaInventorySkuId\]/);
   });
 
   it('makes SellpiaInventorySku a physical source SKU owned by at most one canonical MasterProduct', () => {
@@ -117,7 +114,6 @@ describe('master-product operations final schema contract', () => {
       'rawJson',
       'lastImportRunId',
       'lastImportRun',
-      'channelListingOptionInventoryComponents',
       'masterProduct',
     ]);
     assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
@@ -151,7 +147,7 @@ describe('master-product operations final schema contract', () => {
     assert.doesNotMatch(schema, /^\s*channelSkuComponents\s+/m);
   });
 
-  it('points every physical supply and movement reference at SellpiaInventorySku', () => {
+  it('preserves indexed physical SKU ids without deletion-blocking relations', () => {
     const references = [
       [supply, 'SupplierProduct'],
       [supply, 'PurchaseOrderItem'],
@@ -161,11 +157,8 @@ describe('master-product operations final schema contract', () => {
     for (const [source, modelName] of references) {
       const block = modelBlock(source, modelName);
       assert.match(block, /^\s*sellpiaInventorySkuId\s+String\s+/m);
-      assert.match(block, /^\s*sellpiaInventorySku\s+SellpiaInventorySku\s+/m);
-      assert.match(
-        block,
-        /@relation\([^\n]*fields: \[sellpiaInventorySkuId, organizationId\], references: \[id, organizationId\]/,
-      );
+      rejectFields(block, ['sellpiaInventorySku']);
+      assert.match(block, /@@index\(\[(?:organizationId, )?sellpiaInventorySkuId\]/);
       rejectFields(block, ['masterProductId', 'masterProduct']);
     }
   });

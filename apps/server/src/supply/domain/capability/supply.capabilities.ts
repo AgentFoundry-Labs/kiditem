@@ -22,7 +22,8 @@ export const SUPPLY_CAPABILITIES = [
     description: 'Submit an approved purchase order through the Supply owner.',
     resultSummary: '구매 발주를 제출했습니다.',
     inputSchema: z.object({
-      purchaseOrderId: Uuid, externalOrderPlatform: z.string().trim().min(1).max(40).nullable().optional(),
+      purchaseOrderId: Uuid, inventoryAttemptId: Uuid,
+      externalOrderPlatform: z.string().trim().min(1).max(40).nullable().optional(),
       externalOrderId: z.string().trim().min(1).max(100).nullable().optional(), externalOrderUrl: z.string().url().nullable().optional(),
     }).strict(),
     outputSchema: z.object({ orderId: Identifier, status: Identifier }).strict(),

@@ -29,7 +29,7 @@ import {
   advertisingAppliesToSale,
 } from '../advertising/domain/ad-sweep-coverage';
 import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
-import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
+import type { InventoryTransactionalReadPort } from '../inventory/application/port/in/stock/inventory-transactional-read.port';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
@@ -253,6 +253,7 @@ async function readProfitLines(
   organizationId: string,
   from: Date,
   to: Date,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<Pick<
   ProfitWindowFacts,
   'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
@@ -305,10 +306,10 @@ async function readProfitLines(
   ]));
   const inventorySkuIds = [...new Set(options.flatMap((option) =>
     option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-  const inventorySkus = await readInventorySkuIdentities(tx, {
-    organizationId,
-    selector: { kind: 'ids', values: inventorySkuIds },
-  });
+  const inventorySkus = await inventory.readSkuIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: inventorySkuIds } },
+  );
   const purchasePriceBySkuId = new Map(inventorySkus.map((sku) => [
     sku.sellpiaInventorySkuId,
     sku.purchasePrice,
@@ -422,10 +423,11 @@ export async function readProfitWindowFacts(
   tx: Prisma.TransactionClient,
   organizationId: string,
   window: FinanceWindow,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
   const ad = await readAdWindowEvidence(tx, organizationId, from, to);
-  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
   const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
@@ -755,8 +757,9 @@ async function readPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
-  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
   const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
@@ -784,8 +787,16 @@ export async function buildPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<PerListingProfit[]> {
-  return (await readPerListingProfit(tx, organizationId, from, to, accountAdEvidence)).rows;
+  return (await readPerListingProfit(
+    tx,
+    organizationId,
+    from,
+    to,
+    accountAdEvidence,
+    inventory,
+  )).rows;
 }
 
 /**
@@ -826,7 +837,8 @@ export async function buildPerListingMetricsCoverage(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
   /** Limit the population to these listings; every sold listing when omitted. */
-  listingIds?: ReadonlySet<string>,
+  listingIds: ReadonlySet<string> | undefined,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<PerListingMetricsCoverage> {
   const { rows: soldRows, orderWindow } = await readPerListingProfit(
     tx,
@@ -834,6 +846,7 @@ export async function buildPerListingMetricsCoverage(
     from,
     to,
     accountAdEvidence,
+    inventory,
   );
   const rows = soldRows.filter((row) => listingIds === undefined || listingIds.has(row.listingId));
   const metrics = rows.filter(hasMeasuredProfit);
@@ -854,7 +867,16 @@ export async function buildPerListingMetrics(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<PerListingMetrics[]> {
-  const coverage = await buildPerListingMetricsCoverage(tx, organizationId, from, to, accountAdEvidence);
+  const coverage = await buildPerListingMetricsCoverage(
+    tx,
+    organizationId,
+    from,
+    to,
+    accountAdEvidence,
+    undefined,
+    inventory,
+  );
   return coverage.metrics;
 }

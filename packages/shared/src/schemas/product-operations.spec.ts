@@ -37,7 +37,7 @@ const abcFixture = {
   },
 };
 
-const createProductDetailFixture = (availableStock = 80) => ({
+const createProductDetailFixture = (currentStock = 80) => ({
   id: productId,
   code: 'KI-001',
   displayReference: {
@@ -60,7 +60,7 @@ const createProductDetailFixture = (availableStock = 80) => ({
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
-  inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+  inventory: { skuCount: 1, measuredSkuCount: 1 },
   inventoryUnits: 80,
   channelListings: [{
     id: '00000000-0000-4000-8000-000000000004',
@@ -87,9 +87,7 @@ const createProductDetailFixture = (availableStock = 80) => ({
         name: '식판',
         optionName: null,
         barcode: null,
-        currentStock: 80,
-        availableStock,
-        isActive: true,
+        currentStock,
         quantity: 8,
       }],
     }],
@@ -158,7 +156,7 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     },
     channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
     inventoryUnits: 0,
-    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    inventory: { skuCount: 0, measuredSkuCount: 0 },
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [],
@@ -252,7 +250,7 @@ describe('product operations contracts', () => {
         },
         channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
         inventoryUnits: 0,
-        inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+        inventory: { skuCount: 0, measuredSkuCount: 0 },
         channelCount: 0,
         channelStatus: 'unlisted',
         activeChannels: [],
@@ -474,7 +472,7 @@ describe('product operations contracts', () => {
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
-      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 0, measuredSkuCount: 0 },
       channelCount: 2,
       channelStatus: 'partial',
       activeChannels: [{
@@ -566,10 +564,21 @@ describe('product operations contracts', () => {
     expect(detail.displayReference.value).toBe('13712531060');
   });
 
-  it('requires component availability to equal physical current stock in product detail', () => {
-    expect(() => MasterProductOperationsDetailSchema.parse(
-      createProductDetailFixture(64),
-    )).toThrow(/availableStock/i);
+  it('rejects the retired duplicate available stock field in product detail', () => {
+    const fixture = createProductDetailFixture();
+    const listing = fixture.channelListings[0]!;
+    const option = listing.options[0]!;
+    const component = option.inventoryComponents[0]!;
+    expect(() => MasterProductOperationsDetailSchema.parse({
+      ...fixture,
+      channelListings: [{
+        ...listing,
+        options: [{
+          ...option,
+          inventoryComponents: [{ ...component, availableStock: 64 }],
+        }],
+      }],
+    })).toThrow(/availableStock/i);
   });
 
   it('rejects negative component availability in product detail', () => {
@@ -592,7 +601,7 @@ describe('product operations contracts', () => {
       isActive: true,
       createdAt: '2026-07-16T00:00:00.000Z',
       updatedAt: '2026-07-16T00:00:00.000Z',
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
       inventoryUnits: 80,
       channelListings: [{
         id: '00000000-0000-4000-8000-000000000004',
@@ -619,14 +628,12 @@ describe('product operations contracts', () => {
             name: '식판',
             optionName: null,
             barcode: null,
-            currentStock: 80,
-            availableStock: -1,
-            isActive: true,
+            currentStock: -1,
             quantity: 8,
           }],
         }],
       }],
-    })).toThrow(/availableStock/i);
+    })).toThrow(/currentStock/i);
   });
 
   it('enforces product code normalization and mutation strictness', () => {

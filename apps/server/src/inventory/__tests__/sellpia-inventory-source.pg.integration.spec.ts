@@ -1,5 +1,6 @@
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { randomUUID } from 'node:crypto';
-import { isSellpiaInventoryLastAttemptStopped } from '@kiditem/shared/sellpia-inventory-freshness';
+import { isSellpiaInventoryCollectionStopped } from '@kiditem/shared/sellpia-inventory-freshness';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -13,30 +14,30 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { SellpiaInventorySourceController } from '../adapter/in/http/sellpia-inventory-source.controller';
-import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
-import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
-import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
-import { InventoryAvailabilityRepositoryAdapter } from '../adapter/out/repository/inventory-availability.repository.adapter';
-import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
+import { SellpiaInventorySourceController } from '../adapter/in/web/sellpia-inventory-source.controller';
+import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/persistence/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/persistence/sellpia-snapshot-publication.repository.adapter';
+import { sellpiaInventorySourceFailureAlert } from '../adapter/out/persistence/sellpia-inventory-source-failure-alert';
+import { InventoryAvailabilityRepositoryAdapter } from '../adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/persistence/inventory-sku-snapshot-list.repository.adapter';
+import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/persistence/sellpia-inventory-freshness.repository.adapter';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
-import { InventoryAvailabilityService } from '../application/service/inventory-availability.service';
-import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
-import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
-import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
-import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { InventoryAvailabilityService } from '../application/usecase/inventory-availability.service';
+import { SellpiaInventoryFileValidator } from '../application/usecase/sellpia-inventory-file.validator';
+import { SellpiaInventoryFreshnessService } from '../application/usecase/sellpia-inventory-freshness.service';
+import { SellpiaInventoryImportService } from '../application/usecase/sellpia-inventory-import.service';
+import { InventorySkuSnapshotListService } from '../application/usecase/inventory-sku-snapshot-list.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { FactNotFoundError } from '../../common/errors/fact-errors';
 import {
   lockSellpiaInventory,
   type SellpiaInventoryLock,
-} from '../transaction/sellpia-inventory-lock';
+} from '../adapter/out/persistence/transaction/sellpia-inventory-lock';
 import {
   readActiveInventoryMatchingCandidates,
   readInventoryAvailability,
   readInventoryAvailabilityCandidates,
-} from '../read/inventory-availability';
+} from '../adapter/out/persistence/read/inventory-availability';
 
 const base = '/api/inventory/sellpia-source';
 
@@ -70,7 +71,6 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     const service = new SellpiaInventoryImportService(
       runRepository,
       publication,
-      new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
       new SellpiaInventoryFileValidator(),
     );
     const module = await Test.createTestingModule({
@@ -99,6 +99,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
   });
@@ -151,6 +152,43 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ).toBe(400);
   });
 
+  it('serializes concurrent starts to one live organization attempt', async () => {
+    const responses = await Promise.all([
+      postBegin('concurrent-start-a'),
+      postBegin('concurrent-start-b'),
+    ]);
+    const started = responses.filter((response) => response.status === 201);
+    const joined = responses.filter((response) => response.status === 409);
+    expect(started).toHaveLength(1);
+    expect(joined).toHaveLength(1);
+    expect(joined[0]?.body).toMatchObject({
+      code: 'ATTEMPT_IN_PROGRESS',
+      attemptId: started[0]?.body.attemptId,
+    });
+  });
+
+  it('replays concurrent completion callbacks for the same artifact', async () => {
+    const attempt = await begin('concurrent-complete');
+    const [first, second] = await Promise.all([
+      complete(attempt, snapshot(8)),
+      complete(attempt, snapshot(8)),
+    ]);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'COMPLETE',
+    });
+    expect(second.body).toEqual(first.body);
+    expect(await prisma.sourceImportRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        status: 'completed',
+      },
+    })).toBe(1);
+  });
+
   it('accepts an attested manual upload through the same owner publication', async () => {
     const attempt = await begin('manual-upload');
     const response = await complete(attempt, snapshot(6), 'application/json', true)
@@ -183,7 +221,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 
-  it('publishes through the canonical snapshot path, preserves prior stock on failure, and resolves its Alert on retry', async () => {
+  it('publishes through the canonical snapshot path, deduplicates source failures, and resolves the Alert after successful retry', async () => {
     const first = await begin('prior-snapshot');
     await complete(first, snapshot(8)).expect(201);
     const priorSku = await prisma.sellpiaInventorySku.findUniqueOrThrow({
@@ -199,6 +237,19 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
       { attemptId: failed.attemptId, status: 'OPEN' },
     ]);
+
+    // A terminal callback may be replayed after the owner has already fenced
+    // the failed run. The same attempt remains one alert row.
+    await prisma.$transaction((tx) => alerts.recordTerminalOutcome(
+      tx,
+      sellpiaInventorySourceFailureAlert({
+        organizationId: TEST_ORGANIZATION_ID,
+        attemptId: failed.attemptId,
+        errorCode: 'sellpia_invalid_workbook',
+        errorMessage: 'Sellpia inventory artifact validation failed',
+      }),
+    ));
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(1);
 
     const retry = await begin('valid-retry');
     await complete(retry, snapshot(9)).expect(201);
@@ -239,7 +290,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       status: 'failed',
       activeSync: null,
       lastAttempt: {
-        errorCode: null,
+        errorCode: 'sellpia_background_timeout',
         errorMessage: 'Sellpia inventory collection attempt expired.',
       },
     });
@@ -255,6 +306,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
       { attemptId: expired.attemptId, status: 'OPEN' },
     ]);
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(1);
   });
 
   it('stops a running attempt for an operator without its token or an Alert, releases the browser lease and admits the next begin at once', async () => {
@@ -296,6 +348,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
       { attemptId: expired.attemptId, status: 'OPEN' },
     ]);
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(1);
 
     const completed = await begin('operator-complete');
     await complete(completed, snapshot(4)).expect(201);
@@ -321,9 +374,9 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         organizationId: TEST_ORGANIZATION_ID,
         userId: TEST_USER_ID,
       })).toMatchObject({
-        status: 'refresh_required',
+        status: 'complete',
         verifiedGeneration: verified.verifiedGeneration,
-        lastVerifiedAt: verified.lastVerifiedAt,
+        lastCompletedAt: verified.lastCompletedAt,
         activeSync: null,
         lastAttempt: { errorCode: null, errorMessage: null },
       });
@@ -339,14 +392,14 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect(current.items[0]).toMatchObject({ code: 'SP-001', currentStock: 5 });
   });
 
-  it('names the running attempt in the organization freshness read by its id, never its token, so any browser can stop it', async () => {
+  it('names the running attempt in the collection-status read by its id, never its token, so any browser can stop it', async () => {
     const attempt = await begin('freshness-names-attempt');
     const running = await freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
     expect(running).toMatchObject({
-      status: 'syncing',
+      status: 'running',
       activeSync: { attemptId: attempt.attemptId },
     });
     expect(JSON.stringify(running)).not.toContain(attempt.attemptToken);
@@ -377,128 +430,169 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
-    expect(view).toMatchObject({ status: 'syncing', activeSync: { attemptId: null } });
+    expect(view).toMatchObject({ status: 'running', activeSync: { attemptId: null } });
     expect(JSON.stringify(view)).not.toContain(claimToken);
   });
 
   it('publishes the last attempt error facts without an outcome word and clears them on completion', async () => {
-    const readFreshness = () => freshness.getState({
+    const readStatus = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
 
     const failed = await begin('last-attempt-failed');
     await fail(failed, 'sellpia_network_failed').expect(201);
-    const failedAttempt = (await readFreshness()).lastAttempt;
+    const failedStatus = await readStatus();
+    const failedAttempt = failedStatus.lastAttempt;
+    expect(failedStatus.lastAttemptId).toBe(failed.attemptId);
     expect(failedAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
     expect(failedAttempt).not.toHaveProperty('status');
 
     const next = await begin('last-attempt-next');
     await complete(next, snapshot(4)).expect(201);
-    expect((await readFreshness()).lastAttempt).toMatchObject({
+    expect((await readStatus()).lastAttempt).toMatchObject({
       errorCode: null,
       errorMessage: null,
     });
   });
 
   it('publishes last attempt facts that tell an operator stop from a completion and a failure', async () => {
-    const readFreshness = () => freshness.getState({
+    const readStatus = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
 
     const completed = await begin('stop-facts-complete');
     await complete(completed, snapshot(5)).expect(201);
-    const afterCompletion = await readFreshness();
+    const afterCompletion = await readStatus();
     expect(afterCompletion.lastAttempt).toMatchObject({ errorCode: null, errorMessage: null });
     // A completion verifies the snapshot at the attempt's own instant.
-    expect(afterCompletion.lastAttempt?.attemptedAt).toBe(afterCompletion.lastVerifiedAt);
-    expect(isSellpiaInventoryLastAttemptStopped(afterCompletion)).toBe(false);
-    expect(isSellpiaInventoryLastAttemptStopped({ ...afterCompletion, status: 'refresh_required' }))
+    expect(afterCompletion.lastAttempt?.attemptedAt).toBe(afterCompletion.lastCompletedAt);
+    expect(isSellpiaInventoryCollectionStopped(afterCompletion)).toBe(false);
+    expect(isSellpiaInventoryCollectionStopped({ ...afterCompletion, status: 'complete' }))
       .toBe(false);
 
-    await cancel((await begin('stop-facts-stop')).attemptId).expect(200);
-    const afterStop = await readFreshness();
+    const stoppedAttempt = await begin('stop-facts-stop');
+    await cancel(stoppedAttempt.attemptId).expect(200);
+    const afterStop = await readStatus();
     expect(afterStop).toMatchObject({
-      status: 'refresh_required',
-      lastVerifiedAt: afterCompletion.lastVerifiedAt,
+      status: 'complete',
+      lastCompletedAt: afterCompletion.lastCompletedAt,
       lastAttempt: { errorCode: null, errorMessage: null },
     });
+    expect(afterStop.lastAttemptId).toBe(stoppedAttempt.attemptId);
     const stoppedAt = Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing');
-    expect(stoppedAt).toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
-    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+    expect(stoppedAt).toBeGreaterThan(Date.parse(afterStop.lastCompletedAt ?? 'missing'));
+    expect(isSellpiaInventoryCollectionStopped(afterStop)).toBe(true);
 
     await fail(await begin('stop-facts-failure'), 'sellpia_network_failed').expect(201);
-    const afterFailure = await readFreshness();
+    const afterFailure = await readStatus();
     expect(afterFailure.lastAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
-    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
-    expect(isSellpiaInventoryLastAttemptStopped({ ...afterFailure, status: 'refresh_required' }))
+    expect(isSellpiaInventoryCollectionStopped(afterFailure)).toBe(false);
+    expect(isSellpiaInventoryCollectionStopped({ ...afterFailure, status: 'complete' }))
       .toBe(false);
   });
 
   it('publishes a stop after a real failure as a stopped last attempt, keeping the previous snapshot current', async () => {
-    const readFreshness = () => freshness.getState({
+    const readStatus = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
     await complete(await begin('failure-then-stop-basis'), snapshot(5)).expect(201);
-    const verified = await readFreshness();
+    const verified = await readStatus();
 
     await fail(await begin('failure-then-stop-failure'), 'sellpia_network_failed').expect(201);
-    const afterFailure = await readFreshness();
+    const afterFailure = await readStatus();
     expect(afterFailure).toMatchObject({
       status: 'failed',
-      lastVerifiedAt: verified.lastVerifiedAt,
+      lastCompletedAt: verified.lastCompletedAt,
       lastAttempt: { errorCode: 'sellpia_network_failed' },
     });
-    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
+    expect(isSellpiaInventoryCollectionStopped(afterFailure)).toBe(false);
 
-    await cancel((await begin('failure-then-stop-stop')).attemptId).expect(200);
-    const afterStop = await readFreshness();
+    const stoppedAttempt = await begin('failure-then-stop-stop');
+    await cancel(stoppedAttempt.attemptId).expect(200);
+    const afterStop = await readStatus();
     expect(afterStop).toMatchObject({
-      status: 'refresh_required',
+      status: 'complete',
       verifiedGeneration: verified.verifiedGeneration,
-      lastVerifiedAt: verified.lastVerifiedAt,
+      lastCompletedAt: verified.lastCompletedAt,
       activeSync: null,
       lastAttempt: { errorCode: null, errorMessage: null },
     });
+    expect(afterStop.lastAttemptId).toBe(stoppedAttempt.attemptId);
     expect(Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing'))
-      .toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
-    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+      .toBeGreaterThan(Date.parse(afterStop.lastCompletedAt ?? 'missing'));
+    expect(isSellpiaInventoryCollectionStopped(afterStop)).toBe(true);
   });
 
   it('publishes a stop before any snapshot exists as a stopped last attempt with nothing verified', async () => {
-    const readFreshness = () => freshness.getState({
+    const readStatus = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
     });
-    expect(await readFreshness()).toMatchObject({
-      status: 'refresh_required',
-      lastVerifiedAt: null,
+    expect(await readStatus()).toMatchObject({
+      status: 'not_collected',
+      lastCompletedAt: null,
       lastAttempt: null,
     });
 
-    await cancel((await begin('stop-before-snapshot')).attemptId).expect(200);
-    const afterStop = await readFreshness();
+    const stoppedAttempt = await begin('stop-before-snapshot');
+    await cancel(stoppedAttempt.attemptId).expect(200);
+    const afterStop = await readStatus();
     expect(afterStop).toMatchObject({
-      status: 'refresh_required',
+      status: 'not_collected',
       verifiedGeneration: '0',
-      lastVerifiedAt: null,
+      lastCompletedAt: null,
       activeSync: null,
       lastAttempt: { errorCode: null, errorMessage: null },
     });
-    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+    expect(afterStop.lastAttemptId).toBe(stoppedAttempt.attemptId);
+    expect(isSellpiaInventoryCollectionStopped(afterStop)).toBe(true);
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
   });
 
-  it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {
+  it('allows calculation only from the named completed collection, without a TTL gate', async () => {
+    const collected = await begin('calculation-source');
+    await complete(collected, snapshot(7)).expect(201);
+    const sku = await publishedSku();
+    await prisma.sellpiaInventoryState.update({ where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { lastVerifiedAt: new Date('2020-01-01T00:00:00Z') } });
+    const input = { organizationId: TEST_ORGANIZATION_ID, attemptId: collected.attemptId, sellpiaInventorySkuIds: [sku.id] };
+    expect(await freshness.requireCollectedStock(input)).toMatchObject({
+      generation: collected.generation, inventorySkus: [{ sellpiaInventorySkuId: sku.id, currentStock: 7 }],
+    });
+    await expect(freshness.requireCollectedStock({
+      ...input,
+      sellpiaInventorySkuIds: [],
+    })).resolves.toMatchObject({
+      attemptId: collected.attemptId,
+      generation: collected.generation,
+      inventorySkus: [],
+    });
+    const failed = await begin('calculation-failure');
+    await fail(failed, 'sellpia_network_failed').expect(201);
+    await expect(freshness.requireCollectedStock({
+      ...input,
+      attemptId: failed.attemptId,
+      sellpiaInventorySkuIds: [],
+    })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+    await expect(freshness.requireCollectedStock({
+      ...input,
+      sellpiaInventorySkuIds: [],
+    })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+    await expect(freshness.requireCollectedStock({ ...input, attemptId: failed.attemptId }))
+      .rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+  });
+
+  it('shows current inventory independently from collection metadata', async () => {
     const identity = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'UNVERIFIED-SP',
         name: '수동 매칭 대기 상품',
         currentStock: 0,
-        isActive: true,
+        isActive: false,
       },
     });
 
@@ -507,15 +601,15 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       limit: 50,
       stockStatus: 'all',
     });
-    expect(list).toMatchObject({ latestImport: null, total: 0, items: [] });
+    expect(list).toMatchObject({ latestImport: null, total: 1, items: [{ sellpiaInventorySkuId: identity.id, currentStock: 0 }] });
     await expect(snapshots.getSnapshot(TEST_ORGANIZATION_ID, identity.id))
-      .rejects.toMatchObject({ status: 404 });
+      .resolves.toMatchObject({ sellpiaInventorySkuId: identity.id, currentStock: 0 });
     expect(await availability.findBySkuIds({
       organizationId: TEST_ORGANIZATION_ID,
       sellpiaInventorySkuIds: [identity.id],
     })).toEqual({
       snapshot: { collected: false, generation: null, verifiedAt: null },
-      items: [],
+      items: [{ sellpiaInventorySkuId: identity.id, currentStock: 0, generation: null }],
     });
 
     const attempt = await begin('unverified-identity-publish');
@@ -525,6 +619,8 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       limit: 50,
       stockStatus: 'all',
     });
+    expect(await prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: identity.id } }))
+      .toMatchObject({ isActive: true, currentStock: 5 });
     expect(published.items).toEqual([
       expect.objectContaining({
         sellpiaInventorySkuId: identity.id,
@@ -535,7 +631,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 
-  it('reads only the published run through the transaction-aware organization fence', async () => {
+  it('reads current rows through the transaction-aware organization fence', async () => {
     const attempt = await begin('transaction-reader');
     await complete(attempt, snapshot(7)).expect(201);
     const published = await prisma.sellpiaInventorySku.findUniqueOrThrow({
@@ -576,12 +672,10 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         sellpiaInventorySkuIds: [published.id, stale.id],
       }))).resolves.toMatchObject({
       snapshot: { collected: true, generation: '1' },
-      items: [{
-        sellpiaInventorySkuId: published.id,
-        currentStock: 7,
-        availableStock: 7,
-        generation: '1',
-      }],
+      items: expect.arrayContaining([
+        expect.objectContaining({ sellpiaInventorySkuId: published.id, currentStock: 7 }),
+        expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: 99 }),
+      ]),
     });
 
     const foreignRead = underInventoryLock((tx, lock) =>
@@ -589,15 +683,14 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaInventorySkuIds: [published.id, foreign.id],
       }));
-    await expect(foreignRead).rejects.toBeInstanceOf(FactNotFoundError);
-    await expect(foreignRead).rejects.toThrow(
-      'One or more Sellpia inventory SKUs were not found in this organization',
-    );
+    await expect(foreignRead).resolves.toMatchObject({
+      items: [{ sellpiaInventorySkuId: published.id, currentStock: 7 }],
+    });
 
     await expect(underInventoryLock((tx, lock) =>
       readActiveInventoryMatchingCandidates(tx, lock, TEST_ORGANIZATION_ID)))
       .resolves.toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: stale.id, currentStock: null }),
+        expect.objectContaining({ id: stale.id, currentStock: 99 }),
         expect.objectContaining({ id: published.id, currentStock: 7 }),
       ]));
     await expect(underInventoryLock((tx, lock) =>
@@ -607,7 +700,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         limit: 1,
         stockStatus: 'in_stock',
       }))).resolves.toEqual([
-      expect.objectContaining({ sellpiaInventorySkuId: published.id, currentStock: 7 }),
+      expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: 99 }),
     ]);
     await expect(underInventoryLock((tx, lock) =>
       readInventoryAvailabilityCandidates(tx, lock, {
@@ -616,7 +709,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         limit: 1,
         stockStatus: 'all',
       }))).resolves.toEqual([
-      expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: null }),
+      expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: 99 }),
     ]);
   });
 
@@ -791,11 +884,11 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       await publication;
     }
     await expect(read).resolves.toMatchObject({
-      items: [{ sellpiaInventorySkuId: sku.id, currentStock: 9, availableStock: 9 }],
+      items: [{ sellpiaInventorySkuId: sku.id, currentStock: 9 }],
     });
   });
 
-  it('keeps one completed basis visible through running/failure and exposes the stale status', async () => {
+  it('keeps one completed basis visible through running/failure and exposes collection status', async () => {
     const uncollected = await snapshots.listSnapshot(TEST_ORGANIZATION_ID, {
       page: 1,
       limit: 50,
@@ -805,7 +898,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect((await freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-    })).status).toBe('refresh_required');
+    })).status).toBe('not_collected');
 
     const first = await begin('consumer-basis-first');
     await complete(first, snapshot(0)).expect(201);
@@ -823,7 +916,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     expect((await freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-    })).status).toBe('fresh');
+    })).status).toBe('complete');
 
     const firstAvailability = await availability.findBySkuIds({
       organizationId: TEST_ORGANIZATION_ID,
@@ -835,14 +928,14 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         generation: '1',
         verifiedAt: firstBasis?.importedAt,
       },
-      items: [{ currentStock: 0, availableStock: 0, generation: '1' }],
+      items: [{ currentStock: 0, generation: '1' }],
     });
 
     const running = await begin('consumer-basis-running');
     expect((await freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-    })).status).toBe('syncing');
+    })).status).toBe('running');
     const runningView = await snapshots.listSnapshot(TEST_ORGANIZATION_ID, {
       page: 1,
       limit: 50,
@@ -881,7 +974,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         generation: '1',
         verifiedAt: firstBasis?.importedAt,
       },
-      items: [{ currentStock: 0, availableStock: 0, generation: '1' }],
+      items: [{ currentStock: 0, generation: '1' }],
     });
 
     const newer = await begin('consumer-basis-newer');
@@ -909,7 +1002,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         generation: '3',
         verifiedAt: newerBasis?.importedAt,
       },
-      items: [{ currentStock: 9, availableStock: 9, generation: '3' }],
+      items: [{ currentStock: 9, generation: '3' }],
     });
 
     await expectComplete(running, snapshot(9), 409);
@@ -949,6 +1042,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     return (await postBegin(key).expect(201)).body as {
       attemptId: string;
       attemptToken: string;
+      generation: string;
       state: string;
     };
   }

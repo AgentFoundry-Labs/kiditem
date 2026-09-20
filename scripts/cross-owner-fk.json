@@ -38,8 +38,6 @@
     "channels.ChannelAdListingProductMonthlyFact -> products.MasterProduct",
     "channels.ChannelListing -> products.MasterProduct",
     "channels.ChannelListing -> sourcing.SourcingCandidate",
-    "channels.SellpiaManualMatchAlias -> inventory.SellpiaInventorySku",
-    "channels.SellpiaProductMonthlySales -> inventory.SellpiaInventorySku",
     "channels.SellpiaProductMonthlySales -> products.MasterProduct",
     "core.MasterProductAbcEvaluation -> products.MasterProduct",
     "core.MasterProductAbcGradeHistory -> products.MasterProduct",
@@ -50,7 +48,6 @@
     "orders.OrderLineItem -> channels.ChannelListingOption",
     "orders.Review -> channels.ChannelListing",
     "products.ChannelListingOptionInventoryComponent -> channels.ChannelListingOption",
-    "products.ChannelListingOptionInventoryComponent -> inventory.SellpiaInventorySku",
     "products.MasterProduct -> channels.ChannelListing",
     "runs.SourceImportRun -> channels.ChannelAccount",
     "sourcing.ProductRegistrationExecution -> ai.ProductPreparation",
@@ -62,11 +59,8 @@
     "sourcing.SourcingLaunchCandidate -> supply.SupplierOfferSkuSnapshot",
     "supply.ProcurementTestIntent -> sourcing.SourcingDecisionBatchItem",
     "supply.ProcurementTestIntent -> sourcing.SourcingLaunchCandidate",
-    "supply.PurchaseOrderItem -> inventory.SellpiaInventorySku",
     "supply.RocketPurchaseConfirmation -> channels.ChannelAccount",
-    "supply.RocketPurchaseConfirmationAllocation -> inventory.SellpiaInventorySku",
     "supply.RocketPurchaseConfirmationLine -> channels.ChannelListingOption",
-    "supply.SupplierOfferSkuSnapshot -> sourcing.SourcingEvidenceObservation",
-    "supply.SupplierProduct -> inventory.SellpiaInventorySku"
+    "supply.SupplierOfferSkuSnapshot -> sourcing.SourcingEvidenceObservation"
   ]
 }

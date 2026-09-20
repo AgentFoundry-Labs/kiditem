@@ -4,8 +4,7 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import { readLatestListingSaleStatusFacts } from '../../../../channels/read/channel-listing-daily-facts';
-import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
+import type { InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 
 const SELLING_CHANNELS = ['coupang', 'rocket'];
 
@@ -21,7 +20,8 @@ const SELLING_CHANNELS = ['coupang', 'rocket'];
 export async function listSellingMasterProductIds(
   transaction: Prisma.TransactionClient,
   organizationId: string,
-  candidateIds?: readonly string[],
+  candidateIds: readonly string[] | undefined,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<string[]> {
   if (candidateIds && candidateIds.length === 0) return [];
   const candidateIdSet = candidateIds ? new Set(candidateIds) : null;
@@ -48,13 +48,7 @@ export async function listSellingMasterProductIds(
           inventoryComponents: {
             where: { organizationId },
             select: {
-              sellpiaInventorySku: {
-                select: {
-                  id: true,
-                  masterProductId: true,
-                  masterProduct: { select: { isActive: true } },
-                },
-              },
+              sellpiaInventorySkuId: true,
             },
           },
         },
@@ -71,14 +65,39 @@ export async function listSellingMasterProductIds(
   ]));
   const sellpiaInventorySkuIds = [...new Set(listings.flatMap((listing) =>
     listing.options.flatMap((option) => option.inventoryComponents.map(
-      (component) => component.sellpiaInventorySku.id,
+      (component) => component.sellpiaInventorySkuId,
     ))))];
+  const identities = sellpiaInventorySkuIds.length === 0
+    ? []
+    : await readInventorySkuIdentitiesThroughPort(
+      transaction,
+      organizationId,
+      sellpiaInventorySkuIds,
+      inventory,
+    );
+  const identityBySkuId = new Map(identities.map((identity) => [
+    identity.sellpiaInventorySkuId,
+    identity,
+  ]));
+  const masterProductIdentityIds = [...new Set(identities.flatMap((identity) =>
+    identity.masterProductId ? [identity.masterProductId] : []))];
+  const masterProducts = masterProductIdentityIds.length === 0
+    ? []
+    : await transaction.masterProduct.findMany({
+      where: { organizationId, id: { in: masterProductIdentityIds } },
+      select: { id: true, isActive: true },
+    });
+  const masterProductActiveById = new Map(masterProducts.map((product) => [
+    product.id,
+    product.isActive,
+  ]));
   const availability = sellpiaInventorySkuIds.length === 0
     ? []
-    : (await readInventoryAvailability(
+    : (await readInventoryAvailabilityThroughPort(
       transaction,
-      await lockSellpiaInventory(transaction, organizationId),
-      { organizationId, sellpiaInventorySkuIds },
+      organizationId,
+      sellpiaInventorySkuIds,
+      inventory,
     )).items;
   const availabilityBySkuId = new Map(availability.map((item) => [
     item.sellpiaInventorySkuId,
@@ -97,21 +116,51 @@ export async function listSellingMasterProductIds(
 
     for (const option of listing.options) {
       for (const component of option.inventoryComponents) {
-        const sku = component.sellpiaInventorySku;
-        const stock = availabilityBySkuId.get(sku.id);
+        const sku = identityBySkuId.get(component.sellpiaInventorySkuId);
+        const masterProductId = sku?.masterProductId ?? null;
+        const stock = availabilityBySkuId.get(component.sellpiaInventorySkuId);
         if (
-          stock?.isActive
-          && stock.availableStock > 0
-          && sku.masterProduct?.isActive
-          && sku.masterProductId
-          && (!candidateIdSet || candidateIdSet.has(sku.masterProductId))
+          stock !== undefined
+          && stock.currentStock > 0
+          && masterProductId !== null
+          && masterProductActiveById.get(masterProductId) === true
+          && (!candidateIdSet || candidateIdSet.has(masterProductId))
         ) {
-          masterProductIds.add(sku.masterProductId);
+          masterProductIds.add(masterProductId);
         }
       }
     }
   }
   return [...masterProductIds].sort();
+}
+
+async function readInventorySkuIdentitiesThroughPort(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  sellpiaInventorySkuIds: string[],
+  inventory: InventoryTransactionalReadPort,
+) {
+  return inventory.readSkuIdentities(
+    { client: transaction },
+    {
+      organizationId,
+      selector: { kind: 'ids', values: sellpiaInventorySkuIds },
+    },
+  );
+}
+
+async function readInventoryAvailabilityThroughPort(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  sellpiaInventorySkuIds: string[],
+  inventory: InventoryTransactionalReadPort,
+) {
+  const context = { client: transaction };
+  const lock = await inventory.lock(context, organizationId);
+  return inventory.readAvailability(context, lock, {
+    organizationId,
+    sellpiaInventorySkuIds,
+  });
 }
 
 function rawSaleStatus(value: unknown): string | null {

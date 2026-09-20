@@ -145,19 +145,19 @@ export interface ReorderResult {
   needsReorder: boolean;
 }
 
-// monthlyRate = 월평균 소진(avg2m 등). availableStock=null 이면 계산 보류.
+// monthlyRate = 월평균 소진(avg2m 등). currentStock=null 이면 계산 보류.
 export function computeReorder(
-  availableStock: number | null,
+  currentStock: number | null,
   monthlyRate: number,
 ): ReorderResult {
-  if (availableStock === null) {
+  if (currentStock === null) {
     return { monthsOfAvailableStockLeft: null, reorderPoint: null, needsReorder: false };
   }
   const reorderPoint = Math.round(monthlyRate * (LEAD_TIME_MONTHS + SAFETY_MONTHS));
   // 소진이 없으면(월평균 0) 잔여 개월수는 무한 → null 로 표기, 발주 대상 아님(악성재고로 분리).
   const monthsOfAvailableStockLeft = monthlyRate > 0
-    ? Math.round((availableStock / monthlyRate) * 10) / 10
+    ? Math.round((currentStock / monthlyRate) * 10) / 10
     : null;
-  const needsReorder = monthlyRate > 0 && availableStock <= reorderPoint;
+  const needsReorder = monthlyRate > 0 && currentStock <= reorderPoint;
   return { monthsOfAvailableStockLeft, reorderPoint, needsReorder };
 }

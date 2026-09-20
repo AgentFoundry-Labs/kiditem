@@ -1,9 +1,7 @@
 export type ChannelOptionCapacityComponent = Readonly<{
   sellpiaInventorySkuId: string;
   currentStock: number | null;
-  availableStock: number | null;
   quantity: number;
-  isActive: boolean | null;
 }>;
 
 export type ChannelOptionCapacityProjection = Readonly<{
@@ -26,7 +24,7 @@ export function projectChannelOptionCapacity(
     throw new Error('Channel option inventory quantity must be positive');
   }
   if (components.some(
-    (component) => component.isActive !== true || component.availableStock === null,
+    (component) => component.currentStock === null,
   )) {
     return {
       capacity: null,
@@ -37,7 +35,7 @@ export function projectChannelOptionCapacity(
 
   const capacities = components.map((component) => ({
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-    capacity: Math.floor(component.availableStock! / component.quantity),
+    capacity: Math.floor(component.currentStock! / component.quantity),
   }));
   const capacity = Math.min(...capacities.map((component) => component.capacity));
   return {

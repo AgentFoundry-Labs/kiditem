@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InventoryModule } from '../inventory/inventory.module';
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from './adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT } from './application/port/in/product-channel-option-recipe-mutation.port';
 import { PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_REPOSITORY_PORT } from './application/port/out/repository/product-channel-option-recipe-mutation.repository.port';
@@ -9,6 +10,7 @@ import { ProductChannelOptionRecipeMutationService } from './application/service
  * pulling in Products' analytics and Finance dependencies.
  */
 @Module({
+  imports: [InventoryModule],
   providers: [
     ProductChannelOptionRecipeMutationRepositoryAdapter,
     {

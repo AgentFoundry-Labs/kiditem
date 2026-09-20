@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -33,8 +34,8 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
 
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
     const alerts = new SourceFailureAlerts(prisma as never);
-    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const published = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
     await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
@@ -43,9 +44,9 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       create: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: 1n },
       update: { mappingGeneration: 1n },
     });
-    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
+    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new InventoryTransactionalReadRepositoryAdapter());
     const products = new ProductOperationsDataStatusService(
-      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence),
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new InventoryTransactionalReadRepositoryAdapter()),
     );
 
     const targetCutoff = published.plan.to;
@@ -67,11 +68,11 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     const sellpia = new SellpiaProfitabilitySourceService(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const advertising = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const ownProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const zeroProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'ZERO');
     await seedMappedProduct(prisma, OTHER_ORGANIZATION_ID, 'FOREIGN');
@@ -85,7 +86,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       sellpia,
       advertising,
       prisma as never,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const targetCutoff = ownSellpia.plan.to;
     const formulaMonths = calendarMonthRange(targetCutoff, 12);
     const result = await service.load({

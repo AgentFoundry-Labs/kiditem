@@ -28,6 +28,7 @@ import type {
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
+import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 
 @Injectable()
 export class ProductOperationsDataStatusRepositoryAdapter
@@ -36,6 +37,8 @@ implements ProductOperationsDataStatusRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
     private readonly evidence: ProfitabilityEvidence,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async read(
@@ -62,7 +65,12 @@ implements ProductOperationsDataStatusRepositoryPort {
           to: kstDayStart(utcCalendarDate(addCalendarDays(cutoffDate, 1))),
         }),
         readProductAbcPublication(tx, { organizationId }),
-        listSellingMasterProductIds(tx, organizationId),
+        listSellingMasterProductIds(
+          tx,
+          organizationId,
+          undefined,
+          this.inventoryTransactionalRead,
+        ),
       ]),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );

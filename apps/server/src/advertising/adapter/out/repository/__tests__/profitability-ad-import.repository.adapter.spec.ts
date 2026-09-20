@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import {
@@ -184,7 +185,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const adapter = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
       {} as never,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
 
     const snapshot = await adapter.readSourceSnapshot({
       organizationId: run.organizationId,
@@ -318,7 +319,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
+    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never, new InventoryTransactionalReadRepositoryAdapter());
 
     const generation = await adapter.readGeneration({ organizationId, sourceImportRunId });
     expect(Object.keys(generation!)).toEqual(['summary', 'allocations']);
@@ -468,7 +469,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
+    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(adapter.readSourceStatus({ organizationId: complete.organizationId })).resolves.toMatchObject({
       latestAttempt: { state: 'COMPLETE' },
@@ -506,7 +507,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         const prisma = {
           $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
         };
-        return new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never)
+        return new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never, new InventoryTransactionalReadRepositoryAdapter())
           .readSourceStatus({ organizationId: run.organizationId });
       };
 

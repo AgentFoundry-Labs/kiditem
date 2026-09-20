@@ -179,14 +179,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
             create: command.items.map((item) => ({
               productName: item.productName,
               organization: { connect: { id: organizationId } },
-              sellpiaInventorySku: {
-                connect: {
-                  id_organizationId: {
-                    id: item.sellpiaInventorySkuId,
-                    organizationId,
-                  },
-                },
-              },
+              sellpiaInventorySkuId: item.sellpiaInventorySkuId,
               quantity: item.quantity,
               unitPriceCny: item.unitPriceCny,
             })),
@@ -281,9 +274,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       sellpiaInventorySkuIds,
     );
     const ownedSet = new Set(
-      owned
-        .filter(({ isActive }) => isActive)
-        .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+      owned.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
     );
     return sellpiaInventorySkuIds.filter((id) => !ownedSet.has(id));
   }

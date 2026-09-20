@@ -65,8 +65,6 @@ function queue() {
             optionName: null,
             barcode: null,
             currentStock: 999,
-            availableStock: 999,
-            isActive: true,
             quantity: 2,
           }, {
             id: '00000000-0000-4000-8000-000000000010',
@@ -76,8 +74,6 @@ function queue() {
             optionName: null,
             barcode: null,
             currentStock: 999,
-            availableStock: 999,
-            isActive: true,
             quantity: 3,
           }],
         },
@@ -125,14 +121,10 @@ function repository() {
 function inventoryAvailability(items = [{
   sellpiaInventorySkuId: firstSkuId,
   currentStock: 10,
-  availableStock: 10,
-  isActive: true,
   generation: '1',
 }, {
   sellpiaInventorySkuId: secondSkuId,
   currentStock: 7,
-  availableStock: 7,
-  isActive: true,
   generation: '1',
 }]) {
   return {
@@ -196,13 +188,9 @@ describe('ChannelProductMatchingService', () => {
         inventoryComponents: [{
           sellpiaInventorySkuId: firstSkuId,
           currentStock: null,
-          availableStock: null,
-          isActive: null,
         }, {
           sellpiaInventorySkuId: secondSkuId,
           currentStock: null,
-          availableStock: null,
-          isActive: null,
         }],
       },
     });
@@ -221,13 +209,9 @@ describe('ChannelProductMatchingService', () => {
         inventoryComponents: [{
           sellpiaInventorySkuId: firstSkuId,
           currentStock: 10,
-          availableStock: 10,
-          isActive: true,
         }, {
           sellpiaInventorySkuId: secondSkuId,
           currentStock: 7,
-          availableStock: 7,
-          isActive: true,
         }],
       },
     });

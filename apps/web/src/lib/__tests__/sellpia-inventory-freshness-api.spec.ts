@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { sellpiaInventoryFreshnessApi } from '../sellpia-inventory-freshness-api';
+import { sellpiaInventoryCollectionStatusApi } from '../sellpia-inventory-freshness-api';
 
 const apiClient = vi.hoisted(() => ({
   get: vi.fn(),
@@ -10,7 +10,7 @@ const apiClient = vi.hoisted(() => ({
 
 vi.mock('../api-client', () => ({ apiClient }));
 
-describe('sellpiaInventoryFreshnessApi', () => {
+describe('sellpiaInventoryCollectionStatusApi', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reads the authoritative completed inventory basis independently of paged attempt history', async () => {
@@ -19,7 +19,7 @@ describe('sellpiaInventoryFreshnessApi', () => {
       fileName: 'authoritative.xls',
     };
     apiClient.getParsed.mockResolvedValueOnce({ latestImport });
-    const api = sellpiaInventoryFreshnessApi as typeof sellpiaInventoryFreshnessApi & {
+    const api = sellpiaInventoryCollectionStatusApi as typeof sellpiaInventoryCollectionStatusApi & {
       getCurrentBasis?: () => Promise<unknown>;
     };
 
@@ -35,28 +35,25 @@ describe('sellpiaInventoryFreshnessApi', () => {
 
   it('confirms the fixed Sellpia source binding through the owner endpoint', async () => {
     const confirmed = {
-      status: 'refresh_required',
+      status: 'not_collected',
       sourceBinding: {
         origin: 'https://kiditem.sellpia.com',
         accountKey: 'kiditem',
         confirmed: true,
       },
-      lastVerifiedAt: null,
-      expiresAt: null,
       requestedGeneration: '1',
       verifiedGeneration: '0',
-      refreshRequestedAt: null,
-      refreshReason: null,
-      requestedSyncScope: 'inventory',
-      syncNotBefore: null,
+      lastCompletedAttemptId: null,
+      lastCompletedAt: null,
+      lastAttemptId: null,
       activeSync: null,
       lastAttempt: null,
     };
     apiClient.post.mockResolvedValueOnce(confirmed);
 
-    await expect(sellpiaInventoryFreshnessApi.confirmSourceBinding()).resolves.toEqual(confirmed);
+    await expect(sellpiaInventoryCollectionStatusApi.confirmSourceBinding()).resolves.toEqual(confirmed);
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-freshness/source-binding',
+      '/api/inventory/sellpia-collection-status/source-binding',
       {
         sourceOrigin: 'https://kiditem.sellpia.com',
         sourceAccountKey: 'kiditem',

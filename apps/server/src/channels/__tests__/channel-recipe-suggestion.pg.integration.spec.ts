@@ -1,10 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/service/sellpia-inventory-sku-read.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -28,11 +28,12 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
+    const inventorySkus = new SellpiaInventorySkuReadService(
+      new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+    );
     service = new ChannelRecipeSuggestionService(
-      new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService),
-      new SellpiaRecipeEvidenceAdapter(new SellpiaInventorySkuReadService(
-        new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
-      ), new InventoryAvailabilityService(
+      new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService, inventorySkus),
+      new SellpiaRecipeEvidenceAdapter(inventorySkus, new InventoryAvailabilityService(
         new InventoryAvailabilityRepositoryAdapter(prismaService),
       )),
     );

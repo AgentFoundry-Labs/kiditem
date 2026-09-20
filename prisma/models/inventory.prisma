@@ -2,6 +2,9 @@
 // Current stock belongs exclusively to SellpiaInventorySku and is replaced by
 // a completed Sellpia full-snapshot import.
 
+// Records in other domains retain sellpiaInventorySkuId as an indexed historical ID.
+// Inbound SKU FKs stay absent so deleting a current SKU preserves history and
+// owner readers can resolve the current identity optionally within organization scope.
 /// @namespace Inventory
 /// @describe One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock.
 model SellpiaInventorySku {
@@ -22,17 +25,9 @@ model SellpiaInventorySku {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct                           MasterProduct?                           @relation("MasterProductInventorySkus", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lastImportRun                           SourceImportRun?                         @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
-  supplierProducts                        SupplierProduct[]                        @relation("SupplierProductSellpiaInventorySku")
-  purchaseOrderItems                      PurchaseOrderItem[]                      @relation("PurchaseOrderItemSellpiaInventorySku")
-  stockTransfers                          StockTransfer[]                          @relation("StockTransferSellpiaInventorySku")
-  returnTransfers                         ReturnTransfer[]                         @relation("ReturnTransferSellpiaInventorySku")
-  rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
-  manualMatchAliases                      SellpiaManualMatchAlias[]
-  frozenProfitFacts                       SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlyFrozenSku")
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct?   @relation("MasterProductInventorySkus", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lastImportRun SourceImportRun? @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, code])
   @@unique([organizationId, masterProductId], map: "sellpia_inventory_skus_org_master_key")
@@ -100,10 +95,9 @@ model StockTransfer {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation("StockTransferSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  fromWarehouse       Warehouse           @relation("TransferFromWarehouse", fields: [fromWarehouseId, organizationId], references: [id, organizationId])
-  toWarehouse         Warehouse           @relation("TransferToWarehouse", fields: [toWarehouseId, organizationId], references: [id, organizationId])
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse    @relation("TransferFromWarehouse", fields: [fromWarehouseId, organizationId], references: [id, organizationId])
+  toWarehouse   Warehouse    @relation("TransferToWarehouse", fields: [toWarehouseId, organizationId], references: [id, organizationId])
 
   @@index([organizationId])
   @@index([sellpiaInventorySkuId])
@@ -156,35 +150,11 @@ model ReturnTransfer {
   completedAt           DateTime? @map("completed_at") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation("ReturnTransferSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, rtNumber])
   @@index([organizationId])
   @@index([sellpiaInventorySkuId])
   @@index([status])
   @@map("return_transfers")
-}
-
-/// @namespace Inventory
-/// @describe Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected.
-model CoupangShipmentDateSummary {
-  id                String   @id @default(uuid()) @db.Uuid
-  organizationId    String   @map("organization_id") @db.Uuid
-  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
-  shipmentDate      String   @map("shipment_date")
-  count             Int      @default(0)
-  boxes             Int      @default(0)
-  capturedAt        DateTime @default(now()) @map("captured_at") @db.Timestamptz
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))
-  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL"))
-  @@index([sourceImportRunId, organizationId])
-  @@index([organizationId])
-  @@map("coupang_shipment_date_summaries")
 }

@@ -1,11 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
-import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import type {
   ProductChannelOptionRecipeMutationRepositoryPort,
 } from '../../../application/port/out/repository/product-channel-option-recipe-mutation.repository.port';
@@ -19,7 +27,11 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 @Injectable()
 export class ProductChannelOptionRecipeMutationRepositoryAdapter
 implements ProductChannelOptionRecipeMutationRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   replaceRecipe(input: {
     organizationId: string;
@@ -44,7 +56,7 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
         },
       });
       if (!option) throw new NotFoundException('Channel listing option was not found');
-      await validateRecipeTargets(tx, input);
+      await validateRecipeTargets(tx, input, this.inventoryTransactionalRead);
       const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
       if (recipeChanged) {
         await tx.channelListingOptionInventoryComponent.deleteMany({
@@ -68,6 +80,7 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
         tx,
         input.organizationId,
         option.listingId,
+        this.inventoryTransactionalRead,
       );
       const listingChanged = option.listing.masterProductId !== masterProductId;
       if (listingChanged) {
@@ -90,7 +103,7 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
     components: readonly ProductRecipeComponentInput[];
   }): Promise<void> {
     return this.prisma.$transaction(async (tx) => {
-      await validateRecipeTargets(tx, input);
+      await validateRecipeTargets(tx, input, this.inventoryTransactionalRead);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -132,7 +145,12 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
     }
     const optionById = new Map(options.map((option) => [option.id, option]));
     const allComponents = input.mutations.flatMap((mutation) => mutation.components);
-    const skuById = await loadRecipeTargets(tx, input.organizationId, allComponents);
+    const skuById = await loadRecipeTargets(
+      tx,
+      input.organizationId,
+      allComponents,
+      this.inventoryTransactionalRead,
+    );
     const expectedMasterProductIds = [...new Set(input.mutations.flatMap((mutation) =>
       mutation.expectedMasterProductId ? [mutation.expectedMasterProductId] : []))];
     if (expectedMasterProductIds.length > 0) {
@@ -199,6 +217,7 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
         tx,
         input.organizationId,
         listingId,
+        this.inventoryTransactionalRead,
       );
       if (previousMasterProductId === masterProductId) continue;
       const updated = await tx.channelListing.updateMany({
@@ -305,6 +324,7 @@ implements ProductChannelOptionRecipeMutationRepositoryPort {
       tx,
       input.organizationId,
       listing.id,
+      this.inventoryTransactionalRead,
     );
     const mappingChanged = listing.masterProductId !== masterProductId;
     if (mappingChanged) {
@@ -335,6 +355,7 @@ async function validateRecipeTargets(
     expectedMasterProductId?: string;
     components: readonly ProductRecipeComponentInput[];
   },
+  inventory: InventoryTransactionalReadPort,
 ): Promise<void> {
   if (input.expectedMasterProductId) {
     const masterProduct = await tx.masterProduct.findFirst({
@@ -351,7 +372,12 @@ async function validateRecipeTargets(
       );
     }
   }
-  const skuById = await loadRecipeTargets(tx, input.organizationId, input.components);
+  const skuById = await loadRecipeTargets(
+    tx,
+    input.organizationId,
+    input.components,
+    inventory,
+  );
   if (input.expectedMasterProductId
     && input.components.some((component) =>
       skuById.get(component.sellpiaInventorySkuId)?.masterProductId
@@ -366,21 +392,19 @@ async function loadRecipeTargets(
   tx: Prisma.TransactionClient,
   organizationId: string,
   components: readonly ProductRecipeComponentInput[],
+  inventory: InventoryTransactionalReadPort,
 ) {
   const ids = [...new Set(components.map((component) => component.sellpiaInventorySkuId))];
   if (ids.length === 0) return new Map<string, { masterProductId: string | null }>();
-  const rows = await readInventorySkuIdentities(tx, {
-    organizationId,
-    selector: { kind: 'ids', values: ids },
-  });
+  const rows = await inventory.readSkuIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: ids } },
+  );
   const byId = new Map(rows.map((row) => [row.sellpiaInventorySkuId, row]));
   if (ids.some((id) => !byId.has(id))) {
     throw new BadRequestException(
       'One or more SellpiaInventorySku components do not belong to this organization',
     );
-  }
-  if (ids.some((id) => byId.get(id)?.isActive !== true)) {
-    throw new BadRequestException('Inactive SellpiaInventorySku components require review');
   }
   if (ids.some((id) => !byId.get(id)?.masterProductId)) {
     throw new BadRequestException(
@@ -407,6 +431,7 @@ async function resolveListingMasterProductId(
   tx: Prisma.TransactionClient,
   organizationId: string,
   channelListingId: string,
+  inventory: InventoryTransactionalReadPort,
 ): Promise<string | null> {
   const listing = await tx.channelListing.findFirst({
     where: { id: channelListingId, organizationId },
@@ -425,10 +450,10 @@ async function resolveListingMasterProductId(
   if (!listing || listing.options.length === 0) return null;
   const inventorySkuIds = [...new Set(listing.options.flatMap((option) =>
     option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-  const inventorySkus = await readInventorySkuIdentities(tx, {
-    organizationId,
-    selector: { kind: 'ids', values: inventorySkuIds },
-  });
+  const inventorySkus = await inventory.readSkuIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: inventorySkuIds } },
+  );
   const inventorySkuById = new Map(inventorySkus.map((sku) => [
     sku.sellpiaInventorySkuId,
     sku,

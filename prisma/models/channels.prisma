@@ -47,9 +47,8 @@ model SellpiaManualMatchAlias {
   evidenceCount         Int      @map("evidence_count")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  snapshot            SellpiaManualMatchSnapshot @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku        @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot     SellpiaManualMatchSnapshot @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([organizationId, normalizedAlias, sellpiaInventorySkuId, itemCount], map: "sellpia_manual_match_aliases_org_alias_sku_qty_key")
   @@index([organizationId, normalizedAlias])
@@ -751,10 +750,9 @@ model SellpiaProductMonthlySales {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization              Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun           SourceImportRun?     @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  frozenSellpiaInventorySku SellpiaInventorySku? @relation("SellpiaProductMonthlyFrozenSku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  frozenMasterProduct       MasterProduct?       @relation("SellpiaProductMonthlyFrozenMaster", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun     SourceImportRun? @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  frozenMasterProduct MasterProduct?   @relation("SellpiaProductMonthlyFrozenMaster", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_generation_identity_key", where: raw("source_import_run_id IS NOT NULL"))
   @@unique([organizationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_legacy_identity_key", where: raw("source_import_run_id IS NULL"))

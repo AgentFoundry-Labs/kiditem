@@ -9,12 +9,12 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
-import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
-import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
-import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
-import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
-import { parseSellpiaInventoryWorkbook } from '../application/service/sellpia-inventory-workbook.parser';
+import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/persistence/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/persistence/sellpia-snapshot-publication.repository.adapter';
+import { SELLPIA_INVENTORY_ALERT_DEDUPE_KEY } from '../adapter/out/persistence/sellpia-inventory-source-failure-alert';
+import { SellpiaInventoryFileValidator } from '../application/usecase/sellpia-inventory-file.validator';
+import { SellpiaInventoryImportService } from '../application/usecase/sellpia-inventory-import.service';
+import { parseSellpiaInventoryWorkbook } from '../application/usecase/sellpia-inventory-workbook.parser';
 import type { PrismaClient } from '@prisma/client';
 
 describe('Sellpia manual inventory import (PG integration)', () => {
@@ -33,7 +33,6 @@ describe('Sellpia manual inventory import (PG integration)', () => {
     service = new SellpiaInventoryImportService(
       runRepository,
       publication,
-      new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
       new SellpiaInventoryFileValidator(),
     );
   });
@@ -283,7 +282,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
     })).toMatchObject({ masterProductId: product.id });
   });
 
-  it('advances mapping generation when an existing SKU is deactivated and reactivated', async () => {
+  it('preserves mapping identity when a SKU disappears and returns', async () => {
     const codes = [
       'SP-MAPPING-ACTIVE-1',
       'SP-MAPPING-ACTIVE-2',
@@ -295,13 +294,13 @@ describe('Sellpia manual inventory import (PG integration)', () => {
     await service.importInventory(manualInput(workbook(
       codes.slice(0, 3).map((code) => row(code, 4)),
     )));
-    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBeNull();
     await expect(prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, code: codes[3] },
-    })).resolves.toMatchObject({ isActive: false, currentStock: 0 });
+    })).resolves.toMatchObject({ isActive: true, currentStock: 0 });
 
     await service.importInventory(manualInput(workbook(codes.map((code) => row(code, 4)))));
-    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(2n);
+    expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBeNull();
     await expect(prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, code: codes[3] },
     })).resolves.toMatchObject({ isActive: true, currentStock: 4 });
@@ -377,7 +376,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
     });
   });
 
-  it('inactivates an absent source code with zero stock only after successful publication', async () => {
+  it('keeps an absent source code with zero stock after successful publication', async () => {
     await service.importInventory(manualInput(workbook(
       Array.from({ length: 5 }, (_, index) => row(`SP-${index}`, 10)),
     )));
@@ -397,17 +396,17 @@ describe('Sellpia manual inventory import (PG integration)', () => {
 
     expect(replacement).toMatchObject({
       outcome: 'published',
-      changes: { inactivatedMasterProductCount: 1 },
+      changes: { inactivatedMasterProductCount: 0 },
     });
     expect(absent).toMatchObject({
       currentStock: 0,
-      isActive: false,
+      isActive: true,
       lastImportRunId: replacement.run.id,
-      masterProduct: { isActive: false },
+      masterProduct: { isActive: true },
     });
   });
 
-  it('reactivates the same canonical inventory product when stock returns', async () => {
+  it('preserves the canonical inventory product when stock returns', async () => {
     await service.importInventory(manualInput(workbook([row('SP-RESTOCK', 0)])));
     const before = await prisma.sellpiaInventorySku.findUniqueOrThrow({
       where: {
@@ -418,7 +417,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       },
       include: { masterProduct: true },
     });
-    expect(before.masterProduct).toMatchObject({ isActive: false });
+    expect(before.masterProduct).toMatchObject({ isActive: true });
 
     await service.importInventory(manualInput(workbook([row('SP-RESTOCK', 8)])));
     const after = await prisma.sellpiaInventorySku.findUniqueOrThrow({
@@ -524,59 +523,37 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       .toEqual([2n, 3n]);
   });
 
-  it('hard-blocks 30 percent row/code loss and preserves the completed snapshot', async () => {
+  it('applies a complete collection despite a 30 percent decrease, retaining missing identities at zero', async () => {
     await service.importInventory(manualInput(workbook(
       Array.from({ length: 10 }, (_, index) => row(`SP-${index}`, index)),
     )));
     const before = await prisma.sellpiaInventorySku.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: { code: 'asc' },
+      where: { organizationId: TEST_ORGANIZATION_ID }, orderBy: { code: 'asc' },
     });
-
-    await expect(service.importInventory(manualInput(workbook(
+    await service.importInventory(manualInput(workbook(
       Array.from({ length: 7 }, (_, index) => row(`SP-${index}`, 999)),
-    )))).rejects.toThrow('quality thresholds');
+    )));
+    const after = await prisma.sellpiaInventorySku.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID }, orderBy: { code: 'asc' },
+    });
+    expect(after.map(item => item.id)).toEqual(before.map(item => item.id));
+    expect(after.map(item => item.currentStock)).toEqual([999,999,999,999,999,999,999,0,0,0]);
+    expect(after.every(item => item.isActive)).toBe(true);
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
+  });
 
-    const [after, runs, state, alert] = await Promise.all([
-      prisma.sellpiaInventorySku.findMany({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-        orderBy: { code: 'asc' },
-      }),
-      prisma.sourceImportRun.findMany({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-        orderBy: { createdAt: 'asc' },
-      }),
-      prisma.sellpiaInventoryState.findUniqueOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      }),
-      prisma.alert.findUniqueOrThrow({
-        where: {
-          organizationId_dedupeKey: {
-            organizationId: TEST_ORGANIZATION_ID,
-            dedupeKey: 'source:sellpia-inventory',
-          },
-        },
-      }),
-    ]);
-    expect(after).toEqual(before);
-    expect(runs.map(({ status }) => status)).toEqual(['completed', 'failed']);
-    expect(runs[1]?.qualityReport).toMatchObject({
-      issues: expect.arrayContaining([
-        expect.objectContaining({ code: 'row_loss_threshold_exceeded' }),
-        expect.objectContaining({ code: 'active_code_loss_threshold_exceeded' }),
-      ]),
-    });
-    expect(state).toMatchObject({
-      verifiedGeneration: 1n,
-      failedGeneration: 2n,
-      lastCompletedImportRunId: runs[0]?.id,
-    });
-    expect(alert).toMatchObject({
-      attemptId: runs[1]?.id,
-      sourceType: 'sellpia_inventory',
-      status: 'OPEN',
-      readAt: null,
-    });
+  it('applies a valid empty full collection as zero stock without deleting identities', async () => {
+    await service.importInventory(manualInput(workbook([row('SP-EMPTY', 9)])));
+    const before = await prisma.sellpiaInventorySku.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID } });
+    const attempt = await service.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID,
+      idempotencyKey: 'empty-full-collection', scope: 'inventory', trigger: 'manual_request' });
+    const completed = await service.completeAttempt({ organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID,
+      attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
+      file: { buffer: Buffer.from(JSON.stringify({ source: 'sellpia_product_search', version: 1, rowCount: 0, rows: [] })),
+        fileName: 'empty.json', mimeType: 'application/json' } });
+    expect(completed.state).toBe('COMPLETE');
+    expect(await prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: before.id } }))
+      .toMatchObject({ currentStock: 0, masterProductId: before.masterProductId });
   });
 
   it('stores stable warning identities derived from file hash and warning code', async () => {
@@ -630,7 +607,6 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       execution,
       rows,
       qualityFacts: parsed.qualityFacts,
-      confirmedReferencedProductCodes: [],
     })).rejects.toThrow();
 
     const [afterFailure, stateAfterFailure, runAfterFailure] = await Promise.all([
@@ -702,7 +678,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       where: {
         organizationId_dedupeKey: {
           organizationId: TEST_ORGANIZATION_ID,
-          dedupeKey: 'source:sellpia-inventory',
+          dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
         },
       },
     })).toMatchObject({ attemptId: failed.id, status: 'OPEN' });
@@ -713,10 +689,11 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       where: {
         organizationId_dedupeKey: {
           organizationId: TEST_ORGANIZATION_ID,
-          dedupeKey: 'source:sellpia-inventory',
+          dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
         },
       },
     })).toMatchObject({ attemptId: retry.run.id, status: 'RESOLVED' });
+    expect(await prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(1);
     expect(first.run.id).not.toBe(failed.id);
   });
 

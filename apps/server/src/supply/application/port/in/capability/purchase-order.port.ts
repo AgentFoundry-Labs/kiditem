@@ -23,6 +23,7 @@ export interface SupplyPurchaseOrderSubmissionCapabilityInput {
   idempotencyKey: string;
   inputHash: string;
   purchaseOrderId: string;
+  inventoryAttemptId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
   externalOrderUrl?: string | null;

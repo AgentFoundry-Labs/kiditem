@@ -3,7 +3,7 @@ Before working in this directory, always read this document first rather than re
 # inventory — Sellpia Snapshot And Inventory Operations
 
 `src/inventory/` owns Sellpia imports and authoritative physical SKU snapshots,
-freshness/generation fencing, warehouses, stock transfers, return records, and
+collection status/generation fencing, warehouses, stock transfers, return records, and
 the Inventory availability boundaries consumed by matching and purchase
 preview workflows. KidItem has no second mutable stock balance.
 
@@ -12,7 +12,7 @@ preview workflows. KidItem has no second mutable stock balance.
 - `SellpiaInventorySku` is one provider product-code identity and
   `currentStock` is its physical quantity authority.
 - `SourceImportRun` owns source provenance, idempotency, and attempt fencing.
-- Public physical availability is exactly `availableStock === currentStock`.
+- Public physical availability uses the Inventory-owned `currentStock` fact.
 - Transfer, return-transfer, and warehouse rows are inventory workflow records;
   completing them does not change `currentStock`.
 - Commitment, Picking, Unshipped, and Sellpia receipt-batch capabilities are
@@ -20,34 +20,42 @@ preview workflows. KidItem has no second mutable stock balance.
 
 The full schema is
 [prisma/models/inventory.prisma](../../../../prisma/models/inventory.prisma).
-Publication, freshness, availability, transfer, and controller boundaries are
+Publication, collection-status, availability, transfer, and controller boundaries are
 executable in [the Inventory tests](__tests__/).
 
-## Snapshot And Freshness Contract
+## Snapshot And Collection Status Contract
 
 - Sellpia import is the only writer of physical `currentStock`. It atomically
   replaces one organization/source snapshot under an import attempt fence,
-  marks absent known codes inactive with zero stock, and preserves identity and
+  retains absent known codes with zero stock, and preserves identity and
   component references.
 - The import owner writes source-failure Alerts in the same transaction as
   terminal source state and resolves the same deduplicated alert on successful
   publication.
-- Automatic JSON collection and manual recovery uploads enter the same hash,
-  generation, quality, and publication path.
+- Source completion accepts the browser-collected artifact through the source
+  attempt contract; its internal parser uses the same hash, generation,
+  quality, and publication path for every supported artifact format.
 - Publication may update only Inventory-owned source facts and the one-to-one
   canonical owner provision required by that snapshot. It never translates
   source differences into channel, order, transfer, purchase, or Rocket writes.
-- Inventory owns freshness policy, generation high-water mark, source binding,
-  browser lease, and advisory lock. Expired browser work follows the explicit
-  retry policy; it is not silently reclaimed.
-- `transaction/sellpia-inventory-lock` holds the only lock key. Sellpia writers
-  take `lockSellpiaInventory` in their own transaction. An availability
-  caller takes it right before the read and passes the returned evidence to
-  the reader.
-- The availability and freshness gates return `currentStock`, equal
-  `availableStock`, and active state from the same fenced generation. Before a
-  snapshot is collected, availability contains no SKU items. Consumers may
-  join/request a target generation but cannot control leases or persistence.
+- Inventory owns collection status, the generation high-water mark, source
+  binding, browser lease, and advisory lock. Status is driven by the latest
+  attempt and completed snapshot; time does not make a completed snapshot
+  stale. An expired browser attempt follows the explicit retry policy and is
+  not silently reclaimed.
+- `adapter/out/persistence/transaction/sellpia-inventory-lock` holds the only
+  lock key. Sellpia writers take `lockSellpiaInventory` in their own
+  transaction. An availability caller takes it right before the read and
+  passes the returned evidence to the reader.
+- The collection-status read exposes `not_collected`, `running`, `complete`,
+  or `failed`, together with source binding, generation, active lease, last
+  completed attempt, and last attempt identity. It does not expose a TTL or
+  synthetic `availableStock`/`isActive` gate. Consumers may observe status and
+  join a source attempt but cannot control leases or persistence.
+- Purchase preview uses `requireCollectedStock({ organizationId, attemptId,
+  sellpiaInventorySkuIds })`. That capability proves the exact completed
+  current attempt and generation, then returns the fenced `currentStock` rows.
+  A caller must carry the attempt identity returned by the source owner.
 - Public generation values are decimal strings and control authority derives
   from the authenticated actor without exposing owner IDs.
 
@@ -60,8 +68,8 @@ before changing refresh or Rocket interactions.
 ## Published Capabilities
 
 - Read-only physical-SKU identity and matching evidence.
-- Snapshot-aware physical availability where `availableStock === currentStock`.
-- Fresh-and-active capacity with same-generation gating.
+- Snapshot-aware physical availability from the completed fenced generation.
+- Exact-attempt collected stock for purchase preview.
 - Read-only Rocket workflow progress projected from Orders-owned transmission
   intents.
 
@@ -72,13 +80,11 @@ component relations; never infer them from codes, names, or barcodes.
 ## Boundaries
 
 - Controllers depend on incoming ports; application and domain code follow the
-  server adapter/purity rules. Prisma imports stay in repository adapters,
-  `read/`, and `transaction/`.
+  server adapter/purity rules. Prisma imports stay in persistence adapters,
+  including the `read/` and `transaction/` subdirectories.
 - No receive, issue, adjust, reserve, release, restock, stock-ledger, or Rocket
   event may write physical stock. No active logical-hold path reduces public
   availability.
 - Route order keeps static paths before parameter routes.
 - Product mutations enter through Products APIs. Ordinary Inventory reads and
   operation records do not mutate MasterProduct rows.
-- Shipment bulk persistence remains organization-scoped, deduplicated, and
-  last-write-wins rather than row-by-row.

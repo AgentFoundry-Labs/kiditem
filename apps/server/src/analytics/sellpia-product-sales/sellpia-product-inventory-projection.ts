@@ -131,12 +131,12 @@ export function projectSellpiaProductInventory(input: {
       continue;
     }
     const availability = availabilityBySkuId.get(resolution.sellpiaInventorySkuId);
-    if (!availability || !availability.isActive) {
+    if (!availability) {
       mappingRequiredSalesRows += 1;
       byProductKey.set(product.key, emptyMetrics({
         status: 'mapping_required',
-        reason: availability ? 'inactive_candidate' : 'not_found',
-        candidateCount: availability ? 1 : 0,
+        reason: 'not_found',
+        candidateCount: 0,
       }));
       continue;
     }
@@ -155,10 +155,10 @@ export function projectSellpiaProductInventory(input: {
     const monthlyRate = recent.length > 0
       ? Math.round(recent.reduce((sum, quantity) => sum + quantity, 0) / recent.length)
       : 0;
-    const reorder = computeReorder(availability.availableStock, monthlyRate);
+    const reorder = computeReorder(availability.currentStock, monthlyRate);
     const deadStock = computeDeadStock(
       completeQuantities,
-      availability.availableStock,
+      availability.currentStock,
     );
     const destinations = destinationsBySkuId.get(sellpiaInventorySkuId) ?? [];
     const inventoryProduct = inventoryProductBySkuId.get(sellpiaInventorySkuId);
@@ -170,7 +170,6 @@ export function projectSellpiaProductInventory(input: {
         status: 'matched',
         sellpiaInventorySkuId,
         currentStock: availability.currentStock,
-        availableStock: availability.availableStock,
         salesRowCount: products.length,
         inventoryProduct: inventoryProduct
           ? {

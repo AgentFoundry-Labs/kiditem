@@ -72,7 +72,7 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
       ],
       failed: false,
     },
-    freshness: { data: null, failed: false },
+    collectionStatus: { data: null, failed: false },
     confirm: { data: null, failed: false },
     loginBlocks: [{ mallKey: 'gs-shop', kind: 'login', reason: '비밀번호 거부', at: NOW - 60_000 }],
     ...overrides,

@@ -670,7 +670,7 @@ describe("<RocketConfirmPanel />", () => {
     expect(inventoryStart).toHaveBeenCalledTimes(1);
     expect(baseWorkflow.retryInventoryAndPreview).not.toHaveBeenCalled();
 
-    fireEvent.click(within(alert).getByRole("button", { name: "재고 반영해 다시 계산" }));
+    fireEvent.click(within(alert).getByRole("button", { name: "셀피아 수집 후 다시 계산" }));
     expect(baseWorkflow.retryInventoryAndPreview).toHaveBeenCalledTimes(1);
   });
 

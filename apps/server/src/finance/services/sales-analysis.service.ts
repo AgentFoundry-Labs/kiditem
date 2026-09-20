@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,6 +17,10 @@ import {
   type AccountAdEvidence,
 } from '../../common/per-listing-profit';
 import { advertisingAppliesToSale } from '../../advertising/domain/ad-sweep-coverage';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
 
 /**
  * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.
@@ -72,7 +76,11 @@ function channelAdCost(
 export class SalesAnalysisService {
   private readonly logger = new Logger(SalesAnalysisService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   async getAnalysis(
     organizationId: string,
@@ -85,7 +93,12 @@ export class SalesAnalysisService {
     const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
     const { facts, unsoldAdListings } = await this.prisma.$transaction(async (tx) => {
-      const facts = await readProfitWindowFacts(tx, organizationId, window);
+      const facts = await readProfitWindowFacts(
+        tx,
+        organizationId,
+        window,
+        this.inventoryTransactionalRead,
+      );
       const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
       const unsoldAdListingIds = [...facts.listingAdSpend.keys()]
         .filter((listingId) => !soldListingIds.has(listingId));

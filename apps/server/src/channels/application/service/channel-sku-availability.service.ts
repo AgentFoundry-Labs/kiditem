@@ -131,9 +131,9 @@ function toAvailabilityItem(
   const sellableStock = mappingStatus === 'matched' ? projection.capacity : null;
   const componentCapacities = components.map((component) => ({
     component,
-    capacity: component.availableStock === null
+    capacity: component.currentStock === null
       ? null
-      : Math.floor(component.availableStock / component.quantity),
+      : Math.floor(component.currentStock / component.quantity),
   }));
 
   return {
@@ -167,9 +167,7 @@ function toAvailabilityItem(
       optionName: component.optionName,
       barcode: component.barcode,
       currentStock: component.currentStock,
-      availableStock: component.availableStock,
       purchasePrice: component.purchasePrice,
-      isActive: component.isActive,
       quantity: component.quantity,
       componentCapacity: capacity,
       isBottleneck: mappingStatus === 'matched' && capacity !== null
@@ -178,9 +176,7 @@ function toAvailabilityItem(
     })),
     warnings: recipeStatus === 'configuration_required'
       ? ['configuration_required']
-      : components.some((component) => component.isActive === false)
-        ? ['component_inactive']
-        : components.some((component) => component.isActive === null)
+      : components.some((component) => component.currentStock === null)
           ? ['inventory_unavailable']
           : [],
   };

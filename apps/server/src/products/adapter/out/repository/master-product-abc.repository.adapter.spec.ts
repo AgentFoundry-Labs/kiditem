@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { MasterProductAbcRepositoryAdapter } from './master-product-abc.repository.adapter';
 import type { ProductAbcPublicationInput } from '../../../application/port/out/repository/master-product-abc.repository.port';
 
@@ -77,7 +78,10 @@ describe('MasterProductAbcRepositoryAdapter', () => {
       channelListing: { findMany: vi.fn(async () => []) },
     };
     const prisma = { $transaction: vi.fn(async (work) => work(tx)) };
-    const repository = new MasterProductAbcRepositoryAdapter(prisma as never);
+    const repository = new MasterProductAbcRepositoryAdapter(
+      prisma as never,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
 
     await expect(repository.publish(publication())).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
     expect(calls).toEqual([

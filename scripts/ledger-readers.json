@@ -97,7 +97,6 @@
       "prismaModel": "sellpiaProductMonthlySales",
       "prismaType": "SellpiaProductMonthlySales",
       "relationNames": [
-        "frozenProfitFacts",
         "frozenSellpiaProfitFacts",
         "sellpiaProductMonthlySales"
       ],
@@ -195,15 +194,13 @@
       "prismaModel": "sellpiaInventorySku",
       "prismaType": "SellpiaInventorySku",
       "relationNames": [
-        "frozenSellpiaInventorySku",
         "inventorySkus",
-        "sellpiaInventorySku",
         "sellpiaInventorySkus"
       ],
-      "reader": "apps/server/src/inventory/read/inventory-availability.ts",
+      "reader": "apps/server/src/inventory/adapter/out/persistence/read/inventory-availability.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
+          "path": "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
           "reason": "Stages, validates, and publishes Sellpia inventory rows inside Inventory’s terminal source-owner transaction."
         }
       ],
@@ -663,11 +660,11 @@
       "relationNames": [
         "coupangShipmentDateSummaries"
       ],
-      "reader": "apps/server/src/inventory/read/coupang-shipment-date-summary.reader.ts",
+      "reader": "apps/server/src/orders/shipments/read/coupang-shipment-date-summary.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/inventory/adapter/out/repository/coupang-shipment-date-summary.repository.adapter.ts",
-          "reason": "Inventory publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
+          "path": "apps/server/src/orders/shipments/adapter/out/persistence/coupang-shipment-date-summary.repository.adapter.ts",
+          "reason": "Orders publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
         }
       ],
       "legacyReaders": []

@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
@@ -101,7 +102,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     resolveFailure.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
-    const failingOwner = new SellpiaProfitabilitySourceService(prisma as never, resolveFailure);
+    const failingOwner = new SellpiaProfitabilitySourceService(prisma as never, resolveFailure, new InventoryTransactionalReadRepositoryAdapter());
 
     await expect(
       failingOwner.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, completePayload(attempt)),
@@ -478,7 +479,7 @@ function owner(prisma: PrismaClient): SellpiaProfitabilitySourceService {
   return new SellpiaProfitabilitySourceService(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
-  );
+   new InventoryTransactionalReadRepositoryAdapter());
 }
 
 function completePayload(attempt: { attemptToken: string; plan: { coveredMonths: string[] } }) {

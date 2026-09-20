@@ -42,9 +42,8 @@ model SupplierProduct {
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier            Supplier            @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation("SupplierProductSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([supplierId, sellpiaInventorySkuId])
   @@unique([sellpiaInventorySkuId], map: "supplier_products_primary_sellpia_inventory_sku_key", where: raw("is_primary = true"))
@@ -308,9 +307,8 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order               PurchaseOrder       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation("PurchaseOrderItemSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        PurchaseOrder @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([orderId])
@@ -397,9 +395,8 @@ model RocketPurchaseConfirmationAllocation {
   quantity              Int
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization        Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  confirmationLine    RocketPurchaseConfirmationLine @relation(fields: [confirmationLineId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku            @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization     Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  confirmationLine RocketPurchaseConfirmationLine @relation(fields: [confirmationLineId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([confirmationLineId, sellpiaInventorySkuId], map: "rocket_purchase_confirmation_allocations_line_sku_key")
   @@index([organizationId, sellpiaInventorySkuId])

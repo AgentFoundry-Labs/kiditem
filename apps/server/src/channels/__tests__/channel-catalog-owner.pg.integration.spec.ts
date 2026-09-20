@@ -28,6 +28,9 @@ import { ChannelListingQueryService } from '../application/service/channel-listi
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import { countPublishedCatalogListings } from '../read/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
@@ -72,8 +75,18 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
     listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
-    matching = new ChannelProductMatchingRepositoryAdapter(prisma as never);
-    manualMatch = new SellpiaManualMatchRepositoryAdapter(prisma as never, alerts);
+    matching = new ChannelProductMatchingRepositoryAdapter(
+      prisma as never,
+      new InventoryTransactionalReadRepositoryAdapter(),
+      new SellpiaInventorySkuReadService(
+        new SellpiaInventorySkuReadRepositoryAdapter(prisma as never),
+      ),
+    );
+    manualMatch = new SellpiaManualMatchRepositoryAdapter(
+      prisma as never,
+      alerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
       new AiCatalogMediaPublicationRepositoryAdapter(),
@@ -850,6 +863,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       ORG,
       [master.id],
       '2026-09-01',
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
     expect(beforeRefresh).toEqual([{
       masterProductId: master.id,
@@ -879,6 +893,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       ORG,
       [master.id],
       '2026-09-01',
+      new InventoryTransactionalReadRepositoryAdapter(),
     )).resolves.toEqual([{
       masterProductId: master.id,
       mappingValid: true,

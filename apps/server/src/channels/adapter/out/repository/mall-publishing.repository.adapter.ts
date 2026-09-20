@@ -1,10 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  readInventoryAvailability,
-  readInventorySkuIdentities,
-} from '../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
@@ -96,7 +95,11 @@ function readManualKc(rawData: Prisma.JsonValue): PreflightKc {
 
 @Injectable()
 export class MallPublishingRepositoryAdapter implements MallPublishingRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
     const rows = await this.prisma.channelAccount.findMany({
@@ -376,14 +379,25 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     if (masterProductIds.length === 0) return new Map();
     const wanted = new Set(masterProductIds);
     return this.prisma.$transaction(async (tx) => {
-      const skus = (await readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }))
+      const inventoryContext = { client: tx };
+      const skus = (await this.inventoryTransactionalRead.readSkuIdentities(inventoryContext, {
+        organizationId,
+        selector: { kind: 'all' },
+      }))
         .filter((sku) => sku.masterProductId !== null && wanted.has(sku.masterProductId));
       if (skus.length === 0) return new Map<string, number>();
-      const inventoryLock = await lockSellpiaInventory(tx, organizationId);
-      const availability = await readInventoryAvailability(tx, inventoryLock, {
+      const inventoryLock = await this.inventoryTransactionalRead.lock(
+        inventoryContext,
+        organizationId,
+      );
+      const availability = await this.inventoryTransactionalRead.readAvailability(
+        inventoryContext,
+        inventoryLock,
+        {
         organizationId,
         sellpiaInventorySkuIds: skus.map((sku) => sku.sellpiaInventorySkuId),
-      });
+        },
+      );
       const stockBySku = new Map(
         availability.items.map((item) => [item.sellpiaInventorySkuId, item.currentStock]),
       );

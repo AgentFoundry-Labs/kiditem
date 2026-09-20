@@ -178,7 +178,6 @@ export class FinanceReportExportService {
     const first = await this.inventory.listSnapshot(organizationId, {
       page: 1,
       limit: pageSize,
-      activeStatus: 'active',
     });
     const items = [...first.items];
     const totalPages = Math.ceil(first.total / pageSize);
@@ -186,7 +185,6 @@ export class FinanceReportExportService {
       const next = await this.inventory.listSnapshot(organizationId, {
         page,
         limit: pageSize,
-        activeStatus: 'active',
       });
       items.push(...next.items);
     }

@@ -14,8 +14,6 @@ describe('product operations inventory mapper', () => {
       new Map([[SKU_ID, {
         sellpiaInventorySkuId: SKU_ID,
         currentStock: 100,
-        availableStock: 100,
-        isActive: true,
         generation: '12',
       }]]),
       {
@@ -30,7 +28,7 @@ describe('product operations inventory mapper', () => {
       imageUrls: [],
       displayImageUrls: [],
       inventoryUnits: 100,
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
       depletion: { needsReorder: true },
       activeChannels: [{
         channelAccountId: '55555555-5555-4555-8555-555555555555',
@@ -75,7 +73,7 @@ describe('product operations inventory mapper', () => {
 
     expect(result).toMatchObject({
       inventoryUnits: null,
-      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 0 },
       channelOptionSummary: { configured: 0, warning: 1 },
     });
   });

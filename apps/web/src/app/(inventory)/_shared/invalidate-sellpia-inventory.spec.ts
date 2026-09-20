@@ -13,7 +13,7 @@ describe('invalidateSellpiaInventory', () => {
       queryKeys.inventory.snapshots(),
       queryKeys.inventory.assets(),
       queryKeys.inventory.importRuns(),
-      queryKeys.inventory.freshness(),
+      queryKeys.inventory.collectionStatus(),
       ['inventory', 'sellpia-current-basis'],
       queryKeys.inventory.history(),
       queryKeys.inventory.productSalesAll(),

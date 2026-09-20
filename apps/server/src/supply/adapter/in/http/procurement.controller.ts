@@ -102,6 +102,7 @@ export class ProcurementController {
       return this.submissions.submit({
         organizationId,
         purchaseOrderId: businessInput.purchaseOrderId,
+        inventoryAttemptId: businessInput.inventoryAttemptId,
         idempotencyKey: body.idempotencyKey!,
         requestHash: canonicalOwnerInputHash(businessInput),
         userId: user.id,
@@ -129,10 +130,10 @@ export class ProcurementController {
       const result = await this.rocketPreview.preview({
         organizationId,
         userId: user.id,
-        inventoryRequirement: body.inventoryRequirement ?? 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
           sourceImportRunId: body.sourceImportRunId!,
+          inventoryAttemptId: body.inventoryAttemptId!,
           editedQuantities: body.editedQuantities ?? {},
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
@@ -239,12 +240,14 @@ export class ProcurementController {
 
 function purchaseOrderSubmissionInput(body: PurchaseOrderActionBodyDto): {
   purchaseOrderId: string;
+  inventoryAttemptId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
   externalOrderUrl?: string | null;
 } {
   return {
     purchaseOrderId: body.id!,
+    inventoryAttemptId: body.inventoryAttemptId!,
     ...(body.externalOrderPlatform !== undefined && {
       externalOrderPlatform: body.externalOrderPlatform,
     }),

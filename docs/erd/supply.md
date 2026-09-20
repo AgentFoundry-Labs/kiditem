@@ -85,7 +85,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -131,7 +131,7 @@ erDiagram
     String id PK
     String organizationId FK
     String confirmationLineId FK
-    String sellpiaInventorySkuId FK
+    String sellpiaInventorySkuId
     Int unitsPerSale
     Int quantity
     DateTime createdAt
@@ -244,7 +244,7 @@ erDiagram
     String id PK
     String organizationId FK
     String supplierId FK
-    String sellpiaInventorySkuId FK,UK
+    String sellpiaInventorySkuId UK
     Int supplyPrice
     Int minOrderQty
     Boolean isPrimary
@@ -278,7 +278,6 @@ erDiagram
 | ProcurementTestIntent | reviewedByUser | references external | Core | User |
 | PurchaseOrder | organization | references external | Core | Organization |
 | PurchaseOrderItem | organization | references external | Core | Organization |
-| PurchaseOrderItem | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | PurchaseOrderSubmissionAttempt | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | reconciler | references external | Core | User |
 | RocketPurchaseConfirmation | channelAccount | references external | Core | ChannelAccount |
@@ -287,7 +286,6 @@ erDiagram
 | RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
 | RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
-| RocketPurchaseConfirmationAllocation | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | RocketPurchaseConfirmationLine | channelListingOption | references external | Core | ChannelListingOption |
 | RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
@@ -300,4 +298,3 @@ erDiagram
 | SupplierOfferSkuSnapshot | supplierOfferSkuSnapshot | referenced by external | Sourcing | SourcingLaunchCandidate |
 | SupplierPayment | organization | references external | Core | Organization |
 | SupplierProduct | organization | references external | Core | Organization |
-| SupplierProduct | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |

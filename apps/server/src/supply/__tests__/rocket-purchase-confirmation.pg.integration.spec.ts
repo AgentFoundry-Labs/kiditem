@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -8,8 +9,8 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
-import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
-import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
+import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
@@ -36,7 +37,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       new RocketWorkbookProgressService(
         new RocketWorkbookProgressRepositoryAdapter(),
       ),
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
   });
 
   afterAll(async () => {
@@ -237,18 +238,16 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
-  it('holds workbook export when the referenced SKU is outside the published inventory run', async () => {
+  it('uses retained current DB stock even without per-row publication membership', async () => {
     await prisma.sellpiaInventorySku.update({
       where: { id: SELLPIA_SKU_ID },
       data: { lastImportRunId: null },
     });
 
-    await expect(
-      adapter.exportWorkbook(
-        confirmationInput('21000000-0000-4000-8000-000000000021', 2),
-      ),
-    ).rejects.toThrow(/inventory generation changed/i);
-    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
+    await expect(adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000021', 2),
+    )).resolves.toMatchObject({ inventoryGeneration: '12' });
+    expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
   it('rejects when the confirmed channel-option recipe changed after preview', async () => {

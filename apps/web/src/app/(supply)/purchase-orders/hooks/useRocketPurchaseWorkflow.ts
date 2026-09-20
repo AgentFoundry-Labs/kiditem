@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
+import { collectSellpiaInventoryBeforeCalculation } from '@/app/(inventory)/_shared/collect-sellpia-before-calculation';
 import {
   isRocketWorkbookBlockingReason,
   ROCKET_CONFIRMATION_REQUEST_STATUSES,
@@ -18,14 +21,9 @@ import {
   buildRocketConfirmationWorkbook,
   fillRocketConfirmationWorkbook,
 } from '../lib/rocket-confirmation-workbook';
-import {
-  requireFreshRocketPreview,
-  RocketInventoryCollectionRequiredError,
-} from '../lib/rocket-preview-freshness-recovery';
 import type {
   RocketPoCatalogRow,
   RocketPoCollectionEvidence,
-  RocketPurchasePreviewFreshnessPendingResponse,
   RocketPurchasePreviewReadyResponse,
   RocketPurchasePreviewRequest,
   RocketPurchasePreviewRow,
@@ -193,6 +191,8 @@ export function useRocketPurchaseWorkflow({
   selectedDeliveryDate?: string;
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
     () => new Set(),
@@ -204,9 +204,6 @@ export function useRocketPurchaseWorkflow({
    * 달력이 42건이라고 알려줬는데 표가 비어 보이던 문제를 없애기 위한 분리다.
    */
   const [displayPreview, setDisplayPreview] = useState<RocketPurchasePreviewReadyResponse | null>(null);
-  const [pendingCheckpoint, setPendingCheckpoint] = useState<
-    RocketPurchasePreviewFreshnessPendingResponse | null
-  >(null);
   const [stage, setStage] = useState<RocketWorkflowStage>('idle');
   const [previewDirty, setPreviewDirty] = useState(false);
   const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
@@ -220,6 +217,7 @@ export function useRocketPurchaseWorkflow({
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const requestGenerationRef = useRef(0);
+  const calculationCollections = useRef(new WeakMap<AbortController, Promise<string>>());
   /**
    * 같은 수집본 안에서 날짜만 바꿀 때 재사용하는 원본.
    *
@@ -262,7 +260,6 @@ export function useRocketPurchaseWorkflow({
     setOperatorEditedLineIds(new Set());
     setPreview(null);
     setDisplayPreview(null);
-    setPendingCheckpoint(null);
     setStage('idle');
     setPreviewDirty(false);
     setValidatedEditFingerprint('');
@@ -278,38 +275,29 @@ export function useRocketPurchaseWorkflow({
     activeWaiterRef.current?.abort();
   }, []);
 
-  const previewWithInventoryGate = async (input: {
-    request: RocketPurchasePreviewRequest;
+  const previewAfterCollection = async (input: {
+    request: Omit<RocketPurchasePreviewRequest, 'inventoryAttemptId'>;
     generation: number;
     controller: AbortController;
-    inventoryRequirement?: 'advisory' | 'fresh';
   }): Promise<RocketPurchasePreviewReadyResponse> => {
     const isCurrent = () => (
       input.generation === requestGenerationRef.current
       && !input.controller.signal.aborted
     );
-    const requestPreview = () => input.inventoryRequirement
-      ? previewRocketPurchases(input.request, {
-          inventoryRequirement: input.inventoryRequirement,
-        })
-      : previewRocketPurchases(input.request);
-    const initial = await requestPreview();
-    if (!isCurrent()) {
-      throw new Error('Stale Rocket preview response');
+    setStage('inventory_collection_required');
+    let collection = calculationCollections.current.get(input.controller);
+    if (!collection) {
+      collection = collectSellpiaInventoryBeforeCalculation(
+        queryClient, user?.organizationId ?? null, input.controller.signal,
+      );
+      calculationCollections.current.set(input.controller, collection);
     }
-
-    return requireFreshRocketPreview(initial, (checkpoint) => {
-      if (!isCurrent()) return;
-      setPendingCheckpoint(checkpoint);
-      setPreview(previewForDeliveryDate({
-        status: 'ready',
-        collectionRunId: checkpoint.collectionRunId,
-        catalog: checkpoint.catalog,
-        inventoryGeneration: null,
-        rows: checkpoint.rows,
-      }, selectedDeliveryDate));
-      setStage('inventory_collection_required');
-    });
+    const inventoryAttemptId = await collection;
+    if (!isCurrent()) throw new Error('Stale Rocket collection response');
+    setStage('calculating');
+    const result = await previewRocketPurchases({ ...input.request, inventoryAttemptId });
+    if (!isCurrent()) throw new Error('Stale Rocket preview response');
+    return result;
   };
 
   const beginWaiter = (): AbortController => {
@@ -323,17 +311,8 @@ export function useRocketPurchaseWorkflow({
     if (activeWaiterRef.current === controller) activeWaiterRef.current = null;
   };
 
-  const stageForRecoveryFailure = (cause: unknown): RocketWorkflowStage => (
-    cause instanceof RocketInventoryCollectionRequiredError
-      ? 'inventory_collection_required'
-      : 'review_required'
-  );
-
-  const recoveryErrorMessage = (cause: unknown, fallback: string): string => (
-    cause instanceof RocketInventoryCollectionRequiredError
-      ? cause.message
-      : rocketPreviewErrorMessage(cause, fallback)
-  );
+  const recoveryErrorMessage = (cause: unknown, fallback: string): string =>
+    rocketPreviewErrorMessage(cause, fallback);
 
   useEffect(() => {
     if (!savedSourceImportRunId) return;
@@ -345,7 +324,6 @@ export function useRocketPurchaseWorkflow({
       setError(null);
       setPreview(null);
       setDisplayPreview(null);
-      setPendingCheckpoint(null);
       setStage('calculating');
       onActivity?.({ status: 'started', message: '저장된 로켓 PO 수집본을 불러오는 중입니다.' });
       // 날짜/계정이 바뀌어 이 실행이 밀려나면 결과는 버리지만, 시작 기록은 반드시 닫아야 한다.
@@ -386,7 +364,7 @@ export function useRocketPurchaseWorkflow({
         });
         setSourceRows(reviewRows);
         setCollectionRows(saved.rows);
-        const completeResult = cached?.complete ?? await previewWithInventoryGate({
+        const completeResult = cached?.complete ?? await previewAfterCollection({
           request: {
           channelAccountId,
           sourceImportRunId: saved.sourceImportRunId,
@@ -417,7 +395,7 @@ export function useRocketPurchaseWorkflow({
           : {};
         if (Object.keys(retainedEdits).length > 0) {
           // A newer collection of this review keeps the edits on the lines it still has.
-          const retainedResult = await previewWithInventoryGate({
+          const retainedResult = await previewAfterCollection({
             request: {
               channelAccountId,
               sourceImportRunId: saved.sourceImportRunId,
@@ -445,7 +423,6 @@ export function useRocketPurchaseWorkflow({
             reviewedEdits,
           ));
           setPreview(reviewed);
-          setPendingCheckpoint(null);
           setStage('ready');
           onActivity?.({
             status: 'succeeded',
@@ -464,12 +441,11 @@ export function useRocketPurchaseWorkflow({
           effectiveEdits,
         ));
         setPreview(result);
-        setPendingCheckpoint(null);
         setStage('ready');
         onActivity?.({ status: 'succeeded', message: '저장된 로켓 PO를 최신 재고 기준으로 다시 계산했습니다.' });
       } catch (cause) {
         if (supersededDuringLoad()) return;
-        setStage(stageForRecoveryFailure(cause));
+        setStage('review_required');
         const message = recoveryErrorMessage(cause, '저장된 로켓 PO를 불러오지 못했습니다.');
         setError(message);
         onActivity?.({ status: 'failed', message });
@@ -507,7 +483,7 @@ export function useRocketPurchaseWorkflow({
     setError(null);
     onActivity?.({ status: 'started', message: '검토수량을 현재 재고 기준으로 다시 검증하고 있습니다.' });
     try {
-      const completeResult = await previewWithInventoryGate({
+      const completeResult = await previewAfterCollection({
         request: {
           channelAccountId,
           sourceImportRunId: collectionRun.sourceImportRunId,
@@ -534,7 +510,6 @@ export function useRocketPurchaseWorkflow({
       ));
       setValidatedEditFingerprint(editFingerprint(effectiveEdits));
       setPreviewDirty(false);
-      setPendingCheckpoint(null);
       setStage('ready');
       setShortageReasons((current) => reconcileShortageReasons(
         current,
@@ -545,7 +520,7 @@ export function useRocketPurchaseWorkflow({
     } catch (cause) {
       if (generation !== requestGenerationRef.current) return;
       setPreviewDirty(true);
-      setStage(stageForRecoveryFailure(cause));
+      setStage('review_required');
       const message = recoveryErrorMessage(cause, '수량을 다시 검증하지 못했습니다.');
       setError(message);
       onActivity?.({ status: 'failed', message });
@@ -625,7 +600,7 @@ export function useRocketPurchaseWorkflow({
     setError(null);
     onActivity?.({ status: 'started', message: '쿠팡 제출용 엑셀을 저장하고 있습니다.' });
     try {
-      const completeResult = await previewWithInventoryGate({
+      const completeResult = await previewAfterCollection({
         request: {
           channelAccountId,
           sourceImportRunId: collectionRun.sourceImportRunId,
@@ -635,7 +610,6 @@ export function useRocketPurchaseWorkflow({
         },
         generation,
         controller,
-        inventoryRequirement: 'fresh',
       });
       if (generation !== requestGenerationRef.current) return null;
 
@@ -651,7 +625,6 @@ export function useRocketPurchaseWorkflow({
       setEditedQuantities(freshQuantities);
       setValidatedEditFingerprint(editFingerprint(freshQuantities));
       setPreviewDirty(false);
-      setPendingCheckpoint(null);
       setShortageReasons(freshShortageReasons);
 
       if (freshPreview.rows.some((row) => isRocketWorkbookBlockingReason(row.reason))) {
@@ -698,7 +671,6 @@ export function useRocketPurchaseWorkflow({
     preview,
     /** 표에 그릴 전체 행(선택 날짜의 모든 상태). 엑셀 게이트는 `preview` 가 담당한다. */
     displayPreview,
-    pendingCheckpoint,
     stage,
     sourceRows,
     /** 선택 날짜의 전체 수집 행. 매입단가처럼 검토 대상 밖 행에도 필요한 값을 여기서 읽는다. */

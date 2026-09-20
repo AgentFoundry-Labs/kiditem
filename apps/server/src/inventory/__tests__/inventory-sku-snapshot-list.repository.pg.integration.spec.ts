@@ -1,3 +1,5 @@
+import { InventoryAvailabilityService } from '../application/usecase/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../adapter/out/persistence/inventory-availability.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -6,8 +8,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/persistence/inventory-sku-snapshot-list.repository.adapter';
+import { InventorySkuSnapshotListService } from '../application/usecase/inventory-sku-snapshot-list.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -30,6 +32,40 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+  });
+
+  it('lists current database inventory even when an item was absent from the latest collection', async () => {
+    const item = await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'KEPT-IDENTITY', name: '수집 누락 보존 항목', currentStock: 0,
+      isActive: false,
+    } });
+    const result = await service.listSnapshot(TEST_ORGANIZATION_ID, {});
+    expect(result.items).toEqual([expect.objectContaining({
+      sellpiaInventorySkuId: item.id, code: 'KEPT-IDENTITY', currentStock: 0,
+    })]);
+    expect(result.total).toBe(1);
+    expect(result.summary.outOfStockSkus).toBe(1);
+    expect(await service.getSnapshot(TEST_ORGANIZATION_ID, item.id))
+      .toMatchObject({ sellpiaInventorySkuId: item.id, currentStock: 0 });
+  });
+
+  it('reads retained current quantities and omits absent or foreign references', async () => {
+    const own = await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, code: 'RETAINED', name: '보존', currentStock: 7, isActive: false,
+    } });
+    const foreign = await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: OTHER_ORGANIZATION_ID, code: 'FOREIGN', name: '다른 조직', currentStock: 99,
+    } });
+    const stock = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prisma as unknown as PrismaService),
+    );
+    const result = await stock.findBySkuIds({
+      organizationId: TEST_ORGANIZATION_ID,
+      sellpiaInventorySkuIds: [own.id, foreign.id, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'],
+    });
+    expect(result.items).toEqual([{ sellpiaInventorySkuId: own.id, currentStock: 7, generation: null }]);
+    expect(result.snapshot).toEqual({ collected: false, generation: null, verifiedAt: null });
   });
 
   it('tenant-scopes search/filter/page rows while returning organization-wide summary', async () => {
@@ -182,14 +218,14 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
 
     expect(filtered.items.map(({ code }) => code)).toEqual(['SP-002']);
     expect(filtered.summary).toEqual({
-      totalSkus: 2,
+      totalSkus: 3,
       linkedSkus: 1,
-      unlinkedSkus: 1,
+      unlinkedSkus: 2,
       inStockSkus: 2,
-      outOfStockSkus: 0,
+      outOfStockSkus: 1,
       totalUnits: 10,
       pricedAssetValue: 9_000,
-      unpricedSkuCount: 0,
+      unpricedSkuCount: 1,
     });
     expect(filtered.latestImport).toMatchObject({ id: run.id, fileName: 'latest.xls' });
     expect(filtered.items[0]).toMatchObject({
@@ -220,8 +256,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       limit: 2,
       stockStatus: 'all',
     });
-    expect(firstPage.items.map(({ code }) => code)).toEqual(['SP-002', 'ZZ-001']);
-    expect(secondPage.items).toEqual([]);
+    expect(firstPage.items.map(({ code }) => code)).toEqual(['SP-001', 'SP-002']);
+    expect(secondPage.items.map(({ code }) => code)).toEqual(['ZZ-001']);
   });
 
   it('does not treat another organization component with the same code as a link', async () => {

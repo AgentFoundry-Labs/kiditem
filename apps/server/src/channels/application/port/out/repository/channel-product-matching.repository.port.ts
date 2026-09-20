@@ -47,8 +47,8 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
   };
   inventoryComponents: ReadonlyArray<{
     sellpiaInventorySkuId: string;
-    code: string;
-    name: string;
+    code: string | null;
+    name: string | null;
     optionName: string | null;
     barcode: string | null;
     purchasePrice: number | null;
@@ -73,8 +73,8 @@ export type ChannelOptionMatchingRepositoryRow = Readonly<{
     inventoryComponents: ReadonlyArray<{
       id: string;
       sellpiaInventorySkuId: string;
-      code: string;
-      name: string;
+      code: string | null;
+      name: string | null;
       optionName: string | null;
       barcode: string | null;
       quantity: number;

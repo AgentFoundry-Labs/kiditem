@@ -21,7 +21,6 @@ export type SellpiaInventoryQualityInput = {
   previousActiveProductCodes: string[];
   incomingProductCodes: string[];
   facts: SellpiaInventoryQualityFact[];
-  confirmedReferencedProductCodes: string[];
 };
 
 export type SellpiaInventoryQualityResult = {
@@ -39,26 +38,6 @@ export function evaluateSellpiaInventoryQuality(
   const incomingCodes = new Set(input.incomingProductCodes);
   const lostCodes = [...previousCodes].filter((code) => !incomingCodes.has(code));
   const newCodes = [...incomingCodes].filter((code) => !previousCodes.has(code));
-
-  const lostRows = Math.max(0, input.previousRowCount - input.incomingProductCodes.length);
-  if (input.previousRowCount > 0 && reachesThirtyPercent(lostRows, input.previousRowCount)) {
-    issues.push(issue({
-      code: 'row_loss_threshold_exceeded',
-      severity: 'error',
-      count: lostRows,
-    }));
-  }
-  if (
-    previousCodes.size > 0
-    && reachesThirtyPercent(lostCodes.length, previousCodes.size)
-  ) {
-    issues.push(issue({
-      code: 'active_code_loss_threshold_exceeded',
-      severity: 'error',
-      count: lostCodes.length,
-      sampleProductCodes: lostCodes,
-    }));
-  }
 
   for (const code of [
     'missing_name',
@@ -81,24 +60,12 @@ export function evaluateSellpiaInventoryQuality(
   if (
     previousCodes.size > 0
     && reachesTenPercent(churnCount, previousCodes.size)
-    && !reachesThirtyPercent(churnCount, previousCodes.size)
   ) {
     issues.push(issue({
       code: warningIdentity(input.fileHash, 'snapshot_churn'),
       severity: 'warning',
       count: churnCount,
       sampleProductCodes: [...lostCodes, ...newCodes],
-    }));
-  }
-
-  const inactiveReferences = [...new Set(input.confirmedReferencedProductCodes)]
-    .filter((code) => !incomingCodes.has(code));
-  if (inactiveReferences.length > 0) {
-    issues.push(issue({
-      code: warningIdentity(input.fileHash, 'inactive_recipe_reference'),
-      severity: 'warning',
-      count: inactiveReferences.length,
-      sampleProductCodes: inactiveReferences,
     }));
   }
 
@@ -137,8 +104,4 @@ function unique<T>(values: T[]): T[] {
 
 function reachesTenPercent(count: number, total: number): boolean {
   return count * 10 >= total;
-}
-
-function reachesThirtyPercent(count: number, total: number): boolean {
-  return count * 10 >= total * 3;
 }

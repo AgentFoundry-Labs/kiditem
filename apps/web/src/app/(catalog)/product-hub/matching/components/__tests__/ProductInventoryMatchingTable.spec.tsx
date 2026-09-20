@@ -65,8 +65,6 @@ function option({ configured = true, capacity = 8 }: { configured?: boolean; cap
         optionName: null,
         barcode: null,
         currentStock: 85,
-        availableStock: 85,
-        isActive: true,
         quantity: 10,
       }] : [],
     },

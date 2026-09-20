@@ -23,8 +23,8 @@ type Props = {
 
 type DraftComponent = {
   sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
+  code: string | null;
+  name: string | null;
   optionName: string | null;
   currentStock: number | null;
   quantity: number | null;
@@ -199,9 +199,9 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
                       <div className="space-y-2">
                         {activeDraft.length === 0 ? <EmptyLabel message="이 옵션이 차감할 Sellpia 재고를 선택해 주세요." /> : activeDraft.map((component, index) => (
                           <div key={component.sellpiaInventorySkuId} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_40px]">
-                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code} · {component.name}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p></div>
-                            <label className="text-xs font-bold text-slate-600">차감 수량<input aria-label={`${component.code} 차감 수량`} type="number" min={1} required value={component.quantity ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value === '' ? null : Number(event.target.value) } : item) }))} className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-                            <button type="button" aria-label={`${component.code} 재고 제거`} onClick={() => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).filter((_, itemIndex) => itemIndex !== index) }))} className="mt-4 flex h-9 w-9 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
+                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p></div>
+                            <label className="text-xs font-bold text-slate-600">차감 수량<input aria-label={`${component.code ?? '연결 없음'} 차감 수량`} type="number" min={1} required value={component.quantity ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value === '' ? null : Number(event.target.value) } : item) }))} className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
+                            <button type="button" aria-label={`${component.code ?? '연결 없음'} 재고 제거`} onClick={() => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).filter((_, itemIndex) => itemIndex !== index) }))} className="mt-4 flex h-9 w-9 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
                           </div>
                         ))}
                       </div>

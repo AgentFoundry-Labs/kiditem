@@ -29,12 +29,15 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       $transaction: vi.fn(),
     };
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+    const inventoryTransactionalRead = {
+      readSkuIdentities: vi.fn(async () => [inventoryIdentity(skuId)]),
+    };
     const reader = new SellpiaProductInventoryReader(prisma as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, generation: '1' }],
       })),
-    } as never, { findDisplayMedia }, stubMissingProductAbcRead());
+    } as never, { findDisplayMedia }, stubMissingProductAbcRead(), inventoryTransactionalRead as never);
 
     const result = await reader.project('org-1', [{
       key: 'SKU-1',
@@ -84,12 +87,15 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       $transaction: vi.fn(),
     };
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+    const inventoryTransactionalRead = {
+      readSkuIdentities: vi.fn(async () => [inventoryIdentity(skuId)]),
+    };
     const reader = new SellpiaProductInventoryReader(prisma as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, generation: '1' }],
       })),
-    } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) }, stubMissingProductAbcRead());
+    } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) }, stubMissingProductAbcRead(), inventoryTransactionalRead as never);
     const warn = vi.spyOn((reader as never as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
 
     const result = await reader.project('org-1', [{
@@ -114,7 +120,19 @@ function inventoryCandidate(skuId: string) {
     barcode: null,
     purchasePrice: null,
     salePrice: null,
-    isActive: true,
+    masterProductId: 'master-1',
+  };
+}
+
+function inventoryIdentity(skuId: string) {
+  return {
+    sellpiaInventorySkuId: skuId,
+    code: 'SKU-1',
+    name: 'Inventory SKU',
+    optionName: null,
+    barcode: null,
+    purchasePrice: null,
+    salePrice: null,
     masterProductId: 'master-1',
   };
 }

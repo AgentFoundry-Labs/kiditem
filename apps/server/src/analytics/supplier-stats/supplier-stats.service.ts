@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { SELLPIA_INVENTORY_SKU_READ_PORT, type SellpiaInventorySkuReadPort } from '../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   SupplierHistoryItem,
   SupplierHistoryReport,
@@ -141,7 +142,11 @@ function summarizeSupplierHistory(items: SupplierHistoryItem[]): SupplierHistory
 
 @Injectable()
 export class SupplierStatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
+    private readonly inventory: SellpiaInventorySkuReadPort,
+  ) {}
 
   /**
    * Supplier sales are derived from confirmed channel-SKU recipes. A bundle
@@ -264,14 +269,6 @@ export class SupplierStatsService {
               supplyPrice: true,
               minOrderQty: true,
               isPrimary: true,
-              sellpiaInventorySku: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  optionName: true,
-                },
-              },
             },
           },
         },
@@ -305,7 +302,18 @@ export class SupplierStatsService {
       };
     });
 
-    return this.projectSales(suppliers as SupplierProjection[], orderLines);
+    const identities = await this.inventory.findByIds(organizationId, [...new Set(
+      suppliers.flatMap((supplier) => supplier.supplierProducts.map((policy) => policy.sellpiaInventorySkuId)),
+    )]);
+    const byId = new Map(identities.map((identity) => [identity.sellpiaInventorySkuId, identity]));
+    const resolvedSuppliers = suppliers.map((supplier) => ({
+      ...supplier,
+      supplierProducts: supplier.supplierProducts.flatMap((policy): PhysicalProductPolicy[] => {
+        const identity = byId.get(policy.sellpiaInventorySkuId);
+        return identity ? [{ ...policy, sellpiaInventorySku: { ...identity, id: identity.sellpiaInventorySkuId } }] : [];
+      }),
+    }));
+    return this.projectSales(resolvedSuppliers, orderLines);
   }
 
   private projectSales(

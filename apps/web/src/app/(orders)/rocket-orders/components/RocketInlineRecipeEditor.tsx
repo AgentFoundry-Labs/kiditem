@@ -15,10 +15,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { SellpiaOutOfStockToggle } from "@/components/SellpiaOutOfStockToggle";
 import { toast } from "sonner";
 
-type RecipeDraft = Pick<
-  ProductRecipeComponentCandidate,
-  "sellpiaInventorySkuId" | "code" | "name" | "optionName" | "currentStock"
-> & {
+type RecipeDraft = Omit<RocketPurchasePreviewComponent, 'quantity'> & {
   quantity: number | null;
 };
 
@@ -304,7 +301,7 @@ export function RocketInlineRecipeEditor({
                 >
                   <div className="min-w-0 pb-1">
                     <p className="truncate text-xs font-bold text-slate-800">
-                      {component.code} · {component.name}
+                      {component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}
                     </p>
                     <p className="mt-0.5 truncate text-[11px] text-slate-500">
                       {component.optionName ?? "옵션 없음"} · 현재고{" "}
@@ -320,7 +317,7 @@ export function RocketInlineRecipeEditor({
                       min={1}
                       step={1}
                       required
-                      aria-label={`${component.code} 구성 수량`}
+                      aria-label={`${component.code ?? '연결 없음'} 구성 수량`}
                       value={component.quantity ?? ""}
                       onChange={(event) =>
                         {
@@ -345,7 +342,7 @@ export function RocketInlineRecipeEditor({
                   </label>
                   <button
                     type="button"
-                    aria-label={`${component.code} 재고 제거`}
+                    aria-label={`${component.code ?? '연결 없음'} 재고 제거`}
                     onClick={() =>
                       {
                         setDraftTouched(true);

@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -31,8 +32,10 @@ import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/pr
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
 import { ProductChannelOptionRecipeMutationService } from '../application/service/product-channel-option-recipe-mutation.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
@@ -61,18 +64,29 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
     const alerts = new SourceFailureAlerts(prismaService);
-    sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    sellpia = new SellpiaProfitabilitySourceService(
+      prismaService,
+      alerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
+    );
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter());
     const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
       prismaService,
-      new MasterProductProfitabilityReadService(sellpia, advertising, prismaService),
+      new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, new InventoryTransactionalReadRepositoryAdapter()),
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
     dataStatus = new ProductOperationsDataStatusService(dataStatusRepository);
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
     service = new ProductOperationsService(
-      new ProductOperationsRepositoryAdapter(prismaService),
+      new ProductOperationsRepositoryAdapter(
+        prismaService,
+        new InventoryTransactionalReadRepositoryAdapter(),
+        new SellpiaInventorySkuReadService(
+          new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+        ),
+      ),
       inventory,
       {
         findByMasterProductIds: async () => new Map(),
@@ -83,7 +97,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       dataStatusRepository,
       { readContribution: async () => null } as never,
       new ProductChannelOptionRecipeMutationService(
-        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(
+          prismaService,
+          new InventoryTransactionalReadRepositoryAdapter(),
+        ),
       ),
     );
   });
@@ -139,7 +156,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(created.inventory).toEqual({
       skuCount: 0,
       measuredSkuCount: 0,
-      inactiveSkuCount: 0,
     });
     expect(created.displayReference).toEqual({
       type: 'product_code',
@@ -157,7 +173,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     })).toBe(1);
   });
 
-  it('keeps an identity outside the published inventory run uncollected in Product Hub reads', async () => {
+  it('uses current stock for an existing identity even without a published import run', async () => {
     const product = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -180,8 +196,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail).toMatchObject({
-      inventoryUnits: null,
-      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventoryUnits: 0,
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
     });
     expect(detail).not.toHaveProperty('inventoryStatus');
 
@@ -198,12 +214,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       adStatus: 'all',
       inventoryStatus: 'out_of_stock',
     });
-    expect(page.items.map(({ id }) => id)).toEqual([soldOut.id]);
-    expect(page.summary.inventoryStatusCounts.out_of_stock).toBe(1);
+    expect(page.items.map(({ id }) => id)).toEqual([soldOut.id, product.id]);
+    expect(page.summary.inventoryStatusCounts.out_of_stock).toBe(2);
     expect(page.summary.inventoryStatusCounts.uncollected).toBe(0);
     expect(page.items[0]).toMatchObject({
       inventoryUnits: 0,
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
     });
   });
 
@@ -511,10 +527,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       sellpia,
       advertising,
       prisma as unknown as PrismaService,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const adapter = new ProductOperationsDataStatusRepositoryAdapter(
       extendedPrisma as unknown as PrismaService,
       originalEvidence,
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
 
     const result = await adapter.read(TEST_ORGANIZATION_ID, 30);
@@ -633,19 +650,33 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail.inventoryUnits).toBe(7);
-    expect(detail.inventory).toEqual({ skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 });
+    expect(detail.inventory).toEqual({ skuCount: 1, measuredSkuCount: 1 });
     expect(detail.channelListings[0]!.options.map((option) => option.capacity).sort()).toEqual([3, 7]);
     const single = detail.channelListings[0]!.options.find(({ id }) => id === options[0]!.id);
     expect(single?.inventoryComponents).toMatchObject([{
       sellpiaInventorySkuId: sku.id,
       quantity: 1,
       currentStock: 7,
-      availableStock: 7,
     }]);
     expect(await prisma.masterProduct.findUniqueOrThrow({
       where: { id: product.id },
       select: { id: true },
     })).toEqual({ id: product.id });
+  });
+
+  it('preserves a deleted SKU reference with null identity and stock without relinking the same code', async () => {
+    const { product, options } = await linkedProductWithOptions('KI-DELETED-REF', 1);
+    const sku = await inventorySku('SP-DELETED-REF', 7, true, TEST_ORGANIZATION_ID, product.id);
+    await service.replaceChannelOptionInventory(TEST_ORGANIZATION_ID, options[0]!.id, {
+      components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }],
+    });
+    await prisma.sellpiaInventorySku.delete({ where: { id: sku.id } });
+    await inventorySku('SP-DELETED-REF', 99, true, TEST_ORGANIZATION_ID, product.id);
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+    expect(detail.channelListings[0]!.options[0]).toMatchObject({
+      capacity: null,
+      inventoryComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2, code: null, name: null, currentStock: null }],
+    });
   });
 
   it('increments mapping generation once for a committed recipe replacement', async () => {
@@ -784,12 +815,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     expect(detail).toMatchObject({
       inventoryUnits: 100,
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
       channelListings: [{ options: [{
         capacity: 50,
         inventoryComponents: [{
           currentStock: 100,
-          availableStock: 100,
           quantity: 2,
         }],
       }] }],
@@ -802,33 +832,23 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
   it('atomically replaces direct recipes and preserves the old recipe on invalid input', async () => {
     const { product, options } = await linkedProductWithOptions('KI-RECIPE', 1);
-    const inactiveOwner = await prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-INACTIVE', name: 'Inactive' },
-    });
     const foreignOwner = await prisma.masterProduct.create({
       data: { organizationId: OTHER_ORGANIZATION_ID, code: 'INV-FOREIGN', name: 'Foreign' },
     });
-    const active = await inventorySku('SP-ACTIVE', 8, true, TEST_ORGANIZATION_ID, product.id);
-    const inactive = await inventorySku('SP-INACTIVE', 10, false, TEST_ORGANIZATION_ID, inactiveOwner.id);
+    const inactive = await inventorySku('SP-INACTIVE', 10, false, TEST_ORGANIZATION_ID, product.id);
     const foreign = await inventorySku('SP-FOREIGN', 10, true, OTHER_ORGANIZATION_ID, foreignOwner.id);
     const optionId = options[0]!.id;
 
     await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       optionId,
-      { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }] },
+      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }] },
     );
     const replaced = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
     expect(replaced.channelListings[0]!.options[0]).toMatchObject({
-      capacity: 2,
-      inventoryComponents: [{ sellpiaInventorySkuId: active.id, quantity: 3 }],
+      capacity: 10,
+      inventoryComponents: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }],
     });
-
-    await expect(service.replaceChannelOptionInventory(
-      TEST_ORGANIZATION_ID,
-      optionId,
-      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }] },
-    )).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       optionId,
@@ -843,18 +863,14 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: optionId },
       select: { sellpiaInventorySkuId: true, quantity: true },
-    })).toEqual([{ sellpiaInventorySkuId: active.id, quantity: 3 }]);
+    })).toEqual([{ sellpiaInventorySkuId: inactive.id, quantity: 1 }]);
 
-    await prisma.sellpiaInventorySku.update({
-      where: { id: active.id },
-      data: { isActive: false },
-    });
-    const afterInactivation = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
-    expect(afterInactivation).toMatchObject({
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 1 },
+    const afterRead = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+    expect(afterRead).toMatchObject({
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
       channelListings: [{ options: [{
-        capacity: null,
-        inventoryComponents: [{ sellpiaInventorySkuId: active.id, isActive: false }],
+        capacity: 10,
+        inventoryComponents: [{ sellpiaInventorySkuId: inactive.id, currentStock: 10 }],
       }] }],
     });
   });
@@ -1836,11 +1852,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     // traffic still cross their real PostgreSQL reader boundaries below.
     const profitability = new MasterProductProfitabilityReadService(
       sellpia, advertising, prisma as PrismaService,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const selectedStatus = new ProductOperationsDataStatusService(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
         load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
-      }),
+      }, new InventoryTransactionalReadRepositoryAdapter()),
     );
     const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
 

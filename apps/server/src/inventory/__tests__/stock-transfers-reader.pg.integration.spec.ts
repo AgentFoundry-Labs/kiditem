@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { makeTestPrisma, OTHER_ORGANIZATION_ID, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
+import {
+  makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
+  resetDb,
+  seedBaseFixture,
+  TEST_ORGANIZATION_ID,
+} from '../../test-helpers/real-prisma';
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
-import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
-import { TransfersService } from '../application/service/transfers.service';
+import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository.adapter';
+import type { PrismaClient } from '@prisma/client';
 
 describe('stock transfer mutation organization boundary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -17,7 +22,7 @@ describe('stock transfer mutation organization boundary (PG integration)', () =>
   afterAll(async () => { await prisma?.$disconnect(); });
   beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); });
 
-  it('rejects a foreign mutation at the repository boundary and preserves physical stock', async () => {
+  it('keeps transfer creation organization-scoped and preserves physical stock', async () => {
     const skuId = randomUUID();
     await seedActiveSellpiaInventorySku(prisma, {
       id: skuId, organizationId: OTHER_ORGANIZATION_ID,
@@ -29,17 +34,44 @@ describe('stock transfer mutation organization boundary (PG integration)', () =>
       sellpiaInventorySkuId: skuId, fromWarehouseId: from.id, toWarehouseId: to.id,
       quantity: 2, optionName: null,
     });
-    await expect(repository.updateStockTransferStatus(transfer.id, 'in_transit', false, TEST_ORGANIZATION_ID))
-      .rejects.toMatchObject({ code: 'P2025' });
     expect(await prisma.stockTransfer.findUniqueOrThrow({ where: { id: transfer.id } }))
       .toMatchObject({ status: 'pending', organizationId: OTHER_ORGANIZATION_ID });
-
-    const service = new TransfersService(repository);
-    await expect(service.update(transfer.id, { status: 'in_transit' }, OTHER_ORGANIZATION_ID))
-      .resolves.toMatchObject({ status: 'in_transit', sellpiaInventorySku: { id: skuId } });
-    await expect(service.update(transfer.id, { status: 'completed' }, OTHER_ORGANIZATION_ID))
-      .resolves.toMatchObject({ status: 'completed', completedAt: expect.any(Date) });
     expect(await prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: skuId } }))
       .toMatchObject({ currentStock: 9 });
+  });
+
+  it('keeps a transfer readable with a missing inventory identity', async () => {
+    const skuId = randomUUID();
+    await seedActiveSellpiaInventorySku(prisma, {
+      id: skuId, organizationId: TEST_ORGANIZATION_ID,
+      code: 'DELETED-TRANSFER-SKU', name: 'Deleted transfer SKU', optionName: 'Blue',
+    });
+    const from = await prisma.warehouse.create({ data: { organizationId: TEST_ORGANIZATION_ID, name: 'History From' } });
+    const to = await prisma.warehouse.create({ data: { organizationId: TEST_ORGANIZATION_ID, name: 'History To' } });
+    const transfer = await repository.createStockTransfer(TEST_ORGANIZATION_ID, {
+      sellpiaInventorySkuId: skuId, fromWarehouseId: from.id, toWarehouseId: to.id,
+      quantity: 1, optionName: 'Blue',
+    });
+
+    await prisma.sellpiaInventorySku.update({
+      where: { id: skuId },
+      data: { isActive: false },
+    });
+    await expect(
+      repository.findInventorySkuForTransfer(skuId, TEST_ORGANIZATION_ID),
+    ).resolves.toEqual({ optionName: 'Blue' });
+
+    await prisma.sellpiaInventorySku.delete({ where: { id: skuId } });
+
+    await expect(repository.listStockTransfers(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
+      {
+        id: transfer.id,
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaInventorySkuId: skuId,
+        sellpiaInventorySku: null,
+        fromWarehouse: { id: from.id, name: 'History From' },
+        toWarehouse: { id: to.id, name: 'History To' },
+      },
+    ]);
   });
 });

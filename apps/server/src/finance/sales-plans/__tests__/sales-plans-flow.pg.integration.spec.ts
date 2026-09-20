@@ -1,3 +1,5 @@
+import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
@@ -72,6 +74,7 @@ describe('Sales-plans flow (PG integration)', () => {
 
     const m = await Test.createTestingModule({
       providers: [
+        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
         SalesPlansService,
         { provide: PrismaService, useValue: prisma },
       ],

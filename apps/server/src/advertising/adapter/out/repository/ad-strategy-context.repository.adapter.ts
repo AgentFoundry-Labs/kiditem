@@ -3,7 +3,7 @@
 // `AdsConfig` — the application service passes it in as a parameter so
 // this lane has zero application-layer back-references.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
@@ -33,12 +33,20 @@ import type {
   StrategyContext,
 } from '../../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 
 @Injectable()
 export class AdStrategyContextRepositoryAdapter
   implements AdStrategyContextRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+  ) {}
 
   async loadStrategyContext(
     organizationId: string,
@@ -107,6 +115,7 @@ export class AdStrategyContextRepositoryAdapter
       profitWindow.to,
       accountAdEvidence,
       listingIdSet,
+      this.inventoryTransactionalRead,
     );
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,

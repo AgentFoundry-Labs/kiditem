@@ -31,8 +31,10 @@ vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
     confirmSourceBinding: vi.fn(),
     isConfirming: false,
     state: {
-      status: 'fresh',
-      lastVerifiedAt: '2026-08-13T01:00:00.000Z',
+      status: 'complete',
+      lastCompletedAt: '2026-08-13T01:00:00.000Z',
+      lastCompletedAttemptId: null,
+      lastAttemptId: null,
       errorMessage: null,
     },
   }),
@@ -71,7 +73,7 @@ describe('<InventoryWorkspace>', () => {
 
   it('queries one inventory owner with URL-authoritative filters', () => {
     navigation.params = new URLSearchParams(
-      'search=SP-1001&stockStatus=all&activeStatus=inactive&linkStatus=unlinked&page=2',
+      'search=SP-1001&stockStatus=all&linkStatus=unlinked&page=2',
     );
     render(<InventoryWorkspace />);
 
@@ -84,7 +86,6 @@ describe('<InventoryWorkspace>', () => {
         limit: '50',
         query: 'SP-1001',
         stockStatus: 'all',
-        activeStatus: 'inactive',
         linkStatus: 'unlinked',
       },
     ]);
@@ -92,21 +93,21 @@ describe('<InventoryWorkspace>', () => {
 
   it('preserves unrelated URL state when changing a connection filter', () => {
     navigation.params = new URLSearchParams(
-      'campaign=summer&search=SP-1001&stockStatus=all&activeStatus=inactive&linkStatus=unlinked&page=2',
+      'campaign=summer&search=SP-1001&stockStatus=all&linkStatus=unlinked&page=2',
     );
     render(<InventoryWorkspace />);
 
     fireEvent.click(screen.getByRole('button', { name: '연결됨' }));
 
     expect(pushMock).toHaveBeenCalledWith(
-      '/inventory-hub?campaign=summer&search=SP-1001&stockStatus=all&activeStatus=inactive&linkStatus=linked&page=1',
+      '/inventory-hub?campaign=summer&search=SP-1001&stockStatus=all&linkStatus=linked&page=1',
     );
   });
 
-  it('marks the summary unavailable when no completed snapshot exists', () => {
+  it('keeps returned summary visible when no import metadata exists', () => {
     render(<InventoryWorkspace />);
 
-    expect(screen.getAllByText('미수집')).toHaveLength(3);
-    expect(screen.queryByText('8개')).not.toBeInTheDocument();
+    expect(screen.getByText('8개')).toBeInTheDocument();
+    expect(screen.getByText(/마지막 완료:/)).toHaveTextContent('가져오기 기록 없음');
   });
 });

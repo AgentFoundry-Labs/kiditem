@@ -24,6 +24,8 @@ function makePrisma() {
   };
 }
 
+const identities = new Map<string, { sellpiaInventorySkuId: string; code: string; name: string; optionName: null }>();
+
 function supplierProduct(params: {
   supplierId: string;
   sellpiaInventorySkuId: string;
@@ -31,6 +33,10 @@ function supplierProduct(params: {
   isPrimary?: boolean;
   name?: string;
 }) {
+  identities.set(params.sellpiaInventorySkuId, {
+    sellpiaInventorySkuId: params.sellpiaInventorySkuId, code: `SP-${params.sellpiaInventorySkuId}`,
+    name: params.name ?? `Sellpia ${params.sellpiaInventorySkuId}`, optionName: null,
+  });
   return {
     id: `policy-${params.supplierId}-${params.sellpiaInventorySkuId}`,
     sellpiaInventorySkuId: params.sellpiaInventorySkuId,
@@ -74,8 +80,11 @@ describe('SupplierStatsService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    identities.clear();
     prisma = makePrisma();
-    service = new SupplierStatsService(prisma as never);
+    service = new SupplierStatsService(prisma as never, {
+      findByIds: async (_organizationId: string, ids: string[]) => ids.flatMap((id) => identities.has(id) ? [identities.get(id)!] : []),
+    } as never);
   });
 
   it('allocates bundle revenue once by extended primary-supplier cost and counts physical units', async () => {

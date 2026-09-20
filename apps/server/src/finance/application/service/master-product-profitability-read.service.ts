@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
@@ -33,6 +34,10 @@ import {
   parseBusinessDate,
 } from '../../../common/kst';
 import { readProductSaleAgeEvidence } from '../../../common/product-sale-age';
+import {
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import {
   type MasterProductAbcFormulaReadyMonthlyFact,
   type ProductProfitabilityEvidence,
@@ -108,6 +113,8 @@ export class MasterProductProfitabilityReadService
     @Inject(ADVERTISING_PROFITABILITY_READ_PORT)
     private readonly advertising: AdvertisingProfitabilityReadPort,
     private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async load(input: {
@@ -279,6 +286,7 @@ export class MasterProductProfitabilityReadService
         organizationId,
         products.map((product) => product.id),
         null,
+        this.inventoryTransactionalRead,
       );
       const saleStartDateByProduct = new Map(
         saleAgeEvidence.map((evidence) => [evidence.masterProductId, evidence]),

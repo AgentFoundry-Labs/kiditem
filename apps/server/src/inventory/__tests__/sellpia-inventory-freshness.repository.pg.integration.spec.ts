@@ -1,4 +1,4 @@
-import { AppException } from '@kiditem/shared/server-errors';
+import { InventoryCollectionRequiredError } from '../application/exception/inventory-operation.error';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -9,14 +9,14 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
-import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
+import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/persistence/sellpia-inventory-freshness.repository.adapter';
+import { SellpiaInventoryFreshnessService } from '../application/usecase/sellpia-inventory-freshness.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
 const SELLPIA_INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000001';
 
-describe('Sellpia inventory freshness repository (PG integration)', () => {
+describe('Sellpia inventory collection status repository (PG integration)', () => {
   let prisma: PrismaClient;
   let service: SellpiaInventoryFreshnessService;
 
@@ -39,7 +39,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('reads an existing freshness snapshot without waiting for the mutation row lock', async () => {
+  it('reads an existing collection snapshot without waiting for the mutation row lock', async () => {
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -47,7 +47,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
         lastVerifiedAt: new Date(),
         requestedGeneration: 1n,
         verifiedGeneration: 1n,
-        refreshReason: 'legacy_manual_import',
+        lastCompletedImportRunId: null,
       },
     });
 
@@ -83,7 +83,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
         }),
       ]);
       expect(result).not.toBe('blocked');
-      expect(result).toMatchObject({ status: 'fresh' });
+      expect(result).toMatchObject({ status: 'complete' });
     } finally {
       releaseLock();
       await blocker;
@@ -91,16 +91,13 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     }
   });
 
-  it('keeps freshness state and purchase references organization-scoped', async () => {
+  it('keeps collection state and source binding organization-scoped', async () => {
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceAccountKey: 'kiditem',
         requestedGeneration: 2n,
         verifiedGeneration: 1n,
-        refreshRequestedAt: new Date(),
-        refreshReason: 'manual_request',
-        syncNotBefore: new Date(),
       },
     });
     const ownSku = await prisma.sellpiaInventorySku.create({
@@ -151,11 +148,12 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     expect(stateB.sourceBinding).toMatchObject({ accountKey: 'kiditem', confirmed: true });
     expect(await prisma.sourceImportRun.count()).toBe(0);
     await expectCode(
-      service.assertFreshAndActive({
+      service.requireCollectedStock({
         organizationId: OTHER_ORGANIZATION_ID,
+        attemptId: '20000000-0000-4000-8000-000000000001',
         sellpiaInventorySkuIds: [ownSku.id],
       }),
-      'PURCHASE_REFERENCE_INVALID',
+      'SELLPIA_SYNC_REQUIRED',
     );
   });
 });
@@ -163,9 +161,9 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
 async function expectCode(promise: Promise<unknown>, code: string) {
   try {
     await promise;
-    throw new Error('expected AppException');
+    throw new Error('expected InventoryCollectionRequiredError');
   } catch (error) {
-    expect(error).toBeInstanceOf(AppException);
-    expect((error as AppException).code).toBe(code);
+    expect(error).toBeInstanceOf(InventoryCollectionRequiredError);
+    expect((error as InventoryCollectionRequiredError).code).toBe(code);
   }
 }

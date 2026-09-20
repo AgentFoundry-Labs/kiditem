@@ -148,28 +148,25 @@ function startMessages() {
     .filter((message) => message.action === 'startCollection');
 }
 
-const SELLPIA_FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
+const SELLPIA_COLLECTION_STATUS_PATH = '/api/inventory/sellpia-collection-status';
 const SELLPIA_BEGIN_PATH = '/api/inventory/sellpia-source/attempts';
 const SELLPIA_TOKEN = '44444444-4444-4444-8444-444444444444';
 let sellpiaAttempts: Record<string, unknown>;
 
-function sellpiaFreshness(
-  status: 'fresh' | 'refresh_required' | 'syncing' | 'failed',
-  lastVerifiedAt: string | null,
+function sellpiaCollectionStatus(
+  status: 'not_collected' | 'complete' | 'running' | 'failed',
+  lastCompletedAt: string | null,
   errorMessage: string | null = null,
 ) {
   return {
     status,
     sourceBinding: { origin: 'https://kiditem.sellpia.com', accountKey: 'kiditem', confirmed: true },
-    lastVerifiedAt,
-    expiresAt: null,
     requestedGeneration: '7',
     verifiedGeneration: '7',
-    refreshRequestedAt: null,
-    refreshReason: null,
-    requestedSyncScope: 'inventory',
-    syncNotBefore: null,
-    activeSync: status === 'syncing'
+    lastCompletedAttemptId: lastCompletedAt ? ATTEMPT_ID : null,
+    lastCompletedAt,
+    lastAttemptId: null,
+    activeSync: status === 'running'
       ? {
           attemptId: ATTEMPT_ID,
           generation: '8',
@@ -398,34 +395,34 @@ describe('readiness ad source rows', () => {
 });
 
 describe('readiness Sellpia row', () => {
-  it('derives the Sellpia chip from freshness and the KST date of the last verification', async () => {
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('fresh', '2026-09-05T16:30:00.000Z');
+  it('derives the Sellpia chip from collection status and the KST date of the last completion', async () => {
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('complete', '2026-09-05T16:30:00.000Z');
     const view = renderRow(<StockSyncRow />);
     expect(await screen.findByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
 
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z');
-    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', '2026-09-05T16:30:00.000Z');
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
     expect(await screen.findByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
 
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', null);
-    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', null);
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
     expect(await screen.findByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
   });
 
   it('shows a live Sellpia collection as running and a failure through the owner message', async () => {
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('syncing', '2026-09-05T16:30:00.000Z');
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('running', '2026-09-05T16:30:00.000Z');
     const view = renderRow(<StockSyncRow />);
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
     expect(screen.queryByText('갱신 중')).not.toBeInTheDocument();
 
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness(
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus(
       'failed',
       '2026-09-05T16:30:00.000Z',
       '셀피아 로그인이 필요합니다.',
     );
-    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
     expect(await screen.findByText('셀피아 로그인이 필요합니다.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '재고 동기화' })).toBeEnabled();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
@@ -433,8 +430,8 @@ describe('readiness Sellpia row', () => {
   });
 
   it('shows a stopped Sellpia collection as stopped, not a failure, while the previous snapshot stays in use', async () => {
-    statuses[SELLPIA_FRESHNESS_PATH] = {
-      ...sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z'),
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = {
+      ...sellpiaCollectionStatus('complete', '2026-09-05T16:30:00.000Z'),
       lastAttempt: {
         attemptedAt: '2026-09-06T01:00:00.000Z',
         trigger: 'manual_request',
@@ -447,17 +444,17 @@ describe('readiness Sellpia row', () => {
 
     expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '재고 동기화' })).toBeEnabled();
-    expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
+    expect(screen.getByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
   });
 
   it('starts Sellpia inventory once and shows it running on the stock screen control as well', async () => {
-    statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('refresh_required', '2026-09-05T16:30:00.000Z');
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', '2026-09-05T16:30:00.000Z');
     extensionReplies.collectSellpiaInventory = () => new Promise(() => undefined);
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
       if (path !== SELLPIA_BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
       sellpiaAttempts[ATTEMPT_ID] = sellpiaAttempt('RUNNING');
-      statuses[SELLPIA_FRESHNESS_PATH] = sellpiaFreshness('syncing', '2026-09-05T16:30:00.000Z');
+      statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('running', '2026-09-05T16:30:00.000Z');
       return sellpiaAttempts[ATTEMPT_ID];
     });
     renderRow(

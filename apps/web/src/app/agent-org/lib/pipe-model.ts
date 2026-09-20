@@ -3,7 +3,7 @@ import type { AlertItem } from '@kiditem/shared/alerts';
 import {
   type MallOperationOutcomeSummaryRow,
 } from '@kiditem/shared/mall-operation-outcomes';
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryCollectionStatusView } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   PIPE_STAGES,
   STAGE_BY_ALERT_SOURCE_TYPE,
@@ -66,12 +66,12 @@ export interface PipeInputs {
   alerts: PipeSource<readonly AlertItem[]>;
   outcomes: PipeSource<readonly MallOperationOutcomeSummaryRow[]>;
   malls: PipeSource<readonly PipeMallAccount[]>;
-  freshness: PipeSource<SellpiaInventoryFreshnessView>;
+  collectionStatus: PipeSource<SellpiaInventoryCollectionStatusView>;
   confirm: PipeSource<PipeConfirmCounts>;
   loginBlocks: readonly PipeLoginBlock[];
 }
 
-type SignalSource = 'alert' | 'outcome' | 'freshness' | 'confirm' | 'block' | 'derived';
+type SignalSource = 'alert' | 'outcome' | 'collection_status' | 'confirm' | 'block' | 'derived';
 
 export interface PipeSignal {
   id: string;
@@ -193,7 +193,7 @@ const MALL_OPERATION_LABEL: Readonly<Record<string, string>> = {
 const LABEL_PRIORITY: Readonly<Record<SignalSource, number>> = {
   block: 4,
   outcome: 3,
-  freshness: 3,
+  collection_status: 3,
   confirm: 3,
   derived: 2,
   alert: 1,
@@ -337,28 +337,28 @@ export function outcomeSignal(
   }
 }
 
-export function freshnessSignal(view: SellpiaInventoryFreshnessView): PipeSignal {
+export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusView): PipeSignal {
   const base = {
-    id: 'freshness:sellpia',
+    id: 'collection:sellpia',
     stageId: 'inventory' as const,
-    entityKey: 'freshness:sellpia',
-    source: 'freshness' as const,
+    entityKey: 'collection:sellpia',
+    source: 'collection_status' as const,
     title: '셀피아 재고',
     count: null,
   };
-  const lastAttemptAt = time(view.lastAttempt?.attemptedAt ?? null, time(view.lastVerifiedAt));
+  const lastAttemptAt = time(view.lastAttempt?.attemptedAt ?? null, time(view.lastCompletedAt));
   switch (view.status) {
-    case 'fresh':
-      return { ...base, state: 'done', at: time(view.lastVerifiedAt), reason: null, cause: null, actionable: false, lane: null };
-    case 'syncing':
+    case 'complete':
+      return { ...base, state: 'done', at: time(view.lastCompletedAt), reason: null, cause: null, actionable: false, lane: null };
+    case 'running':
       return { ...base, state: 'running', at: time(view.activeSync?.startedAt ?? null, lastAttemptAt), reason: null, cause: null, actionable: false, lane: null };
-    case 'refresh_required':
+    case 'not_collected':
       return {
         ...base,
-        state: 'stale',
-        at: time(view.lastVerifiedAt),
-        reason: '마지막 확인이 기준 시간을 넘었습니다.',
-        cause: { key: 'stale:sellpia', label: '셀피아 재고 · 새로고침 필요' },
+        state: 'failed',
+        at: lastAttemptAt,
+        reason: '셀피아 재고를 아직 수집하지 않았습니다.',
+        cause: { key: 'not-collected:sellpia', label: '셀피아 재고 · 수집 필요' },
         actionable: true,
         lane: null,
       };
@@ -499,7 +499,7 @@ function stageSourceFailed(def: PipeStageDef, inputs: PipeInputs): boolean {
   return (
     (def.alertSourceTypes.length > 0 && inputs.alerts.failed) ||
     (def.mallOperations.length > 0 && inputs.outcomes.failed) ||
-    (def.id === 'inventory' && inputs.freshness.failed) ||
+    (def.id === 'inventory' && inputs.collectionStatus.failed) ||
     (def.id === 'gate' && inputs.confirm.failed)
   );
 }
@@ -671,7 +671,7 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
     const signal = outcomeSignal(row, mallName);
     if (signal) signals.push(signal);
   }
-  if (inputs.freshness.data) signals.push(freshnessSignal(inputs.freshness.data));
+  if (inputs.collectionStatus.data) signals.push(collectionStatusSignal(inputs.collectionStatus.data));
   if (inputs.confirm.data) signals.push(confirmSignal(inputs.confirm.data));
   for (const block of inputs.loginBlocks) signals.push(loginBlockSignal(block, mallName));
 

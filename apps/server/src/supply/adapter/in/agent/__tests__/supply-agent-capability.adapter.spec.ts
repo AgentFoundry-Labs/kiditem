@@ -6,6 +6,7 @@ const ORG_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const USER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d2';
 const SKU_ID = '0187e942-9098-7382-9a22-c5b821f2f5d3';
 const PURCHASE_ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d4';
+const INVENTORY_ATTEMPT_ID = '0187e942-9098-7382-9a22-c5b821f2f5d5';
 
 describe('SupplyAgentCapabilityAdapter', () => {
   it('creates a purchase-order draft through the Supply owner port', async () => {
@@ -28,9 +29,19 @@ describe('SupplyAgentCapabilityAdapter', () => {
   it('requires a current actor to submit a purchase order', async () => {
     const submissions = { submit: vi.fn().mockResolvedValue({ orderId: PURCHASE_ORDER_ID, status: 'ordered' }) };
     const adapter = new SupplyAgentCapabilityAdapter({ createFromRecommendation: vi.fn() } as never, submissions as never);
-    const inputHash = canonicalOwnerInputHash({ purchaseOrderId: PURCHASE_ORDER_ID });
-    await expect(adapter.submitPurchaseOrder({ organizationId: ORG_ID, idempotencyKey: 'request:supply.submit_purchase_order', inputHash, purchaseOrderId: PURCHASE_ORDER_ID })).rejects.toThrow('authenticated actor');
-    await adapter.submitPurchaseOrder({ organizationId: ORG_ID, userId: USER_ID, idempotencyKey: 'request:supply.submit_purchase_order', inputHash, purchaseOrderId: PURCHASE_ORDER_ID });
+    const inputHash = canonicalOwnerInputHash({
+      purchaseOrderId: PURCHASE_ORDER_ID,
+      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+    });
+    const input = {
+      organizationId: ORG_ID,
+      idempotencyKey: 'request:supply.submit_purchase_order',
+      inputHash,
+      purchaseOrderId: PURCHASE_ORDER_ID,
+      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+    };
+    await expect(adapter.submitPurchaseOrder(input)).rejects.toThrow('authenticated actor');
+    await adapter.submitPurchaseOrder({ ...input, userId: USER_ID });
     expect(submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID, userId: USER_ID, requestHash: inputHash }));
   });
 });

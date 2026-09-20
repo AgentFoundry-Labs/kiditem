@@ -20,14 +20,17 @@ import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { SellpiaInventoryFreshnessService } from '../../inventory/application/service/sellpia-inventory-freshness.service';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { SellpiaInventoryFreshnessService } from '../../inventory/application/usecase/sellpia-inventory-freshness.service';
+import { SellpiaInventoryFreshnessRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-freshness.repository.adapter';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
-import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
-import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
+import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import { FactConflictError } from '../../common/errors/fact-errors';
 
@@ -141,7 +144,13 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     new RocketPurchasePreviewService(
       catalog,
       new ChannelSkuAvailabilityService(
-        new ChannelProductMatchingRepositoryAdapter(prisma as never),
+        new ChannelProductMatchingRepositoryAdapter(
+          prisma as never,
+          new InventoryTransactionalReadRepositoryAdapter(),
+          new SellpiaInventorySkuReadService(
+            new SellpiaInventorySkuReadRepositoryAdapter(prisma as never),
+          ),
+        ),
         new InventoryAvailabilityService(
           new InventoryAvailabilityRepositoryAdapter(prisma as never),
         ),
@@ -484,14 +493,23 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await finish(a).expect(200);
     const b = (await start()).body;
     await finish(b, [row('P2')]).expect(200);
+    const inventoryRun = await prisma.sourceImportRun.create({ data: {
+      organizationId: ORG, sourceType: 'sellpia_inventory', status: 'completed',
+      importedAt: new Date(), freshnessGeneration: 1n,
+    } });
+    await prisma.sellpiaInventoryState.create({ data: {
+      organizationId: ORG, lastCompletedImportRunId: inventoryRun.id,
+      sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date(), requestedGeneration: 1n, verifiedGeneration: 1n,
+    } });
     const preview = previewService();
     const input = {
       organizationId: ORG,
       userId: USER,
-      inventoryRequirement: 'advisory' as const,
       request: {
         channelAccountId: ACCOUNT,
         sourceImportRunId: a.attemptId,
+        inventoryAttemptId: inventoryRun.id,
         editedQuantities: {},
         previewScope: 'confirmation_requested' as const,
       },
@@ -582,7 +600,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         new RocketWorkbookProgressService(
           new RocketWorkbookProgressRepositoryAdapter(),
         ),
-      ),
+       new InventoryTransactionalReadRepositoryAdapter()),
       catalog,
     );
     const input = {
@@ -592,6 +610,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       request: {
         channelAccountId: ACCOUNT,
         sourceImportRunId: a.attemptId,
+        inventoryAttemptId: inventoryRun.id,
         idempotencyKey: randomUUID(),
         editedQuantities: { [row('P1').poLineId]: 4 },
         shortageReasons: {},

@@ -6,9 +6,7 @@ const component = (
 ) => ({
   sellpiaInventorySkuId: 'sku-1',
   currentStock: 10,
-  availableStock: 10,
   quantity: 1,
-  isActive: true,
   ...overrides,
 });
 
@@ -27,10 +25,8 @@ describe('projectChannelOptionCapacity', () => {
   });
 
   it.each([
-    { isActive: false },
-    { isActive: null },
-    { availableStock: null },
-  ])('requires review for inactive or unavailable inventory: %o', (invalidInventory) => {
+    { currentStock: null },
+  ])('requires review for missing inventory: %o', (invalidInventory) => {
     expect(projectChannelOptionCapacity([component(invalidInventory)])).toEqual({
       capacity: null,
       warningState: 'review_required',
@@ -39,23 +35,22 @@ describe('projectChannelOptionCapacity', () => {
   });
 
   it('returns zero for an exhausted valid recipe', () => {
-    expect(projectChannelOptionCapacity([component({ availableStock: 0 })])).toEqual({
+    expect(projectChannelOptionCapacity([component({ currentStock: 0 })])).toEqual({
       capacity: 0,
       warningState: 'none',
       bottleneckSellpiaInventorySkuIds: ['sku-1'],
     });
   });
 
-  it('uses available stock, floor division, and every tied bottleneck', () => {
+  it('uses current stock, floor division, and every tied bottleneck', () => {
     expect(projectChannelOptionCapacity([
       component({
         sellpiaInventorySkuId: 'sku-a',
-        currentStock: 999,
-        availableStock: 11,
+        currentStock: 11,
         quantity: 3,
       }),
-      component({ sellpiaInventorySkuId: 'sku-b', availableStock: 8, quantity: 2 }),
-      component({ sellpiaInventorySkuId: 'sku-c', availableStock: 7, quantity: 2 }),
+      component({ sellpiaInventorySkuId: 'sku-b', currentStock: 8, quantity: 2 }),
+      component({ sellpiaInventorySkuId: 'sku-c', currentStock: 7, quantity: 2 }),
     ])).toEqual({
       capacity: 3,
       warningState: 'none',

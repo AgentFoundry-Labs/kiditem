@@ -24,10 +24,8 @@ const toneClasses: Record<CardTone, { card: string; label: string; value: string
 
 export function InventorySummaryCards({
   summary,
-  hasPublishedSnapshot = true,
 }: {
   summary: InventorySkuSnapshotSummary;
-  hasPublishedSnapshot?: boolean;
 }) {
   const cards: {
     label: string;
@@ -53,7 +51,7 @@ export function InventorySummaryCards({
           <div>
             <div className={`text-sm ${toneClasses[tone].label}`}>{label}</div>
             <div className={`mt-1 text-xl font-bold ${toneClasses[tone].value}`}>
-              {hasPublishedSnapshot ? `${formatNumber(value)}${unit ?? '개'}` : '미수집'}
+              {`${formatNumber(value)}${unit ?? '개'}`}
             </div>
           </div>
         </div>

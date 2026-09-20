@@ -1,4 +1,4 @@
-import type { SellpiaInventorySkuReadModel } from '../../../../read/inventory-availability';
+import type { SellpiaInventorySkuReadModel } from '../../../../domain/inventory-item';
 
 export const SELLPIA_INVENTORY_SKU_READ_PORT = Symbol(
   'SELLPIA_INVENTORY_SKU_READ_PORT',

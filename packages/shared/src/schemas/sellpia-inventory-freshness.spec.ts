@@ -1,160 +1,113 @@
 import { describe, expect, it } from 'vitest';
-import { ErrorCodes } from '../errors/codes';
 import {
-  deriveSellpiaInventoryFreshness,
-  isSellpiaInventoryLastAttemptStopped,
-  SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
-  SELLPIA_INVENTORY_FRESHNESS_STATUSES,
-  SELLPIA_INVENTORY_REFRESH_REASONS,
-  SellpiaInventoryFreshnessViewSchema,
-  SellpiaInventoryQualityReportSchema,
-  SellpiaInventorySourceBindingRequestSchema,
-  SellpiaSyncScopeSchema,
+  deriveSellpiaInventoryCollectionStatus,
+  isSellpiaInventoryCollectionStopped,
+  SELLPIA_INVENTORY_COLLECTION_STATUSES,
+  SELLPIA_INVENTORY_COLLECTION_TRIGGERS,
+  SellpiaInventoryCollectionStatusViewSchema,
 } from './sellpia-inventory-freshness';
 
-const VERIFIED_AT = new Date('2026-07-15T00:00:00.000Z');
 const ATTEMPT_ID = '00000000-0000-4000-8000-000000000001';
 
-const createFreshnessView = () => ({
-  status: 'fresh' as const,
+const view = (patch: Record<string, unknown> = {}) => ({
+  status: 'complete' as const,
   sourceBinding: {
     origin: 'https://kiditem.sellpia.com' as const,
     accountKey: 'kiditem' as const,
     confirmed: true,
   },
-  lastVerifiedAt: '2026-07-15T00:00:01.000Z',
-  expiresAt: '2026-07-15T00:10:01.000Z',
   requestedGeneration: '4',
   verifiedGeneration: '4',
-  refreshRequestedAt: null,
-  refreshReason: null,
-  requestedSyncScope: 'inventory' as const,
-  syncNotBefore: null,
+  lastCompletedAttemptId: ATTEMPT_ID,
+  lastCompletedAt: '2026-07-15T00:00:01.000Z',
+  lastAttemptId: ATTEMPT_ID,
   activeSync: null,
   lastAttempt: null,
+  ...patch,
 });
 
-describe('Sellpia inventory freshness vocabulary', () => {
-  it('keeps the exact four-state vocabulary and refresh reasons', () => {
-    expect(SELLPIA_INVENTORY_FRESHNESS_STATUSES).toEqual([
-      'fresh',
-      'refresh_required',
-      'syncing',
+describe('Sellpia inventory collection status vocabulary', () => {
+  it('has no age-based status or trigger', () => {
+    expect(SELLPIA_INVENTORY_COLLECTION_STATUSES).toEqual([
+      'not_collected',
+      'running',
+      'complete',
       'failed',
     ]);
-    expect(SELLPIA_INVENTORY_REFRESH_REASONS).toEqual([
-      'initial_snapshot',
-      'ttl_expired',
-      'order_transmission_requested',
-      'same_hash_confirmation',
-      'purchase_preflight',
-      'manual_request',
-      'retry',
-      'legacy_manual_import',
-    ]);
+    expect(SELLPIA_INVENTORY_COLLECTION_TRIGGERS).not.toContain('ttl_expired');
+    expect(SELLPIA_INVENTORY_COLLECTION_TRIGGERS).not.toContain('purchase_preflight');
   });
 
-  it('prioritizes a live lease over a failed requested generation', () => {
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:10:00.000Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 5n,
-      verifiedGeneration: 4n,
-      failedGeneration: 5n,
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:10:01.000Z'),
-    })).toBe('syncing');
-  });
-
-  it('reports a failed latest generation before ordinary staleness', () => {
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:01:00.000Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 5n,
-      verifiedGeneration: 4n,
-      failedGeneration: 5n,
+  it('derives state from collection facts and ignores elapsed time', () => {
+    expect(deriveSellpiaInventoryCollectionStatus({
+      now: new Date('2036-01-01T00:00:00.000Z'),
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      failedGeneration: null,
+      activeSyncLeaseExpiresAt: new Date('2036-01-01T00:00:01.000Z'),
+    })).toBe('running');
+    expect(deriveSellpiaInventoryCollectionStatus({
+      now: new Date('2036-01-01T00:00:00.000Z'),
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      failedGeneration: 2n,
       activeSyncLeaseExpiresAt: null,
     })).toBe('failed');
-  });
-
-  it('requires refresh for a missing verification or pending generation', () => {
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:01:00.000Z'),
-      lastVerifiedAt: null,
+    expect(deriveSellpiaInventoryCollectionStatus({
+      now: new Date('2036-01-01T00:00:00.000Z'),
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      failedGeneration: null,
+      activeSyncLeaseExpiresAt: null,
+    })).toBe('complete');
+    expect(deriveSellpiaInventoryCollectionStatus({
+      now: new Date('2036-01-01T00:00:00.000Z'),
       requestedGeneration: 1n,
       verifiedGeneration: 0n,
       failedGeneration: null,
       activeSyncLeaseExpiresAt: null,
-    })).toBe('refresh_required');
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:01:00.000Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 5n,
-      verifiedGeneration: 4n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('refresh_required');
-  });
-
-  it('does not let an unresolved order transmission redefine stock freshness', () => {
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:01:00.000Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 4n,
-      verifiedGeneration: 4n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-      hasUnresolvedOrderTransmissionIntent: true,
-    })).toBe(
-      'fresh',
-    );
-  });
-
-  it('is fresh before ten minutes and stale at exactly ten minutes', () => {
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:09:59.999Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 4n,
-      verifiedGeneration: 4n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('fresh');
-    expect(deriveSellpiaInventoryFreshness({
-      now: new Date('2026-07-15T00:10:00.000Z'),
-      lastVerifiedAt: VERIFIED_AT,
-      requestedGeneration: 4n,
-      verifiedGeneration: 4n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('refresh_required');
+    })).toBe('not_collected');
   });
 });
 
-describe('SellpiaInventoryFreshnessViewSchema', () => {
-  it('serializes generations as decimal strings', () => {
-    const parsed = SellpiaInventoryFreshnessViewSchema.parse(createFreshnessView());
-    expect(parsed.verifiedGeneration).toBe('4');
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      verifiedGeneration: '04',
+describe('SellpiaInventoryCollectionStatusViewSchema', () => {
+  it('publishes completion identity and rejects freshness fields', () => {
+    const parsed = SellpiaInventoryCollectionStatusViewSchema.parse(view());
+    expect(parsed.lastCompletedAttemptId).toBe(ATTEMPT_ID);
+    expect(parsed.lastAttemptId).toBe(ATTEMPT_ID);
+    expect(() => SellpiaInventoryCollectionStatusViewSchema.parse({
+      ...view(),
+      expiresAt: '2026-07-15T00:10:01.000Z',
     })).toThrow();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      verifiedGeneration: 4,
+    expect(() => SellpiaInventoryCollectionStatusViewSchema.parse({
+      ...view(),
+      lastVerifiedAt: '2026-07-15T00:00:01.000Z',
     })).toThrow();
   });
 
-  it('represents an unconfirmed fixed source binding without inventing an account', () => {
-    const parsed = SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      sourceBinding: {
-        origin: 'https://kiditem.sellpia.com',
-        accountKey: null,
-        confirmed: false,
-      },
-    });
-    expect(parsed.sourceBinding.accountKey).toBeNull();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
+  it('keeps source binding and lease details strict', () => {
+    expect(SellpiaInventoryCollectionStatusViewSchema.parse({
+      ...view({
+        status: 'running',
+        activeSync: {
+          attemptId: ATTEMPT_ID,
+          generation: '5',
+          scope: 'inventory',
+          startedAt: '2026-07-15T00:02:00.000Z',
+          leaseExpiresAt: '2026-07-15T00:03:30.000Z',
+          canControl: true,
+        },
+        lastAttempt: {
+          attemptedAt: '2026-07-15T00:01:00.000Z',
+          trigger: 'manual_request',
+          scope: 'inventory',
+          errorCode: null,
+          errorMessage: null,
+        },
+      }),
+    }).activeSync?.attemptId).toBe(ATTEMPT_ID);
+    expect(() => SellpiaInventoryCollectionStatusViewSchema.parse({
+      ...view(),
       sourceBinding: {
         origin: 'https://other.sellpia.com',
         accountKey: 'kiditem',
@@ -162,262 +115,33 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       },
     })).toThrow();
   });
-
-  it('rejects source bindings inconsistent with their confirmation discriminant', () => {
-    const impossibleBindings = [
-      {
-        origin: 'https://kiditem.sellpia.com',
-        accountKey: 'kiditem',
-        confirmed: false,
-      },
-      {
-        origin: 'https://kiditem.sellpia.com',
-        accountKey: null,
-        confirmed: true,
-      },
-    ];
-
-    expect(impossibleBindings.map((sourceBinding) => (
-      SellpiaInventoryFreshnessViewSchema.safeParse({
-        ...createFreshnessView(),
-        sourceBinding,
-      }).success
-    ))).toEqual([false, false]);
-  });
-
-  it('rejects unknown source-binding keys', () => {
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      sourceBinding: {
-        ...createFreshnessView().sourceBinding,
-        tenantSecret: 'secret',
-      },
-    })).toThrow();
-  });
-
-  it('accepts owner-safe active sync and last-attempt details', () => {
-    const parsed = SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      status: 'syncing',
-      activeSync: {
-        attemptId: ATTEMPT_ID,
-        generation: '5',
-        scope: 'inventory',
-        startedAt: '2026-07-15T00:02:00.000Z',
-        leaseExpiresAt: '2026-07-15T00:03:30.000Z',
-        canControl: true,
-      },
-      lastAttempt: {
-        attemptedAt: '2026-07-15T00:01:00.000Z',
-        trigger: 'manual_request',
-        scope: 'inventory',
-        errorCode: 'sellpia_network_failed',
-        errorMessage: 'Network request failed',
-      },
-    });
-    expect(parsed.activeSync?.attemptId).toBe(ATTEMPT_ID);
-    expect(parsed.activeSync).not.toHaveProperty('ownerUserId');
-    // A manual upload holds the lease without a source attempt.
-    expect(SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      status: 'syncing',
-      activeSync: { ...parsed.activeSync, attemptId: null },
-    }).activeSync?.attemptId).toBeNull();
-  });
-
-  it('rejects unknown keys throughout the view', () => {
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      activeRunId: ATTEMPT_ID,
-    })).toThrow();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      sourceBinding: {
-        ...createFreshnessView().sourceBinding,
-        password: 'secret',
-      },
-    })).toThrow();
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      status: 'syncing',
-      activeSync: {
-        attemptId: ATTEMPT_ID,
-        generation: '5',
-        startedAt: '2026-07-15T00:02:00.000Z',
-        leaseExpiresAt: '2026-07-15T00:03:30.000Z',
-        canControl: true,
-        ownerUserId: ATTEMPT_ID,
-      },
-    })).toThrow();
-    // The last attempt publishes its facts; the view carries no outcome word.
-    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      lastAttempt: {
-        attemptedAt: '2026-07-15T00:01:00.000Z',
-        status: 'failed',
-        trigger: 'manual_request',
-        scope: 'inventory',
-        errorCode: 'sellpia_network_failed',
-        errorMessage: 'Network request failed',
-      },
-    })).toThrow();
-  });
 });
 
-describe('isSellpiaInventoryLastAttemptStopped', () => {
-  // createFreshnessView() verified its snapshot at 00:00:01.
-  const lastAttempt = (patch: Record<string, unknown> = {}) => ({
-    attemptedAt: '2026-07-15T00:05:00.000Z',
-    trigger: 'manual_request',
-    scope: 'inventory',
-    errorCode: null,
-    errorMessage: null,
-    ...patch,
-  });
-  const view = (patch: Record<string, unknown>) => SellpiaInventoryFreshnessViewSchema.parse({
-    ...createFreshnessView(),
-    status: 'refresh_required',
-    requestedGeneration: '5',
-    ...patch,
-  });
-
-  it('reads an attempt that ended after the verified snapshot without error facts as stopped', () => {
-    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: lastAttempt() }))).toBe(true);
-  });
-
-  it('reads a stop before any verified snapshot as stopped', () => {
-    expect(isSellpiaInventoryLastAttemptStopped(view({
-      lastVerifiedAt: null,
-      expiresAt: null,
-      verifiedGeneration: '0',
-      lastAttempt: lastAttempt(),
+describe('isSellpiaInventoryCollectionStopped', () => {
+  it('recognizes a stopped attempt after the last completed snapshot', () => {
+    expect(isSellpiaInventoryCollectionStopped(view({
+      lastAttempt: {
+        attemptedAt: '2026-07-15T00:05:00.000Z',
+        trigger: 'manual_request',
+        scope: 'inventory',
+        errorCode: null,
+        errorMessage: null,
+      },
     }))).toBe(true);
   });
 
-  it('never reads a completion as stopped, even once its snapshot needs a refresh', () => {
-    expect(isSellpiaInventoryLastAttemptStopped(view({
-      lastAttempt: lastAttempt({ attemptedAt: '2026-07-15T00:00:01.000Z' }),
+  it('does not classify a failed or completed attempt as stopped', () => {
+    const attempt = {
+      attemptedAt: '2026-07-15T00:05:00.000Z',
+      trigger: 'manual_request',
+      scope: 'inventory',
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'Network request failed',
+    };
+    expect(isSellpiaInventoryCollectionStopped(view({ lastAttempt: attempt }))).toBe(false);
+    expect(isSellpiaInventoryCollectionStopped(view({
+      status: 'failed',
+      lastAttempt: { ...attempt, errorCode: null, errorMessage: null },
     }))).toBe(false);
-  });
-
-  it('never reads an attempt with an error fact as stopped', () => {
-    expect(isSellpiaInventoryLastAttemptStopped(view({
-      lastAttempt: lastAttempt({
-        errorCode: 'sellpia_network_failed',
-        errorMessage: 'Network request failed',
-      }),
-    }))).toBe(false);
-    expect(isSellpiaInventoryLastAttemptStopped(view({
-      lastAttempt: lastAttempt({ errorMessage: 'Sellpia inventory collection attempt expired.' }),
-    }))).toBe(false);
-  });
-
-  it('reads no stop outside refresh_required or without a last attempt', () => {
-    const stopped = view({ lastAttempt: lastAttempt() });
-    for (const status of ['fresh', 'syncing', 'failed'] as const) {
-      expect(isSellpiaInventoryLastAttemptStopped({ ...stopped, status })).toBe(false);
-    }
-    expect(isSellpiaInventoryLastAttemptStopped(view({ lastAttempt: null }))).toBe(false);
-  });
-});
-
-describe('Sellpia freshness mutation contracts', () => {
-  it('requires a persisted full or inventory-only scope on visible attempts', () => {
-    expect(SellpiaSyncScopeSchema.options).toEqual(['full', 'inventory']);
-    expect(SellpiaInventoryFreshnessViewSchema.parse({
-      ...createFreshnessView(),
-      requestedSyncScope: 'full',
-      activeSync: {
-        attemptId: ATTEMPT_ID,
-        generation: '5',
-        scope: 'full',
-        startedAt: '2026-07-15T00:02:00.000Z',
-        leaseExpiresAt: '2026-07-15T00:03:30.000Z',
-        canControl: true,
-      },
-      lastAttempt: {
-        attemptedAt: '2026-07-15T00:01:00.000Z',
-        trigger: 'manual_request',
-        scope: 'inventory',
-        errorCode: 'sellpia_network_failed',
-        errorMessage: 'Network request failed',
-      },
-    }).activeSync?.scope).toBe('full');
-  });
-
-  it('keeps the persisted Sellpia collection failure codes bounded', () => {
-    expect(SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES).toEqual([
-      'sellpia_login_required',
-      'sellpia_download_contract_drift',
-      'sellpia_invalid_workbook',
-      'sellpia_background_timeout',
-      'sellpia_network_failed',
-    ]);
-  });
-
-  it('binds only the fixed Sellpia origin and account', () => {
-    const request = {
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      sourceAccountKey: 'kiditem',
-      confirmed: true,
-    } as const;
-    expect(SellpiaInventorySourceBindingRequestSchema.parse(request)).toEqual(request);
-    expect(() => SellpiaInventorySourceBindingRequestSchema.parse({
-      ...request,
-      confirmed: false,
-    })).toThrow();
-    expect(() => SellpiaInventorySourceBindingRequestSchema.parse({
-      ...request,
-      cookie: 'secret',
-    })).toThrow();
-  });
-
-});
-
-describe('SellpiaInventoryQualityReportSchema', () => {
-  const issue = {
-    code: 'missing_name',
-    severity: 'warning' as const,
-    count: 2,
-    sampleRowNumbers: [2, 8],
-    sampleProductCodes: ['P-100', 'P-200'],
-  };
-
-  it('accepts bounded quality issues', () => {
-    expect(SellpiaInventoryQualityReportSchema.parse({ issues: [issue] })).toEqual({
-      issues: [issue],
-    });
-  });
-
-  it('allows at most twenty issues and ten samples per issue', () => {
-    expect(() => SellpiaInventoryQualityReportSchema.parse({
-      issues: Array.from({ length: 21 }, () => issue),
-    })).toThrow();
-    expect(() => SellpiaInventoryQualityReportSchema.parse({
-      issues: [{
-        ...issue,
-        sampleRowNumbers: Array.from({ length: 11 }, (_, index) => index + 1),
-      }],
-    })).toThrow();
-    expect(() => SellpiaInventoryQualityReportSchema.parse({
-      issues: [{
-        ...issue,
-        sampleProductCodes: Array.from({ length: 11 }, (_, index) => `P-${index}`),
-      }],
-    })).toThrow();
-  });
-});
-
-describe('Sellpia purchase errors', () => {
-  it('keeps the exact machine-readable error strings', () => {
-    expect(ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED).toBe('SELLPIA_SYNC_REQUIRED');
-    expect(ErrorCodes.PURCHASE.ITEM_INACTIVE).toBe('PURCHASE_ITEM_INACTIVE');
-    expect(ErrorCodes.PURCHASE.REFERENCE_INVALID).toBe('PURCHASE_REFERENCE_INVALID');
-    expect(ErrorCodes.PURCHASE.SUBMISSION_RECONCILIATION_REQUIRED).toBe(
-      'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
-    );
-    expect(ErrorCodes.PURCHASE.ROCKET_COLLECTION_INCOMPLETE).toBe(
-      'ROCKET_COLLECTION_INCOMPLETE',
-    );
   });
 });

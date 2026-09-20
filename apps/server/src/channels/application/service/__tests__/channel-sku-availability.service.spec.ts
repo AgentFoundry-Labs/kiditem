@@ -40,7 +40,6 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
       barcode: null,
       currentStock: 999,
       purchasePrice: 1_000,
-      isActive: true,
       quantity: 2,
     }],
   };
@@ -49,8 +48,6 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
 function dependencies(rows = [row()], inventoryItems = [{
   sellpiaInventorySkuId: skuId,
   currentStock: 10,
-  availableStock: 10,
-  isActive: true,
   generation: '1',
 }]) {
   const repository = { listAvailabilityRows: vi.fn().mockResolvedValue(rows) };
@@ -79,7 +76,7 @@ describe('ChannelSkuAvailabilityService', () => {
       masterProductId,
       recipeStatus: 'matched',
       sku: { id: optionId, mappingStatus: 'matched', sellableStock: 5 },
-      components: [{ quantity: 2, availableStock: 10, componentCapacity: 5, isBottleneck: true }],
+      components: [{ quantity: 2, currentStock: 10, componentCapacity: 5, isBottleneck: true }],
     });
   });
 
@@ -126,8 +123,6 @@ describe('ChannelSkuAvailabilityService', () => {
       warnings: ['inventory_unavailable'],
       components: [{
         currentStock: null,
-        availableStock: null,
-        isActive: null,
         componentCapacity: null,
         isBottleneck: null,
       }],

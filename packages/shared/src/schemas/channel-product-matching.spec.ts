@@ -27,7 +27,6 @@ describe('direct channel product and inventory matching contracts', () => {
       barcode: null,
       currentStock: 85,
       availableStock: 84,
-      isActive: true,
       quantity: 10,
     }).success).toBe(false);
   });
@@ -114,8 +113,6 @@ describe('direct channel product and inventory matching contracts', () => {
             optionName: null,
             barcode: null,
             currentStock: 85,
-            availableStock: 85,
-            isActive: true,
             quantity: 10,
           }],
         },

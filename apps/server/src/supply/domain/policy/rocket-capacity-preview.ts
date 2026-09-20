@@ -100,8 +100,7 @@ function allocateRow(
     );
     return result(row, editedQuantity, 0, 0, 'configuration_required');
   }
-  if (row.components.some(({ currentStock, isActive }) =>
-    currentStock === null || isActive === null)) {
+  if (row.components.some(({ currentStock }) => currentStock === null)) {
     return result(
       row,
       requestedEditedQuantity,
@@ -112,7 +111,6 @@ function allocateRow(
   }
   if (
     row.recipeStatus === 'review_required'
-    || row.components.some(({ isActive }) => !isActive)
   ) {
     const editedQuantity = resolveRocketPreviewEditedQuantity(
       row.poLineId,

@@ -144,23 +144,13 @@ export type ChannelProductMatchingQueueRow = z.infer<
 export const ChannelOptionInventoryComponentSchema = z.object({
   id: z.string().uuid(),
   sellpiaInventorySkuId: z.string().uuid(),
-  code: z.string().min(1),
-  name: z.string().min(1),
+  code: z.string().min(1).nullable(),
+  name: z.string().min(1).nullable(),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative().nullable(),
-  availableStock: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean().nullable(),
   quantity: z.number().int().positive(),
-}).strict().superRefine((component, ctx) => {
-  if (component.availableStock !== component.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+}).strict();
 export type ChannelOptionInventoryComponent = z.infer<
   typeof ChannelOptionInventoryComponentSchema
 >;

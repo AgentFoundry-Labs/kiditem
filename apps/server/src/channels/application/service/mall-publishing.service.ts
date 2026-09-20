@@ -262,7 +262,7 @@ export class MallPublishingService {
         sellableStock: item.sku.sellableStock,
         bottleneckCodes: item.components
           .filter((component) => component.isBottleneck)
-          .map((component) => component.code),
+          .flatMap((component) => component.code === null ? [] : [component.code]),
         desiredState: 'sold_out' as const,
       };
 

@@ -362,7 +362,7 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
           <ProductOutflowDestinations destinations={resolution.destinations} />
         ) : resolution.status === 'mapping_required' ? (
           <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800">
-            매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : resolution.reason === 'inactive_candidate' ? '비활성 SKU' : '바코드 중복'}
+            매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : '바코드 중복'}
           </span>
         ) : (
           <span className="whitespace-nowrap text-xs font-semibold text-slate-400">재고 미수집</span>

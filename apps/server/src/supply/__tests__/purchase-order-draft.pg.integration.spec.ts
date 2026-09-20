@@ -9,8 +9,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/service/sellpia-inventory-sku-read.service';
+import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
+import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
 
 const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000001';
 

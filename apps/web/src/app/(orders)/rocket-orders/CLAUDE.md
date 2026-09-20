@@ -18,8 +18,9 @@ second list.
   workbook decision while server validation uses the complete source snapshot.
 - Preview always shows the complete selected evidence. Quantity/reason edits
   make it dirty until whole-preview server revalidation succeeds.
-- Preview reads the latest stored Sellpia snapshot immediately. Official export
-  remains server-fenced to a fresh generation.
+- Preview and export first start/join Sellpia collection and wait for its
+  successful publication. The server verifies the exact completed attempt ID;
+  failure/cancellation blocks calculation without a fallback to older stock.
 - Mapping blockers link to Product Hub. A confirmed option may create an empty
   component rule or replace a fully reviewed recipe through Products'
   optimistic API, then rerun the same source preview.

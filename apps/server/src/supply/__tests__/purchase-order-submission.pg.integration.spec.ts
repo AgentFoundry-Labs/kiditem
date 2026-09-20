@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -16,6 +17,7 @@ const ORDER_ID = '20000000-0000-4000-8000-000000000001';
 const SELLPIA_SKU_ID = '20000000-0000-4000-8000-000000000002';
 const FENCE = '20000000-0000-4000-8000-000000000003';
 let verifiedAt: Date;
+let inventoryAttemptId: string;
 
 describe('purchase-order submission transaction (PG integration)', () => {
   let prisma: PrismaClient;
@@ -26,7 +28,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new PurchaseOrderSubmissionTransactionAdapter(
       prisma as unknown as PrismaService,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
   });
 
   afterAll(async () => {
@@ -52,6 +54,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         freshnessGeneration: 4n,
       },
     });
+    inventoryAttemptId = inventoryRun.id;
     await prisma.sellpiaInventorySku.create({
       data: {
         id: SELLPIA_SKU_ID,
@@ -282,12 +285,13 @@ function submissionInput(
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
     sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+    inventoryAttemptId,
+    inventoryFence: FENCE,
+    inventoryGeneration: '4',
+    inventoryCompletedAt: verifiedAt.toISOString(),
     idempotencyKey,
     requestHash,
     userId: TEST_USER_ID,
-    freshnessFence: FENCE,
-    freshnessLastVerifiedAt: verifiedAt.toISOString(),
-    freshnessExpiresAt: new Date(verifiedAt.getTime() + 10 * 60_000).toISOString(),
     requiresProvider: true,
     externalOrder: {
       externalOrderPlatform: null,

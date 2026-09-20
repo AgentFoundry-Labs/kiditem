@@ -12,6 +12,7 @@
 | CoupangDirectPoSnapshot | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
+| CoupangShipmentDateSummary | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
 | Order | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderCollectionArtifact | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
@@ -67,6 +68,17 @@ erDiagram
     Json matchedLines
     Json unmatchedLines
     DateTime createdAt
+  }
+  CoupangShipmentDateSummary {
+    String id PK
+    String organizationId FK
+    String sourceImportRunId FK
+    String shipmentDate
+    Int count
+    Int boxes
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   Order {
     String id PK
@@ -209,6 +221,8 @@ erDiagram
 | CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
 | CoupangDirectTransportReceipt | organization | references external | Core | Organization |
 | CoupangDirectTransportReceipt | rocketPurchaseConfirmation | references external | Supply | RocketPurchaseConfirmation |
+| CoupangShipmentDateSummary | organization | references external | Core | Organization |
+| CoupangShipmentDateSummary | sourceImportRun | references external | Core | SourceImportRun |
 | Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
 | Order | sourceImportRun | references external | Core | SourceImportRun |

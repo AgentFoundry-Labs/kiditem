@@ -169,8 +169,6 @@ describe('ProductOperationsService', () => {
         items: [{
           sellpiaInventorySkuId: skuId,
           currentStock: 100,
-          availableStock: 100,
-          isActive: true,
           generation: '12',
         }],
       }),
@@ -687,12 +685,10 @@ function makeService(
   );
 }
 
-function inventoryAvailability(sellpiaInventorySkuId: string, availableStock: number) {
+function inventoryAvailability(sellpiaInventorySkuId: string, currentStock: number) {
   return {
     sellpiaInventorySkuId,
-    currentStock: availableStock,
-    availableStock,
-    isActive: true,
+    currentStock,
     generation: '12',
   };
 }

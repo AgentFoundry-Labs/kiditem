@@ -25,8 +25,8 @@ type DraftComponent = {
   clientId: string;
   sellpiaInventorySkuId: string;
   quantity: number | null;
-  code: string;
-  name: string;
+  code: string | null;
+  name: string | null;
   optionName: string | null;
   currentStock: number | null;
 };
@@ -38,8 +38,8 @@ export type ChannelOptionInventoryEditorTarget = {
   inventoryComponents: Array<{
     id: string;
     sellpiaInventorySkuId: string;
-    code: string;
-    name: string;
+    code: string | null;
+    name: string | null;
     optionName: string | null;
     currentStock: number | null;
     quantity: number;
@@ -225,14 +225,14 @@ export function ChannelOptionInventoryDialog({
                 {draft.map((component, index) => (
                   <div key={component.clientId} className="grid gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4 sm:grid-cols-[1fr_120px_40px]">
                     <div className="min-w-0 text-xs text-[var(--text-secondary)]">
-                      <p className="truncate font-extrabold text-[var(--text-primary)]">{component.code} · {component.name}</p>
+                      <p className="truncate font-extrabold text-[var(--text-primary)]">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}</p>
                       <p className="mt-1 truncate">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p>
                       <code className="mt-1 block select-all truncate text-[10px] text-[var(--text-muted)]">{component.sellpiaInventorySkuId}</code>
                     </div>
                     <label className="text-xs font-bold text-[var(--text-secondary)]">
-                      <span className="sr-only">{component.code} </span>필요 수량
+                      <span className="sr-only">{component.code ?? '연결 없음'} </span>필요 수량
                       <input
-                        aria-label={`${component.code} 필요 수량`}
+                        aria-label={`${component.code ?? '연결 없음'} 필요 수량`}
                         type="number"
                         min={1}
                         required
@@ -243,7 +243,7 @@ export function ChannelOptionInventoryDialog({
                     </label>
                     <button
                       type="button"
-                      aria-label={`${component.code} 제거`}
+                      aria-label={`${component.code ?? '연결 없음'} 제거`}
                       onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}
                       className="mt-5 flex h-10 w-10 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"
                     >

@@ -6,6 +6,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { findAutoBatchCandidates } from '../../ai/adapter/out/repository/thumbnail-generation-ledger.query';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { ReviewsService } from '../../orders/services/reviews.service';
 import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {
@@ -138,6 +139,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       new Date('2026-08-01T00:00:00.000Z'),
       new Date('2026-09-01T00:00:00.000Z'),
       { hasAdAccount: true, publishedDates: 31, accountSpend: 0, coversWindow: true },
+      new InventoryTransactionalReadRepositoryAdapter(),
     )).resolves.toEqual([
       expect.objectContaining({ listingId: listing.id, grade: 'A' }),
     ]);

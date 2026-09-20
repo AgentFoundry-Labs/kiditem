@@ -5,7 +5,6 @@ import { Search } from 'lucide-react';
 import {
   INVENTORY_LINK_LABELS,
   type InventorySkuStockStatus,
-  type SellpiaInventorySkuActiveStatus,
   type SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 import { cn } from '@/lib/utils';
@@ -13,11 +12,9 @@ import { cn } from '@/lib/utils';
 type InventoryLinkStatusFilter = SellpiaInventorySkuLinkStatus | 'all';
 
 interface InventoryFiltersProps {
-  activeStatus: SellpiaInventorySkuActiveStatus;
   linkStatus: InventoryLinkStatusFilter;
   search: string;
   stockStatus: InventorySkuStockStatus;
-  onActiveStatusChange: (value: SellpiaInventorySkuActiveStatus) => void;
   onLinkStatusChange: (value: InventoryLinkStatusFilter) => void;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -30,12 +27,6 @@ const STOCK_FILTERS = [
   { label: '품절', value: 'out_of_stock' },
 ] satisfies Array<{ label: string; value: InventorySkuStockStatus }>;
 
-const ACTIVE_FILTERS = [
-  { label: '전체 상태', value: 'all' },
-  { label: '활성', value: 'active' },
-  { label: '비활성', value: 'inactive' },
-] satisfies Array<{ label: string; value: SellpiaInventorySkuActiveStatus }>;
-
 const LINK_FILTERS = [
   { label: '전체 연결', value: 'all' },
   { label: INVENTORY_LINK_LABELS.linked, value: 'linked' },
@@ -43,11 +34,9 @@ const LINK_FILTERS = [
 ] satisfies Array<{ label: string; value: InventoryLinkStatusFilter }>;
 
 export function InventoryFilters({
-  activeStatus,
   linkStatus,
   search,
   stockStatus,
-  onActiveStatusChange,
   onLinkStatusChange,
   onSearchChange,
   onSearchSubmit,
@@ -84,12 +73,6 @@ export function InventoryFilters({
           options={STOCK_FILTERS}
           selected={stockStatus}
           onChange={onStockStatusChange}
-        />
-        <FilterGroup
-          label="활성 상태"
-          options={ACTIVE_FILTERS}
-          selected={activeStatus}
-          onChange={onActiveStatusChange}
         />
         <FilterGroup
           label="연결 상태"

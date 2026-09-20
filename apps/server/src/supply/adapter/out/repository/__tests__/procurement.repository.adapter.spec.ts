@@ -144,14 +144,14 @@ describe('ProcurementRepositoryAdapter', () => {
     ]);
   });
 
-  it('validates supplier and physical Sellpia SKU ownership before creating purchase order', async () => {
+  it.each([true, false])('validates ownership regardless of legacy active flag %s', async (isActive) => {
     const prisma = makePrisma();
     prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
     const inventorySkus = makeInventorySkus();
     inventorySkus.findByIds.mockResolvedValue([
       {
         sellpiaInventorySkuId: 'sellpia-sku-1',
-        isActive: true,
+        isActive,
       },
     ]);
     prisma.purchaseOrder.create.mockResolvedValue({ id: 'po-1' });

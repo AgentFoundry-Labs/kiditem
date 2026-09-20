@@ -5,6 +5,7 @@ export const PURCHASE_ORDER_SUBMISSION_PORT = Symbol(
 export interface SubmitPurchaseOrderInput {
   organizationId: string;
   purchaseOrderId: string;
+  inventoryAttemptId: string;
   idempotencyKey: string;
   requestHash: string;
   userId: string;

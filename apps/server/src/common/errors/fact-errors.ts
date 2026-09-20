@@ -13,10 +13,12 @@ export class FactNotFoundError extends Error {
 
 /** The stored facts disagree with what the read requires. */
 export class FactConflictError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly details?: { code: string; attemptId?: string }) {
     super(message);
     this.name = 'FactConflictError';
   }
+
+  get code(): string | undefined { return this.details?.code; }
 }
 
 /** The read's own input cannot select any facts. */
@@ -24,5 +26,13 @@ export class FactInputError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'FactInputError';
+  }
+}
+
+/** A well-formed reference cannot participate in the requested operation. */
+export class FactReferenceError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = 'FactReferenceError';
   }
 }

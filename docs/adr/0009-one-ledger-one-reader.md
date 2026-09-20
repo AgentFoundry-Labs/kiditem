@@ -77,3 +77,7 @@ service output, including incomplete coverage, measured empty windows, and
 organization isolation. Scanner tests plant forbidden consumers and require
 failure. The manifest records migration exceptions; their presence is not
 evidence that migration or schema deletion is complete.
+
+[ADR-0015](0015-inventory-reads-use-a-transaction-port.md) supersedes the
+reader-location and direct-import convention for Inventory only, preserving
+the single reader and caller-owned transaction through its published port.

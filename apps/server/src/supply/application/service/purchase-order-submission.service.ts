@@ -57,8 +57,9 @@ implements PurchaseOrderSubmissionPort {
     const sellpiaInventorySkuIds = [
       ...new Set(purchaseOrder.items.map((item) => item.sellpiaInventorySkuId)),
     ];
-    const gate = await this.freshness.assertFreshAndActive({
+    const gate = await this.freshness.requireCollectedStock({
       organizationId: input.organizationId,
+      attemptId: input.inventoryAttemptId,
       sellpiaInventorySkuIds,
     });
     const externalOrder = {
@@ -75,12 +76,13 @@ implements PurchaseOrderSubmissionPort {
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
       sellpiaInventorySkuIds,
+      inventoryAttemptId: gate.attemptId,
+      inventoryFence: gate.fence,
+      inventoryGeneration: gate.generation,
+      inventoryCompletedAt: gate.completedAt,
       idempotencyKey,
       requestHash,
       userId: input.userId,
-      freshnessFence: gate.fence,
-      freshnessLastVerifiedAt: gate.lastVerifiedAt,
-      freshnessExpiresAt: gate.expiresAt,
       requiresProvider,
       externalOrder,
     });
@@ -175,6 +177,7 @@ function cleanKey(value: string): string {
 function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
   const businessInput = {
     purchaseOrderId: input.purchaseOrderId,
+    inventoryAttemptId: input.inventoryAttemptId,
     ...(input.externalOrderPlatform !== undefined && {
       externalOrderPlatform: input.externalOrderPlatform,
     }),

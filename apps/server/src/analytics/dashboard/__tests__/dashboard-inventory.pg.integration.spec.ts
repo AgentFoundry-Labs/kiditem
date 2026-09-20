@@ -1,3 +1,4 @@
+import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -17,6 +18,7 @@ import { buildDashboardContext } from '../domain/context';
 import { businessDateText } from '../domain/period/dashboard-period';
 import { shiftBusinessDateKey } from '../../../common/kst';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
+import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 import {
@@ -48,14 +50,15 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const inventoryTransactionalRead = new InventoryTransactionalReadRepositoryAdapter();
     const alerts = new SourceFailureAlerts(prisma as never);
-    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts);
-    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
+    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
     const evidence = new MasterProductProfitabilityReadService(
       sellpiaSource,
       advertisingSource,
       prisma as never,
-    );
+     new InventoryTransactionalReadRepositoryAdapter());
     const m = await Test.createTestingModule({
       providers: [
         DashboardInventoryService,
@@ -72,6 +75,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         // account published anything for the window is a fact only rows can
         // hold, so a stub here would decide the very thing under test.
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
+        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useValue: inventoryTransactionalRead },
       ],
     }).compile();
     service = m.get(DashboardInventoryService);

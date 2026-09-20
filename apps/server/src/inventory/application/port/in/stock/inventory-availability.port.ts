@@ -1,5 +1,5 @@
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
-import type { InventoryAvailabilityCandidate } from '../../../../read/inventory-availability';
+import type { InventoryAvailabilityCandidate } from '../../../../domain/inventory-item';
 
 /** The candidate `read/inventory-availability.ts` returns. */
 export type { InventoryAvailabilityCandidate };

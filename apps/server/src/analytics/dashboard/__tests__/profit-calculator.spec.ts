@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../adapter/out/repository/profit-calculation.repository.adapter";
 import type { PrismaService } from "../../../prisma/prisma.service";
+import type { InventoryTransactionalReadPort } from "../../../inventory/application/port/in/stock/inventory-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/read/order-facts.reader";
-import { readInventorySkuIdentities } from "../../../inventory/read/inventory-availability";
 import {
   advertisingApplies,
   readAdWindowFacts,
@@ -17,15 +17,6 @@ vi.mock("../../../orders/read/order-facts.reader", async (importOriginal) => ({
   >()),
   readOrderLineWindowFacts: vi.fn(),
 }));
-vi.mock(
-  "../../../inventory/read/inventory-availability",
-  async (importOriginal) => ({
-    ...(await importOriginal<
-      typeof import("../../../inventory/read/inventory-availability")
-    >()),
-    readInventorySkuIdentities: vi.fn(),
-  }),
-);
 vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../advertising/read/ad-target-facts")>()),
   advertisingApplies: vi.fn(),
@@ -33,7 +24,6 @@ vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => (
 }));
 
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
-const mockedReadInventorySkuIdentities = vi.mocked(readInventorySkuIdentities);
 const mockedAdvertisingApplies = vi.mocked(advertisingApplies);
 const mockedReadAdWindowFacts = vi.mocked(readAdWindowFacts);
 
@@ -47,6 +37,9 @@ type PrismaMock = {
   $transaction: ReturnType<typeof vi.fn>;
   channelListingOption: { findMany: ReturnType<typeof vi.fn> };
   channelAccount: { findMany: ReturnType<typeof vi.fn> };
+  inventoryTransactionalRead: {
+    readSkuIdentities: ReturnType<typeof vi.fn>;
+  };
 };
 
 /**
@@ -159,7 +152,9 @@ function makePrisma(
       orders: factOrders,
     };
   });
-  mockedReadInventorySkuIdentities.mockResolvedValue(identityRows as never);
+  const inventoryTransactionalRead = {
+    readSkuIdentities: vi.fn().mockResolvedValue(identityRows as never),
+  };
 
   const prisma = {
     $transaction: vi.fn(),
@@ -169,6 +164,7 @@ function makePrisma(
         { id: ACCOUNT_ID, channel: options.accountChannel ?? "rocket" },
       ]),
     },
+    inventoryTransactionalRead,
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return prisma;
@@ -205,6 +201,7 @@ function makeAdapter(
   });
   return new ProfitCalculationRepositoryAdapter(
     prisma as unknown as PrismaService,
+    prisma.inventoryTransactionalRead as unknown as InventoryTransactionalReadPort,
   );
 }
 

@@ -124,30 +124,26 @@ describe('channels architecture contract', () => {
     const hits = rg(
       `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
     );
-    expect(hits).toEqual([
+    expect(hits.sort()).toEqual([
       path.join(channels, 'adapter/out/inventory/sellpia-recipe-evidence.adapter.ts'),
+      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
+      path.join(channels, 'adapter/out/repository/channel-recipe-suggestion-context.repository.adapter.ts'),
     ]);
 
-    const transactionReaderHits = rg(
-      `--type ts --files-with-matches 'inventory/read/inventory-availability' ${channels} --glob '!**/__tests__/**'`,
+    const transactionPortHits = rg(
+      `--type ts --files-with-matches 'inventory/application/port/in/stock/inventory-transactional-read' ${channels} --glob '!**/__tests__/**'`,
     );
-    expect(transactionReaderHits.sort()).toEqual([
+    expect(transactionPortHits.sort()).toEqual([
       path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
       // The mall listing matrix shows each master product's stock.
       path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
       path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
     ]);
 
-    // Inventory's exported lock, taken by the adapters that read availability
-    // and by the manual-match publication it serializes with.
-    const inventoryLockHits = rg(
-      `--type ts --files-with-matches 'inventory/transaction/sellpia-inventory-lock' ${channels} --glob '!**/__tests__/**'`,
+    const concreteInventoryHits = rg(
+      `--type ts --files-with-matches 'inventory/adapter/out/persistence/(read|transaction)' ${channels} --glob '!**/__tests__/**'`,
     );
-    expect(inventoryLockHits.sort()).toEqual([
-      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
-      path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
-      path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
-    ]);
+    expect(concreteInventoryHits).toEqual([]);
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {

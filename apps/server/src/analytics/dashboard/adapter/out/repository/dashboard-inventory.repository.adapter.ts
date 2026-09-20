@@ -18,10 +18,9 @@ import { productAbcDisplayStatus } from "@kiditem/shared/product-abc";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
 import {
-  readInventoryAvailability,
-  readInventorySkuIdentities,
-} from "../../../../../inventory/read/inventory-availability";
-import { lockSellpiaInventory } from "../../../../../inventory/transaction/sellpia-inventory-lock";
+  INVENTORY_TRANSACTIONAL_READ_PORT,
+  type InventoryTransactionalReadPort,
+} from '../../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { readCurrentProductAbcGradeChanges } from "../../../../../products/read/product-abc-publication.reader";
 import { readCurrentReviewListingStats } from "../../../../../orders/read/review-facts.reader";
 import {
@@ -49,6 +48,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
   ) {}
 
   async readProductAbcFacts(
@@ -205,6 +206,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           from,
           to,
           accountAdEvidence,
+          undefined,
+          this.inventoryTransactionalRead,
         );
         return {
           rows: metrics,
@@ -251,38 +254,31 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
             },
           },
         });
-        const componentSkuIds = [
-          ...new Set(
-            listings.flatMap((listing) =>
-              listing.options.flatMap((option) =>
-                option.inventoryComponents.map(
-                  (component) => component.sellpiaInventorySkuId,
-                ),
-              ),
-            ),
-          ),
-        ];
-        const [statusFacts, identities, activeIdentities] = await Promise.all([
+        const inventoryContext = { client: tx };
+        const [statusFacts, identities] = await Promise.all([
           readLatestListingSaleStatusFacts(tx, {
             organizationId,
             listingIds: listings.map((listing) => listing.id),
           }),
-          readInventorySkuIdentities(tx, {
+          this.inventoryTransactionalRead.readSkuIdentities(inventoryContext, {
             organizationId,
-            selector: { kind: "ids", values: componentSkuIds },
-          }),
-          readInventorySkuIdentities(tx, {
-            organizationId,
-            selector: { kind: "active" },
+            selector: { kind: "all" },
           }),
         ]);
-        const inventoryLock = await lockSellpiaInventory(tx, organizationId);
-        const availability = await readInventoryAvailability(tx, inventoryLock, {
+        const inventoryLock = await this.inventoryTransactionalRead.lock(
+          inventoryContext,
           organizationId,
-          sellpiaInventorySkuIds: activeIdentities.map(
+        );
+        const availability = await this.inventoryTransactionalRead.readAvailability(
+          inventoryContext,
+          inventoryLock,
+          {
+          organizationId,
+          sellpiaInventorySkuIds: identities.map(
             (sku) => sku.sellpiaInventorySkuId,
           ),
-        });
+          },
+        );
         const masterProductIds = [...new Set(
           listings.flatMap((listing) =>
             listing.masterProductId ? [listing.masterProductId] : []),
@@ -306,7 +302,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         );
         const stockMeasured =
           availability.snapshot.collected &&
-          activeIdentities.every((sku) =>
+          identities.every((sku) =>
             availabilityBySkuId.has(sku.sellpiaInventorySkuId),
           );
         const saleStatusByListing = new Map(
@@ -331,8 +327,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
             } else if (
               option.inventoryComponents.some(
                 (component) =>
-                  identityBySkuId.get(component.sellpiaInventorySkuId)
-                    ?.isActive !== true,
+                  !identityBySkuId.has(component.sellpiaInventorySkuId),
               )
             ) {
               needsReview += 1;
@@ -349,7 +344,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         }
         return {
           outOfStockSkus: stockMeasured
-            ? activeIdentities.filter(
+            ? identities.filter(
                 (sku) =>
                   availabilityBySkuId.get(sku.sellpiaInventorySkuId)
                     ?.currentStock === 0,

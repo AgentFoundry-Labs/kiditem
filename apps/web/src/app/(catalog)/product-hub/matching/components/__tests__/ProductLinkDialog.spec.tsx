@@ -25,8 +25,6 @@ describe('<ProductLinkDialog>', () => {
         optionName: null,
         barcode: null,
         currentStock: 80,
-        availableStock: 80,
-        isActive: true,
       }] }, isLoading: false, error: null,
     } as ReturnType<typeof useRecipeComponentCandidates>);
     vi.mocked(useSaveProductInventoryMatching).mockReturnValue({
@@ -134,8 +132,6 @@ describe('<ProductLinkDialog>', () => {
       optionName: null,
       barcode: null,
       currentStock: 80,
-      availableStock: 80,
-      isActive: true,
       quantity: 1,
     });
     render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow(true)} options={[configuredOption]} />);

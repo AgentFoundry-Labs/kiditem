@@ -40,7 +40,7 @@ multiple route groups.
   events and one-time removal of the retired localStorage bearer record.
 - `extension-auth.ts` owns the explicit, just-in-time extension token handoff;
   no general browser API caller may consume that token.
-- `sellpia-inventory-freshness-api.ts` owns freshness reads, import history, and
+- `sellpia-inventory-freshness-api.ts` owns collection-status reads, import history, and
   the authoritative latest completed inventory basis read. The route-local
   Sellpia source-owner helper owns source attempts, extension dispatch, and
   terminal observation.
@@ -51,7 +51,7 @@ multiple route groups.
   control over `trend-source-collection.ts`. Sellpia callers use the route-local
   source-owner helper instead of a generic operation action.
 - Shipment summary callers use `coupang-shipment-summary-action.ts` to begin
-  the Inventory attempt and send only its ID to the extension. Read status,
+  the Orders-owned shipment attempt and send only its ID to the extension. Read status,
   capture cutoff, and calendar history from the owner; keep provider rows and
   terminal writes out of the page.
 - Rocket PO callers start and stop collection through the account's shared

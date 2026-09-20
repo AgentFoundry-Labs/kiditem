@@ -1,7 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
-  Injectable,
+  Inject, Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -27,6 +27,12 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import { listSellingMasterProductIds } from './selling-master-product.query';
+import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+import {
+  SELLPIA_INVENTORY_SKU_READ_PORT,
+  type SellpiaInventorySkuReadModel,
+  type SellpiaInventorySkuReadPort,
+} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
 import type {
   MasterProductOperationsListQuery,
 } from '@kiditem/shared/product-operations';
@@ -83,15 +89,6 @@ function productInclude(organizationId: string) {
                 id: true,
                 sellpiaInventorySkuId: true,
                 quantity: true,
-                sellpiaInventorySku: {
-                  select: {
-                    id: true,
-                    code: true,
-                    name: true,
-                    optionName: true,
-                    barcode: true,
-                  },
-                },
               },
             },
           },
@@ -105,10 +102,21 @@ type ProductRow = Prisma.MasterProductGetPayload<{
   include: ReturnType<typeof productInclude>;
 }>;
 
+type InventorySkuIdentityById = ReadonlyMap<
+  string,
+  SellpiaInventorySkuReadModel
+>;
+
 @Injectable()
 export class ProductOperationsRepositoryAdapter
 implements ProductOperationsRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
+    private readonly inventorySkuRead: SellpiaInventorySkuReadPort,
+  ) {}
 
   async listDisplayMediaTargets(
     organizationId: string,
@@ -149,15 +157,25 @@ implements ProductOperationsRepositoryPort {
     const cutoff = new Date(`${productAbcEvidenceCutoff(new Date())}T00:00:00.000Z`);
     const periodStart = addDays(cutoff, -(query.periodDays - 1));
     const periodEnd = addDays(cutoff, 1);
-    const { sellingMasterProductIds, sellingChannelProducts, rows, adByListing, traffic, adCoverage, orders, orderLines } =
+    const { sellingMasterProductIds, sellingChannelProducts, rows, inventoryIdentities, adByListing, traffic, adCoverage, orders, orderLines } =
       await this.prisma.$transaction(async (tx) => {
-        const sellingMasterProductIds = await listSellingMasterProductIds(tx, organizationId);
+        const sellingMasterProductIds = await listSellingMasterProductIds(
+          tx,
+          organizationId,
+          undefined,
+          this.inventoryTransactionalRead,
+        );
         const sellingChannelProducts = await this.listSellingChannelProducts(tx, organizationId);
         const rows = await tx.masterProduct.findMany({
           where: productListWhere(organizationId, query, sellingMasterProductIds),
           include: productInclude(organizationId),
           orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         });
+        const inventoryIdentities = await this.readInventoryIdentitiesInTransaction(
+          tx,
+          organizationId,
+          rows,
+        );
         // The ad window keeps the period length but ends at the ad evidence
         // cutoff: yesterday, unless every account held yesterday as unreported.
         const adCutoff = await readAdEvidenceCutoff(tx, { organizationId, closedDay: cutoff });
@@ -179,9 +197,23 @@ implements ProductOperationsRepositoryPort {
         const orderWindow = { organizationId, from: kstDayStart(periodStart), to: kstDayStart(periodEnd) };
         const orders = await readOrderWindowFacts(tx, orderWindow);
         const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
-        return { sellingMasterProductIds, sellingChannelProducts, rows, adByListing, traffic, adCoverage, orders, orderLines };
+        return {
+          sellingMasterProductIds,
+          sellingChannelProducts,
+          rows,
+          inventoryIdentities,
+          adByListing,
+          traffic,
+          adCoverage,
+          orders,
+          orderLines,
+        };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
+    const inventorySkuById = new Map(inventoryIdentities.map((identity) => [
+      identity.sellpiaInventorySkuId,
+      identity,
+    ]));
     // The reader also returns rows on refused dates; only covered days count.
     const trafficDates = new Set(traffic.coverage.includedDates);
     const trafficByListing = new Map<string, ListingTrafficDailyFact[]>();
@@ -220,6 +252,7 @@ implements ProductOperationsRepositoryPort {
         trafficCoverage,
         orderCoverage,
         orderLines,
+        inventorySkuById,
       )),
       page: query.page,
       limit: query.limit,
@@ -288,7 +321,14 @@ implements ProductOperationsRepositoryPort {
       include: productInclude(organizationId),
     });
     if (!row) throw new NotFoundException('MasterProduct was not found');
-    return toDetail(row);
+    const inventoryIdentities = await this.readInventoryIdentities(
+      organizationId,
+      [row],
+    );
+    return toDetail(row, new Map(inventoryIdentities.map((identity) => [
+      identity.sellpiaInventorySkuId,
+      identity,
+    ])));
   }
 
   async createProduct(input: {
@@ -331,6 +371,28 @@ implements ProductOperationsRepositoryPort {
     } catch (error) {
       throw translateMutationError(error);
     }
+  }
+
+  private async readInventoryIdentitiesInTransaction(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    rows: ProductRow[],
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const ids = collectInventorySkuIds(rows);
+    if (ids.length === 0) return [];
+    return this.inventoryTransactionalRead.readSkuIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: ids } },
+    );
+  }
+
+  private async readInventoryIdentities(
+    organizationId: string,
+    rows: ProductRow[],
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const ids = collectInventorySkuIds(rows);
+    if (ids.length === 0) return [];
+    return this.inventorySkuRead.findByIds(organizationId, ids);
   }
 
 }
@@ -377,7 +439,10 @@ function productListWhere(
   };
 }
 
-function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
+function toDetail(
+  row: ProductRow,
+  inventorySkuById: InventorySkuIdentityById,
+): ProductOperationsRepositoryDetail {
   return {
     ...metadata(row),
     inventorySkuIds: row.inventorySkus.map(({ id }) => id),
@@ -392,7 +457,7 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
       displayName: listing.displayName,
       status: listing.status,
       isActive: listing.isActive,
-      options: listing.options.map(toRepositoryOption),
+      options: listing.options.map((option) => toRepositoryOption(option, inventorySkuById)),
     })),
   };
 }
@@ -406,6 +471,7 @@ function toListItem(
   trafficCoverage: ProductOperationsRepositoryListItem['metricsFreshness']['traffic'],
   orderCoverage: ProductOperationsRepositoryListItem['metricsFreshness']['orders'],
   orderLines: readonly ListingOptionOrderFacts[],
+  inventorySkuById: InventorySkuIdentityById,
 ): ProductOperationsRepositoryListItem {
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
@@ -464,7 +530,7 @@ function toListItem(
       channelAccountName: listing.channelAccount.name,
     })),
     inventoryOptions: activeListings.flatMap((listing) =>
-      listing.options.map(toRepositoryOption)),
+      listing.options.map((option) => toRepositoryOption(option, inventorySkuById))),
     channelCount: activeListings.length,
     channelStatus: activeListings.length === 0
       ? 'unlisted'
@@ -519,6 +585,7 @@ function metadata(row: ProductRow) {
 
 function toRepositoryOption(
   option: ProductRow['channelListings'][number]['options'][number],
+  inventorySkuById: InventorySkuIdentityById,
 ) {
   return {
     id: option.id,
@@ -528,16 +595,26 @@ function toRepositoryOption(
     barcode: option.barcode,
     status: option.status,
     isActive: option.isActive,
-    inventoryComponents: option.inventoryComponents.map((component) => ({
-      id: component.id,
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      code: component.sellpiaInventorySku.code,
-      name: component.sellpiaInventorySku.name,
-      optionName: component.sellpiaInventorySku.optionName,
-      barcode: component.sellpiaInventorySku.barcode,
-      quantity: component.quantity,
-    })),
+    inventoryComponents: option.inventoryComponents.map((component) => {
+      const sku = inventorySkuById.get(component.sellpiaInventorySkuId);
+      return {
+        id: component.id,
+        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        code: sku?.code ?? null,
+        name: sku?.name ?? null,
+        optionName: sku?.optionName ?? null,
+        barcode: sku?.barcode ?? null,
+        quantity: component.quantity,
+      };
+    }),
   };
+}
+
+function collectInventorySkuIds(rows: readonly ProductRow[]): string[] {
+  return [...new Set(rows.flatMap((row) => row.channelListings.flatMap((listing) =>
+    listing.options.flatMap((option) => option.inventoryComponents.map(
+      (component) => component.sellpiaInventorySkuId,
+    )))))].sort();
 }
 
 function nullableSum<T>(rows: readonly T[], value: (row: T) => number): number | null {

@@ -6,11 +6,9 @@ describe('InventoryFilters', () => {
   it('renders one control group for each URL filter without a duplicate stock checkbox', () => {
     render(
       <InventoryFilters
-        activeStatus="all"
         linkStatus="all"
         search=""
         stockStatus="in_stock"
-        onActiveStatusChange={vi.fn()}
         onLinkStatusChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSearchSubmit={vi.fn()}
@@ -20,7 +18,6 @@ describe('InventoryFilters', () => {
 
     expect(screen.getByRole('searchbox', { name: 'Sellpia 재고 검색' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '재고 상태' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: '활성 상태' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '연결 상태' })).toBeInTheDocument();
     expect(screen.getByText('Sellpia 마지막 정상 수집 기준')).toBeInTheDocument();
     expect(screen.queryByText('Sellpia 최신 전체 스냅샷 기준')).not.toBeInTheDocument();
@@ -31,11 +28,9 @@ describe('InventoryFilters', () => {
     const onLinkStatusChange = vi.fn();
     render(
       <InventoryFilters
-        activeStatus="all"
         linkStatus="all"
         search=""
         stockStatus="in_stock"
-        onActiveStatusChange={vi.fn()}
         onLinkStatusChange={onLinkStatusChange}
         onSearchChange={vi.fn()}
         onSearchSubmit={vi.fn()}

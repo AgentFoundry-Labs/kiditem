@@ -22,16 +22,12 @@ function hydrateOption(
     return {
       ...component,
       currentStock: availability?.currentStock ?? null,
-      availableStock: availability?.availableStock ?? null,
-      isActive: availability?.isActive ?? null,
     };
   });
   const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
     currentStock: component.currentStock,
-    availableStock: component.availableStock,
     quantity: component.quantity,
-    isActive: component.isActive,
   })));
   return { ...option, inventoryComponents, capacity: capacity.capacity };
 }
@@ -100,11 +96,10 @@ function projectCanonicalInventory(
   return {
     inventoryUnits: inventory.length === 0 || measured.length !== inventory.length
       ? null
-      : measured.reduce((sum, item) => sum + (item.isActive ? item.availableStock : 0), 0),
+      : measured.reduce((sum, item) => sum + item.currentStock, 0),
     inventory: {
       skuCount: inventory.length,
       measuredSkuCount: measured.length,
-      inactiveSkuCount: measured.filter((item) => !item.isActive).length,
     },
   };
 }

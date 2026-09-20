@@ -14,7 +14,7 @@ import {
 } from '@/lib/mall-login-block';
 import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
 import { queryKeys } from '@/lib/query-keys';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
 import type { PipeBusiness } from '../components/PipeBottomDashboard';
 import { buildPipeSnapshot, type PipeSnapshot } from '../lib/pipe-model';
 import { useConfirmReport, type PipeConfirmChannel } from './use-confirm-report';
@@ -63,9 +63,9 @@ export function useAgentOrg(): {
     staleTime: 5 * 60_000,
     meta: { suppressGlobalErrorToast: true },
   });
-  const freshness = useQuery({
-    queryKey: queryKeys.inventory.freshness(),
-    queryFn: sellpiaInventoryFreshnessApi.getState,
+  const collectionStatus = useQuery({
+    queryKey: queryKeys.inventory.collectionStatus(),
+    queryFn: sellpiaInventoryCollectionStatusApi.getState,
     refetchInterval: 60_000,
     meta: { suppressGlobalErrorToast: true },
   });
@@ -103,7 +103,7 @@ export function useAgentOrg(): {
         alerts: { data: alerts.data ?? null, failed: alerts.isError },
         outcomes: { data: outcomes.data?.rows ?? null, failed: outcomes.isError },
         malls: { data: Array.isArray(malls.data) ? malls.data : null, failed: malls.isError },
-        freshness: { data: freshness.data ?? null, failed: freshness.isError },
+        collectionStatus: { data: collectionStatus.data ?? null, failed: collectionStatus.isError },
         confirm: {
           data: confirm.status?.candidates
             ? { ...confirm.status.candidates, lastReportAt: confirm.status.lastReport?.sentAt ?? null }
@@ -112,7 +112,7 @@ export function useAgentOrg(): {
         },
         loginBlocks,
       }),
-    [now, alerts.data, alerts.isError, outcomes.data, outcomes.isError, malls.data, malls.isError, freshness.data, freshness.isError, confirm.status, confirm.failed, loginBlocks],
+    [now, alerts.data, alerts.isError, outcomes.data, outcomes.isError, malls.data, malls.isError, collectionStatus.data, collectionStatus.isError, confirm.status, confirm.failed, loginBlocks],
   );
 
   const business = useMemo<PipeBusiness>(
@@ -134,7 +134,7 @@ export function useAgentOrg(): {
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.mallOperationOutcomes.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.freshness() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.collectionStatus() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesBaseline() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adBaseline() }),
     ]);

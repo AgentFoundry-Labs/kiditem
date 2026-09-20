@@ -2,7 +2,6 @@ import type {
   InventorySkuSnapshotListResponse,
   InventorySkuSnapshotItem,
   InventorySkuStockStatus,
-  SellpiaInventorySkuActiveStatus,
   SellpiaInventorySkuLinkStatus,
   SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
@@ -16,13 +15,12 @@ export type InventorySkuSnapshotListQuery = {
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
-  activeStatus?: SellpiaInventorySkuActiveStatus;
   linkStatus?: SellpiaInventorySkuLinkStatus;
 };
 
 export type InventorySkuSnapshotFilters = Pick<
   InventorySkuSnapshotListQuery,
-  'query' | 'stockStatus' | 'activeStatus' | 'linkStatus'
+  'query' | 'stockStatus' | 'linkStatus'
 >;
 
 export type SellpiaImportRunListQuery = {

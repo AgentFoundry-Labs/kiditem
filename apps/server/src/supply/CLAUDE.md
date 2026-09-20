@@ -36,6 +36,9 @@ are executable in [the Supply tests](__tests__/).
 - Real ordering uses the submission port with an authenticated actor and
   caller-stable idempotency key; generic status updates cannot perform
   pending-to-ordered.
+- Submission verifies the completed Sellpia attempt and revalidates its
+  generation and fence inside the submission transaction; elapsed time is not
+  an inventory rejection rule.
 - Persist a prepared attempt before external checkout. Only its creator may
   call the provider. Observers reconcile unresolved outcomes rather than
   calling create again.
@@ -45,12 +48,14 @@ are executable in [the Supply tests](__tests__/).
 ## Rocket Workbook Contract
 
 - Preview reads the referenced account-scoped COMPLETE Rocket snapshot through
-  Channels and evaluates the latest stored Inventory snapshot. Source publication
+  Channels after Sellpia collection successfully publishes to Inventory. Each
+  calculation carries the exact completed Inventory attempt ID; failed or
+  cancelled collection cannot fall back to older stock. Source publication
   and failure belong to Channels; preview only allocates and never reserves stock,
   writes a workbook, or calls a purchase provider.
 - Allocate shared component stock once in stable ETA/PO/line order. Strict edits
   fail by default; explicit clamping applies in that same global order.
-- Official export reruns canonical preview in fresh mode, requires every line
+- Official export reruns canonical preview against that completed attempt, requires every line
   to have an active confirmed option recipe and reviewed quantity, and fences
   the artifact to the source snapshot, Inventory generation, and unchanged
   component identities.

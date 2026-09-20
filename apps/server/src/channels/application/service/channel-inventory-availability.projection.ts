@@ -15,8 +15,6 @@ export function projectChannelInventoryComponents<T extends ChannelRecipeCompone
     return {
       ...component,
       currentStock: inventory?.currentStock ?? null,
-      availableStock: inventory?.availableStock ?? null,
-      isActive: inventory?.isActive ?? null,
     };
   });
   return {

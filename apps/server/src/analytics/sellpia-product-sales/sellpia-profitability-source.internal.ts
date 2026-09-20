@@ -92,7 +92,6 @@ export type InventoryCandidate = Readonly<{
   id: string;
   code: string;
   barcode: string | null;
-  isActive: boolean;
   masterProductId: string | null;
 }>;
 

@@ -15,7 +15,8 @@ import { ChannelProductMatchingController } from '../adapter/in/http/channel-pro
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
-import { lockSellpiaInventory } from '../../inventory/transaction/sellpia-inventory-lock';
+import { lockSellpiaInventory } from '../../inventory/adapter/out/persistence/transaction/sellpia-inventory-lock';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import {
   SellpiaManualMatchSourceStatusSchema,
   type SellpiaManualMatchSnapshot,
@@ -134,7 +135,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     });
     await prisma.sellpiaInventorySku.update({
       where: { id: secondSkuId },
-      data: { isActive: false },
+      data: { code: '6402-3' },
     });
 
     await expect(owner.beginAttempt({
@@ -169,7 +170,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
 
     await prisma.sellpiaInventorySku.update({
       where: { id: secondSkuId },
-      data: { isActive: false },
+      data: { code: '6402-3' },
     });
     await expect(owner.completeAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -257,6 +258,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     const failingOwner = new SellpiaManualMatchRepositoryAdapter(
       prisma as unknown as PrismaService,
       failingAlerts,
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
 
     await expect(failingOwner.completeAttempt({
@@ -494,7 +496,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       await lockRelease;
       await tx.sellpiaInventorySku.update({
         where: { id: secondSkuId },
-        data: { isActive: false },
+        data: { code: '6402-3' },
       });
     }, { maxWait: 10_000, timeout: 30_000 });
     await lockReady;
@@ -519,6 +521,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     return new SellpiaManualMatchRepositoryAdapter(
       client as unknown as PrismaService,
       new SourceFailureAlerts(client as unknown as PrismaService),
+      new InventoryTransactionalReadRepositoryAdapter(),
     );
   }
 

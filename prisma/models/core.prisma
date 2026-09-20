@@ -780,7 +780,6 @@ model ChannelListingOptionInventoryComponent {
 
   organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku  SellpiaInventorySku  @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([channelListingOptionId, sellpiaInventorySkuId])
   @@index([organizationId, channelListingOptionId], map: "channel_option_inventory_components_org_option_idx")

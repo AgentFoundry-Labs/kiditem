@@ -8,6 +8,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../common/product-mapping-generation';
+import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -309,7 +310,10 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
     await acquired.promise;
 
     const publication = settleLater(
-      new MasterProductAbcRepositoryAdapter(prisma as never).publish(publicationInput()),
+      new MasterProductAbcRepositoryAdapter(
+        prisma as never,
+        new InventoryTransactionalReadRepositoryAdapter(),
+      ).publish(publicationInput()),
     );
     try {
       await waitForAdvisoryLockWaiter();

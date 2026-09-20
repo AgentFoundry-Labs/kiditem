@@ -7,30 +7,30 @@ import {
 const FILE_HASH = 'a'.repeat(64);
 
 describe('evaluateSellpiaInventoryQuality', () => {
-  it('hard-blocks a row loss of exactly 30 percent', () => {
+  it('does not block a row loss of 30 percent', () => {
     const result = evaluateSellpiaInventoryQuality(makeInput({
       previousRowCount: 10,
       incomingProductCodes: codes(7),
       previousActiveProductCodes: codes(10),
     }));
 
-    expect(result.blocked).toBe(true);
-    expect(result.report.issues).toContainEqual(expect.objectContaining({
+    expect(result.blocked).toBe(false);
+    expect(result.report.issues).not.toContainEqual(expect.objectContaining({
       code: 'row_loss_threshold_exceeded',
       severity: 'error',
       count: 3,
     }));
   });
 
-  it('hard-blocks when exactly 30 percent of active product codes disappear', () => {
+  it('does not block when 30 percent of codes disappear', () => {
     const result = evaluateSellpiaInventoryQuality(makeInput({
       previousRowCount: 10,
       previousActiveProductCodes: codes(10),
       incomingProductCodes: [...codes(7), 'NEW-1', 'NEW-2', 'NEW-3'],
     }));
 
-    expect(result.blocked).toBe(true);
-    expect(result.report.issues).toContainEqual(expect.objectContaining({
+    expect(result.blocked).toBe(false);
+    expect(result.report.issues).not.toContainEqual(expect.objectContaining({
       code: 'active_code_loss_threshold_exceeded',
       severity: 'error',
       count: 3,
@@ -52,14 +52,13 @@ describe('evaluateSellpiaInventoryQuality', () => {
     }));
   });
 
-  it('records bounded missing-field and inactive-recipe warnings with stable identities', () => {
+  it('records bounded missing-field warnings with stable identities', () => {
     const input = makeInput({
       facts: [
         { code: 'missing_name', rowNumber: 2, productCode: 'SP-1' },
         { code: 'missing_barcode', rowNumber: 2, productCode: 'SP-1' },
         { code: 'missing_price', rowNumber: 2, productCode: 'SP-1' },
       ],
-      confirmedReferencedProductCodes: ['SP-INACTIVE'],
     });
 
     const first = evaluateSellpiaInventoryQuality(input);
@@ -70,7 +69,6 @@ describe('evaluateSellpiaInventoryQuality', () => {
       'missing_name',
       'missing_barcode',
       'missing_price',
-      'inactive_recipe_reference',
     ]) {
       expect(first.report.issues).toContainEqual(expect.objectContaining({
         code: `${FILE_HASH}:${warningCode}`,
@@ -107,7 +105,6 @@ function makeInput(
     previousActiveProductCodes: ['SP-1'],
     incomingProductCodes: ['SP-1'],
     facts: [],
-    confirmedReferencedProductCodes: [],
     ...overrides,
   };
 }

@@ -41,7 +41,7 @@ owns physical stock quantities.
   replacement explicitly clears the composition. Physical stock is never
   mutated by this endpoint.
 - Capacity is derived from the option's direct components using Inventory's
-  physical `availableStock === currentStock` projection.
+  physical `currentStock` projection.
 - Product-level inventory is the owned source SKU of the canonical
   MasterProduct. Channel options are consumers of that inventory product;
   Products never creates a second ledger.
