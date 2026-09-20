@@ -13,6 +13,29 @@ export interface MallCategoryTables {
   esmBySite: Readonly<Record<string, string>>;
   /** 쿠팡: 카테고리 번호 → [경로, 구매옵션 칸…](`색상 [필수]`, `수량 [필수] [기본단위: 개]`). */
   coupang: Readonly<Record<string, readonly string[]>>;
+  /** 아이스크림몰: 분류가 고시 품목 · 안전인증 대상 · 마진율까지 정한다(양식의 참조 시트). */
+  icecream: IcecreamTables;
+}
+
+export interface IcecreamTables {
+  /** 표준카테고리 번호 → 그 분류가 정하는 값. */
+  byCode: Readonly<Record<string, { path: string; safety: boolean; notice: string; margin: number | null }>>;
+  /** 경로 하나가 번호 여러 개를 가리키는 분류(양식 표에 같은 이름이 여러 번 있다). 사람이 번호를 골라야 한다. */
+  ambiguous: Readonly<Record<string, readonly string[]>>;
+  /** 고시 품목코드 → 품목 이름과 항목 이름들(최대 14개). */
+  notices: Readonly<Record<string, { name: string; items: readonly string[] }>>;
+  /** 브랜드 이름 → 브랜드 번호. */
+  brands: Readonly<Record<string, string>>;
+}
+
+export interface IcecreamCategory {
+  code: string;
+  path: string;
+  /** 이 분류에 올리려면 안전인증 번호가 있어야 하는가. */
+  safety: boolean;
+  /** 고시 품목코드(`023` 영유아용품 · `040` 기타 재화 …). */
+  notice: string;
+  margin: number | null;
 }
 
 export interface CoupangPurchaseOption {
@@ -89,6 +112,27 @@ export class MallCategoryLookup {
   /** G마켓 · 옥션 카테고리 번호 → ESM 카테고리 번호. */
   esmCode(siteCode: string | null): string | null {
     return siteCode ? this.tables.esmBySite[siteCode] ?? null : null;
+  }
+
+  /** 아이스크림몰 표준카테고리 번호 → 그 분류가 정하는 값(고시 품목 · 안전인증 대상 · 마진율). */
+  icecream(code: string | null): IcecreamCategory | null {
+    const entry = code ? this.tables.icecream.byCode[code] : undefined;
+    return entry ? { code: code!, ...entry } : null;
+  }
+
+  /** 그 경로가 가리키는 아이스크림몰 번호가 여럿이면 그 번호들. 하나뿐이거나 없으면 빈 배열. */
+  icecreamAmbiguous(path: string | null): readonly string[] {
+    if (!path?.trim()) return [];
+    return this.tables.icecream.ambiguous[categoryKey(path)] ?? [];
+  }
+
+  icecreamNotice(noticeCode: string | null): { name: string; items: readonly string[] } | null {
+    return (noticeCode ? this.tables.icecream.notices[noticeCode] : null) ?? null;
+  }
+
+  icecreamBrand(name: string | null): string | null {
+    const brand = name?.trim();
+    return (brand ? this.tables.icecream.brands[brand] : null) ?? null;
   }
 
   coupang(code: string | null): CoupangCategory | null {

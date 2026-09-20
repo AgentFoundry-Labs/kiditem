@@ -19,6 +19,7 @@ function sample(): MallSheetSourceProduct {
     ['thirtymall', '출산/육아 > 완구/매트 > 캐릭터카드/딱지'],
     ['lotte-on', '장난감/완구 > 감각발달완구 > 비눗방울'],
     ['domeggook', '유아동 > 완구/매트 > 감각발달완구 > 링쌓기/컵쌓기'],
+    ['icecream-mall', '아이스크림몰 > 유치원 > 브랜드마켓 > 장난감/완구'],
   ].map(([mallKey, path]) => ({
     mallKey: mallKey!,
     salePrice: null,
@@ -37,6 +38,16 @@ function sample(): MallSheetSourceProduct {
     detailHtml: null,
     promoText: null,
     adapterValues: { categoryCode: '29' },
+  });
+  // 스마트스토어는 분류표가 없어 몰별 값의 카테고리 번호를 그대로 쓴다.
+  overrides.push({
+    mallKey: 'smartstore',
+    salePrice: null,
+    priceRateBp: null,
+    name: null,
+    detailHtml: null,
+    promoText: null,
+    adapterValues: { categoryCode: '50003307' },
   });
   // 티쳐몰은 이름표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
@@ -215,6 +226,40 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(cell('상품명')).toBe('비눗방울 버블건 1p');
     expect(cell('판매가')).toBe(5900);
     expect(cell('이미지등록(상세)')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
+  });
+
+  it('fills the Smartstore template from row 3 after dropping the guide rows', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'smartstore')!;
+    const { rows, cell, header } = await fill(spec, { originCode: '0200037' });
+    // 1행 묶음 제목 · 2행 칸 이름은 남고, 작성 가이드(3~6행)는 상품 행이 덮는다.
+    expect(header[0]).toBe('판매자 상품코드');
+    expect(rows).toHaveLength(3);
+    expect(String(cell('카테고리코드'))).toBe('50003307');
+    expect(cell('상품명')).toBe('비눗방울 버블건 1p');
+    expect(cell('판매가')).toBe(5900);
+    expect(cell('재고수량')).toBe(999);
+    expect(cell('대표이미지')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
+    expect(cell('원산지코드')).toBe('0200037');
+    expect(cell('택배사코드')).toBe('CJGLS');
+    expect(rows.flat()).not.toContain('베이지 골지니트원피스');
+  });
+
+  it('fills the Icecream mall template from row 3 with the category-driven notice items', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'icecream-mall')!;
+    const { rows, cell, header } = await fill(spec);
+    expect(header[0]).toBe('상품명');
+    expect(rows).toHaveLength(3);
+    expect(cell('상품명')).toBe('비눗방울 버블건 1p');
+    expect(cell('표준카테고리 번호')).toBe('BC0116100100');
+    expect(cell('입점사 번호')).toBe('1482');
+    expect(cell('판매가')).toBe(5900);
+    expect(cell('공급원가 (직접입력)')).toBe(4425);
+    expect(cell('업체가A')).toBe(5310);
+    expect(cell('상품고시 품목코드')).toBe('023');
+    expect(cell('고시항목명칭1')).toBe('품명 및 모델명');
+    expect(cell('고시항목내용1')).toBe('비눗방울 버블건 1p');
+    expect(cell('안전인증 대상여부')).toBe('N');
+    expect(rows.flat()).not.toContain('상품샘플');
   });
 
   it('refuses rows that name a column the template does not have', async () => {

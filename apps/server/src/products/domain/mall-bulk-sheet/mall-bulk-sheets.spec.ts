@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { coupangWingSheet } from './coupang-wing.sheet';
 import { elevenstSheet } from './elevenst.sheet';
 import { esmSheet } from './esm.sheet';
+import { icecreamSheet } from './icecream.sheet';
+import { smartstoreSheet } from './smartstore.sheet';
 import { kidsnoteSheet } from './kidsnote.sheet';
 import {
   detailImageUrls,
@@ -28,11 +30,26 @@ const TABLES: MallCategoryTables = {
     gmarket: { '장난감/완구>감각발달완구>기타감각발달완구': '100000042200001589300028350' },
     auction: { '장난감/완구>감각발달완구>기타감각발달완구': '20141000' },
     '11st': { '장난감>감각발달완구>비눗방울/버블건': '1010963' },
+    'icecream-mall': { '아이스크림몰>유치원>브랜드마켓>장난감/완구': 'BC0116100100' },
   },
   esmBySite: { '100000042200001589300028350': '00310013000100010000', '20141000': '00310013000100010000' },
   coupang: {
     '77388': ['완구/취미>스포츠/야외완구>비누방울', '색상 [필수]', '수량 [필수] [기본단위: 개]'],
     '80000': ['식품>과자>젤리', '(택1) 개당 중량 [필수] [기본단위: g]', '(택1) 개당 용량 [필수] [기본단위: ml]', '수량 [필수] [기본단위: 개]'],
+  },
+  icecream: {
+    byCode: {
+      BC0116100100: { path: '아이스크림몰>유치원>브랜드마켓>장난감/완구', safety: false, notice: '023', margin: 12 },
+      BC0215010500: { path: '아이스크림몰>학습교구>과목별 교구>수학교구', safety: true, notice: '023', margin: 15 },
+    },
+    ambiguous: { '아이스크림몰>유치원>생활·소모품>위생/안전': ['BC0116060100', 'BC0116060200'] },
+    notices: {
+      '023': {
+        name: '영유아용품',
+        items: ['품명 및 모델명', 'KC인증 필 유무', '크기, 중량', '색상', '재질', '사용연령(체중범위)', '동일모델의 출시년월', '제조자', '제조국', '취급방법 및 주의사항', '품질보증기준', 'A/S 책임자 / 전화번호'],
+      },
+    },
+    brands: { kiditem: '11623' },
   },
 };
 const lookup = new MallCategoryLookup(TABLES);
@@ -94,6 +111,24 @@ function source(overrides: Partial<MallSheetSourceProduct> = {}): MallSheetSourc
         detailHtml: null,
         promoText: null,
         adapterValues: { categoryCode: '77388' },
+      },
+      {
+        mallKey: 'smartstore',
+        salePrice: null,
+        priceRateBp: null,
+        name: null,
+        detailHtml: null,
+        promoText: null,
+        adapterValues: { categoryCode: '50003307' },
+      },
+      {
+        mallKey: 'icecream-mall',
+        salePrice: null,
+        priceRateBp: null,
+        name: null,
+        detailHtml: null,
+        promoText: null,
+        adapterValues: { sabangnetCategoryPath: '아이스크림몰 > 유치원 > 브랜드마켓 > 장난감/완구' },
       },
       {
         mallKey: 'kidsnote',
@@ -304,6 +339,88 @@ describe('Kidsnote sheet', () => {
   });
 });
 
+describe('Smartstore sheet', () => {
+  it('writes the category code, a 10-won price and the shipping fields when no template code is given', () => {
+    const [row] = run(smartstoreSheet, source(), { originCode: '0200037' }).rows;
+    expect(row).toMatchObject({
+      '판매자 상품코드': '100105',
+      카테고리코드: '50003307',
+      상품상태: '신상품',
+      판매가: 3960,
+      부가세: '과세상품',
+      원산지코드: '0200037',
+      배송방법: '택배, 소포, 등기',
+      택배사코드: 'CJGLS',
+      배송비유형: '조건부 무료',
+      기본배송비: 3000,
+      '조건부무료- 상품판매가 합계': 30000,
+      'A/S 전화번호': '031-908-5401',
+    });
+    expect(row!['배송비 템플릿코드']).toBeNull();
+  });
+
+  it('lets a template code replace the shipping, notice and A/S fields', () => {
+    const [row] = run(smartstoreSheet, source(), { originCode: '0200037', shipTemplate: '2035152', noticeTemplate: '2250807', asTemplate: '31' }).rows;
+    expect(row).toMatchObject({ '배송비 템플릿코드': '2035152', '상품정보제공고시 템플릿코드': '2250807', 'A/S 템플릿코드': '31' });
+    expect(row!.배송방법).toBeNull();
+    expect(row!['상품정보제공고시 품명']).toBeNull();
+    expect(row!['A/S 전화번호']).toBeNull();
+  });
+
+  it('refuses a price that is not a multiple of ten', () => {
+    const { rows, problems } = run(smartstoreSheet, source({ salePrice: 3955 }), { originCode: '0200037' });
+    expect(rows).toEqual([]);
+    expect(problems.join()).toContain('10원 단위');
+  });
+});
+
+describe('Icecream mall sheet', () => {
+  it('fills the category-driven notice items, the vendor values and the form prices', () => {
+    const { rows, warnings } = run(icecreamSheet, source());
+    const row = rows[0]!;
+    expect(row).toMatchObject({
+      상품명: '[키드아이템] 할로윈 호박 바구니 12개'.replace('[키드아이템] ', ''),
+      '입점사 번호': '1482',
+      '표준카테고리 번호': 'BC0116100100',
+      표준카테고리명: '아이스크림몰>유치원>브랜드마켓>장난감/완구',
+      '입점사 상품코드': '100105',
+      '브랜드 번호': '11623',
+      '과/면세구분 (PR007)': '01',
+      '공급원가 (직접입력)': 2970,
+      판매가: 3960,
+      마진율: 25,
+      업체가A: 3560,
+      업체가B: 3760,
+      '상품고시 품목코드': '023',
+      '상품고시 품목명': '영유아용품',
+      고시항목명칭1: '품명 및 모델명',
+      고시항목명칭12: 'A/S 책임자 / 전화번호',
+      고시항목내용12: '031-908-5401',
+      '안전인증 대상여부': 'N',
+    });
+    expect(row.고시항목내용9).toBe('중국');
+    expect(warnings.join()).toContain('사진은 엑셀로 올라가지 않습니다');
+  });
+
+  it('refuses a safety-certified category without a certification number, and takes one when it exists', () => {
+    const inCategory = { adapterValues: { categoryCode: 'BC0215010500' } };
+    const mathToy = (certificationNumbers: string[]) => source({
+      certificationNumbers,
+      overrides: [{ mallKey: 'icecream-mall', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, ...inCategory }],
+    });
+    expect(run(icecreamSheet, mathToy([])).problems.join()).toContain('안전인증');
+    const [row] = run(icecreamSheet, mathToy(['CB123-456'])).rows;
+    expect(row).toMatchObject({ '안전인증 대상여부': 'Y', '안전인증구분1 (PR026)': '05', 안전인증번호1: 'CB123-456', '안전인증분야1-1': '어린이제품' });
+  });
+
+  it('asks for a number when one category name points at several', () => {
+    const many = source({
+      overrides: [{ mallKey: 'icecream-mall', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '아이스크림몰 > 유치원 > 생활·소모품 > 위생/안전' } }],
+    });
+    expect(run(icecreamSheet, many).problems.join()).toContain('번호 2개를 가리킵니다');
+  });
+});
+
 describe('sheet helpers', () => {
   it('addresses repeated headers by occurrence', () => {
     const index = headerIndex(['노출\n사이트', '인증타입', '인증타입', null, '인증타입']);
@@ -388,8 +505,8 @@ describe('mall bulk sheet registry', () => {
     const covered = new Set(MALL_BULK_SHEETS.flatMap((sheet) => sheet.mallKeys));
     expect(MALL_BULK_SHEET_UNAVAILABLE.filter((item) => covered.has(item.mallKey))).toEqual([]);
     expect([...covered].sort()).toEqual([
-      '11st', 'art09', 'auction', 'coupang', 'domeggook', 'gmarket', 'kidsnote', 'kkomangse',
-      'lotte-on', 'teacher-mall', 'thirtymall',
+      '11st', 'art09', 'auction', 'coupang', 'domeggook', 'gmarket', 'icecream-mall', 'kidsnote',
+      'kkomangse', 'lotte-on', 'smartstore', 'teacher-mall', 'thirtymall',
     ]);
   });
 });

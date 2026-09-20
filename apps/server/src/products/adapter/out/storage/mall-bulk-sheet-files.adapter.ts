@@ -16,6 +16,15 @@ import type { MallBulkSheetFilesPort } from '../../../application/port/out/stora
 /** 양식 · 카테고리표 폴더. 빌드 때 nest-cli assets 로 dist 에 같이 복사된다. */
 const TEMPLATE_DIR = join(__dirname, 'mall-bulk-templates');
 
+/** 아이스크림몰 양식이 함께 준 참조 시트(분류 · 고시 · 브랜드)를 뽑아 둔 파일. */
+interface IcecreamCategoryFile {
+  categories: Record<string, string>;
+  ambiguous: Record<string, string[]>;
+  byCode: Record<string, { path: string; safety: boolean; notice: string; margin: number | null }>;
+  notices: Record<string, { name: string; items: string[] }>;
+  brands: Record<string, string>;
+}
+
 interface EsmCategoryFile {
   gmarket: Record<string, string>;
   auction: Record<string, string>;
@@ -90,7 +99,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
   }
 
   private async loadTables(): Promise<MallCategoryTables> {
-    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw, lotteonRaw, domeggookRaw] = await Promise.all([
+    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw, lotteonRaw, domeggookRaw, icecreamRaw] = await Promise.all([
       readFile(join(TEMPLATE_DIR, 'esm-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'coupang-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, '11st-categories.json'), 'utf8'),
@@ -99,6 +108,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
       readFile(join(TEMPLATE_DIR, 'kkomangse-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'lotteon-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'domeggook-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'icecream-categories.json.gz')),
     ]);
     const esm = JSON.parse(gunzipSync(esmRaw).toString('utf8')) as EsmCategoryFile;
     const coupang = JSON.parse(gunzipSync(coupangRaw).toString('utf8')) as { categories: Record<string, string[]> };
@@ -108,6 +118,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
     const kkomangse = JSON.parse(gunzipSync(kkomangseRaw).toString('utf8')) as { categories: Record<string, string> };
     const lotteon = JSON.parse(gunzipSync(lotteonRaw).toString('utf8')) as { categories: Record<string, string> };
     const domeggook = JSON.parse(gunzipSync(domeggookRaw).toString('utf8')) as { categories: Record<string, string> };
+    const icecream = JSON.parse(gunzipSync(icecreamRaw).toString('utf8')) as IcecreamCategoryFile;
     return {
       paths: {
         gmarket: esm.gmarket,
@@ -118,9 +129,16 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
         kkomangse: kkomangse.categories,
         'lotte-on': lotteon.categories,
         domeggook: domeggook.categories,
+        'icecream-mall': icecream.categories,
       },
       esmBySite: esm.esmBySite,
       coupang: coupang.categories,
+      icecream: {
+        byCode: icecream.byCode,
+        ambiguous: icecream.ambiguous,
+        notices: icecream.notices,
+        brands: icecream.brands,
+      },
     };
   }
 }

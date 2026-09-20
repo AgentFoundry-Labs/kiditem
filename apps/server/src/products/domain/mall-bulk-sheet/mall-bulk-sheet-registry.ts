@@ -3,9 +3,11 @@ import { coupangWingSheet } from './coupang-wing.sheet';
 import { domeggookSheet } from './domeggook.sheet';
 import { elevenstSheet } from './elevenst.sheet';
 import { esmSheet } from './esm.sheet';
+import { icecreamSheet } from './icecream.sheet';
 import { kidsnoteSheet } from './kidsnote.sheet';
 import { kkomangseSheet } from './kkomangse.sheet';
 import { lotteonSheet } from './lotteon.sheet';
+import { smartstoreSheet } from './smartstore.sheet';
 import { teachervilleSheet } from './teacherville.sheet';
 import { thirtymallSheet } from './thirtymall.sheet';
 import type { MallBulkSheetSpec } from './mall-bulk-sheet';
@@ -27,6 +29,8 @@ export const MALL_BULK_SHEETS: readonly MallBulkSheetSpec[] = [
   lotteonSheet,
   domeggookSheet,
   artgongguSheet,
+  smartstoreSheet,
+  icecreamSheet,
 ];
 
 /**
