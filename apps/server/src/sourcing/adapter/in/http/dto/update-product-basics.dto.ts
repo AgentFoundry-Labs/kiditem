@@ -144,6 +144,26 @@ export class UpdateProductBasicsDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  deliveryFee?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  deliveryFeeType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationIssuer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationField?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   @Max(100)
   discountRate?: number;
 

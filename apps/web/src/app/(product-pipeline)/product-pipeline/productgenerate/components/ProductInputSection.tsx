@@ -102,6 +102,14 @@ interface ProductInputSectionProps {
   setOwnCode: (value: string) => void;
   taxType: 'taxable' | 'tax_free';
   setTaxType: (value: 'taxable' | 'tax_free') => void;
+  deliveryFee: string;
+  setDeliveryFee: (value: string) => void;
+  deliveryFeeType: 'free' | 'prepay' | 'collect' | 'collect_or_prepay';
+  setDeliveryFeeType: (value: 'free' | 'prepay' | 'collect' | 'collect_or_prepay') => void;
+  certificationIssuer: string;
+  setCertificationIssuer: (value: string) => void;
+  certificationField: string;
+  setCertificationField: (value: string) => void;
   rawOptions: string;
   setRawOptions: (value: string) => void;
   images: string[];
@@ -205,6 +213,14 @@ export default function ProductInputSection({
   setOwnCode,
   taxType,
   setTaxType,
+  deliveryFee,
+  setDeliveryFee,
+  deliveryFeeType,
+  setDeliveryFeeType,
+  certificationIssuer,
+  setCertificationIssuer,
+  certificationField,
+  setCertificationField,
   rawOptions,
   setRawOptions,
   images,
@@ -522,6 +538,33 @@ export default function ProductInputSection({
                 onChange={(value) => setTaxType(value === 'tax_free' ? 'tax_free' : 'taxable')}
                 options={[{ value: 'taxable', label: '과세' }, { value: 'tax_free', label: '면세' }]}
               />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="배송비">
+              <MoneyInput value={deliveryFee} onChange={setDeliveryFee} placeholder="예: 3000" />
+            </Field>
+            <Field label="배송비 구분">
+              <SelectField
+                value={deliveryFeeType}
+                onChange={(value) => setDeliveryFeeType(value as 'free' | 'prepay' | 'collect' | 'collect_or_prepay')}
+                options={[
+                  { value: 'prepay', label: '선결제' },
+                  { value: 'free', label: '무료' },
+                  { value: 'collect', label: '착불' },
+                  { value: 'collect_or_prepay', label: '착불 또는 선결제' },
+                ]}
+              />
+            </Field>
+            <Field label="인증기관">
+              <TextInput value={certificationIssuer} onChange={setCertificationIssuer} placeholder="예: FITI시험연구원" />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="인증분야">
+              <TextInput value={certificationField} onChange={setCertificationField} placeholder="예: 어린이제품 안전확인" />
             </Field>
           </div>
 

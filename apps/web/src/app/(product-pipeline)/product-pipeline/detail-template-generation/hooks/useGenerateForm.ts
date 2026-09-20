@@ -206,6 +206,10 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const [modelName, setModelName] = useState('');
   const [ownCode, setOwnCode] = useState('');
   const [taxType, setTaxType] = useState<'taxable' | 'tax_free'>('taxable');
+  const [deliveryFee, setDeliveryFee] = useState('');
+  const [deliveryFeeType, setDeliveryFeeType] = useState<'free' | 'prepay' | 'collect' | 'collect_or_prepay'>('prepay');
+  const [certificationIssuer, setCertificationIssuer] = useState('');
+  const [certificationField, setCertificationField] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isPrefilling, setIsPrefilling] = useState(false);
@@ -666,6 +670,14 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setOwnCode,
     taxType,
     setTaxType,
+    deliveryFee,
+    setDeliveryFee,
+    deliveryFeeType,
+    setDeliveryFeeType,
+    certificationIssuer,
+    setCertificationIssuer,
+    certificationField,
+    setCertificationField,
     images,
     setImages,
     isLoading,

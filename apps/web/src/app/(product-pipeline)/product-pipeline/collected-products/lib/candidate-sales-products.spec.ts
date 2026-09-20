@@ -106,3 +106,22 @@ describe('candidatesToSalesProducts', () => {
     expect(used.createFromCandidates).not.toHaveBeenCalled();
   });
 });
+
+describe('옵션 있는 수집상품', () => {
+  it('종류를 단품으로 만든다 — 잔디인형 모양처럼 한 상품에 여러 종류', () => {
+    const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: ['곰', '토끼', '강아지'] }), null);
+    expect(input.optionAxes).toEqual(['종류']);
+    expect(input.options).toEqual([{ values: ['곰'] }, { values: ['토끼'] }, { values: ['강아지'] }]);
+  });
+
+  it('종류가 없으면 옵션 없는 상품이다', () => {
+    const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: [] }), null);
+    expect(input.optionAxes).toEqual([]);
+    expect(input.options).toEqual([{ values: [] }]);
+  });
+
+  it('같은 종류를 두 번 적어도 단품은 하나다', () => {
+    const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: ['곰', ' 곰 ', ''] }), null);
+    expect(input.options).toEqual([{ values: ['곰'] }]);
+  });
+});

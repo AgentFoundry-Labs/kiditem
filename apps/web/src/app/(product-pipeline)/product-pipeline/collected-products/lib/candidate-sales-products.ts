@@ -21,6 +21,10 @@ const MAX_IMAGES = 30;
 const MAX_KEYWORDS = 30;
 const MAX_KEYWORD_LENGTH = 60;
 const PREPARE_CONCURRENCY = 3;
+/** 옵션 있는 상품의 단 이름. 수집상품은 종류(모양 · 색상)를 한 줄로만 적는다. */
+const CANDIDATE_OPTION_AXIS = '종류';
+/** 판매상품 단품 상한(사방넷 단품과 같은 눈금). */
+const MAX_OPTION_VALUES = 50;
 
 export function salesProductInputFromCandidate(
   detail: ProductDetailResponse,
@@ -51,10 +55,35 @@ export function salesProductInputFromCandidate(
       ? draft.detailImageUrls.map((url) => `<center><img src="${url}"></center>`).join('\n')
       : null,
     noticeCategory: CANDIDATE_NOTICE_CATEGORY,
-    certifications: certification ? [{ number: certification.slice(0, 100) }] : [],
-    optionAxes: [],
-    options: [{ values: [] }],
+    certifications: certification
+      ? [{
+        number: certification.slice(0, 100),
+        ...(basics.certificationIssuer?.trim() ? { issuer: basics.certificationIssuer.trim().slice(0, 100) } : {}),
+        ...(basics.certificationField?.trim() ? { field: basics.certificationField.trim().slice(0, 100) } : {}),
+      }]
+      : [],
+    deliveryFee: basics.deliveryFee && basics.deliveryFee > 0 ? basics.deliveryFee : null,
+    deliveryFeeType: deliveryFeeTypeOf(basics.deliveryFeeType),
+    ...optionsFromCandidate(basics.optionNames),
   };
+}
+
+/**
+ * 수집상품의 옵션 종류(잔디인형 모양 같은 것) → 판매상품 단품.
+ *
+ * 종류가 없으면 옵션 없는 상품(값 없는 단품 하나)이다. 있으면 `종류` 한 단으로 두고 종류마다 단품을 만든다 —
+ * 단품코드는 서버가 판매상품코드로 붙이고, 추가금액은 0으로 시작한다(몰마다 다른 값은 판매상품 편집에서 고친다).
+ */
+function optionsFromCandidate(optionNames: readonly string[] | undefined): Pick<SalesProductCreateInput, 'optionAxes' | 'options'> {
+  const values = [...new Set((optionNames ?? []).map((name) => name.trim()).filter(Boolean))].slice(0, MAX_OPTION_VALUES);
+  if (values.length === 0) return { optionAxes: [], options: [{ values: [] }] };
+  return { optionAxes: [CANDIDATE_OPTION_AXIS], options: values.map((value) => ({ values: [value] })) };
+}
+
+function deliveryFeeTypeOf(value: string | undefined): SalesProductCreateInput['deliveryFeeType'] {
+  const types = ['free', 'prepay', 'collect', 'collect_or_prepay'] as const;
+  const found = types.find((type) => type === value?.trim());
+  return found ?? null;
 }
 
 /** 판매상품으로 만들 수 없는 까닭. 만든 뒤에는 수집상품을 고쳐도 판매상품에 옮겨 가지 않으니 먼저 막는다. */

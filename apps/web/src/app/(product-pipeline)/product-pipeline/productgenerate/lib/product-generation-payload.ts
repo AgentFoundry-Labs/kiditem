@@ -36,6 +36,10 @@ export interface ProductGenerationPayloadInput {
   modelName?: string;
   ownCode?: string;
   taxType?: 'taxable' | 'tax_free';
+  deliveryFee?: string;
+  deliveryFeeType?: 'free' | 'prepay' | 'collect' | 'collect_or_prepay';
+  certificationIssuer?: string;
+  certificationField?: string;
 }
 
 export interface ProductGenerationPayload {
@@ -68,6 +72,10 @@ export interface ProductGenerationPayload {
   modelName?: string;
   ownCode?: string;
   taxType?: 'taxable' | 'tax_free';
+  deliveryFee?: number;
+  deliveryFeeType?: 'free' | 'prepay' | 'collect' | 'collect_or_prepay';
+  certificationIssuer?: string;
+  certificationField?: string;
 }
 
 export function buildProductGenerationPayload(
@@ -106,6 +114,11 @@ export function buildProductGenerationPayload(
     ownCode: trimmedOrUndefined(input.ownCode),
     // 과세가 기본이라 면세일 때만 보낸다.
     taxType: input.taxType === 'tax_free' ? ('tax_free' as const) : undefined,
+    deliveryFee: wonOrUndefined(input.deliveryFee),
+    // 무료가 아니면서 배송비를 적었을 때만 구분이 뜻을 가진다.
+    deliveryFeeType: input.deliveryFeeType,
+    certificationIssuer: trimmedOrUndefined(input.certificationIssuer),
+    certificationField: trimmedOrUndefined(input.certificationField),
   });
 }
 

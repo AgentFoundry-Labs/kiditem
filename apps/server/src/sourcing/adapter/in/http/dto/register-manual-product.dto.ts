@@ -112,4 +112,29 @@ export class RegisterManualProductDto {
   @IsString()
   @MaxLength(20)
   taxType?: string;
+
+  /** 사방넷 `배송비`(VAT 포함). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  deliveryFee?: number;
+
+  /** 사방넷 `배송비구분` — free 무료 · prepay 선결제 · collect 착불 · collect_or_prepay 착불/선결제. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  deliveryFeeType?: string;
+
+  /** 사방넷 인증정보의 `인증기관`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationIssuer?: string;
+
+  /** 사방넷 인증정보의 `인증분야`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationField?: string;
 }

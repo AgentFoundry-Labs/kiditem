@@ -151,6 +151,12 @@ export interface ProductBasics {
   ownCode?: string;
   /** `taxable` 과세 · `tax_free` 면세. */
   taxType?: string;
+  /** 사방넷 `배송비`(VAT 포함)와 `배송비구분`(free · prepay · collect · collect_or_prepay). */
+  deliveryFee?: number;
+  deliveryFeeType?: string;
+  /** 사방넷 인증정보의 인증기관 · 인증분야. */
+  certificationIssuer?: string;
+  certificationField?: string;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
   thumbnailUrls: string[];
@@ -210,6 +216,10 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'modelName'
   | 'ownCode'
   | 'taxType'
+  | 'deliveryFee'
+  | 'deliveryFeeType'
+  | 'certificationIssuer'
+  | 'certificationField'
   | 'discountRate'
   | 'rocketBundleQuantity'
   | 'rocketUnitCost'

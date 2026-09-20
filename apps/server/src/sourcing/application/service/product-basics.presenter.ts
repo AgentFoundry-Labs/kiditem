@@ -37,6 +37,12 @@ export interface ProductBasics {
   ownCode: string;
   /** `taxable` 과세 · `tax_free` 면세. */
   taxType: string;
+  /** 사방넷 `배송비`(VAT 포함)와 `배송비구분`. */
+  deliveryFee: number;
+  deliveryFeeType: string;
+  /** 사방넷 인증정보의 인증기관 · 인증분야. 번호는 `kcCertificationNumber` 다. */
+  certificationIssuer: string;
+  certificationField: string;
   discountRate: number;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
@@ -226,6 +232,10 @@ export function buildProductBasics({
     modelName: str(input.modelName) ?? str(manual.modelName) ?? str(raw.modelName) ?? '',
     ownCode: str(input.ownCode) ?? str(manual.ownCode) ?? str(raw.ownCode) ?? '',
     taxType: str(input.taxType) ?? str(manual.taxType) ?? str(raw.taxType) ?? 'taxable',
+    deliveryFee: num(input.deliveryFee) || num(manual.deliveryFee) || num(raw.deliveryFee),
+    deliveryFeeType: str(input.deliveryFeeType) ?? str(manual.deliveryFeeType) ?? str(raw.deliveryFeeType) ?? '',
+    certificationIssuer: str(input.certificationIssuer) ?? str(manual.certificationIssuer) ?? str(raw.certificationIssuer) ?? '',
+    certificationField: str(input.certificationField) ?? str(manual.certificationField) ?? str(raw.certificationField) ?? '',
     salePrice,
     salePriceSource,
     discountRate: num(input.discountRate) || num(manual.discountRate),

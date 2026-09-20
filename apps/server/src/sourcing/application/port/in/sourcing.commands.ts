@@ -57,6 +57,11 @@ export interface RegisterManualProductCommand {
   ownCode?: string;
   /** `taxable` 과세 · `tax_free` 면세. */
   taxType?: string;
+  deliveryFee?: number;
+  /** `free` · `prepay` · `collect` · `collect_or_prepay`. */
+  deliveryFeeType?: string;
+  certificationIssuer?: string;
+  certificationField?: string;
 }
 
 export interface CreateProductGenerationCommand extends RegisterManualProductCommand {

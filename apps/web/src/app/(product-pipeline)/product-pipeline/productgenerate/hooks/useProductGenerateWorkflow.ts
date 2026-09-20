@@ -98,6 +98,10 @@ export function useProductGenerateWorkflow() {
         modelName: form.modelName,
         ownCode: form.ownCode,
         taxType: form.taxType,
+        deliveryFee: form.deliveryFee,
+        deliveryFeeType: form.deliveryFeeType,
+        certificationIssuer: form.certificationIssuer,
+        certificationField: form.certificationField,
       });
       const fingerprint = JSON.stringify(payload);
       const idempotencyKey = pendingRequest.current?.fingerprint === fingerprint

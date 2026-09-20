@@ -90,6 +90,14 @@ function ProductGeneratePageContent() {
     setOwnCode,
     taxType,
     setTaxType,
+    deliveryFee,
+    setDeliveryFee,
+    deliveryFeeType,
+    setDeliveryFeeType,
+    certificationIssuer,
+    setCertificationIssuer,
+    certificationField,
+    setCertificationField,
   } = form;
 
   return (
@@ -157,6 +165,14 @@ function ProductGeneratePageContent() {
           setOwnCode={setOwnCode}
           taxType={taxType}
           setTaxType={setTaxType}
+          deliveryFee={deliveryFee}
+          setDeliveryFee={setDeliveryFee}
+          deliveryFeeType={deliveryFeeType}
+          setDeliveryFeeType={setDeliveryFeeType}
+          certificationIssuer={certificationIssuer}
+          setCertificationIssuer={setCertificationIssuer}
+          certificationField={certificationField}
+          setCertificationField={setCertificationField}
           rawOptions={rawOptions}
           setRawOptions={setRawOptions}
           images={images}
