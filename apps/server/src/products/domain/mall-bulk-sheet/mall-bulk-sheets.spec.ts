@@ -464,6 +464,28 @@ describe('Onchannel sheet', () => {
     expect(warnings.join()).toContain('승인 요청');
   });
 
+  it('borrows the smartstore category when onchannel has none — the numbers are the same tree', () => {
+    const borrowed = source({
+      keywords: ['가', '나', '다', '라', '마'],
+      overrides: [
+        { mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { supplyPrice: '2200' } },
+        { mallKey: 'smartstore', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울' } },
+      ],
+    });
+    expect(run(onchannelSheet, borrowed).rows[0]?.분류).toBe('50004224');
+  });
+
+  it('does not borrow a path the onchannel table has no number for', () => {
+    const unknown = source({
+      keywords: ['가', '나', '다', '라', '마'],
+      overrides: [
+        { mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { supplyPrice: '2200' } },
+        { mallKey: 'smartstore', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '없는 > 분류 > 경로' } },
+      ],
+    });
+    expect(run(onchannelSheet, unknown).problems.join()).toContain('온채널 분류 번호를 모릅니다');
+  });
+
   it('refuses a product without a supply price or with fewer than five keywords', () => {
     const noSupply = source({
       keywords: ['가', '나', '다', '라', '마'],

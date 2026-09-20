@@ -271,7 +271,8 @@ function categoryStates(
     const values = mall.values;
     const origin = values.categoryCode?.trim() || values.categoryPath?.trim()
       ? 'set'
-      : values[SALES_PRODUCT_SABANGNET_VALUE_KEYS.categoryPath]?.trim() ? 'sabangnet' : 'none';
+      // 이 몰 값이 없어도 경로가 있으면 사방넷에서 온 것이다(분류 체계가 같은 몰에서 빌려 온 경우 포함).
+      : values[SALES_PRODUCT_SABANGNET_VALUE_KEYS.categoryPath]?.trim() || mall.categoryPath ? 'sabangnet' : 'none';
     const resolved = spec.categoryBy === 'code' ? Boolean(mall.categoryCode) : Boolean(mall.categoryPath);
     const guess = resolved ? null : suggester.suggest(source.id, mallKey, source.name);
     return {

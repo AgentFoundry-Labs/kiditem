@@ -72,6 +72,24 @@ export function mallDisplayName(name: string): string {
   return rest.trim() || trimmed;
 }
 
+/**
+ * 분류 체계가 같은 다른 몰의 경로를 빌려 온다. 그 경로가 이 몰 표에서 번호로 풀릴 때만 돌려준다 — 이름만 같고
+ * 번호가 없는 경로를 넘기면 엑셀에 빈 분류가 들어간다.
+ */
+function borrowCategoryPath(
+  source: MallSheetSourceProduct,
+  spec: Pick<MallBulkSheetSpec, 'categorySharesWith'>,
+  mallKey: string,
+  categories: MallCategoryLookup,
+): string | null {
+  for (const donor of spec.categorySharesWith ?? []) {
+    const values = source.overrides.find((item) => item.mallKey === donor)?.adapterValues ?? {};
+    const path = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+    if (path && categories.code(mallKey, path)) return path;
+  }
+  return null;
+}
+
 function joinText(parts: readonly (string | null | undefined)[], separator: string): string {
   return parts.map((part) => part?.trim()).filter(Boolean).join(separator);
 }
@@ -139,7 +157,7 @@ export function unreadableSheetImages(source: Pick<MallSheetSourceProduct, 'imag
 /** 판매상품 한 건을 몰 규칙이 받는 모양으로 — 몰별 가격 · 이름 · 상세 · 카테고리 번호를 이 몰 기준으로 푼다. */
 export function toMallSheetProduct(
   source: MallSheetSourceProduct,
-  spec: Pick<MallBulkSheetSpec, 'mallKeys'>,
+  spec: Pick<MallBulkSheetSpec, 'mallKeys' | 'categorySharesWith'>,
   categories: MallCategoryLookup,
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(사진 올리기로 만든 것). */
   publicCopies: ReadonlyMap<string, string> = new Map(),
@@ -154,7 +172,10 @@ export function toMallSheetProduct(
   for (const mallKey of spec.mallKeys) {
     const override = source.overrides.find((item) => item.mallKey === mallKey) ?? null;
     const values = override?.adapterValues ?? {};
-    const categoryPath = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+    const ownPath = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+    // 분류 체계가 같은 몰에서 빌려 온다(온채널 ← 스마트스토어). 이 몰 표에서 번호가 나올 때만 쓴다.
+    const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories);
+    const categoryPath = ownPath ?? borrowed;
     const explicitCode = values.categoryCode?.trim() || null;
     malls[mallKey] = {
       salePrice: salesProductMallPrice({ salePrice: source.salePrice, extraPrice: 0, override }),

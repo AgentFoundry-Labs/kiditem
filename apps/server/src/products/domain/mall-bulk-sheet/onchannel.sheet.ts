@@ -28,6 +28,8 @@ export const onchannelSheet: MallBulkSheetSpec = {
   label: '온채널',
   mallKeys: ['onch'],
   categoryBy: 'code',
+  // 온채널 분류 번호는 네이버 번호 그대로다 — 온채널 분류가 없으면 스마트스토어 분류를 쓴다.
+  categorySharesWith: ['smartstore'],
   template: {
     file: 'onch-excel-upload-form-v1.1.xlsx',
     sheet: '양식',

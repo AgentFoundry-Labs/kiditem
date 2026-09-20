@@ -129,6 +129,12 @@ export interface MallBulkSheetSpec {
   mallKeys: readonly string[];
   /** 몰 분류를 번호로 받는가(몰 카테고리표로 경로를 번호로 바꿔야 한다), 이름으로 받는가(경로 그대로). */
   categoryBy: 'code' | 'name';
+  /**
+   * 이 몰 분류가 없을 때 대신 읽을 몰(앞에서부터). **분류 체계가 같은 몰에만 쓴다** — 온채널 번호는 네이버
+   * 번호 그대로라 스마트스토어 분류를 그대로 쓸 수 있다(2026-09-20 실측: 우리 스마트스토어 분류 22가지가 모두
+   * 온채널 표에 같은 뜻으로 있다). 빌린 경로도 이 몰 표에서 번호를 찾아야 쓴다.
+   */
+  categorySharesWith?: readonly string[];
   template: MallSheetTemplate;
   /** 몰이 한 파일에 받는 상품 수. */
   maxProducts: number;
