@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  mallDefaultPriceRateBp,
   SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   type SalesProduct,
   type SalesProductChannelOverride,
@@ -157,15 +156,11 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
               const dirty = drafts[channelAccountId] !== undefined || !override;
               const set = (patch: Partial<OverrideDraft>) =>
                 setDrafts((current) => ({ ...current, [channelAccountId]: { ...draft, ...patch } }));
-              // 둘 다 비우면 그 몰 기본 적용율(사방넷 적용율을 되살린 값)로 간다. 몰 엑셀이 쓰는 값과 같다.
-              const defaultRateBp = mallDefaultPriceRateBp(mallKey);
               const effective = draft.salePrice.trim()
                 ? Math.round(Number(draft.salePrice))
                 : draft.ratePercent.trim()
                   ? Math.round(product.salePrice * Number(draft.ratePercent) / 100)
-                  : defaultRateBp
-                    ? Math.round(product.salePrice * defaultRateBp / 10_000 / 10) * 10
-                    : product.salePrice;
+                  : product.salePrice;
               return (
                 <tr key={channelAccountId} className="border-b border-slate-100">
                   <td className="px-3 py-1.5 align-top font-medium text-slate-800">
@@ -215,12 +210,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                       aria-label={`${mallName} 상품명`}
                     />
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">
-                    {formatWon(effective)}
-                    {!draft.salePrice.trim() && !draft.ratePercent.trim() && defaultRateBp && (
-                      <span className="block text-[11px] font-normal text-slate-400">기본 {defaultRateBp / 100}%</span>
-                    )}
-                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatWon(effective)}</td>
                   <td className="px-3 py-1.5">
                     <div className="flex justify-end gap-1">
                       <button

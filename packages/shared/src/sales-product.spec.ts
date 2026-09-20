@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mallDefaultPriceRateBp, mallDisplayName, mallNamePriceCode, salesProductMallPrice } from './sales-product';
+import { mallDisplayName, mallNamePriceCode } from './sales-product';
 
 describe('mallDisplayName', () => {
   it('drops a leading consumer price of three or more digits', () => {
@@ -23,29 +23,5 @@ describe('mallNamePriceCode', () => {
     expect(mallDisplayName('500개입 고무밴드')).toBe('500개입 고무밴드');
     expect(mallDisplayName('1+1 5000돌고래비눗방울')).toBe('1+1 5000돌고래비눗방울');
     expect(mallDisplayName('2024')).toBe('2024');
-  });
-});
-
-describe('몰 기본 적용율', () => {
-  it('몰별 값이 없으면 그 몰의 적용율로 계산한다(사방넷 적용율과 같은 뜻)', () => {
-    expect(salesProductMallPrice({ salePrice: 10_000, extraPrice: 0, defaultRateBp: mallDefaultPriceRateBp('domeggook') })).toBe(9_000);
-    expect(salesProductMallPrice({ salePrice: 10_000, extraPrice: 0, defaultRateBp: mallDefaultPriceRateBp('ssg') })).toBe(10_800);
-  });
-
-  it('사람이 정한 몰 금액 · 비율이 언제나 이긴다', () => {
-    const override = { salePrice: 12_340, priceRateBp: null };
-    expect(salesProductMallPrice({ salePrice: 10_000, extraPrice: 0, override, defaultRateBp: 9_000 })).toBe(12_340);
-    expect(salesProductMallPrice({
-      salePrice: 10_000, extraPrice: 0, override: { salePrice: null, priceRateBp: 11_000 }, defaultRateBp: 9_000,
-    })).toBe(11_000);
-  });
-
-  it('적용율을 주지 않으면 기준가가 그대로 간다 — 올라간 가격을 말없이 바꾸지 않는다', () => {
-    expect(salesProductMallPrice({ salePrice: 10_000, extraPrice: 0 })).toBe(10_000);
-    expect(mallDefaultPriceRateBp('onch')).toBeNull();
-  });
-
-  it('단품 추가금액은 적용율 뒤에 더한다', () => {
-    expect(salesProductMallPrice({ salePrice: 10_000, extraPrice: 500, defaultRateBp: 9_000 })).toBe(9_500);
   });
 });

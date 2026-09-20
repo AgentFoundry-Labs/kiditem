@@ -195,8 +195,8 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(rows).toHaveLength(2);
     expect(cell('카테고리')).toBe('0001000300050004');
     expect(cell('*상품명')).toBe('비눗방울 버블건 1p');
-    expect(cell('할인가(판매가)')).toBe(6080);
-    expect(cell('공급가')).toBe(4864);
+    expect(cell('할인가(판매가)')).toBe(5900);
+    expect(cell('공급가')).toBe(4720);
     expect(cell('상품정보고시품목')).toBe('40');
     expect(String(cell('상품정보고시')).startsWith('품명 및 모델명=비눗방울 버블건 1p^')).toBe(true);
   });
@@ -210,7 +210,7 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect((rows[3] ?? []).filter(Boolean)).toEqual([]);
     expect(cell('카테고리코드')).toBe('BC55010400');
     expect(cell('상품명')).toBe('비눗방울 버블건 1p');
-    expect(cell('판매가')).toBe(5610);
+    expect(cell('판매가')).toBe(5900);
     expect(cell('대표이미지')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
     expect(rows).toHaveLength(5);
   });
@@ -220,7 +220,7 @@ describe('MallBulkSheetFilesAdapter', () => {
     const { cell } = await fill(spec, { returnAddress: 'SA1234567' });
     expect(cell('카테고리고유번호')).toBe('5576');
     expect(cell('판매채널')).toBe('도매꾹,도매매');
-    expect(cell('도매꾹 / 판매단가')).toBe('1:5310');
+    expect(cell('도매꾹 / 판매단가')).toBe('1:5900');
     expect(cell('상품정보제공고시 구분코드')).toBe(40);
     expect(String(cell('상품정보제공고시 세부항목')).split('\n')[0]).toBe('1:비눗방울 버블건 1p');
     expect(cell('반품배송지')).toBe('SA1234567');
@@ -246,7 +246,7 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(rows).toHaveLength(3);
     expect(String(cell('카테고리코드'))).toBe('50003307');
     expect(cell('상품명')).toBe('비눗방울 버블건 1p');
-    expect(cell('판매가')).toBe(6140);
+    expect(cell('판매가')).toBe(5900);
     expect(cell('재고수량')).toBe(999);
     expect(cell('대표이미지')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
     expect(cell('원산지코드')).toBe('0200037');

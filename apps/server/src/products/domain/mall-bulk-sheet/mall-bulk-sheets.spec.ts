@@ -281,7 +281,7 @@ describe('11st sheet', () => {
     const [row] = result.rows;
     expect(row).toMatchObject({
       카테고리코드: '1010963',
-      판매가: 3880,
+      판매가: 3960,
       판매방식: '01',
       원산지: '02',
       '원산지 상세지역': '1287',
@@ -316,7 +316,7 @@ describe('Coupang Wing sheet', () => {
       옵션값1: '파랑',
       옵션유형2: '수량',
       옵션값2: '1개',
-      판매가격: 4540,
+      판매가격: 4460,
       업체상품코드: '100105-0002',
       '상품고시정보 카테고리': '기타 재화',
       '상세 설명': 'https://kiditem.diskn.com/T83fBBvdxE',
@@ -340,7 +340,7 @@ describe('Kidsnote sheet', () => {
       대분류: '선물/행사/체험',
       중분류: '행사용품',
       소분류: '할로윈데이',
-      판매가: 4080,
+      판매가: 3960,
       판매자: '거영I&D',
       입점수수료: 15,
       상품정보고시: '기타',
@@ -361,7 +361,7 @@ describe('Smartstore sheet', () => {
       '판매자 상품코드': '100105',
       카테고리코드: '50003307',
       상품상태: '신상품',
-      판매가: 4120,
+      판매가: 3960,
       부가세: '과세상품',
       원산지코드: '0200037',
       '배송비 결제방식': '착불 또는 선결제',
@@ -384,11 +384,7 @@ describe('Smartstore sheet', () => {
   });
 
   it('refuses a price that is not a multiple of ten', () => {
-    // 몰 기본 적용율로 정한 값은 언제나 10원 단위다 — 사람이 몰 금액을 적었을 때만 걸린다.
-    const odd = source({
-      overrides: [{ mallKey: 'smartstore', salePrice: 3955, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50003307' } }],
-    });
-    const { rows, problems } = run(smartstoreSheet, odd);
+    const { rows, problems } = run(smartstoreSheet, source({ salePrice: 3955 }));
     expect(rows).toEqual([]);
     expect(problems.join()).toContain('10원 단위');
   });
