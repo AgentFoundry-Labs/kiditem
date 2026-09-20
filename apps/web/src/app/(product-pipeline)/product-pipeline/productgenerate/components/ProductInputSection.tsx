@@ -523,13 +523,13 @@ export default function ProductInputSection({
 
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="브랜드">
-              <OptionInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" options={BRAND_OPTIONS} listId="brand-options" />
+              <OptionInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" options={BRAND_OPTIONS} />
             </Field>
             <Field label="제조사">
-              <OptionInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" options={MANUFACTURER_OPTIONS} listId="maker-options" />
+              <OptionInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" options={MANUFACTURER_OPTIONS} />
             </Field>
             <Field label="원산지(제조국)">
-              <OptionInput value={originCountry} onChange={setOriginCountry} placeholder="중국" options={ORIGIN_COUNTRY_OPTIONS} listId="origin-options" />
+              <OptionInput value={originCountry} onChange={setOriginCountry} placeholder="중국" options={ORIGIN_COUNTRY_OPTIONS} />
             </Field>
           </div>
 
@@ -571,7 +571,7 @@ export default function ProductInputSection({
                 onChange={setCertificationIssuer}
                 placeholder="예: FITI시험연구원"
                 options={CERTIFICATION_ISSUER_OPTIONS}
-                listId="cert-issuer-options"
+               
               />
             </Field>
           </div>
@@ -583,7 +583,7 @@ export default function ProductInputSection({
                 onChange={setCertificationField}
                 placeholder="예: [어린이제품]안전확인"
                 options={CERTIFICATION_FIELD_OPTIONS}
-                listId="cert-field-options"
+               
               />
             </Field>
           </div>
