@@ -77,6 +77,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
   "apps/server/src/finance/__tests__/profitability-evidence.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/inventory-sale-age.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-detail.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
