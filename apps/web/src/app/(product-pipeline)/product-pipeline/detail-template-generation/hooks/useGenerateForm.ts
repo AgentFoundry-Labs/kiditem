@@ -202,7 +202,8 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const [costPrice, setCostPrice] = useState('');
   const [brand, setBrand] = useState('');
   const [manufacturer, setManufacturer] = useState('');
-  const [originCountry, setOriginCountry] = useState('');
+  // 우리 상품은 거의 전부 중국 제조다(판매상품 773개 중 734개).
+  const [originCountry, setOriginCountry] = useState('중국');
   const [modelName, setModelName] = useState('');
   const [ownCode, setOwnCode] = useState('');
   const [taxType, setTaxType] = useState<'taxable' | 'tax_free'>('taxable');

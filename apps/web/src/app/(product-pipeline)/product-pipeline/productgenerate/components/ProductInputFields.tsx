@@ -127,6 +127,34 @@ export function MoneyInput({ value, onChange, placeholder }: ValueInputProps) {
   );
 }
 
+/**
+ * 고르기도 되고 직접 적기도 되는 칸. 우리가 쓰던 값을 목록으로 보여 주되, 새 값도 그대로 받는다
+ * (매입처가 늘면 제조사가 늘어난다).
+ */
+export function OptionInput({
+  value,
+  onChange,
+  placeholder,
+  options,
+  listId,
+}: ValueInputProps & { options: readonly string[]; listId: string }) {
+  return (
+    <>
+      <input
+        type="text"
+        list={listId}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className={INPUT_CLASS}
+      />
+      <datalist id={listId}>
+        {options.map((option) => <option key={option} value={option} />)}
+      </datalist>
+    </>
+  );
+}
+
 export function parseSizeFields(value: string): ProductSizeFields {
   const text = value.trim();
   const pick = (labels: string[]): string => {

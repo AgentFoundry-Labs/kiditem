@@ -35,6 +35,7 @@ import { ProductImageInputs } from './ProductImageInputs';
 import {
   Field,
   MoneyInput,
+  OptionInput,
   SelectField,
   SizeInput,
   TextInput,
@@ -44,6 +45,13 @@ import {
   splitOptions,
   type ProductSizeFields,
 } from './ProductInputFields';
+import {
+  BRAND_OPTIONS,
+  CERTIFICATION_FIELD_OPTIONS,
+  CERTIFICATION_ISSUER_OPTIONS,
+  MANUFACTURER_OPTIONS,
+  ORIGIN_COUNTRY_OPTIONS,
+} from '../lib/product-field-options';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 import { useProductImageUploads } from './useProductImageUploads';
 
@@ -515,13 +523,13 @@ export default function ProductInputSection({
 
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="브랜드">
-              <TextInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" />
+              <OptionInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" options={BRAND_OPTIONS} listId="brand-options" />
             </Field>
             <Field label="제조사">
-              <TextInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" />
+              <OptionInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" options={MANUFACTURER_OPTIONS} listId="maker-options" />
             </Field>
             <Field label="원산지(제조국)">
-              <TextInput value={originCountry} onChange={setOriginCountry} placeholder="예: 중국" />
+              <OptionInput value={originCountry} onChange={setOriginCountry} placeholder="중국" options={ORIGIN_COUNTRY_OPTIONS} listId="origin-options" />
             </Field>
           </div>
 
@@ -530,7 +538,7 @@ export default function ProductInputSection({
               <TextInput value={modelName} onChange={setModelName} placeholder="예: 10290-1" />
             </Field>
             <Field label="자체상품코드">
-              <TextInput value={ownCode} onChange={setOwnCode} placeholder="우리끼리 쓰는 코드" />
+              <TextInput value={ownCode} onChange={setOwnCode} placeholder="바코드 등. 비우면 판매상품코드를 씁니다" />
             </Field>
             <Field label="세금구분">
               <SelectField
@@ -557,14 +565,26 @@ export default function ProductInputSection({
                 ]}
               />
             </Field>
-            <Field label="인증기관">
-              <TextInput value={certificationIssuer} onChange={setCertificationIssuer} placeholder="예: FITI시험연구원" />
+            <Field label="인증기관" trailing="KC 번호를 발급한 시험기관">
+              <OptionInput
+                value={certificationIssuer}
+                onChange={setCertificationIssuer}
+                placeholder="예: FITI시험연구원"
+                options={CERTIFICATION_ISSUER_OPTIONS}
+                listId="cert-issuer-options"
+              />
             </Field>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <Field label="인증분야">
-              <TextInput value={certificationField} onChange={setCertificationField} placeholder="예: 어린이제품 안전확인" />
+            <Field label="인증분야" trailing="그 KC 가 어느 제도인지">
+              <OptionInput
+                value={certificationField}
+                onChange={setCertificationField}
+                placeholder="예: [어린이제품]안전확인"
+                options={CERTIFICATION_FIELD_OPTIONS}
+                listId="cert-field-options"
+              />
             </Field>
           </div>
 
