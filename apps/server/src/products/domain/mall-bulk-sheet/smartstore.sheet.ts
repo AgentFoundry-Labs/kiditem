@@ -32,12 +32,14 @@ export const smartstoreSheet: MallBulkSheetSpec = {
   },
   maxProducts: 500,
   fixedFields: [
-    { key: 'originCode', label: '원산지코드', required: true, defaultValue: '', help: '상품등록 화면의 `원산지 찾기` 팝업 코드(수입산 > 중국)' },
-    { key: 'importer', label: '수입사', required: false, defaultValue: '', help: '원산지가 수입산이면 필수' },
+    // 2026-09-20 사장님 계정의 판매중 상품 100개를 내려받아 확인한 값이다(수입산 > 아시아 > 중국).
+    { key: 'originCode', label: '원산지코드', required: true, defaultValue: '0200037', help: '상품등록 화면의 `원산지 찾기` 팝업 코드(수입산 > 중국)' },
+    { key: 'importer', label: '수입사', required: true, defaultValue: '거영아이앤디(KY I&D)', help: '원산지가 수입산이면 필수' },
     { key: 'stock', label: '재고수량', required: true, defaultValue: '999' },
     { key: 'shipTemplate', label: '배송비 템플릿코드', required: false, defaultValue: '', help: '템플릿관리 › 배송비 템플릿. 넣으면 아래 배송 칸은 몰이 무시합니다.' },
     { key: 'courierCode', label: '택배사코드', required: true, defaultValue: 'CJGLS', help: '배송비 템플릿코드가 없을 때 씁니다.' },
     { key: 'shipFee', label: '기본배송비', required: true, defaultValue: '3000' },
+    { key: 'shipPay', label: '배송비 결제방식', required: true, defaultValue: '착불 또는 선결제', help: '착불 · 선결제 · 착불 또는 선결제' },
     { key: 'freeOver', label: '조건부무료 기준금액', required: true, defaultValue: '30000', help: '이 금액 이상 사면 무료배송' },
     { key: 'returnFee', label: '반품배송비', required: true, defaultValue: '3000' },
     { key: 'exchangeFee', label: '교환배송비', required: true, defaultValue: '6000' },
@@ -52,6 +54,7 @@ export const smartstoreSheet: MallBulkSheetSpec = {
     '원산지코드도 `원산지 찾기` 팝업 번호입니다. 한 번 넣으면 고정값으로 기억합니다.',
     '배송 · 고시 · A/S 템플릿코드를 넣으면 그 템플릿으로 등록되고 오른쪽 칸은 무시됩니다.',
     '판매가는 10원 단위만 받습니다. 사진은 주소를 넣으면 몰이 올릴 때 받아 갑니다(640×640 권장).',
+    '기본값은 우리 스마트스토어 판매중 상품이 실제로 쓰는 값입니다(원산지 0200037 · CJ대한통운 · 조건부무료 3,000/3만 · 반품 3,000 · 교환 6,000).',
   ],
   rows(product, context) {
     const problems: string[] = [];
@@ -100,7 +103,7 @@ export const smartstoreSheet: MallBulkSheetSpec = {
       택배사코드: shipByTemplate ? null : fixed.courierCode,
       배송비유형: shipByTemplate ? null : '조건부 무료',
       기본배송비: shipByTemplate ? null : Number(fixed.shipFee) || 0,
-      '배송비 결제방식': shipByTemplate ? null : '선결제',
+      '배송비 결제방식': shipByTemplate ? null : fixed.shipPay,
       '조건부무료- 상품판매가 합계': shipByTemplate ? null : Number(fixed.freeOver) || 0,
       반품배송비: shipByTemplate ? null : Number(fixed.returnFee) || 0,
       교환배송비: shipByTemplate ? null : Number(fixed.exchangeFee) || 0,

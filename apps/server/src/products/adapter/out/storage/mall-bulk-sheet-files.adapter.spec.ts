@@ -230,7 +230,7 @@ describe('MallBulkSheetFilesAdapter', () => {
 
   it('fills the Smartstore template from row 3 after dropping the guide rows', async () => {
     const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'smartstore')!;
-    const { rows, cell, header } = await fill(spec, { originCode: '0200037' });
+    const { rows, cell, header } = await fill(spec);
     // 1행 묶음 제목 · 2행 칸 이름은 남고, 작성 가이드(3~6행)는 상품 행이 덮는다.
     expect(header[0]).toBe('판매자 상품코드');
     expect(rows).toHaveLength(3);

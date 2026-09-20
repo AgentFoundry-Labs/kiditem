@@ -341,7 +341,7 @@ describe('Kidsnote sheet', () => {
 
 describe('Smartstore sheet', () => {
   it('writes the category code, a 10-won price and the shipping fields when no template code is given', () => {
-    const [row] = run(smartstoreSheet, source(), { originCode: '0200037' }).rows;
+    const [row] = run(smartstoreSheet, source()).rows;
     expect(row).toMatchObject({
       '판매자 상품코드': '100105',
       카테고리코드: '50003307',
@@ -349,6 +349,7 @@ describe('Smartstore sheet', () => {
       판매가: 3960,
       부가세: '과세상품',
       원산지코드: '0200037',
+      '배송비 결제방식': '착불 또는 선결제',
       배송방법: '택배, 소포, 등기',
       택배사코드: 'CJGLS',
       배송비유형: '조건부 무료',
@@ -360,7 +361,7 @@ describe('Smartstore sheet', () => {
   });
 
   it('lets a template code replace the shipping, notice and A/S fields', () => {
-    const [row] = run(smartstoreSheet, source(), { originCode: '0200037', shipTemplate: '2035152', noticeTemplate: '2250807', asTemplate: '31' }).rows;
+    const [row] = run(smartstoreSheet, source(), { shipTemplate: '2035152', noticeTemplate: '2250807', asTemplate: '31' }).rows;
     expect(row).toMatchObject({ '배송비 템플릿코드': '2035152', '상품정보제공고시 템플릿코드': '2250807', 'A/S 템플릿코드': '31' });
     expect(row!.배송방법).toBeNull();
     expect(row!['상품정보제공고시 품명']).toBeNull();
@@ -368,7 +369,7 @@ describe('Smartstore sheet', () => {
   });
 
   it('refuses a price that is not a multiple of ten', () => {
-    const { rows, problems } = run(smartstoreSheet, source({ salePrice: 3955 }), { originCode: '0200037' });
+    const { rows, problems } = run(smartstoreSheet, source({ salePrice: 3955 }));
     expect(rows).toEqual([]);
     expect(problems.join()).toContain('10원 단위');
   });
