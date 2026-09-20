@@ -569,6 +569,13 @@ describe('mallDisplayName', () => {
     expect(mallDisplayName('1+1 5000돌고래비눗방울')).toBe('1+1 5000돌고래비눗방울');
     expect(mallDisplayName('2024')).toBe('2024');
   });
+
+  it('keeps a leading number that carries a unit — it is a spec, not a price code', () => {
+    expect(mallDisplayName('110g 초경량 UV차단 3단 접이식 우산(1p)')).toBe('110g 초경량 UV차단 3단 접이식 우산(1p)');
+    expect(mallDisplayName('100p 클립 세트')).toBe('100p 클립 세트');
+    expect(mallDisplayName('500개입 고무밴드')).toBe('500개입 고무밴드');
+    expect(mallDisplayName('3500 게틀링 비눗방울총(1p)')).toBe('게틀링 비눗방울총(1p)');
+  });
 });
 
 describe('mall bulk sheet registry', () => {
