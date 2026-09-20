@@ -27,6 +27,16 @@ export function Field({ label, required, trailing, children }: FieldProps) {
   );
 }
 
+/** 칸 묶음 제목 — 가격 · 제조 · 배송 · 인증처럼 같이 보는 칸을 한 자리에 모은다. */
+export function GroupTitle({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="whitespace-nowrap text-sm font-black text-[var(--text-primary)]">{children}</span>
+      <span className="h-px flex-1 bg-[var(--border)]" />
+    </div>
+  );
+}
+
 interface SelectFieldProps {
   value: string;
   onChange: (value: string) => void;

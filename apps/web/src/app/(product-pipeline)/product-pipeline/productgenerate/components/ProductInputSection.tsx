@@ -34,6 +34,7 @@ import type {
 import { ProductImageInputs } from './ProductImageInputs';
 import {
   Field,
+  GroupTitle,
   MoneyInput,
   OptionInput,
   SelectField,
@@ -282,7 +283,7 @@ export default function ProductInputSection({
   };
 
   return (
-    <section className="w-full max-w-[960px]">
+    <section className="w-full max-w-[1120px]">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 pb-6 pt-10 shadow-sm">
         <div className="mb-5 text-center">
           <h1 className="text-2xl font-black text-[var(--text-primary)]">
@@ -402,6 +403,7 @@ export default function ProductInputSection({
             />
           </Field>
 
+          <GroupTitle>상세페이지</GroupTitle>
           <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr]">
             <Field label="사용 연령">
               <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
@@ -470,34 +472,6 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="KC 인증번호">
-            <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
-              <SelectField
-                value={kcCertificationStatus}
-                onChange={(value) => setKcCertificationStatus(value as KcCertificationStatus)}
-                options={[
-                  { value: 'unknown', label: 'AI가 판단' },
-                  { value: 'none', label: '없음' },
-                  { value: 'exists', label: '있음' },
-                ]}
-              />
-              <div className="relative">
-                <ShieldCheck
-                  size={16}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
-                />
-                <input
-                  type="text"
-                  value={kcCertificationNumber}
-                  onChange={(e) => setKcCertificationNumber(e.target.value)}
-                  placeholder="예: CB061R1234-1001"
-                  disabled={kcCertificationStatus === 'none'}
-                  className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] pl-9 pr-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                />
-              </div>
-            </div>
-          </Field>
-
           <Field label="제품 주요 특징">
             <textarea
               value={rawDescription}
@@ -508,7 +482,8 @@ export default function ProductInputSection({
             />
           </Field>
 
-          {/* 사방넷 신규등록의 가격정보 · 기본정보와 같은 칸이다. 비워 두면 수집상품 상세에서 채운다. */}
+          {/* 여기부터는 사방넷 신규등록과 같은 칸이다. 비워 두면 수집상품 상세에서 채운다. */}
+          <GroupTitle>가격</GroupTitle>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="판매가">
               <MoneyInput value={salePrice} onChange={setSalePrice} placeholder="예: 3900" />
@@ -521,6 +496,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
+          <GroupTitle>제조 · 식별</GroupTitle>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="브랜드">
               <OptionInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" options={BRAND_OPTIONS} />
@@ -549,7 +525,8 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <GroupTitle>배송</GroupTitle>
+          <div className="grid gap-4 md:grid-cols-2">
             <Field label="배송비">
               <MoneyInput value={deliveryFee} onChange={setDeliveryFee} placeholder="예: 3000" />
             </Field>
@@ -565,29 +542,57 @@ export default function ProductInputSection({
                 ]}
               />
             </Field>
+          </div>
+
+          {/* KC 는 번호 · 발급기관 · 제도(분야)가 한 벌이다. 몰이 셋을 따로 받으므로 한 자리에 모은다. */}
+          <GroupTitle>KC 인증</GroupTitle>
+          <Field label="KC 인증번호">
+            <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
+              <SelectField
+                value={kcCertificationStatus}
+                onChange={(value) => setKcCertificationStatus(value as KcCertificationStatus)}
+                options={[
+                  { value: 'unknown', label: 'AI가 판단' },
+                  { value: 'none', label: '없음' },
+                  { value: 'exists', label: '있음' },
+                ]}
+              />
+              <div className="relative">
+                <ShieldCheck
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                />
+                <input
+                  type="text"
+                  value={kcCertificationNumber}
+                  onChange={(e) => setKcCertificationNumber(e.target.value)}
+                  placeholder="예: CB061R1234-1001"
+                  disabled={kcCertificationStatus === 'none'}
+                  className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] pl-9 pr-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+            </div>
+          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
             <Field label="인증기관" trailing="KC 번호를 발급한 시험기관">
               <OptionInput
                 value={certificationIssuer}
                 onChange={setCertificationIssuer}
                 placeholder="예: FITI시험연구원"
                 options={CERTIFICATION_ISSUER_OPTIONS}
-               
               />
             </Field>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
             <Field label="인증분야" trailing="그 KC 가 어느 제도인지">
               <OptionInput
                 value={certificationField}
                 onChange={setCertificationField}
                 placeholder="예: [어린이제품]안전확인"
                 options={CERTIFICATION_FIELD_OPTIONS}
-               
               />
             </Field>
           </div>
 
+          <GroupTitle>제품 사양</GroupTitle>
           <Field label="제품 사이즈">
             <div className="grid gap-3 md:grid-cols-3">
               <SizeInput
@@ -659,6 +664,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
+          <GroupTitle>사진</GroupTitle>
           <ProductImageInputs
             thumbnailImages={thumbnailImages}
             maxThumbnailImages={maxThumbnailImages}
