@@ -151,7 +151,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                   몰별 값이 없습니다. 모든 몰에 판매상품 값({formatWon(product.salePrice)})이 그대로 갑니다.
                 </td>
               </tr>
-            ) : rows.map(({ channelAccountId, mallName, override }) => {
+            ) : rows.map(({ channelAccountId, mallKey, mallName, override }) => {
               const draft = drafts[channelAccountId] ?? draftOf(override);
               const dirty = drafts[channelAccountId] !== undefined || !override;
               const set = (patch: Partial<OverrideDraft>) =>
