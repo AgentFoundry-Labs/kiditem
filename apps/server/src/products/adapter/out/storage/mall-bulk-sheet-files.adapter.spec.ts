@@ -39,6 +39,16 @@ function sample(): MallSheetSourceProduct {
     promoText: null,
     adapterValues: { categoryCode: '29' },
   });
+  // 온채널은 공급가를 사람이 정한다(판매가에서 역산하지 않는다).
+  overrides.push({
+    mallKey: 'onch',
+    salePrice: null,
+    priceRateBp: null,
+    name: null,
+    detailHtml: null,
+    promoText: null,
+    adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울', supplyPrice: '3200' },
+  });
   // 스마트스토어는 분류표가 없어 몰별 값의 카테고리 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'smartstore',
@@ -69,7 +79,7 @@ function sample(): MallSheetSourceProduct {
     modelName: null,
     modelNo: null,
     originCountry: '중국',
-    keywords: ['비눗방울'],
+    keywords: ['비눗방울', '버블건', '물놀이', '여름완구', '어린이날'],
     taxType: 'taxable',
     salePrice: 5900,
     tagPrice: null,
@@ -260,6 +270,20 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(cell('고시항목내용1')).toBe('비눗방울 버블건 1p');
     expect(cell('안전인증 대상여부')).toBe('N');
     expect(rows.flat()).not.toContain('상품샘플');
+  });
+
+  it('fills the Onchannel form from row 4 and keeps the guide rows above it', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'onch')!;
+    const { rows, cell, header } = await fill(spec);
+    expect(header[0]).toBe('분류');
+    expect(String(rows[1]?.[0])).toContain('필수');
+    expect(rows).toHaveLength(4);
+    expect(String(cell('분류'))).toBe('50004224');
+    expect(cell('온채널공급가')).toBe(3200);
+    expect(cell('택배사')).toBe(38);
+    expect(cell('메인이미지(600x600)')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
+    expect(cell('상품고시구분')).toBe(26);
+    expect(rows.flat()).not.toContain('시원한 아이스티');
   });
 
   it('refuses rows that name a column the template does not have', async () => {

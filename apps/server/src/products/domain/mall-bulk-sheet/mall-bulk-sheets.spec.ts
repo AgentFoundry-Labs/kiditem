@@ -3,6 +3,7 @@ import { coupangWingSheet } from './coupang-wing.sheet';
 import { elevenstSheet } from './elevenst.sheet';
 import { esmSheet } from './esm.sheet';
 import { icecreamSheet } from './icecream.sheet';
+import { onchannelSheet } from './onchannel.sheet';
 import { smartstoreSheet } from './smartstore.sheet';
 import { kidsnoteSheet } from './kidsnote.sheet';
 import {
@@ -31,6 +32,7 @@ const TABLES: MallCategoryTables = {
     auction: { '장난감/완구>감각발달완구>기타감각발달완구': '20141000' },
     '11st': { '장난감>감각발달완구>비눗방울/버블건': '1010963' },
     'icecream-mall': { '아이스크림몰>유치원>브랜드마켓>장난감/완구': 'BC0116100100' },
+    onch: { '출산/육아>완구/인형>감각발달완구>비눗방울': '50004224' },
   },
   esmBySite: { '100000042200001589300028350': '00310013000100010000', '20141000': '00310013000100010000' },
   coupang: {
@@ -111,6 +113,19 @@ function source(overrides: Partial<MallSheetSourceProduct> = {}): MallSheetSourc
         detailHtml: null,
         promoText: null,
         adapterValues: { categoryCode: '77388' },
+      },
+      {
+        mallKey: 'onch',
+        salePrice: null,
+        priceRateBp: null,
+        name: null,
+        detailHtml: null,
+        promoText: null,
+        adapterValues: {
+          sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울',
+          supplyPrice: '2200',
+          packQuantity: '1',
+        },
       },
       {
         mallKey: 'smartstore',
@@ -422,6 +437,61 @@ describe('Icecream mall sheet', () => {
   });
 });
 
+describe('Onchannel sheet', () => {
+  it('writes the supply price from the mall value, the form-shaped name and the child notice codes', () => {
+    const { rows, warnings } = run(onchannelSheet, source({ keywords: ['비눗방울', '버블건', '물놀이', '여름완구', '어린이날'] }));
+    const row = rows[0]!;
+    expect(row).toMatchObject({
+      분류: '50004224',
+      상품명: '할로윈 호박 바구니 12개 (1개) 비눗방울',
+      옵션명: '할로윈호박바구니12개(1개)',
+      온채널공급가: 2200,
+      '과면세 구분': 1,
+      택배사: 38,
+      배송비: 3000,
+      제주도배송비: 4000,
+      도서산간배송비: 5000,
+      '공급업체 분류': 1,
+      판매가준수여부: 1,
+      상품고시구분: 17,
+      'KC 인증유형': 0,
+      'KC 인증번호': '해당사항없음',
+      '제조국 또는 원산지': '중국',
+      'A/S 책임자 또는 상담 전화번호': '031-908-5401',
+    });
+    expect(row['제목(키워드)']).toBe('비눗방울/버블건/물놀이/여름완구/어린이날');
+    expect(row.최종준수가).toBeNull();
+    expect(warnings.join()).toContain('승인 요청');
+  });
+
+  it('refuses a product without a supply price or with fewer than five keywords', () => {
+    const noSupply = source({
+      keywords: ['가', '나', '다', '라', '마'],
+      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224' } }],
+    });
+    expect(run(onchannelSheet, noSupply).problems.join()).toContain('공급가');
+    const fewKeywords = source({
+      keywords: ['하나'],
+      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
+    });
+    expect(run(onchannelSheet, fewKeywords).problems.join()).toContain('키워드가 1개');
+  });
+
+  it('keeps the certification number and its KC type when the product has one', () => {
+    const certified = source({
+      keywords: ['가', '나', '다', '라', '마'],
+      certificationNumbers: ['CB123-456'],
+      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
+    });
+    expect(run(onchannelSheet, certified).rows[0]).toMatchObject({
+      'KC 인증번호': 'CB123-456',
+      'KC 인증유형': 26,
+      'KC 인증기관': 'FITI시험연구원',
+      'KC 인증상호': 'KY I&D',
+    });
+  });
+});
+
 describe('sheet helpers', () => {
   it('addresses repeated headers by occurrence', () => {
     const index = headerIndex(['노출\n사이트', '인증타입', '인증타입', null, '인증타입']);
@@ -507,7 +577,7 @@ describe('mall bulk sheet registry', () => {
     expect(MALL_BULK_SHEET_UNAVAILABLE.filter((item) => covered.has(item.mallKey))).toEqual([]);
     expect([...covered].sort()).toEqual([
       '11st', 'art09', 'auction', 'coupang', 'domeggook', 'gmarket', 'icecream-mall', 'kidsnote',
-      'kkomangse', 'lotte-on', 'smartstore', 'teacher-mall', 'thirtymall',
+      'kkomangse', 'lotte-on', 'onch', 'smartstore', 'teacher-mall', 'thirtymall',
     ]);
   });
 });

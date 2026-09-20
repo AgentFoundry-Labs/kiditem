@@ -99,7 +99,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
   }
 
   private async loadTables(): Promise<MallCategoryTables> {
-    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw, lotteonRaw, domeggookRaw, icecreamRaw] = await Promise.all([
+    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw, lotteonRaw, domeggookRaw, icecreamRaw, naverRaw] = await Promise.all([
       readFile(join(TEMPLATE_DIR, 'esm-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'coupang-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, '11st-categories.json'), 'utf8'),
@@ -109,6 +109,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
       readFile(join(TEMPLATE_DIR, 'lotteon-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'domeggook-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'icecream-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'naver-categories.json.gz')),
     ]);
     const esm = JSON.parse(gunzipSync(esmRaw).toString('utf8')) as EsmCategoryFile;
     const coupang = JSON.parse(gunzipSync(coupangRaw).toString('utf8')) as { categories: Record<string, string[]> };
@@ -119,6 +120,9 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
     const lotteon = JSON.parse(gunzipSync(lotteonRaw).toString('utf8')) as { categories: Record<string, string> };
     const domeggook = JSON.parse(gunzipSync(domeggookRaw).toString('utf8')) as { categories: Record<string, string> };
     const icecream = JSON.parse(gunzipSync(icecreamRaw).toString('utf8')) as IcecreamCategoryFile;
+    // 온채널 양식이 준 분류표다. 온채널 번호는 네이버(스마트스토어) 번호와 같아서 두 몰이 같이 쓴다
+    // (2026-09-20 실측: 우리 스마트스토어 판매중 상품의 분류 22가지가 모두 이 표에 있다).
+    const naver = JSON.parse(gunzipSync(naverRaw).toString('utf8')) as { categories: Record<string, string> };
     return {
       paths: {
         gmarket: esm.gmarket,
@@ -130,6 +134,8 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
         'lotte-on': lotteon.categories,
         domeggook: domeggook.categories,
         'icecream-mall': icecream.categories,
+        smartstore: naver.categories,
+        onch: naver.categories,
       },
       esmBySite: esm.esmBySite,
       coupang: coupang.categories,

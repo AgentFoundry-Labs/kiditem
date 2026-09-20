@@ -7,6 +7,7 @@ import { icecreamSheet } from './icecream.sheet';
 import { kidsnoteSheet } from './kidsnote.sheet';
 import { kkomangseSheet } from './kkomangse.sheet';
 import { lotteonSheet } from './lotteon.sheet';
+import { onchannelSheet } from './onchannel.sheet';
 import { smartstoreSheet } from './smartstore.sheet';
 import { teachervilleSheet } from './teacherville.sheet';
 import { thirtymallSheet } from './thirtymall.sheet';
@@ -31,6 +32,7 @@ export const MALL_BULK_SHEETS: readonly MallBulkSheetSpec[] = [
   artgongguSheet,
   smartstoreSheet,
   icecreamSheet,
+  onchannelSheet,
 ];
 
 /**
