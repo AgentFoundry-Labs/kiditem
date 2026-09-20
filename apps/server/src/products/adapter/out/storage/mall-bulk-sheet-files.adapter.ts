@@ -61,10 +61,14 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
 
     const firstRow = template.firstDataRow - 1;
     const keep = new Set((template.keepColumnLetters ?? []).map((letter) => XLSX.utils.decode_col(letter)));
-    for (let row = firstRow; row <= range.e.r; row += 1) {
-      for (let column = range.s.c; column <= range.e.c; column += 1) {
-        if (!keep.has(column)) delete sheet[XLSX.utils.encode_cell({ r: row, c: column })];
-      }
+    const clear = new Set((template.clearRows ?? []).map((row) => row - 1));
+    // 있는 칸만 훑는다 — 롯데ON 양식처럼 빈 범위가 100만 행인 파일에서 범위를 다 도는 것은 느리다.
+    for (const address of Object.keys(sheet)) {
+      if (address.startsWith('!')) continue;
+      const cell = XLSX.utils.decode_cell(address);
+      if (cell.r < firstRow && !clear.has(cell.r)) continue;
+      if (cell.r >= firstRow && keep.has(cell.c)) continue;
+      delete sheet[address];
     }
     // 비운 안내 · 예시 행에 걸친 병합은 새 상품 행을 덮으므로 뗀다.
     if (sheet['!merges']) sheet['!merges'] = sheet['!merges'].filter((merge) => merge.e.r < firstRow);
@@ -82,18 +86,19 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
       if (!address.startsWith('!')) lastRow = Math.max(lastRow, XLSX.utils.decode_cell(address).r);
     }
     sheet['!ref'] = XLSX.utils.encode_range({ s: range.s, e: { r: lastRow, c: range.e.c } });
-
     return XLSX.write(workbook, { type: 'buffer', bookType: template.bookType, bookVBA: macro }) as Buffer;
   }
 
   private async loadTables(): Promise<MallCategoryTables> {
-    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw] = await Promise.all([
+    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw, lotteonRaw, domeggookRaw] = await Promise.all([
       readFile(join(TEMPLATE_DIR, 'esm-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'coupang-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, '11st-categories.json'), 'utf8'),
       readFile(join(TEMPLATE_DIR, 'thirtymall-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'teacherville-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'kkomangse-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'lotteon-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'domeggook-categories.json.gz')),
     ]);
     const esm = JSON.parse(gunzipSync(esmRaw).toString('utf8')) as EsmCategoryFile;
     const coupang = JSON.parse(gunzipSync(coupangRaw).toString('utf8')) as { categories: Record<string, string[]> };
@@ -101,6 +106,8 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
     const thirtymall = JSON.parse(gunzipSync(thirtymallRaw).toString('utf8')) as { categories: Record<string, string> };
     const teacherville = JSON.parse(gunzipSync(teachervilleRaw).toString('utf8')) as { categories: Record<string, string> };
     const kkomangse = JSON.parse(gunzipSync(kkomangseRaw).toString('utf8')) as { categories: Record<string, string> };
+    const lotteon = JSON.parse(gunzipSync(lotteonRaw).toString('utf8')) as { categories: Record<string, string> };
+    const domeggook = JSON.parse(gunzipSync(domeggookRaw).toString('utf8')) as { categories: Record<string, string> };
     return {
       paths: {
         gmarket: esm.gmarket,
@@ -109,6 +116,8 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
         thirtymall: thirtymall.categories,
         'teacher-mall': teacherville.categories,
         kkomangse: kkomangse.categories,
+        'lotte-on': lotteon.categories,
+        domeggook: domeggook.categories,
       },
       esmBySite: esm.esmBySite,
       coupang: coupang.categories,

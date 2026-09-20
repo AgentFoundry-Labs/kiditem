@@ -388,7 +388,8 @@ describe('mall bulk sheet registry', () => {
     const covered = new Set(MALL_BULK_SHEETS.flatMap((sheet) => sheet.mallKeys));
     expect(MALL_BULK_SHEET_UNAVAILABLE.filter((item) => covered.has(item.mallKey))).toEqual([]);
     expect([...covered].sort()).toEqual([
-      '11st', 'auction', 'coupang', 'gmarket', 'kidsnote', 'kkomangse', 'teacher-mall', 'thirtymall',
+      '11st', 'art09', 'auction', 'coupang', 'domeggook', 'gmarket', 'kidsnote', 'kkomangse',
+      'lotte-on', 'teacher-mall', 'thirtymall',
     ]);
   });
 });

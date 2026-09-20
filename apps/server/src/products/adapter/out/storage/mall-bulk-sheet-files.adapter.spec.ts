@@ -17,6 +17,8 @@ function sample(): MallSheetSourceProduct {
     ['kidsnote', '선물/행사/체험 > 선물용품 > 장난감/완구'],
     ['kkomangse', '선물/행사용품 > 선물용품 > 비누방울/물총'],
     ['thirtymall', '출산/육아 > 완구/매트 > 캐릭터카드/딱지'],
+    ['lotte-on', '장난감/완구 > 감각발달완구 > 비눗방울'],
+    ['domeggook', '유아동 > 완구/매트 > 감각발달완구 > 링쌓기/컵쌓기'],
   ].map(([mallKey, path]) => ({
     mallKey: mallKey!,
     salePrice: null,
@@ -26,6 +28,16 @@ function sample(): MallSheetSourceProduct {
     promoText: null,
     adapterValues: { sabangnetCategoryPath: path! },
   }));
+  // 아트공구(카페24)는 분류표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
+  overrides.push({
+    mallKey: 'art09',
+    salePrice: null,
+    priceRateBp: null,
+    name: null,
+    detailHtml: null,
+    promoText: null,
+    adapterValues: { categoryCode: '29' },
+  });
   // 티쳐몰은 이름표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'teacher-mall',
@@ -166,6 +178,43 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(cell('공급가')).toBe(4720);
     expect(cell('상품정보고시품목')).toBe('40');
     expect(String(cell('상품정보고시')).startsWith('품명 및 모델명=비눗방울 버블건 1p^')).toBe(true);
+  });
+
+  it('writes the Lotte ON template from row 5 and clears its guide rows', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'lotte-on')!;
+    const { rows, cell } = await fill(spec);
+    expect(String(rows[1]?.[1])).toBe('카테고리코드');
+    // 필수 · 예시 행은 비운다 — 예시 상품이 몰에 올라가지 않게.
+    expect((rows[2] ?? []).filter(Boolean)).toEqual([]);
+    expect((rows[3] ?? []).filter(Boolean)).toEqual([]);
+    expect(cell('카테고리코드')).toBe('BC55010400');
+    expect(cell('상품명')).toBe('비눗방울 버블건 1p');
+    expect(cell('판매가')).toBe(5900);
+    expect(cell('대표이미지')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
+    expect(rows).toHaveLength(5);
+  });
+
+  it('writes the Domeggook sheet with the guide codes and a one-step unit price', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'domeggook')!;
+    const { cell } = await fill(spec, { returnAddress: 'SA1234567' });
+    expect(cell('카테고리고유번호')).toBe('5576');
+    expect(cell('판매채널')).toBe('도매꾹,도매매');
+    expect(cell('도매꾹 / 판매단가')).toBe('1:5900');
+    expect(cell('상품정보제공고시 구분코드')).toBe(40);
+    expect(String(cell('상품정보제공고시 세부항목')).split('\n')[0]).toBe('1:비눗방울 버블건 1p');
+    expect(cell('반품배송지')).toBe('SA1234567');
+    expect(cell('원산지')).toBe('수입산_아시아_중국');
+  });
+
+  it('writes the Artgonggu CSV with the header row first', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'artgonggu')!;
+    const { rows, cell, header } = await fill(spec);
+    expect(header[0]).toBe('상품코드');
+    expect(rows).toHaveLength(2);
+    expect(String(cell('상품분류 번호'))).toBe('29');
+    expect(cell('상품명')).toBe('비눗방울 버블건 1p');
+    expect(cell('판매가')).toBe(5900);
+    expect(cell('이미지등록(상세)')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
   });
 
   it('refuses rows that name a column the template does not have', async () => {

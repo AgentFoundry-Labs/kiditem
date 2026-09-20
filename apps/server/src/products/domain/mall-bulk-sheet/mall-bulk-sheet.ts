@@ -28,9 +28,11 @@ export interface MallSheetTemplate {
   headerRow: number;
   /** 첫 상품 행(1부터). 이 행부터 아래는 비우고 쓴다 — 양식의 예시 · 안내 행이 몰로 올라가지 않게. */
   firstDataRow: number;
-  bookType: 'xls' | 'xlsx' | 'xlsm';
+  bookType: 'xls' | 'xlsx' | 'xlsm' | 'csv';
   /** 비우지 않고 남길 열 글자(양식이 행 번호를 미리 적어 둔 `A` 열 등). */
   keepColumnLetters?: readonly string[];
+  /** 상품 행 앞에 있는 안내 · 예시 행(1부터). 몰에 올라가지 않게 비운다. */
+  clearRows?: readonly number[];
   /**
    * `template`(기본): 양식 파일을 그대로 두고 상품 행만 채운다.
    * `headers`: 머리행과 상품 행만 남긴 새 시트를 만든다 — 몰이 "안내행을 지우고 올리라"고 하는 양식(떠리몰 · 티쳐몰).
