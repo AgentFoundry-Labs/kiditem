@@ -1,4 +1,4 @@
-import { salesProductMallPrice, SALES_PRODUCT_SABANGNET_VALUE_KEYS } from '@kiditem/shared/sales-product';
+import { mallDisplayName, salesProductMallPrice, SALES_PRODUCT_SABANGNET_VALUE_KEYS } from '@kiditem/shared/sales-product';
 import {
   detailImageUrls,
   isPublicImageUrl,
@@ -51,26 +51,8 @@ export interface MallSheetSourceProduct {
 
 const KEYS = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
 
-/**
- * 숫자 뒤에 바로 붙으면 가격이 아니라 규격이다(`110g 초경량 …` · `100p 클립`). 이런 이름은 숫자를 떼지 않는다.
- */
-const SPEC_UNIT = /^(?:(?:g|kg|mg|ml|l|cm|mm|m|p|ea|pcs)(?![a-z])|개입|개|매|장|권|색|종|단|호|구|인치)/i;
-
-/**
- * 판매상품 이름 앞의 가격 코드(`3500 게틀링…` · `700받아쓰기노트…`)를 뗀 몰 표시용 이름. 셀피아 원본명 관례라 몰 등록
- * 어댑터도 같은 글자를 뗀다. 세 자리 이상 숫자만 뗀다 — `1+1 …` 같은 이름은 그대로 둔다.
- *
- * 숫자에 단위가 바로 붙은 이름은 규격이라 그대로 둔다(`110g 초경량 우산` 을 `g 초경량 우산` 으로 보내면 몰에
- * 그 이름으로 등록된다 — 2026-09-20 실데이터에서 발견).
- */
-export function mallDisplayName(name: string): string {
-  const trimmed = name.trim();
-  const match = /^(\d{3,})(?!\d)(\s*)(?=\S)/.exec(trimmed);
-  if (!match) return trimmed;
-  const rest = trimmed.slice(match[0].length);
-  if (!match[2] && SPEC_UNIT.test(rest)) return trimmed;
-  return rest.trim() || trimmed;
-}
+// 몰 등록 폼과 같은 이름을 보내야 해서 공용 함수를 쓴다(`@kiditem/shared/sales-product`).
+export { mallDisplayName };
 
 /**
  * 분류 체계가 같은 다른 몰의 경로를 빌려 온다. 그 경로가 이 몰 표에서 번호로 풀릴 때만 돌려준다 — 이름만 같고

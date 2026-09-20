@@ -1,4 +1,5 @@
 import { KIDITEM_AS_PHONE, type MallProductDraft } from './mall-product-draft';
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 중립 초안 → 신세계 파트너오피스(`po.ssgadm.com`) 상품등록.
@@ -149,7 +150,7 @@ export function ssgByteLength(text: string): number {
 
 /** 원본명(`4000만두쫀뜩말랑이`)의 가격 접두. 이름의 일부인 숫자(`3D`)는 떼지 않는다. */
 function stripPricePrefix(name: string): string {
-  return name.trim().replace(/^\d{3,}(?=\S)(?!\d)/, '').trim();
+  return mallDisplayName(name);
 }
 
 /**

@@ -12,11 +12,14 @@ import {
 import { isApiError } from '@/lib/api-error';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { formatWon } from '../lib/sales-product-labels';
+import { nextAdapterValues, SUPPLY_PRICE_MALLS } from '../lib/mall-supply-price';
 
 interface OverrideDraft {
   salePrice: string;
   ratePercent: string;
   name: string;
+  /** 이 몰에 넘기는 공급가(온채널처럼 공급가와 판매가가 따로인 몰). 몰별 값 `supplyPrice` 로 저장한다. */
+  supplyPrice: string;
 }
 
 function draftOf(override: SalesProductChannelOverride | undefined): OverrideDraft {
@@ -24,8 +27,11 @@ function draftOf(override: SalesProductChannelOverride | undefined): OverrideDra
     salePrice: override?.salePrice !== null && override?.salePrice !== undefined ? String(override.salePrice) : '',
     ratePercent: override?.priceRateBp ? String(override.priceRateBp / 100) : '',
     name: override?.name ?? '',
+    supplyPrice: override?.adapterValues?.supplyPrice ?? '',
   };
 }
+
+
 
 function hasSabangnetValues(override: SalesProductChannelOverride | undefined): boolean {
   return Object.keys(override?.adapterValues ?? {}).some((key) => key.startsWith('sabangnet'));
@@ -69,10 +75,16 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
     return [
       ...product.channelOverrides.map((override) => ({
         channelAccountId: override.channelAccountId,
+        mallKey: override.mallKey,
         mallName: override.mallName,
         override,
       })),
-      ...extra.map((account) => ({ channelAccountId: account.channelAccountId, mallName: account.mallName, override: undefined })),
+      ...extra.map((account) => ({
+        channelAccountId: account.channelAccountId,
+        mallKey: account.mallKey,
+        mallName: account.mallName,
+        override: undefined,
+      })),
     ];
   }, [product.channelOverrides, adding, accounts.data]);
 
@@ -84,6 +96,11 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
         salePrice: draft.salePrice.trim() ? Math.round(Number(draft.salePrice)) : null,
         priceRateBp: draft.ratePercent.trim() ? Math.round(Number(draft.ratePercent) * 100) : null,
         name: draft.name.trim() || null,
+        // 보낸 값이 통째로 덮어쓰므로 사방넷에서 옮긴 분류 · 부가정보를 그대로 들고 간다.
+        adapterValues: nextAdapterValues(
+          product.channelOverrides.find((item) => item.channelAccountId === channelAccountId),
+          draft.supplyPrice,
+        ),
       }),
     onSuccess: (next, { channelAccountId }) => {
       queryClient.setQueryData(salesProductKeys.detail(product.id), next);
@@ -121,6 +138,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
               <th className="w-40 px-3 py-2 text-left font-semibold">쇼핑몰</th>
               <th className="w-32 px-2 py-2 text-right font-semibold">몰 판매가</th>
               <th className="w-24 px-2 py-2 text-right font-semibold">또는 %</th>
+              <th className="w-28 px-2 py-2 text-right font-semibold" title="온채널처럼 공급가와 판매가가 따로인 몰">공급가</th>
               <th className="px-2 py-2 text-left font-semibold">몰 상품명</th>
               <th className="w-28 px-2 py-2 text-right font-semibold">실제로 갈 값</th>
               <th className="w-28 px-3 py-2" aria-label="저장" />
@@ -129,7 +147,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
                   몰별 값이 없습니다. 모든 몰에 판매상품 값({formatWon(product.salePrice)})이 그대로 갑니다.
                 </td>
               </tr>
@@ -168,6 +186,20 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                       className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
                       aria-label={`${mallName} 판매가 비율(%)`}
                     />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {SUPPLY_PRICE_MALLS.has(mallKey) ? (
+                      <input
+                        type="number"
+                        value={draft.supplyPrice}
+                        onChange={(event) => set({ supplyPrice: event.target.value })}
+                        placeholder="공급가"
+                        className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
+                        aria-label={`${mallName} 공급가`}
+                      />
+                    ) : (
+                      <span className="block text-right text-xs text-slate-300" aria-hidden>—</span>
+                    )}
                   </td>
                   <td className="px-2 py-1.5">
                     <input

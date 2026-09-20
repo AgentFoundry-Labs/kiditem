@@ -1,4 +1,5 @@
 import { type MallProductDraft } from './mall-product-draft';
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 중립 초안 → 키드키즈 스토어 파트너센터(`partner.kidkids.net`) 상품등록.
@@ -128,7 +129,7 @@ export interface KidkidsRegistrationForm {
  * 숫자는 떼지 않는다.
  */
 function stripPricePrefix(name: string): string {
-  return name.trim().replace(/^\d{3,}(?=\S)(?!\d)/, '').trim();
+  return mallDisplayName(name);
 }
 
 /**

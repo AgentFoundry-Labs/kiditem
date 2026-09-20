@@ -1,3 +1,4 @@
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
@@ -81,7 +82,7 @@ export const kakaoAdapter: MallPublishAdapter = {
     return [
       {
         label: '상품명',
-        value: `${item.name.replace(/^\d{3,}(?=\S)/, '')} ${parsePositive(values.quantity, 1)}p + 키워드 (70자)`,
+        value: `${mallDisplayName(item.name)} ${parsePositive(values.quantity, 1)}p + 키워드 (70자)`,
         origin: 'master',
         mallSpecific: true,
       },

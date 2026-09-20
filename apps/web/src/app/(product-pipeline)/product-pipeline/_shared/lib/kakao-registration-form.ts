@@ -1,4 +1,5 @@
 import { KIDITEM_AS_PHONE, type MallNoticeField, type MallProductDraft } from './mall-product-draft';
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 
 /**
  * 카카오 톡스토어 판매자센터 등록 폼 값.
@@ -109,7 +110,7 @@ export interface KakaoRegistrationForm {
 
 /** 수집 원본명 앞의 소비자가(`4500포도…`)를 뗀다. */
 function stripPricePrefix(name: string): string {
-  return name.replace(/^\d{3,}(?=\S)/, '').trim();
+  return mallDisplayName(name);
 }
 
 function cutChars(text: string, max: number): string {

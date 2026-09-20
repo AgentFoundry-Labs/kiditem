@@ -1,4 +1,5 @@
 import type { MallProductDraft } from './mall-product-draft';
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 
 /**
  * 롯데ON 판매자센터 등록 폼 값.
@@ -131,7 +132,7 @@ function cutBytes(text: string, maxBytes: number): string {
 
 /** 수집 원본명 앞의 소비자가(`3500킬러볼…`)를 뗀다. */
 function stripPricePrefix(name: string): string {
-  return name.replace(/^\d{3,}(?=\S)/, '').trim();
+  return mallDisplayName(name);
 }
 
 /**

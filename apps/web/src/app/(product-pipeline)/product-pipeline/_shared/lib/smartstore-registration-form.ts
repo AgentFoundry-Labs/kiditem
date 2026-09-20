@@ -1,4 +1,5 @@
 import { KIDITEM_AS_PHONE, type MallProductDraft } from './mall-product-draft';
+import { mallDisplayName, mallNamePriceCode } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 중립 초안 → 네이버 스마트스토어센터 상품등록(`sell.smartstore.naver.com/#/products/create`).
@@ -101,11 +102,8 @@ export interface SmartstoreRegistrationForm {
   smartstore: SmartstoreFormValues;
 }
 
-/** 원본명 앞의 소비자가(`6000초코파이…`). 이름의 일부인 숫자(`3D`)는 가격이 아니다. */
-const PRICE_PREFIX = /^(\d{3,})(?=\S)(?!\d)/;
-
 function stripPricePrefix(name: string): string {
-  return name.trim().replace(PRICE_PREFIX, '').trim();
+  return mallDisplayName(name);
 }
 
 function utf8Length(text: string): number {
@@ -145,8 +143,7 @@ export function smartstorePricing(
 ): { salePrice: number; discountWon: number } {
   const ours = Number.isFinite(salePrice) && salePrice > 0 ? Math.round(salePrice) : 0;
   const consumer = names
-    .map((name) => PRICE_PREFIX.exec(name.trim())?.[1])
-    .map((digits) => (digits ? Number(digits) : 0))
+    .map((name) => mallNamePriceCode(name) ?? 0)
     .find((value) => value > 0) ?? 0;
   const discountWon = consumer > ours ? Math.floor((consumer - ours) / 10) * 10 : 0;
   return discountWon >= 10 && ours > 0 ? { salePrice: consumer, discountWon } : { salePrice: ours, discountWon: 0 };

@@ -1,3 +1,4 @@
+import { mallDisplayName } from '@kiditem/shared/sales-product';
 import { prepareRegistration } from '../sales-product-registration';
 import {
   fillMallRegistrationForm,
@@ -114,7 +115,7 @@ export const gsshopAdapter: MallPublishAdapter = {
     return [
       {
         label: '노출상품명',
-        value: `${item.name.replace(/^\d{3,}(?=\S)/, '')} (${parsePositive(values.quantity, 1)}p) + 키워드 (브랜드 ${GSSHOP_BRAND.name})`,
+        value: `${mallDisplayName(item.name)} (${parsePositive(values.quantity, 1)}p) + 키워드 (브랜드 ${GSSHOP_BRAND.name})`,
         origin: 'master',
         mallSpecific: true,
       },
