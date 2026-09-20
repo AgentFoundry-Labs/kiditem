@@ -67,6 +67,16 @@ export class SalesProductController {
     return this.mallSheets.check(organizationId, sheetKey, body);
   }
 
+  /** 몰이 가진 분류 목록에서 찾는다(읽기만). 몰 엑셀 창의 분류 칸 고를거리. */
+  @Get('mall-sheets/:sheetKey/categories')
+  searchMallSheetCategories(
+    @Param('sheetKey') sheetKey: string,
+    @Query('query') query?: string,
+    @Query('mallKey') mallKey?: string,
+  ) {
+    return this.mallSheets.searchCategories(sheetKey, query ?? '', mallKey?.trim() || undefined);
+  }
+
   /** 여러 판매상품의 한 몰 분류를 정한다(몰별 값의 categoryPath). 몰은 건드리지 않는다. */
   @Post('mall-categories/assign')
   assignMallCategory(

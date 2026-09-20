@@ -15,6 +15,8 @@ function sample(): MallSheetSourceProduct {
     ['11st', '장난감 > 감각발달완구 > 비눗방울/버블건'],
     ['coupang', '완구/취미 > 보드게임 > 기타보드게임'],
     ['kidsnote', '선물/행사/체험 > 선물용품 > 장난감/완구'],
+    ['kkomangse', '선물/행사용품 > 선물용품 > 비누방울/물총'],
+    ['thirtymall', '출산/육아 > 완구/매트 > 캐릭터카드/딱지'],
   ].map(([mallKey, path]) => ({
     mallKey: mallKey!,
     salePrice: null,
@@ -24,6 +26,16 @@ function sample(): MallSheetSourceProduct {
     promoText: null,
     adapterValues: { sabangnetCategoryPath: path! },
   }));
+  // 티쳐몰은 이름표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
+  overrides.push({
+    mallKey: 'teacher-mall',
+    salePrice: null,
+    priceRateBp: null,
+    name: null,
+    detailHtml: null,
+    promoText: null,
+    adapterValues: { sabangnetCategoryPath: '티처몰 > 학급운영 > 놀이활동 > 교육완구' },
+  });
   return {
     id: '11111111-1111-4111-8111-111111111111',
     code: '100105',
@@ -49,18 +61,21 @@ function sample(): MallSheetSourceProduct {
   };
 }
 
-async function fill(spec: MallBulkSheetSpec) {
+async function fill(spec: MallBulkSheetSpec, fixed: Record<string, string> = {}) {
   const categories = new MallCategoryLookup(await adapter.categoryTables());
   const result = spec.rows(toMallSheetProduct(sample(), spec, categories), {
-    fixed: resolveFixedValues(spec, {}),
+    fixed: resolveFixedValues(spec, fixed),
     categories,
   });
   expect(result.problems).toEqual([]);
   const buffer = await adapter.write(spec.template, result.rows);
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[spec.template.sheet]!, { header: 1, defval: null, raw: true });
-  const header = (rows[spec.template.headerRow - 1] ?? []).map((cell) => String(cell ?? '').replace(/\s+/g, ' ').trim());
-  const data = rows[spec.template.firstDataRow - 1] ?? [];
+  // 안내행을 지우고 올리는 양식은 머리행이 1행, 상품이 2행부터다.
+  const headerRow = spec.template.emit === 'headers' ? 1 : spec.template.headerRow;
+  const firstDataRow = spec.template.emit === 'headers' ? 2 : spec.template.firstDataRow;
+  const header = (rows[headerRow - 1] ?? []).map((cell) => String(cell ?? '').replace(/\s+/g, ' ').trim());
+  const data = rows[firstDataRow - 1] ?? [];
   const cell = (name: string) => data[header.indexOf(name)];
   return { rows, data, cell, header };
 }
@@ -112,6 +127,45 @@ describe('MallBulkSheetFilesAdapter', () => {
     expect(cell('상품명')).toBe('[키드아이템] 비눗방울 버블건 1p');
     expect(cell('대분류')).toBe('선물/행사/체험');
     expect(rows.flat()).not.toContain('샘플 상품명');
+  });
+
+  it('fills the Kkomangse sample in place of its two example products', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'kkomangse')!;
+    const { rows, cell } = await fill(spec);
+    expect(cell('대표상품명')).toBe('비눗방울 버블건 1p');
+    expect([cell('1차 분류'), cell('2차 분류'), cell('3차 분류')]).toEqual(['선물/행사용품', '선물용품', '비누방울/물총']);
+    expect(cell('판매가 (납품가 입력시 생략가능)')).toBe(5900);
+    expect(cell('목록 기본이미지 (외부URL만)')).toBe('https://pic.sabangnet.co.kr/product_image/1.jpg');
+    expect(String(cell('상품설명 (엔터제외)'))).not.toContain('\n');
+    expect(rows.flat()).not.toContain('샘플 상품 A');
+  });
+
+  it('writes the Thirtymall sheet without the guide rows and resolves its standard category', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'thirtymall')!;
+    const { rows, cell, header } = await fill(spec, { manager: '169983' });
+    // 안내행을 지운 모양 — 첫 줄이 칸 제목, 둘째 줄이 상품 하나.
+    expect(header[0]).toBe('상품군');
+    expect(rows).toHaveLength(2);
+    expect(cell('표준카테고리')).toBe('1010980');
+    expect(cell('담당자')).toBe('169983');
+    expect(cell('판매가')).toBe(5900);
+    expect(cell('원산지')).toBe('40037');
+    expect(String(cell('상품이미지')).split('\n')[0]).toBe('main^|^https://pic.sabangnet.co.kr/product_image/1.jpg');
+    expect(cell('상품정보고시 유형')).toBe('40');
+    expect(cell('상품정보고시 항목1')).toBe('비눗방울 버블건 1p');
+  });
+
+  it('writes the Teacherville sheet without the guide rows and prices it by the supply rate', async () => {
+    const spec = MALL_BULK_SHEETS.find((sheet) => sheet.sheetKey === 'teacherville')!;
+    const { rows, cell, header } = await fill(spec);
+    expect(header[1]).toBe('*상품번호');
+    expect(rows).toHaveLength(2);
+    expect(cell('카테고리')).toBe('0001000300050004');
+    expect(cell('*상품명')).toBe('비눗방울 버블건 1p');
+    expect(cell('할인가(판매가)')).toBe(5900);
+    expect(cell('공급가')).toBe(4720);
+    expect(cell('상품정보고시품목')).toBe('40');
+    expect(String(cell('상품정보고시')).startsWith('품명 및 모델명=비눗방울 버블건 1p^')).toBe(true);
   });
 
   it('refuses rows that name a column the template does not have', async () => {

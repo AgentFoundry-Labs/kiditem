@@ -31,6 +31,11 @@ export interface MallSheetTemplate {
   bookType: 'xls' | 'xlsx' | 'xlsm';
   /** 비우지 않고 남길 열 글자(양식이 행 번호를 미리 적어 둔 `A` 열 등). */
   keepColumnLetters?: readonly string[];
+  /**
+   * `template`(기본): 양식 파일을 그대로 두고 상품 행만 채운다.
+   * `headers`: 머리행과 상품 행만 남긴 새 시트를 만든다 — 몰이 "안내행을 지우고 올리라"고 하는 양식(떠리몰 · 티쳐몰).
+   */
+  emit?: 'template' | 'headers';
 }
 
 /** 몰 계정에 한 번 정하는 값(출하지 코드 · 스토어명 같은 것). 화면이 입력칸으로 그린다. */

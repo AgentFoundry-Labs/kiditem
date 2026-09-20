@@ -387,6 +387,8 @@ describe('mall bulk sheet registry', () => {
   it('never lists a mall both as having a sheet and as having no bulk Excel', () => {
     const covered = new Set(MALL_BULK_SHEETS.flatMap((sheet) => sheet.mallKeys));
     expect(MALL_BULK_SHEET_UNAVAILABLE.filter((item) => covered.has(item.mallKey))).toEqual([]);
-    expect([...covered].sort()).toEqual(['11st', 'auction', 'coupang', 'gmarket', 'kidsnote']);
+    expect([...covered].sort()).toEqual([
+      '11st', 'auction', 'coupang', 'gmarket', 'kidsnote', 'kkomangse', 'teacher-mall', 'thirtymall',
+    ]);
   });
 });

@@ -8,6 +8,7 @@ import {
   SalesProductMallCategoryAssignResultSchema,
   SalesProductMallPriceAdoptionSchema,
   SalesProductMallSheetCheckSchema,
+  SalesProductMallSheetCategoryListSchema,
   SalesProductMallSheetListSchema,
   SalesProductPublicImagePendingSchema,
   SalesProductSchema,
@@ -21,6 +22,7 @@ import {
   type SalesProductMallCategoryAssignRequest,
   type SalesProductMallCategoryAssignResult,
   type SalesProductMallPriceAdoption,
+  type SalesProductMallSheetCategoryList,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
   type SalesProductPublicImagePending,
@@ -55,6 +57,8 @@ export const salesProductKeys = {
   mallCategories: (mallKey: string) => ['sales-products', 'mall-categories', mallKey] as const,
   mallPriceAdoption: () => ['sales-products', 'mall-price-adoption'] as const,
   mallSheets: () => ['sales-products', 'mall-sheets'] as const,
+  mallSheetCategories: (sheetKey: string, mallKey: string, query: string) =>
+    ['sales-products', 'mall-sheet-categories', sheetKey, mallKey, query] as const,
   publicImages: (salesProductIds: readonly string[]) => ['sales-products', 'public-images', [...salesProductIds].sort()] as const,
 };
 
@@ -167,6 +171,13 @@ export const salesProductApi = {
   /** 확장이 공개 저장소에 올린 사진 주소를 저장한다. 판매상품의 사진 주소는 그대로 둔다. */
   savePublicImages: async (body: SalesProductPublicImageSaveRequest): Promise<{ saved: number }> =>
     apiClient.post<{ saved: number }>(`${BASE}/public-images`, body),
+  /** 몰이 가진 분류 목록에서 찾는다(읽기만) — 분류 칸의 고를거리. */
+  searchMallSheetCategories: async (sheetKey: string, mallKey: string, query: string): Promise<SalesProductMallSheetCategoryList> => {
+    const params = new URLSearchParams({ mallKey, query });
+    return SalesProductMallSheetCategoryListSchema.parse(
+      await apiClient.get<unknown>(`${BASE}/mall-sheets/${encodeURIComponent(sheetKey)}/categories?${params.toString()}`),
+    );
+  },
   /** 여러 판매상품의 한 몰 분류를 정한다(몰별 값의 categoryPath). 몰은 건드리지 않는다. */
   assignMallCategory: async (body: SalesProductMallCategoryAssignRequest): Promise<SalesProductMallCategoryAssignResult> =>
     SalesProductMallCategoryAssignResultSchema.parse(await apiClient.post<unknown>(`${BASE}/mall-categories/assign`, body)),

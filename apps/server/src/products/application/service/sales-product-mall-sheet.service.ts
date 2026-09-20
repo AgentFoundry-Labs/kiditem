@@ -8,6 +8,7 @@ import {
   type SalesProductMallCategoryAssignResult,
   type SalesProductPublicImagePending,
   type SalesProductMallSheetCategory,
+  type SalesProductMallSheetCategoryList,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
   type SalesProductMallSheetRequest,
@@ -219,6 +220,15 @@ export class SalesProductMallSheetService {
       warnings: result.warnings,
       unreadableImages: unreadable.length,
     };
+  }
+
+  /** 몰이 가진 분류 목록에서 찾기 — 몰 엑셀 창의 분류 칸이 고를거리로 보여 준다. */
+  async searchCategories(sheetKey: string, query: string, mallKey?: string): Promise<SalesProductMallSheetCategoryList> {
+    const spec = this.spec(sheetKey);
+    const target = mallKey && spec.mallKeys.includes(mallKey) ? mallKey : spec.mallKeys[0]!;
+    const categories = new MallCategoryLookup(await this.files.categoryTables());
+    const found = categories.search(target, query, 50);
+    return { sheetKey: spec.sheetKey, mallKey: target, paths: found.paths, total: found.total };
   }
 
   /** 이 판매상품들의 사진 중 몰이 못 읽고 공개 복사본도 없는 주소 — 확장이 올린다. */

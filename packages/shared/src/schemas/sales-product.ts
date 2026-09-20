@@ -657,6 +657,17 @@ export const SalesProductMallSheetCheckSchema = z.object({
 });
 export type SalesProductMallSheetCheck = z.infer<typeof SalesProductMallSheetCheckSchema>;
 
+/** 몰이 가진 분류 목록에서 찾은 경로(몰 엑셀 창의 분류 칸 고를거리). */
+export const SalesProductMallSheetCategoryListSchema = z.object({
+  sheetKey: z.string(),
+  mallKey: z.string(),
+  /** 찾은 분류 경로(`>` 로 이은 이름). 몰 분류표가 없는 몰이면 빈 배열. */
+  paths: z.array(z.string()),
+  /** 몰 분류표에 있는 전체 분류 수(0 이면 표가 없다). */
+  total: z.number().int(),
+});
+export type SalesProductMallSheetCategoryList = z.infer<typeof SalesProductMallSheetCategoryListSchema>;
+
 /** 여러 판매상품의 한 몰 분류를 한 번에 정한다(몰별 값의 `categoryPath`). */
 export const SalesProductMallCategoryAssignRequestSchema = z.object({
   mallKey: z.string().trim().min(1).max(40),

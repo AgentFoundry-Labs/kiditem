@@ -72,6 +72,20 @@ export class MallCategoryLookup {
     return this.byMall.get(mallKey)?.get(key) ?? null;
   }
 
+  /** 그 몰 분류표에서 글자가 든 경로를 찾는다(많이 짧은 것부터). 표가 없으면 빈 배열. */
+  search(mallKey: string, query: string, limit: number): { paths: string[]; total: number } {
+    const table = this.byMall.get(mallKey);
+    if (!table) return { paths: [], total: 0 };
+    const needle = query.trim().toLowerCase();
+    const found: string[] = [];
+    for (const path of table.keys()) {
+      if (needle && !path.toLowerCase().includes(needle)) continue;
+      found.push(path);
+    }
+    found.sort((left, right) => left.length - right.length || left.localeCompare(right));
+    return { paths: found.slice(0, limit), total: table.size };
+  }
+
   /** G마켓 · 옥션 카테고리 번호 → ESM 카테고리 번호. */
   esmCode(siteCode: string | null): string | null {
     return siteCode ? this.tables.esmBySite[siteCode] ?? null : null;

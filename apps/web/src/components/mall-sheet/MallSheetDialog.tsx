@@ -392,7 +392,13 @@ function CategoryGroups({
       </div>
       <ul className="divide-y divide-slate-100">
         {groups.map((group) => (
-          <CategoryGroupRow key={`${group.mallKey}|${group.suggestion ?? ''}`} group={group} onAssign={onAssign} assigning={assigning} />
+          <CategoryGroupRow
+            key={`${group.mallKey}|${group.suggestion ?? ''}`}
+            sheetKey={sheet.sheetKey}
+            group={group}
+            onAssign={onAssign}
+            assigning={assigning}
+          />
         ))}
       </ul>
     </div>
@@ -406,10 +412,12 @@ const BASIS_LABEL: Record<NonNullable<MallSheetCategoryGroup['basis']>, string> 
 };
 
 function CategoryGroupRow({
+  sheetKey,
   group,
   onAssign,
   assigning,
 }: {
+  sheetKey: string;
   group: MallSheetCategoryGroup;
   onAssign: (group: MallSheetCategoryGroup, path: string) => void;
   assigning: boolean;
@@ -420,6 +428,19 @@ function CategoryGroupRow({
   const known = useQuery({
     queryKey: salesProductKeys.mallCategories(group.mallKey),
     queryFn: () => salesProductApi.mallCategories(group.mallKey),
+    enabled: wantsList,
+    staleTime: 5 * 60_000,
+  });
+  // 몰이 가진 분류표에서 찾기 — 우리가 안 써 본 분류도 고를 수 있다(티쳐몰 · 꼬망세 · 떠리몰).
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    if (!wantsList) return undefined;
+    const timer = setTimeout(() => setSearch(path.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [wantsList, path]);
+  const mallList = useQuery({
+    queryKey: salesProductKeys.mallSheetCategories(sheetKey, group.mallKey, search),
+    queryFn: () => salesProductApi.searchMallSheetCategories(sheetKey, group.mallKey, search),
     enabled: wantsList,
     staleTime: 5 * 60_000,
   });
@@ -440,8 +461,11 @@ function CategoryGroupRow({
           className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
         />
         <datalist id={listId}>
+          {(mallList.data?.paths ?? []).map((mallPath) => (
+            <option key={`mall:${mallPath}`} value={mallPath}>몰 분류</option>
+          ))}
           {(known.data?.categories ?? []).slice(0, 300).map((category) => (
-            <option key={category.path} value={category.path}>{`${category.count}개`}</option>
+            <option key={category.path} value={category.path}>{`우리가 쓴 분류 · ${category.count}개`}</option>
           ))}
         </datalist>
         {group.suggestion && path.trim() === group.suggestion && (
@@ -462,7 +486,7 @@ function CategoryGroupRow({
       </div>
       {!group.suggestion && (
         <p className="mt-1 pl-[9.5rem] text-xs text-slate-500">
-          추천이 없습니다 — 다른 몰 분류도 이름이 비슷한 판매상품도 없어요. 분류 경로를 적거나 목록에서 골라 저장하세요.
+          추천이 없습니다 — 칸에 글자를 넣으면 몰 분류표{mallList.data?.total ? `(${mallList.data.total}개)` : ''}에서 찾아 줍니다.
         </p>
       )}
       <details className="mt-1 pl-[9.5rem] text-xs text-slate-500">

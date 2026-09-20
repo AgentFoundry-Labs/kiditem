@@ -57,6 +57,7 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
     if (missing.length) {
       throw new Error(`몰 양식(${template.file})에 없는 칸: ${missing.join(', ')}. 몰이 양식을 바꿨는지 확인하세요.`);
     }
+    if (template.emit === 'headers') return writeHeaderSheet(template, headers, index, rows);
 
     const firstRow = template.firstDataRow - 1;
     const keep = new Set((template.keepColumnLetters ?? []).map((letter) => XLSX.utils.decode_col(letter)));
@@ -86,18 +87,60 @@ export class MallBulkSheetFilesAdapter implements MallBulkSheetFilesPort {
   }
 
   private async loadTables(): Promise<MallCategoryTables> {
-    const [esmRaw, coupangRaw, elevenstRaw] = await Promise.all([
+    const [esmRaw, coupangRaw, elevenstRaw, thirtymallRaw, teachervilleRaw, kkomangseRaw] = await Promise.all([
       readFile(join(TEMPLATE_DIR, 'esm-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, 'coupang-categories.json.gz')),
       readFile(join(TEMPLATE_DIR, '11st-categories.json'), 'utf8'),
+      readFile(join(TEMPLATE_DIR, 'thirtymall-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'teacherville-categories.json.gz')),
+      readFile(join(TEMPLATE_DIR, 'kkomangse-categories.json.gz')),
     ]);
     const esm = JSON.parse(gunzipSync(esmRaw).toString('utf8')) as EsmCategoryFile;
     const coupang = JSON.parse(gunzipSync(coupangRaw).toString('utf8')) as { categories: Record<string, string[]> };
     const elevenst = JSON.parse(elevenstRaw) as { categories: Record<string, string> };
+    const thirtymall = JSON.parse(gunzipSync(thirtymallRaw).toString('utf8')) as { categories: Record<string, string> };
+    const teacherville = JSON.parse(gunzipSync(teachervilleRaw).toString('utf8')) as { categories: Record<string, string> };
+    const kkomangse = JSON.parse(gunzipSync(kkomangseRaw).toString('utf8')) as { categories: Record<string, string> };
     return {
-      paths: { gmarket: esm.gmarket, auction: esm.auction, '11st': elevenst.categories },
+      paths: {
+        gmarket: esm.gmarket,
+        auction: esm.auction,
+        '11st': elevenst.categories,
+        thirtymall: thirtymall.categories,
+        'teacher-mall': teacherville.categories,
+        kkomangse: kkomangse.categories,
+      },
       esmBySite: esm.esmBySite,
       coupang: coupang.categories,
     };
   }
+}
+
+/**
+ * 안내행을 지우고 올리라는 양식(떠리몰 · 티쳐몰)은 머리행과 상품 행만 남긴 새 시트로 만든다. 칸 제목은 양식 글자
+ * 그대로 써야 몰이 알아본다 — 순서를 바꾸거나 칸을 빼면 몰이 파일을 통째로 거절한다.
+ */
+function writeHeaderSheet(
+  template: MallSheetTemplate,
+  headers: readonly unknown[],
+  index: ReadonlyMap<string, number>,
+  rows: readonly MallSheetRow[],
+): Buffer {
+  const sheet: XLSX.WorkSheet = {};
+  const lastColumn = headers.length - 1;
+  headers.forEach((header, column) => {
+    if (header === undefined || header === null || header === '') return;
+    sheet[XLSX.utils.encode_cell({ r: 0, c: column })] = { t: 's', v: String(header) };
+  });
+  rows.forEach((row, offset) => {
+    for (const [column, value] of Object.entries(row)) {
+      if (value === null || value === '') continue;
+      const address = XLSX.utils.encode_cell({ r: offset + 1, c: index.get(normalizeColumn(column))! });
+      sheet[address] = typeof value === 'number' ? { t: 'n', v: value } : { t: 's', v: value };
+    }
+  });
+  sheet['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: Math.max(lastColumn, 0) } });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, template.sheet);
+  return XLSX.write(workbook, { type: 'buffer', bookType: template.bookType }) as Buffer;
 }
