@@ -9,17 +9,19 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import type { PrismaService } from '../../prisma/prisma.service';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
+import { hashRegistrationSubmissionPayload } from '../domain/registration-submission-payload';
 import { ProductPreparationRepositoryAdapter } from '../../sourcing/adapter/out/repository/product-preparation.repository.adapter';
 import { RegistrationDraftAdapter } from '../../sourcing/adapter/out/channels/registration-draft.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../../sourcing/adapter/out/repository/sourcing-candidate.repository.adapter';
+import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration-execution-state';
 import type { SourcingRepositoryTransaction } from '../../sourcing/application/port/out/transaction/repository-transaction';
 import type { ChannelsRepositoryTransaction } from '../application/port/out/transaction/repository-transaction';
-import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration-execution-state';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const BUNDLE_MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
@@ -1018,6 +1020,184 @@ describe('registration execution fence (PG integration)', () => {
     })).toBe(1);
   });
 
+  it('allocates a bundle KID in the candidate-locked transaction and freezes its full payload hash', async () => {
+    const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
+    const prepared = await repository.prepare(input);
+    if (!prepared.kidItemCode) throw new Error('bundle preparation did not return an assigned KID');
+
+    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: {
+        requestHash: true,
+        submissionPayloadHash: true,
+        submissionPayloadJson: true,
+      },
+    });
+    const payload = execution.submissionPayloadJson as {
+      registrationInput: {
+        kidItemCode: string;
+        sellpiaMatch: { code: string };
+        wingProduct: { variants: Array<{ vendorItemCode: string }> };
+      };
+    };
+
+    expect(prepared.kidItemCode).toMatch(/^KID[0-9]{8}$/);
+    expect(payload.registrationInput.sellpiaMatch.code).toBe('KID00000001');
+    expect(payload.registrationInput.kidItemCode).toBe(prepared.kidItemCode);
+    expect(payload.registrationInput.wingProduct.variants[0]?.vendorItemCode)
+      .toBe(prepared.kidItemCode);
+    expect(execution.requestHash).toBe(execution.submissionPayloadHash);
+    expect(execution.requestHash).toBe(hashRegistrationSubmissionPayload(payload));
+    expect(prepared.requestHash).toBe(execution.requestHash);
+  });
+
+  it('replays a bundle preparation by key and rejects a changed request under that key', async () => {
+    const idempotencyKey = randomUUID();
+    const input = createExternalRegistrationInput(idempotencyKey, { quantity: 2 });
+    const first = await repository.prepare(input);
+    const replay = await repository.prepare(input);
+
+    expect(replay).toMatchObject({
+      executionId: first.executionId,
+      preparationId: first.preparationId,
+      kidItemCode: first.kidItemCode,
+      requestHash: first.requestHash,
+    });
+
+    await expect(repository.prepare({
+      ...input,
+      displayName: 'Changed bundle request',
+      registrationInput: {
+        ...input.registrationInput,
+        wingProduct: { productName: 'Changed bundle request', variants: [{ vendorItemCode: 'KID00000001' }] },
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('serializes concurrent bundle preparations with distinct keys and reuses one assigned KID', async () => {
+    const firstInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
+    const secondInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
+    const [first, second] = await Promise.all([
+      repository.prepare(firstInput),
+      repository.prepare(secondInput),
+    ]);
+
+    expect(second.executionId).toBe(first.executionId);
+    expect(second.preparationId).toBe(first.preparationId);
+    expect(second.kidItemCode).toBe(first.kidItemCode);
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: first.preparationId },
+    })).toBe(1);
+  });
+
+  it('resumes a prepared bundle under a new key without changing its assigned KID', async () => {
+    const first = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
+    const resumed = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
+
+    expect(resumed).toMatchObject({
+      executionId: first.executionId,
+      preparationId: first.preparationId,
+      kidItemCode: first.kidItemCode,
+      requestHash: first.requestHash,
+    });
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: first.preparationId },
+    })).toBe(1);
+  });
+
+  it('reuses the bundle KID after a definitive pre-provider failure', async () => {
+    const sourceInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
+    const first = await repository.prepare(sourceInput);
+    const started = await repository.start({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      executionId: first.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    await repository.markFailed({
+      organizationId: TEST_ORGANIZATION_ID,
+      preparationId: first.preparationId,
+      submissionLeaseToken: started.submissionLeaseToken!,
+      error: 'extension failed before provider submission',
+      providerOutcome: 'definitive_failure',
+    });
+
+    const retry = await repository.prepare({
+      ...sourceInput,
+      idempotencyKey: randomUUID(),
+    });
+
+    expect(retry.executionId).not.toBe(first.executionId);
+    expect(retry.preparationId).not.toBe(first.preparationId);
+    expect(retry.kidItemCode).toBe(first.kidItemCode);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: first.executionId },
+      select: { status: true, providerOutcome: true },
+    })).resolves.toEqual({ status: 'cancelled', providerOutcome: 'definitive_failure' });
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: retry.executionId },
+      select: { status: true, providerOutcome: true },
+    })).resolves.toEqual({ status: 'prepared', providerOutcome: 'not_attempted' });
+  });
+
+  it('uses the source Master KID for a singleton instead of allocating a bundle code', async () => {
+    const sourceCode = 'KID00000007';
+    const prepared = await repository.prepare(createExternalRegistrationInput(randomUUID(), {
+      quantity: 1,
+      sourceCode,
+    }));
+    if (!prepared.kidItemCode) throw new Error('singleton preparation did not return a KID');
+
+    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { submissionPayloadJson: true },
+    });
+    const payload = execution.submissionPayloadJson as {
+      registrationInput: {
+        kidItemCode: string;
+        sellpiaMatch: { code: string };
+        wingProduct: { variants: Array<{ vendorItemCode: string }> };
+      };
+    };
+    expect(prepared.kidItemCode).toBe(sourceCode);
+    expect(payload.registrationInput.kidItemCode).toBe(sourceCode);
+    expect(payload.registrationInput.sellpiaMatch.code).toBe(sourceCode);
+    expect(payload.registrationInput.wingProduct.variants[0]?.vendorItemCode).toBe(sourceCode);
+  });
+
+  it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
+    const failingDrafts = new RegistrationDraftAdapter({
+      findCandidateWorkspaceId: async () => null,
+      resolveSourceSelections: async (_opaqueTx, input) => input,
+      validateSourceSelections: async () => undefined,
+      ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
+      branchToListing: async () => ({ workspaceId: '' }),
+    });
+    vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
+      new Error('forced transaction rollback after allocation'),
+    );
+    const failingRepository = new RegistrationExecutionRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      failingDrafts,
+    );
+    const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
+
+    await expect(failingRepository.prepare(input)).rejects.toThrow(
+      'forced transaction rollback after allocation',
+    );
+    expect(await prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toBe(0);
+    expect(await prisma.productPreparation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+    })).toBe(0);
+
+    await expect(repository.prepare({
+      ...input,
+      idempotencyKey: randomUUID(),
+    })).resolves.toMatchObject({ status: 'prepared', kidItemCode: expect.stringMatching(/^KID[0-9]{8}$/) });
+  });
+
   it('abandons a never-submitted prepared execution and prepares fresh when a later attempt changes the payload', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -1397,6 +1577,34 @@ describe('registration execution fence (PG integration)', () => {
       evidence: { reason: 'must-not-reconcile-create-execution' },
     })).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  function createExternalRegistrationInput(
+    idempotencyKey: string,
+    options: { quantity: number; sourceCode?: string },
+  ) {
+    const sourceCode = options.sourceCode ?? 'KID00000001';
+    return {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidateId,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: {
+        sellpiaMatch: {
+          sellpiaInventorySkuId: BUNDLE_MASTER_PRODUCT_ID,
+          code: sourceCode,
+          name: 'Kids rain boots',
+          optionName: 'Blue / 130',
+          quantity: options.quantity,
+        },
+        wingProduct: {
+          productName: 'Kids rain boots',
+          variants: [{ vendorItemCode: sourceCode }],
+        },
+      },
+      idempotencyKey,
+    };
+  }
 
   function createInput(channelAccountId: string) {
     return {

@@ -1,3 +1,4 @@
+import { kidItemCodeSequenceStep } from '../../../../scripts/data-migrations/ensure/kid-item-code-sequence';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -172,6 +173,7 @@ const setup = createPostgresGlobalSetup({
     });
     try {
       await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
+      await prisma.$transaction((tx) => kidItemCodeSequenceStep.run(tx, { target: 'local' }));
     } finally {
       await prisma.$disconnect();
     }

@@ -11,9 +11,9 @@ import {
   resolveFinanceWindow,
 } from '../../common/per-listing-profit';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 
 /**
  * Live profit and loss for one KST month.
@@ -33,8 +33,8 @@ export class ProfitLossService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async findAll(

@@ -383,7 +383,7 @@ export type RocketPoCatalogPublication = z.infer<
 >;
 
 export const RocketPurchasePreviewComponentSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: requiredText(120).nullable(),
   name: requiredText(240).nullable(),
   optionName: z.string().trim().min(1).max(240).nullable(),

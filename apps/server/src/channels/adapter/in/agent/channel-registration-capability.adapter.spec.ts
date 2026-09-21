@@ -5,7 +5,7 @@ import { ChannelRegistrationCapabilityAdapter } from './channel-registration-cap
 describe('ChannelRegistrationCapabilityAdapter', () => {
   it('previews the one automatically verified Sellpia match without calling Coupang', async () => {
     const proposal = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      masterProductId: '00000000-0000-4000-8000-000000000051',
       code: '10451-1',
       name: '3500꿀사과슬랑이',
       optionName: null,
@@ -37,7 +37,7 @@ describe('ChannelRegistrationCapabilityAdapter', () => {
       status: 'matched',
       reason: '상품명으로 셀피아 재고 1건을 자동 매칭했습니다.',
       sellpiaMatch: {
-        sellpiaInventorySkuId: proposal.sellpiaInventorySkuId,
+        sellpiaInventorySkuId: proposal.masterProductId,
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         optionName: null,
@@ -45,7 +45,7 @@ describe('ChannelRegistrationCapabilityAdapter', () => {
         quantity: 1,
       },
       proposals: [{
-        sellpiaInventorySkuId: proposal.sellpiaInventorySkuId,
+        sellpiaInventorySkuId: proposal.masterProductId,
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         optionName: null,
@@ -58,7 +58,7 @@ describe('ChannelRegistrationCapabilityAdapter', () => {
 
   it('revalidates an operator-selected active Sellpia SKU even when it was not suggested', async () => {
     const selectedSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000099',
+      masterProductId: '00000000-0000-4000-8000-000000000099',
       code: 'MANUAL-99',
       name: '직접 선택한 셀피아 상품',
       optionName: '파랑',
@@ -87,26 +87,30 @@ describe('ChannelRegistrationCapabilityAdapter', () => {
       sourceCandidateId: 'candidate-1',
       listingName: '등록할 상품',
       itemName: null,
-      selectedSellpiaInventorySkuId: selectedSku.sellpiaInventorySkuId,
+      selectedSellpiaInventorySkuId: selectedSku.masterProductId,
       selectedQuantity: 2,
     })).resolves.toEqual({
-      sellpiaMatch: { ...selectedSku, quantity: 2 },
+      sellpiaMatch: {
+        sellpiaInventorySkuId: selectedSku.masterProductId,
+        code: selectedSku.code,
+        name: selectedSku.name,
+        optionName: selectedSku.optionName,
+        currentStock: selectedSku.currentStock,
+        quantity: 2,
+      },
       existingListing: null,
     });
     expect(recipes.resolveSelectedRegistrationSku).toHaveBeenCalledWith(
       'org-1',
-      selectedSku.sellpiaInventorySkuId,
+      selectedSku.masterProductId,
     );
-    expect(marketplace.findExistingExternalProductRegistration).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      channelAccountId: 'account-1',
-      externalVendorSku: 'MANUAL-99',
-    });
+    // A bundle receives its own code at preparation; the source code cannot identify it.
+    expect(marketplace.findExistingExternalProductRegistration).not.toHaveBeenCalled();
   });
 
   it('matches one real Sellpia SKU and checks Coupang with that SKU code', async () => {
     const proposal = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      masterProductId: '00000000-0000-4000-8000-000000000051',
       code: '10451-1',
       name: '3500꿀사과슬랑이',
       optionName: null,
@@ -143,7 +147,7 @@ describe('ChannelRegistrationCapabilityAdapter', () => {
       itemName: null,
     })).resolves.toEqual({
       sellpiaMatch: {
-        sellpiaInventorySkuId: proposal.sellpiaInventorySkuId,
+        sellpiaInventorySkuId: proposal.masterProductId,
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         optionName: null,

@@ -1,4 +1,3 @@
-import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -206,8 +205,6 @@ export class ProfitabilityAdImportRepositoryAdapter
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventory: InventoryTransactionalReadPort,
   ) {}
 
   async beginAttempt(input: {
@@ -839,25 +836,19 @@ export class ProfitabilityAdImportRepositoryAdapter
             inventoryComponents: {
               select: {
                 quantity: true,
-                sellpiaInventorySkuId: true,
+                masterProductId: true,
               },
             },
           },
         },
       },
     });
-    const identities = await this.inventory.readSkuIdentities({ client: tx }, {
-      organizationId,
-      selector: { kind: 'ids', values: [...new Set(listings.flatMap((listing) =>
-        listing.options.flatMap((option) => option.inventoryComponents.map((component) => component.sellpiaInventorySkuId))))] },
-    });
-    const byId = new Map(identities.map((identity) => [identity.sellpiaInventorySkuId, identity]));
     return listings.map((listing) => ({
       ...listing,
       options: listing.options.map((option) => ({
         inventoryComponents: option.inventoryComponents.map((component) => ({
           quantity: component.quantity,
-          sellpiaInventorySku: { masterProductId: byId.get(component.sellpiaInventorySkuId)?.masterProductId ?? null },
+          masterProduct: { masterProductId: component.masterProductId },
         })),
       })),
     }));
@@ -1993,7 +1984,7 @@ function freezeMonthlyFacts(
     options: readonly {
       inventoryComponents: readonly {
         quantity: number;
-        sellpiaInventorySku: { masterProductId: string | null };
+        masterProduct: { masterProductId: string | null };
       }[];
     }[];
   }[],
@@ -2030,22 +2021,22 @@ function freezeMonthlyFacts(
 }
 
 function freezeRecipe(
-  options: readonly { inventoryComponents: readonly { quantity: number; sellpiaInventorySku: { masterProductId: string | null } }[] }[],
+  options: readonly { inventoryComponents: readonly { quantity: number; masterProduct: { masterProductId: string | null } }[] }[],
 ): Map<string, number> | null {
   if (options.length === 0) return null;
   const recipe = new Map<string, number>();
   for (const option of options) {
     if (option.inventoryComponents.length === 0) return null;
     for (const component of option.inventoryComponents) {
-      if (!component.sellpiaInventorySku.masterProductId
+      if (!component.masterProduct.masterProductId
         || !Number.isSafeInteger(component.quantity)
         || component.quantity <= 0
         || component.quantity > INT4_MAX) return null;
-      const nextWeight = (recipe.get(component.sellpiaInventorySku.masterProductId) ?? 0)
+      const nextWeight = (recipe.get(component.masterProduct.masterProductId) ?? 0)
         + component.quantity;
       if (!Number.isSafeInteger(nextWeight) || nextWeight > INT4_MAX) return null;
       recipe.set(
-        component.sellpiaInventorySku.masterProductId,
+        component.masterProduct.masterProductId,
         nextWeight,
       );
     }

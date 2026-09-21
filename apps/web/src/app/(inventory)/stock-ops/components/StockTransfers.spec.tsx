@@ -54,12 +54,12 @@ describe('StockTransfers', () => {
     await userEvent.click(screen.getByRole('button', { name: '기록 저장' }));
 
     expect(post).toHaveBeenCalledWith('/api/stock-transfers', expect.objectContaining({
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
       fromWarehouseId: '00000000-0000-4000-8000-000000000010',
       toWarehouseId: '00000000-0000-4000-8000-000000000011',
     }));
     expect(post).not.toHaveBeenCalledWith('/api/stock-transfers', expect.objectContaining({
-      masterProductId: expect.anything(),
+      legacySellpiaInventorySkuId: expect.anything(),
     }));
     expect(screen.getByText(/Sellpia 현재고는 변경하지 않습니다/)).toBeInTheDocument();
   });
@@ -181,12 +181,12 @@ describe('StockTransfers', () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/stock-transfers') return [{
         id: 'transfer-1',
-        sellpiaInventorySkuId: 'missing-sellpia-sku-1',
+        masterProductId: 'missing-sellpia-sku-1',
         quantity: 3,
         status: 'pending',
         notes: null,
         createdAt: '2026-07-13T00:00:00.000Z',
-        sellpiaInventorySku: null,
+        masterProduct: null,
         fromWarehouse: { id: 'warehouse-1', name: 'A 창고' },
         toWarehouse: { id: 'warehouse-2', name: 'B 창고' },
       }] as never;
@@ -204,12 +204,12 @@ describe('StockTransfers', () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/stock-transfers') return [{
         id: 'transfer-1',
-        sellpiaInventorySkuId: 'sellpia-sku-1',
+        masterProductId: 'sellpia-sku-1',
         quantity: 3,
         status: 'pending',
         notes: null,
         createdAt: '2026-07-13T00:00:00.000Z',
-        sellpiaInventorySku: {
+        masterProduct: {
           id: 'sellpia-sku-1',
           code: 'SP-FINAL-1',
           name: '최종 Sellpia 상품',

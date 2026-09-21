@@ -6,7 +6,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { isInternalProductCode } from '@/lib/operator-product-reference';
 import { queryKeys } from '@/lib/query-keys';
 import type {
   MasterProductOperationsMetadata,
@@ -17,25 +16,14 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (productId: string) => void;
-  product?: MasterProductOperationsMetadata;
+  product?: Pick<MasterProductOperationsMetadata, 'id' | 'code' | 'name' | 'imageUrls'>;
 };
 
-type FormState = {
-  code: string;
-  name: string;
-  description: string;
-  category: string;
-  brand: string;
-  tags: string;
-  imageUrls: string;
-  adBudgetLimit: string;
-  isActive: boolean;
-};
+type FormState = { imageUrls: string };
 
 export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Props) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => toFormState(product));
-  const preserveInternalCode = product ? isInternalProductCode(product.code) : false;
 
   useEffect(() => {
     if (open) setForm(toFormState(product));
@@ -43,20 +31,11 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const editableFields = toEditableProductFields(form);
-      if (product) {
-        const payload: UpdateMasterProductInput = preserveInternalCode
-          ? editableFields
-          : { code: form.code.trim(), ...editableFields };
-        return apiClient.patch<{ id: string }>(
-          `/api/products/masters/${product.id}`,
-          payload,
-        );
-      }
-      return apiClient.post<{ id: string }>('/api/products/masters', {
-        code: form.code.trim(),
-        ...editableFields,
-      });
+      if (!product) throw new Error('수정할 상품을 선택해주세요.');
+      const payload: UpdateMasterProductInput = {
+        imageUrls: form.imageUrls.split(',').map((url) => url.trim()).filter(Boolean),
+      };
+      return apiClient.patch<{ id: string }>(`/api/products/masters/${product.id}`, payload);
     },
     onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.lists() });
@@ -72,7 +51,7 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!form.code.trim() || !form.name.trim()) return;
+    if (!product || mutation.isPending) return;
     mutation.mutate();
   };
 
@@ -88,10 +67,10 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
           <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] px-6 py-5">
             <div>
               <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">
-                {product ? '상품 정보 수정' : '상품 만들기'}
+                상품 이미지 수정
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">
-                KidItem 상품 정보를 관리합니다. 재고 수량은 Sellpia 동기화에서만 변경됩니다.
+                상품 이미지를 관리합니다. 상품 정보와 재고는 Sellpia 수집 결과를 반영합니다.
               </Dialog.Description>
             </div>
             <Dialog.Close aria-label="닫기" className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]">
@@ -100,41 +79,8 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
           </header>
 
           <form onSubmit={submit} className="space-y-5 p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              {product?.displayReference.type === 'channel_product' ? (
-                <div className="block text-sm font-semibold text-[var(--text-secondary)]">
-                  <p>{product.displayReference.label}</p>
-                  <p className="mt-1.5 flex h-10 items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 font-mono text-sm text-[var(--text-primary)]">
-                    {product.displayReference.value}
-                  </p>
-                </div>
-              ) : preserveInternalCode ? null : (
-                <Field label="상품 코드" required value={form.code} onChange={(code) => setForm((value) => ({ ...value, code }))} />
-              )}
-              <Field label="상품명" required value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} />
-              <Field label="카테고리" value={form.category} onChange={(category) => setForm((value) => ({ ...value, category }))} />
-              <Field label="브랜드" value={form.brand} onChange={(brand) => setForm((value) => ({ ...value, brand }))} />
-              <NumberField label="광고 예산 한도" value={form.adBudgetLimit} min={0} onChange={(adBudgetLimit) => setForm((value) => ({ ...value, adBudgetLimit }))} />
-              <Field label="태그" value={form.tags} placeholder="쉼표로 구분" onChange={(tags) => setForm((value) => ({ ...value, tags }))} />
-              <Field label="이미지 URL" value={form.imageUrls} placeholder="쉼표로 구분" onChange={(imageUrls) => setForm((value) => ({ ...value, imageUrls }))} />
-            </div>
-            <label className="block text-sm font-semibold text-[var(--text-secondary)]">
-              설명
-              <textarea
-                value={form.description}
-                onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))}
-                rows={3}
-                className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2 text-sm text-[var(--text-primary)]"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)]">
-              <input
-                type="checkbox"
-                checked={form.isActive}
-                onChange={(event) => setForm((value) => ({ ...value, isActive: event.target.checked }))}
-              />
-              판매 활성
-            </label>
+            <p className="text-sm text-[var(--text-secondary)]">{product?.code} · {product?.name}</p>
+            <Field label="이미지 URL" value={form.imageUrls} placeholder="쉼표로 구분" onChange={(imageUrls) => setForm({ imageUrls })} />
 
             {errorMessage ? (
               <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -150,10 +96,10 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
               </Dialog.Close>
               <button
                 type="submit"
-                disabled={mutation.isPending || !form.code.trim() || !form.name.trim()}
+                disabled={mutation.isPending || !product}
                 className="rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
-                {mutation.isPending ? '저장 중...' : product ? '변경 저장' : '상품 만들기'}
+                {mutation.isPending ? '저장 중...' : '이미지 저장'}
               </button>
             </footer>
           </form>
@@ -174,6 +120,7 @@ function Field({ label, value, onChange, required, placeholder }: {
     <label className="block text-sm font-semibold text-[var(--text-secondary)]">
       {label}
       <input
+        name="imageUrls"
         required={required}
         value={value}
         placeholder={placeholder}
@@ -184,60 +131,6 @@ function Field({ label, value, onChange, required, placeholder }: {
   );
 }
 
-function NumberField({ label, value, onChange, min, max }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  min: number;
-  max?: number;
-}) {
-  return (
-    <label className="block text-sm font-semibold text-[var(--text-secondary)]">
-      {label}
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-sm text-[var(--text-primary)]"
-      />
-    </label>
-  );
-}
-
-function toFormState(product?: MasterProductOperationsMetadata): FormState {
-  return {
-    code: product?.code ?? '',
-    name: product?.name ?? '',
-    description: product?.description ?? '',
-    category: product?.category ?? '',
-    brand: product?.brand ?? '',
-    tags: product?.tags.join(', ') ?? '',
-    imageUrls: product?.imageUrls.join(', ') ?? '',
-    adBudgetLimit: product?.adBudgetLimit?.toString() ?? '',
-    isActive: product?.isActive ?? true,
-  };
-}
-
-function nullable(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function nullableNumber(value: string): number | null {
-  return value === '' ? null : Number(value);
-}
-
-function toEditableProductFields(form: FormState) {
-  return {
-    name: form.name.trim(),
-    description: nullable(form.description),
-    category: nullable(form.category),
-    brand: nullable(form.brand),
-    tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-    imageUrls: form.imageUrls.split(',').map((url) => url.trim()).filter(Boolean),
-    adBudgetLimit: nullableNumber(form.adBudgetLimit),
-    isActive: form.isActive,
-  };
+function toFormState(product?: Props['product']): FormState {
+  return { imageUrls: product?.imageUrls.join(', ') ?? '' };
 }

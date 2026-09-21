@@ -16,11 +16,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
   let adActionService: AdActionService;
-  let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedListingWithOption(params: {
     organizationId: string;
@@ -60,12 +60,12 @@ describe('AdAction flow (PG integration)', () => {
         importedAt: new Date(),
       },
     });
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${unique}`,
-        name: `Master ${unique}`,
-      },
+    const master = await seedSourceProduct(prisma, {
+      organizationId: params.organizationId,
+      code: `SP-${unique}`,
+      name: `Master ${unique}`,
+      currentStock: params.sellableStock ?? 0,
+      purchasePrice: params.costPrice ?? null,
     });
     if (params.abcGrade === 'A' || params.abcGrade === 'B' || params.abcGrade === 'C') {
       await seedPublishedProductAbcGrades(prisma, {
@@ -73,19 +73,6 @@ describe('AdAction flow (PG integration)', () => {
         grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
       });
     }
-    const matched = params.sellableStock != null;
-    const inventorySku = matched
-      ? await prisma.sellpiaInventorySku.create({
-          data: {
-            organizationId: params.organizationId,
-            code: `SP-${unique}`,
-            name: `Sellpia ${unique}`,
-            currentStock: params.sellableStock!,
-            purchasePrice: params.costPrice ?? null,
-            lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
-          },
-        })
-      : null;
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
@@ -105,12 +92,12 @@ describe('AdAction flow (PG integration)', () => {
         isActive: true,
       },
     });
-    if (inventorySku) {
+    if (params.sellableStock != null) {
       await prisma.channelListingOptionInventoryComponent.create({
         data: {
           organizationId: params.organizationId,
           channelListingOptionId: listingOption.id,
-          sellpiaInventorySkuId: inventorySku.id,
+          masterProductId: master.id,
           quantity: 1,
         },
       });
@@ -399,7 +386,6 @@ describe('AdAction flow (PG integration)', () => {
     vi.useRealTimers();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    inventoryImportRunByOrganization = new Map();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
       const verifiedAt = new Date();
       const inventoryRun = await prisma.sourceImportRun.create({
@@ -417,7 +403,6 @@ describe('AdAction flow (PG integration)', () => {
           freshnessGeneration: 1n,
         },
       });
-      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
       await prisma.sellpiaInventoryState.create({
         data: {
           organizationId,

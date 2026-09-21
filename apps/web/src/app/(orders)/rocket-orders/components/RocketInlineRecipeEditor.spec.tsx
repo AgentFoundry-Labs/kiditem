@@ -9,7 +9,7 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 const candidate = {
-  sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+  masterProductId: "66666666-6666-4666-8666-666666666666",
   code: "9633-1",
   name: "큐티 점핑볼 인형 세트",
   optionName: "랜덤",
@@ -21,7 +21,7 @@ function renderEditor(options?: {
   onSaved?: () => Promise<void>;
   onCancel?: () => void;
   existingComponents?: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     name: string;
     optionName: string | null;
@@ -183,11 +183,11 @@ describe("<RocketInlineRecipeEditor />", () => {
 
     await waitFor(() =>
       expect(apiClient.put).toHaveBeenCalledWith(
-        "/api/products/channel-options/55555555-5555-4555-8555-555555555555/inventory-components",
+        "/api/channels/options/55555555-5555-4555-8555-555555555555/inventory-components",
         {
           components: [
             {
-              sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+              masterProductId: "66666666-6666-4666-8666-666666666666",
               quantity: 12,
             },
           ],
@@ -217,7 +217,7 @@ describe("<RocketInlineRecipeEditor />", () => {
               id: "55555555-5555-4555-8555-555555555555",
               inventoryComponents: [{
                 id: "77777777-7777-4777-8777-777777777777",
-                sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+                masterProductId: "88888888-8888-4888-8888-888888888888",
                 code: "SP-OLD",
                 name: "잘못 연결된 상품",
                 optionName: null,
@@ -236,7 +236,7 @@ describe("<RocketInlineRecipeEditor />", () => {
     renderEditor({
       onSaved,
       existingComponents: [{
-        sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+        masterProductId: "88888888-8888-4888-8888-888888888888",
         code: "SP-OLD",
         name: "잘못 연결된 상품",
         optionName: null,
@@ -263,10 +263,10 @@ describe("<RocketInlineRecipeEditor />", () => {
     );
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
-      "/api/products/channel-options/55555555-5555-4555-8555-555555555555/inventory-components",
+      "/api/channels/options/55555555-5555-4555-8555-555555555555/inventory-components",
       {
         components: [{
-          sellpiaInventorySkuId: candidate.sellpiaInventorySkuId,
+          masterProductId: candidate.masterProductId,
           quantity: 1,
         }],
       },

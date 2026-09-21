@@ -20,13 +20,14 @@ import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
-import { SellpiaInventoryFreshnessService } from '../../inventory/application/usecase/sellpia-inventory-freshness.service';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-freshness.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductCollectionFreshnessRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-freshness.repository.adapter';
+import { ProductCollectionFreshnessUseCase } from '../../products/application/usecase/product-collection-freshness.usecase';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
@@ -82,7 +83,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       providers: [{ provide: ROCKET_PO_CATALOG_PORT, useValue: catalog }],
     }).compile();
     app = module.createNestApplication({ logger: false, bodyParser: false });
-    configureAgentRuntimeBodyParsers(app);
+    configureAgentRuntimeBodyParsers(app as never);
     app.setGlobalPrefix('api');
     app.use(
       (
@@ -141,24 +142,29 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .set('x-source-attempt-token', attempt.attemptToken)
       .send(submission(attempt.attemptId, rows));
   const previewService = () =>
-    new RocketPurchasePreviewService(
-      catalog,
-      new ChannelSkuAvailabilityService(
-        new ChannelProductMatchingRepositoryAdapter(
-          prisma as never,
-          new InventoryTransactionalReadRepositoryAdapter(),
-          new SellpiaInventorySkuReadService(
-            new SellpiaInventorySkuReadRepositoryAdapter(prisma as never),
-          ),
+    (() => {
+      const products = new ProductSourceReadRepositoryAdapter(prisma as never);
+      const productTransactions = new ProductTransactionalReadRepositoryAdapter();
+      const availability = new ProductAvailabilityUseCase(
+        new ProductAvailabilityRepositoryAdapter(prisma as never),
+      );
+      const recipes = new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+      );
+      const matching = new ChannelProductMatchingRepositoryAdapter(
+        prisma as never,
+        productTransactions,
+        products,
+        recipes,
+      );
+      return new RocketPurchasePreviewService(
+        catalog,
+        new ChannelSkuAvailabilityService(matching, availability),
+        new ProductCollectionFreshnessUseCase(
+          new ProductCollectionFreshnessRepositoryAdapter(prisma as never),
         ),
-        new InventoryAvailabilityService(
-          new InventoryAvailabilityRepositoryAdapter(prisma as never),
-        ),
-      ),
-      new SellpiaInventoryFreshnessService(
-        new SellpiaInventoryFreshnessRepositoryAdapter(prisma as never),
-      ),
-    );
+      );
+    })();
   it('freezes an authorized plan, replays the same begin, and rejects a distinct concurrent start', async () => {
     const key = randomUUID();
     const first = await start(key).expect(201);
@@ -542,7 +548,15 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       where: { organizationId: ORG, externalOptionId: 'P1' },
     });
     const master = await prisma.masterProduct.create({
-      data: { organizationId: ORG, code: 'KI1', name: 'Confirmed product' },
+      data: {
+        organizationId: ORG,
+        code: 'KI1',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'KI1',
+        sourceOptionCode: '',
+        name: 'Confirmed product',
+        currentStock: 5,
+      },
     });
     await prisma.channelListing.update({
       where: { id: option.listingId },
@@ -564,21 +578,11 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         freshnessGeneration: 1n,
       },
     });
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: ORG,
-        code: 'S1',
-        name: 'Component',
-        currentStock: 5,
-        isActive: true,
-        lastImportRunId: inventoryRun.id,
-      },
-    });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
         organizationId: ORG,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: master.id,
         quantity: 1,
       },
     });
@@ -600,7 +604,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         new RocketWorkbookProgressService(
           new RocketWorkbookProgressRepositoryAdapter(),
         ),
-       new InventoryTransactionalReadRepositoryAdapter()),
+       new ProductTransactionalReadRepositoryAdapter()),
       catalog,
     );
     const input = {
@@ -927,12 +931,12 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       where: { organizationId: ORG, externalOptionId: 'P1' },
     });
     const master = await prisma.masterProduct.create({
-      data: { organizationId: ORG, code: 'KEEP', name: 'Keep' },
-    });
-    const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: ORG,
         code: 'KEEP',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'KEEP',
+        sourceOptionCode: '',
         name: 'Keep',
         currentStock: 7,
       },
@@ -945,7 +949,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       data: {
         organizationId: ORG,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: master.id,
         quantity: 2,
       },
     });
@@ -964,13 +968,13 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     expect(
       await prisma.channelListingOptionInventoryComponent.findMany({
         where: { channelListingOptionId: option.id },
-        select: { sellpiaInventorySkuId: true, quantity: true },
+        select: { masterProductId: true, quantity: true },
       }),
-    ).toEqual([{ sellpiaInventorySkuId: sku.id, quantity: 2 }]);
+    ).toEqual([{ masterProductId: master.id, quantity: 2 }]);
     expect(
       (
-        await prisma.sellpiaInventorySku.findUniqueOrThrow({
-          where: { id: sku.id },
+        await prisma.masterProduct.findUniqueOrThrow({
+          where: { id: master.id },
         })
       ).currentStock,
     ).toBe(7);

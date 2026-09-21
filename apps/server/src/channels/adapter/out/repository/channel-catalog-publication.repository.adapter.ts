@@ -44,6 +44,11 @@ import {
   upsertChannelCatalogBasics,
   upsertChannelCatalogIdentities,
 } from './channel-catalog-identity-upsert';
+import {
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../../application/port/in/channel-option-recipe.port';
+import { applyRegisteredOptionRecipes } from '../persistence/registered-option-recipes';
 import type {
   ChannelCatalogPublicationPort,
   ChannelCatalogPublicationResult,
@@ -64,6 +69,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     @Inject(CATALOG_MEDIA_PUBLICATION_PORT)
     private readonly media: CatalogMediaPublicationPort,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly recipes: ChannelOptionRecipePort,
   ) {}
 
   async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
@@ -114,6 +121,10 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       })),
       lastImportRunId: sourceRun.id,
       rawSource: 'coupang_catalog_details',
+    });
+    await applyRegisteredOptionRecipes(tx, this.recipes, {
+      organizationId: input.organizationId,
+      channelListingIds: [...identities.listingIds.values()],
     });
     // Detail and option media are independent observations.  Reconcile only
     // the role present in this response; publishing both through the old
@@ -268,6 +279,20 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         if (detailChunks.some((chunk) => !chunk.publishedAt)) {
           throw new ConflictException('A detail chunk was not atomically published');
         }
+        const detailListings = await tx.channelListing.findMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            externalId: {
+              in: snapshot.products.map((item) => item.product.externalProductId),
+            },
+          },
+          select: { id: true },
+        });
+        await applyRegisteredOptionRecipes(tx, this.recipes, {
+          organizationId: input.organizationId,
+          channelListingIds: detailListings.map(({ id }) => id),
+        });
         optionCount = snapshot.products.reduce((sum, item) => sum + item.product.options.length, 0);
         result = {
           sourceImportRunId: sourceRun.id,
@@ -310,6 +335,10 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
               lastImportRunId: sourceRun.id,
               publicationReference: { type: 'source_import_run', id: sourceRun.id },
             });
+        await applyRegisteredOptionRecipes(tx, this.recipes, {
+          organizationId: input.organizationId,
+          channelListingIds: upserted.listingIds,
+        });
         const absence = await deactivateCatalogAbsence(tx, input, sourceRun.id, upserted);
         if (upserted.mappingIdentityChanged || absence.deactivatedProductCount > 0 || absence.deactivatedSkuCount > 0) {
           await advanceProductMappingGeneration(tx, input.organizationId);
@@ -405,6 +434,7 @@ async function upsertCoupangCatalogRows(
     })),
   });
   return {
+    listingIds: [...identities.listingIds.values()],
     mappingIdentityChanged: identities.mappingIdentityChanged,
     externalProductIds: identities.externalProductIds,
     externalOptionIds: identities.externalOptionIds,
@@ -459,6 +489,7 @@ async function upsertCoupangCatalogBasicsRows(
     })),
   });
   return {
+    listingIds: [...identities.listingIds.values()],
     mappingIdentityChanged: identities.mappingIdentityChanged,
     externalProductIds: identities.externalProductIds,
     externalOptionIds: identities.externalOptionIds,

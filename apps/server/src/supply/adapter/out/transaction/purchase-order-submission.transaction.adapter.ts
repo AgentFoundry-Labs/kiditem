@@ -23,7 +23,11 @@ import type {
   ReconcilePurchaseOrderSubmissionTransactionInput,
 } from '../../../application/port/out/transaction/purchase-order-submission.transaction.port';
 import { isDeletablePurchaseOrderStatus } from '../../../domain/policy/purchase-order-status';
-import { INVENTORY_TRANSACTIONAL_READ_PORT, type InventoryTransactionalReadPort, type InventoryCollectionFence as LockedFreshnessRow } from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductCollectionFence as LockedFreshnessRow,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -52,8 +56,8 @@ export class PurchaseOrderSubmissionTransactionAdapter
 implements PurchaseOrderSubmissionTransactionPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventory: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort,
   ) {}
 
   prepareDraft(
@@ -135,10 +139,10 @@ implements PurchaseOrderSubmissionTransactionPort {
       const availability = await readPurchaseInventoryAvailability(
         tx,
         input.organizationId,
-        input.sellpiaInventorySkuIds,
-        this.inventory,
+        input.masterProductIds,
+        this.products,
       );
-      const freshness = await this.inventory.lockCollectionFence({ client: tx }, input.organizationId);
+      const freshness = await this.products.lockCollectionFence({ client: tx }, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
       await assertActor(tx, input.organizationId, input.userId);
@@ -484,16 +488,18 @@ async function assertPurchaseItems(
   input: PreparePurchaseOrderSubmissionInput,
   availability: InventoryAvailabilityBatch,
 ): Promise<void> {
-  const expectedIds = [...new Set(input.sellpiaInventorySkuIds)].sort();
+  const expectedIds = [...new Set(input.masterProductIds)].sort();
   if (expectedIds.length === 0) throw referenceInvalid();
   const items = await tx.purchaseOrderItem.findMany({
     where: {
       organizationId: input.organizationId,
       orderId: input.purchaseOrderId,
     },
-    select: { sellpiaInventorySkuId: true },
+    select: { masterProductId: true },
   });
-  const actualIds = [...new Set(items.map((item) => item.sellpiaInventorySkuId))].sort();
+  const actualIds = [...new Set(
+    items.flatMap((item) => item.masterProductId ? [item.masterProductId] : []),
+  )].sort();
   if (
     actualIds.length !== expectedIds.length
     || actualIds.some((id, index) => id !== expectedIds[index])
@@ -502,7 +508,7 @@ async function assertPurchaseItems(
   }
 
   const actualAvailabilityIds = [...new Set(availability.items.map((item) =>
-    item.sellpiaInventorySkuId))].sort();
+    item.masterProductId))].sort();
   if (!availability.snapshot.collected
     || actualAvailabilityIds.length !== expectedIds.length
     || actualAvailabilityIds.some((id, index) => id !== expectedIds[index])) {
@@ -514,14 +520,14 @@ async function assertPurchaseItems(
 async function readPurchaseInventoryAvailability(
   transaction: Prisma.TransactionClient,
   organizationId: string,
-  sellpiaInventorySkuIds: string[],
-  inventory: InventoryTransactionalReadPort,
+  masterProductIds: string[],
+  products: ProductTransactionalReadPort,
 ): Promise<InventoryAvailabilityBatch> {
-  const inventoryLock = await inventory.lock({ client: transaction }, organizationId);
+  const productLock = await products.lock({ client: transaction }, organizationId);
   try {
-    return await inventory.readAvailability({ client: transaction }, inventoryLock, {
+    return await products.readAvailability({ client: transaction }, productLock, {
       organizationId,
-      sellpiaInventorySkuIds,
+      masterProductIds,
     });
   } catch (error) {
     if (error instanceof FactNotFoundError) throw referenceInvalid();

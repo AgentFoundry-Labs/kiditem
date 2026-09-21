@@ -7,11 +7,11 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
-import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_OPTION_SKU_ID = '26000000-0000-4000-8000-000000000001';
@@ -85,19 +85,12 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
   });
 
   it('reactivates an inactive registration option and advances identity generation once', async () => {
-    const [product, , candidate] = await Promise.all([
-      prisma.masterProduct.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          code: 'KI-REGISTER-INACTIVE-OPTION',
-          name: 'Inactive registration option',
-        },
-      }),
-      seedActiveSellpiaInventorySku(prisma, {
+    const [product, candidate] = await Promise.all([
+      seedSourceProduct(prisma, {
         id: INACTIVE_OPTION_SKU_ID,
         organizationId: TEST_ORGANIZATION_ID,
-        code: 'KI-REGISTER-INACTIVE-OPTION-SKU',
-        name: 'Inactive option SKU',
+        code: 'KI-REGISTER-INACTIVE-OPTION',
+        name: 'Inactive registration option',
       }),
       prisma.sourcingCandidate.create({
         data: {
@@ -108,10 +101,6 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
         },
       }),
     ]);
-    await prisma.sellpiaInventorySku.update({
-      where: { id: INACTIVE_OPTION_SKU_ID },
-      data: { masterProductId: product.id },
-    });
     const registration = makeRegistration(prisma);
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -151,22 +140,11 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rolls back initial registration links when mapping generation cannot advance', async () => {
-    const product = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'KI-REGISTER-ROLLBACK',
-        name: 'Registered rollback',
-      },
-    });
-    await seedActiveSellpiaInventorySku(prisma, {
+    const product = await seedSourceProduct(prisma, {
       id: ROLLBACK_SKU_ID,
+      code: 'KI-REGISTER-ROLLBACK',
+      name: 'Registered rollback',
       organizationId: TEST_ORGANIZATION_ID,
-      code: 'KI-REGISTER-ROLLBACK-BLUE',
-      name: 'Blue',
-    });
-    await prisma.sellpiaInventorySku.update({
-      where: { id: ROLLBACK_SKU_ID },
-      data: { masterProductId: product.id },
     });
     const candidate = await prisma.sourcingCandidate.create({
       data: {
@@ -239,10 +217,10 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
     const prismaService = client as unknown as PrismaService;
     return new MarketplaceRegistrationRepositoryAdapter(
       prismaService,
-      new ProductChannelOptionRecipeMutationService(
-        new ProductChannelOptionRecipeMutationRepositoryAdapter(
+      new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(
           prismaService,
-          new InventoryTransactionalReadRepositoryAdapter(),
+          new ProductTransactionalReadRepositoryAdapter(),
         ),
       ),
     );

@@ -119,7 +119,7 @@ function salesRow() {
     anomalyReason: null,
     inventoryResolution: {
       status: 'matched',
-      sellpiaInventorySkuId: INVENTORY_SKU_ID,
+      masterProductId: INVENTORY_SKU_ID,
       currentStock: 30,
       salesRowCount: 1,
       inventoryProduct: {

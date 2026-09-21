@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readInventorySkuIdentities } from './read/inventory-availability';
+import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../../products/application/port/in/product-transactional-read.port';
 import type { Prisma } from '@prisma/client';
 import type {
   CreateStockTransferData,
@@ -18,7 +18,11 @@ type TransferRow = Prisma.StockTransferGetPayload<{
 
 @Injectable()
 export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort,
+  ) {}
 
   listStockTransfers(
     organizationId: string,
@@ -27,8 +31,8 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     const where: Prisma.StockTransferWhereInput = { organizationId };
     if (status) where.status = status;
     return this.prisma.$transaction(async (tx) =>
-      hydrateInventorySkus(
-        tx,
+      hydrateProducts(
+        this.products, tx,
         await tx.stockTransfer.findMany({
           where,
           include: TRANSFER_INCLUDE,
@@ -38,14 +42,14 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     );
   }
 
-  async findInventorySkuForTransfer(
-    sellpiaInventorySkuId: string,
+  async findProductForTransfer(
+    masterProductId: string,
     organizationId: string,
   ): Promise<{ optionName: string | null } | null> {
     return this.prisma.$transaction(async (tx) => {
-      const [sku] = await readInventorySkuIdentities(tx, {
+      const [sku] = await this.products.readSourceIdentities({ client: tx }, {
         organizationId,
-        selector: { kind: 'ids', values: [sellpiaInventorySkuId] },
+        selector: { kind: 'ids', values: [masterProductId] },
       });
       return sku ? { optionName: sku.optionName } : null;
     });
@@ -74,13 +78,14 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
         data: { organizationId, ...data },
         include: TRANSFER_INCLUDE,
       });
-      return (await hydrateInventorySkus(tx, [created]))[0]!;
+      return (await hydrateProducts(this.products, tx, [created]))[0]!;
     });
   }
 
 }
 
-async function hydrateInventorySkus(
+async function hydrateProducts(
+  products: ProductTransactionalReadPort,
   tx: Prisma.TransactionClient,
   rows: TransferRow[],
 ): Promise<StockTransferRow[]> {
@@ -91,27 +96,27 @@ async function hydrateInventorySkus(
   if (organizationIds.size !== 1)
     throw new Error('Stock transfers span organizations');
   const [organizationId] = organizationIds;
-  const identities = await readInventorySkuIdentities(tx, {
+  const identities = await products.readSourceIdentities({ client: tx }, {
     organizationId: organizationId!,
     selector: {
       kind: 'ids',
       values: [
         ...new Set(
-          rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+          rows.flatMap(({ masterProductId }) => masterProductId ? [masterProductId] : []),
         ),
       ],
     },
   });
   const byId = new Map(
-    identities.map((identity) => [identity.sellpiaInventorySkuId, identity]),
+    identities.map((identity) => [identity.masterProductId, identity]),
   );
   return rows.map((row) => {
-    const identity = byId.get(row.sellpiaInventorySkuId);
+    const identity = row.masterProductId ? byId.get(row.masterProductId) : undefined;
     return {
       ...row,
-      sellpiaInventorySku: identity
+      masterProduct: identity
         ? {
-            id: identity.sellpiaInventorySkuId,
+            id: identity.masterProductId,
             code: identity.code,
             name: identity.name,
             optionName: identity.optionName,

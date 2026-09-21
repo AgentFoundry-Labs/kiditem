@@ -40,7 +40,7 @@ export function RocketInlineRecipeEditor({
   const hasExistingRecipe = existingComponents.length > 0;
   const [draft, setDraft] = useState<RecipeDraft[]>(() =>
     existingComponents.map((component) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      masterProductId: component.masterProductId,
       code: component.code,
       name: component.name,
       optionName: component.optionName,
@@ -89,7 +89,7 @@ export function RocketInlineRecipeEditor({
     if (!currentOption || draftTouched) return;
     setDraft(
       currentOption.inventoryComponents.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        masterProductId: component.masterProductId,
         code: component.code,
         name: component.name,
         optionName: component.optionName,
@@ -101,12 +101,12 @@ export function RocketInlineRecipeEditor({
 
   const save = useMutation({
     mutationFn: async () => {
-      const components = draft.map(({ sellpiaInventorySkuId, quantity }) => ({
-        sellpiaInventorySkuId,
+      const components = draft.map(({ masterProductId, quantity }) => ({
+        masterProductId,
         quantity,
       }));
       await apiClient.put(
-        `/api/products/channel-options/${channelListingOptionId}/inventory-components`,
+        `/api/channels/options/${channelListingOptionId}/inventory-components`,
         { components },
       );
       return { mode: hasExistingRecipe ? ("replaced" as const) : ("created" as const) };
@@ -153,8 +153,8 @@ export function RocketInlineRecipeEditor({
     setDraftTouched(true);
     setDraft((current) =>
       current.some(
-        ({ sellpiaInventorySkuId }) =>
-          sellpiaInventorySkuId === candidate.sellpiaInventorySkuId,
+        ({ masterProductId }) =>
+          masterProductId === candidate.masterProductId,
       )
         ? current
         : [...current, { ...candidate, quantity: 1 }],
@@ -248,12 +248,12 @@ export function RocketInlineRecipeEditor({
             ) : candidates.data?.items.length ? (
               candidates.data.items.map((candidate) => {
                 const selected = draft.some(
-                  ({ sellpiaInventorySkuId }) =>
-                    sellpiaInventorySkuId === candidate.sellpiaInventorySkuId,
+                  ({ masterProductId }) =>
+                    masterProductId === candidate.masterProductId,
                 );
                 return (
                   <div
-                    key={candidate.sellpiaInventorySkuId}
+                    key={candidate.masterProductId}
                     className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
                   >
                     <div className="min-w-0">
@@ -296,7 +296,7 @@ export function RocketInlineRecipeEditor({
             ) : (
               draft.map((component, index) => (
                 <div
-                  key={component.sellpiaInventorySkuId}
+                  key={component.masterProductId}
                   className="grid grid-cols-[minmax(0,1fr)_96px_32px] items-end gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2"
                 >
                   <div className="min-w-0 pb-1">

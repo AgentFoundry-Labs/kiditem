@@ -5,7 +5,6 @@ import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { ChannelsRegistrationExecutionModule } from "../channels/channels-registration-execution.module";
-import { InventoryModule } from "../inventory/inventory.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { MarketShadowSignalCapabilityAdapter } from './adapter/in/agent/market-shadow-signal-capability.adapter';
@@ -96,7 +95,6 @@ import { ProductPreparationRepositoryAdapter } from "./adapter/out/repository/pr
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
-import { SellpiaSalePriceAdapter } from "./adapter/out/inventory/sellpia-sale-price.adapter";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
 import { ShortstrendTrendAdapter } from "./adapter/out/shortstrend/shortstrend-trend.adapter";
@@ -129,7 +127,6 @@ import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
 import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cross-domain/candidate-content-asset.port";
-import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-domain/sellpia-sale-price.port";
 
 /**
  * Sourcing is the canonical owner root for sourced-product discovery and the
@@ -159,7 +156,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     AdvertisingModule,
     ChannelsModule,
     ChannelsRegistrationExecutionModule,
-    InventoryModule,
     SupplyModule,
   ],
   controllers: [
@@ -249,7 +245,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     CoupangMomentumAdapter,
     RegistrationContentWorkspaceAdapter,
     CandidateContentAssetAdapter,
-    SellpiaSalePriceAdapter,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
     ShortstrendTrendAdapter,
@@ -359,10 +354,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     {
       provide: SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
       useExisting: CandidateContentAssetAdapter,
-    },
-    {
-      provide: SOURCING_SELLPIA_SALE_PRICE_PORT,
-      useExisting: SellpiaSalePriceAdapter,
     },
     {
       provide: SOURCING_FINAL_CAPABILITY_PORT,

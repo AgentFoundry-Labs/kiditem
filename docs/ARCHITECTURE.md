@@ -331,19 +331,19 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: one submission per draft and account, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: one submission per draft and account, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
-| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
+| `apps/server/src/inventory` | Owner Domain | Warehouse and stock-transfer records plus read-only Rocket workbook progress; Products owns source collection/current stock, Orders owns return records. |
 | `apps/server/src/orders` | Owner Domain | Orders, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its reader ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
-| `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, collected-inventory-fenced purchase submission attempts/reconciliation, and Rocket capacity preview after Sellpia publication. |
+| `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, MasterProduct supplier policy, collected-inventory-fenced purchase submission attempts/reconciliation, and Rocket capacity preview after Sellpia publication. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
 | `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
@@ -934,14 +934,19 @@ must reject active generation usage or any thumbnail selection.
 
 ## Sellpia Current Inventory And Collection
 
-Inventory owns Sellpia collection attempts, the fixed source binding, generation
+Products owns Sellpia collection attempts, the fixed source binding, generation
 and lease fences, and atomic publication of current stock. Its implementation
 separates `domain/`, `application/usecase/`, `application/port/in|out/`,
-`adapter/in/web/`, and `adapter/out/persistence/`; `inventory.module.ts` binds
-contracts to implementations. Consumers use published Inventory contracts.
+`adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
+contracts to implementations. Consumers use published Products contracts.
 The canonical reader and locking implementation remain single authorities.
+MasterProduct has fourteen scalar fields; source identity is stored directly as
+organization/account/product-code/option-code, without a second source table or
+per-product collection pointer. Operator metadata is images only. Unknown
+purchase price remains null and is counted separately from priced asset totals.
+See [ADR-0017](adr/0017-products-owns-source-products-channels-owns-recipes.md).
 
-Successful full collection updates existing product codes with stable SKU IDs,
+Successful full collection updates existing product codes with stable MasterProduct UUIDs and KID codes,
 adds new codes, and sets missing codes to `currentStock = 0` while retaining rows
 and product links. A verified empty complete collection sets all quantities to
 zero. Incomplete, failed or cancelled attempts preserve the previous rows.
@@ -958,12 +963,12 @@ Basic shape, complete-source, organization and attempt checks remain mandatory.
 
 Collection control reports progress, terminal outcome and last successful
 publication. Lease expiry protects abandoned browser execution, not the age of
-usable stock. Extensions capture and transport facts; only Inventory publishes
+usable stock. Extensions capture and transport facts; only Products publishes
 physical quantities. Manual recovery upload and transfer-state PATCH are retired.
 
 Before a purchase submission or Rocket calculation, the browser shared source
 control starts or joins Sellpia collection and waits for that exact execution to
-complete. The calculation request names its successful attempt. Inventory
+complete. The calculation request names its successful attempt. Products
 verifies the current completed generation; failed/cancelled collection cannot
 fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
@@ -986,19 +991,19 @@ evidence uniquely selects one Sellpia SKU and a verified positive pack
 quantity. Manual replacement is a complete,
 expected-current-component-fenced write. Existing components, duplicate or
 conflicting evidence, uncertain pack/BOM evidence, raw aliases, and AI remain
-untouched until operator review. Inventory remains the sole physical-stock
+untouched until operator review. Products remains the sole physical-stock
 writer.
 
 Confirmed direct option components remain the capacity truth.
 Capacity is `min(floor(currentStock / quantity))`. Channels and Products read
-Inventory's organization-scoped current quantities. A missing or deleted SKU
+Products' organization-scoped current quantities. A missing or deleted SKU
 remains absent (`currentStock: null`) and requires connection review; a retained
 SKU with quantity zero is an observed zero. Consumers must not turn missing
 identities into zero stock or silently restore an old ID by matching its code.
 
 Rocket preview uses the same canonical physical availability batch. A complete
 extension collection also carries allowlisted official-workbook fields. Supply
-reruns the preview under an organization lock, fences the Inventory generation
+reruns the preview under an organization lock, fences the Products source generation
 and completed source artifact, verifies that channel option and direct
 component identities have not changed, and persists explicit line decisions
 plus immutable component allocations. Those audit rows do not reserve capacity
@@ -1007,20 +1012,20 @@ input drift conflicts.
 
 Confirmation creates the official workbook in the browser after the server
 commit. It never submits to a marketplace provider or writes
-`SellpiaInventorySku.currentStock`.
+`MasterProduct.currentStock`.
 
 Coupang PA collection belongs to Orders. The selected Rocket account and
 transport are validated, and `SourceImportRun`, `Order`, and `OrderLineItem`
 are persisted with deterministic identities. In the same Prisma transaction,
 Orders calls Supply's reconciliation port; Supply resolves exactly one active
-confirmation line by account/PO/product without mutating Inventory availability
+confirmation line by account/PO/product without mutating Products current stock
 or physical stock. A barcode mismatch, ambiguous confirmation, or persistence
 failure rolls back the entire import and no Sellpia workbook is returned.
 Replays are idempotent. A later completed Sellpia snapshot remains the only
 source of any physical stock decrease.
 
 Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads
-Inventory's canonical physical availability. Exact product code, exact option
+Products' canonical physical availability. Exact product code, exact option
 code, and a unique normalized barcode are deterministic resolution signals; missing
 or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
@@ -1043,7 +1048,7 @@ preserve the last published grade. Organization-locked publication fences stale
 concurrent calculations. AI thumbnail analysis quality grades remain an
 independent product-registration signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
-copying image URLs into Inventory.
+copying image URLs into source products.
 
 Product Hub renders visit/view/cart/order/sales/revenue/ad-rate from existing
 listing daily facts independently of ABC. Missing fields remain null instead

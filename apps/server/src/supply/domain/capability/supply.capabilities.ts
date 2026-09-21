@@ -10,7 +10,7 @@ export const SUPPLY_CAPABILITIES = [
     description: 'Create an organization-scoped purchase-order draft from validated procurement inputs.',
     resultSummary: '발주 초안을 만들었습니다.',
     inputSchema: z.object({
-      recommendationArtifactId: Uuid.optional(), sellpiaInventorySkuId: Uuid, productName: z.string().trim().min(1).max(500),
+      recommendationArtifactId: Uuid.optional(), masterProductId: Uuid, productName: z.string().trim().min(1).max(500),
       supplierName: z.string().trim().min(1).max(500), supplierId: Uuid.optional(), unitPriceCny: z.number().positive(),
       moq: z.number().int().positive(), testQuantity: z.number().int().positive().optional(),
     }).strict(),

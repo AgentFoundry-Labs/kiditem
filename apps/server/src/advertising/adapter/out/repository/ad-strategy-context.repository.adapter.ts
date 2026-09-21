@@ -13,7 +13,7 @@ import {
   readListingTrafficWindowFacts,
   readLatestListingStateFacts,
 } from '../../../../channels/read/channel-listing-daily-facts';
-import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {
   buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,
@@ -34,9 +34,9 @@ import type {
 } from '../../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 
 @Injectable()
 export class AdStrategyContextRepositoryAdapter
@@ -44,8 +44,8 @@ export class AdStrategyContextRepositoryAdapter
 {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async loadStrategyContext(
@@ -293,13 +293,7 @@ export class AdStrategyContextRepositoryAdapter
         channelName: true,
         displayName: true,
         channelAccount: { select: { channel: true } },
-        masterProduct: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
+        masterProductId: true,
         options: {
           where: { isActive: true },
           orderBy: [
@@ -317,24 +311,35 @@ export class AdStrategyContextRepositoryAdapter
         },
       },
     });
+    const masterProductIds = [...new Set(rows.flatMap((row) =>
+      row.masterProductId ? [row.masterProductId] : []))];
+    const identities = await this.inventoryTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+    );
+    const identityById = new Map(identities.map((identity) => [
+      identity.masterProductId,
+      identity,
+    ]));
     const gradeByProductId = await readPublishedProductAbcGrades(tx, {
       organizationId,
-      masterProductIds: rows.flatMap((row) => row.masterProduct ? [row.masterProduct.id] : []),
+      masterProductIds,
     });
     return rows
       .map((r): HydratedListing => {
         const firstClo = r.options[0] ?? null;
+        const identity = r.masterProductId ? identityById.get(r.masterProductId) ?? null : null;
         return {
           id: r.id,
           externalId: r.externalId,
           channelName: r.channelName,
           channel: r.channelAccount?.channel ?? null,
           masterProduct: {
-            id: r.masterProduct?.id ?? r.id,
-            code: r.masterProduct?.code ?? r.externalId,
-            name: r.masterProduct?.name ?? r.displayName ?? r.channelName ?? r.externalId,
-            abcGrade: r.masterProduct
-              ? gradeByProductId.get(r.masterProduct.id) ?? null
+            id: identity?.masterProductId ?? r.id,
+            code: identity?.code ?? r.externalId,
+            name: identity?.name ?? r.displayName ?? r.channelName ?? r.externalId,
+            abcGrade: identity
+              ? gradeByProductId.get(identity.masterProductId) ?? null
               : null,
           },
           primaryOption: firstClo

@@ -93,14 +93,14 @@ describe('channel product matching API', () => {
       options: [{
         channelListingOptionId: OPTION_ID,
         components: [{
-          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 10,
         }],
       }],
     });
 
     expect(apiClient.put.mock.calls).toEqual([
-      [`/api/products/channel-options/${OPTION_ID}/inventory-components`, { components: [{ sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
+      [`/api/channels/options/${OPTION_ID}/inventory-components`, { components: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
     ]);
   });
 

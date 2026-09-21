@@ -5,7 +5,7 @@ import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 describe('InventoryTable', () => {
   const item: InventorySkuSnapshotItem = {
-    sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+    masterProductId: '00000000-0000-4000-8000-000000000001',
     code: 'SP-1',
     name: '말랑이',
     optionName: null,
@@ -65,7 +65,7 @@ describe('InventoryTable', () => {
     expect(screen.queryByText('비활성')).not.toBeInTheDocument();
     expect(screen.getByText('최종 가져오기')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Sellpia SKU ID' })).not.toBeInTheDocument();
-    expect(screen.queryByText(item.sellpiaInventorySkuId)).not.toBeInTheDocument();
+    expect(screen.queryByText(item.masterProductId)).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '재고자산' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '액션' })).not.toBeInTheDocument();
   });

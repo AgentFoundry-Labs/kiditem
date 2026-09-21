@@ -7,7 +7,7 @@ const optionId = '00000000-0000-4000-8000-000000000002';
 function inventoryReader() {
   return {
     findByIds: vi.fn().mockResolvedValue([{
-      sellpiaInventorySkuId: 'sku-1',
+      masterProductId: 'sku-1',
       code: 'SP-001',
       name: '상품',
       optionName: null,
@@ -15,7 +15,6 @@ function inventoryReader() {
       purchasePrice: null,
       salePrice: null,
       isActive: false,
-      masterProductId: null,
     }]),
   };
 }
@@ -49,7 +48,7 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
           inventoryComponents: [{
             quantity: 2,
             createdAt: new Date('2026-07-18T00:00:00.000Z'),
-            sellpiaInventorySkuId: 'sku-1',
+            masterProductId: 'sku-1',
           }],
         }),
         findMany,
@@ -60,7 +59,7 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
       channelListingOptionId: optionId, masterProductId: 'product-1',
       options: [expect.objectContaining({ barcode: '001234567890' })],
       existingComponents: [{
-        sellpiaInventorySkuId: 'sku-1',
+        masterProductId: 'sku-1',
         code: 'SP-001',
         quantity: 2,
         source: 'manual',

@@ -216,7 +216,7 @@ describe('dashboard schemas', () => {
   it('rejects the retired duplicate stock field', () => {
     const resolution = {
       status: 'matched' as const,
-      sellpiaInventorySkuId: '11111111-1111-4111-8111-111111111111',
+      masterProductId: '11111111-1111-4111-8111-111111111111',
       currentStock: 30,
       salesRowCount: 1,
       inventoryProduct: null,

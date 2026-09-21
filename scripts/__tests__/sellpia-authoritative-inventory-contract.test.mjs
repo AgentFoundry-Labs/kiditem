@@ -94,6 +94,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/products/__tests__/product-channel-option-recipe-mutation.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/selling-master-product-inventory-fence.pg.integration.spec.ts",
+  "apps/server/src/__tests__/master-product-inventory-cutover-migration.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/sellpia-manual-match-source-owner.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
@@ -385,30 +386,35 @@ describe("Sellpia authoritative final-schema contract", () => {
 
   it("defines MasterProduct as the organization-scoped operating product", () => {
     const master = modelBlock(core, "MasterProduct");
-    assert.match(master, /^\s*code\s+String\s*$/m);
+    assert.match(master, /^\s*code\s+String\b/m);
     assert.match(master, /^\s*name\s+String\s*$/m);
-    assert.match(master, /^\s*channelListings\s+ChannelListing\[\]/m);
     assert.doesNotMatch(core, /model ProductVariant\b/);
+    for (const field of [
+      "sourceAccountKey",
+      "sourceProductCode",
+      "sourceOptionCode",
+      "optionName",
+      "barcode",
+      "currentStock",
+      "purchasePrice",
+    ]) {
+      assert.match(master, new RegExp(`^\\s*${field}\\s+`, "m"));
+    }
+    assert.match(master, /code\s+String\b[^\n]*@unique\(map: "master_products_code_key"\)/);
+    assert.match(master, /@@unique\(\[id, organizationId\]/);
     assert.match(
       master,
-      /^\s*isActive\s+Boolean\s+@default\(true\)\s+@map\("is_active"\)/m,
-    );
-    assert.match(master, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(master, /@@unique\(\[id, organizationId\]/);
-    assert.doesNotMatch(
-      master,
-      /^\s*(?:legacyCode|sellpiaProductCode|sellpiaName|sellpiaBarcode|barcode|currentStock|purchasePrice|salePrice|rawJson|lastImportRunId)\s+/m,
+      /@@unique\(\[organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode\]/,
     );
   });
 
-  it("publishes Sellpia stock only through SellpiaInventorySku", () => {
-    const sku = modelBlock(inventory, "SellpiaInventorySku");
+  it("publishes Sellpia stock on the canonical MasterProduct", () => {
+    const master = modelBlock(core, "MasterProduct");
     assert.match(
-      sku,
+      master,
       /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
     );
-    assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(sku, /@@map\("sellpia_inventory_skus"\)/);
+    assert.doesNotMatch(inventory, /model SellpiaInventorySku\s*\{/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
   });
 

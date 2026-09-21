@@ -1,9 +1,9 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 import { readOrderIdentityFact } from '../read/order-facts.reader';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 
@@ -11,8 +11,8 @@ import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 export class ReturnTransfersService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly productTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   private generateRtNumber(): string {
@@ -28,10 +28,10 @@ export class ReturnTransfersService {
     if (query.status) where.status = query.status;
 
     return this.prisma.$transaction(async (tx) =>
-      hydrateInventorySkus(
+      hydrateMasterProducts(
         tx,
         organizationId,
-        this.inventoryTransactionalRead,
+        this.productTransactionalRead,
         await tx.returnTransfer.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -42,15 +42,21 @@ export class ReturnTransfersService {
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
     return this.prisma.$transaction(async (tx) => {
-      const [sellpiaInventorySku] = await this.inventoryTransactionalRead.readSkuIdentities(
+      const masterProductId = dto.masterProductId ?? null;
+      if (!masterProductId) {
+        throw new NotFoundException(
+          'A MasterProduct id is required for new return transfers.',
+        );
+      }
+      const [masterProduct] = await this.productTransactionalRead.readSourceIdentities(
         { client: tx },
         {
-        organizationId,
-        selector: { kind: 'ids', values: [dto.sellpiaInventorySkuId] },
+          organizationId,
+          selector: { kind: 'ids', values: [masterProductId] },
         },
       );
-      if (!sellpiaInventorySku?.isActive) {
-        throw new NotFoundException('Sellpia inventory SKU not found');
+      if (!masterProduct) {
+        throw new NotFoundException('MasterProduct not found');
       }
       if (dto.orderId) {
         const order = await readOrderIdentityFact(
@@ -68,17 +74,17 @@ export class ReturnTransfersService {
           organizationId,
           rtNumber,
           orderId: dto.orderId,
-          sellpiaInventorySkuId: dto.sellpiaInventorySkuId,
-          optionName: sellpiaInventorySku.optionName,
+          masterProductId,
+          optionName: masterProduct.optionName,
           quantity: dto.quantity,
           condition: dto.condition ?? 'good',
           notes: dto.notes,
         },
       });
-      return (await hydrateInventorySkus(
+      return (await hydrateMasterProducts(
         tx,
         organizationId,
-        this.inventoryTransactionalRead,
+        this.productTransactionalRead,
         [created],
       ))[0]!;
     });
@@ -110,25 +116,25 @@ export class ReturnTransfersService {
           }),
         },
       });
-      return (await hydrateInventorySkus(
+      return (await hydrateMasterProducts(
         tx,
         organizationId,
-        this.inventoryTransactionalRead,
+        this.productTransactionalRead,
         [updated],
       ))[0]!;
     });
   }
 }
 
-async function hydrateInventorySkus<
-  T extends { sellpiaInventorySkuId: string },
+async function hydrateMasterProducts<
+  T extends { masterProductId: string | null },
 >(
   tx: object,
   organizationId: string,
-  inventory: InventoryTransactionalReadPort,
+  products: ProductTransactionalReadPort,
   rows: T[],
 ) {
-  const identities = await inventory.readSkuIdentities(
+  const identities = await products.readSourceIdentities(
     { client: tx },
     {
       organizationId,
@@ -136,22 +142,26 @@ async function hydrateInventorySkus<
         kind: 'ids',
         values: [
           ...new Set(
-            rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+            rows.flatMap(({ masterProductId }) => (
+              masterProductId ? [masterProductId] : []
+            )),
           ),
         ],
       },
     },
   );
   const byId = new Map(
-    identities.map((identity) => [identity.sellpiaInventorySkuId, identity]),
+    identities.map((identity) => [identity.masterProductId, identity]),
   );
   return rows.map((row) => {
-    const identity = byId.get(row.sellpiaInventorySkuId);
+    const identity = row.masterProductId
+      ? byId.get(row.masterProductId)
+      : undefined;
     return {
       ...row,
-      sellpiaInventorySku: identity
+      masterProduct: identity?.masterProductId
         ? {
-            id: identity.sellpiaInventorySkuId,
+            id: identity.masterProductId,
             code: identity.code,
             name: identity.name,
             optionName: identity.optionName,

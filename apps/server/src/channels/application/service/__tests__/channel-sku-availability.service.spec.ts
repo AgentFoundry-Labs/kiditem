@@ -33,7 +33,7 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
     },
     inventoryComponents: overrides.components ?? [{
-      sellpiaInventorySkuId: skuId,
+      masterProductId: skuId,
       code: 'SP-1',
       name: '재고',
       optionName: null,
@@ -46,13 +46,13 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
 }
 
 function dependencies(rows = [row()], inventoryItems = [{
-  sellpiaInventorySkuId: skuId,
+  masterProductId: skuId,
   currentStock: 10,
   generation: '1',
 }]) {
   const repository = { listAvailabilityRows: vi.fn().mockResolvedValue(rows) };
   const inventory = {
-    findBySkuIds: vi.fn().mockResolvedValue({
+    findByMasterProductIds: vi.fn().mockResolvedValue({
       snapshot: { collected: true, generation: '1', verifiedAt: '2026-08-01T00:00:00.000Z' },
       items: inventoryItems,
     }),
@@ -68,9 +68,9 @@ describe('ChannelSkuAvailabilityService', () => {
   it('calculates sellable capacity from the direct channel-option recipe and common availability', async () => {
     const { inventory, service } = dependencies();
     const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);
-    expect(inventory.findBySkuIds).toHaveBeenCalledWith({
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledWith({
       organizationId,
-      sellpiaInventorySkuIds: [skuId],
+      masterProductIds: [skuId],
     });
     expect(result).toMatchObject({
       masterProductId,

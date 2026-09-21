@@ -1,4 +1,4 @@
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
@@ -160,7 +160,7 @@ const REPOSITORY_PORT_BINDINGS = [
 
 @Module({
   imports: [
-    InventoryModule,
+    ProductCollectionRuntimeModule,
     PrismaModule,
     AlertsModule,
     AiModule,

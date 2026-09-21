@@ -106,7 +106,7 @@ describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => 
       organizationId: "00000000-0000-4000-8000-000000000010",
       expectedMasterProductId: "00000000-0000-4000-8000-000000000001",
       components: [{
-        sellpiaInventorySkuId: "00000000-0000-4000-8000-000000000002",
+        masterProductId: "00000000-0000-4000-8000-000000000002",
         quantity: 1,
       }],
     });

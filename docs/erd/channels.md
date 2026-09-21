@@ -11,9 +11,11 @@
 |---|---|---|
 | ChannelAdListingProductMonthlyFact | `channel_ad_listing_product_monthly_facts` | Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation. |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
+| ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | Confirmed source-product quantities for one channel sellable option. |
 | ChannelRegistrationOwnerIdempotencyReceipt | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -44,7 +46,7 @@ erDiagram
     String sourceImportRunId FK
     String channelAccountId FK
     String channelListingId FK
-    String masterProductId FK
+    String masterProductId
     DateTime month
     DateTime coveredStartDate
     DateTime coveredEndDate
@@ -92,6 +94,30 @@ erDiagram
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListing {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceCandidateId FK
+    String masterProductId
+    String externalId
+    String channelName
+    String displayName
+    String category
+    String brand
+    String manufacturer
+    Json rawJson
+    String lastImportRunId FK
+    String status
+    String exposureStatus
+    String deliveryChargeType
+    Int freeShipOverAmount
+    Int returnCharge
+    Json deliveryInfo
+    Boolean isActive
     DateTime createdAt
     DateTime updatedAt
   }
@@ -176,6 +202,15 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListingOptionInventoryComponent {
+    String id PK
+    String organizationId FK
+    String channelListingOptionId FK
+    String masterProductId
+    Int quantity
     DateTime createdAt
     DateTime updatedAt
   }
@@ -450,7 +485,8 @@ erDiagram
     String id PK
     String organizationId FK
     String snapshotId FK
-    String sellpiaInventorySkuId
+    String legacySellpiaInventorySkuId
+    String masterProductId
     String aliasTitle
     String normalizedAlias
     Int itemCount
@@ -476,8 +512,8 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
-    String sellpiaInventorySkuId
-    String masterProductId FK
+    String legacySellpiaInventorySkuId
+    String masterProductId
     String productCode
     String optionCode
     String yearMonth
@@ -514,6 +550,13 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelListing ||--o{ ChannelAdListingProductMonthlyFact : "channelListing"
+  ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDeletionOperation : "channelListing"
+  ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
+  ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
+  ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
   ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
@@ -529,31 +572,37 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | ChannelAdListingProductMonthlyFact | channelAccount | references external | Core | ChannelAccount |
-| ChannelAdListingProductMonthlyFact | channelListing | references external | Core | ChannelListing |
-| ChannelAdListingProductMonthlyFact | masterProduct | references external | Core | MasterProduct |
 | ChannelAdListingProductMonthlyFact | organization | references external | Core | Organization |
 | ChannelAdListingProductMonthlyFact | sourceImportRun | references external | Core | SourceImportRun |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
 | ChannelAdTargetDailySnapshot | channelAccount | references external | Core | ChannelAccount |
-| ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelAdTargetDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
-| ChannelListingDailySnapshot | listing | references external | Core | ChannelListing |
+| ChannelListing | channelAccount | references external | Core | ChannelAccount |
+| ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
+| ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
+| ChannelListing | lastImportRun | references external | Core | SourceImportRun |
+| ChannelListing | listing | referenced by external | Advertising | AdAction |
+| ChannelListing | listing | referenced by external | AI | Thumbnail |
+| ChannelListing | listing | referenced by external | AI | ThumbnailTracking |
+| ChannelListing | listing | referenced by external | Core | ChannelListingOption |
+| ChannelListing | listing | referenced by external | Orders | Review |
+| ChannelListing | organization | references external | Core | Organization |
+| ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ChannelListingDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingDeletionOperation | channelAccount | references external | Core | ChannelAccount |
-| ChannelListingDeletionOperation | channelListing | references external | Core | ChannelListing |
 | ChannelListingDeletionOperation | organization | references external | Core | Organization |
 | ChannelListingDeletionOperation | requestedByUser | references external | Core | User |
-| ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelListingOptionInventoryComponent | channelListingOption | references external | Core | ChannelListingOption |
+| ChannelListingOptionInventoryComponent | organization | references external | Core | Organization |
 | ChannelRegistrationOwnerIdempotencyReceipt | organization | references external | Core | Organization |
 | ChannelScrapeChunk | organization | references external | Core | Organization |
 | ChannelScrapeRun | channelAccount | references external | Core | ChannelAccount |
 | ChannelScrapeRun | organization | references external | Core | Organization |
 | ChannelScrapeRun | sourceImportRun | references external | Core | SourceImportRun |
-| ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
 | ChannelScrapeSnapshot | sourceImportRun | references external | Core | SourceImportRun |
@@ -570,7 +619,6 @@ erDiagram
 | MallOperationOutcome | actorUser | references external | Core | User |
 | MallOperationOutcome | organization | references external | Core | Organization |
 | ProductRegistrationExecution | channelAccount | references external | Core | ChannelAccount |
-| ProductRegistrationExecution | channelListing | references external | Core | ChannelListing |
 | ProductRegistrationExecution | organization | references external | Core | Organization |
 | ProductRegistrationExecution | requestedByUser | references external | Core | User |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
@@ -579,7 +627,6 @@ erDiagram
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaManualMatchAlias | organization | references external | Core | Organization |
 | SellpiaManualMatchSnapshot | organization | references external | Core | Organization |
-| SellpiaProductMonthlySales | frozenMasterProduct | references external | Core | MasterProduct |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |

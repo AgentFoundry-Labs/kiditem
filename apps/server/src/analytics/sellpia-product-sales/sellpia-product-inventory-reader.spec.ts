@@ -13,16 +13,12 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       externalOptionId: 'option-origin',
     }]]));
     const destinationFindMany = vi.fn(async (_input: unknown) => [{
-      sellpiaInventorySkuId: skuId,
+      masterProductId: 'master-1',
       quantity: 1,
       channelListingOption: channelOption(),
     }]);
     const prisma = {
       masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
-      sellpiaInventorySku: {
-        findMany: vi.fn(async () => [inventoryCandidate(skuId)]),
-      },
-      masterProduct: { findMany: vi.fn(async () => [masterProduct()]) },
       channelListingOptionInventoryComponent: {
         findMany: destinationFindMany,
       },
@@ -30,12 +26,12 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     };
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
     const inventoryTransactionalRead = {
-      readSkuIdentities: vi.fn(async () => [inventoryIdentity(skuId)]),
+      readSourceIdentities: vi.fn(async () => [sourceIdentity()]),
     };
     const reader = new SellpiaProductInventoryReader(prisma as never, {
-      findBySkuIds: vi.fn(async () => ({
+      findByMasterProductIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, generation: '1' }],
+        items: [{ masterProductId: 'master-1', currentStock: 10, generation: '1' }],
       })),
     } as never, { findDisplayMedia }, stubMissingProductAbcRead(), inventoryTransactionalRead as never);
 
@@ -75,11 +71,9 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
     const prisma = {
       masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
-      sellpiaInventorySku: { findMany: vi.fn(async () => [inventoryCandidate(skuId)]) },
-      masterProduct: { findMany: vi.fn(async () => [masterProduct()]) },
       channelListingOptionInventoryComponent: {
         findMany: vi.fn(async () => [{
-          sellpiaInventorySkuId: skuId,
+          masterProductId: 'master-1',
           quantity: 1,
           channelListingOption: channelOption(),
         }]),
@@ -88,12 +82,12 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     };
     prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
     const inventoryTransactionalRead = {
-      readSkuIdentities: vi.fn(async () => [inventoryIdentity(skuId)]),
+      readSourceIdentities: vi.fn(async () => [sourceIdentity()]),
     };
     const reader = new SellpiaProductInventoryReader(prisma as never, {
-      findBySkuIds: vi.fn(async () => ({
+      findByMasterProductIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, generation: '1' }],
+        items: [{ masterProductId: 'master-1', currentStock: 10, generation: '1' }],
       })),
     } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) }, stubMissingProductAbcRead(), inventoryTransactionalRead as never);
     const warn = vi.spyOn((reader as never as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
@@ -111,38 +105,18 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
 
 });
 
-function inventoryCandidate(skuId: string) {
+function sourceIdentity() {
   return {
-    id: skuId,
-    code: 'SKU-1',
+    masterProductId: 'master-1',
+    code: 'KID00000001',
+    sourceAccountKey: 'kiditem',
+    sourceProductCode: 'SKU-1',
+    sourceOptionCode: '',
     name: 'Inventory SKU',
     optionName: null,
     barcode: null,
     purchasePrice: null,
-    salePrice: null,
-    masterProductId: 'master-1',
-  };
-}
-
-function inventoryIdentity(skuId: string) {
-  return {
-    sellpiaInventorySkuId: skuId,
-    code: 'SKU-1',
-    name: 'Inventory SKU',
-    optionName: null,
-    barcode: null,
-    purchasePrice: null,
-    salePrice: null,
-    masterProductId: 'master-1',
-  };
-}
-
-function masterProduct() {
-  return {
-    id: 'master-1',
-    code: 'MASTER-1',
-    name: 'Master',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    imageUrls: [],
   };
 }
 

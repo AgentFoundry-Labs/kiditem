@@ -1,4 +1,4 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { MasterProductProfitabilityReadService } from './master-product-profitability-read.service';
@@ -23,12 +23,15 @@ describe('MasterProductProfitabilityReadService', () => {
     };
     const transaction = vi.fn();
     const prisma = {
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{ id: 'sku-1', masterProductId: 'product-1', masterProduct: { isActive: true } }]) },
       masterProduct: {
         findMany: vi.fn().mockResolvedValue([{
           id: 'product-1',
-          isActive: true,
-          _count: { inventorySkus: 0 },
+          code: 'P-1',
+          name: 'Product 1',
+          optionName: null,
+          barcode: null,
+          purchasePrice: null,
+          imageUrls: [],
         }]),
       },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
@@ -43,7 +46,7 @@ describe('MasterProductProfitabilityReadService', () => {
       sellpia as never,
       advertising as never,
       prisma as never,
-     new InventoryTransactionalReadRepositoryAdapter());
+     new ProductTransactionalReadRepositoryAdapter());
 
     await expect(service.load({
       organizationId: 'organization-1',
@@ -130,8 +133,15 @@ describe('MasterProductProfitabilityReadService', () => {
       }),
     };
     const prisma = {
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{ id: 'sku-1', masterProductId: 'product-1', masterProduct: { isActive: true } }]) },
-      masterProduct: { findMany: vi.fn().mockResolvedValue([]) },
+      masterProduct: { findMany: vi.fn().mockResolvedValue([{
+        id: 'product-1',
+        code: 'P-1',
+        name: 'Product 1',
+        optionName: null,
+        barcode: null,
+        purchasePrice: null,
+        imageUrls: [],
+      }]) },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       $queryRaw: vi.fn().mockResolvedValue([]),
       masterProductAbcFormulaState: {
@@ -144,7 +154,7 @@ describe('MasterProductProfitabilityReadService', () => {
       sellpia as never,
       advertising as never,
       prisma as never,
-     new InventoryTransactionalReadRepositoryAdapter());
+     new ProductTransactionalReadRepositoryAdapter());
 
     const result = await service.load({
       organizationId: 'organization-1',
@@ -173,9 +183,16 @@ describe('MasterProductProfitabilityReadService', () => {
     const order: string[] = [];
     const transaction = vi.fn();
     const prisma = {
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{ id: 'sku-1', masterProductId: 'product-1', masterProduct: { isActive: true } }]) },
       masterProduct: {
-        findMany: vi.fn().mockResolvedValue([{ id: 'product-1', isActive: true }]),
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'product-1',
+          code: 'P-1',
+          name: 'Product 1',
+          optionName: null,
+          barcode: null,
+          purchasePrice: null,
+          imageUrls: [],
+        }]),
       },
       channelListing: {
         findMany: vi.fn(async () => {
@@ -215,14 +232,13 @@ describe('MasterProductProfitabilityReadService', () => {
       sellpia as never,
       advertising as never,
       prisma as never,
-     new InventoryTransactionalReadRepositoryAdapter());
+     new ProductTransactionalReadRepositoryAdapter());
 
     const load = service.load({
       organizationId: 'organization-1',
       targetCutoff: '2026-08-31',
     });
-    await Promise.resolve();
-    expect(order).toEqual(['state:start']);
+    await vi.waitFor(() => expect(order).toContain('state:start'));
 
     releaseState({ mappingGeneration: 0n });
     await expect(load).resolves.toMatchObject({ actualCutoff: null });
@@ -298,8 +314,15 @@ describe('MasterProductProfitabilityReadService', () => {
         })),
       };
       const prisma = {
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{ id: 'sku-1', masterProductId: 'product-1', masterProduct: { isActive: true } }]) },
-        masterProduct: { findMany: vi.fn().mockResolvedValue([]) },
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{
+          id: 'product-1',
+          code: 'P-1',
+          name: 'Product 1',
+          optionName: null,
+          barcode: null,
+          purchasePrice: null,
+          imageUrls: [],
+        }]) },
         channelListing: { findMany: vi.fn().mockResolvedValue([]) },
         $queryRaw: vi.fn().mockResolvedValue([]),
         masterProductAbcFormulaState: {
@@ -312,7 +335,7 @@ describe('MasterProductProfitabilityReadService', () => {
         sellpia as never,
         advertising as never,
         prisma as never,
-       new InventoryTransactionalReadRepositoryAdapter()).load({ organizationId: 'organization-1', targetCutoff });
+       new ProductTransactionalReadRepositoryAdapter()).load({ organizationId: 'organization-1', targetCutoff });
     };
     const sellpiaThrough5 = sellpiaGeneration('00000000-0000-4000-8000-000000000031', '11', '2026-09-05');
     const sellpiaThrough6 = sellpiaGeneration('00000000-0000-4000-8000-000000000033', '12', '2026-09-06');

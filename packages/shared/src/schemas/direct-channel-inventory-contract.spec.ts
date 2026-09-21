@@ -52,7 +52,7 @@ describe('direct channel inventory contracts', () => {
         updatedAt: OBSERVED_AT,
         inventoryComponents: [{
           id: COMPONENT_ID,
-          sellpiaInventorySkuId: SKU_ID,
+          masterProductId: SKU_ID,
           code: 'SP-001',
           name: '문구세트',
           optionName: null,
@@ -65,7 +65,7 @@ describe('direct channel inventory contracts', () => {
     });
 
     expect(parsed.option.inventoryComponents[0]).toMatchObject({
-      sellpiaInventorySkuId: SKU_ID,
+      masterProductId: SKU_ID,
       quantity: 10,
     });
     expect('productVariantId' in parsed.option).toBe(false);
@@ -79,18 +79,12 @@ describe('direct channel inventory contracts', () => {
       code: 'KI-001',
       displayReference: { type: 'product_code', label: '상품 코드', value: 'KI-001' },
       name: '문구세트',
-      description: null,
-      category: null,
-      brand: null,
-      tags: [],
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
       abcEvaluation: null,
       abc: UNCLASSIFIED_ABC,
       contribution: null,
-      adBudgetLimit: null,
-      isActive: true,
       createdAt: OBSERVED_AT,
       updatedAt: OBSERVED_AT,
       inventory: { skuCount: 1, measuredSkuCount: 1 },
@@ -115,7 +109,7 @@ describe('direct channel inventory contracts', () => {
           capacity: 8,
           inventoryComponents: [{
             id: COMPONENT_ID,
-            sellpiaInventorySkuId: SKU_ID,
+            masterProductId: SKU_ID,
             code: 'SP-001',
             name: '문구세트',
             optionName: null,

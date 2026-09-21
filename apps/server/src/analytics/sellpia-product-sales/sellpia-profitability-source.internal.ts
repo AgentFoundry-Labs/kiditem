@@ -91,8 +91,13 @@ export type PublishedGenerationRecord = Pick<SourceAttemptRecord,
 export type InventoryCandidate = Readonly<{
   id: string;
   code: string;
+  sourceAccountKey: string;
+  sourceProductCode: string;
+  sourceOptionCode: string;
   barcode: string | null;
-  masterProductId: string | null;
+  masterProductId: string;
+  /** A retained historical Sellpia identifier, when one exists. */
+  legacySellpiaInventorySkuId?: string | null;
 }>;
 
 export type FrozenFact = Readonly<{
@@ -188,7 +193,7 @@ export function freezeFacts(
       : boundedString(product.barcode, 64, false);
     const resolution = resolve({ productCode, optionCode, barcode });
     const frozenSku = resolution.status === 'matched'
-      ? candidateById.get(resolution.sellpiaInventorySkuId) ?? null
+      ? candidateById.get(resolution.masterProductId) ?? null
       : null;
     const totalOrderAmount = sourceTotal(product.totalOrderAmount);
     const totalOrderQty = sourceTotal(product.totalOrderQty);
@@ -213,7 +218,9 @@ export function freezeFacts(
       summedInQty = boundedInt(summedInQty + inQty);
       const fact: FrozenFact = {
         sourceImportRunId,
-        sellpiaInventorySkuId: frozenSku?.id ?? null,
+        // New source rows are keyed by MasterProduct. The legacy column is
+        // populated only when a caller supplies a retained historical ID.
+        sellpiaInventorySkuId: frozenSku?.legacySellpiaInventorySkuId ?? null,
         masterProductId: frozenSku?.masterProductId ?? null,
         productCode,
         optionCode,

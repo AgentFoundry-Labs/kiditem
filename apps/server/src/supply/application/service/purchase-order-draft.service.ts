@@ -46,7 +46,7 @@ export class PurchaseOrderDraftService implements PurchaseOrderDraftPort {
       supplierId: input.recommendation.supplierId ?? undefined,
       items: [
         {
-          sellpiaInventorySkuId: input.recommendation.sellpiaInventorySkuId,
+          masterProductId: input.recommendation.masterProductId,
           productName: input.recommendation.productName,
           quantity,
           unitPriceCny: input.recommendation.unitPriceCny,

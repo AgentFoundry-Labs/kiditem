@@ -27,46 +27,21 @@ function rejectFields(block, fields) {
 }
 
 describe('master-product operations final schema contract', () => {
-  it('makes MasterProduct the organization-scoped canonical inventory product', () => {
+  it('keeps only the approved source-product scalar fields', () => {
     const master = modelBlock(core, 'MasterProduct');
-    expectFields(master, [
-      'organizationId',
-      'code',
-      'name',
-      'description',
-      'category',
-      'brand',
-      'tags',
-      'imageUrls',
-      'adBudgetLimit',
-      'isActive',
-      'originChannelListingId',
-      'channelListings',
-      'originChannelListing',
-      'provenanceCandidate',
-      'inventorySkus',
-    ]);
-    assert.match(master, /@@unique\(\[organizationId, code\]\)/);
+    const scalarNames = [...master.matchAll(/^\s*(\w+)\s+(?:String|Int|DateTime|Boolean|Json|BigInt|Decimal)(?:\?|\[\])?(?=\s|$)/gm)]
+      .map((match) => match[1]).sort();
+    assert.deepEqual(scalarNames, [
+      'id', 'organizationId', 'code', 'sourceAccountKey', 'sourceProductCode',
+      'sourceOptionCode', 'name', 'optionName', 'barcode', 'currentStock',
+      'purchasePrice', 'imageUrls', 'createdAt', 'updatedAt',
+    ].sort());
+    assert.match(master, /^\s*code\s+String\s+.*@unique/m);
+    assert.match(master, /^\s*purchasePrice\s+Int\?/m);
+    for (const field of ['sourceAccountKey', 'sourceProductCode', 'sourceOptionCode']) {
+      assert.match(master, new RegExp(`^\\s*${field}\\s+String\\s`, 'm'));
+    }
     assert.match(master, /@@unique\(\[id, organizationId\]/);
-    assert.match(master, /@@unique\(\[originChannelListingId, organizationId\]\)/);
-    assert.match(
-      master,
-      /@relation\("ChannelListingOriginProduct", fields: \[originChannelListingId, organizationId\], references: \[id, organizationId\]/,
-    );
-    rejectFields(master, [
-      'abcGrade',
-      'profitTag',
-      'adTier',
-      'healthScore',
-      'healthUpdatedAt',
-      'optionName',
-      'barcode',
-      'currentStock',
-      'purchasePrice',
-      'salePrice',
-      'rawJson',
-      'lastImportRunId',
-    ]);
   });
 
   it('removes the redundant operating-option layer beneath MasterProduct', () => {
@@ -76,78 +51,61 @@ describe('master-product operations final schema contract', () => {
     assert.doesNotMatch(core, /product_variant_components/);
   });
 
-  it('stores one direct positive component recipe per channel option and Sellpia SKU', () => {
+  it('stores one direct positive component recipe per channel option and MasterProduct', () => {
     const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
     expectFields(component, [
       'organizationId',
       'channelListingOptionId',
-      'sellpiaInventorySkuId',
+      'masterProductId',
       'quantity',
       'channelListingOption',
     ]);
     assert.match(component, /^\s*quantity\s+Int\s*$/m);
     assert.match(
       component,
-      /@@unique\(\[channelListingOptionId, sellpiaInventorySkuId\]\)/,
+      /@@unique\(\[channelListingOptionId, masterProductId\]\)/,
     );
     assert.match(
       component,
       /@relation\(fields: \[channelListingOptionId, organizationId\], references: \[id, organizationId\]/,
     );
-    rejectFields(component, ['sellpiaInventorySku']);
-    assert.match(component, /@@index\(\[(?:organizationId, )?sellpiaInventorySkuId\]/);
+    rejectFields(component, ['sellpiaInventorySku', 'sellpiaInventorySkuId']);
+    assert.match(component, /@@index\(\[(?:organizationId, )?masterProductId\]/);
   });
 
-  it('makes SellpiaInventorySku a physical source SKU owned by at most one canonical MasterProduct', () => {
-    const sku = modelBlock(inventory, 'SellpiaInventorySku');
-    expectFields(sku, [
-      'organizationId',
-      'masterProductId',
-      'code',
-      'name',
+  it('stores live source stock on MasterProduct and removes the live Sellpia SKU model', () => {
+    const master = modelBlock(core, 'MasterProduct');
+    expectFields(master, [
+      'sourceAccountKey',
+      'sourceProductCode',
+      'sourceOptionCode',
       'optionName',
       'barcode',
       'currentStock',
       'purchasePrice',
-      'salePrice',
-      'isActive',
-      'rawJson',
-      'lastImportRunId',
-      'lastImportRun',
-      'masterProduct',
     ]);
-    assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(sku, /@@unique\(\[id, organizationId\]/);
-    assert.match(sku, /@@map\("sellpia_inventory_skus"\)/);
-    assert.match(sku, /@relation\("SellpiaInventorySkuLastImport"/);
-    assert.match(
-      sku,
-      /@relation\("MasterProductInventorySkus", fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
-    );
-    assert.match(sku, /@@index\(\[organizationId, masterProductId\]/);
-    assert.match(sku, /@@unique\(\[organizationId, masterProductId\]/);
+    assert.match(master, /@@unique\(\[organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode\]/);
+    assert.doesNotMatch(inventory, /model SellpiaInventorySku\s*\{/);
+    assert.doesNotMatch(core, /inventorySkus\s+SellpiaInventorySku\[\]/);
   });
 
-  it('keeps only the channel product link nullable and organization-fenced', () => {
+  it('keeps cross-owner channel references as indexed nullable IDs', () => {
     const listing = modelBlock(core, 'ChannelListing');
     const option = modelBlock(core, 'ChannelListingOption');
     assert.match(listing, /^\s*masterProductId\s+String\?/m);
-    assert.match(
-      listing,
-      /@relation\("ChannelListingOperationalProduct", fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
-    );
-    assert.match(listing, /^\s*originatedMasterProduct\s+MasterProduct\?/m);
+    assert.match(listing, /@@index\(\[masterProductId\]/);
+    rejectFields(listing, ['masterProduct', 'originatedMasterProduct']);
     assert.match(option, /^\s*inventoryComponents\s+ChannelListingOptionInventoryComponent\[\]/m);
     rejectFields(option, ['productVariantId', 'mappingStatus']);
   });
 
-  it('removes every channel-owned component recipe', () => {
+  it('removes the duplicate legacy component model', () => {
     assert.doesNotMatch(schema, /model ChannelSkuComponent\b/);
     assert.doesNotMatch(schema, /channel_sku_components/);
     assert.doesNotMatch(schema, /^\s*channelSkuComponents\s+/m);
   });
 
-  it('preserves indexed physical SKU ids without deletion-blocking relations', () => {
+  it('preserves legacy physical SKU ids with optional MasterProduct links', () => {
     const references = [
       [supply, 'SupplierProduct'],
       [supply, 'PurchaseOrderItem'],
@@ -156,10 +114,11 @@ describe('master-product operations final schema contract', () => {
     ];
     for (const [source, modelName] of references) {
       const block = modelBlock(source, modelName);
-      assert.match(block, /^\s*sellpiaInventorySkuId\s+String\s+/m);
-      rejectFields(block, ['sellpiaInventorySku']);
-      assert.match(block, /@@index\(\[(?:organizationId, )?sellpiaInventorySkuId\]/);
-      rejectFields(block, ['masterProductId', 'masterProduct']);
+      assert.match(block, /^\s*legacySellpiaInventorySkuId\s+String\?\s+/m);
+      assert.match(block, /^\s*masterProductId\s+String\?/m);
+      rejectFields(block, ['sellpiaInventorySku', 'masterProduct']);
+      assert.match(block, /@@index\(\[(?:organizationId, )?legacySellpiaInventorySkuId\]/);
+      assert.match(block, /@@index\(\[organizationId, masterProductId\]/);
     }
   });
 });

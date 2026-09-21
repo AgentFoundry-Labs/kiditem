@@ -4,11 +4,10 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -19,8 +18,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
-import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
-import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -38,14 +37,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     repository = new ChannelProductMatchingRepositoryAdapter(
       prismaService,
-      new InventoryTransactionalReadRepositoryAdapter(),
-      new SellpiaInventorySkuReadService(
-        new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
-      ),
-      new ProductChannelOptionRecipeMutationService(
-        new ProductChannelOptionRecipeMutationRepositoryAdapter(
+      new ProductTransactionalReadRepositoryAdapter(),
+      new ProductSourceReadRepositoryAdapter(prismaService),
+      new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(
           prismaService,
-          new InventoryTransactionalReadRepositoryAdapter(),
+          new ProductTransactionalReadRepositoryAdapter(),
         ),
       ),
     );
@@ -54,8 +51,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       new CatalogDisplayMediaService(
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
+      new ProductAvailabilityUseCase(
+        new ProductAvailabilityRepositoryAdapter(prismaService),
       ),
     );
   });
@@ -128,7 +125,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: configured.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 2,
       },
     });
@@ -150,7 +147,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       listing: { masterProductId: product.id },
       capacity: 6,
       option: {
-        inventoryComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2, currentStock: 12 }],
+        inventoryComponents: [{ masterProductId: sku.id, quantity: 2, currentStock: 12 }],
       },
     });
   });
@@ -162,18 +159,18 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const option = await createOption(listing.id, {});
     await prisma.channelListingOptionInventoryComponent.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id,
-      sellpiaInventorySkuId: sku.id, quantity: 2,
+      masterProductId: sku.id, quantity: 2,
     } });
-    await prisma.sellpiaInventorySku.delete({ where: { id: sku.id } });
+    await prisma.masterProduct.delete({ where: { id: sku.id } });
     await createInventorySku('SKU-DELETED', 99, product.id);
     const queue = await service.list(TEST_ORGANIZATION_ID);
     expect(queue.options.find((row) => row.option.id === option.id)).toMatchObject({
       capacity: null,
-      option: { inventoryComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2, code: null, name: null, currentStock: null }] },
+      option: { inventoryComponents: [{ masterProductId: sku.id, quantity: 2, code: null, name: null, currentStock: null }] },
     });
     const rows = await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {});
     expect(rows.find((row) => row.option.id === option.id)?.inventoryComponents).toMatchObject([
-      { sellpiaInventorySkuId: sku.id, quantity: 2, code: null, name: null },
+      { masterProductId: sku.id, quantity: 2, code: null, name: null },
     ]);
   });
 
@@ -288,12 +285,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: [{
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: firstOption.id,
-        sellpiaInventorySkuId: firstSku.id,
+        masterProductId: firstSku.id,
         quantity: 2,
       }, {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: secondOption.id,
-        sellpiaInventorySkuId: secondSku.id,
+        masterProductId: secondSku.id,
         quantity: 4,
       }],
     });
@@ -360,7 +357,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 3,
       },
     });
@@ -383,7 +380,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 1,
       },
     });
@@ -432,7 +429,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const otherProduct = await prisma.masterProduct.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        code: 'KI-ORG-OTHER',
+        code: 'KI-ORG-OTHR',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'KI-ORG-OTHER',
+        sourceOptionCode: '',
         name: 'Other organization product',
       },
     });
@@ -473,7 +473,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 1,
       },
     });
@@ -506,7 +506,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: ownerOption.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 1,
       },
     });
@@ -524,7 +524,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         snapshotId: snapshot.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         aliasTitle: 'Auto product Two pack',
         normalizedAlias: 'autoproducttwopack',
         itemCount: 2,
@@ -546,10 +546,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .toMatchObject({ masterProductId: product.id });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: targetOption.id },
-    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    })).resolves.toMatchObject({ masterProductId: sku.id, quantity: 2 });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: secondTargetOption.id },
-    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+    })).resolves.toMatchObject({ masterProductId: sku.id, quantity: 2 });
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, {})).resolves.toEqual({
@@ -577,7 +577,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         snapshotId: snapshot.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         aliasTitle: '등록 Wing 상품 3종 세트',
         normalizedAlias: '등록wing상품3종세트',
         itemCount: 3,
@@ -600,8 +600,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: targetOption.id },
-    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 3 });
-    await expect(prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: sku.id } }))
+    })).resolves.toMatchObject({ masterProductId: sku.id, quantity: 3 });
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: sku.id } }))
       .resolves.toMatchObject({ currentStock: 27 });
   });
 
@@ -620,19 +620,11 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       barcode: '8806384804294',
     });
     const csvOption = await createOption(listing.id, { itemName: 'CSV 기본' });
-    const watergun = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: '10054-1',
-        name: '어린이 물총 워터건',
-        barcode: '8806384804294',
-        currentStock: 27,
-        purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const watergun = await createInventorySku('10054-1', 27, product.id, {
+      name: '어린이 물총 워터건',
+      barcode: '8806384804294',
     });
-    const beforeStock = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+    const beforeStock = await prisma.masterProduct.findUniqueOrThrow({
       where: { id: watergun.id },
       select: { id: true, currentStock: true },
     });
@@ -642,7 +634,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: { in: [providerOption.id, csvOption.id] } },
     })).toEqual([]);
-    await expect(prisma.sellpiaInventorySku.findUniqueOrThrow({
+    await expect(prisma.masterProduct.findUniqueOrThrow({
       where: { id: watergun.id },
       select: { id: true, currentStock: true },
     })).resolves.toEqual(beforeStock);
@@ -654,19 +646,11 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       displayName: '퓨어 클리어 슬라임 투명 9개 x 150g',
     });
     const option = await createOption(listing.id, { barcode: '8806384804966' });
-    const slime = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: '10429-1',
-        name: '2000퓨어클리어슬라임(쿠팡용)',
-        barcode: '8806384804966',
-        currentStock: 31,
-        purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const slime = await createInventorySku('10429-1', 31, product.id, {
+      name: '2000퓨어클리어슬라임(쿠팡용)',
+      barcode: '8806384804966',
     });
-    const beforeStock = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+    const beforeStock = await prisma.masterProduct.findUniqueOrThrow({
       where: { id: slime.id },
       select: { id: true, currentStock: true },
     });
@@ -675,11 +659,11 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .resolves.toMatchObject({ evaluatedListings: 1, matchedListings: 1, configuredOptions: 1 });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: option.id },
-      select: { sellpiaInventorySkuId: true, quantity: true },
-    })).resolves.toEqual({ sellpiaInventorySkuId: slime.id, quantity: 9 });
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual({ masterProductId: slime.id, quantity: 9 });
     await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
       .resolves.toMatchObject({ masterProductId: product.id });
-    await expect(prisma.sellpiaInventorySku.findUniqueOrThrow({
+    await expect(prisma.masterProduct.findUniqueOrThrow({
       where: { id: slime.id },
       select: { id: true, currentStock: true },
     })).resolves.toEqual(beforeStock);
@@ -693,64 +677,40 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       displayName: '퓨어 클리어 슬라임 투명 9개 x 150g',
     });
     const option = await createOption(listing.id, { barcode: '8806384804294' });
-    const slime = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: '10429-1',
-        name: '2000퓨어클리어슬라임(쿠팡용)',
-        barcode: '8806384804966',
-        currentStock: 31,
-        purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const slime = await createInventorySku('10429-1', 31, product.id, {
+      name: '2000퓨어클리어슬라임(쿠팡용)',
+      barcode: '8806384804966',
     });
-    const second = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: secondProduct.id,
-        code: '10429-2',
-        name: '슬라임 보조 구성품',
-        barcode: null,
-        currentStock: 13,
-        purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const second = await createInventorySku('10429-2', 13, secondProduct.id, {
+      name: '슬라임 보조 구성품',
+      barcode: null,
     });
-    const watergun = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: watergunProduct.id,
-        code: '10054-1',
-        name: '어린이 물총 워터건',
-        barcode: '8806384804294',
-        currentStock: 27,
-        purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const watergun = await createInventorySku('10054-1', 27, watergunProduct.id, {
+      name: '어린이 물총 워터건',
+      barcode: '8806384804294',
     });
     await prisma.channelListingOptionInventoryComponent.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: option.id,
-          sellpiaInventorySkuId: slime.id,
+          masterProductId: slime.id,
           quantity: 9,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: option.id,
-          sellpiaInventorySkuId: second.id,
+          masterProductId: second.id,
           quantity: 2,
         },
       ],
     });
     const beforeComponents = await prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
-      select: { sellpiaInventorySkuId: true, quantity: true },
-      orderBy: { sellpiaInventorySkuId: 'asc' },
+      select: { masterProductId: true, quantity: true },
+      orderBy: { masterProductId: 'asc' },
     });
-    const beforeStock = await prisma.sellpiaInventorySku.findMany({
+    const beforeStock = await prisma.masterProduct.findMany({
       where: { id: { in: [slime.id, second.id, watergun.id] } },
       select: { id: true, currentStock: true },
       orderBy: { id: 'asc' },
@@ -762,10 +722,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .resolves.toMatchObject({ masterProductId: null });
     await expect(prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
-      select: { sellpiaInventorySkuId: true, quantity: true },
-      orderBy: { sellpiaInventorySkuId: 'asc' },
+      select: { masterProductId: true, quantity: true },
+      orderBy: { masterProductId: 'asc' },
     })).resolves.toEqual(beforeComponents);
-    await expect(prisma.sellpiaInventorySku.findMany({
+    await expect(prisma.masterProduct.findMany({
       where: { id: { in: [slime.id, second.id, watergun.id] } },
       select: { id: true, currentStock: true },
       orderBy: { id: 'asc' },
@@ -774,16 +734,9 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
   it('auto-confirms one clear name candidate with matching option and explicit single-unit evidence', async () => {
     const product = await createProduct('KI-NAME-CLEAR', '키즈 식판');
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: 'SP-NAME-CLEAR',
-        name: '키즈 식판',
-        optionName: '블루',
-        currentStock: 12,
-        lastImportRunId: inventoryCompletedRunId,
-      },
+    const sku = await createInventorySku('SP-NAME-CLEAR', 12, product.id, {
+      name: '키즈 식판',
+      optionName: '블루',
     });
     const listing = await createListing({ displayName: '키즈 식판' });
     const option = await createOption(listing.id, { itemName: '블루 단품' });
@@ -792,44 +745,23 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .resolves.toEqual({ evaluatedListings: 1, matchedListings: 1, configuredOptions: 1 });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: option.id },
-      select: { sellpiaInventorySkuId: true, quantity: true },
-    })).resolves.toEqual({ sellpiaInventorySkuId: sku.id, quantity: 1 });
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual({ masterProductId: sku.id, quantity: 1 });
   });
 
   it('leaves duplicate normalized names and unknown selling quantities for review', async () => {
     const first = await createProduct('KI-NAME-DUP-1', '키즈 식판');
     const second = await createProduct('KI-NAME-DUP-2', '키즈 식판');
     await Promise.all([
-      prisma.sellpiaInventorySku.create({ data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: first.id,
-        code: 'SP-NAME-DUP-1',
-        name: '키즈 식판',
-        currentStock: 5,
-        lastImportRunId: inventoryCompletedRunId,
-      } }),
-      prisma.sellpiaInventorySku.create({ data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: second.id,
-        code: 'SP-NAME-DUP-2',
-        name: '키즈 식판',
-        currentStock: 6,
-        lastImportRunId: inventoryCompletedRunId,
-      } }),
+      createInventorySku('SP-NAME-DUP-1', 5, first.id, { name: '키즈 식판' }),
+      createInventorySku('SP-NAME-DUP-2', 6, second.id, { name: '키즈 식판' }),
     ]);
     const duplicateListing = await createListing({ displayName: '키즈 식판 단품' });
     const duplicateOption = await createOption(duplicateListing.id, { itemName: '단품' });
     const quantityListing = await createListing({ displayName: '유아 접시' });
     const quantityOption = await createOption(quantityListing.id, {});
     const quantityProduct = await createProduct('KI-NAME-QUANTITY', '유아 접시');
-    await prisma.sellpiaInventorySku.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterProductId: quantityProduct.id,
-      code: 'SP-NAME-QUANTITY',
-      name: '유아 접시',
-      currentStock: 9,
-      lastImportRunId: inventoryCompletedRunId,
-    } });
+    await createInventorySku('SP-NAME-QUANTITY', 9, quantityProduct.id, { name: '유아 접시' });
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
       .resolves.toEqual({ evaluatedListings: 2, matchedListings: 0, configuredOptions: 0 });
@@ -840,15 +772,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
   it('leaves a high-scoring color mismatch for review', async () => {
     const product = await createProduct('KI-NAME-COLOR', '키즈 식판');
-    await prisma.sellpiaInventorySku.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterProductId: product.id,
-      code: 'SP-NAME-COLOR',
+    await createInventorySku('SP-NAME-COLOR', 8, product.id, {
       name: '키즈 식판',
       optionName: '핑크',
-      currentStock: 8,
-      lastImportRunId: inventoryCompletedRunId,
-    } });
+    });
     const listing = await createListing({ displayName: '키즈 식판' });
     const option = await createOption(listing.id, { itemName: '블루 단품' });
 
@@ -870,23 +797,68 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(rows.map((row) => row.option.id)).toEqual([activeOption.id]);
   });
 
-  function createProduct(code: string, name: string) {
+  async function nextGeneratedCode() {
+    const [{ value }] = await prisma.$queryRaw<Array<{ value: bigint }>>`
+      SELECT nextval('kid_item_code_seq'::regclass) AS value
+    `;
+    return `KID${value.toString().padStart(8, '0')}`;
+  }
+
+  async function createProduct(code: string, name: string) {
     return prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code, name },
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: code.length <= 11 ? code : await nextGeneratedCode(),
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: code,
+        sourceOptionCode: '',
+        name,
+      },
     });
   }
 
-  function createInventorySku(code: string, currentStock: number, masterProductId: string) {
-    return prisma.sellpiaInventorySku.create({
+  async function createInventorySku(
+    code: string,
+    currentStock: number,
+    _masterProductId: string,
+    input: {
+      name?: string;
+      optionName?: string | null;
+      barcode?: string | null;
+      reuseMasterProduct?: boolean;
+    } = {},
+  ) {
+    if (input.reuseMasterProduct !== false) {
+      const existing = await prisma.masterProduct.findUnique({
+        where: { id: _masterProductId },
+      });
+      if (existing) {
+        return prisma.masterProduct.update({
+          where: { id: existing.id },
+          data: {
+            name: input.name ?? existing.name,
+            optionName: input.optionName === undefined
+              ? existing.optionName
+              : input.optionName,
+            barcode: input.barcode === undefined ? existing.barcode : input.barcode,
+            currentStock,
+            purchasePrice: 100,
+          },
+        });
+      }
+    }
+    return prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        masterProductId,
-        code,
-        name: code,
-        barcode: `BAR-${code}`,
+        code: await nextGeneratedCode(),
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: code,
+        sourceOptionCode: '',
+        name: input.name ?? code,
+        optionName: input.optionName ?? null,
+        barcode: input.barcode === undefined ? `BAR-${code}` : input.barcode,
         currentStock,
         purchasePrice: 100,
-        lastImportRunId: inventoryCompletedRunId,
       },
     });
   }
@@ -894,7 +866,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   function createListing(input: {
     displayName?: string;
     channelName?: string;
-    masterProductId?: string;
+    masterProductId?: string | null;
     rawJson?: object;
     isActive?: boolean;
   }) {

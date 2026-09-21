@@ -90,6 +90,21 @@
       ],
       "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
       "note": "014 keeps the newest run per shared freshness_generation; an older one goes with its dependent rows."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "not-null:channel_listing_option_inventory_components.master_product_id",
+        "not-null:master_products.source_account_key",
+        "not-null:master_products.source_option_code",
+        "not-null:master_products.source_product_code",
+        "type-change:master_products.code",
+        "unique:channel_listing_option_inventory_components_channel_listing_key",
+        "unique:master_products_code_key",
+        "unique:master_products_source_identity_key"
+      ],
+      "coveredBy": "v0.1.31:016_master_product_inventory_cutover",
+      "note": "016 validates explicit source identity and organization-safe references, removes only approved unreferenced empty channel-origin products, migrates current references and allocates canonical KID codes before schema contraction; unresolved mappings abort the transaction."
     }
   ]
 }

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
 export const InventorySkuAvailabilitySchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   currentStock: z.number().int().nonnegative(),
   generation: z.string().regex(/^\d+$/).nullable(),
 }).strict();

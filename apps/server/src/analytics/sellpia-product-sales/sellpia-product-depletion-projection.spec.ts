@@ -10,7 +10,7 @@ describe('buildProductDepletionProjections', () => {
         monthsOfAvailableStockLeft: 0.4,
         inventoryResolution: {
           status: 'matched',
-          sellpiaInventorySkuId: 'sku-1',
+          masterProductId: 'sku-1',
           destinations: [
             { masterProductId: 'master-1' },
             { masterProductId: 'master-2' },
@@ -21,7 +21,7 @@ describe('buildProductDepletionProjections', () => {
         monthsOfAvailableStockLeft: 2,
         inventoryResolution: {
           status: 'matched',
-          sellpiaInventorySkuId: 'sku-1',
+          masterProductId: 'sku-1',
           destinations: [{ masterProductId: 'master-1' }],
         },
       }],

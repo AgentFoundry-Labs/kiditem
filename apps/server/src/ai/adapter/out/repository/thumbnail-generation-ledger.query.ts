@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
-import { readProductAbcPublication } from '../../../../products/read/product-abc-publication.reader';
+import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { GenerationWorkspaceSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
@@ -365,7 +365,7 @@ async function findAutoBatchCandidatesSnapshot(
       channelListing: {
         is: {
           isActive: true,
-          masterProduct: { is: { organizationId, id: { in: aGradeProductIds } } },
+          masterProductId: { in: aGradeProductIds },
         },
       },
     },

@@ -3,18 +3,19 @@ import {
   ChannelProductMatchingRepositoryAdapter as ChannelProductMatchingRepositoryAdapterImpl,
 } from './channel-product-matching.repository.adapter';
 import type {
-  ProductChannelOptionRecipeMutation,
-} from '../../../../products/application/port/in/product-channel-option-recipe-mutation.port';
+  ChannelOptionRecipeMutation,
+} from '../../../application/port/in/channel-option-recipe.port';
 
 class ChannelProductMatchingRepositoryAdapter
   extends ChannelProductMatchingRepositoryAdapterImpl {
   constructor(prisma: unknown) {
-    super(withPublishedInventory(prisma) as never, inventoryTransactionalRead() as never, inventorySkuRead() as never, {
+    const wrapped = withPublishedInventory(prisma);
+    super(wrapped as never, productTransactionalRead(wrapped) as never, productSourceRead(wrapped) as never, {
       applyPreservingRecipesInTransaction: async (
         transaction: object,
         input: {
           organizationId: string;
-          mutations: readonly ProductChannelOptionRecipeMutation[];
+          mutations: readonly ChannelOptionRecipeMutation[];
         },
       ) => {
         const tx = transaction as {
@@ -28,7 +29,7 @@ class ChannelProductMatchingRepositoryAdapter
               data: {
                 organizationId: input.organizationId,
                 channelListingOptionId: mutation.channelListingOptionId,
-                sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+                masterProductId: component.masterProductId,
                 quantity: component.quantity,
               },
             });
@@ -68,61 +69,55 @@ function inventoryRows(context: { client: unknown }) {
   });
 }
 
-function toInventoryIdentity(row: Record<string, any>) {
+function toProductIdentity(row: Record<string, any>) {
   return {
-    sellpiaInventorySkuId: row.id,
+    masterProductId: row.masterProductId ?? row.id,
     code: row.code ?? '',
     name: row.name ?? '',
     optionName: row.optionName ?? null,
     barcode: row.barcode ?? null,
     purchasePrice: row.purchasePrice ?? null,
-    salePrice: row.salePrice ?? null,
-    isActive: row.isActive ?? true,
-    masterProductId: row.masterProductId ?? null,
+    sourceAccountKey: 'sellpia',
+    sourceProductCode: row.code ?? '',
+    sourceOptionCode: '',
+    imageUrls: [],
   };
 }
 
-function inventoryTransactionalRead() {
+function productTransactionalRead(_prisma: unknown) {
   return {
     lock: vi.fn().mockResolvedValue({}),
-    readSkuIdentities: vi.fn(async (context: { client: unknown }) => {
+    readActiveMatchingCandidates: vi.fn(async (context: { client: unknown }) => {
       const rows = await inventoryRows(context);
-      return rows.map((row) => toInventoryIdentity(row as Record<string, any>));
-    }),
-    readAvailability: vi.fn(async (
-      context: { client: unknown },
-      _lock: unknown,
-      input: { sellpiaInventorySkuIds: string[] },
-    ) => {
-      const rows = await inventoryRows(context);
-      const byId = new Map(rows.map((row) => [
-        (row as Record<string, any>).id,
-        row as Record<string, any>,
-      ]));
-      return {
-        snapshot: {
-          collected: true,
-          generation: '1',
-          verifiedAt: '2026-09-01T00:00:00.000Z',
-        },
-        items: input.sellpiaInventorySkuIds.map((id) => ({
-          sellpiaInventorySkuId: id,
-          currentStock: Math.max(0, byId.get(id)?.currentStock ?? 0),
-          generation: '1',
-        })),
-      };
+      return rows.map((row) => ({
+        ...toProductIdentity(row as Record<string, any>),
+        currentStock: (row as Record<string, any>).currentStock ?? null,
+      }));
     }),
   };
 }
 
-function inventorySkuRead() {
+function productSourceRead(prisma: unknown) {
   return {
     findByIds: vi.fn(async (organizationId: string, ids: string[]) => {
       void organizationId;
-      const rows = await inventoryRows({ client: {} });
+      const rows = await inventoryRows({ client: prisma });
       return rows
-        .filter((row) => ids.includes((row as Record<string, any>).id))
-        .map((row) => toInventoryIdentity(row as Record<string, any>));
+        .filter((row) => ids.includes((row as Record<string, any>).masterProductId
+          ?? (row as Record<string, any>).id))
+        .map((row) => toProductIdentity(row as Record<string, any>));
+    }),
+    findByCodes: vi.fn(async () => []),
+    findByBarcodes: vi.fn(async () => []),
+    findByNormalizedBarcodes: vi.fn(async () => []),
+    findByNormalizedNames: vi.fn(async () => []),
+    listActiveForMatching: vi.fn(async () => {
+      const rows = await inventoryRows({ client: prisma });
+      return rows.map((row) => toProductIdentity(row as Record<string, any>));
+    }),
+    search: vi.fn(async () => {
+      const rows = await inventoryRows({ client: prisma });
+      return rows.map((row) => toProductIdentity(row as Record<string, any>));
     }),
   };
 }
@@ -199,19 +194,14 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
       masterProduct: { findMany },
     } as never);
 
-    await repository.getProductCandidateContext(organizationId, 'listing-1', 'needle');
+    const result = await repository.getProductCandidateContext(
+      organizationId,
+      'listing-1',
+      'needle',
+    );
 
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId,
-        OR: expect.arrayContaining([
-          { code: { contains: 'needle', mode: 'insensitive' } },
-          { name: { contains: 'needle', mode: 'insensitive' } },
-        ]),
-      }),
-      orderBy: [{ code: 'asc' }, { id: 'asc' }],
-    }));
-    expect(findMany.mock.calls[0]![0]).not.toHaveProperty('take');
+    expect(result?.candidates).toEqual([]);
+    expect(findMany).not.toHaveBeenCalled();
   });
 
 });
@@ -265,7 +255,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       data: {
         organizationId,
         channelListingOptionId: 'rocket-option',
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+        masterProductId: 'master-product',
         quantity: 1,
       },
     });
@@ -362,7 +352,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       data: {
         organizationId,
         channelListingOptionId: 'rocket-option',
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+        masterProductId: 'master-product',
         quantity: 12,
       },
     });
@@ -392,7 +382,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
               itemName: '10개입',
               inventoryComponents: [{
                 id: 'component-1',
-                sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+                masterProductId: '00000000-0000-4000-8000-000000000101',
                 quantity: 1,
               }],
             }],
@@ -439,7 +429,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
               barcode: null,
               inventoryComponents: [{
                 id: 'component-1',
-                sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+                masterProductId: '00000000-0000-4000-8000-000000000101',
                 quantity: 1,
               }],
             }],
@@ -503,7 +493,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         channelListingOptionId: 'wing-option',
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+        masterProductId: 'master-product',
         quantity: 1,
       }),
     }));
@@ -653,7 +643,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       data: {
         organizationId,
         channelListingOptionId: 'wing-option',
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+        masterProductId: 'master-product',
         quantity: 10,
       },
     });
@@ -686,7 +676,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     expect(query.select.options.select).not.toHaveProperty('attributesJson');
     expect(query.select.options.select.inventoryComponents.select).toMatchObject({
       id: true,
-      sellpiaInventorySkuId: true,
+      masterProductId: true,
       quantity: true,
     });
     expect(query.select.options.select.inventoryComponents.select)
@@ -835,7 +825,7 @@ function component({
   quantity?: number;
 } = {}) {
   return {
-    sellpiaInventorySkuId: 'inventory-1',
+    masterProductId: 'inventory-1',
     quantity,
     sellpiaInventorySku: {
       id: 'inventory-1',

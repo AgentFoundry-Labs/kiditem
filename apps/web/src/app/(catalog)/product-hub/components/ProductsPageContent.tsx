@@ -120,16 +120,15 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         />
       ) : null}
 
-      <ProductCategoryTabs category={state.category} onCategoryChange={state.setCategory} />
 
       <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-4 py-3">
         <form onSubmit={state.handleSearch} className="relative min-w-[240px] max-w-sm flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
           <input
-            aria-label="상품명 · 상품 코드 · 브랜드 검색"
+            aria-label="상품명 · 상품 코드 · 옵션 · 바코드 검색"
             value={state.search}
             onChange={(event) => state.setSearch(event.target.value)}
-            placeholder="상품명 · 상품 코드 · 브랜드 검색"
+            placeholder="상품명 · 상품 코드 · 옵션 · 바코드 검색"
             className="h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] pl-9 pr-3 text-[14px] text-[var(--text-primary)]"
           />
         </form>

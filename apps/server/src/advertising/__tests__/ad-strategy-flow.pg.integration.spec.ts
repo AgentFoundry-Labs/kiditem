@@ -24,12 +24,12 @@ import {
   seedCompletedOrderCoverageRun,
 } from '../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: AdStrategyService;
   let adActionService: AdActionService;
-  let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedOrderWithLineItems(
     client: PrismaClient,
@@ -144,26 +144,16 @@ describe('AdStrategy flow (PG integration)', () => {
       },
     });
     const sellableStock = params.sellableStock ?? 100;
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${params.suffix}`,
-        name: `Master ${params.suffix}`,
-      },
+    const master = await seedSourceProduct(prisma, {
+      organizationId: params.organizationId,
+      code: `SP-${params.suffix}`,
+      name: `Master ${params.suffix}`,
+      currentStock: sellableStock,
+      purchasePrice: params.costPrice ?? 5000,
     });
     await seedPublishedProductAbcGrades(prisma, {
       organizationId: params.organizationId,
       grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
-    });
-    const inventorySku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `SP-${params.suffix}`,
-        name: `Sellpia ${params.suffix}`,
-        currentStock: sellableStock,
-        purchasePrice: params.costPrice ?? 5000,
-        lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
-      },
     });
     const listing = await prisma.channelListing.create({
       data: {
@@ -189,7 +179,7 @@ describe('AdStrategy flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         channelListingOptionId: listingOption.id,
-        sellpiaInventorySkuId: inventorySku.id,
+        masterProductId: master.id,
         quantity: 1,
       },
     });
@@ -299,7 +289,6 @@ describe('AdStrategy flow (PG integration)', () => {
     vi.setSystemTime(STRATEGY_NOW);
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    inventoryImportRunByOrganization = new Map();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
       const verifiedAt = new Date();
       const inventoryRun = await prisma.sourceImportRun.create({
@@ -317,7 +306,6 @@ describe('AdStrategy flow (PG integration)', () => {
           freshnessGeneration: 1n,
         },
       });
-      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
       await prisma.sellpiaInventoryState.create({
         data: {
           organizationId,
@@ -1207,14 +1195,12 @@ describe('AdStrategy flow (PG integration)', () => {
         abcGrade: 'A',
         suffix: 'C4-MULTI',
       });
-      const earlierSku = await prisma.sellpiaInventorySku.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          code: 'SP-C4-MULTI-EARLY',
-          name: 'Sellpia C4 MULTI EARLY',
-          currentStock: 100,
-          purchasePrice: 5000,
-        },
+      const earlierSku = await seedSourceProduct(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-C4-MULTI-EARLY',
+        name: 'Sellpia C4 MULTI EARLY',
+        currentStock: 100,
+        purchasePrice: 5000,
       });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
@@ -1231,7 +1217,7 @@ describe('AdStrategy flow (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: earlierListingOption.id,
-          sellpiaInventorySkuId: earlierSku.id,
+          masterProductId: earlierSku.id,
           quantity: 1,
         },
       });

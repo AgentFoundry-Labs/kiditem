@@ -8,9 +8,9 @@ import type {
   PurchaseOrderStatusUpdate,
 } from '../../../application/port/out/repository/procurement.repository.port';
 import {
-  SELLPIA_INVENTORY_SKU_READ_PORT,
-  type SellpiaInventorySkuReadPort,
-} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
 
 type PurchaseOrderSummarySource = {
   totalAmountCny: Prisma.Decimal | number | string;
@@ -21,8 +21,8 @@ type PurchaseOrderSummarySource = {
 export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
-    private readonly inventorySkus: SellpiaInventorySkuReadPort,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly productSources: ProductSourceReadPort,
   ) {}
 
   async list(organizationId: string, query: PurchaseOrderListQuery) {
@@ -130,20 +130,16 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         return { ok: false as const, reason: 'supplier_not_found' as const };
     }
 
-    const missingSellpiaInventorySkuIds =
-      await this.findMissingOwnedSellpiaInventorySkuIds(
-        organizationId,
-        command,
-      );
-    if (missingSellpiaInventorySkuIds.length > 0) {
+    const canonical = await this.resolveItems(organizationId, command);
+    if (canonical.missingMasterProductIds.length > 0) {
       return {
         ok: false as const,
-        reason: 'sellpia_inventory_sku_not_found' as const,
-        missingSellpiaInventorySkuIds,
+        reason: 'master_product_not_found' as const,
+        missingMasterProductIds: canonical.missingMasterProductIds,
       };
     }
 
-    const totalAmountCny = command.items.reduce(
+    const totalAmountCny = canonical.items.reduce(
       (sum, item) => sum + item.quantity * item.unitPriceCny,
       0,
     );
@@ -176,10 +172,11 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
             : {}),
           ...(command.requestHash ? { requestHash: command.requestHash } : {}),
           items: {
-            create: command.items.map((item) => ({
+            create: canonical.items.map((item) => ({
               productName: item.productName,
               organization: { connect: { id: organizationId } },
-              sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+              legacySellpiaInventorySkuId: null,
+              masterProductId: item.masterProductId,
               quantity: item.quantity,
               unitPriceCny: item.unitPriceCny,
             })),
@@ -220,7 +217,8 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           select: {
             productName: true,
-            sellpiaInventorySkuId: true,
+            legacySellpiaInventorySkuId: true,
+            masterProductId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -236,7 +234,8 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       totalAmountCny: decimalString(order.totalAmountCny),
       items: order.items.map((item) => ({
         productName: item.productName,
-        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+        legacySellpiaInventorySkuId: item.legacySellpiaInventorySkuId,
+        masterProductId: item.masterProductId,
         quantity: item.quantity,
         unitPriceCny: decimalString(item.unitPriceCny),
       })),
@@ -261,22 +260,44 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     });
   }
 
-  private async findMissingOwnedSellpiaInventorySkuIds(
+  private async resolveItems(
     organizationId: string,
     command: PurchaseOrderCreateCommand,
-  ) {
-    const sellpiaInventorySkuIds = Array.from(
-      new Set(command.items.map((item) => item.sellpiaInventorySkuId)),
+  ): Promise<{
+    items: Array<PurchaseOrderCreateCommand['items'][number] & {
+      masterProductId: string;
+    }>;
+    missingMasterProductIds: string[];
+  }> {
+    const requestedIds = Array.from(new Set(command.items.map((item) => item.masterProductId)));
+    const owned = await this.productSources.findByIds(organizationId, requestedIds);
+    const byMasterProductId = new Map(
+      owned.flatMap((source) => source.masterProductId
+        ? [[source.masterProductId, source] as const]
+        : []),
     );
-
-    const owned = await this.inventorySkus.findByIds(
-      organizationId,
-      sellpiaInventorySkuIds,
-    );
-    const ownedSet = new Set(
-      owned.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
-    );
-    return sellpiaInventorySkuIds.filter((id) => !ownedSet.has(id));
+    const missingMasterProductIds: string[] = [];
+    const items = command.items.flatMap((item) => {
+      const requestedId = item.masterProductId;
+      const source = requestedId
+        ? byMasterProductId.get(requestedId)
+        : undefined;
+      // An explicit id is still untrusted input. Resolve it through the
+      // organization-scoped Products reader before persisting the line.
+      const masterProductId = source?.masterProductId ?? null;
+      if (!masterProductId) {
+        if (requestedId) missingMasterProductIds.push(requestedId);
+        return [];
+      }
+      return [{
+        ...item,
+        masterProductId,
+      }];
+    });
+    return {
+      items,
+      missingMasterProductIds: [...new Set(missingMasterProductIds)],
+    };
   }
 }
 

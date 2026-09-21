@@ -39,9 +39,9 @@ reads KC input from the linked sourcing candidate's `rawData.manualBasics`.
 - Prisma `ChannelListing` and `ChannelListingOption` are the channel product
   and sellable-option identities. A listing's `masterProductId` is only a
   derived summary when every option resolves to one canonical product.
-- Products owns each option's complete
-  `ChannelListingOptionInventoryComponent` recipe. Inventory owns physical
-  `SellpiaInventorySku.currentStock`. Channels owns neither recipes nor stock.
+- Channels owns each option's complete `ChannelListingOptionInventoryComponent`
+  recipe, keyed by MasterProduct UUID and positive quantity. Products owns
+  physical `MasterProduct.currentStock`; Channels never mutates it (ADR-0017).
 - Registration provenance in `sourceCandidateId` is immutable.
 
 The model authority is
@@ -91,10 +91,11 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
-- Inventory evidence and registration use their named ports. Auto-matching,
-  registration, manual replacement, and clearing call the Products recipe
-  mutation port; Channels never mutates component rows or their listing summary.
-  Consumers import the published capability, never the concrete service.
+- Auto-matching, registration, manual replacement and clearing call the
+  Channel recipe input port. Its transaction validates organization-scoped
+  Products identities, replaces the full composition atomically and rebuilds
+  the listing summary. Empty replacement clears it. Consumers import the
+  published capability, never the concrete service.
 - Catalog imports use a fenced `SourceImportRun` attempt and publish only a
   complete source snapshot; stale or post-terminal submissions are rejected.
 - One catalog import runs per account: a browser import from its basics root

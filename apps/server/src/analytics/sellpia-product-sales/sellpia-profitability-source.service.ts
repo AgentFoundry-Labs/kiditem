@@ -22,9 +22,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { businessDateKey } from '../../common/kst';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../common/operator-cancel';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 import {
   ALERT_DEDUPE_KEY,
   ATTEMPT_TTL_MS,
@@ -83,8 +83,8 @@ export class SellpiaProfitabilitySourceService
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async beginAttempt(
@@ -188,13 +188,19 @@ export class SellpiaProfitabilitySourceService
       assertCoveredMonths(plan, normalized.coveredMonths);
       await assertMappingGeneration(tx, attempt);
 
-      const identities = await this.inventoryTransactionalRead.readSkuIdentities(
+      const identities = await this.inventoryTransactionalRead.readSourceIdentities(
         { client: tx },
         { organizationId, selector: { kind: 'all' } },
       );
       const candidates: InventoryCandidate[] = identities.map((identity) => ({
-        id: identity.sellpiaInventorySkuId,
+        // Source rows now resolve directly to the canonical MasterProduct.
+        // Keep the legacy-shaped candidate contract for the historical
+        // profitability payload, but never create a second source identity.
+        id: identity.masterProductId,
         code: identity.code,
+        sourceAccountKey: identity.sourceAccountKey,
+        sourceProductCode: identity.sourceProductCode,
+        sourceOptionCode: identity.sourceOptionCode,
         barcode: identity.barcode,
         masterProductId: identity.masterProductId,
       }));
@@ -540,17 +546,18 @@ export class SellpiaProfitabilitySourceService
           capturedAt: row.capturedAt.toISOString(),
         };
         if (requestedYearMonths && !requestedYearMonths.has(row.yearMonth)) continue;
-        if (row.masterProductId === null || row.sellpiaInventorySkuId === null) {
+        const historicalSkuId = row.legacySellpiaInventorySkuId ?? row.masterProductId!;
+        if (row.masterProductId === null) {
           unmappedFacts.push({
             ...base,
-            sellpiaInventorySkuId: row.sellpiaInventorySkuId,
+            sellpiaInventorySkuId: row.legacySellpiaInventorySkuId,
             masterProductId: row.masterProductId,
             reason: 'SOURCE_UNMAPPED',
           });
         } else if (!requestedMasterProductIds || requestedMasterProductIds.has(row.masterProductId)) {
           facts.push({
             ...base,
-            sellpiaInventorySkuId: row.sellpiaInventorySkuId,
+            sellpiaInventorySkuId: historicalSkuId,
             masterProductId: row.masterProductId,
           });
         }

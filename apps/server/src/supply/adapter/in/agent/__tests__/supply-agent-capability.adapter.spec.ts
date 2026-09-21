@@ -15,15 +15,15 @@ describe('SupplyAgentCapabilityAdapter', () => {
     await expect(adapter.createPurchaseOrderDraft({
       organizationId: ORG_ID, idempotencyKey: 'request:supply.create_purchase_order_draft',
       inputHash: canonicalOwnerInputHash({
-        sellpiaInventorySkuId: SKU_ID,
+        masterProductId: SKU_ID,
         productName: 'Test product',
         supplierName: 'Test supplier',
         unitPriceCny: 10,
         moq: 1,
       }),
-      sellpiaInventorySkuId: SKU_ID, productName: 'Test product', supplierName: 'Test supplier', unitPriceCny: 10, moq: 1,
+      masterProductId: SKU_ID, productName: 'Test product', supplierName: 'Test supplier', unitPriceCny: 10, moq: 1,
     })).resolves.toEqual({ orderId: PURCHASE_ORDER_ID, status: 'draft' });
-    expect(drafts.createFromRecommendation).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID, idempotencyKey: 'request:supply.create_purchase_order_draft', requestHash: canonicalOwnerInputHash({ sellpiaInventorySkuId: SKU_ID, productName: 'Test product', supplierName: 'Test supplier', unitPriceCny: 10, moq: 1 }) }));
+    expect(drafts.createFromRecommendation).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID, idempotencyKey: 'request:supply.create_purchase_order_draft', requestHash: canonicalOwnerInputHash({ masterProductId: SKU_ID, productName: 'Test product', supplierName: 'Test supplier', unitPriceCny: 10, moq: 1 }) }));
   });
 
   it('requires a current actor to submit a purchase order', async () => {
@@ -33,15 +33,15 @@ describe('SupplyAgentCapabilityAdapter', () => {
       purchaseOrderId: PURCHASE_ORDER_ID,
       inventoryAttemptId: INVENTORY_ATTEMPT_ID,
     });
-    const input = {
+    const inputWithoutActor = {
       organizationId: ORG_ID,
       idempotencyKey: 'request:supply.submit_purchase_order',
       inputHash,
       purchaseOrderId: PURCHASE_ORDER_ID,
       inventoryAttemptId: INVENTORY_ATTEMPT_ID,
     };
-    await expect(adapter.submitPurchaseOrder(input)).rejects.toThrow('authenticated actor');
-    await adapter.submitPurchaseOrder({ ...input, userId: USER_ID });
+    await expect(adapter.submitPurchaseOrder(inputWithoutActor as never)).rejects.toThrow('authenticated actor');
+    await adapter.submitPurchaseOrder({ ...inputWithoutActor, userId: USER_ID });
     expect(submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID, userId: USER_ID, requestHash: inputHash }));
   });
 });

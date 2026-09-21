@@ -1,5 +1,5 @@
-import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
@@ -17,7 +17,7 @@ import {
   setupMaster,
   setupProductOption,
 } from '../../../test-helpers/finance-seeds';
-import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -44,24 +44,14 @@ async function setupListing(
   organizationId: string,
   suffix: string,
 ) {
-  const master = await prisma.masterProduct.create({
-    data: {
-      organizationId,
-      code: `M-${suffix}`,
-      name: `Master ${suffix}`,
-      category: '유아용품',
-    },
+  const master = await seedSourceProduct(prisma, {
+    organizationId,
+    code: `SP-${suffix}`,
+    name: `Master ${suffix}`,
+    purchasePrice: 1000,
+    currentStock: 100,
   });
-  const inventorySku = await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId,
-      code: `SP-${suffix}`,
-      name: `Sellpia ${suffix}`,
-      purchasePrice: 1000,
-      currentStock: 100,
-    },
-  });
-  const option = inventorySku;
+  const option = master;
   const channelAccount = await prisma.channelAccount.upsert({
     where: {
       organizationId_channel_externalAccountId: {
@@ -103,7 +93,7 @@ async function setupListing(
     data: {
       organizationId,
       channelListingOptionId: listingOption.id,
-      sellpiaInventorySkuId: inventorySku.id,
+      masterProductId: master.id,
       quantity: 1,
     },
   });
@@ -280,7 +270,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
     const m = await Test.createTestingModule({
       providers: [
-        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         ProfitLossService,
         { provide: PrismaService, useValue: prisma },
       ],
@@ -569,11 +559,11 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: pricedOption.id,
-        sellpiaInventorySkuId: known.option.id,
+        masterProductId: known.option.id,
         quantity: 1,
       },
     });
-    await prisma.sellpiaInventorySku.update({
+    await prisma.masterProduct.update({
       where: { id: unknown.option.id },
       data: { purchasePrice: null },
     });
@@ -1004,7 +994,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         organizationId: TEST_ORGANIZATION_ID, code: 'M-UNMAPPED-UNPRICED', name: 'Master UNMAPPED-UNPRICED',
       });
       const skuId = randomUUID();
-      await seedActiveSellpiaInventorySku(prisma, {
+      await seedSourceProduct(prisma, {
         id: skuId,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SKU-UNMAPPED-UNPRICED',

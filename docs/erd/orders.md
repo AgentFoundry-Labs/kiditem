@@ -230,7 +230,7 @@ erDiagram
 | OrderCollectionArtifact | sourceImportRun | references external | Core | SourceImportRun |
 | OrderLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderLineItem | organization | references external | Core | Organization |
-| Review | listing | references external | Core | ChannelListing |
+| Review | listing | references external | Channels | ChannelListing |
 | Review | organization | references external | Core | Organization |
 | Review | sourceImportRun | references external | Core | SourceImportRun |
 | ReviewCollectionChunk | organization | references external | Core | Organization |

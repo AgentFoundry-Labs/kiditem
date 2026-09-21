@@ -18,7 +18,10 @@ inventory; it does not reserve or independently adjust quantities.
 5. Observe the attempt until completion. Successful publication and terminal
    state commit atomically. The inventory list then reads all current DB rows.
 
-Existing product codes retain their SKU IDs and links. New codes get new IDs.
+Products publishes directly to `MasterProduct`. Existing source identities retain
+their UUIDs, KID codes and images; a new source identity receives a new UUID and
+KID code from the shared sequence. Channel options reference those UUIDs through
+Channels-owned recipes.
 Codes absent from a successful full collection retain their rows with quantity
 zero. A validated empty full collection sets every existing quantity to zero.
 A login error, missing list shape, partial pagination or failed attempt is not

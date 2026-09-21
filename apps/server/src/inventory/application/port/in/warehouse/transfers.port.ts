@@ -3,7 +3,7 @@ import type { StockTransferRow } from '../../out/persistence/transfers.repositor
 export const TRANSFERS_PORT = Symbol('TransfersPort');
 
 export type CreateStockTransferInput = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   fromWarehouseId: string;
   toWarehouseId: string;
   quantity: number;

@@ -34,9 +34,9 @@ import {
   type OrderWindowFacts,
 } from '../../../../../orders/read/order-facts.reader';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../../products/application/port/in/product-transactional-read.port';
 import {
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
@@ -78,8 +78,8 @@ export class ProfitCalculationRepositoryAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async calculateForRange(
@@ -385,7 +385,7 @@ export class ProfitCalculationRepositoryAdapter
           id: true,
           inventoryComponents: {
             where: { organizationId },
-            select: { quantity: true, sellpiaInventorySkuId: true },
+            select: { quantity: true, masterProductId: true },
           },
         },
       });
@@ -397,21 +397,21 @@ export class ProfitCalculationRepositoryAdapter
         select: { id: true, channel: true },
       });
       const accountById = new Map(accounts.map((account) => [account.id, account]));
-      const inventorySkuIds = [...new Set(options.flatMap((option) =>
-        option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-      const identities = await this.inventoryTransactionalRead.readSkuIdentities({ client: tx }, {
+      const masterProductIds = [...new Set(options.flatMap((option) =>
+        option.inventoryComponents.map((component) => component.masterProductId)))];
+      const identities = await this.inventoryTransactionalRead.readSourceIdentities({ client: tx }, {
         organizationId,
-        selector: { kind: 'ids', values: inventorySkuIds },
+        selector: { kind: 'ids', values: masterProductIds },
       });
-      const purchasePriceBySkuId = new Map(identities.map((sku) => [
-        sku.sellpiaInventorySkuId,
-        sku.purchasePrice,
+      const purchasePriceByMasterProductId = new Map(identities.map((product) => [
+        product.masterProductId,
+        product.purchasePrice,
       ]));
       const recipeByOptionId = new Map(options.map((option) => [
         option.id,
         option.inventoryComponents.map((component) => ({
           quantity: component.quantity,
-          purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+          purchasePrice: purchasePriceByMasterProductId.get(component.masterProductId) ?? null,
         })),
       ]));
       const orders = facts.orders.map((order): CostOrder => ({

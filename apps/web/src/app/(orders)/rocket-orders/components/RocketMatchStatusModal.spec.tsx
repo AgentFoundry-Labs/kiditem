@@ -57,7 +57,7 @@ function row(
     reason,
     channelListingOptionId: channelSkuId,
     components: reason === 'insufficient_capacity' ? [{
-      sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
+      masterProductId: '99999999-9999-4999-8999-999999999999',
       quantity: 1,
       currentStock: 2,
       isActive: true,

@@ -59,7 +59,7 @@ function option({ configured = true, capacity = 8 }: { configured?: boolean; cap
       updatedAt: '2026-08-03T00:00:00.000Z',
       inventoryComponents: configured ? [{
         id: '55555555-5555-4555-8555-555555555555',
-        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+        masterProductId: '66666666-6666-4666-8666-666666666666',
         code: 'SP-100',
         name: '동물 블록 낱개',
         optionName: null,

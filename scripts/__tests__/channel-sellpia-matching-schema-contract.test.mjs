@@ -51,10 +51,10 @@ describe('channel Sellpia final schema contract', () => {
 
   it('stores the inventory consumption recipe only on the channel listing option', () => {
     const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
-    for (const field of ['channelListingOptionId', 'sellpiaInventorySkuId', 'quantity']) {
+    for (const field of ['channelListingOptionId', 'masterProductId', 'quantity']) {
       assert.match(component, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
-    assert.match(component, /@@unique\(\[channelListingOptionId, sellpiaInventorySkuId\]\)/);
+    assert.match(component, /@@unique\(\[channelListingOptionId, masterProductId\]\)/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
     assert.doesNotMatch(channels, /channel_sku_components/);
     assert.doesNotMatch(core, /model ProductVariant\b/);

@@ -1,4 +1,4 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -11,6 +11,7 @@ import {
   TEST_USER_ID,
   OTHER_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
 
 const ORDER_ID = '20000000-0000-4000-8000-000000000001';
@@ -28,7 +29,8 @@ describe('purchase-order submission transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new PurchaseOrderSubmissionTransactionAdapter(
       prisma as unknown as PrismaService,
-     new InventoryTransactionalReadRepositoryAdapter());
+      new ProductTransactionalReadRepositoryAdapter(),
+    );
   });
 
   afterAll(async () => {
@@ -55,16 +57,12 @@ describe('purchase-order submission transaction (PG integration)', () => {
       },
     });
     inventoryAttemptId = inventoryRun.id;
-    await prisma.sellpiaInventorySku.create({
-      data: {
-        id: SELLPIA_SKU_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-SUBMIT-1',
-        name: 'Submission SKU',
-        currentStock: 10,
-        isActive: true,
-        lastImportRunId: inventoryRun.id,
-      },
+    await seedSourceProduct(prisma, {
+      id: SELLPIA_SKU_ID,
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'SP-SUBMIT-1',
+      name: 'Submission SKU',
+      currentStock: 10,
     });
     await prisma.purchaseOrder.create({
       data: {
@@ -79,7 +77,8 @@ describe('purchase-order submission transaction (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: ORDER_ID,
-        sellpiaInventorySkuId: SELLPIA_SKU_ID,
+        masterProductId: SELLPIA_SKU_ID,
+        legacySellpiaInventorySkuId: null,
         productName: 'Submission SKU',
         quantity: 1,
         unitPriceCny: 10,
@@ -284,7 +283,7 @@ function submissionInput(
   return {
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
-    sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+    masterProductIds: [SELLPIA_SKU_ID],
     inventoryAttemptId,
     inventoryFence: FENCE,
     inventoryGeneration: '4',

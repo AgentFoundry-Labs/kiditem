@@ -55,7 +55,7 @@ describe('useProductHubPageState', () => {
     expect(result.current.inventoryFocus).toBe('imminent');
     expect(result.current.activeStatus).toBe('inactive');
     expect(result.current.periodDays).toBe(7);
-    expect(result.current.category).toBe('완구');
+    expect(result.current).not.toHaveProperty('category');
     expect(result.current.abcGrade).toBe('A');
     expect(result.current.dataStatusOpen).toBe(true);
     expect(result.current.adStatus).toBe('active');
@@ -161,7 +161,6 @@ describe('useProductHubPageState', () => {
         inventoryFocus: 'attention',
         adStatus: 'unconfigured',
         query: '우산',
-        category: '완구',
         abcGrade: 'B',
       },
     ]);

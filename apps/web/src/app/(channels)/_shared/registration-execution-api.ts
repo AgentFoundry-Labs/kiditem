@@ -17,7 +17,7 @@ const base = (candidateId: string) =>
 
 /** 셀피아 재고 SKU 한 줄. 울타리가 동결하는 vendorItemCode 의 출처다. */
 export interface SellpiaInventoryRef {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -54,7 +54,7 @@ export interface PrepareRegistrationExecutionBody {
   displayName: string;
   registrationInput: Record<string, unknown>;
   idempotencyKey: string;
-  sellpiaInventorySkuId?: string;
+  masterProductId?: string;
   sellpiaQuantity?: number;
 }
 

@@ -15,6 +15,8 @@ import path from 'node:path';
 //   - The legacy `adapters/coupang/` folder remains a compatibility shim only.
 //   - Cross-owner channel-option capacity policy comes from its focused shared
 //     contract, never Products internals.
+//   - Channels owns the focused recipe mutation implementation while Product
+//     identity validation comes through the public Products collection ports.
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const CHANNELS_ROOT = path.resolve(__dirname, '..');
@@ -41,6 +43,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const allowedPrefixes = [
       path.join(channels, 'adapter/out/repository') + path.sep,
+      path.join(channels, 'adapter/out/persistence') + path.sep,
       path.join(channels, 'adapter/in/agent') + path.sep,
     ];
     const hits = rg(
@@ -119,26 +122,17 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('reaches Inventory only through the declared recipe and transaction read seams', () => {
+  it('does not reach Inventory directly from Channels adapters', () => {
     const channels = channelsRel();
     const hits = rg(
       `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
     );
-    expect(hits.sort()).toEqual([
-      path.join(channels, 'adapter/out/inventory/sellpia-recipe-evidence.adapter.ts'),
-      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
-      path.join(channels, 'adapter/out/repository/channel-recipe-suggestion-context.repository.adapter.ts'),
-    ]);
+    expect(hits).toEqual([]);
 
     const transactionPortHits = rg(
       `--type ts --files-with-matches 'inventory/application/port/in/stock/inventory-transactional-read' ${channels} --glob '!**/__tests__/**'`,
     );
-    expect(transactionPortHits.sort()).toEqual([
-      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
-      // The mall listing matrix shows each master product's stock.
-      path.join(channels, 'adapter/out/repository/mall-publishing.repository.adapter.ts'),
-      path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
-    ]);
+    expect(transactionPortHits).toEqual([]);
 
     const concreteInventoryHits = rg(
       `--type ts --files-with-matches 'inventory/adapter/out/persistence/(read|transaction)' ${channels} --glob '!**/__tests__/**'`,
@@ -181,15 +175,17 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('delegates every component-row mutation to Products', () => {
+  it('keeps component-row mutations inside the focused Channels recipe adapter', () => {
     const channels = channelsRel();
     const hits = rg(
       `--type ts --files-with-matches 'channelListingOptionInventoryComponent\\.(create|createMany|update|updateMany|delete|deleteMany|upsert)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
-      `Channels must call the Products recipe mutation port:\n${hits.join('\n')}`,
-    ).toEqual([]);
+      `unexpected recipe persistence outside the focused Channels adapter:\n${hits.join('\n')}`,
+    ).toEqual([
+      path.join(channels, 'adapter/out/persistence/channel-option-recipe.repository.adapter.ts'),
+    ]);
   });
 
   it('does not retain the retired Open API adapter folder', () => {

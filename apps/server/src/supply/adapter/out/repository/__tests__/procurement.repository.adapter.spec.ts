@@ -19,17 +19,17 @@ function makePrisma() {
   };
 }
 
-function makeInventorySkus() {
+function makeProductSources() {
   return { findByIds: vi.fn().mockResolvedValue([]) };
 }
 
 function makeAdapter(
   prisma: ReturnType<typeof makePrisma>,
-  inventorySkus = makeInventorySkus(),
+  productSources = makeProductSources(),
 ) {
   return new ProcurementRepositoryAdapter(
     prisma as never,
-    inventorySkus as never,
+    productSources as never,
   );
 }
 
@@ -144,18 +144,17 @@ describe('ProcurementRepositoryAdapter', () => {
     ]);
   });
 
-  it.each([true, false])('validates ownership regardless of legacy active flag %s', async (isActive) => {
+  it('validates MasterProduct ownership before creating a draft', async () => {
     const prisma = makePrisma();
     prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
-    const inventorySkus = makeInventorySkus();
-    inventorySkus.findByIds.mockResolvedValue([
+    const productSources = makeProductSources();
+    productSources.findByIds.mockResolvedValue([
       {
-        sellpiaInventorySkuId: 'sellpia-sku-1',
-        isActive,
+        masterProductId: 'sellpia-sku-1',
       },
     ]);
     prisma.purchaseOrder.create.mockResolvedValue({ id: 'po-1' });
-    const adapter = makeAdapter(prisma, inventorySkus);
+    const adapter = makeAdapter(prisma, productSources);
 
     await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
@@ -163,7 +162,7 @@ describe('ProcurementRepositoryAdapter', () => {
       items: [
         {
           productName: 'Widget',
-          sellpiaInventorySkuId: 'sellpia-sku-1',
+          masterProductId: 'sellpia-sku-1',
           quantity: 2,
           unitPriceCny: 3,
         },
@@ -174,7 +173,7 @@ describe('ProcurementRepositoryAdapter', () => {
       where: { id: 'supplier-1', organizationId: 'organization-1' },
       select: { id: true },
     });
-    expect(inventorySkus.findByIds).toHaveBeenCalledWith('organization-1', [
+    expect(productSources.findByIds).toHaveBeenCalledWith('organization-1', [
       'sellpia-sku-1',
     ]);
     expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
@@ -197,29 +196,28 @@ describe('ProcurementRepositoryAdapter', () => {
     );
   });
 
-  it('returns missing Sellpia SKU ids instead of creating when ownership check fails', async () => {
+  it('returns missing MasterProduct ids instead of creating when ownership check fails', async () => {
     const prisma = makePrisma();
-    const inventorySkus = makeInventorySkus();
-    inventorySkus.findByIds.mockResolvedValue([
+    const productSources = makeProductSources();
+    productSources.findByIds.mockResolvedValue([
       {
-        sellpiaInventorySkuId: 'sellpia-sku-1',
-        isActive: true,
+        masterProductId: 'sellpia-sku-1',
       },
     ]);
-    const adapter = makeAdapter(prisma, inventorySkus);
+    const adapter = makeAdapter(prisma, productSources);
 
     const result = await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
       items: [
         {
           productName: 'A',
-          sellpiaInventorySkuId: 'sellpia-sku-1',
+          masterProductId: 'sellpia-sku-1',
           quantity: 1,
           unitPriceCny: 1,
         },
         {
           productName: 'B',
-          sellpiaInventorySkuId: 'sellpia-sku-2',
+          masterProductId: 'sellpia-sku-2',
           quantity: 1,
           unitPriceCny: 1,
         },
@@ -228,8 +226,8 @@ describe('ProcurementRepositoryAdapter', () => {
 
     expect(result).toEqual({
       ok: false,
-      reason: 'sellpia_inventory_sku_not_found',
-      missingSellpiaInventorySkuIds: ['sellpia-sku-2'],
+      reason: 'master_product_not_found',
+      missingMasterProductIds: ['sellpia-sku-2'],
     });
     expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
   });
@@ -273,7 +271,8 @@ describe('ProcurementRepositoryAdapter', () => {
       items: [
         {
           productName: 'Silicone plate',
-          sellpiaInventorySkuId: 'sellpia-sku-1',
+          legacySellpiaInventorySkuId: null,
+          masterProductId: 'sellpia-sku-1',
           quantity: 2,
           unitPriceCny: '22.80',
         },
@@ -296,7 +295,8 @@ describe('ProcurementRepositoryAdapter', () => {
         items: {
           select: {
             productName: true,
-            sellpiaInventorySkuId: true,
+            legacySellpiaInventorySkuId: true,
+            masterProductId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -311,7 +311,8 @@ describe('ProcurementRepositoryAdapter', () => {
       items: [
         {
           productName: 'Silicone plate',
-          sellpiaInventorySkuId: 'sellpia-sku-1',
+          legacySellpiaInventorySkuId: null,
+          masterProductId: 'sellpia-sku-1',
           quantity: 2,
           unitPriceCny: '22.80',
         },

@@ -1,4 +1,5 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -15,24 +16,24 @@ import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-produ
 import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/repository/master-product-contribution.repository.adapter';
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/usecase/inventory-availability.service';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
+import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductSourceReadUseCase } from '../application/usecase/product-source-read.usecase';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
-import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
-import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
-import { MasterProductAbcService } from '../application/service/master-product-abc.service';
-import { ProductAbcReadService } from '../application/service/product-abc-read.service';
-import { ProductChannelOptionRecipeMutationService } from '../application/service/product-channel-option-recipe-mutation.service';
-import { ProductOperationsService } from '../application/service/product-operations.service';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
+import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
+import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
+import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
+import { ChannelOptionRecipeUseCase } from '../../channels/application/usecase/channel-option-recipe.usecase';
+import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -52,9 +53,9 @@ const AD_SOURCE_POLICY_HASH = '5c612a721e1a6a7177cec1f8155149f390f8fc6073c90efdd
  */
 describe('Products recipe to ABC public reads (PostgreSQL)', () => {
   let prisma: PrismaClient;
-  let products: ProductOperationsService;
-  let recipes: ProductChannelOptionRecipeMutationService;
-  let abc: MasterProductAbcService;
+  let products: ProductQueryUseCase;
+  let recipes: ChannelOptionRecipeUseCase;
+  let abc: RecalculateProductAbcUseCase;
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
   let profitability: MasterProductProfitabilityReadService;
@@ -68,22 +69,22 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     sellpia = new SellpiaProfitabilitySourceService(
       prismaService,
       alerts,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter());
+    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     profitability = new MasterProductProfitabilityReadService(
       sellpia,
       advertising,
       prismaService,
-     new InventoryTransactionalReadRepositoryAdapter());
-    const inventory = new InventoryAvailabilityService(
-      new InventoryAvailabilityRepositoryAdapter(prismaService),
+     new ProductTransactionalReadRepositoryAdapter());
+    const inventory = new ProductAvailabilityUseCase(
+      new ProductAvailabilityRepositoryAdapter(prismaService),
     );
     const abcRepository = new MasterProductAbcRepositoryAdapter(
       prismaService,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
-    const abcRead = new ProductAbcReadService(abcRepository, profitability);
+    const abcRead = new ProductAbcReadUseCase(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
       new CatalogDisplayMediaRepositoryAdapter(prismaService),
     );
@@ -92,20 +93,20 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       inventory,
       displayMedia,
       abcRead,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
-    recipes = new ProductChannelOptionRecipeMutationService(
-      new ProductChannelOptionRecipeMutationRepositoryAdapter(
+    recipes = new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeRepositoryAdapter(
         prismaService,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       ),
     );
-    products = new ProductOperationsService(
+    products = new ProductQueryUseCase(
       new ProductOperationsRepositoryAdapter(
         prismaService,
-        new InventoryTransactionalReadRepositoryAdapter(),
-        new SellpiaInventorySkuReadService(
-          new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
+        new ProductTransactionalReadRepositoryAdapter(),
+        new ProductSourceReadUseCase(
+          new ProductSourceReadRepositoryAdapter(prismaService),
         ),
       ),
       inventory,
@@ -114,14 +115,13 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         profitability,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       ),
       new MasterProductContributionReadService(
-        new MasterProductContributionRepositoryAdapter(prismaService),
+        new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
       ),
-      recipes,
     );
-    abc = new MasterProductAbcService(abcRepository, profitability);
+    abc = new RecalculateProductAbcUseCase(abcRepository, profitability);
   });
 
   afterAll(async () => {
@@ -151,7 +151,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       mutations: [{
         channelListingOptionId: fixture.insufficient.optionId,
         expectedMasterProductId: fixture.insufficient.productId,
-        components: [{ sellpiaInventorySkuId: fixture.insufficient.skuId, quantity: 3 }],
+        components: [{ masterProductId: fixture.insufficient.skuId, quantity: 3 }],
       }],
     })).resolves.toEqual({
       changedOptionCount: 1,
@@ -167,18 +167,18 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     });
 
     const replacement = {
-      components: [{ sellpiaInventorySkuId: fixture.normal.skuId, quantity: 2 }],
+      components: [{ masterProductId: fixture.normal.skuId, quantity: 2 }],
     };
-    await expect(products.replaceChannelOptionInventory(
-      TEST_ORGANIZATION_ID,
-      fixture.normal.optionId,
-      replacement,
-    )).resolves.toEqual({ masterProductId: fixture.normal.productId });
-    await expect(products.replaceChannelOptionInventory(
-      TEST_ORGANIZATION_ID,
-      fixture.normal.optionId,
-      replacement,
-    )).resolves.toEqual({ masterProductId: fixture.normal.productId });
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: fixture.normal.optionId,
+      ...replacement,
+    })).resolves.toEqual({ masterProductId: fixture.normal.productId });
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: fixture.normal.optionId,
+      ...replacement,
+    })).resolves.toEqual({ masterProductId: fixture.normal.productId });
 
     const replacedDetail = await products.getProduct(
       TEST_ORGANIZATION_ID,
@@ -192,7 +192,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       channelListings: [{ options: [{
         id: fixture.normal.optionId,
         inventoryComponents: [{
-          sellpiaInventorySkuId: fixture.normal.skuId,
+          masterProductId: fixture.normal.skuId,
           quantity: 2,
           currentStock: 37,
         }],
@@ -369,7 +369,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       mutations: [{
         channelListingOptionId: fixture.insufficient.optionId,
         expectedMasterProductId: fixture.insufficient.productId,
-        components: [{ sellpiaInventorySkuId: fixture.insufficient.skuId, quantity: 3 }],
+        components: [{ masterProductId: fixture.insufficient.skuId, quantity: 3 }],
       }],
     });
     await completeProfitabilitySources(fixture, null, 'previous');
@@ -379,19 +379,19 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     // sources complete on generation 2.
     const repository = new MasterProductAbcRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
     const listTargets = repository.listCurrentAbcTargetIds.bind(repository);
     repository.listCurrentAbcTargetIds = async (organizationId) => {
       const targets = await listTargets(organizationId);
-      await products.replaceChannelOptionInventory(TEST_ORGANIZATION_ID, fixture.normal.optionId, {
-        components: [{ sellpiaInventorySkuId: fixture.normal.skuId, quantity: 2 }],
+      await recipes.replaceRecipe({ organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: fixture.normal.optionId,
+        components: [{ masterProductId: fixture.normal.skuId, quantity: 2 }],
       });
       await completeProfitabilitySources(fixture, null, 'current');
       return targets;
     };
 
-    await expect(new MasterProductAbcService(repository, profitability)
+    await expect(new RecalculateProductAbcUseCase(repository, profitability)
       .recalculate({ organizationId: TEST_ORGANIZATION_ID }))
       .rejects.toMatchObject({ status: 409, response: { code: 'INPUT_CHANGED' } });
 
@@ -616,25 +616,11 @@ async function seedProducts(prisma: PrismaClient): Promise<ProductsFixture> {
     skuCode: string,
     currentStock: number,
   ): Promise<ProductFixture> => {
-    const product = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code,
-        name,
-        imageUrls: [`https://fixtures.example.test/${code}.jpg`],
-      },
+    const product = await seedSourceProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: skuCode, name, currentStock,
+      imageUrls: [`https://fixtures.example.test/${code}.jpg`],
     });
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: product.id,
-        code: skuCode,
-        name,
-        currentStock,
-        isActive: true,
-        lastImportRunId: inventoryRun.id,
-      },
-    });
+    const sku = product;
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,

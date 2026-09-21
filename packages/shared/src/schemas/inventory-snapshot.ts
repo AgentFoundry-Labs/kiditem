@@ -56,7 +56,7 @@ export type InventorySkuLinkedChannelOption = z.infer<
 >;
 
 export const InventorySkuSnapshotItemSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),

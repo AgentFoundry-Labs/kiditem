@@ -115,3 +115,20 @@ export function candidateRegistrationState(
   if (latest.status === 'prepared') return 'preparing';
   return 'none';
 }
+
+/** Successful immutable registration recipes awaiting their real catalog option identities. */
+export async function readPreparedRegistrationRecipes(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; channelListingIds: readonly string[] },
+) {
+  if (input.channelListingIds.length === 0) return [];
+  return tx.productRegistrationExecution.findMany({
+    where: {
+      organizationId: input.organizationId,
+      channelListingId: { in: [...input.channelListingIds] },
+      status: 'succeeded', providerOutcome: 'succeeded', executionKind: 'external_wing',
+    },
+    select: { channelListingId: true, submissionPayloadJson: true, submissionPayloadHash: true, requestHash: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+}

@@ -831,7 +831,7 @@ export function RocketConfirmPanel({
                             <span className="text-slate-300">—</span>
                           ) : (
                             row.components.map((component) => (
-                              <div key={component.sellpiaInventorySkuId}>
+                              <div key={component.masterProductId}>
                                 <span className="text-sm font-semibold">
                                   {component.currentStock === null
                                     ? "미수집"
@@ -852,7 +852,7 @@ export function RocketConfirmPanel({
                             <span className="text-slate-300">—</span>
                           ) : (
                             row.components.map((component) => (
-                              <div key={component.sellpiaInventorySkuId}>
+                              <div key={component.masterProductId}>
                                 ×{formatNumber(component.quantity)}
                               </div>
                             ))

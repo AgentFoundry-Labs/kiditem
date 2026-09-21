@@ -1,44 +1,52 @@
+import { PRODUCT_SOURCE_BINDING_PORT } from './application/port/in/product-source-binding.port';
+import { CorrectProductSourceBindingUseCase } from './application/usecase/correct-product-source-binding.usecase';
+import { ProductSourceModule } from './product-source.module';
+import { PRODUCT_QUERY_PORT } from './application/port/in/product-query.port';
+import { PRODUCT_METADATA_PORT } from './application/port/in/product-metadata.port';
+import { UpdateProductMetadataUseCase } from './application/usecase/update-product-metadata.usecase';
 import { Module } from '@nestjs/common';
-import { InventoryModule } from '../inventory/inventory.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FinanceModule } from '../finance/finance.module';
 import { AiModule } from '../ai/ai.module';
-import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
-import { ProductAbcController } from './adapter/in/http/product-abc.controller';
-import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
-import { PRODUCT_OPERATIONS_REPOSITORY_PORT } from './application/port/out/repository/product-operations.repository.port';
-import { ProductOperationsService } from './application/service/product-operations.service';
-import { ProductRecipeComponentCandidateService } from './application/service/product-recipe-component-candidate.service';
+import { ProductOperationsController } from './adapter/in/web/product-operations.controller';
+import { ProductAbcController } from './adapter/in/web/product-abc.controller';
+import { ProductOperationsRepositoryAdapter } from './adapter/out/persistence/product-operations.repository.adapter';
+import { PRODUCT_OPERATIONS_REPOSITORY_PORT } from './application/port/out/persistence/product-operations.repository.port';
+import { ProductQueryUseCase } from './application/usecase/product-query.usecase';
 import { CategoriesModule } from './categories/categories.module';
-import { MasterProductAbcService } from './application/service/master-product-abc.service';
+import { RecalculateProductAbcUseCase } from './application/usecase/recalculate-product-abc.usecase';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from './application/port/in/master-product-abc-recalculation.port';
 import { ProductAbcReadModule } from './product-abc-read.module';
-import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
-import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/repository/product-operations-data-status.repository.adapter';
-import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
+import { ProductDataStatusUseCase } from './application/usecase/product-data-status.usecase';
+import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/persistence/product-operations-data-status.repository.adapter';
+import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/persistence/product-operations-data-status.repository.port';
 import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
 import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
-import { ProductRecipeMutationModule } from './product-recipe-mutation.module';
+import { ChannelOptionRecipeModule } from '../channels/channel-option-recipe.module';
 
 @Module({
   imports: [
     CategoriesModule,
-    InventoryModule,
+    ProductSourceModule,
     AnalyticsModule,
     FinanceModule,
     AiModule,
     ProductAbcReadModule,
-    ProductRecipeMutationModule,
+    ChannelOptionRecipeModule,
   ],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [
-    ProductOperationsService,
-    ProductOperationsDataStatusService,
+    CorrectProductSourceBindingUseCase,
+    { provide: PRODUCT_SOURCE_BINDING_PORT, useExisting: CorrectProductSourceBindingUseCase },
+    UpdateProductMetadataUseCase,
+    { provide: PRODUCT_QUERY_PORT, useExisting: ProductQueryUseCase },
+    { provide: PRODUCT_METADATA_PORT, useExisting: UpdateProductMetadataUseCase },
+    ProductQueryUseCase,
+    ProductDataStatusUseCase,
     ProductOperationsDataStatusRepositoryAdapter,
-    ProductRecipeComponentCandidateService,
-    MasterProductAbcService,
+    RecalculateProductAbcUseCase,
     ProductsListingGenerationCapabilityAdapter,
     ProductsCapabilityCompositionAdapter,
     ProductOperationsRepositoryAdapter,
@@ -52,13 +60,15 @@ import { ProductRecipeMutationModule } from './product-recipe-mutation.module';
     },
     {
       provide: MASTER_PRODUCT_ABC_RECALCULATION_PORT,
-      useExisting: MasterProductAbcService,
+      useExisting: RecalculateProductAbcUseCase,
     },
     { provide: PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT, useExisting: ProductsListingGenerationCapabilityAdapter },
     { provide: PRODUCTS_CAPABILITY_COMPOSITION_PORT, useExisting: ProductsCapabilityCompositionAdapter },
   ],
   exports: [
-    ProductOperationsService,
+    PRODUCT_SOURCE_BINDING_PORT,
+    PRODUCT_QUERY_PORT,
+    PRODUCT_METADATA_PORT,
     PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT,
     PRODUCTS_CAPABILITY_COMPOSITION_PORT,
   ],

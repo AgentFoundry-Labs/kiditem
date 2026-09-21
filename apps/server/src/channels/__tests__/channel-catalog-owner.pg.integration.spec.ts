@@ -11,7 +11,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
 import { ChannelCatalogCollectionController } from '../adapter/in/http/channel-catalog-collection.controller';
 import { ChannelCatalogSourceController } from '../adapter/in/http/channel-catalog-source.controller';
@@ -28,9 +28,10 @@ import { ChannelListingQueryService } from '../application/service/channel-listi
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 import { countPublishedCatalogListings } from '../read/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
@@ -58,6 +59,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   let listings: ChannelListingQueryService;
   let matching: ChannelProductMatchingRepositoryAdapter;
   let manualMatch: SellpiaManualMatchRepositoryAdapter;
+  let recipes: ChannelOptionRecipeUseCase;
   let expireAfterCatalogWrite = false;
   beforeAll(async () => {
     prisma = makeTestPrisma().$extends({
@@ -75,22 +77,26 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
     listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
+    const productTransactions = new ProductTransactionalReadRepositoryAdapter();
+    recipes = new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+    );
     matching = new ChannelProductMatchingRepositoryAdapter(
       prisma as never,
-      new InventoryTransactionalReadRepositoryAdapter(),
-      new SellpiaInventorySkuReadService(
-        new SellpiaInventorySkuReadRepositoryAdapter(prisma as never),
-      ),
+      productTransactions,
+      new ProductSourceReadRepositoryAdapter(prisma as never),
+      recipes,
     );
     manualMatch = new SellpiaManualMatchRepositoryAdapter(
       prisma as never,
       alerts,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
       new AiCatalogMediaPublicationRepositoryAdapter(),
       alerts,
+      recipes,
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
@@ -151,7 +157,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     });
   });
   const start = (
-    key = randomUUID(),
+    key: string = randomUUID(),
     collectorVersion = 'wing-inventory-v1',
     stage?: 'full' | 'basics' | 'details',
     expectedBasicAttemptId?: string,
@@ -377,7 +383,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       expectedPages: 1,
       firstPageFingerprint: 'b'.repeat(64),
     },
-    idempotencyKey = randomUUID(),
+    idempotencyKey: string = randomUUID(),
   ) {
     const permit: CoupangCatalogCollectionPermit = (
       await start(idempotencyKey, 'wing-inventory-v1', 'details').expect(201)
@@ -531,12 +537,17 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       })).resolves.toBe(2);
     });
 
-    await seedActiveSellpiaInventorySku(prisma, {
-      id: MANUAL_MATCH_SKU_ID,
-      organizationId: ORG,
-      code: MANUAL_MATCH_SKU_CODE,
-      name: 'Manual match SKU',
-      currentStock: 10,
+    await prisma.masterProduct.create({
+      data: {
+        id: MANUAL_MATCH_SKU_ID,
+        organizationId: ORG,
+        code: MANUAL_MATCH_SKU_CODE,
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: MANUAL_MATCH_SKU_CODE,
+        sourceOptionCode: '',
+        name: 'Manual match SKU',
+        currentStock: 10,
+      },
     });
     const attempt = await manualMatch.beginAttempt({
       organizationId: ORG,
@@ -564,10 +575,10 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     });
     await expect(prisma.sellpiaManualMatchAlias.findMany({
       where: { organizationId: ORG },
-      select: { aliasTitle: true, sellpiaInventorySkuId: true },
+      select: { aliasTitle: true, masterProductId: true },
     })).resolves.toEqual([{
       aliasTitle: 'Basic listing:Blue option',
-      sellpiaInventorySkuId: MANUAL_MATCH_SKU_ID,
+      masterProductId: MANUAL_MATCH_SKU_ID,
     }]);
   }
   it('keeps the completed basics snapshot consumable during a running partial details attempt', async () => {
@@ -829,22 +840,13 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       },
     });
 
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: ORG,
-        code: `SALE-AGE-${randomUUID()}`,
-        name: 'Sale age regression product',
-      },
-    });
-    const skuSeed = {
+    const master = await seedSourceProduct(prisma, {
       id: randomUUID(),
       organizationId: ORG,
-      masterProductId: master.id,
       code: `SALE-AGE-SKU-${randomUUID()}`,
-      name: master.name,
+      name: 'Sale age regression product',
       currentStock: 10,
-    };
-    await seedActiveSellpiaInventorySku(prisma, skuSeed);
+    });
     const option = await prisma.channelListingOption.findFirstOrThrow({
       where: { organizationId: ORG, externalOptionId: 'BASIC-P1-O' },
       select: { id: true },
@@ -853,7 +855,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       data: {
         organizationId: ORG,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: skuSeed.id,
+        masterProductId: master.id,
         quantity: 1,
       },
     });
@@ -863,7 +865,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       ORG,
       [master.id],
       '2026-09-01',
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
     expect(beforeRefresh).toEqual([{
       masterProductId: master.id,
@@ -893,7 +895,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       ORG,
       [master.id],
       '2026-09-01',
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     )).resolves.toEqual([{
       masterProductId: master.id,
       mappingValid: true,
@@ -1054,7 +1056,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
   });
   it('refuses a workbook import while the account browser import hands off to or runs its details stage, naming the root', async () => {
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
     const claim = () => importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,
@@ -1211,7 +1213,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     // One import runs per account: a browser import begins only once the file
     // import that claimed the account went stale, and that file import's later
     // publication still fences the browser snapshot out.
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
     const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,

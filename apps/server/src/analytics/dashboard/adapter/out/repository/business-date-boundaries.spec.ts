@@ -3,7 +3,7 @@ import type { PrismaService } from "../../../../../prisma/prisma.service";
 import { readOrderLineWindowFacts } from "../../../../../orders/read/order-facts.reader";
 import { ProfitCalculationRepositoryAdapter } from "./profit-calculation.repository.adapter";
 import { periodOf } from "../../../__tests__/test-helpers/period";
-import { InventoryTransactionalReadRepositoryAdapter } from "../../../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter";
+import { ProductTransactionalReadRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter";
 
 vi.mock(
   "../../../../../orders/read/order-facts.reader",
@@ -52,7 +52,7 @@ describe("dashboard business-date boundaries", () => {
 
     await new ProfitCalculationRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     ).calculateForRange(
       "organization-id",
       periodOf(JULY_START_KST, AUGUST_START_KST),

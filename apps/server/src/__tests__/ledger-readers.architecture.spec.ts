@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // ADR-0009: a ledger reader under `apps/server/src/**/read/` (including
-// Inventory's `adapter/out/persistence/read/` lane) is an exported
+// Products' `adapter/out/persistence/read/` lane) is an exported
 // pure function over the caller's transaction client. It imports no adapter,
 // application, service or HTTP-bound code, throws no HTTP exception, and takes
 // no lock: the calling service owns the transaction and its locks, and an
@@ -148,7 +148,7 @@ describe('ledger reader purity (ADR-0009)', () => {
       'advertising/read/ad-target-facts.ts',
       'analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts',
       'channels/read/rocket-po-catalog.reader.ts',
-      'inventory/adapter/out/persistence/read/inventory-availability.ts',
+      'products/adapter/out/persistence/read/product-source-availability.ts',
     ]));
     expect(files.filter((file) => file.includes('__tests__') || file.endsWith('.spec.ts')))
       .toEqual([]);

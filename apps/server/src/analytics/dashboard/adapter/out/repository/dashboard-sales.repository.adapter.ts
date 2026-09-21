@@ -5,11 +5,11 @@ import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
-import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
+import { readProductAbcPublication } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from "../../../../../inventory/application/port/in/stock/inventory-transactional-read.port";
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from "../../../../../products/application/port/in/product-transactional-read.port";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
@@ -44,8 +44,8 @@ interface TopProductRawRow {
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   /**
@@ -134,9 +134,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
               externalId: true,
               channelName: true,
               displayName: true,
-              masterProduct: {
-                select: { id: true, name: true },
-              },
+              masterProductId: true,
             },
           },
         },
@@ -149,6 +147,16 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountById = new Map(
       accounts.map((account) => [account.id, account]),
     );
+    const masterProductIds = [...new Set(options.flatMap((option) =>
+      option.listing.masterProductId ? [option.listing.masterProductId] : []))];
+    const masterProducts = await this.inventoryTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+    );
+    const masterProductById = new Map(masterProducts.map((product) => [
+      product.masterProductId,
+      product,
+    ]));
     const grouped = new Map<string, TopProductRawRow>();
     for (const line of lines) {
       const listing = line.listingOptionId
@@ -159,9 +167,11 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       const current = grouped.get(id) ?? {
         id,
         listingId: listing?.id ?? null,
-        masterProductId: listing?.masterProduct?.id ?? null,
+        masterProductId: listing?.masterProductId ?? null,
         name:
-          listing?.masterProduct?.name ??
+          (listing?.masterProductId
+            ? masterProductById.get(listing.masterProductId)?.name
+            : null) ??
           listing?.displayName ??
           listing?.channelName ??
           listing?.externalId ??

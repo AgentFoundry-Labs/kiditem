@@ -7,7 +7,7 @@ type DepletionSourceRow = Readonly<{
     | Readonly<{ status: 'not_collected' | 'mapping_required' }>
     | Readonly<{
       status: 'matched';
-      sellpiaInventorySkuId: string;
+      masterProductId: string;
       destinations: ReadonlyArray<{ masterProductId: string }>;
     }>;
 }>;
@@ -33,8 +33,8 @@ export function buildProductDepletionProjections(
     for (const masterProductId of destinationMasterIds) {
       if (!requestedIds.has(masterProductId)) continue;
       const bySku = byMasterProduct.get(masterProductId) ?? new Map();
-      const current = bySku.get(row.inventoryResolution.sellpiaInventorySkuId);
-      bySku.set(row.inventoryResolution.sellpiaInventorySkuId, {
+      const current = bySku.get(row.inventoryResolution.masterProductId);
+      bySku.set(row.inventoryResolution.masterProductId, {
         needsReorder: (current?.needsReorder ?? false) || row.needsReorder,
         minMonths: minNullable(
           current?.minMonths ?? null,

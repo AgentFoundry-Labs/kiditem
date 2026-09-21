@@ -1,16 +1,17 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
-import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
-import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
+import { ProductAbcReadUseCase } from '../../../products/application/usecase/product-abc-read.usecase';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
-import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../../inventory/application/usecase/inventory-availability.service';
+import { ProductAvailabilityRepositoryAdapter } from '../../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../../products/application/usecase/product-availability.usecase';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -34,24 +35,24 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const inventory = new InventoryAvailabilityService(
-      new InventoryAvailabilityRepositoryAdapter(prismaService),
+    const inventory = new ProductAvailabilityUseCase(
+      new ProductAvailabilityRepositoryAdapter(prismaService),
     );
     const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
-      new SellpiaProfitabilitySourceService(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter()),
-      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts, new InventoryTransactionalReadRepositoryAdapter()), prismaService,
-     new InventoryTransactionalReadRepositoryAdapter());
+      new SellpiaProfitabilitySourceService(prismaService, alerts, new ProductTransactionalReadRepositoryAdapter()),
+      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts), prismaService,
+      new ProductTransactionalReadRepositoryAdapter());
     service = new SellpiaProductSalesService(
       prismaService,
       new SellpiaProductInventoryReader(
         prismaService,
         inventory,
         { findDisplayMedia: async () => new Map() },
-        new ProductAbcReadService(
-          new MasterProductAbcRepositoryAdapter(prismaService, new InventoryTransactionalReadRepositoryAdapter()), evidence,
+        new ProductAbcReadUseCase(
+          new MasterProductAbcRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()), evidence,
         ),
-       new InventoryTransactionalReadRepositoryAdapter()),
+        new ProductTransactionalReadRepositoryAdapter()),
     );
     profitFactReader = new SellpiaMasterProductProfitFactReader(prismaService);
   });
@@ -65,7 +66,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     await seedBaseFixture(prisma);
     const owner = new SellpiaProfitabilitySourceService(
       prisma as never, new SourceFailureAlerts(prisma as never),
-     new InventoryTransactionalReadRepositoryAdapter());
+      new ProductTransactionalReadRepositoryAdapter());
     async function publishEmpty(organizationId: string) {
       const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');
       await owner.submitAttempt(organizationId, attempt.attemptId, {
@@ -132,61 +133,30 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   it('uses active organization-scoped inventory with code, option-code, then unique-barcode precedence', async () => {
     const verifiedAt = new Date('2026-07-17T02:03:04.000Z');
     await seedInventoryState(prisma, verifiedAt);
-    const ownRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        status: 'completed',
-        fileName: 'sellpia-option-products.xlsx',
-        fileHash: 'own-inventory-hash',
-        lastVerifiedAt: verifiedAt,
-      },
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'P-PRIMARY', optionCode: 'OPT-PRIMARY',
+      currentStock: 7, barcode: 'BAR-PRIMARY',
     });
-    const foreignRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        status: 'completed',
-        fileName: 'other-sellpia-option-products.xlsx',
-        fileHash: 'foreign-inventory-hash',
-        lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
-      },
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'MISSING-OPTION', optionCode: 'OPT-FALLBACK',
+      currentStock: 9, barcode: 'BAR-OPTION',
     });
-    await prisma.sellpiaInventoryState.update({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      data: { lastCompletedImportRunId: ownRun.id },
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'SKU-BARCODE',
+      currentStock: 11, barcode: 'BAR-ONLY',
     });
-    await prisma.sellpiaInventoryState.upsert({
-      where: { organizationId: OTHER_ORGANIZATION_ID },
-      create: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        requestedGeneration: 1n,
-        verifiedGeneration: 1n,
-        lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
-        lastCompletedImportRunId: foreignRun.id,
-      },
-      update: {
-        requestedGeneration: 1n,
-        verifiedGeneration: 1n,
-        lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
-        lastCompletedImportRunId: foreignRun.id,
-      },
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'INACTIVE-CODE',
+      currentStock: 13,
     });
-
-    await prisma.sellpiaInventorySku.createMany({
-      data: [
-        inventory('P-PRIMARY', 7, ownRun.id, { barcode: 'BAR-PRIMARY' }),
-        inventory('OPT-PRIMARY', 70, ownRun.id, { barcode: 'BAR-OPTION-PRIMARY' }),
-        inventory('OPT-FALLBACK', 9, ownRun.id, { barcode: 'BAR-OPTION' }),
-        inventory('SKU-BARCODE', 11, ownRun.id, { barcode: 'BAR-ONLY' }),
-        inventory('INACTIVE-CODE', 13, ownRun.id, { isActive: false }),
-        inventory('DUP-A', 21, ownRun.id, { barcode: 'BAR-DUP' }),
-        inventory('DUP-B', 22, ownRun.id, { barcode: 'BAR-DUP' }),
-        {
-          ...inventory('INACTIVE-CODE', 999, foreignRun.id),
-          organizationId: OTHER_ORGANIZATION_ID,
-        },
-      ],
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'DUP-A', currentStock: 21, barcode: 'BAR-DUP',
+    });
+    await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'DUP-B', currentStock: 22, barcode: 'BAR-DUP',
+    });
+    await seedInventoryProduct(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID, code: 'INACTIVE-CODE', currentStock: 999,
     });
 
     const yearMonth = previousKstYearMonth();
@@ -229,28 +199,10 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
 
   it('preserves depletion signals without promoting grade caches that have no published evaluation', async () => {
     await seedInventoryState(prisma, new Date('2026-07-17T03:00:00.000Z'));
-    const importRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        status: 'completed',
-        fileName: 'sellpia-option-products.xlsx',
-        fileHash: 'pr-329-metrics-inventory-hash',
-        lastVerifiedAt: new Date('2026-07-17T03:00:00.000Z'),
-      },
-    });
-    await prisma.sellpiaInventoryState.update({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      data: { lastCompletedImportRunId: importRun.id },
-    });
-    await prisma.sellpiaInventorySku.createMany({
-      data: [
-        inventory('REORDER', 200, importRun.id),
-        inventory('DEAD', 50, importRun.id),
-        inventory('SUMMER', 1_000, importRun.id),
-        inventory('ANOMALY', 10, importRun.id),
-      ],
-    });
+    await seedInventoryProduct(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'REORDER', currentStock: 200 });
+    await seedInventoryProduct(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'DEAD', currentStock: 50 });
+    await seedInventoryProduct(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'SUMMER', currentStock: 1_000 });
+    await seedInventoryProduct(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'ANOMALY', currentStock: 10 });
     const reorderDestination = await seedDestinationForSku(prisma, {
       skuCode: 'REORDER',
       masterCode: 'MASTER-REORDER',
@@ -299,12 +251,12 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       needsReorder: true,
     });
     expect(byCode.REORDER).not.toHaveProperty('abcGrade');
-    expect(byCode.REORDER.inventoryResolution.destinations).toEqual([
+    expect(byCode.REORDER.inventoryResolution).toEqual(expect.objectContaining({ destinations: [
       expect.objectContaining({
         masterProductId: reorderDestination.masterProductId,
         abc: expect.objectContaining({ abcGrade: null }),
       }),
-    ]);
+    ] }));
     expect(byCode.DEAD).toMatchObject({
       inventoryResolution: {
         status: 'matched',
@@ -322,12 +274,12 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       needsReorder: false,
     });
     expect(byCode.ANOMALY).not.toHaveProperty('abcGrade');
-    expect(byCode.ANOMALY.inventoryResolution.destinations).toEqual([
+    expect(byCode.ANOMALY.inventoryResolution).toEqual(expect.objectContaining({ destinations: [
       expect.objectContaining({
         masterProductId: anomalyDestination.masterProductId,
         abc: expect.objectContaining({ abcGrade: null }),
       }),
-    ]);
+    ] }));
     expect(byCode.ANOMALY.monthly.find((month) => month.yearMonth === completeMonths[0])).toEqual({
       yearMonth: completeMonths[0],
       orderQty: 60_000,
@@ -345,62 +297,41 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   });
 
   it('reads exact organization-scoped Sellpia profit facts once for a shared canonical inventory product', async () => {
-    const eligibleSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'METRIC-ELIGIBLE',
-        name: 'Metric eligible',
-        currentStock: 10,
-      },
+    const eligibleSku = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'METRIC-ELIGIBLE', currentStock: 10,
     });
-    const incompleteSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'METRIC-INCOMPLETE',
-        name: 'Metric incomplete',
-        currentStock: 10,
-      },
+    const incompleteSku = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'METRIC-INCOMPLETE', currentStock: 10,
     });
-    const sharedSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'METRIC-SHARED',
-        name: 'Metric shared',
-        currentStock: 10,
-      },
+    const sharedSku = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'METRIC-SHARED', currentStock: 10,
     });
     const eligible = await seedMasterRecipe(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      skuId: eligibleSku.id,
+      masterProductId: eligibleSku.id,
       code: 'METRIC-MASTER-ELIGIBLE',
     });
     const incomplete = await seedMasterRecipe(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      skuId: incompleteSku.id,
+      masterProductId: incompleteSku.id,
       code: 'METRIC-MASTER-INCOMPLETE',
     });
     const sharedOne = await seedMasterRecipe(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      skuId: sharedSku.id,
+      masterProductId: sharedSku.id,
       code: 'METRIC-MASTER-SHARED-ONE',
     });
     await seedAdditionalListingForMasterSku(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      skuId: sharedSku.id,
       masterProductId: sharedOne.masterProductId,
       code: 'METRIC-SHARED-SECOND-CHANNEL',
     });
-    const foreignSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        code: 'METRIC-ELIGIBLE',
-        name: 'Foreign metric eligible',
-        currentStock: 10,
-      },
+    const foreignSku = await seedInventoryProduct(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID, code: 'METRIC-ELIGIBLE', currentStock: 10,
     });
     const foreign = await seedMasterRecipe(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
-      skuId: foreignSku.id,
+      masterProductId: foreignSku.id,
       code: 'METRIC-MASTER-FOREIGN',
     });
     const completedMonth = previousKstYearMonth();
@@ -413,7 +344,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       data: [
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 12, 100),
-          sellpiaInventorySkuId: eligibleSku.id,
+          legacySellpiaInventorySkuId: null,
           masterProductId: eligible.masterProductId,
           capturedAt,
           coverageStartDate,
@@ -421,7 +352,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         },
         {
           ...metricSales('METRIC-SHARED', completedMonth, 30, 100),
-          sellpiaInventorySkuId: sharedSku.id,
+          legacySellpiaInventorySkuId: null,
           masterProductId: sharedOne.masterProductId,
           capturedAt,
           coverageStartDate,
@@ -431,7 +362,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 999, 100),
           organizationId: OTHER_ORGANIZATION_ID,
           sourceImportRunId: foreignProfitabilityRunId,
-          sellpiaInventorySkuId: foreignSku.id,
+          legacySellpiaInventorySkuId: null,
           masterProductId: foreign.masterProductId,
           productName: 'Foreign metric',
           capturedAt: new Date('2026-07-23T01:00:00.000Z'),
@@ -485,25 +416,22 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: null },
     { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: false },
   ])('withholds the entire product month when one row lacks cost provenance: %j', async (provenance) => {
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'MIXED-COST',
-        name: 'Mixed cost evidence',
-        currentStock: 10,
-      },
+    const sku = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MIXED-COST',
+      currentStock: 10,
     });
     const product = await seedMasterRecipe(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      skuId: sku.id,
+      masterProductId: sku.id,
       code: 'MIXED-COST-MASTER',
     });
     const yearMonth = previousKstYearMonth();
     const coverage = fullCalendarMonthCoverage(yearMonth);
     const fact = {
-      ...metricSales(sku.code, yearMonth, 2, 100),
+      ...metricSales('MIXED-COST', yearMonth, 2, 100),
       ...coverage,
-      sellpiaInventorySkuId: sku.id,
+      legacySellpiaInventorySkuId: null,
       masterProductId: product.masterProductId,
     };
     await prisma.sellpiaProductMonthlySales.createMany({
@@ -526,7 +454,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     })]);
     expect(snapshot.orphanFacts).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        productCode: sku.code,
+        productCode: 'MIXED-COST',
         optionCode: 'UNKNOWN',
         yearMonth,
         reason: 'COST_PROVENANCE_MISSING',
@@ -538,18 +466,14 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   });
 
   it('uses physical available stock for depletion', async () => {
-    const inventoryRunId = await seedInventoryState(
+    await seedInventoryState(
       prisma,
       new Date('2026-07-17T04:00:00.000Z'),
     );
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'COMMITTED',
-        name: 'Committed inventory',
-        currentStock: 100,
-        lastImportRunId: inventoryRunId,
-      },
+    const sku = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'COMMITTED',
+      currentStock: 100,
     });
     await prisma.sellpiaProductMonthlySales.createMany({
       data: previousKstYearMonths(2).map((yearMonth) => ({
@@ -599,23 +523,6 @@ async function seedInventoryState(prisma: PrismaClient, verifiedAt: Date) {
     },
   });
   return run.id;
-}
-
-function inventory(
-  code: string,
-  currentStock: number,
-  lastImportRunId: string,
-  overrides: { barcode?: string; isActive?: boolean } = {},
-) {
-  return {
-    organizationId: TEST_ORGANIZATION_ID,
-    code,
-    name: `Sellpia ${code}`,
-    barcode: overrides.barcode ?? null,
-    currentStock,
-    isActive: overrides.isActive ?? true,
-    lastImportRunId,
-  };
 }
 
 function sales(productCode: string, optionCode: string, barcode: string | null) {
@@ -677,34 +584,62 @@ async function seedDestinationForSku(
     masterCode: string;
   },
 ) {
-  const sku = await prisma.sellpiaInventorySku.findFirstOrThrow({
-    where: { organizationId: TEST_ORGANIZATION_ID, code: input.skuCode },
+  const sku = await prisma.masterProduct.findFirstOrThrow({
+    where: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceAccountKey: 'kiditem',
+      sourceProductCode: input.skuCode,
+    },
   });
   return seedMasterRecipe(prisma, {
     organizationId: TEST_ORGANIZATION_ID,
-    skuId: sku.id,
+    masterProductId: sku.id,
     code: input.masterCode,
   });
+}
+
+async function seedInventoryProduct(
+  prisma: PrismaClient,
+  input: {
+    organizationId: string;
+    code: string;
+    optionCode?: string;
+    currentStock: number;
+    barcode?: string | null;
+    purchasePrice?: number | null;
+  },
+) {
+  const product = await seedSourceProduct(prisma, {
+    organizationId: input.organizationId,
+    code: input.code,
+    name: `Sellpia ${input.code}`,
+    currentStock: input.currentStock,
+    barcode: input.barcode ?? null,
+    purchasePrice: input.purchasePrice ?? null,
+  });
+  if (input.optionCode !== undefined) {
+    return prisma.masterProduct.update({
+      where: { id: product.id },
+      data: {
+        sourceOptionCode: input.optionCode,
+        optionName: input.optionCode || null,
+      },
+    });
+  }
+  return product;
 }
 
 async function seedMasterRecipe(
   prisma: PrismaClient,
   input: {
     organizationId: string;
-    skuId: string;
+    masterProductId: string;
     code: string;
   },
 ) {
-  const master = await prisma.masterProduct.create({
-    data: {
-      organizationId: input.organizationId,
-      code: input.code,
-      name: input.code,
-    },
-  });
-  await prisma.sellpiaInventorySku.updateMany({
-    where: { id: input.skuId, organizationId: input.organizationId },
-    data: { masterProductId: master.id },
+  const master = await prisma.masterProduct.update({
+    where: { id: input.masterProductId },
+    data: { name: input.code },
   });
   const account = await prisma.channelAccount.upsert({
     where: {
@@ -743,7 +678,7 @@ async function seedMasterRecipe(
     data: {
       organizationId: input.organizationId,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: input.skuId,
+      masterProductId: input.masterProductId,
       quantity: 1,
     },
   });
@@ -754,7 +689,6 @@ async function seedAdditionalListingForMasterSku(
   prisma: PrismaClient,
   input: {
     organizationId: string;
-    skuId: string;
     masterProductId: string;
     code: string;
   },
@@ -787,7 +721,7 @@ async function seedAdditionalListingForMasterSku(
     data: {
       organizationId: input.organizationId,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: input.skuId,
+      masterProductId: input.masterProductId,
       quantity: 2,
     },
   });

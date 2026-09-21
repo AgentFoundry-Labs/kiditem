@@ -9,7 +9,7 @@ import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryOption,
-} from '../application/port/out/repository/product-operations.repository.port';
+} from '../application/port/out/persistence/product-operations.repository.port';
 
 type AvailabilityBySkuId = ReadonlyMap<string, InventorySkuAvailability>;
 
@@ -18,14 +18,14 @@ function hydrateOption(
   inventoryBySkuId: AvailabilityBySkuId,
 ) {
   const inventoryComponents = option.inventoryComponents.map((component) => {
-    const availability = inventoryBySkuId.get(component.sellpiaInventorySkuId);
+    const availability = inventoryBySkuId.get(component.masterProductId);
     return {
       ...component,
       currentStock: availability?.currentStock ?? null,
     };
   });
   const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+    masterProductId: component.masterProductId,
     currentStock: component.currentStock,
     quantity: component.quantity,
   })));

@@ -97,7 +97,6 @@
       "prismaModel": "sellpiaProductMonthlySales",
       "prismaType": "SellpiaProductMonthlySales",
       "relationNames": [
-        "frozenSellpiaProfitFacts",
         "sellpiaProductMonthlySales"
       ],
       "reader": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
@@ -189,19 +188,23 @@
       "legacyReaders": []
     },
     {
-      "name": "Sellpia inventory availability",
-      "table": "sellpia_inventory_skus",
-      "prismaModel": "sellpiaInventorySku",
-      "prismaType": "SellpiaInventorySku",
+      "name": "Products source inventory",
+      "table": "master_products",
+      "prismaModel": "masterProduct",
+      "prismaType": "MasterProduct",
       "relationNames": [
-        "inventorySkus",
-        "sellpiaInventorySkus"
+        "masterProduct",
+        "masterProducts"
       ],
-      "reader": "apps/server/src/inventory/adapter/out/persistence/read/inventory-availability.ts",
+      "reader": "apps/server/src/products/adapter/out/persistence/read/product-source-availability.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
-          "reason": "Stages, validates, and publishes Sellpia inventory rows inside Inventory’s terminal source-owner transaction."
+          "path": "apps/server/src/products/adapter/out/persistence/product-source-publication.repository.adapter.ts",
+          "reason": "Publishes source facts and completion atomically as the Products source owner."
+        },
+        {
+          "path": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts",
+          "reason": "Owns explicit operator image/source-identity corrections; never changes source stock."
         }
       ],
       "legacyReaders": []
@@ -587,10 +590,10 @@
         "abcEvaluation",
         "evaluations"
       ],
-      "reader": "apps/server/src/products/read/product-abc-publication.reader.ts",
+      "reader": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts",
+          "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
           "reason": "Publishes, carries forward, and reads Products-owned official ABC evaluation rows inside the explicit publication boundary."
         }
       ],
@@ -603,8 +606,7 @@
       "prismaType": "ChannelAdListingProductMonthlyFact",
       "relationNames": [
         "channelAdListingProductMonthlyFacts",
-        "adListingProductMonthlyFacts",
-        "frozenAdvertisingProfitFacts"
+        "adListingProductMonthlyFacts"
       ],
       "reader": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
       "ownerPublications": [

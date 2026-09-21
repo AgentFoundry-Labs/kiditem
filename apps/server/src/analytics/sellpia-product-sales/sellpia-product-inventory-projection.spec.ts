@@ -12,7 +12,14 @@ describe('Sellpia product inventory projection', () => {
       product('row-1', 'SKU-1', [30, 30]),
       product('row-2', 'SKU-1', [20, 20]),
     ];
-    const candidates = [{ id: SKU_ID, code: 'SKU-1', barcode: null }];
+    const candidates = [{
+      masterProductId: SKU_ID,
+      code: 'KID00000001',
+      sourceAccountKey: 'kiditem',
+      sourceProductCode: 'SKU-1',
+      sourceOptionCode: '',
+      barcode: null,
+    }];
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
 
     const result = projectSellpiaProductInventory({
@@ -21,16 +28,15 @@ describe('Sellpia product inventory projection', () => {
       availability: {
         snapshot: { collected: true, generation: '12', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{
-          sellpiaInventorySkuId: SKU_ID,
+          masterProductId: SKU_ID,
           currentStock: 100,
           generation: '12',
         }],
       },
       inventoryProducts: [inventoryProduct()],
       destinations: [{
-        sellpiaInventorySkuId: SKU_ID,
         unitsPerSale: 1,
-        masterProductId: '22222222-2222-4222-8222-222222222222',
+        masterProductId: SKU_ID,
         masterProductCode: 'MP-1',
         masterProductName: 'Product',
         channelListingOptionId: '33333333-3333-4333-8333-333333333333',
@@ -50,7 +56,7 @@ describe('Sellpia product inventory projection', () => {
       throw new Error('Expected a matched inventory resolution');
     }
     expect(rowOne.inventoryResolution.inventoryProduct).toEqual({
-      masterProductId: '22222222-2222-4222-8222-222222222222',
+      masterProductId: SKU_ID,
       masterProductCode: 'MP-1',
       masterProductName: 'Product',
     abc: missingAbc(),
@@ -60,7 +66,7 @@ describe('Sellpia product inventory projection', () => {
         status: 'matched',
         currentStock: 100,
         salesRowCount: 2,
-        inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222' },
+        inventoryProduct: { masterProductId: SKU_ID },
       },
       monthsOfAvailableStockLeft: 2,
       reorderPoint: 75,
@@ -106,7 +112,14 @@ describe('Sellpia product inventory projection', () => {
   it('keeps each matched destination attached to its own provider image', () => {
     const products = [product('row-1', 'SKU-1', [10, 10])];
     const resolved = resolveSellpiaProductInventoryRows(products, [
-      { id: SKU_ID, code: 'SKU-1', barcode: null },
+      {
+        masterProductId: SKU_ID,
+        code: 'KID00000001',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'SKU-1',
+        sourceOptionCode: '',
+        barcode: null,
+      },
     ]);
     const result = projectSellpiaProductInventory({
       products,
@@ -114,7 +127,7 @@ describe('Sellpia product inventory projection', () => {
       availability: {
         snapshot: { collected: true, generation: '12', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{
-          sellpiaInventorySkuId: SKU_ID,
+          masterProductId: SKU_ID,
           currentStock: 100,
           generation: '12',
         }],
@@ -149,8 +162,7 @@ function product(key: string, code: string, quantities: number[]) {
 
 function inventoryProduct() {
   return {
-    sellpiaInventorySkuId: SKU_ID,
-    masterProductId: '22222222-2222-4222-8222-222222222222',
+    masterProductId: SKU_ID,
     masterProductCode: 'MP-1',
     masterProductName: 'Product',
     abc: missingAbc(),
@@ -159,9 +171,8 @@ function inventoryProduct() {
 
 function destination(channelListingOptionId: string, url: string) {
   return {
-    sellpiaInventorySkuId: SKU_ID,
+    masterProductId: SKU_ID,
     unitsPerSale: 1,
-    masterProductId: '22222222-2222-4222-8222-222222222222',
     masterProductCode: 'MP-1',
     masterProductName: 'Product',
     channelListingOptionId,

@@ -20,7 +20,7 @@ describe('PurchaseOrderDraftService', () => {
       idempotencyKey: 'request-1:supply.create_purchase_order_draft:item-1',
       requestHash: 'a'.repeat(64),
       recommendation: {
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+        masterProductId: '00000000-0000-4000-8000-000000000001',
         productName: '실리콘 식판 흡착형 신제품',
         supplierName: '1688 Kids Tableware Factory',
         unitPriceCny: 22.8,

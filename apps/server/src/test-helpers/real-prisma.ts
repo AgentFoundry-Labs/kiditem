@@ -8,7 +8,7 @@
  * 주입하므로 테스트 파일에서는 별도 처리 불필요.
  *
  * Usage:
- *   import { makeTestPrisma, resetDb, seedBaseFixture } from '../test-helpers/real-prisma';
+ *   import { makeTestPrisma, resetDb, seedBaseFixture } from './real-prisma';
  *
  *   let prisma: PrismaClient;
  *   beforeAll(async () => {

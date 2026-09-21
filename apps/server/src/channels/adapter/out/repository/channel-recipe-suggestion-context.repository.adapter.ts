@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
-  SELLPIA_INVENTORY_SKU_READ_PORT,
-  type SellpiaInventorySkuReadPort,
-} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
 import type {
   ChannelRecipeSuggestionContext,
   ChannelRecipeSuggestionContextRepositoryPort,
@@ -14,8 +14,8 @@ export class ChannelRecipeSuggestionContextRepositoryAdapter
 implements ChannelRecipeSuggestionContextRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
-    private readonly inventorySkus: SellpiaInventorySkuReadPort,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly products: ProductSourceReadPort,
   ) {}
 
   async getContext(
@@ -44,20 +44,20 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
           select: {
             quantity: true,
             createdAt: true,
-            sellpiaInventorySkuId: true,
+            masterProductId: true,
           },
         },
       },
     });
     if (!selected) return null;
 
-    const inventorySkus = await this.inventorySkus.findByIds(
+    const products = await this.products.findByIds(
       organizationId,
-      selected.inventoryComponents.map((component) => component.sellpiaInventorySkuId),
+      selected.inventoryComponents.map((component) => component.masterProductId),
     );
-    const inventorySkuById = new Map(inventorySkus.map((sku) => [
-      sku.sellpiaInventorySkuId,
-      sku,
+    const productById = new Map(products.map((product) => [
+      product.masterProductId,
+      product,
     ]));
 
     const options = await this.prisma.channelListingOption.findMany({
@@ -79,10 +79,10 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         barcode: option.barcode,
       })),
       existingComponents: selected.inventoryComponents.flatMap((component) => {
-        const sku = inventorySkuById.get(component.sellpiaInventorySkuId);
-        return sku ? [{
-          sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
-          code: sku.code,
+        const product = productById.get(component.masterProductId);
+        return product ? [{
+          masterProductId: product.masterProductId,
+          code: product.code,
           quantity: component.quantity,
           source: 'manual' as const,
           confirmedBy: null,

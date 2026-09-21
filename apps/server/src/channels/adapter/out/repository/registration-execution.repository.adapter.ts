@@ -1,3 +1,5 @@
+import { allocateKidItemCode } from '../../../../common/kid-item-code';
+import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration-item-code';
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -168,7 +170,7 @@ export class RegistrationExecutionRepositoryAdapter
   async prepare(
     input: PrepareRegistrationExecutionInput,
   ): Promise<RegistrationExecutionResult> {
-    const frozen = freezeProductRegistrationPayload({
+    const requested = freezeProductRegistrationPayload({
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
       registrationInput: input.registrationInput,
@@ -180,7 +182,7 @@ export class RegistrationExecutionRepositoryAdapter
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         });
         if (replay) {
-          if (replay.requestHash !== frozen.hash) {
+          if (!matchesPreparedRequest(replay, requested.hash)) {
             throw new ConflictException('External registration idempotency key was reused with a different payload.');
           }
           if (replay.channelAccountId !== input.channelAccountId
@@ -198,7 +200,7 @@ export class RegistrationExecutionRepositoryAdapter
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         });
         if (lockedReplay) {
-          if (lockedReplay.requestHash !== frozen.hash
+          if (!matchesPreparedRequest(lockedReplay, requested.hash)
             || lockedReplay.channelAccountId !== input.channelAccountId
             || await this.executionCandidateId(handle, input.organizationId, lockedReplay) !== input.sourceCandidateId
             || lockedReplay.requestedByUserId !== input.requestedByUserId) {
@@ -227,23 +229,26 @@ export class RegistrationExecutionRepositoryAdapter
           sourceCandidateId: input.sourceCandidateId,
           isDeleted: false,
         });
-        const resumable = livePreparationIds.length === 0 ? null : await tx.productRegistrationExecution.findFirst({
+        const previousExecutions = livePreparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
           where: {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
             executionKind: 'external_wing',
-            requestHash: frozen.hash,
             requestedByUserId: input.requestedByUserId,
             status: {
               in: input.providerAbsenceVerified === true
-                ? ['prepared']
-                : ['prepared', 'executing', 'reconciling'],
+                ? ['prepared', 'failed']
+                : ['prepared', 'executing', 'reconciling', 'failed'],
             },
             productPreparationId: { in: livePreparationIds },
           },
           orderBy: { createdAt: 'desc' },
         });
+        const matching = previousExecutions.filter((execution) => matchesPreparedRequest(execution, requested.hash));
+        const resumable = matching.find((execution) => execution.status !== 'failed');
         if (resumable) return externalExecutionResult(resumable);
+        const retryCode = matching.find((execution) => execution.status === 'failed'
+          && execution.providerOutcome === 'definitive_failure');
 
         const draft = await this.drafts.findAccountDraft(handle, {
           organizationId: input.organizationId,
@@ -252,14 +257,30 @@ export class RegistrationExecutionRepositoryAdapter
           status: 'draft',
         });
         if (!draft) {
-          await this.supersedeAbandonedDraft(tx, input, expectedProviderAccountId, frozen.hash);
+          await this.supersedeAbandonedDraft(tx, input, expectedProviderAccountId, requested.hash);
         }
+        let registrationInput = input.registrationInput;
+        const match = registrationInput.sellpiaMatch as Record<string, unknown> | undefined;
+        if (match) {
+          if (typeof match.code !== 'string' || !/^KID[0-9]{8}$/.test(match.code)
+            || !Number.isSafeInteger(match.quantity) || Number(match.quantity) < 1) {
+            throw new ConflictException('Registration requires a valid source KID code and positive quantity');
+          }
+          const previousCode = retryCode ? preparedRegistrationRecipe(retryCode.submissionPayloadJson)?.kidItemCode : undefined;
+          const code = previousCode ?? (match.quantity === 1 ? match.code : await allocateKidItemCode(tx));
+          registrationInput = withRegistrationItemCode(registrationInput, code);
+        }
+        const frozen = freezeProductRegistrationPayload({
+          channelAccountId: input.channelAccountId,
+          displayName: input.displayName,
+          registrationInput,
+        } as RegistrationSubmissionJson);
         const frozenDraft = await this.drafts.freezeForSubmission(handle, {
           organizationId: input.organizationId,
           sourceCandidateId: input.sourceCandidateId,
           channelAccountId: input.channelAccountId,
           displayName: input.displayName,
-          registrationInput: input.registrationInput,
+          registrationInput,
           submissionKey: input.idempotencyKey,
           frozenPayload: frozen.payload,
           frozenHash: frozen.hash,
@@ -290,7 +311,7 @@ export class RegistrationExecutionRepositoryAdapter
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
       });
       if (!replay
-        || replay.requestHash !== frozen.hash
+        || !matchesPreparedRequest(replay, requested.hash)
         || replay.channelAccountId !== input.channelAccountId
         || await this.executionCandidateId(handle, input.organizationId, replay) !== input.sourceCandidateId
         || replay.requestedByUserId !== input.requestedByUserId) {
@@ -1328,6 +1349,16 @@ function canSupersedeFailedExternalExecution(input: {
     && execution.expectedProviderAccountId === input.expectedProviderAccountId;
 }
 
+function matchesPreparedRequest(execution: ProductRegistrationExecution, requestHash: string): boolean {
+  if (!execution.submissionPayloadJson) return execution.requestHash === requestHash;
+  const frozen = freezeProductRegistrationPayload(execution.submissionPayloadJson as RegistrationSubmissionJson);
+  if (frozen.hash !== execution.requestHash || frozen.hash !== execution.submissionPayloadHash) {
+    throw new ConflictException('Frozen registration execution payload hash does not match its JSON.');
+  }
+  const original = registrationRequestBeforeCodeAssignment(frozen.payload);
+  return freezeProductRegistrationPayload(original as RegistrationSubmissionJson).hash === requestHash;
+}
+
 function externalExecutionResult(
   execution: ProductRegistrationExecution,
 ): RegistrationExecutionResult {
@@ -1335,7 +1366,9 @@ function externalExecutionResult(
     || !['not_attempted', 'uncertain', 'succeeded'].includes(execution.providerOutcome)) {
     throw new ConflictException('External registration execution has an unsupported lifecycle state.');
   }
+  const recipe = preparedRegistrationRecipe(execution.submissionPayloadJson);
   return {
+    ...(recipe ? { kidItemCode: recipe.kidItemCode } : {}),
     executionId: execution.id,
     preparationId: execution.productPreparationId,
     requestHash: execution.requestHash,

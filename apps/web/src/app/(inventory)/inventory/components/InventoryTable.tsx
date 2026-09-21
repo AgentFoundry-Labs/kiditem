@@ -57,7 +57,7 @@ export function InventoryTable({
           <tbody>
             {items.map((item) => (
               <tr
-                key={item.sellpiaInventorySkuId}
+                key={item.masterProductId}
                 className={cn(item.currentStock === 0 && 'bg-red-50/60')}
               >
                 <td className="overflow-hidden align-top">

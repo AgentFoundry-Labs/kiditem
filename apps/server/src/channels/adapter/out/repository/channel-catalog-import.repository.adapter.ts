@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -29,6 +30,11 @@ import { allocatePublicationSequence } from '../../../../common/publication-sequ
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
+import {
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../../application/port/in/channel-option-recipe.port';
+import { applyRegisteredOptionRecipes } from '../persistence/registered-option-recipes';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
@@ -70,6 +76,8 @@ implements ChannelCatalogImportRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly recipes: ChannelOptionRecipePort,
   ) {}
 
   /**
@@ -392,6 +400,11 @@ implements ChannelCatalogImportRepositoryPort {
             updated_at = NOW()
         `;
       }
+
+      await applyRegisteredOptionRecipes(tx, this.recipes, {
+        organizationId: input.organizationId,
+        channelListingIds: [...productIdByExternalId.values()],
+      });
 
       let deactivatedSkuCount = 0;
       if (snapshotCoverage.canDeactivateUnseenSkus) {

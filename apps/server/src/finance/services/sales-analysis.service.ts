@@ -18,9 +18,9 @@ import {
 } from '../../common/per-listing-profit';
 import { advertisingAppliesToSale } from '../../advertising/domain/ad-sweep-coverage';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 
 /**
  * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.
@@ -78,8 +78,8 @@ export class SalesAnalysisService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async getAnalysis(

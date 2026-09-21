@@ -46,7 +46,7 @@ export const ChannelSkuAvailabilityWarningSchema = z.enum([
 ]);
 
 export const ChannelSkuAvailabilityComponentSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1).nullable(),
   name: z.string().min(1).nullable(),
   optionName: z.string().nullable(),

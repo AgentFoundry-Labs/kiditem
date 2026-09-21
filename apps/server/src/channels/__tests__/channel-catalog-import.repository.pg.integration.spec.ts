@@ -17,7 +17,11 @@ import {
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
-import type { PrismaClient } from '@prisma/client';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { freezeProductRegistrationPayload } from '../domain/registration-submission-payload';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ParsedWingCatalogRow } from '../application/service/coupang-wing-workbook.parser';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -33,12 +37,23 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   let repository: ChannelCatalogImportRepositoryAdapter;
   let service: ChannelCatalogImportService;
   let alerts: SourceFailureAlerts;
+  let recipes: ChannelOptionRecipeUseCase;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as unknown as PrismaService);
-    repository = new ChannelCatalogImportRepositoryAdapter(prisma as unknown as PrismaService, alerts);
+    recipes = new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeRepositoryAdapter(
+        prisma as unknown as PrismaService,
+        new ProductTransactionalReadRepositoryAdapter(),
+      ),
+    );
+    repository = new ChannelCatalogImportRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      alerts,
+      recipes,
+    );
     service = new ChannelCatalogImportService(repository);
   });
 
@@ -150,10 +165,13 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
   it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
     const rows = representativeRows();
-    const inventoryBefore = await prisma.sellpiaInventorySku.create({
+    const inventoryBefore = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-STOCK-SENTINEL',
+        code: 'KID-STOCK',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'SP-STOCK-SENTINEL',
+        sourceOptionCode: '',
         name: 'Sellpia stock sentinel',
         currentStock: 37,
       },
@@ -195,7 +213,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
             listing: { channelAccountId: WING_ACCOUNT_ID },
           },
         }),
-      prisma.sellpiaInventorySku.findUniqueOrThrow({
+      prisma.masterProduct.findUniqueOrThrow({
         where: { id: inventoryBefore.id },
       }),
       ]);
@@ -216,6 +234,77 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
     expect(result.run.rowCount).toBe(2_241);
     expect(inventoryAfter).toEqual(inventoryBefore);
+  });
+
+  it('links a later workbook capture to the frozen registered bundle code without allocating another code', async () => {
+    const row = makeRow(0, {
+      externalProductId: 'P-REGISTERED',
+      externalSkuId: 'S-REGISTERED',
+    });
+    await importCatalog([row], fileHash('registered-workbook-first'));
+    const listing = await prisma.channelListing.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        externalId: 'P-REGISTERED',
+      },
+      include: { options: true },
+    });
+    const component = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'KID00000002',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'SP-WORKBOOK-BUNDLE',
+        sourceOptionCode: '',
+        name: 'Workbook registered bundle component',
+        currentStock: 4,
+      },
+    });
+    const frozen = freezeProductRegistrationPayload({
+      registrationInput: {
+        kidItemCode: 'KID12345678',
+        sellpiaMatch: {
+          sellpiaInventorySkuId: component.id,
+          quantity: 2,
+          code: 'SP-WORKBOOK-BUNDLE',
+        },
+        wingProduct: { variants: [{ vendorItemCode: 'KID12345678' }] },
+      },
+    });
+    await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: randomUUID(),
+        channelAccountId: WING_ACCOUNT_ID,
+        channelListingId: listing.id,
+        executionKind: 'external_wing',
+        idempotencyKey: randomUUID(),
+        requestHash: frozen.hash,
+        submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
+        submissionPayloadHash: frozen.hash,
+        status: 'succeeded',
+        providerOutcome: 'succeeded',
+        providerSubmissionId: 'provider-workbook-bundle',
+        externalListingId: 'P-REGISTERED',
+        resultJson: { externalListingId: 'P-REGISTERED' },
+      },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: listing.options[0]!.id },
+      data: { sellerSku: 'KID12345678' },
+    });
+
+    await importCatalog([row], fileHash('registered-workbook-later'));
+
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: listing.options[0]!.id },
+      include: { inventoryComponents: true },
+    })).resolves.toMatchObject({
+      sellerSku: 'KID12345678',
+      kidItemCode: 'KID12345678',
+      inventoryComponents: [{ masterProductId: component.id, quantity: 2 }],
+    });
   });
 
   it('requires an active account in the organization and rejects non-Wing channels before claiming', async () => {
@@ -652,10 +741,13 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
       orderBy: { externalOptionId: 'asc' },
     });
-    const inventorySkus = await prisma.sellpiaInventorySku.createManyAndReturn({
+    const inventorySkus = await prisma.masterProduct.createManyAndReturn({
       data: [0, 1].map((index) => ({
         organizationId: TEST_ORGANIZATION_ID,
-        code: `SP-INVENTORY-${index}`,
+        code: `KID-CMP-${index}`,
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: `SP-INVENTORY-${index}`,
+        sourceOptionCode: '',
         name: `component ${index}`,
         currentStock: index,
       })),
@@ -663,9 +755,11 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const linkedProduct = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        code: 'KI-PRESERVED',
+        code: 'KID-PRES',
+        sourceAccountKey: 'fixture',
+        sourceProductCode: 'KI-PRESERVED',
+        sourceOptionCode: '',
         name: 'Preserved product link',
-        adBudgetLimit: 55_000,
       },
     });
     await prisma.channelListing.update({
@@ -710,31 +804,31 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: skuByExternalId.get('S-SINGLE')!.id,
-          sellpiaInventorySkuId: inventorySkus[0]!.id,
+          masterProductId: inventorySkus[0]!.id,
           quantity: 1,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: skuByExternalId.get('S-FOUR')!.id,
-          sellpiaInventorySkuId: inventorySkus[0]!.id,
+          masterProductId: inventorySkus[0]!.id,
           quantity: 4,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: skuByExternalId.get('S-MIXED')!.id,
-          sellpiaInventorySkuId: inventorySkus[0]!.id,
+          masterProductId: inventorySkus[0]!.id,
           quantity: 2,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: skuByExternalId.get('S-MIXED')!.id,
-          sellpiaInventorySkuId: inventorySkus[1]!.id,
+          masterProductId: inventorySkus[1]!.id,
           quantity: 3,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: skuByExternalId.get('S-ABSENT')!.id,
-          sellpiaInventorySkuId: inventorySkus[1]!.id,
+          masterProductId: inventorySkus[1]!.id,
           quantity: 1,
         },
       ],
@@ -835,7 +929,12 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
     expect(contentAfter).toEqual(contentBefore);
     expect(linkedProductAfter).toMatchObject({
-      adBudgetLimit: 55_000,
+      id: linkedProduct.id,
+      code: 'KID-PRES',
+      sourceAccountKey: 'fixture',
+      sourceProductCode: 'KI-PRESERVED',
+      sourceOptionCode: '',
+      name: 'Preserved product link',
     });
   });
 
@@ -1406,6 +1505,7 @@ function makeRow(
     skuStatus: '판매중',
     modelNumber: `MODEL-${index}`,
     barcode: `000${String(index).padStart(9, '0')}`,
+    attributesJson: [],
     rawJson: { index },
     ...overrides,
   };

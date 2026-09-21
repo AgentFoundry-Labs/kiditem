@@ -4,10 +4,10 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { InventoryTransactionalReadPort } from '../inventory/application/port/in/stock/inventory-transactional-read.port';
+import type { ProductTransactionalReadPort } from '../products/application/port/in/product-transactional-read.port';
 
-export type InventorySaleAgeReader = Pick<
-  InventoryTransactionalReadPort,
+export type ProductSaleAgeReader = Pick<
+  ProductTransactionalReadPort,
   'readSaleAgeMappings'
 >;
 
@@ -31,7 +31,7 @@ export async function readProductSaleAgeEvidence(
   organizationId: string,
   masterProductIds: readonly string[],
   cutoffDate: string | null,
-  inventory: InventorySaleAgeReader,
+  inventory: ProductSaleAgeReader,
 ): Promise<readonly ProductSaleAgeEvidence[]> {
   const ids = [...new Set(masterProductIds)].sort();
   const evidence = new Map<string, ProductSaleAgeEvidence>(ids.map((masterProductId) => [
@@ -65,8 +65,7 @@ export async function readProductSaleAgeEvidence(
       && listing.options.every((option) => option.components.length > 0
         && option.components.every((component) =>
           component.quantity > 0
-          && component.masterProductId !== null
-          && component.masterProductActive));
+          && component.masterProductId !== null));
     if (!hasCompleteRecipe) continue;
     const saleStartDate = saleStartDateFromRaw(
       rawByListingId.get(listing.listingId) ?? null,
@@ -78,7 +77,6 @@ export async function readProductSaleAgeEvidence(
         if (
           component.quantity <= 0
           || !masterProductId
-          || !component.masterProductActive
         ) continue;
         const current = evidence.get(masterProductId);
         if (!current) continue;

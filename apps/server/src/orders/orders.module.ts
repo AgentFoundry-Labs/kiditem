@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { AlertsModule } from '../alerts/alerts.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyModule } from '../supply/supply.module';
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductSourceModule } from '../products/product-source.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReviewsController } from './controllers/reviews.controller';
@@ -36,7 +36,7 @@ import { REVIEW_COLLECTION_SOURCE_PORT } from './application/port/in/review-coll
 import { ReviewCollectionSourceRepository } from './adapter/out/repository/review-collection-source.repository';
 
 @Module({
-  imports: [AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, InventoryModule],
+  imports: [AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
   controllers: [
     OrdersController,
     OrderCollectionController,

@@ -3,7 +3,6 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
@@ -14,14 +13,15 @@ import {
 } from '../../../read/completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionalReadPort,
-} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductMatchingCandidate,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import {
-  SELLPIA_INVENTORY_SKU_READ_PORT,
-  type SellpiaInventorySkuReadModel,
-  type SellpiaInventorySkuReadPort,
-} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadModel,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
 import {
   rankChannelRecipeNameCandidates,
@@ -29,9 +29,9 @@ import {
   type ChannelRecipeNameOption,
 } from '../../../domain/channel-recipe-name-matcher';
 import {
-  PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
-  type ProductChannelOptionRecipeMutationPort,
-} from '../../../../products/application/port/in/product-channel-option-recipe-mutation.port';
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../../application/port/in/channel-option-recipe.port';
 import type {
   ChannelOptionMatchingRepositoryRow,
   ChannelProductMatchingQueueRow,
@@ -59,9 +59,6 @@ function listingSelect(organizationId: string) {
     channelAccount: {
       select: { id: true, channel: true, name: true },
     },
-    masterProduct: {
-      select: { id: true, code: true, name: true, imageUrls: true },
-    },
     options: {
       orderBy: [{ updatedAt: 'desc' as const }, { id: 'asc' as const }],
       select: {
@@ -79,7 +76,7 @@ function listingSelect(organizationId: string) {
           orderBy: { createdAt: 'asc' as const },
           select: {
             id: true,
-            sellpiaInventorySkuId: true,
+            masterProductId: true,
             quantity: true,
           },
           },
@@ -93,14 +90,12 @@ type RawListingRow = Prisma.ChannelListingGetPayload<{
 }>;
 type RawOptionRow = RawListingRow['options'][number];
 type RawComponentRow = RawOptionRow['inventoryComponents'][number];
-type InventorySkuIdentity = Omit<
-  SellpiaInventorySkuReadModel,
-  'sellpiaInventorySkuId'
-> & { id: string };
+type InventorySkuIdentity = ProductSourceReadModel;
 type ListingRow = Omit<RawListingRow, 'options'> & {
+  linkedProduct: ProductSourceReadModel | null;
   options: Array<Omit<RawOptionRow, 'inventoryComponents'> & {
     inventoryComponents: Array<RawComponentRow & {
-      sellpiaInventorySku: InventorySkuIdentity | null;
+      product: InventorySkuIdentity | null;
     }>;
   }>;
 };
@@ -108,35 +103,26 @@ type ListingWithSaleStatus = ListingRow & {
   latestSnapshotSaleStatus: string | null;
 };
 type OptionRow = ListingRow['options'][number];
-type InventorySellpiaSku = {
-  id: string;
-  code: string;
-  name: string;
-  optionName: string | null;
-  barcode: string | null;
-  masterProductId: string | null;
-  currentStock: number | null;
-};
+type InventorySellpiaSku = ProductMatchingCandidate;
 
 @Injectable()
 export class ChannelProductMatchingRepositoryAdapter
 implements ChannelProductMatchingRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
-    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
-    private readonly inventorySkuRead: SellpiaInventorySkuReadPort,
-    @Optional()
-    @Inject(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT)
-    private readonly recipeMutations?: ProductChannelOptionRecipeMutationPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly productTransactionalRead: ProductTransactionalReadPort,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly productSourceRead: ProductSourceReadPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly recipeMutations: ChannelOptionRecipePort,
   ) {}
 
   async listQueue(
     organizationId: string,
     query: { channelAccountId?: string; search?: string },
   ) {
-    const listings = await this.prisma.$transaction(async (tx) => {
+    const rawListings = await this.prisma.$transaction(async (tx) => {
       const listingRows = await this.loadListings(tx, organizationId, query, 'matching');
       const statusFacts = await readLatestListingSaleStatusFacts(tx, {
         organizationId,
@@ -151,6 +137,7 @@ implements ChannelProductMatchingRepositoryPort {
         latestSnapshotSaleStatus: latestStatus.get(listing.id) ?? null,
       }));
     }, READ_TRANSACTION_OPTIONS);
+    const listings = await this.hydrateListings(organizationId, rawListings);
     const products = listings.map(toProductQueueRow);
     const options = listings.flatMap((listing) =>
       listing.options.map((option) => toOptionQueueRow(listing, option)));
@@ -194,54 +181,45 @@ implements ChannelProductMatchingRepositoryPort {
     });
     if (!listing) return null;
     const manualSearch = search?.trim();
-    const candidates = await this.prisma.masterProduct.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        ...(manualSearch ? {
-          OR: [
-            { code: { contains: manualSearch, mode: 'insensitive' } },
-            { name: { contains: manualSearch, mode: 'insensitive' } },
-            { category: { contains: manualSearch, mode: 'insensitive' } },
-            { brand: { contains: manualSearch, mode: 'insensitive' } },
-          ],
-        } : {}),
-      },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        category: true,
-        brand: true,
-        channelListings: {
-          where: { organizationId, isActive: true },
-          select: {
-            options: {
-              where: { organizationId, isActive: true },
-              select: {
-                inventoryComponents: {
-                  where: { organizationId },
-                  select: { sellpiaInventorySkuId: true },
-                },
+    const candidates = await this.readProductCandidates(organizationId, manualSearch);
+    const candidateIds = candidates.map((candidate) => candidate.masterProductId);
+    const candidateListings = candidateIds.length === 0
+      ? []
+      : await this.prisma.channelListing.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+          masterProductId: { in: candidateIds },
+        },
+        select: {
+          masterProductId: true,
+          options: {
+            where: { organizationId, isActive: true },
+            select: {
+              inventoryComponents: {
+                where: { organizationId },
+                select: { masterProductId: true },
               },
             },
           },
         },
-      },
-      orderBy: [{ code: 'asc' }, { id: 'asc' }],
-    });
-    const inventorySkuIds = [
-      ...new Set(candidates.flatMap((candidate) =>
-        candidate.channelListings.flatMap((channelListing) =>
-          channelListing.options.flatMap((option) =>
-            option.inventoryComponents.map((component) =>
-              component.sellpiaInventorySkuId))))),
-    ];
-    const identities = await this.inventorySkuRead.findByIds(organizationId, inventorySkuIds);
-    const barcodeBySkuId = new Map(identities.map((identity) => [
-      identity.sellpiaInventorySkuId,
+      });
+    const componentIds = [...new Set(candidateListings.flatMap((candidateListing) =>
+      candidateListing.options.flatMap((option) =>
+        option.inventoryComponents.map((component) => component.masterProductId))))];
+    const componentIdentities = await this.readProductIdentities(organizationId, componentIds);
+    const barcodeByMasterProductId = new Map(componentIdentities.map((identity) => [
+      identity.masterProductId,
       identity.barcode,
     ]));
+    const componentIdsByCandidate = new Map<string, string[]>();
+    for (const candidateListing of candidateListings) {
+      if (!candidateListing.masterProductId) continue;
+      const ids = componentIdsByCandidate.get(candidateListing.masterProductId) ?? [];
+      ids.push(...candidateListing.options.flatMap((option) =>
+        option.inventoryComponents.map((component) => component.masterProductId)));
+      componentIdsByCandidate.set(candidateListing.masterProductId, ids);
+    }
     const raw = asRecord(listing.rawJson);
     return {
       listingId: listing.id,
@@ -252,15 +230,16 @@ implements ChannelProductMatchingRepositoryPort {
       barcode: firstString(raw, ['barcode', 'productBarcode']),
       aiSuggestion: aiProductSuggestion(raw),
       candidates: candidates.map((candidate) => ({
-        id: candidate.id,
+        id: candidate.masterProductId,
         code: candidate.code,
         name: candidate.name,
-        category: candidate.category,
-        brand: candidate.brand,
-        barcodes: distinctStrings(candidate.channelListings.flatMap((listing) =>
-          listing.options.flatMap((option) => option.inventoryComponents.map(
-            (component) => barcodeBySkuId.get(component.sellpiaInventorySkuId),
-          ))).filter((value): value is string | null => value !== undefined)),
+        // Category and brand are no longer Products identity fields. Channels
+        // retains only the candidate's canonical source identity here.
+        category: null,
+        brand: null,
+        barcodes: distinctStrings((componentIdsByCandidate.get(candidate.masterProductId) ?? [])
+          .map((componentId) => barcodeByMasterProductId.get(componentId))
+          .filter((value): value is string | null => value !== undefined)),
       })),
     };
   }
@@ -323,7 +302,7 @@ implements ChannelProductMatchingRepositoryPort {
                 barcode: true,
                 inventoryComponents: {
                   select: {
-                    sellpiaInventorySkuId: true,
+                    masterProductId: true,
                     quantity: true,
                     createdAt: true,
                   },
@@ -336,7 +315,8 @@ implements ChannelProductMatchingRepositoryPort {
           where: { organizationId: input.organizationId },
           select: {
             normalizedAlias: true,
-            sellpiaInventorySkuId: true,
+            masterProductId: true,
+            legacySellpiaInventorySkuId: true,
             itemCount: true,
           },
         }),
@@ -347,44 +327,17 @@ implements ChannelProductMatchingRepositoryPort {
         rows.push(alias);
         aliasesByName.set(alias.normalizedAlias, rows);
       }
-      const inventoryContext = { client: tx };
-      const inventoryLock = await this.inventoryTransactionalRead.lock(
-        inventoryContext,
+      const productContext = { client: tx };
+      const productLock = await this.productTransactionalRead.lock(
+        productContext,
         input.organizationId,
       );
-      const inventoryIdentities = await this.inventoryTransactionalRead.readSkuIdentities(
-        inventoryContext,
-        {
-          organizationId: input.organizationId,
-          selector: { kind: 'all' },
-        },
+      const productIdentities = await this.productTransactionalRead.readActiveMatchingCandidates(
+        productContext,
+        productLock,
+        input.organizationId,
       );
-      const availability = await this.inventoryTransactionalRead.readAvailability(
-        inventoryContext,
-        inventoryLock,
-        {
-          organizationId: input.organizationId,
-          sellpiaInventorySkuIds: inventoryIdentities.map(
-            (identity) => identity.sellpiaInventorySkuId,
-          ),
-        },
-      );
-      const availabilityBySkuId = new Map(
-        availability.items.map((item) => [item.sellpiaInventorySkuId, item]),
-      );
-      const inventorySkus: InventorySellpiaSku[] = inventoryIdentities.map((identity) => ({
-        id: identity.sellpiaInventorySkuId,
-        code: identity.code,
-        name: identity.name,
-        optionName: identity.optionName,
-        barcode: identity.barcode,
-        masterProductId: identity.masterProductId,
-        currentStock: availabilityBySkuId.get(identity.sellpiaInventorySkuId)?.currentStock ?? null,
-      }));
-      const identityById = new Map(inventoryIdentities.map((identity) => [
-        identity.sellpiaInventorySkuId,
-        identity,
-      ]));
+      const inventorySkus: InventorySellpiaSku[] = productIdentities;
       const inventorySkusByBarcode = new Map<string, InventorySellpiaSku[]>();
       for (const sku of inventorySkus) {
         const barcode = normalizePhysicalBarcode(sku.barcode);
@@ -401,11 +354,13 @@ implements ChannelProductMatchingRepositoryPort {
         rows.push(sku);
         inventorySkusByCode.set(code, rows);
       }
-      const inventorySkuById = new Map(inventorySkus.map((sku) => [sku.id, sku]));
+      const inventorySkuByMasterProductId = new Map(
+        inventorySkus.map((sku) => [sku.masterProductId, sku] as const),
+      );
       const mutations: Array<{
         channelListingOptionId: string;
         expectedMasterProductId?: string;
-        components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
+        components: Array<{ masterProductId: string; quantity: number }>;
       }> = [];
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
@@ -449,7 +404,9 @@ implements ChannelProductMatchingRepositoryPort {
             option.itemName,
           );
           const manualMatchEvidence = exactAliases.flatMap((alias) => {
-            const sku = inventorySkuById.get(alias.sellpiaInventorySkuId);
+            const sku = alias.masterProductId
+              ? inventorySkuByMasterProductId.get(alias.masterProductId)
+              : undefined;
             return sku ? [{
               channelValue: alias.normalizedAlias,
               normalizedValue: alias.normalizedAlias,
@@ -470,8 +427,8 @@ implements ChannelProductMatchingRepositoryPort {
             masterProductId: listing.masterProductId,
             options,
             existingComponents: option.inventoryComponents.map((component) => ({
-              sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-              code: identityById.get(component.sellpiaInventorySkuId)?.code ?? '',
+              masterProductId: component.masterProductId,
+              code: inventorySkuByMasterProductId.get(component.masterProductId)?.code ?? '',
               quantity: component.quantity,
               source: 'manual' as const,
               confirmedBy: null,
@@ -490,15 +447,15 @@ implements ChannelProductMatchingRepositoryPort {
             : null;
           const quantity = proposal?.recommendedQuantity ?? suggestion.recommendedQuantity;
           const targetSku = proposal
-            ? inventorySkuById.get(proposal.sellpiaInventorySkuId)
+            ? inventorySkuByMasterProductId.get(proposal.masterProductId)
             : null;
-          if (!proposal || !targetSku?.masterProductId
+          if (!proposal || !targetSku
             || !Number.isSafeInteger(quantity) || (quantity ?? 0) <= 0) continue;
           mutations.push({
             channelListingOptionId: option.id,
             expectedMasterProductId: targetSku.masterProductId,
             components: [{
-              sellpiaInventorySkuId: proposal.sellpiaInventorySkuId,
+              masterProductId: targetSku.masterProductId,
               quantity: quantity!,
             }],
           });
@@ -533,10 +490,11 @@ implements ChannelProductMatchingRepositoryPort {
       listingIds?: string[];
     },
   ): Promise<ChannelAvailabilityRepositoryRow[]> {
-    const listings = await this.prisma.$transaction(
+    const rawListings = await this.prisma.$transaction(
       (tx) => this.loadListings(tx, organizationId, query, 'availability'),
       READ_TRANSACTION_OPTIONS,
     );
+    const listings = await this.hydrateListings(organizationId, rawListings);
     return listings.flatMap((listing) => listing.options
       .filter((option) => !query.optionIds || query.optionIds.includes(option.id))
       .map((option) => ({
@@ -561,15 +519,62 @@ implements ChannelProductMatchingRepositoryPort {
         updatedAt: option.updatedAt,
       },
       inventoryComponents: option.inventoryComponents.map((component) => ({
-          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-          code: component.sellpiaInventorySku?.code ?? null,
-          name: component.sellpiaInventorySku?.name ?? null,
-          optionName: component.sellpiaInventorySku?.optionName ?? null,
-          barcode: component.sellpiaInventorySku?.barcode ?? null,
-          purchasePrice: component.sellpiaInventorySku?.purchasePrice ?? null,
+          masterProductId: component.masterProductId,
+          code: component.product?.code ?? null,
+          name: component.product?.name ?? null,
+          optionName: component.product?.optionName ?? null,
+          barcode: component.product?.barcode ?? null,
+          purchasePrice: component.product?.purchasePrice ?? null,
           quantity: component.quantity,
         })),
       })));
+  }
+
+  private async readProductCandidates(
+    organizationId: string,
+    search?: string,
+  ): Promise<ProductSourceReadModel[]> {
+    return search
+      ? this.productSourceRead.search(organizationId, search, 100)
+      : this.productSourceRead.listActiveForMatching(organizationId);
+  }
+
+  private async readProductIdentities(
+    organizationId: string,
+    masterProductIds: string[],
+  ): Promise<ProductSourceReadModel[]> {
+    if (masterProductIds.length === 0) return [];
+    return this.productSourceRead.findByIds(organizationId, masterProductIds);
+  }
+
+  private async hydrateListings<T extends ListingRow>(
+    organizationId: string,
+    listings: T[],
+  ): Promise<T[]> {
+    const masterProductIds = [...new Set(listings.flatMap((listing) => [
+      ...(listing.masterProductId ? [listing.masterProductId] : []),
+      ...listing.options.flatMap((option) => option.inventoryComponents.map(
+        (component) => component.masterProductId,
+      )),
+    ]))];
+    const identities = await this.readProductIdentities(organizationId, masterProductIds);
+    const identityById = new Map(identities.map((identity) => [
+      identity.masterProductId,
+      identity,
+    ]));
+    return listings.map((listing) => ({
+      ...listing,
+      linkedProduct: listing.masterProductId
+        ? identityById.get(listing.masterProductId) ?? null
+        : null,
+      options: listing.options.map((option) => ({
+        ...option,
+        inventoryComponents: option.inventoryComponents.map((component) => ({
+          ...component,
+          product: identityById.get(component.masterProductId) ?? null,
+        })),
+      })),
+    }));
   }
 
   private async loadListings(
@@ -613,38 +618,20 @@ implements ChannelProductMatchingRepositoryPort {
       select: listingSelect(organizationId),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
-    const inventorySkuIds = [...new Set(listings.flatMap((listing) =>
-      listing.options.flatMap((option) => option.inventoryComponents.map(
-        (component) => component.sellpiaInventorySkuId,
-      ))))];
-    const identities = await this.inventoryTransactionalRead.readSkuIdentities(
-      { client: prisma },
-      { organizationId, selector: { kind: 'ids', values: inventorySkuIds } },
-    );
-    const identityById = new Map(identities.map((identity) => [
-      identity.sellpiaInventorySkuId,
-      toInventorySkuIdentity(identity),
-    ]));
     return listings.map((listing) => ({
       ...listing,
+      linkedProduct: null,
       options: listing.options.map((option) => ({
         ...option,
         inventoryComponents: option.inventoryComponents.map((component) => {
           return {
             ...component,
-            sellpiaInventorySku: identityById.get(component.sellpiaInventorySkuId) ?? null,
+            product: null,
           };
         }),
       })),
     }));
   }
-}
-
-function toInventorySkuIdentity(
-  identity: SellpiaInventorySkuReadModel,
-): InventorySkuIdentity {
-  const { sellpiaInventorySkuId: id, ...fields } = identity;
-  return { id, ...fields };
 }
 
 function matchingListingWhere(
@@ -685,11 +672,11 @@ function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchi
       channelImageUrl: null,
       updatedAt: listing.updatedAt,
     },
-    linkedProduct: listing.masterProduct ? {
-      id: listing.masterProduct.id,
-      code: listing.masterProduct.code,
-      name: listing.masterProduct.name,
-      displayImageUrl: listing.masterProduct.imageUrls[0] ?? null,
+    linkedProduct: listing.linkedProduct ? {
+      id: listing.linkedProduct.masterProductId,
+      code: listing.linkedProduct.code,
+      name: listing.linkedProduct.name,
+      displayImageUrl: listing.linkedProduct.imageUrls[0] ?? null,
     } : null,
     optionCount: listing.options.length,
     configuredOptionCount: listing.options.filter(
@@ -723,11 +710,11 @@ function optionRecipeIdentity(option: OptionRow) {
     updatedAt: option.updatedAt,
     inventoryComponents: option.inventoryComponents.map((component) => ({
       id: component.id,
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      code: component.sellpiaInventorySku?.code ?? null,
-      name: component.sellpiaInventorySku?.name ?? null,
-      optionName: component.sellpiaInventorySku?.optionName ?? null,
-      barcode: component.sellpiaInventorySku?.barcode ?? null,
+      masterProductId: component.masterProductId,
+      code: component.product?.code ?? null,
+      name: component.product?.name ?? null,
+      optionName: component.product?.optionName ?? null,
+      barcode: component.product?.barcode ?? null,
       quantity: component.quantity,
     })),
   };
@@ -822,7 +809,7 @@ function confirmedRocketCsvBarcode(rawValue: unknown): string | null {
 
 function toSuggestionSku(sku: InventorySellpiaSku) {
   return {
-    sellpiaInventorySkuId: sku.id,
+    masterProductId: sku.masterProductId,
     code: sku.code,
     name: sku.name,
     optionName: sku.optionName,

@@ -1,5 +1,5 @@
-import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
@@ -40,7 +40,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     await prisma.$connect();
     const m = await Test.createTestingModule({
       providers: [
-        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         DashboardTrendService,
         DashboardTrendRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,

@@ -75,7 +75,7 @@ describe('direct channel option availability contracts', () => {
 
 function component() {
   return {
-    sellpiaInventorySkuId: inventorySkuId,
+    masterProductId: inventorySkuId,
     code: 'SP-100',
     name: '낱개 재고',
     optionName: null,

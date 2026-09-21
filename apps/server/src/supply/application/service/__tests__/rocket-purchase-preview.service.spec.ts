@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
 import type { RocketPoCatalogPort } from '../../../../channels/application/port/in/rocket-po-catalog.port';
 import type { ChannelSkuAvailabilityPort } from '../../../../channels/application/port/in/channel-sku-availability.port';
-import type { SellpiaInventoryFreshnessGatePort } from '../../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
+import type { ProductCollectionFreshnessGatePort } from '../../../../products/application/port/in/product-collection-freshness-gate.port';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
@@ -13,7 +13,7 @@ const inventoryAttemptId = '99999999-9999-4999-8999-999999999999';
 const poLineId = '1001:P-1:8801234567890:1';
 const channelSkuId = '44444444-4444-4444-8444-444444444444';
 const masterProductId = '55555555-5555-4555-8555-555555555555';
-const sellpiaInventorySkuId = '88888888-8888-4888-8888-888888888888';
+const componentMasterProductId = '88888888-8888-4888-8888-888888888888';
 
 function request() {
   return {
@@ -64,7 +64,7 @@ function dependencies() {
       sku: { id: channelSkuId, externalSkuId: 'P-1', sellerSku: 'P-1', optionName: 'Rocket item', barcode: '8801234567890', modelNumber: null, salePrice: null, status: 'observed', mappingStatus: 'matched', sellableStock: 5, updatedAt: '2026-07-16T00:00:00.000Z' },
       masterProductId,
       recipeStatus: 'matched',
-      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, purchasePrice: null, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
+      components: [{ masterProductId: componentMasterProductId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, purchasePrice: null, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
       warnings: [],
     }]),
   } as unknown as ChannelSkuAvailabilityPort;
@@ -75,9 +75,9 @@ function dependencies() {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, isActive: true }],
+      products: [{ masterProductId: componentMasterProductId, currentStock: 5 }],
     }),
-  } as unknown as SellpiaInventoryFreshnessGatePort;
+  } as unknown as ProductCollectionFreshnessGatePort;
   return { catalog, availability, freshness };
 }
 
@@ -114,7 +114,7 @@ describe('RocketPurchasePreviewService', () => {
     }).requireCollectedStock).toHaveBeenCalledWith({
       organizationId,
       attemptId: inventoryAttemptId,
-      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
+      masterProductIds: [componentMasterProductId],
     });
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error('Expected ready preview');
@@ -126,7 +126,7 @@ describe('RocketPurchasePreviewService', () => {
       masterProductId,
       channelListingOptionId: channelSkuId,
       components: [{
-        sellpiaInventorySkuId,
+        masterProductId: componentMasterProductId,
         code: 'SP-1',
         name: 'Sellpia',
         optionName: null,
@@ -241,7 +241,7 @@ describe('RocketPurchasePreviewService', () => {
       generation: '2',
       lastVerifiedAt: '2026-07-16T00:01:00.000Z',
       expiresAt: '2026-07-16T00:11:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0,  }],
+      products: [{ masterProductId: componentMasterProductId, currentStock: 0 }],
     });
     const service = previewService(deps);
 
@@ -289,7 +289,7 @@ describe('RocketPurchasePreviewService', () => {
     expect(result.rows[0]).toMatchObject({ reason, maxQuantity: 0 });
     expect((deps.freshness as unknown as {
       requireCollectedStock: ReturnType<typeof vi.fn>;
-    }).requireCollectedStock).toHaveBeenCalledWith({ organizationId, attemptId: inventoryAttemptId, sellpiaInventorySkuIds: [] });
+    }).requireCollectedStock).toHaveBeenCalledWith({ organizationId, attemptId: inventoryAttemptId, masterProductIds: [] });
   });
 
   it('deduplicates a physical component shared by multiple PO lines before freshness read', async () => {
@@ -323,7 +323,7 @@ describe('RocketPurchasePreviewService', () => {
     }).requireCollectedStock).toHaveBeenCalledWith({
       organizationId,
       attemptId: inventoryAttemptId,
-      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
+      masterProductIds: [componentMasterProductId],
     });
   });
 
@@ -337,8 +337,8 @@ describe('RocketPurchasePreviewService', () => {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      inventorySkus: [{
-        sellpiaInventorySkuId,
+      products: [{
+        masterProductId: componentMasterProductId,
         currentStock: 100,
       }],
     });
@@ -361,7 +361,7 @@ describe('RocketPurchasePreviewService', () => {
         maxQuantity: 100,
         recommendedQuantity: 100,
         components: [{
-          sellpiaInventorySkuId,
+          masterProductId: componentMasterProductId,
           currentStock: 100,
         }],
       }],

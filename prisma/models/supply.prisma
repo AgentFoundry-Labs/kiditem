@@ -29,27 +29,29 @@ model Supplier {
 }
 
 /// @namespace Supply
-/// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
+/// @describe 공급사별 MasterProduct 단위 공급가/주공급처 정책. Legacy Sellpia id는 보존 근거로만 남긴다.
 model SupplierProduct {
-  id                    String   @id @default(uuid()) @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
-  supplierId            String   @map("supplier_id") @db.Uuid
-  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  supplyPrice           Int      @default(0) @map("supply_price")
-  minOrderQty           Int      @default(1) @map("min_order_qty")
-  isPrimary             Boolean  @default(false) @map("is_primary")
-  memo                  String?
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                          String   @id @default(uuid()) @db.Uuid
+  organizationId              String   @map("organization_id") @db.Uuid
+  supplierId                  String   @map("supplier_id") @db.Uuid
+  legacySellpiaInventorySkuId String?   @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String?  @map("master_product_id") @db.Uuid
+  supplyPrice                 Int      @default(0) @map("supply_price")
+  minOrderQty                 Int      @default(1) @map("min_order_qty")
+  isPrimary                   Boolean  @default(false) @map("is_primary")
+  memo                        String?
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier     Supplier     @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([supplierId, sellpiaInventorySkuId])
-  @@unique([sellpiaInventorySkuId], map: "supplier_products_primary_sellpia_inventory_sku_key", where: raw("is_primary = true"))
+  @@unique([supplierId, masterProductId], map: "supplier_products_supplier_master_product_key")
+  @@unique([masterProductId], map: "supplier_products_primary_master_product_key", where: raw("is_primary = true AND master_product_id IS NOT NULL"))
   @@index([organizationId])
   @@index([supplierId])
-  @@index([sellpiaInventorySkuId])
+  @@index([legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@map("supplier_products")
 }
 
@@ -296,10 +298,11 @@ model PurchaseOrderSubmissionAttempt {
 
 /// @namespace Supply
 model PurchaseOrderItem {
-  id                    String @id @default(uuid()) @db.Uuid
-  organizationId        String @map("organization_id") @db.Uuid
-  orderId               String @map("order_id") @db.Uuid
-  sellpiaInventorySkuId String @map("sellpia_inventory_sku_id") @db.Uuid
+  id                          String  @id @default(uuid()) @db.Uuid
+  organizationId              String  @map("organization_id") @db.Uuid
+  orderId                     String  @map("order_id") @db.Uuid
+  legacySellpiaInventorySkuId String?  @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String? @map("master_product_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -312,7 +315,8 @@ model PurchaseOrderItem {
 
   @@index([organizationId])
   @@index([orderId])
-  @@index([sellpiaInventorySkuId])
+  @@index([legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@map("purchase_order_items")
 }
 
@@ -387,20 +391,21 @@ model RocketPurchaseConfirmationLine {
 /// @namespace Supply
 /// @describe Immutable component recipe evidence captured for one Rocket workbook line.
 model RocketPurchaseConfirmationAllocation {
-  id                    String   @id @default(uuid()) @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
-  confirmationLineId    String   @map("confirmation_line_id") @db.Uuid
-  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  unitsPerSale          Int      @map("units_per_variant")
-  quantity              Int
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                          String   @id @default(uuid()) @db.Uuid
+  organizationId              String   @map("organization_id") @db.Uuid
+  confirmationLineId          String   @map("confirmation_line_id") @db.Uuid
+  legacySellpiaInventorySkuId String?   @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String?  @map("master_product_id") @db.Uuid
+  unitsPerSale                Int      @map("units_per_variant")
+  quantity                    Int
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization     Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   confirmationLine RocketPurchaseConfirmationLine @relation(fields: [confirmationLineId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([confirmationLineId, sellpiaInventorySkuId], map: "rocket_purchase_confirmation_allocations_line_sku_key")
-  @@index([organizationId, sellpiaInventorySkuId])
-  @@index([sellpiaInventorySkuId])
+  @@unique([confirmationLineId, masterProductId], map: "rocket_confirmation_alloc_line_master_key")
+  @@index([organizationId, legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@map("rocket_purchase_confirmation_allocations")
 }
 

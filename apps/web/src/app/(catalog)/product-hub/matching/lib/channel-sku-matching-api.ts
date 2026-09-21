@@ -122,7 +122,7 @@ export async function saveProductInventoryMatching(
   for (const option of [...input.options].sort((left, right) =>
     left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
     await apiClient.put(
-      `/api/products/channel-options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
+      `/api/channels/options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
       { components: option.components },
     );
   }

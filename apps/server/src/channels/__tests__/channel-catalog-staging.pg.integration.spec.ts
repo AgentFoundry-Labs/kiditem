@@ -17,6 +17,9 @@ import {
 } from '../application/service/channel-catalog-collection.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
@@ -37,10 +40,17 @@ describe('Wing catalog private staging and atomic publication (public service + 
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
+    const recipes = new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeRepositoryAdapter(
+        prisma as never,
+        new ProductTransactionalReadRepositoryAdapter(),
+      ),
+    );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
       new AiCatalogMediaPublicationRepositoryAdapter(),
       alerts,
+      recipes,
     );
     collection = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
@@ -374,6 +384,12 @@ describe('Wing catalog private staging and atomic publication (public service + 
       measured as never,
       new AiCatalogMediaPublicationRepositoryAdapter(),
       alerts,
+      new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(
+          measured as never,
+          new ProductTransactionalReadRepositoryAdapter(),
+        ),
+      ),
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),

@@ -27,11 +27,11 @@ export class TransfersService implements TransfersPort {
     organizationId: string,
     dto: CreateStockTransferInput,
   ): Promise<StockTransferRow> {
-    const inventorySku = await this.repository.findInventorySkuForTransfer(
-      dto.sellpiaInventorySkuId,
+    const inventorySku = await this.repository.findProductForTransfer(
+      dto.masterProductId,
       organizationId,
     );
-    if (!inventorySku) throw new InventoryItemNotFoundError('Sellpia inventory SKU not found');
+    if (!inventorySku) throw new InventoryItemNotFoundError('Source product not found');
 
     const warehouseIds = [...new Set([
       dto.fromWarehouseId,
@@ -46,7 +46,7 @@ export class TransfersService implements TransfersPort {
     }
 
     return this.repository.createStockTransfer(organizationId, {
-      sellpiaInventorySkuId: dto.sellpiaInventorySkuId,
+      masterProductId: dto.masterProductId,
       optionName: inventorySku.optionName,
       fromWarehouseId: dto.fromWarehouseId,
       toWarehouseId: dto.toWarehouseId,

@@ -1,6 +1,9 @@
 export type SellpiaProductInventoryCandidate = Readonly<{
-  id: string;
+  masterProductId: string;
   code: string;
+  sourceAccountKey: string;
+  sourceProductCode: string;
+  sourceOptionCode: string;
   barcode: string | null;
 }>;
 
@@ -13,7 +16,7 @@ export type SellpiaProductInventoryEvidence = Readonly<{
 export type SellpiaProductInventoryCandidateResolution =
   | Readonly<{
     status: 'matched';
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
   }>
   | Readonly<{
     status: 'mapping_required';
@@ -25,8 +28,12 @@ export function createSellpiaProductInventoryResolver(
   candidates: readonly SellpiaProductInventoryCandidate[],
 ): (evidence: SellpiaProductInventoryEvidence) =>
   SellpiaProductInventoryCandidateResolution {
-  const byCode = new Map(candidates.map((candidate) => [
-    candidate.code.trim(),
+  const bySourceIdentity = new Map(candidates.map((candidate) => [
+    sourceIdentityKey(
+      candidate.sourceAccountKey,
+      candidate.sourceProductCode,
+      candidate.sourceOptionCode,
+    ),
     candidate,
   ]));
   const byBarcode = new Map<string, SellpiaProductInventoryCandidate[]>();
@@ -39,10 +46,13 @@ export function createSellpiaProductInventoryResolver(
   }
 
   return (evidence) => {
-    for (const code of [evidence.productCode, evidence.optionCode]) {
-      const normalized = code.trim();
-      if (!normalized) continue;
-      const candidate = byCode.get(normalized);
+    const productCode = evidence.productCode.trim();
+    if (productCode) {
+      const candidate = bySourceIdentity.get(sourceIdentityKey(
+        'kiditem',
+        productCode,
+        evidence.optionCode.trim(),
+      ));
       if (candidate) return resolveSingle(candidate);
     }
 
@@ -61,12 +71,21 @@ export function createSellpiaProductInventoryResolver(
   };
 }
 
+function sourceIdentityKey(
+  sourceAccountKey: string,
+  sourceProductCode: string,
+  sourceOptionCode: string,
+): string {
+  return [sourceAccountKey.trim(), sourceProductCode.trim(), sourceOptionCode.trim()]
+    .join('\u0000');
+}
+
 function resolveSingle(
   candidate: SellpiaProductInventoryCandidate,
 ): SellpiaProductInventoryCandidateResolution {
   return {
     status: 'matched',
-    sellpiaInventorySkuId: candidate.id,
+    masterProductId: candidate.masterProductId,
   };
 }
 

@@ -14,7 +14,7 @@ export type ChannelRecipeSuggestionContext = {
     barcode: string | null;
   }>;
   existingComponents: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     quantity: number;
     source: 'manual' | 'deterministic';

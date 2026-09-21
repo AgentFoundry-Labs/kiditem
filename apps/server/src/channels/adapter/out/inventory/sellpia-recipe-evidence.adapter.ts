@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  SELLPIA_INVENTORY_SKU_READ_PORT,
-  type SellpiaInventorySkuReadModel,
-  type SellpiaInventorySkuReadPort,
-} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+  PRODUCT_AVAILABILITY_PORT,
+  type ProductAvailabilityPort,
+} from '../../../../products/application/port/in/product-availability.port';
 import {
-  INVENTORY_AVAILABILITY_PORT,
-  type InventoryAvailabilityPort,
-} from '../../../../inventory/application/port/in/stock/inventory-availability.port';
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadModel,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
 import type {
   SellpiaRecipeEvidencePort,
   SellpiaRecipeEvidenceSku,
@@ -16,10 +16,10 @@ import type {
 @Injectable()
 export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   constructor(
-    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
-    private readonly inventorySkus: SellpiaInventorySkuReadPort,
-    @Inject(INVENTORY_AVAILABILITY_PORT)
-    private readonly availability: InventoryAvailabilityPort,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly products: ProductSourceReadPort,
+    @Inject(PRODUCT_AVAILABILITY_PORT)
+    private readonly availability: ProductAvailabilityPort,
   ) {}
 
   async listActiveForMatching(
@@ -27,7 +27,7 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      await this.inventorySkus.listActiveForMatching(organizationId),
+      await this.products.listActiveForMatching(organizationId),
     );
   }
 
@@ -37,14 +37,14 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      await this.inventorySkus.findByIds(organizationId, ids),
+      await this.products.findByIds(organizationId, ids),
     );
   }
 
   async findByCodes(organizationId: string, codes: string[]): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      await this.inventorySkus.findByCodes(organizationId, codes),
+      await this.products.findByCodes(organizationId, codes),
     );
   }
 
@@ -54,7 +54,7 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      await this.inventorySkus.findByNormalizedBarcodes(
+      await this.products.findByNormalizedBarcodes(
         organizationId,
         normalizedBarcodes,
       ),
@@ -67,39 +67,39 @@ export class SellpiaRecipeEvidenceAdapter implements SellpiaRecipeEvidencePort {
   ): Promise<SellpiaRecipeEvidenceSku[]> {
     return this.withAvailability(
       organizationId,
-      await this.inventorySkus.findByNormalizedNames(organizationId, normalizedNames),
+      await this.products.findByNormalizedNames(organizationId, normalizedNames),
     );
   }
 
   private async withAvailability(
     organizationId: string,
-    skus: SellpiaInventorySkuReadModel[],
+    products: ProductSourceReadModel[],
   ): Promise<SellpiaRecipeEvidenceSku[]> {
-    if (skus.length === 0) return [];
-    const availability = await this.availability.findBySkuIds({
+    if (products.length === 0) return [];
+    const availability = await this.availability.findByMasterProductIds({
       organizationId,
-      sellpiaInventorySkuIds: skus.map((sku) => sku.sellpiaInventorySkuId),
+      masterProductIds: products.map((product) => product.masterProductId),
     });
-    const availabilityBySkuId = new Map(availability.items.map((item) => [
-      item.sellpiaInventorySkuId,
+    const availabilityByMasterProductId = new Map(availability.items.map((item) => [
+      item.masterProductId,
       item,
     ]));
-    return skus.map((sku) => {
-      const stock = availabilityBySkuId.get(sku.sellpiaInventorySkuId);
-      return toEvidenceSku(sku, stock?.currentStock ?? null);
+    return products.map((product) => {
+      const stock = availabilityByMasterProductId.get(product.masterProductId);
+      return toEvidenceSku(product, stock?.currentStock ?? null);
     });
   }
 }
 
 function toEvidenceSku(sku: {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
   barcode: string | null;
 }, currentStock: number | null): SellpiaRecipeEvidenceSku {
   return {
-    sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
+    masterProductId: sku.masterProductId,
     code: sku.code,
     name: sku.name,
     optionName: sku.optionName,

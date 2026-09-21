@@ -18,7 +18,8 @@ function snapshot() {
     totalAmountCny: '45.60',
     items: [{
       productName: 'Silicone plate',
-      sellpiaInventorySkuId: SELLPIA_SKU_ID,
+      masterProductId: SELLPIA_SKU_ID,
+      legacySellpiaInventorySkuId: null,
       quantity: 2,
       unitPriceCny: '22.80',
     }],
@@ -73,7 +74,7 @@ function harness(options: { runtime?: boolean } = {}) {
       fence: '00000000-0000-4000-8000-000000000099',
       generation: '7',
       completedAt: '2026-07-16T00:00:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId: SELLPIA_SKU_ID, currentStock: 1 }],
+      products: [{ masterProductId: SELLPIA_SKU_ID, currentStock: 1 }],
     }),
   };
   const transaction = {
@@ -156,7 +157,7 @@ describe('PurchaseOrderSubmissionService', () => {
     expect(freshness.requireCollectedStock).toHaveBeenCalledWith({
       organizationId: 'org-1',
       attemptId: INVENTORY_ATTEMPT_ID,
-      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+      masterProductIds: [SELLPIA_SKU_ID],
     });
     expect(freshness.requireCollectedStock).toHaveBeenCalledBefore(
       transaction.prepare,
@@ -167,7 +168,7 @@ describe('PurchaseOrderSubmissionService', () => {
     expect(transaction.prepare).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,
-      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+      masterProductIds: [SELLPIA_SKU_ID],
       inventoryAttemptId: INVENTORY_ATTEMPT_ID,
       inventoryFence: '00000000-0000-4000-8000-000000000099',
       inventoryGeneration: '7',

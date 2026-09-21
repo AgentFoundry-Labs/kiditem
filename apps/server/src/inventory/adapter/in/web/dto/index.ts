@@ -3,12 +3,6 @@
 // `@Body()`/`@Query()`/`@Param()` and never declare a `organizationId` field on a
 // request DTO.
 
-// Sellpia-owned inventory snapshot
-export * from './sellpia-inventory-freshness.dto';
-export * from './sellpia-inventory-source.dto';
-export * from './list-inventory-skus-query.dto';
-export * from './list-sellpia-import-runs-query.dto';
-
 // Warehouses
 export { CreateWarehouseDto } from './create-warehouse.dto';
 export { UpdateWarehouseDto } from './update-warehouse.dto';

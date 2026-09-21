@@ -53,7 +53,7 @@ export class ChannelRegistrationCapabilityAdapter implements ChannelsMarketplace
           : "상품명과 일치하는 셀피아 재고를 찾지 못했습니다.",
       sellpiaMatch,
       proposals: suggestion.proposals.map((item) => ({
-        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+        sellpiaInventorySkuId: item.masterProductId,
         code: item.code,
         name: item.name,
         optionName: item.optionName,
@@ -80,10 +80,10 @@ export class ChannelRegistrationCapabilityAdapter implements ChannelsMarketplace
           "셀피아 상품의 판매 1개당 차감수량을 1 이상의 정수로 입력하세요.",
         );
       }
-      return this.finishPreflight(input, {
-        ...selectedSku,
-        quantity: input.selectedQuantity!,
-      });
+      return this.finishPreflight(
+        input,
+        toSellpiaMatch(selectedSku, input.selectedQuantity!),
+      );
     }
     const suggestion = await this.recipeSuggestions.suggestRegistration(
       input.organizationId,
@@ -108,14 +108,14 @@ export class ChannelRegistrationCapabilityAdapter implements ChannelsMarketplace
     input: ExternalProductRegistrationPreflightInput,
     sellpiaMatch: ExternalProductRegistrationPreflightResult["sellpiaMatch"],
   ): Promise<ExternalProductRegistrationPreflightResult> {
-    const existingListing =
-      await this.marketplaceRegistration.findExistingExternalProductRegistration(
+    const existingListing = sellpiaMatch.quantity === 1
+      ? await this.marketplaceRegistration.findExistingExternalProductRegistration(
         {
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
           externalVendorSku: sellpiaMatch.code,
         },
-      );
+      ) : null;
     return { sellpiaMatch, existingListing };
   }
 
@@ -151,7 +151,7 @@ export class ChannelRegistrationCapabilityAdapter implements ChannelsMarketplace
 
 function toSellpiaMatch(
   proposal: {
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     name: string;
     optionName: string | null;
@@ -160,7 +160,7 @@ function toSellpiaMatch(
   quantity: number,
 ): ExternalProductRegistrationPreflightResult["sellpiaMatch"] {
   return {
-    sellpiaInventorySkuId: proposal.sellpiaInventorySkuId,
+    sellpiaInventorySkuId: proposal.masterProductId,
     code: proposal.code,
     name: proposal.name,
     optionName: proposal.optionName,

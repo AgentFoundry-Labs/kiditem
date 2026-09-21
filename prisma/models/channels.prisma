@@ -36,24 +36,26 @@ model SellpiaManualMatchSnapshot {
 /// @namespace Channels
 /// @describe Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity.
 model SellpiaManualMatchAlias {
-  id                    String   @id @default(uuid()) @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
-  snapshotId            String   @map("snapshot_id") @db.Uuid
-  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  aliasTitle            String   @map("alias_title") @db.VarChar(500)
-  normalizedAlias       String   @map("normalized_alias") @db.VarChar(500)
-  itemCount             Int      @map("item_count")
-  matchedType           String   @map("matched_type") @db.VarChar(1)
-  evidenceCount         Int      @map("evidence_count")
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                          String   @id @default(uuid()) @db.Uuid
+  organizationId              String   @map("organization_id") @db.Uuid
+  snapshotId                  String   @map("snapshot_id") @db.Uuid
+  legacySellpiaInventorySkuId String?   @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String?  @map("master_product_id") @db.Uuid
+  aliasTitle                  String   @map("alias_title") @db.VarChar(500)
+  normalizedAlias             String   @map("normalized_alias") @db.VarChar(500)
+  itemCount                   Int      @map("item_count")
+  matchedType                 String   @map("matched_type") @db.VarChar(1)
+  evidenceCount               Int      @map("evidence_count")
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   snapshot     SellpiaManualMatchSnapshot @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([organizationId, normalizedAlias, sellpiaInventorySkuId, itemCount], map: "sellpia_manual_match_aliases_org_alias_sku_qty_key")
+  @@unique([organizationId, normalizedAlias, legacySellpiaInventorySkuId, itemCount], map: "sellpia_manual_match_aliases_org_alias_sku_qty_key")
   @@index([organizationId, normalizedAlias])
   @@index([snapshotId])
-  @@index([sellpiaInventorySkuId])
+  @@index([legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@map("sellpia_manual_match_aliases")
 }
 
@@ -386,7 +388,6 @@ model ChannelAdListingProductMonthlyFact {
   sourceImportRun SourceImportRun @relation("AdListingProductMonthlyFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelAccount  ChannelAccount  @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelListing  ChannelListing  @relation("AdFactChannelListing", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
-  masterProduct   MasterProduct   @relation("AdFactMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, channelAccountId, channelListingId, month, masterProductId], map: "channel_ad_listing_product_monthly_facts_generation_key")
   @@index([sourceImportRunId, organizationId], map: "channel_ad_listing_product_monthly_facts_source_run_org_idx")
@@ -719,11 +720,11 @@ model SellpiaSalesDailySnapshot {
 /// @namespace Channels
 /// @describe Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준.
 model SellpiaProductMonthlySales {
-  id                    String  @id @default(uuid()) @db.Uuid
-  organizationId        String  @map("organization_id") @db.Uuid
-  sourceImportRunId     String? @map("source_import_run_id") @db.Uuid
-  sellpiaInventorySkuId String? @map("sellpia_inventory_sku_id") @db.Uuid
-  masterProductId       String? @map("master_product_id") @db.Uuid
+  id                          String  @id @default(uuid()) @db.Uuid
+  organizationId              String  @map("organization_id") @db.Uuid
+  sourceImportRunId           String? @map("source_import_run_id") @db.Uuid
+  legacySellpiaInventorySkuId String? @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String? @map("master_product_id") @db.Uuid
 
   productCode String @map("product_code") // Sellpia 상품코드
   optionCode  String @map("option_code") // 옵션코드
@@ -752,14 +753,13 @@ model SellpiaProductMonthlySales {
 
   organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun     SourceImportRun? @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  frozenMasterProduct MasterProduct?   @relation("SellpiaProductMonthlyFrozenMaster", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_generation_identity_key", where: raw("source_import_run_id IS NOT NULL"))
   @@unique([organizationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_legacy_identity_key", where: raw("source_import_run_id IS NULL"))
   @@index([organizationId, yearMonth])
   @@index([organizationId, sourceImportRunId, yearMonth])
   @@index([sourceImportRunId, organizationId])
-  @@index([organizationId, sellpiaInventorySkuId])
+  @@index([organizationId, legacySellpiaInventorySkuId])
   @@index([organizationId, masterProductId])
   @@index([organizationId, productCode, optionCode])
   @@map("sellpia_product_monthly_sales")

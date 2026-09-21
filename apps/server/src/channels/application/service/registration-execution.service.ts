@@ -1,3 +1,4 @@
+import { preparedRegistrationRecipe } from '../../domain/registration-item-code';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_EXECUTION_REPOSITORY_PORT,
@@ -80,8 +81,10 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         ? { selectedQuantity: input.sellpiaQuantity }
         : {}),
     });
+    const clientInput = { ...input.registrationInput };
+    delete clientInput.kidItemCode;
     const registrationInput = {
-      ...input.registrationInput,
+      ...clientInput,
       // Server-derived only. A client-provided value with the same key is overwritten.
       // It lets confirmation reuse an account-scoped listing already present in our
       // synced channel catalog without consulting the Coupang Open API.
@@ -116,6 +119,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       ...operation,
       expectedVendorId: operation.expectedProviderAccountId,
       ...preflight,
+      sellpiaMatch: { ...preflight.sellpiaMatch, code: operation.kidItemCode ?? preflight.sellpiaMatch.code },
     };
   }
 
@@ -309,6 +313,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
             sourceCandidateId: submission.sourceCandidateId,
             channelAccountId: submission.channelAccountId,
             submissionKey: submission.submissionKey,
+            preparedRecipe: preparedRegistrationRecipe(submission.submissionPayloadJson) ?? undefined,
             externalListingId,
             displayName: submission.displayName,
           });

@@ -24,31 +24,25 @@ function makePrisma() {
   };
 }
 
-const identities = new Map<string, { sellpiaInventorySkuId: string; code: string; name: string; optionName: null }>();
+const identities = new Map<string, { masterProductId: string; code: string; name: string; optionName: null }>();
 
 function supplierProduct(params: {
   supplierId: string;
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   supplyPrice: number;
   isPrimary?: boolean;
   name?: string;
 }) {
-  identities.set(params.sellpiaInventorySkuId, {
-    sellpiaInventorySkuId: params.sellpiaInventorySkuId, code: `SP-${params.sellpiaInventorySkuId}`,
-    name: params.name ?? `Sellpia ${params.sellpiaInventorySkuId}`, optionName: null,
+  identities.set(params.masterProductId, {
+    masterProductId: params.masterProductId, code: `SP-${params.masterProductId}`,
+    name: params.name ?? `Sellpia ${params.masterProductId}`, optionName: null,
   });
   return {
-    id: `policy-${params.supplierId}-${params.sellpiaInventorySkuId}`,
-    sellpiaInventorySkuId: params.sellpiaInventorySkuId,
+    id: `policy-${params.supplierId}-${params.masterProductId}`,
+    masterProductId: params.masterProductId,
     supplyPrice: params.supplyPrice,
     minOrderQty: 1,
     isPrimary: params.isPrimary ?? true,
-    sellpiaInventorySku: {
-      id: params.sellpiaInventorySkuId,
-      code: `SP-${params.sellpiaInventorySkuId}`,
-      name: params.name ?? `Sellpia ${params.sellpiaInventorySkuId}`,
-      optionName: null,
-    },
   };
 }
 
@@ -56,7 +50,7 @@ type OrderLineInput = {
   id: string;
   quantity: number;
   totalPrice: number;
-  components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
+  components: Array<{ masterProductId: string; quantity: number }>;
 };
 
 /** The Orders reader publishes these lines, each sold under its own channel option. */
@@ -94,7 +88,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier One',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-1',
-          sellpiaInventorySkuId: 'sku-1',
+          masterProductId: 'sku-1',
           supplyPrice: 100,
         })],
       },
@@ -103,7 +97,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier Two',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-2',
-          sellpiaInventorySkuId: 'sku-2',
+          masterProductId: 'sku-2',
           supplyPrice: 300,
         })],
       },
@@ -113,8 +107,8 @@ describe('SupplierStatsService', () => {
       quantity: 2,
       totalPrice: 10_000,
       components: [
-        { sellpiaInventorySkuId: 'sku-1', quantity: 1 },
-        { sellpiaInventorySkuId: 'sku-2', quantity: 3 },
+        { masterProductId: 'sku-1', quantity: 1 },
+        { masterProductId: 'sku-2', quantity: 3 },
       ],
     }]);
 
@@ -162,7 +156,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier One',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-1',
-          sellpiaInventorySkuId: 'sku-1',
+          masterProductId: 'sku-1',
           supplyPrice: 100,
         })],
       },
@@ -172,8 +166,8 @@ describe('SupplierStatsService', () => {
       quantity: 4,
       totalPrice: 12_345,
       components: [
-        { sellpiaInventorySkuId: 'sku-1', quantity: 2 },
-        { sellpiaInventorySkuId: 'sku-without-primary-supplier', quantity: 1 },
+        { masterProductId: 'sku-1', quantity: 2 },
+        { masterProductId: 'sku-without-primary-supplier', quantity: 1 },
       ],
     }]);
 
@@ -201,7 +195,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier One',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-1',
-          sellpiaInventorySkuId: 'sku-a',
+          masterProductId: 'sku-a',
           supplyPrice: 1,
         })],
       },
@@ -210,7 +204,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier Two',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-2',
-          sellpiaInventorySkuId: 'sku-z',
+          masterProductId: 'sku-z',
           supplyPrice: 1,
         })],
       },
@@ -220,8 +214,8 @@ describe('SupplierStatsService', () => {
       quantity: 1,
       totalPrice: 101,
       components: [
-        { sellpiaInventorySkuId: 'sku-z', quantity: 1 },
-        { sellpiaInventorySkuId: 'sku-a', quantity: 1 },
+        { masterProductId: 'sku-z', quantity: 1 },
+        { masterProductId: 'sku-a', quantity: 1 },
       ],
     }]);
 
@@ -248,7 +242,7 @@ describe('SupplierStatsService', () => {
         name: 'Supplier One',
         supplierProducts: [supplierProduct({
           supplierId: 'supplier-1',
-          sellpiaInventorySkuId: 'sku-1',
+          masterProductId: 'sku-1',
           supplyPrice: 500,
           name: '우파루팡반짝슈가말랑이',
         })],
@@ -258,7 +252,7 @@ describe('SupplierStatsService', () => {
       id: 'line-1',
       quantity: 1,
       totalPrice: 8_000,
-      components: [{ sellpiaInventorySkuId: 'sku-1', quantity: 8 }],
+      components: [{ masterProductId: 'sku-1', quantity: 8 }],
     }]);
 
     const report = await service.getProductSales('organization-1', 'supplier-1');

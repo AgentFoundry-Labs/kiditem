@@ -1,7 +1,12 @@
 // apps/server/src/orders/services/reviews.service.ts
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readPublishedProductAbcGrades } from '../../products/read/product-abc-publication.reader';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
+import { readPublishedProductAbcGrades } from '../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
 import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
 import {
@@ -44,7 +49,12 @@ const DEFAULT_FILTER: ReviewFilter = 'all';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort =
+      new ProductTransactionalReadRepositoryAdapter(),
+  ) {}
 
   /**
    * Per-listing aggregate review rows for `/reviews` UI.
@@ -222,9 +232,7 @@ export class ReviewsService {
         id: true,
         channelName: true,
         displayName: true,
-        masterProduct: {
-          select: { id: true, name: true },
-        },
+        masterProductId: true,
         options: {
           select: { sellerSku: true },
           where: { isActive: true },
@@ -234,23 +242,35 @@ export class ReviewsService {
         organization: { select: { name: true } },
       },
     });
+    const masterProductIds = [...new Set(rows.flatMap((row) =>
+      row.masterProductId ? [row.masterProductId] : []))];
+    const products = masterProductIds.length === 0
+      ? []
+      : await this.products.readSourceIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+      );
+    const productById = new Map(products.map((product) => [product.masterProductId, product]));
+    const currentMasterProductIds = products.map((product) => product.masterProductId);
     const gradeByProductId = await readPublishedProductAbcGrades(tx, {
       organizationId,
-      masterProductIds: rows.flatMap((row) =>
-        row.masterProduct ? [row.masterProduct.id] : []),
+      masterProductIds: currentMasterProductIds,
     });
     const map = new Map<string, ListingDisplay>();
     for (const row of rows) {
+      const product = row.masterProductId
+        ? productById.get(row.masterProductId)
+        : undefined;
       map.set(row.id, {
-        masterId: row.masterProduct?.id ?? null,
-        productName: row.masterProduct?.name
+        masterId: product?.masterProductId ?? null,
+        productName: product?.name
           ?? row.displayName
           ?? row.channelName
           ?? null,
         sku: row.options[0]?.sellerSku ?? null,
         companyName: row.organization?.name ?? null,
-        grade: row.masterProduct
-          ? gradeByProductId.get(row.masterProduct.id) ?? null
+        grade: product
+          ? gradeByProductId.get(product.masterProductId) ?? null
           : null,
       });
     }

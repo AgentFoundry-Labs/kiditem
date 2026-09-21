@@ -1,47 +1,12 @@
-// inventory.prisma — Sellpia physical inventory and record-only operations.
-// Current stock belongs exclusively to SellpiaInventorySku and is replaced by
-// a completed Sellpia full-snapshot import.
+// inventory.prisma — record-only warehouse and history operations.
+//
+// Current source stock lives on MasterProduct. Historical rows retain the
+// physical `sellpia_inventory_sku_id` value as `legacySellpiaInventorySkuId`
+// and may carry a resolved MasterProduct id. They have no FK to a live product
+// so deleting a source product cannot erase historical evidence.
 
-// Records in other domains retain sellpiaInventorySkuId as an indexed historical ID.
-// Inbound SKU FKs stay absent so deleting a current SKU preserves history and
-// owner readers can resolve the current identity optionally within organization scope.
-/// @namespace Inventory
-/// @describe One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock.
-model SellpiaInventorySku {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
-  masterProductId String? @map("master_product_id") @db.Uuid
-  code            String
-  name            String
-  optionName      String? @map("option_name")
-  barcode         String?
-  currentStock    Int     @default(0) @map("current_stock")
-  purchasePrice   Int?    @map("purchase_price")
-  salePrice       Int?    @map("sale_price")
-  isActive        Boolean @default(true) @map("is_active")
-  rawJson         Json?   @map("raw_json")
-  lastImportRunId String? @map("last_import_run_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct MasterProduct?   @relation("MasterProductInventorySkus", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lastImportRun SourceImportRun? @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, code])
-  @@unique([organizationId, masterProductId], map: "sellpia_inventory_skus_org_master_key")
-  @@unique([id, organizationId], map: "sellpia_inventory_skus_id_org_key")
-  @@index([organizationId])
-  @@index([organizationId, masterProductId])
-  @@index([organizationId, barcode])
-  @@index([lastImportRunId])
-  @@index([organizationId, isActive])
-  @@map("sellpia_inventory_skus")
-}
-
-/// @namespace Inventory
-/// @describe Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease.
+/// @namespace Products
+/// @describe Organization-scoped Sellpia source binding, completion state, generation fence, and active collection lease.
 model SellpiaInventoryState {
   organizationId           String    @id @map("organization_id") @db.Uuid
   sourceOrigin             String    @default("https://kiditem.sellpia.com") @map("source_origin")
@@ -79,28 +44,30 @@ model SellpiaInventoryState {
 }
 
 /// @namespace Inventory
-/// @describe Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock.
+/// @describe Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock.
 model StockTransfer {
-  id                    String    @id @default(uuid()) @db.Uuid
-  organizationId        String    @map("organization_id") @db.Uuid
-  sellpiaInventorySkuId String    @map("sellpia_inventory_sku_id") @db.Uuid
-  optionName            String?   @map("option_name")
-  fromWarehouseId       String    @map("from_warehouse_id") @db.Uuid
-  toWarehouseId         String    @map("to_warehouse_id") @db.Uuid
-  quantity              Int
-  status                String    @default("pending")
-  requestedBy           String?   @map("requested_by")
-  completedAt           DateTime? @map("completed_at") @db.Timestamptz
-  notes                 String?
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                          String    @id @default(uuid()) @db.Uuid
+  organizationId              String    @map("organization_id") @db.Uuid
+  legacySellpiaInventorySkuId String?    @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String?   @map("master_product_id") @db.Uuid
+  optionName                  String?   @map("option_name")
+  fromWarehouseId             String    @map("from_warehouse_id") @db.Uuid
+  toWarehouseId               String    @map("to_warehouse_id") @db.Uuid
+  quantity                    Int
+  status                      String    @default("pending")
+  requestedBy                 String?   @map("requested_by")
+  completedAt                 DateTime? @map("completed_at") @db.Timestamptz
+  notes                       String?
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   fromWarehouse Warehouse    @relation("TransferFromWarehouse", fields: [fromWarehouseId, organizationId], references: [id, organizationId])
   toWarehouse   Warehouse    @relation("TransferToWarehouse", fields: [toWarehouseId, organizationId], references: [id, organizationId])
 
   @@index([organizationId])
-  @@index([sellpiaInventorySkuId])
+  @@index([legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@index([fromWarehouseId])
   @@index([toWarehouseId])
   @@index([status])
@@ -133,28 +100,30 @@ model Warehouse {
 
 /// @namespace Inventory
 model ReturnTransfer {
-  id                    String    @id @default(uuid()) @db.Uuid
-  organizationId        String    @map("organization_id") @db.Uuid
-  rtNumber              String    @map("rt_number")
-  orderId               String?   @map("order_id") @db.Uuid
-  sellpiaInventorySkuId String    @map("sellpia_inventory_sku_id") @db.Uuid
-  optionName            String?   @map("option_name")
-  quantity              Int
-  status                String    @default("received")
-  condition             String    @default("good")
-  restockedQty          Int       @default(0) @map("restocked_qty")
-  disposedQty           Int       @default(0) @map("disposed_qty")
-  notes                 String?
-  processedBy           String?   @map("processed_by")
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  completedAt           DateTime? @map("completed_at") @db.Timestamptz
-  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                          String    @id @default(uuid()) @db.Uuid
+  organizationId              String    @map("organization_id") @db.Uuid
+  rtNumber                    String    @map("rt_number")
+  orderId                     String?   @map("order_id") @db.Uuid
+  legacySellpiaInventorySkuId String?    @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId             String?   @map("master_product_id") @db.Uuid
+  optionName                  String?   @map("option_name")
+  quantity                    Int
+  status                      String    @default("received")
+  condition                   String    @default("good")
+  restockedQty                Int       @default(0) @map("restocked_qty")
+  disposedQty                 Int       @default(0) @map("disposed_qty")
+  notes                       String?
+  processedBy                 String?   @map("processed_by")
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  completedAt                 DateTime? @map("completed_at") @db.Timestamptz
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, rtNumber])
   @@index([organizationId])
-  @@index([sellpiaInventorySkuId])
+  @@index([legacySellpiaInventorySkuId])
+  @@index([organizationId, masterProductId])
   @@index([status])
   @@map("return_transfers")
 }

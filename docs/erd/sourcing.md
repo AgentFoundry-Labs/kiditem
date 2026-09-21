@@ -199,7 +199,7 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String provenanceMasterProductId FK
+    String provenanceMasterProductId
     String rejectedReason
     DateTime rejectedAt
     String rejectedByUserId FK
@@ -701,7 +701,6 @@ erDiagram
 | ShortsTrendDailySnapshot | organization | references external | Core | Organization |
 | Sourcing1688OfferKeywordObservation | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
-| SourcingCandidate | provenanceMasterProduct | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
@@ -709,7 +708,7 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
-| SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |
+| SourcingCandidate | sourceCandidate | referenced by external | Channels | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingCollectionSourceControl | organization | references external | Core | Organization |
 | SourcingDecisionBatch | organization | references external | Core | Organization |

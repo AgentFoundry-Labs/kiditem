@@ -2,17 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
 
 const active = {
-  id: '11111111-1111-4111-8111-111111111111',
-  code: 'PRODUCT-CODE',
+  masterProductId: '11111111-1111-4111-8111-111111111111',
+  code: 'KID00000001',
+  sourceAccountKey: 'kiditem',
+  sourceProductCode: 'PRODUCT-CODE',
+  sourceOptionCode: '',
   barcode: 'BARCODE-1',
 };
 
 describe('createSellpiaProductInventoryResolver', () => {
-  it('resolves exact product code before option code and barcode', () => {
+  it('resolves the exact source product and option pair before barcode', () => {
     const resolve = createSellpiaProductInventoryResolver([
       active,
-      { ...active, id: '22222222-2222-4222-8222-222222222222', code: 'OPTION-CODE', barcode: 'BARCODE-2' },
-      { ...active, id: '33333333-3333-4333-8333-333333333333', code: 'BARCODE-SKU', barcode: 'ROW-BARCODE' },
+      {
+        ...active,
+        masterProductId: '22222222-2222-4222-8222-222222222222',
+        code: 'KID00000002',
+        sourceOptionCode: 'OPTION-CODE',
+        barcode: 'BARCODE-2',
+      },
+      {
+        ...active,
+        masterProductId: '33333333-3333-4333-8333-333333333333',
+        code: 'KID00000003',
+        sourceProductCode: 'BARCODE-PRODUCT',
+        barcode: 'ROW-BARCODE',
+      },
     ]);
 
     expect(resolve({
@@ -21,19 +36,31 @@ describe('createSellpiaProductInventoryResolver', () => {
       barcode: 'ROW-BARCODE',
     })).toEqual({
       status: 'matched',
-      sellpiaInventorySkuId: active.id,
+      masterProductId: '22222222-2222-4222-8222-222222222222',
     });
   });
 
   it('falls back to a nonblank exact option code and then a unique barcode', () => {
-    const option = { ...active, id: '22222222-2222-4222-8222-222222222222', code: 'OPTION-CODE', barcode: null };
-    const barcode = { ...active, id: '33333333-3333-4333-8333-333333333333', code: 'BARCODE-SKU', barcode: 'ROW-BARCODE' };
+    const option = {
+      ...active,
+      masterProductId: '22222222-2222-4222-8222-222222222222',
+      code: 'KID00000002',
+      sourceOptionCode: 'OPTION-CODE',
+      barcode: null,
+    };
+    const barcode = {
+      ...active,
+      masterProductId: '33333333-3333-4333-8333-333333333333',
+      code: 'KID00000003',
+      sourceProductCode: 'BARCODE-PRODUCT',
+      barcode: 'ROW-BARCODE',
+    };
     const resolve = createSellpiaProductInventoryResolver([active, option, barcode]);
 
-    expect(resolve({ productCode: 'missing', optionCode: ' OPTION-CODE ', barcode: null }))
-      .toEqual({ status: 'matched', sellpiaInventorySkuId: option.id });
+    expect(resolve({ productCode: 'PRODUCT-CODE', optionCode: ' OPTION-CODE ', barcode: null }))
+      .toEqual({ status: 'matched', masterProductId: option.masterProductId });
     expect(resolve({ productCode: 'missing', optionCode: '', barcode: ' ROW-BARCODE ' }))
-      .toEqual({ status: 'matched', sellpiaInventorySkuId: barcode.id });
+      .toEqual({ status: 'matched', masterProductId: barcode.masterProductId });
   });
 
   it('resolves an exact candidate regardless of inventory lifecycle metadata', () => {
@@ -41,17 +68,22 @@ describe('createSellpiaProductInventoryResolver', () => {
       active,
     ]);
 
-    expect(resolve({ productCode: active.code, optionCode: '', barcode: null }))
+    expect(resolve({ productCode: active.sourceProductCode, optionCode: '', barcode: null }))
       .toEqual({
         status: 'matched',
-        sellpiaInventorySkuId: active.id,
+        masterProductId: active.masterProductId,
       });
   });
 
   it('does not guess among duplicate barcode candidates', () => {
     const resolve = createSellpiaProductInventoryResolver([
       active,
-      { ...active, id: '22222222-2222-4222-8222-222222222222', code: 'OTHER' },
+      {
+        ...active,
+        masterProductId: '22222222-2222-4222-8222-222222222222',
+        code: 'KID00000002',
+        sourceProductCode: 'OTHER-PRODUCT',
+      },
     ]);
 
     expect(resolve({ productCode: 'missing', optionCode: '', barcode: active.barcode }))

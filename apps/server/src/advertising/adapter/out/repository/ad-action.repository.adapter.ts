@@ -4,7 +4,7 @@
 // Execution words are read from each action's latest ExecutionTask through
 // `read/ad-action-execution.ts`; this adapter writes them only to that task.
 
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import {
   AD_ACTION_COMMAND_MAX_IDS,
@@ -26,7 +26,11 @@ import {
   type LatestExecutionTaskColumns,
 } from '../../../read/ad-action-execution';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
-import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
@@ -155,6 +159,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     // The adapter depends on a sibling adapter here, which is allowed for
     // intra-domain composition; ports/services never see this.
     private readonly listingAdapter: AdListingRepositoryAdapter,
+    @Optional()
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products?: ProductTransactionalReadPort,
   ) {}
 
   async findAdActionsForReview(
@@ -351,14 +358,13 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          mp.id                        AS "masterProductId",
+          cl.master_product_id        AS "masterProductId",
           cl.account_channel           AS "listingChannel",
           -- Keyword rows frequently have no listing match (7,432 of 9,266 in
           -- the live account), but the advertised item name is always stamped
           -- by ingest. Relevance cannot be judged without a product name, so
           -- fall back to it after the catalog-derived names.
           COALESCE(
-            mp.name,
             cl.display_name,
             cl.channel_name,
             cl.external_id,
@@ -374,19 +380,29 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND clo.organization_id = ${organizationId}::uuid
               AND clo.listing_id = cl.id
               AND clo.is_active = true
-        LEFT JOIN master_products mp
-              ON mp.id = cl.master_product_id
-              AND mp.organization_id = ${organizationId}::uuid
-              AND mp.is_active = true
       `,
         );
+        const masterProductIds = [...new Set(targets.flatMap((target) =>
+          target.masterProductId ? [target.masterProductId] : []))];
+        const identities = this.products
+          ? await this.products.readSourceIdentities(
+            { client: tx },
+            { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+          )
+          : [];
+        const identityById = new Map(identities.map((identity) => [
+          identity.masterProductId,
+          identity,
+        ]));
         const gradeByProductId = await readPublishedProductAbcGrades(tx, {
           organizationId,
-          masterProductIds: targets.flatMap((target) =>
-            target.masterProductId ? [target.masterProductId] : []),
+          masterProductIds,
         });
         return targets.map(({ masterProductId, ...target }) => ({
           ...target,
+          productName: masterProductId
+            ? identityById.get(masterProductId)?.name ?? target.productName
+            : target.productName,
           abcGrade: masterProductId
             ? gradeByProductId.get(masterProductId) ?? null
             : null,

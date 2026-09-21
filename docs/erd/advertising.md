@@ -54,6 +54,6 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | AdAction | adTargetDaily | references external | Channels | ChannelAdTargetDailySnapshot |
-| AdAction | listing | references external | Core | ChannelListing |
+| AdAction | listing | references external | Channels | ChannelListing |
 | AdAction | listingOption | references external | Core | ChannelListingOption |
 | AdAction | organization | references external | Core | Organization |

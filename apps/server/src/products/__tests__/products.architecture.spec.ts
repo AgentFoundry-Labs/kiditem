@@ -3,21 +3,22 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { ProductOperationsController } from '../adapter/in/http/product-operations.controller';
-import { ProductRecipeComponentCandidateService } from '../application/service/product-recipe-component-candidate.service';
+import { ProductOperationsController } from '../adapter/in/web/product-operations.controller';
 import { CategoriesModule } from '../categories/categories.module';
 import { CategoriesController } from '../categories/categories.controller';
 import { CoupangCategorySuggestionService } from '../categories/coupang-category-suggestion.service';
 import { ProductsModule } from '../products.module';
-import { InventoryModule } from '../../inventory/inventory.module';
+import { ProductSourceModule } from '../product-source.module';
+import { PRODUCT_QUERY_PORT } from '../application/port/in/product-query.port';
+import { PRODUCT_METADATA_PORT } from '../application/port/in/product-metadata.port';
 import { AnalyticsModule } from '../../analytics/analytics.module';
 import { AiModule } from '../../ai/ai.module';
 import { FinanceModule } from '../../finance/finance.module';
-import { ProductAbcController } from '../adapter/in/http/product-abc.controller';
+import { ProductAbcController } from '../adapter/in/web/product-abc.controller';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from '../application/port/in/master-product-abc-recalculation.port';
-import { MasterProductAbcService } from '../application/service/master-product-abc.service';
-import { ProductRecipeMutationModule } from '../product-recipe-mutation.module';
-import { PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT } from '../application/port/in/product-channel-option-recipe-mutation.port';
+import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
+import { ChannelOptionRecipeModule } from '../../channels/channel-option-recipe.module';
+import { CHANNEL_OPTION_RECIPE_PORT } from '../../channels/application/port/in/channel-option-recipe.port';
 
 describe('Products architecture', () => {
   it('publishes the organization-scoped WING category suggestion route', () => {
@@ -29,16 +30,14 @@ describe('Products architecture', () => {
     expect(providers).toContain(CoupangCategorySuggestionService);
   });
 
-  it('publishes the direct master-product and channel-option routes', () => {
+  it('publishes product reads, image edits and explicit source correction', () => {
     expect(Reflect.getMetadata('path', ProductOperationsController)).toBe('products');
     const routes = [
       ['listProducts', 'masters', RequestMethod.GET],
       ['getDataStatus', 'masters/data-status', RequestMethod.GET],
-      ['listRecipeComponentCandidates', 'recipe-component-candidates', RequestMethod.GET],
-      ['createProduct', 'masters', RequestMethod.POST],
       ['getProduct', 'masters/:masterProductId', RequestMethod.GET],
       ['updateProduct', 'masters/:masterProductId', RequestMethod.PATCH],
-      ['replaceChannelOptionInventory', 'channel-options/:channelListingOptionId/inventory-components', RequestMethod.PUT],
+      ['correctSourceBinding', 'masters/:masterProductId/source-binding', RequestMethod.PATCH],
     ] as const;
 
     for (const [methodName, path, method] of routes) {
@@ -56,7 +55,7 @@ describe('Products architecture', () => {
     expect(controllers).toContain(ProductAbcController);
     expect(providers).toContainEqual({
       provide: MASTER_PRODUCT_ABC_RECALCULATION_PORT,
-      useExisting: MasterProductAbcService,
+      useExisting: RecalculateProductAbcUseCase,
     });
     expect(exports).not.toContain(MASTER_PRODUCT_ABC_RECALCULATION_PORT);
   });
@@ -64,7 +63,7 @@ describe('Products architecture', () => {
   it('owns the Categories compatibility module', () => {
     const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
     expect(imports).toContain(CategoriesModule);
-    expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ProductSourceModule);
     expect(imports).toContain(AnalyticsModule);
     expect(imports).toContain(AiModule);
     expect(imports).toContain(FinanceModule);
@@ -72,7 +71,6 @@ describe('Products architecture', () => {
       expect.objectContaining({ name: 'OperationsModule' }),
     ]));
     const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
-    expect(providers).toContain(ProductRecipeComponentCandidateService);
     expect(providers).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'ProductsListingGenerationOperationHandler' }),
     ]));
@@ -92,15 +90,17 @@ describe('Products architecture', () => {
 
   it('does not export internal inventory-recipe adapters', () => {
     const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
-    expect(exports.some((value: unknown) => typeof value === 'function')).toBe(true);
+    expect(exports).toContain(PRODUCT_QUERY_PORT);
+    expect(exports).toContain(PRODUCT_METADATA_PORT);
+    expect(exports.some((value: unknown) => typeof value === 'function')).toBe(false);
     expect(exports.map(String)).not.toContain('ProductRecipeComponentCandidateService');
   });
 
   it('publishes the focused recipe mutation owner port', () => {
     const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
-    const exports = Reflect.getMetadata('exports', ProductRecipeMutationModule) ?? [];
-    expect(imports).toContain(ProductRecipeMutationModule);
-    expect(exports).toContain(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT);
+    const exports = Reflect.getMetadata('exports', ChannelOptionRecipeModule) ?? [];
+    expect(imports).toContain(ChannelOptionRecipeModule);
+    expect(exports).toContain(CHANNEL_OPTION_RECIPE_PORT);
   });
 
 });

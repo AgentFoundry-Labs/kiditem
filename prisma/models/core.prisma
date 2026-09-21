@@ -107,7 +107,6 @@ model Organization {
   masterProductAbcFormulaState                MasterProductAbcFormulaState?
   masterProductAbcEvaluations                 MasterProductAbcEvaluation[]
   masterProductAbcGradeHistories              MasterProductAbcGradeHistory[]
-  sellpiaInventorySkus                        SellpiaInventorySku[]
   channelListings                             ChannelListing[]
   channelListingOptions                       ChannelListingOption[]
   channelListingOptionInventoryComponents     ChannelListingOptionInventoryComponent[]
@@ -386,7 +385,6 @@ model SourceImportRun {
   channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
   sellpiaProductMonthlySales              SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlySourceImport")
-  sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
   channelScrapeRuns                       ChannelScrapeRun[]
@@ -468,44 +466,34 @@ model CategoryMapping {
   @@map("category_mappings")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Organization-owned canonical inventory product and sole official product ABC identity.
 model MasterProduct {
-  id                     String   @id @default(uuid()) @db.Uuid
-  organizationId         String   @map("organization_id") @db.Uuid
-  originChannelListingId String?  @map("origin_channel_listing_id") @db.Uuid
-  code                   String
-  name                   String
-  description            String?
-  category               String?
-  brand                  String?
-  tags                   String[] @default([])
-  imageUrls              String[] @default([]) @map("image_urls")
-  adBudgetLimit          Int?     @map("ad_budget_limit")
-  isActive               Boolean  @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  code              String   @unique(map: "master_products_code_key") @db.VarChar(11)
+  sourceAccountKey  String   @map("source_account_key")
+  sourceProductCode String   @map("source_product_code")
+  sourceOptionCode  String   @map("source_option_code")
+  name              String
+  optionName        String?  @map("option_name")
+  barcode           String?
+  currentStock      Int      @default(0) @map("current_stock")
+  purchasePrice     Int?     @map("purchase_price")
+  imageUrls         String[] @default([]) @map("image_urls")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                 Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provenanceCandidate          SourcingCandidate?                   @relation("SourcingCandidateProvenance")
-  channelListings              ChannelListing[]                     @relation("ChannelListingOperationalProduct")
-  originChannelListing         ChannelListing?                      @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  inventorySkus                SellpiaInventorySku[]                @relation("MasterProductInventorySkus")
-  frozenSellpiaProfitFacts     SellpiaProductMonthlySales[]         @relation("SellpiaProductMonthlyFrozenMaster")
-  frozenAdvertisingProfitFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactMasterProduct")
   abcEvaluation                MasterProductAbcEvaluation?
   abcGradeHistories            MasterProductAbcGradeHistory[]
 
-  @@unique([organizationId, code])
-  @@unique([originChannelListingId, organizationId])
   @@unique([id, organizationId], map: "master_products_id_org_key")
-  @@index([organizationId])
-  @@index([organizationId, isActive])
+  @@unique([organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode], map: "master_products_source_identity_key")
   @@map("master_products")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Immutable organization-owned formula versions for absolute product ABC publication.
 model MasterProductAbcFormulaVersion {
   id              String   @id @default(uuid()) @db.Uuid
@@ -529,7 +517,7 @@ model MasterProductAbcFormulaVersion {
   @@map("master_product_abc_formula_versions")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe One organization-owned formula and official publication envelope.
 model MasterProductAbcFormulaState {
   organizationId                        String    @id @map("organization_id") @db.Uuid
@@ -556,7 +544,7 @@ model MasterProductAbcFormulaState {
   @@map("master_product_abc_formula_states")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Current Products-owned normal absolute ABC evaluation for one MasterProduct.
 model MasterProductAbcEvaluation {
   id                           String    @id @default(uuid()) @db.Uuid
@@ -606,7 +594,7 @@ model MasterProductAbcEvaluation {
   @@map("master_product_abc_evaluations")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Immutable absolute ABC grade transitions after the initial baseline.
 model MasterProductAbcGradeHistory {
   id                                   String   @id @default(uuid()) @db.Uuid
@@ -648,7 +636,7 @@ model MasterProductAbcGradeHistory {
   @@map("master_product_abc_grade_histories")
 }
 
-/// @namespace Core
+/// @namespace Channels
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
   id                String  @id @default(uuid()) @db.Uuid
@@ -683,8 +671,6 @@ model ChannelListing {
   organization                  Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount                ChannelAccount                    @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceCandidate               SourcingCandidate?                @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProduct                 MasterProduct?                    @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  originatedMasterProduct       MasterProduct?                    @relation("ChannelListingOriginProduct")
   lastImportRun                 SourceImportRun?                  @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options                       ChannelListingOption[]
   contentWorkspaces             ContentWorkspace[]
@@ -729,6 +715,7 @@ model ChannelListingOption {
   organizationId String @map("organization_id") @db.Uuid
 
   externalOptionId String  @map("external_option_id") @db.VarChar(60)
+  kidItemCode      String? @map("kid_item_code") @db.VarChar(11)
   itemName         String? @map("item_name")
   salePrice        Int?    @map("sale_price")
   sellerSku        String? @map("seller_sku")
@@ -760,6 +747,7 @@ model ChannelListingOption {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([listingId, externalOptionId])
+  @@index([kidItemCode], map: "channel_listing_options_kid_item_code_idx")
   @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
@@ -767,13 +755,13 @@ model ChannelListingOption {
   @@map("channel_listing_options")
 }
 
-/// @namespace Core
-/// @describe Confirmed Sellpia inventory consumption for one channel sellable option.
+/// @namespace Channels
+/// @describe Confirmed source-product quantities for one channel sellable option.
 model ChannelListingOptionInventoryComponent {
   id                     String   @id @default(uuid()) @db.Uuid
   organizationId         String   @map("organization_id") @db.Uuid
   channelListingOptionId String   @map("channel_listing_option_id") @db.Uuid
-  sellpiaInventorySkuId  String   @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId        String   @map("master_product_id") @db.Uuid
   quantity               Int
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -781,8 +769,8 @@ model ChannelListingOptionInventoryComponent {
   organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([channelListingOptionId, sellpiaInventorySkuId])
+  @@unique([channelListingOptionId, masterProductId])
   @@index([organizationId, channelListingOptionId], map: "channel_option_inventory_components_org_option_idx")
-  @@index([organizationId, sellpiaInventorySkuId], map: "channel_option_inventory_components_org_sku_idx")
+  @@index([organizationId, masterProductId], map: "channel_option_inventory_components_org_master_product_idx")
   @@map("channel_listing_option_inventory_components")
 }

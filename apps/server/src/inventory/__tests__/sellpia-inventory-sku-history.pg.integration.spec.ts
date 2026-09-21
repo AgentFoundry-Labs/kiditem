@@ -8,10 +8,10 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 
-describe('Sellpia inventory SKU historical references (PG integration)', () => {
+describe('MasterProduct historical references (PG integration)', () => {
   let prisma: PrismaClient;
 
   beforeAll(async () => {
@@ -31,14 +31,14 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
   it('deletes a SKU without losing scoped history or relinking a recollection', async () => {
     const skuId = randomUUID();
     const foreignSkuId = randomUUID();
-    await seedActiveSellpiaInventorySku(prisma, {
+    await seedSourceProduct(prisma, {
       id: skuId,
       organizationId: TEST_ORGANIZATION_ID,
       code: 'HISTORY-SKU',
       name: 'Historical SKU',
       currentStock: 12,
     });
-    await seedActiveSellpiaInventorySku(prisma, {
+    await seedSourceProduct(prisma, {
       id: foreignSkuId,
       organizationId: OTHER_ORGANIZATION_ID,
       code: 'OTHER-HISTORY-SKU',
@@ -70,7 +70,7 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         snapshotId: snapshot.id,
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
         aliasTitle: 'Historical alias',
         normalizedAlias: 'historical alias',
         itemCount: 1,
@@ -82,7 +82,7 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         snapshotId: foreignSnapshot.id,
-        sellpiaInventorySkuId: foreignSkuId,
+        masterProductId: foreignSkuId,
         aliasTitle: 'Other alias',
         normalizedAlias: 'other alias',
         itemCount: 1,
@@ -100,7 +100,7 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
     const stockTransfer = await prisma.stockTransfer.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
         fromWarehouseId: fromWarehouse.id,
         toWarehouseId: toWarehouse.id,
         quantity: 2,
@@ -111,7 +111,7 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         rtNumber: 'RT-HISTORY-1',
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
         quantity: 1,
       },
     });
@@ -134,7 +134,6 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
       ORDER BY tablename
     `;
     expect(indexedSkuTables.map(({ tableName }) => tableName)).toEqual([
-      'channel_listing_option_inventory_components',
       'purchase_order_items',
       'return_transfers',
       'rocket_purchase_confirmation_allocations',
@@ -144,57 +143,54 @@ describe('Sellpia inventory SKU historical references (PG integration)', () => {
       'supplier_products',
     ]);
 
-    await prisma.sellpiaInventorySku.delete({ where: { id: skuId } });
+    await prisma.masterProduct.delete({ where: { id: skuId } });
 
-    expect(await prisma.sellpiaInventorySku.findUnique({ where: { id: skuId } })).toBeNull();
+    expect(await prisma.masterProduct.findUnique({ where: { id: skuId } })).toBeNull();
     await expect(prisma.sellpiaManualMatchAlias.findUniqueOrThrow({ where: { id: alias.id } }))
       .resolves.toMatchObject({
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
       });
     await expect(prisma.stockTransfer.findUniqueOrThrow({ where: { id: stockTransfer.id } }))
       .resolves.toMatchObject({
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
       });
     await expect(prisma.returnTransfer.findUniqueOrThrow({ where: { id: returnTransfer.id } }))
       .resolves.toMatchObject({
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
       });
 
-    const missingCurrentIdentity = await prisma.sellpiaInventorySku.findFirst({
+    const missingCurrentIdentity = await prisma.masterProduct.findFirst({
       where: { id: skuId, organizationId: TEST_ORGANIZATION_ID },
     });
     expect(missingCurrentIdentity).toBeNull();
     expect(
       await prisma.sellpiaManualMatchAlias.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
-        select: { sellpiaInventorySkuId: true },
+        select: { masterProductId: true },
       }),
-    ).toEqual([{ sellpiaInventorySkuId: skuId }]);
+    ).toEqual([{ masterProductId: skuId }]);
     expect(
       await prisma.sellpiaManualMatchAlias.findMany({
         where: { organizationId: OTHER_ORGANIZATION_ID },
-        select: { id: true, sellpiaInventorySkuId: true },
+        select: { id: true, masterProductId: true },
       }),
-    ).toEqual([{ id: foreignAlias.id, sellpiaInventorySkuId: foreignSkuId }]);
+    ).toEqual([{ id: foreignAlias.id, masterProductId: foreignSkuId }]);
 
-    const recollectedSku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'HISTORY-SKU',
-        name: 'Recollected SKU',
-        currentStock: 4,
-        isActive: true,
-      },
+    const recollectedSku = await seedSourceProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'HISTORY-SKU',
+      name: 'Recollected source product',
+      currentStock: 4,
     });
     expect(recollectedSku.id).not.toBe(skuId);
     expect(
       await prisma.stockTransfer.findUniqueOrThrow({ where: { id: stockTransfer.id } }),
-    ).toMatchObject({ sellpiaInventorySkuId: skuId });
+    ).toMatchObject({ masterProductId: skuId });
     expect(
       await prisma.sellpiaManualMatchAlias.findUniqueOrThrow({ where: { id: alias.id } }),
-    ).toMatchObject({ sellpiaInventorySkuId: skuId });
+    ).toMatchObject({ masterProductId: skuId });
   });
 });

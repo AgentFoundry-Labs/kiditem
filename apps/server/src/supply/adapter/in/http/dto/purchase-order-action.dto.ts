@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
   @IsString() @IsOptional() productId?: string;
-  @IsUUID() sellpiaInventorySkuId: string;
+  @IsUUID() masterProductId: string;
   @IsInt() @IsPositive() quantity: number;
   @IsNumber() unitPriceCny: number;
 }

@@ -4,12 +4,12 @@ import {
   type ProductAbcEvaluation,
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
-import { readProductAbcPublication } from "../../../../../../products/read/product-abc-publication.reader";
+import { readProductAbcPublication } from "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import { readOrderLineWindowFacts } from "../../../../../../orders/read/order-facts.reader";
 import { businessDatesInWindow } from "../../../../domain/period/dashboard-period";
 
 vi.mock(
-  "../../../../../../products/read/product-abc-publication.reader",
+  "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader",
   () => ({
     readProductAbcPublication: vi.fn(),
     readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
@@ -38,7 +38,7 @@ const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 
 function inventoryTransactionalRead() {
-  return { readSkuIdentities: vi.fn().mockResolvedValue([]) } as never;
+  return { readSourceIdentities: vi.fn().mockResolvedValue([]) } as never;
 }
 
 /**
@@ -61,9 +61,7 @@ const prismaWith = (topProductRows: unknown[]) => {
               externalId: row.listingId,
               channelName: row.organization,
               displayName: row.name,
-              masterProduct: row.masterProductId
-                ? { id: row.masterProductId, name: row.name }
-                : null,
+              masterProductId: row.masterProductId ?? null,
             },
           },
         ]

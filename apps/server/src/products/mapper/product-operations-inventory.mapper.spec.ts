@@ -3,16 +3,16 @@ import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import { mapProductOperationsListItem } from './product-operations-inventory.mapper';
 import type {
   ProductOperationsRepositoryListItem,
-} from '../application/port/out/repository/product-operations.repository.port';
+} from '../application/port/out/persistence/product-operations.repository.port';
 
 const SKU_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('product operations inventory mapper', () => {
-  it('keeps physical stock visible and derives capacity from common available stock', () => {
+  it('keeps physical stock visible and derives capacity from current stock', () => {
     const result = mapProductOperationsListItem(
       rawListItem(),
       new Map([[SKU_ID, {
-        sellpiaInventorySkuId: SKU_ID,
+        masterProductId: SKU_ID,
         currentStock: 100,
         generation: '12',
       }]]),
@@ -85,14 +85,8 @@ function rawListItem(): ProductOperationsRepositoryListItem {
     code: 'MP-1',
     displayReference: { type: 'product_code' as const, label: '상품 코드', value: 'MP-1' },
     name: 'Product',
-    description: null,
-    category: null,
-    brand: null,
-    tags: [],
     imageUrls: [],
     abcCreatedAt: new Date('2026-07-17T00:00:00.000Z'),
-    adBudgetLimit: null,
-    isActive: true,
     isSelling: true,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
@@ -135,7 +129,7 @@ function rawListItem(): ProductOperationsRepositoryListItem {
       isActive: true,
       inventoryComponents: [{
         id: '44444444-4444-4444-8444-444444444444',
-        sellpiaInventorySkuId: SKU_ID,
+        masterProductId: SKU_ID,
         code: 'SKU-1',
         name: 'Inventory',
         optionName: null,

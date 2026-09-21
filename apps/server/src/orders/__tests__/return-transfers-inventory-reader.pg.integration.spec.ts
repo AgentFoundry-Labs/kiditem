@@ -7,15 +7,15 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from "../../test-helpers/real-prisma";
-import { seedActiveSellpiaInventorySku } from "../../test-helpers/inventory-seeds";
-import { InventoryTransactionalReadRepositoryAdapter } from "../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter";
+import { seedSourceProduct } from "../../test-helpers/inventory-seeds";
+import { ProductTransactionalReadRepositoryAdapter } from "../../products/adapter/out/persistence/product-transactional-read.repository.adapter";
 import { ReturnTransfersService } from "../return-transfers/return-transfers.service";
 import type { PrismaClient } from "@prisma/client";
 
 const OWN_SKU_ID = "26000000-0000-4000-8000-000000000001";
 const FOREIGN_SKU_ID = "26000000-0000-4000-8000-000000000002";
 
-describe("return transfers through the Inventory reader (PG integration)", () => {
+describe("return transfers through the Products reader (PG integration)", () => {
   let prisma: PrismaClient;
   let service: ReturnTransfersService;
 
@@ -24,7 +24,7 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
     await prisma.$connect();
     service = new ReturnTransfersService(
       prisma as never,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
   });
 
@@ -35,7 +35,7 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await seedActiveSellpiaInventorySku(prisma, {
+    await seedSourceProduct(prisma, {
       id: OWN_SKU_ID,
       organizationId: TEST_ORGANIZATION_ID,
       code: "RETURN-OWN",
@@ -43,7 +43,7 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
       optionName: "Blue",
       currentStock: 3,
     });
-    await seedActiveSellpiaInventorySku(prisma, {
+    await seedSourceProduct(prisma, {
       id: FOREIGN_SKU_ID,
       organizationId: OTHER_ORGANIZATION_ID,
       code: "RETURN-FOREIGN",
@@ -52,23 +52,23 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
     });
   });
 
-  it("validates ownership and hydrates list and update responses from Inventory identities", async () => {
+  it("validates ownership and hydrates list and update responses from Products identities", async () => {
     await expect(
       service.create(TEST_ORGANIZATION_ID, {
-        sellpiaInventorySkuId: FOREIGN_SKU_ID,
+        masterProductId: FOREIGN_SKU_ID,
         quantity: 1,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const created = await service.create(TEST_ORGANIZATION_ID, {
-      sellpiaInventorySkuId: OWN_SKU_ID,
+      masterProductId: OWN_SKU_ID,
       quantity: 2,
       condition: "good",
       notes: "reader boundary",
     });
-    expect(created.sellpiaInventorySku).toMatchObject({
+    expect(created.masterProduct).toMatchObject({
       id: OWN_SKU_ID,
-      code: "RETURN-OWN",
+      code: expect.stringMatching(/^KID\d+$/),
       name: "Owned return SKU",
       optionName: "Blue",
     });
@@ -76,7 +76,7 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
     await expect(
       service.findAll(TEST_ORGANIZATION_ID, {}),
     ).resolves.toMatchObject([
-      { id: created.id, sellpiaInventorySku: { id: OWN_SKU_ID } },
+      { id: created.id, masterProduct: { id: OWN_SKU_ID } },
     ]);
     await expect(
       service.update(
@@ -90,23 +90,23 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
     ).resolves.toMatchObject({
       id: created.id,
       status: "completed",
-      sellpiaInventorySku: { id: OWN_SKU_ID, code: "RETURN-OWN" },
+      masterProduct: { id: OWN_SKU_ID, code: expect.stringMatching(/^KID\d+$/) },
     });
   });
 
-  it("keeps return history readable with a missing inventory identity", async () => {
+  it("keeps return history readable with a missing current product identity", async () => {
     const created = await service.create(TEST_ORGANIZATION_ID, {
-      sellpiaInventorySkuId: OWN_SKU_ID,
+      masterProductId: OWN_SKU_ID,
       quantity: 2,
     });
 
-    await prisma.sellpiaInventorySku.delete({ where: { id: OWN_SKU_ID } });
+    await prisma.masterProduct.delete({ where: { id: OWN_SKU_ID } });
 
     await expect(service.findAll(TEST_ORGANIZATION_ID, {})).resolves.toMatchObject([
       {
         id: created.id,
-        sellpiaInventorySkuId: OWN_SKU_ID,
-        sellpiaInventorySku: null,
+        masterProductId: OWN_SKU_ID,
+        masterProduct: null,
       },
     ]);
     await expect(
@@ -117,8 +117,8 @@ describe("return transfers through the Inventory reader (PG integration)", () =>
       ),
     ).resolves.toMatchObject({
       id: created.id,
-      sellpiaInventorySkuId: OWN_SKU_ID,
-      sellpiaInventorySku: null,
+      masterProductId: OWN_SKU_ID,
+      masterProduct: null,
     });
   });
 });

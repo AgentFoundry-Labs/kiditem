@@ -768,7 +768,7 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
     }).strict(),
     z.object({
       status: z.literal('matched'),
-      sellpiaInventorySkuId: z.string().uuid(),
+      masterProductId: z.string().uuid(),
       currentStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
       inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),

@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { InventoryModule } from '../inventory/inventory.module';
-import { ProductRecipeMutationModule } from '../products/product-recipe-mutation.module';
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
+import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -16,6 +17,7 @@ import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rock
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
 import { ChannelCatalogSourceController } from './adapter/in/http/channel-catalog-source.controller';
 import { ChannelProductMatchingController } from './adapter/in/http/channel-product-matching.controller';
+import { ChannelOptionRecipeController } from './adapter/in/web/channel-option-recipe.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { MallPublishingController } from './adapter/in/http/mall-publishing.controller';
 import { MallOperationOutcomeController } from './adapter/in/http/mall-operation-outcome.controller';
@@ -46,6 +48,7 @@ import { ChannelProductMatchingService } from './application/service/channel-pro
 import { ChannelRecipeSuggestionService } from './application/service/channel-recipe-suggestion.service';
 import { SellpiaManualMatchService } from './application/service/sellpia-manual-match.service';
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
+import { ChannelOptionRecipeCandidateService } from './application/service/channel-option-recipe-candidate.service';
 import { MallPublishingService } from './application/service/mall-publishing.service';
 import { MallOperationOutcomeService } from './application/service/mall-operation-outcome.service';
 import { CoupangWingInventoryExportService } from './application/service/coupang-wing-inventory-export.service';
@@ -84,7 +87,13 @@ import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/chann
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
-  imports: [AiModule, InventoryModule, AlertsModule, ProductRecipeMutationModule],
+  imports: [
+    AiModule,
+    InventoryModule,
+    ProductCollectionRuntimeModule,
+    AlertsModule,
+    ChannelOptionRecipeModule,
+  ],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -98,6 +107,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelCatalogCollectionController,
     ChannelCatalogSourceController,
     ChannelProductMatchingController,
+    ChannelOptionRecipeController,
     ChannelSkuAvailabilityController,
     MallPublishingController,
     MallOperationOutcomeController,
@@ -116,6 +126,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelCatalogCollectionService,
     ChannelProductMatchingService,
     ChannelRecipeSuggestionService,
+    ChannelOptionRecipeCandidateService,
     SellpiaManualMatchService,
     ChannelSkuAvailabilityService,
     CoupangWingInventoryExportService,

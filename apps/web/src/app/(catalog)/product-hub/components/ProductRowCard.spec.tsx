@@ -20,23 +20,22 @@ describe('ProductRowCard', () => {
   it('keeps an operator product code visible in the catalog row', () => {
     render(<ProductRowCard product={product()} />);
 
-    expect(screen.getByText(/상품코드 MASTER-1/)).toBeInTheDocument();
+    expect(screen.getByText('MASTER-1')).toBeInTheDocument();
   });
 
-  it('hides a system-owned Sellpia code while retaining product context', () => {
+  it('shows the canonical KID code while retaining product context', () => {
     render(<ProductRowCard product={{
       ...product(),
-      code: 'INV-SELLPIA-100',
+      code: 'KID00000100',
       displayReference: {
         type: 'product_code',
         label: '상품 코드',
-        value: 'INV-SELLPIA-100',
+        value: 'KID00000100',
       },
     }} />);
 
     expect(screen.getByText('테스트 상품')).toBeInTheDocument();
-    expect(screen.getByText('KidItem')).toBeInTheDocument();
-    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+    expect(screen.getByText('KID00000100')).toBeInTheDocument();
   });
 
   it('opens the already-loaded ABC evidence through an accessible badge button', () => {

@@ -3,56 +3,22 @@ import {
   readProductSaleAgeEvidence,
   saleStartDateFromRaw,
 } from './product-sale-age';
-import { readInventorySaleAgeMappings } from '../inventory/adapter/out/persistence/read/inventory-availability';
+import { readProductSaleAgeMappings } from '../products/adapter/out/persistence/read/product-source-availability';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const OLD_PRODUCT_ID = '00000000-0000-4000-8000-000000000002';
 const NEW_PRODUCT_ID = '00000000-0000-4000-8000-000000000003';
 const OLD_LISTING_ID = '00000000-0000-4000-8000-000000000004';
 const NEW_LISTING_ID = '00000000-0000-4000-8000-000000000005';
-const OLD_SKU_ID = '00000000-0000-4000-8000-000000000006';
-const NEW_SKU_ID = '00000000-0000-4000-8000-000000000007';
-
-function skuIdForMasterProduct(masterProductId: string) {
-  return masterProductId === OLD_PRODUCT_ID ? OLD_SKU_ID : NEW_SKU_ID;
-}
-
 function mappedOption(masterProductId: string, overrides: Record<string, unknown> = {}) {
   return {
     organizationId: ORGANIZATION_ID,
     isActive: true,
     inventoryComponents: [{
       quantity: 1,
-      sellpiaInventorySkuId: skuIdForMasterProduct(masterProductId),
+      masterProductId,
     }],
     ...overrides,
-  };
-}
-
-function inventorySkuRows() {
-  return [
-    {
-      id: OLD_SKU_ID,
-      masterProductId: OLD_PRODUCT_ID,
-      masterProduct: { isActive: true },
-    },
-    {
-      id: NEW_SKU_ID,
-      masterProductId: NEW_PRODUCT_ID,
-      masterProduct: { isActive: true },
-    },
-  ];
-}
-
-function inventoryStore(options: { inactiveSkuIds?: string[] } = {}) {
-  const inactiveSkuIds = new Set(options.inactiveSkuIds ?? []);
-  return {
-    sellpiaInventorySku: {
-      findMany: vi.fn(async () => inventorySkuRows().map((row) => ({
-        ...row,
-        isActive: !inactiveSkuIds.has(row.id),
-      }))),
-    },
   };
 }
 
@@ -62,7 +28,7 @@ function inventoryReader() {
       context: { client: unknown },
       organizationId: string,
       masterProductIds: string[],
-    ) => readInventorySaleAgeMappings(
+    ) => readProductSaleAgeMappings(
       context.client as never,
       organizationId,
       masterProductIds,
@@ -72,7 +38,7 @@ function inventoryReader() {
 
 describe('readProductSaleAgeEvidence', () => {
   it('uses valid recipes from historical mapped listings without current channel/account filters', async () => {
-    const channelListingFindMany = vi.fn(async () => [
+    const channelListingFindMany = vi.fn(async (_query: unknown) => [
       {
         id: OLD_LISTING_ID,
         rawJson: { saleStartedAt: '2026-05-01' },
@@ -84,14 +50,13 @@ describe('readProductSaleAgeEvidence', () => {
         options: [mappedOption(NEW_PRODUCT_ID)],
       },
     ]);
-    const queryRaw = vi.fn(async () => [
+    const queryRaw = vi.fn(async (_query: unknown) => [
       { listingId: OLD_LISTING_ID, source: null, saleStartedAt: '2026-05-01' },
       { listingId: NEW_LISTING_ID, source: null, saleStartedAt: '2026-08-31' },
     ]);
 
     const db = {
       channelListing: { findMany: channelListingFindMany },
-      ...inventoryStore(),
       $queryRaw: queryRaw,
     };
     const result = await readProductSaleAgeEvidence(
@@ -107,7 +72,7 @@ describe('readProductSaleAgeEvidence', () => {
       { masterProductId: NEW_PRODUCT_ID, mappingValid: true, saleStartDate: '2026-08-31' },
     ]);
     expect(queryRaw).toHaveBeenCalledTimes(1);
-    const where = (channelListingFindMany.mock.calls[0]?.[0] as {
+    const where = ((channelListingFindMany.mock.calls[0] as unknown[] | undefined)?.[0] as {
       where: Record<string, unknown>;
     }).where;
     expect(where).not.toHaveProperty('channelAccount');
@@ -121,7 +86,7 @@ describe('readProductSaleAgeEvidence', () => {
           inventoryComponents: {
             some: {
               organizationId: ORGANIZATION_ID,
-              sellpiaInventorySkuId: { in: [OLD_SKU_ID, NEW_SKU_ID] },
+              masterProductId: { in: [OLD_PRODUCT_ID, NEW_PRODUCT_ID] },
             },
           },
         },
@@ -130,7 +95,7 @@ describe('readProductSaleAgeEvidence', () => {
   });
 
   it('projects only sale-date JSON fields instead of transferring listing metadata', async () => {
-    const channelListingFindMany = vi.fn(async () => [{
+    const channelListingFindMany = vi.fn(async (_query: unknown) => [{
       id: OLD_LISTING_ID,
       rawJson: {
         source: 'wing_app_data',
@@ -139,7 +104,7 @@ describe('readProductSaleAgeEvidence', () => {
       },
       options: [mappedOption(OLD_PRODUCT_ID)],
     }]);
-    const queryRaw = vi.fn(async () => [{
+    const queryRaw = vi.fn(async (_query: unknown) => [{
       listingId: OLD_LISTING_ID,
       source: 'wing_app_data',
       saleStartedAt: '2026-01-01T00:00:00',
@@ -147,7 +112,6 @@ describe('readProductSaleAgeEvidence', () => {
 
     const db = {
       channelListing: { findMany: channelListingFindMany },
-      ...inventoryStore(),
       $queryRaw: queryRaw,
     };
     await expect(readProductSaleAgeEvidence(
@@ -162,12 +126,12 @@ describe('readProductSaleAgeEvidence', () => {
       saleStartDate: '2026-01-01',
     }]);
 
-    const select = (channelListingFindMany.mock.calls[0]?.[0] as {
+    const select = ((channelListingFindMany.mock.calls[0] as unknown[] | undefined)?.[0] as {
       select: Record<string, unknown>;
     }).select;
     expect(select).not.toHaveProperty('rawJson');
     expect(select).toMatchObject({ id: true, options: expect.any(Object) });
-    const query = queryRaw.mock.calls[0]?.[0] as {
+    const query = (queryRaw.mock.calls[0] as unknown[] | undefined)?.[0] as {
       strings: readonly string[];
       values: readonly unknown[];
     };
@@ -187,7 +151,7 @@ describe('readProductSaleAgeEvidence', () => {
   it('keeps mapping evidence while rejecting invalid, future, and zero-quantity dates', async () => {
     const db = {
       channelListing: {
-        findMany: vi.fn(async () => [
+        findMany: vi.fn(async (_query: unknown) => [
           {
             id: OLD_LISTING_ID,
             rawJson: { saleStartedAt: '2026-02-31T00:00:00Z' },
@@ -200,11 +164,10 @@ describe('readProductSaleAgeEvidence', () => {
           },
         ]),
       },
-      $queryRaw: vi.fn(async () => [
+      $queryRaw: vi.fn(async (_query: unknown) => [
         { listingId: OLD_LISTING_ID, source: null, saleStartedAt: '2026-02-31T00:00:00Z' },
         { listingId: NEW_LISTING_ID, source: null, saleStartedAt: '2026-12-01' },
       ]),
-      ...inventoryStore(),
     };
     const result = await readProductSaleAgeEvidence(
       db as never,
@@ -220,10 +183,10 @@ describe('readProductSaleAgeEvidence', () => {
     ]);
   });
 
-  it('keeps sale age evidence when an inventory SKU lifecycle flag is inactive', async () => {
+  it('keeps sale age evidence for every mapped source product', async () => {
     const db = {
       channelListing: {
-        findMany: vi.fn(async () => [{
+        findMany: vi.fn(async (_query: unknown) => [{
           id: OLD_LISTING_ID,
           rawJson: { saleStartedAt: '2026-05-01' },
           options: [
@@ -232,12 +195,11 @@ describe('readProductSaleAgeEvidence', () => {
           ],
         }]),
       },
-      $queryRaw: vi.fn(async () => [{
+      $queryRaw: vi.fn(async (_query: unknown) => [{
         listingId: OLD_LISTING_ID,
         source: null,
         saleStartedAt: '2026-05-01',
       }]),
-      ...inventoryStore({ inactiveSkuIds: [NEW_SKU_ID] }),
     };
     const result = await readProductSaleAgeEvidence(
       db as never,

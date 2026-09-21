@@ -1,4 +1,3 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
@@ -21,6 +20,7 @@ import type {
   AdvertisingProfitabilityPlan,
   AdvertisingProfitabilitySliceUpload,
 } from '../application/port/in/profitability-ad-import.port';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 const FIRST_KEY = 'advertising-pg-first';
 const SECOND_KEY = 'advertising-pg-second';
@@ -1024,7 +1024,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     const failingOwner = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
       failingAlerts,
-     new InventoryTransactionalReadRepositoryAdapter());
+    );
 
     await expect(failingOwner.finalizeAttempt(fence(replacement))).rejects.toThrow(
       'alert write failed',
@@ -1224,7 +1224,7 @@ function createOwner(prisma: PrismaClient): ProfitabilityAdImportRepositoryAdapt
   return new ProfitabilityAdImportRepositoryAdapter(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
-   new InventoryTransactionalReadRepositoryAdapter());
+  );
 }
 
 async function uploadAllSlices(
@@ -1252,23 +1252,13 @@ async function seedAccount(
       isPrimary: suffix === 'A',
     },
   });
-  const master = await prisma.masterProduct.create({
-    data: {
-      organizationId,
-      code: `AD-MASTER-${suffix}`,
-      name: `Advertising master ${suffix}`,
-    },
-  });
-  const sku = await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId,
-      masterProductId: master.id,
-      code: `AD-SKU-${suffix}`,
-      name: `Advertising SKU ${suffix}`,
-      optionName: `Option ${suffix}`,
-      currentStock: 100,
-      purchasePrice: 100,
-    },
+  const master = await seedSourceProduct(prisma, {
+    organizationId,
+    code: `AD-SKU-${suffix}`,
+    name: `Advertising SKU ${suffix}`,
+    optionName: `Option ${suffix}`,
+    currentStock: 100,
+    purchasePrice: 100,
   });
   const listing = await prisma.channelListing.create({
     data: {
@@ -1291,7 +1281,7 @@ async function seedAccount(
     data: {
       organizationId,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: master.id,
       quantity,
     },
   });

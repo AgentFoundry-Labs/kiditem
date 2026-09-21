@@ -1,4 +1,5 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,11 +17,11 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
-import { MasterProductAbcService } from '../application/service/master-product-abc.service';
-import { ProductAbcReadService } from '../application/service/product-abc-read.service';
-import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
+import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
+import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
+import { ProductDataStatusUseCase } from '../application/usecase/product-data-status.usecase';
 
 /**
  * KID-46 — which cutoff ABC may publish is a database question: it depends on
@@ -377,32 +378,32 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
   });
 });
 
-function abcService(prisma: PrismaClient): MasterProductAbcService {
-  return new MasterProductAbcService(
+function abcService(prisma: PrismaClient): RecalculateProductAbcUseCase {
+  return new RecalculateProductAbcUseCase(
     new MasterProductAbcRepositoryAdapter(
       prisma as never,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     ),
     profitabilityEvidence(prisma),
   );
 }
 
 function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
-  return new ProductAbcReadService(
+  return new ProductAbcReadUseCase(
     new MasterProductAbcRepositoryAdapter(
       prisma as never,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     ),
     profitabilityEvidence(prisma),
   ).readAbc({ organizationId: TEST_ORGANIZATION_ID, masterProductIds });
 }
 
-function productOperationsDataStatus(prisma: PrismaClient): ProductOperationsDataStatusService {
-  return new ProductOperationsDataStatusService(
+function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUseCase {
+  return new ProductDataStatusUseCase(
     new ProductOperationsDataStatusRepositoryAdapter(
       prisma as never,
       profitabilityEvidence(prisma),
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     ),
   );
 }
@@ -413,11 +414,11 @@ function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitability
     new SellpiaProfitabilitySourceService(
       prisma as never,
       alerts,
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     ),
-    new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter()),
+    new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts),
     prisma as never,
-   new InventoryTransactionalReadRepositoryAdapter());
+   new ProductTransactionalReadRepositoryAdapter());
 }
 
 async function seedFormulaState(prisma: PrismaClient): Promise<string> {
@@ -460,8 +461,9 @@ async function seedSellingProduct(
   prisma: PrismaClient,
   options: { advertised?: boolean } = {},
 ): Promise<{ productId: string; skuCode: string; advertisedOptionId: string | null }> {
-  const product = await prisma.masterProduct.create({
-    data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'ABC product' },
+  const skuCode = `SKU-${randomUUID()}`;
+  const product = await seedSourceProduct(prisma, {
+    organizationId: TEST_ORGANIZATION_ID, code: skuCode, name: 'ABC product', currentStock: 10,
   });
   const account = await prisma.channelAccount.create({
     data: {
@@ -491,7 +493,6 @@ async function seedSellingProduct(
       status: '판매중',
     },
   });
-  const skuCode = `SKU-${randomUUID()}`;
   const inventoryVerifiedAt = new Date();
   const inventoryRun = await prisma.sourceImportRun.create({
     data: {
@@ -524,22 +525,12 @@ async function seedSellingProduct(
       lastCompletedImportRunId: inventoryRun.id,
     },
   });
-  const sku = await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterProductId: product.id,
-      code: skuCode,
-      name: 'ABC SKU',
-      currentStock: 10,
-      isActive: true,
-      lastImportRunId: inventoryRun.id,
-    },
-  });
+  const sku = product;
   await prisma.channelListingOptionInventoryComponent.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: sku.id,
       quantity: 1,
     },
   });
@@ -578,7 +569,7 @@ async function seedSellingProduct(
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: adOption.id,
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: sku.id,
       quantity: 1,
     },
   });
@@ -600,9 +591,9 @@ async function collectSources(
   const sellpia = new SellpiaProfitabilitySourceService(
     prisma as never,
     alerts,
-    new InventoryTransactionalReadRepositoryAdapter(),
+    new ProductTransactionalReadRepositoryAdapter(),
   );
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
+  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(Date.now() - options.daysAgo * 86_400_000));
   try {
@@ -675,7 +666,7 @@ async function collectAt(
   vi.setSystemTime(new Date(options.at));
   if (source === 'advertising') {
     // A Rocket-only fixture has no retained Coupang account, so its plan is empty.
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts, new InventoryTransactionalReadRepositoryAdapter());
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     const attempt = await advertising.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       idempotencyKey: `abc-ad-${randomUUID()}`,
@@ -726,7 +717,7 @@ async function collectAt(
   const sellpia = new SellpiaProfitabilitySourceService(
     prisma as never,
     alerts,
-    new InventoryTransactionalReadRepositoryAdapter(),
+    new ProductTransactionalReadRepositoryAdapter(),
   );
   const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-${randomUUID()}`);
   const months = attempt.plan.coveredMonths.map((yearMonth) => ({
@@ -773,7 +764,7 @@ async function startNewerSellpiaAttempt(
   const sellpia = new SellpiaProfitabilitySourceService(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
-    new InventoryTransactionalReadRepositoryAdapter(),
+    new ProductTransactionalReadRepositoryAdapter(),
   );
   const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-newer-${randomUUID()}`);
   if (outcome === 'FAILED') {

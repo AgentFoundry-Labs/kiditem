@@ -1,4 +1,4 @@
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AlertsModule } from '../alerts/alerts.module';
@@ -17,7 +17,7 @@ import { ProfitabilityAdImportController } from './adapter/in/http/profitability
  * preventing a Products → Finance → Advertising cycle.
  */
 @Module({
-  imports: [PrismaModule, AlertsModule, InventoryModule],
+  imports: [PrismaModule, AlertsModule, ProductCollectionRuntimeModule],
   controllers: [ProfitabilityAdImportController],
   providers: [
     ProfitabilityAdImportRepositoryAdapter,

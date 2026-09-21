@@ -9,14 +9,14 @@ import {
   type ChannelListingReportReadPort,
 } from '../../channels/application/port/in/channel-listing-report-read.port';
 import {
-  INVENTORY_SKU_SNAPSHOT_LIST_PORT,
-  type InventorySkuSnapshotListPort,
-} from '../../inventory/application/port/in/stock/inventory-sku-snapshot-list.port';
+  PRODUCT_SOURCE_SNAPSHOT_PORT,
+  type ProductSourceSnapshotItem,
+  type ProductSourceSnapshotPort,
+} from '../../products/application/port/in/product-source-snapshot.port';
 import { kstBusinessDate } from '../../common/kst';
 import { ProfitLossService } from '../services/profit-loss.service';
 import type { AdsHubData, AdsListItem } from '@kiditem/shared/advertising';
 import type { PLData } from '@kiditem/shared/finance';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 import type {
   FinanceReportSurface,
   FinanceReportType,
@@ -40,7 +40,7 @@ export type FinanceReportExportResult = {
 type ReportData = {
   products: Awaited<ReturnType<ChannelListingReportReadPort['list']>>['items'];
   profitLoss: PLData[];
-  inventory: InventorySkuSnapshotItem[];
+  inventory: ProductSourceSnapshotItem[];
   ads: AdsHubData;
 };
 
@@ -57,8 +57,8 @@ export class FinanceReportExportService {
     private readonly profitLoss: ProfitLossService,
     @Inject(CHANNEL_LISTING_REPORT_READ_PORT)
     private readonly listings: ChannelListingReportReadPort,
-    @Inject(INVENTORY_SKU_SNAPSHOT_LIST_PORT)
-    private readonly inventory: InventorySkuSnapshotListPort,
+    @Inject(PRODUCT_SOURCE_SNAPSHOT_PORT)
+    private readonly inventory: ProductSourceSnapshotPort,
     @Inject(ADVERTISING_HUB_READ_PORT)
     private readonly advertising: AdvertisingHubReadPort,
   ) {}
@@ -132,7 +132,7 @@ export class FinanceReportExportService {
     const profitLossPromise: Promise<PLData[]> = shouldRead.profitLoss
       ? this.listProfitLoss(organizationId, period, now)
       : Promise.resolve([]);
-    const inventoryPromise: Promise<InventorySkuSnapshotItem[]> = shouldRead.inventory
+    const inventoryPromise: Promise<ProductSourceSnapshotItem[]> = shouldRead.inventory
       ? this.listAllInventory(organizationId)
       : Promise.resolve([]);
     const adsPromise: Promise<AdsHubData> = shouldRead.ads
@@ -173,7 +173,7 @@ export class FinanceReportExportService {
     return items.slice(0, first.total);
   }
 
-  private async listAllInventory(organizationId: string) {
+  private async listAllInventory(organizationId: string): Promise<ProductSourceSnapshotItem[]> {
     const pageSize = 200;
     const first = await this.inventory.listSnapshot(organizationId, {
       page: 1,
@@ -263,7 +263,7 @@ function toProfitLossPageRow(row: PLData) {
   };
 }
 
-function toInventoryReportRow(item: InventorySkuSnapshotItem) {
+function toInventoryReportRow(item: ProductSourceSnapshotItem) {
   return {
     셀피아상품코드: item.code,
     상품명: item.name,
@@ -271,7 +271,6 @@ function toInventoryReportRow(item: InventorySkuSnapshotItem) {
     바코드: item.barcode,
     현재고: item.currentStock,
     매입가: item.purchasePrice,
-    판매가: item.salePrice,
     재고자산가치: item.stockValue,
     최근반영: item.lastImportedAt,
   };

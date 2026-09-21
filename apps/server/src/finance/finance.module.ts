@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { AdvertisingModule } from '../advertising/advertising.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { ChannelsModule } from '../channels/channels.module';
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
+import { ProductSourceModule } from '../products/product-source.module';
 import { FinanceReportExportController } from './controllers/finance-report-export.controller';
 import { ProfitLossController } from './controllers/profit-loss.controller';
 import { ProfitLossService } from './services/profit-loss.service';
@@ -27,7 +28,8 @@ import { FinanceReportExportService } from './report-export/finance-report-expor
     AnalyticsModule,
     AdvertisingModule,
     ChannelsModule,
-    InventoryModule,
+    ProductCollectionRuntimeModule,
+    ProductSourceModule,
     ProfitabilityEvidenceModule,
   ],
   controllers: [

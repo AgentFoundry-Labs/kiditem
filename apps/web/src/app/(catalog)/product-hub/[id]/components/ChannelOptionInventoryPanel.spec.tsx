@@ -26,7 +26,7 @@ const channelListings = [{
     capacity: 8,
     inventoryComponents: [{
       id: '33333333-3333-4333-8333-333333333333',
-      sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+      masterProductId: '44444444-4444-4444-8444-444444444444',
       code: 'SP-100',
       name: '동물 블록 낱개',
       optionName: null,
@@ -71,7 +71,7 @@ describe('<ChannelOptionInventoryPanel />', () => {
     fireEvent.click(screen.getByRole('button', { name: '재고 구성 편집' }));
     expect(inventoryDialog).toHaveBeenLastCalledWith(expect.objectContaining({
       option: expect.objectContaining({ inventoryComponents: [expect.objectContaining({
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId, quantity: 10, currentStock: null,
+        masterProductId: component.masterProductId, quantity: 10, currentStock: null,
       })] }),
     }));
   });

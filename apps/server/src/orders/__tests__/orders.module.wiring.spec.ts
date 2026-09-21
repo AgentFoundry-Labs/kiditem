@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { AlertsModule } from '../../alerts/alerts.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { SupplyModule } from '../../supply/supply.module';
-import { InventoryModule } from '../../inventory/inventory.module';
+import { ProductSourceModule } from '../../products/product-source.module';
 import { SellpiaOrderTransmissionRepositoryAdapter } from '../adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { OrderCollectionSourceRepository } from '../adapter/out/repository/order-collection-source.repository';
 import { SellpiaShipmentTrackingSourceRepository } from '../adapter/out/repository/sellpia-shipment-tracking-source.repository';
@@ -49,7 +49,7 @@ describe('OrdersModule owner wiring', () => {
       PrismaModule,
       SupplyModule,
       ShipmentsModule,
-      InventoryModule,
+      ProductSourceModule,
     ]);
     expect(controllers).toEqual([
       OrdersController,

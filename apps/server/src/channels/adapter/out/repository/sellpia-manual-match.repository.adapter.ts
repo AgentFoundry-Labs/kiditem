@@ -37,10 +37,10 @@ import {
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
 import {
-  INVENTORY_TRANSACTIONAL_READ_PORT,
-  type InventoryTransactionContext,
-  type InventoryTransactionalReadPort,
-} from '../../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionContext,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
@@ -68,8 +68,8 @@ implements SellpiaManualMatchRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
-    @Inject(INVENTORY_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: InventoryTransactionalReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly productTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async getCurrentStatus(
@@ -99,7 +99,7 @@ implements SellpiaManualMatchRepositoryPort {
         normalizedAlias: { in: normalizedAliases },
       },
       select: {
-        sellpiaInventorySkuId: true,
+        masterProductId: true,
         aliasTitle: true,
         normalizedAlias: true,
         itemCount: true,
@@ -108,14 +108,15 @@ implements SellpiaManualMatchRepositoryPort {
       },
       orderBy: [
         { normalizedAlias: 'asc' },
-        { sellpiaInventorySkuId: 'asc' },
+        { masterProductId: 'asc' },
         { itemCount: 'asc' },
       ],
     });
-    return rows.map((row) => ({
+    return rows.flatMap((row) => row.masterProductId === null ? [] : [{
       ...row,
+      masterProductId: row.masterProductId,
       matchedType: checkedMatchedType(row.matchedType),
-    }));
+    }]);
   }
 
   async beginAttempt(input: SellpiaManualMatchAttemptInput): Promise<SellpiaManualMatchAttempt> {
@@ -127,8 +128,11 @@ implements SellpiaManualMatchRepositoryPort {
       requestBody: {},
     });
     return this.prisma.$transaction(async (tx) => {
-      const inventoryContext = { client: tx };
-      await this.inventoryTransactionalRead.lock(inventoryContext, input.organizationId);
+      const productContext = { client: tx };
+      const productLock = await this.productTransactionalRead.lock(
+        productContext,
+        input.organizationId,
+      );
       await lockManualMatchSource(tx, input.organizationId);
       const now = new Date();
       const existing = await findAttemptByIdempotency(
@@ -148,8 +152,9 @@ implements SellpiaManualMatchRepositoryPort {
       }
 
       const active = await listActiveSkus(
-        this.inventoryTransactionalRead,
-        inventoryContext,
+        this.productTransactionalRead,
+        productContext,
+        productLock,
         input.organizationId,
       );
       const targetCodes = normalizeTargetCodes(active.map((sku) => sku.code));
@@ -236,7 +241,11 @@ implements SellpiaManualMatchRepositoryPort {
     snapshot: SellpiaManualMatchSnapshot;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
+      const productContext = { client: tx };
+      const productLock = await this.productTransactionalRead.lock(
+        productContext,
+        input.organizationId,
+      );
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -260,8 +269,9 @@ implements SellpiaManualMatchRepositoryPort {
 
       assertSnapshotMatchesPlan(input.snapshot, plan);
       const active = await listActiveSkus(
-        this.inventoryTransactionalRead,
-        { client: tx },
+        this.productTransactionalRead,
+        productContext,
+        productLock,
         input.organizationId,
       );
       assertTargetCodesUnchanged(active, plan.targetCodes);
@@ -281,7 +291,7 @@ implements SellpiaManualMatchRepositoryPort {
       const capturedAt = new Date();
       const status = {
         targetCount: input.snapshot.targetCount,
-        matchedTargetCount: new Set(rows.map((row) => row.sellpiaInventorySkuId)).size,
+        matchedTargetCount: new Set(rows.map((row) => row.masterProductId)).size,
         aliasCount: rows.length,
         snapshotHash: hashJson({
           snapshot: input.snapshot,
@@ -333,7 +343,7 @@ implements SellpiaManualMatchRepositoryPort {
     errorMessage: string;
   }): Promise<SellpiaManualMatchAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
+      await this.productTransactionalRead.lock({ client: tx }, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       assertAttemptToken(attempt, input.attemptToken);
@@ -383,7 +393,7 @@ implements SellpiaManualMatchRepositoryPort {
     attemptId: string;
   }): Promise<SellpiaManualMatchPublicAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await this.inventoryTransactionalRead.lock({ client: tx }, input.organizationId);
+      await this.productTransactionalRead.lock({ client: tx }, input.organizationId);
       await lockManualMatchSource(tx, input.organizationId);
       const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
       if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
@@ -523,16 +533,14 @@ async function listCurrentChannelAliasCandidates(
 }
 
 async function listActiveSkus(
-  inventory: InventoryTransactionalReadPort,
-  context: InventoryTransactionContext<Transaction>,
+  products: ProductTransactionalReadPort,
+  context: ProductTransactionContext<Transaction>,
+  lock: Parameters<ProductTransactionalReadPort['readActiveMatchingCandidates']>[1],
   organizationId: string,
 ): Promise<ActiveSku[]> {
-  const identities = await inventory.readSkuIdentities(context, {
-    organizationId,
-    selector: { kind: 'all' },
-  });
-  return identities.map(({ sellpiaInventorySkuId, code }) => ({
-    id: sellpiaInventorySkuId,
+  const identities = await products.readActiveMatchingCandidates(context, lock, organizationId);
+  return identities.map(({ masterProductId, code }) => ({
+    id: masterProductId,
     code,
   }));
 }
@@ -661,7 +669,7 @@ function aggregateRows(
         previous.evidenceCount + row.evidenceCount,
       ),
     } : {
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: sku.id,
       aliasTitle: row.aliasTitle,
       normalizedAlias,
       itemCount: row.itemCount,
@@ -671,7 +679,7 @@ function aggregateRows(
   }
   return [...aggregated.values()].sort((left, right) =>
     left.normalizedAlias.localeCompare(right.normalizedAlias)
-      || left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId)
+      || left.masterProductId.localeCompare(right.masterProductId)
       || left.itemCount - right.itemCount);
 }
 

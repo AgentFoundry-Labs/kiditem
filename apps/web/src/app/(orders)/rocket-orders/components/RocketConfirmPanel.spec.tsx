@@ -100,7 +100,7 @@ const basePreview: RocketPurchasePreviewResponse = {
       masterProductId: "44444444-4444-4444-8444-444444444444",
       components: [
         {
-          sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+          masterProductId: "66666666-6666-4666-8666-666666666666",
           code: "SP-100",
           name: "Sellpia 연결 상품",
           optionName: "랜덤",

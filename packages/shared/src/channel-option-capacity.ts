@@ -1,5 +1,5 @@
 export type ChannelOptionCapacityComponent = Readonly<{
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   currentStock: number | null;
   quantity: number;
 }>;
@@ -7,7 +7,7 @@ export type ChannelOptionCapacityComponent = Readonly<{
 export type ChannelOptionCapacityProjection = Readonly<{
   capacity: number | null;
   warningState: 'none' | 'configuration_required' | 'review_required';
-  bottleneckSellpiaInventorySkuIds: readonly string[];
+  bottleneckMasterProductIds: readonly string[];
 }>;
 
 export function projectChannelOptionCapacity(
@@ -17,7 +17,7 @@ export function projectChannelOptionCapacity(
     return {
       capacity: null,
       warningState: 'configuration_required',
-      bottleneckSellpiaInventorySkuIds: [],
+      bottleneckMasterProductIds: [],
     };
   }
   if (components.some((component) => component.quantity <= 0)) {
@@ -29,20 +29,20 @@ export function projectChannelOptionCapacity(
     return {
       capacity: null,
       warningState: 'review_required',
-      bottleneckSellpiaInventorySkuIds: [],
+      bottleneckMasterProductIds: [],
     };
   }
 
   const capacities = components.map((component) => ({
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+    masterProductId: component.masterProductId,
     capacity: Math.floor(component.currentStock! / component.quantity),
   }));
   const capacity = Math.min(...capacities.map((component) => component.capacity));
   return {
     capacity,
     warningState: 'none',
-    bottleneckSellpiaInventorySkuIds: capacities
+    bottleneckMasterProductIds: capacities
       .filter((component) => component.capacity === capacity)
-      .map((component) => component.sellpiaInventorySkuId),
+      .map((component) => component.masterProductId),
   };
 }

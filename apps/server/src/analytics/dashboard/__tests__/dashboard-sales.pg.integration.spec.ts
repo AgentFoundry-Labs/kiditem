@@ -44,9 +44,9 @@ import {
   parseBusinessDate,
 } from '../../../common/kst';
 import { ProfitLossService } from '../../../finance/services/profit-loss.service';
-import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { INVENTORY_TRANSACTIONAL_READ_PORT } from '../../../inventory/application/port/in/stock/inventory-transactional-read.port';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { periodOf } from './test-helpers/period';
 import type { PrismaClient } from '@prisma/client';
 
@@ -73,7 +73,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
-        { provide: INVENTORY_TRANSACTIONAL_READ_PORT, useClass: InventoryTransactionalReadRepositoryAdapter },
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         { provide: PrismaService, useValue: prisma },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
@@ -1122,7 +1122,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: listing.listingOptionId,
-        sellpiaInventorySkuId: secondaryOption.id,
+        masterProductId: secondaryOption.id,
         quantity: 2,
       },
     });
@@ -1165,7 +1165,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
       return new ProfitCalculationRepositoryAdapter(
         prisma as unknown as PrismaService,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       );
     }
 
@@ -1346,7 +1346,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       await publishedRows();
       const failed = await new ProfitCalculationRepositoryAdapter(
         broken as unknown as PrismaService,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
       const emptyPublication = await buildAdapter().calculateForRange(
@@ -1472,7 +1472,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       let skuId: string;
       if (opts.purchasePrice === null) {
         skuId = randomUUID();
-        await seedActiveSellpiaInventorySku(prisma, {
+        await seedSourceProduct(prisma, {
           id: skuId, organizationId: TEST_ORGANIZATION_ID, code: `SKU-AGREE-${code}`, name: `Unpriced ${code}`,
         });
       } else {
@@ -1502,15 +1502,15 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const client = prisma as unknown as PrismaService;
       const card = await new ProfitCalculationRepositoryAdapter(
         client,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
       const topProducts = await new DashboardSalesRepositoryAdapter(
         client,
-        new InventoryTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(),
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client, new InventoryTransactionalReadRepositoryAdapter())
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter())
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

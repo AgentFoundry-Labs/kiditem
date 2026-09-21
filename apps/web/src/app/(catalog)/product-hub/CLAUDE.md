@@ -24,7 +24,7 @@ This folder owns three surfaces:
   source status, never as zero cost or C. Revenue/profit contribution, rank,
   and cumulative share are separate reporting metrics and do not affect the
   absolute ABC grade.
-- Product detail and matching share the Products-owned complete
+- Product detail and matching share the Channels-owned complete
   option-component replacement API. A sole option is displayed as the default
   option; there is no separate listing-level product picker.
 - Matching may confirm one clearly separated name candidate only when option

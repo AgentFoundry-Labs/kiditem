@@ -9,7 +9,7 @@ const SKU_ID = '11111111-1111-4111-8111-111111111111';
 describe('physical inventory availability contracts', () => {
   it('exposes only current physical stock', () => {
     const availability = {
-      sellpiaInventorySkuId: SKU_ID,
+      masterProductId: SKU_ID,
       currentStock: 100,
       generation: '12',
     };
@@ -28,7 +28,7 @@ describe('physical inventory availability contracts', () => {
         generation: null,
         verifiedAt: null,
       },
-      items: [{ sellpiaInventorySkuId: SKU_ID, currentStock: 0, generation: null }],
+      items: [{ masterProductId: SKU_ID, currentStock: 0, generation: null }],
     })).toMatchObject({ snapshot: { collected: false } });
 
     expect(() => InventoryAvailabilityBatchSchema.parse({

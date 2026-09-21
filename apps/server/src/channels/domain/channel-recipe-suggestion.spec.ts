@@ -7,7 +7,7 @@ import {
 } from './channel-recipe-suggestion';
 
 const sku = (overrides: Partial<ChannelRecipeSuggestionInput['codeEvidence'][number]['sku']> = {}) => ({
-  sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000101',
+  masterProductId: '00000000-0000-4000-8000-000000000101',
   code: 'SP-001',
   name: '키즈 식판',
   optionName: null,
@@ -172,7 +172,7 @@ describe('classifyChannelRecipeSuggestion', () => {
       automationDecision: 'quantity_review',
       recommendedQuantity: null,
       proposals: [{
-        sellpiaInventorySkuId: matchedSku.sellpiaInventorySkuId,
+        masterProductId: matchedSku.masterProductId,
         requiresQuantityConfirmation: true,
       }],
     });
@@ -186,7 +186,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '다른판매처상품명',
         quantity: 1,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          masterProductId: '00000000-0000-4000-8000-000000000102',
           code: 'SP-002',
         }),
       }],
@@ -199,7 +199,7 @@ describe('classifyChannelRecipeSuggestion', () => {
   it('preserves an existing recipe over all evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       existingComponents: [{
-        sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
+        masterProductId: sku().masterProductId,
         code: 'SP-001',
         quantity: 2,
         source: 'manual',
@@ -223,7 +223,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.automationDecision).toBe('quantity_review');
     expect(result.recommendedQuantity).toBeNull();
     expect(result.proposals).toEqual([expect.objectContaining({
-      sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
+      masterProductId: sku().masterProductId,
       requiresQuantityConfirmation: true,
       recommendedQuantity: null,
       evidence: [{
@@ -303,7 +303,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '001234567890',
         nameCompatibilityScore: 0,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          masterProductId: '00000000-0000-4000-8000-000000000102',
           code: 'SP-002',
           name: '전혀 다른 상품',
         }),
@@ -322,9 +322,9 @@ describe('classifyChannelRecipeSuggestion', () => {
       automationDecision: 'operator_review',
     });
     expect(result.proposals).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sellpiaInventorySkuId: sku().sellpiaInventorySkuId }),
+      expect.objectContaining({ masterProductId: sku().masterProductId }),
       expect.objectContaining({
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+        masterProductId: '00000000-0000-4000-8000-000000000102',
       }),
     ]));
   });
@@ -342,7 +342,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '001234567890',
         nameCompatibilityScore: 0.349,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          masterProductId: '00000000-0000-4000-8000-000000000102',
           code: 'SP-002',
           name: '전혀 다른 상품',
         }),
@@ -368,7 +368,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '001234567890',
         nameCompatibilityScore: 0.35,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          masterProductId: '00000000-0000-0000-0000-000000000102',
           code: 'SP-002',
         }),
       }],
@@ -392,7 +392,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '001234567890',
         nameCompatibilityScore: 0,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          masterProductId: '00000000-0000-0000-0000-000000000102',
           code: 'SP-002',
           name: '전혀 다른 상품',
         }),
@@ -409,7 +409,7 @@ describe('classifyChannelRecipeSuggestion', () => {
   it('preserves an existing recipe when barcode evidence is rejected', () => {
     const result = classifyChannelRecipeSuggestion(input({
       existingComponents: [{
-        sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
+        masterProductId: sku().masterProductId,
         code: sku().code,
         quantity: 2,
         source: 'manual',
@@ -422,7 +422,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedValue: '001234567890',
         nameCompatibilityScore: 0,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          masterProductId: '00000000-0000-0000-0000-000000000102',
           code: 'SP-002',
           name: '전혀 다른 상품',
         }),
@@ -473,7 +473,7 @@ describe('classifyChannelRecipeSuggestion', () => {
       options: [{ ...input().options[0], sellerSku: 'SP-001', modelNumber: 'SP-002' }],
       codeEvidence: [
         { kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() },
-        { kind: 'model_number_code', channelValue: 'SP-002', sku: sku({ sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102', code: 'SP-002' }) },
+        { kind: 'model_number_code', channelValue: 'SP-002', sku: sku({ masterProductId: '00000000-0000-4000-8000-000000000102', code: 'SP-002' }) },
       ],
     }));
     expect(result.status).toBe('conflict');
@@ -488,7 +488,7 @@ describe('classifyChannelRecipeSuggestion', () => {
       ],
       codeEvidence: [
         { kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() },
-        { kind: 'model_number_code', channelValue: 'SP-002', sku: sku({ sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102', code: 'SP-002' }) },
+        { kind: 'model_number_code', channelValue: 'SP-002', sku: sku({ masterProductId: '00000000-0000-4000-8000-000000000102', code: 'SP-002' }) },
       ],
     }));
     expect(result.status).toBe('conflict');
@@ -498,7 +498,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     const result = classifyChannelRecipeSuggestion(input({
       codeEvidence: [
         { kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() },
-        { kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku({ sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102' }) },
+        { kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku({ masterProductId: '00000000-0000-4000-8000-000000000102' }) },
       ],
     }));
     expect(result.status).toBe('ambiguous');
@@ -507,7 +507,7 @@ describe('classifyChannelRecipeSuggestion', () => {
 
   it('blocks duplicate barcodes and exact name duplicates', () => {
     const secondSku = sku({
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+      masterProductId: '00000000-0000-4000-8000-000000000102',
       code: 'SP-002',
     });
     const barcode = classifyChannelRecipeSuggestion(input({
@@ -538,7 +538,7 @@ describe('classifyChannelRecipeSuggestion', () => {
         normalizedProductValue: '키즈식판',
         normalizedOptionValue: null,
         sku: sku({
-          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          masterProductId: '00000000-0000-4000-8000-000000000102',
           code: 'SP-002',
         }),
       }],
@@ -581,7 +581,7 @@ describe('classifyChannelRecipeSuggestion', () => {
           normalizedValue: '키즈식판어린이식기',
           score: 0.5,
           sku: sku({
-            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            masterProductId: '00000000-0000-4000-8000-000000000102',
             code: 'SP-002',
           }),
         },
@@ -620,7 +620,7 @@ describe('classifyChannelRecipeSuggestion', () => {
           kind: 'fuzzy_name', channelValue: '키즈 식판 블루',
           normalizedValue: '키즈식판블루', score: 0.82,
           sku: sku({
-            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            masterProductId: '00000000-0000-4000-8000-000000000102',
             code: 'SP-002',
           }),
         },
@@ -642,7 +642,7 @@ describe('classifyChannelRecipeSuggestion', () => {
           kind: 'normalized_name', channelValue: '키즈 식판 단품',
           normalizedValue: '키즈식판', score: 1,
           sku: sku({
-            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            masterProductId: '00000000-0000-4000-8000-000000000102',
             code: 'SP-002',
           }),
         },

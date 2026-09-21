@@ -1,3 +1,4 @@
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
@@ -6,7 +7,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { findAutoBatchCandidates } from '../../ai/adapter/out/repository/thumbnail-generation-ledger.query';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ReviewsService } from '../../orders/services/reviews.service';
 import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {
@@ -40,16 +41,16 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       name: 'ABC dependent consumers',
       status: 'active',
     } });
-    const officialA = await prisma.masterProduct.create({ data: {
+    const officialA = await seedSourceProduct(prisma, {
       organizationId: ORG,
       code: 'OFFICIAL-A',
       name: 'Official A',
-    } });
-    const staleCacheA = await prisma.masterProduct.create({ data: {
+    });
+    const staleCacheA = await seedSourceProduct(prisma, {
       organizationId: ORG,
       code: 'STALE-CACHE-A',
       name: 'Stale cache A',
-    } });
+    });
     const listing = await prisma.channelListing.create({ data: {
       organizationId: ORG,
       channelAccountId: account.id,
@@ -139,7 +140,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       new Date('2026-08-01T00:00:00.000Z'),
       new Date('2026-09-01T00:00:00.000Z'),
       { hasAdAccount: true, publishedDates: 31, accountSpend: 0, coversWindow: true },
-      new InventoryTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(),
     )).resolves.toEqual([
       expect.objectContaining({ listingId: listing.id, grade: 'A' }),
     ]);

@@ -28,7 +28,7 @@ const draft = {
     status: 'matched',
     reason: '상품명으로 하나의 셀피아 재고를 찾았습니다.',
     sellpiaMatch: {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      masterProductId: '00000000-0000-4000-8000-000000000051',
       code: '10451-1',
       name: '3500꿀사과슬랑이',
       optionName: null,
@@ -164,7 +164,7 @@ describe('WingRegistrationConfirmDialog', () => {
   it('blocks registration until an unmatched product is linked from Sellpia search', async () => {
     const onConfirm = vi.fn();
     const onSearchSellpia = vi.fn().mockResolvedValue([{
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000099',
+      masterProductId: '00000000-0000-4000-8000-000000000099',
       code: 'MANUAL-99',
       name: '직접 선택한 셀피아 상품',
       optionName: '파랑',
@@ -216,7 +216,7 @@ describe('WingRegistrationConfirmDialog', () => {
       false,
       draft.channelAccountId,
       expect.objectContaining({
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000099',
+        masterProductId: '00000000-0000-4000-8000-000000000099',
         quantity: 1,
       }),
     );

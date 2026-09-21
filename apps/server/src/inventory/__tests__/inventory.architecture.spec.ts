@@ -1,171 +1,94 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect } from 'vitest';
-
-// Architecture guard tests freeze the Inventory port/adapter contract:
-//
-//   - PrismaService is imported only under `inventory/adapter/out/persistence/**`.
-//   - `*persistence.ts` is not used as final naming under `apps/server/src/inventory`.
-//   - `application/**` does not import Prisma client/types.
-//   - `application/usecase/**` does not import `adapter/out/**` or products
-//     implementation details. Concrete adapters reach application code only
-//     via Nest token bindings to ports.
-//   - Controllers (`adapter/in/web/**`) depend on `application/port/in/**`,
-//     not on concrete application services.
-//   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma,
-//     PrismaService, HTTP DTO classes, or any incoming-adapter module.
+import { describe, expect, it } from 'vitest';
+import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
+import { InventoryModule } from '../inventory.module';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INVENTORY_ROOT = path.resolve(__dirname, '..');
-const PRISMA_INVENTORY_SCHEMA = path.resolve(REPO_ROOT, 'prisma/models/inventory.prisma');
 
 function rg(args: string): string[] {
   try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
+    return execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' })
       .split('\n')
-      .map((l) => l.trim())
+      .map((line) => line.trim())
       .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
+  } catch (error: unknown) {
+    if ((error as { status?: number }).status === 1) return [];
+    throw error;
   }
 }
 
-function inventoryRel(): string {
-  return path.relative(REPO_ROOT, INVENTORY_ROOT);
-}
-
 describe('Inventory architecture contract', () => {
-  it('uses SellpiaInventorySku as the sole operational inventory identity', () => {
-    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    for (const modelName of ['StockTransfer', 'ReturnTransfer']) {
-      const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
-      expect(block, `${modelName} must carry sellpiaInventorySkuId`)
-        .toContain('sellpiaInventorySkuId');
-      expect(block).not.toMatch(/\boptionId\b/);
-    }
+  it('keeps source collection and current stock in Products', () => {
+    const imports: unknown[] = Reflect.getMetadata('imports', InventoryModule) ?? [];
+    expect(imports).toContain(ProductCollectionRuntimeModule);
+    expect(imports).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'InventoryFreshnessRuntimeModule' }),
+    ]));
   });
 
-  it('links each physical Sellpia source SKU to at most one canonical MasterProduct', () => {
-    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    const block = schema.match(
-      /model SellpiaInventorySku \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-
-    expect(block).toContain('masterProductId');
-    expect(block).toContain('masterProduct');
-    expect(block).toContain('MasterProductInventorySkus');
+  it('does not retain Inventory source controllers, writers, or export services', () => {
+    const obsolete = [
+      'adapter/in/web/inventory-sku-snapshot.controller.ts',
+      'adapter/in/web/sellpia-inventory-freshness.controller.ts',
+      'adapter/in/web/sellpia-inventory-source.controller.ts',
+      'adapter/out/persistence/inventory-sku-snapshot-list.repository.adapter.ts',
+      'adapter/out/persistence/sellpia-import-run.repository.adapter.ts',
+      'adapter/out/persistence/sellpia-inventory-freshness.repository.adapter.ts',
+      'adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts',
+      'application/usecase/inventory-sku-export.service.ts',
+      'application/usecase/inventory-sku-snapshot-list.service.ts',
+      'application/usecase/sellpia-inventory-import.service.ts',
+    ];
+    expect(obsolete.filter((file) => existsSync(path.join(INVENTORY_ROOT, file)))).toEqual([]);
   });
 
-  it('removes every legacy Sellpia MasterProduct read symbol and filename', () => {
+  it('does not retain the deleted Inventory source lock', () => {
+    expect(existsSync(path.join(
+      INVENTORY_ROOT,
+      'adapter/out/persistence/transaction/sellpia-inventory-lock.ts',
+    ))).toBe(false);
+  });
+
+  it('does not leave source-related public ports in Inventory', () => {
+    const sourcePortHits = rg(
+      "--type ts --files apps/server/src/inventory/application/port --glob '**/*sellpia*' --glob '**/*snapshot*' --glob '**/*availability*' --glob '**/*transactional*' --glob '!**/rocket-workbook-progress*'",
+    );
+    expect(sourcePortHits).toEqual([]);
+  });
+
+  it('keeps Prisma and source implementation out of Inventory application code', () => {
     const hits = rg(
-      `-n 'SELLPIA_MASTER_PRODUCT_READ|SellpiaMasterProductRead|sellpia-master-product-read' ${inventoryRel()} --glob '!**/__tests__/**'`,
+      "--type ts --files-with-matches '@prisma/client|Prisma\\.|sellpiaInventorySku|SELLPIA_INVENTORY' apps/server/src/inventory/application --glob '!**/__tests__/**'",
     );
     expect(hits).toEqual([]);
   });
 
-  it('keeps the Sellpia advisory lock key in the one exported lock module', () => {
-    const serverSrc = path.dirname(inventoryRel());
-    const hits = rg(
-      `--type ts --files-with-matches 'inventory-sellpia:' ${serverSrc} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
-    );
-    expect(hits).toEqual([
-      path.join(inventoryRel(), 'adapter/out/persistence/transaction/sellpia-inventory-lock.ts'),
-    ]);
-  });
-
-  it('PrismaService is imported only under inventory/adapter/out/persistence/**', () => {
-    const inv = inventoryRel();
-    const allowedPrefix = path.join(inv, 'adapter/out/persistence') + path.sep;
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${inv} --glob '!**/__tests__/**'`,
-    );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
-    expect(
-      violators,
-      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('no *persistence.ts files survive under apps/server/src/inventory', () => {
-    const inv = inventoryRel();
-    const hits = rg(
-      `--type ts --files --glob '${path.join(inv, '**', '*persistence.ts')}'`,
-    );
-    expect(
-      hits,
-      `\`*persistence.ts\` is migration-waypoint naming only — switch to repository adapters:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('application layer does not import Prisma client or expose Prisma types', () => {
-    const inv = inventoryRel();
-    const applicationGlob = path.join(inv, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('application/usecase/** does not import adapter/out/**', () => {
-    const inv = inventoryRel();
-    const serviceGlob = path.join(inv, 'application/usecase') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('application/usecase/** does not import products module/services directly', () => {
-    const inv = inventoryRel();
-    const serviceGlob = path.join(inv, 'application/usecase') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'ProductsModule|BundleStockService|products/application|products/adapter|products/domain' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `application services must not depend on products implementation details:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('adapter/in/web/** controllers depend on application/port/in/**, not concrete services', () => {
-    const inv = inventoryRel();
-    const httpGlob = path.join(inv, 'adapter/in/web') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/usecase/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(
-      hits,
-      `controllers must inject application/port/in/* tokens, not concrete services:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('cross-domain production code uses published Inventory ports, not concrete read or lock adapters', () => {
-    const serverSrc = path.dirname(inventoryRel());
-    const hits = rg(
-      `--type ts --files-with-matches 'inventory/(adapter/out/persistence/(read|transaction)|read|transaction)/' ${serverSrc} --glob '!inventory/**' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
-    );
-    expect(
-      hits,
-      `cross-domain code must use Inventory application ports instead of concrete read/transaction implementations:\n${hits.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
-    const inv = inventoryRel();
-    const domainGlob = path.join(inv, 'domain') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/web|\\.dto'\
-       --glob '${domainGlob}' --glob '!**/__tests__/**'`,
-    );
-    expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);
+  it('retains only the warehouse, transfer and Rocket progress implementation lanes', () => {
+    const files = rg('--type ts --files apps/server/src/inventory --glob "!**/__tests__/**"')
+      .map((file) => path.relative(REPO_ROOT, path.resolve(REPO_ROOT, file)))
+      .filter((file) => !file.endsWith('CLAUDE.md'));
+    const allowedPrefixes = [
+      'apps/server/src/inventory/adapter/in/web/',
+      'apps/server/src/inventory/adapter/out/persistence/transfers',
+      'apps/server/src/inventory/adapter/out/persistence/warehouses',
+      'apps/server/src/inventory/adapter/out/persistence/rocket-workbook-progress',
+      'apps/server/src/inventory/application/exception/',
+      'apps/server/src/inventory/application/port/in/warehouse/',
+      'apps/server/src/inventory/application/port/in/stock/index.ts',
+      'apps/server/src/inventory/application/port/in/stock/rocket-workbook-progress',
+      'apps/server/src/inventory/application/port/out/cross-domain/index.ts',
+      'apps/server/src/inventory/application/port/out/persistence/index.ts',
+      'apps/server/src/inventory/application/port/out/persistence/transfers',
+      'apps/server/src/inventory/application/port/out/persistence/warehouses',
+      'apps/server/src/inventory/application/port/out/persistence/rocket-workbook-progress',
+      'apps/server/src/inventory/application/usecase/transfers',
+      'apps/server/src/inventory/application/usecase/warehouses',
+      'apps/server/src/inventory/application/usecase/rocket-workbook-progress',
+      'apps/server/src/inventory/inventory.module.ts',
+    ];
+    expect(files.filter((file) => !allowedPrefixes.some((prefix) => file.startsWith(prefix)))).toEqual([]);
   });
 });

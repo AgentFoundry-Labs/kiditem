@@ -22,7 +22,7 @@ second list.
   successful publication. The server verifies the exact completed attempt ID;
   failure/cancellation blocks calculation without a fallback to older stock.
 - Mapping blockers link to Product Hub. A confirmed option may create an empty
-  component rule or replace a fully reviewed recipe through Products'
+  component rule or replace a fully reviewed recipe through Channels'
   optimistic API, then rerun the same source preview.
 - Only recipe-backed insufficient capacity may continue with reviewed quantity
   zero and a shortage reason. Shared components allocate once in stable

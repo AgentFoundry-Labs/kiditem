@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../adapter/out/repository/profit-calculation.repository.adapter";
 import type { PrismaService } from "../../../prisma/prisma.service";
-import type { InventoryTransactionalReadPort } from "../../../inventory/application/port/in/stock/inventory-transactional-read.port";
+import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/read/order-facts.reader";
 import {
   advertisingApplies,
@@ -37,8 +37,8 @@ type PrismaMock = {
   $transaction: ReturnType<typeof vi.fn>;
   channelListingOption: { findMany: ReturnType<typeof vi.fn> };
   channelAccount: { findMany: ReturnType<typeof vi.fn> };
-  inventoryTransactionalRead: {
-    readSkuIdentities: ReturnType<typeof vi.fn>;
+  productTransactionalRead: {
+    readSourceIdentities: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -47,7 +47,10 @@ type PrismaMock = {
  * (KID-114: the only cost input an option has).
  */
 const pricedOption = (purchasePrice: number | null) => ({
-  inventoryComponents: [{ quantity: 1, sellpiaInventorySku: { purchasePrice } }],
+  inventoryComponents: [{
+    quantity: 1,
+    masterProductId: purchasePrice === null ? 'master-unpriced' : `master-${purchasePrice}`,
+  }],
 });
 
 /** Inside every `calculateForRange` window used below. */
@@ -80,21 +83,21 @@ function makePrisma(
         const components = (
           (option.inventoryComponents ?? []) as Array<Record<string, unknown>>
         ).map((component, componentIndex) => {
-          const skuId = `sku-${orderIndex}-${lineIndex}-${componentIndex}`;
-          const sku = component.sellpiaInventorySku as
-            Record<string, unknown> | undefined;
+          const masterProductId = String(
+            component.masterProductId ?? `master-${orderIndex}-${lineIndex}-${componentIndex}`,
+          );
           identityRows.push({
-            sellpiaInventorySkuId: skuId,
-            code: skuId,
-            name: skuId,
+            masterProductId,
+            code: `KID-${masterProductId}`,
+            name: masterProductId,
             optionName: null,
             barcode: null,
-            purchasePrice: sku?.purchasePrice ?? null,
-            salePrice: null,
-            isActive: true,
-            masterProductId: null,
+            purchasePrice: masterProductId === 'master-unpriced'
+              ? null
+              : Number(masterProductId.replace('master-', '')),
+            imageUrls: [],
           });
-          return { quantity: component.quantity, sellpiaInventorySkuId: skuId };
+          return { quantity: component.quantity, masterProductId };
         });
         optionRows.push({ id: optionId, inventoryComponents: components });
       }
@@ -153,7 +156,7 @@ function makePrisma(
     };
   });
   const inventoryTransactionalRead = {
-    readSkuIdentities: vi.fn().mockResolvedValue(identityRows as never),
+    readSourceIdentities: vi.fn().mockResolvedValue(identityRows as never),
   };
 
   const prisma = {
@@ -164,7 +167,7 @@ function makePrisma(
         { id: ACCOUNT_ID, channel: options.accountChannel ?? "rocket" },
       ]),
     },
-    inventoryTransactionalRead,
+    productTransactionalRead: inventoryTransactionalRead,
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return prisma;
@@ -201,7 +204,7 @@ function makeAdapter(
   });
   return new ProfitCalculationRepositoryAdapter(
     prisma as unknown as PrismaService,
-    prisma.inventoryTransactionalRead as unknown as InventoryTransactionalReadPort,
+    prisma.productTransactionalRead as unknown as ProductTransactionalReadPort,
   );
 }
 

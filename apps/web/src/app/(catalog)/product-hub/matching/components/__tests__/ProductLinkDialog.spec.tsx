@@ -19,7 +19,7 @@ describe('<ProductLinkDialog>', () => {
     vi.clearAllMocks();
     vi.mocked(useRecipeComponentCandidates).mockReturnValue({
       data: { items: [{
-        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+        masterProductId: '66666666-6666-4666-8666-666666666666',
         code: 'SP-100',
         name: '우산 낱개',
         optionName: null,
@@ -49,7 +49,7 @@ describe('<ProductLinkDialog>', () => {
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
         components: [{
-          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 10,
         }],
       }],
@@ -75,7 +75,7 @@ describe('<ProductLinkDialog>', () => {
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
         components: [{
-          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 2,
         }],
       }],
@@ -107,7 +107,7 @@ describe('<ProductLinkDialog>', () => {
       options: [{
         channelListingOptionId: '77777777-7777-4777-8777-777777777777',
         components: [{
-          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 3,
         }],
       }],
@@ -126,7 +126,7 @@ describe('<ProductLinkDialog>', () => {
     const configuredOption = optionRow(true);
     configuredOption.option.inventoryComponents.push({
       id: '88888888-8888-4888-8888-888888888888',
-      sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+      masterProductId: '66666666-6666-4666-8666-666666666666',
       code: 'SP-100',
       name: '우산 낱개',
       optionName: null,
@@ -145,7 +145,7 @@ describe('<ProductLinkDialog>', () => {
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
         components: [{
-          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 4,
         }],
       }],

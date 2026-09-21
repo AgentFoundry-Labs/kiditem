@@ -77,10 +77,9 @@ function previewResult() {
       channelListingOptionId: '77777777-7777-4777-8777-777777777777',
       masterProductId: '88888888-8888-4888-8888-888888888888',
       components: [{
-        sellpiaInventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        masterProductId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         quantity: 1,
         currentStock: 5,
-        isActive: true,
       }],
     }],
   };

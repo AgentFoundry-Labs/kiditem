@@ -14,7 +14,7 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 export type ProductStatus = SourcingCandidateStatus;
 
 export interface SellpiaInventorySearchItem {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -163,7 +163,7 @@ export interface RegistrationImages {
 }
 
 /** 서버 `ProductBasics.salePriceSource` 와 같은 값 집합이다. */
-export type SalePriceSource = 'input' | 'sellpia' | 'none';
+export type SalePriceSource = 'input' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -452,7 +452,7 @@ function normalizeRegistrationImages(value: unknown): RegistrationImages {
   };
 }
 
-const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'sellpia', 'none'];
+const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'none'];
 
 /** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
 function normalizeSalePriceSource(value: unknown): SalePriceSource {

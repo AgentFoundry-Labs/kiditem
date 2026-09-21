@@ -259,7 +259,7 @@ Repository port 는 "외부 side effect 협력자"가 아니다. DB 판정이 �
 # 전체
 npx vitest run --workspace=apps/server
 # 특정
-npm exec --workspace=apps/server vitest -- run src/inventory/application/service/__tests__/inventory-availability.service.spec.ts
+npm exec --workspace=apps/server vitest -- run src/products/application/usecase/product-collection-freshness.usecase.spec.ts
 ```
 
 **한계**: race / lock / 트랜잭션 isolation 검증 불가. `updateMany({ count: 0 })` 반환을 강제할 순 있지만, 실제 두 트랜잭션 경쟁에서 count 가 어떻게 나오는지는 **mock 으로 재현 불가** (mock Prisma 는 synchronous).
@@ -404,7 +404,7 @@ Sellpia 수집과 재고 반영은 한 종류의 테스트로 증명하지 않�
 | DTO/auth role/organization context, controller action-body contract | server unit/E2E + IDOR/tenant scanners |
 | Chrome extension login/HTML/workbook/timeout/focus behavior | Node extension contract tests; 실제 Chrome는 safe smoke만 |
 | shared collection start/join/cancel, exact completion before purchase/Rocket calculation, failure without old-stock fallback, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
-| `SellpiaInventorySku.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
+| `MasterProduct.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
 | Rocket confirmation is idempotent, generation/recipe-fenced, concurrency-safe, releasable, and has no provider/stock-write lane | Rocket confirmation PostgreSQL integration, server policy/service tests, workbook contract, and `rocket-purchase-decision-boundary.spec.ts` |
 | schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD sync gate |
 

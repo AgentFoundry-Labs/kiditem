@@ -1,3 +1,4 @@
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -7,12 +8,12 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { InventoryTransactionalReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
-import { listSellingMasterProductIds } from '../adapter/out/repository/selling-master-product.query';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { listSellingMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
 
 describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
   let prisma: PrismaClient;
-  const inventory = new InventoryTransactionalReadRepositoryAdapter();
+  const inventory = new ProductTransactionalReadRepositoryAdapter();
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -67,13 +68,11 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
       prisma,
       accountId: account.id,
       code: 'PUBLISHED',
-      lastImportRunId: publishedRun.id,
     });
     const retainedProductId = await seedSellingProduct({
       prisma,
       accountId: account.id,
       code: 'RETAINED',
-      lastImportRunId: null,
     });
 
     await expect(prisma.$transaction((tx) =>
@@ -86,26 +85,11 @@ async function seedSellingProduct(input: {
   prisma: PrismaClient;
   accountId: string;
   code: string;
-  lastImportRunId: string | null;
 }): Promise<string> {
-  const product = await input.prisma.masterProduct.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      code: input.code,
-      name: input.code,
-    },
+  const product = await seedSourceProduct(input.prisma, {
+    organizationId: TEST_ORGANIZATION_ID, code: input.code, name: input.code, currentStock: 10,
   });
-  const sku = await input.prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterProductId: product.id,
-      code: `SKU-${input.code}`,
-      name: input.code,
-      currentStock: 10,
-      isActive: true,
-      lastImportRunId: input.lastImportRunId,
-    },
-  });
+  const sku = product;
   const listing = await input.prisma.channelListing.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
@@ -130,7 +114,7 @@ async function seedSellingProduct(input: {
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: sku.id,
       quantity: 1,
     },
   });

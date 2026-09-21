@@ -1,4 +1,3 @@
-import { InventoryTransactionalReadRepositoryAdapter } from '../../../inventory/adapter/out/persistence/inventory-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
@@ -14,6 +13,8 @@ import {
   buildSellpiaProfitabilityPlan,
 } from '../sellpia-profitability-source.service';
 import { readCurrentSellpiaProductMonthlyFacts } from '../read/sellpia-product-monthly-facts';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 
 const ATTEMPT_KEY = '11111111-1111-4111-8111-111111111111';
 
@@ -98,11 +99,11 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
 
   it('keeps staged rows invisible until the manifest and Alert resolve commit together', async () => {
     const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
-    const resolveFailure = new SourceFailureAlerts(prisma);
+    const resolveFailure = new SourceFailureAlerts(prisma as never);
     resolveFailure.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
-    const failingOwner = new SellpiaProfitabilitySourceService(prisma as never, resolveFailure, new InventoryTransactionalReadRepositoryAdapter());
+    const failingOwner = new SellpiaProfitabilitySourceService(prisma as never, resolveFailure, new ProductTransactionalReadRepositoryAdapter());
 
     await expect(
       failingOwner.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, completePayload(attempt)),
@@ -239,14 +240,14 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     const facts = await prisma.sellpiaProductMonthlySales.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, sourceImportRunId: attempt.attemptId },
       select: {
-        sellpiaInventorySkuId: true,
+        legacySellpiaInventorySkuId: true,
         masterProductId: true,
         costBasis: true,
         vatIncluded: true,
       },
     });
     expect(facts).toEqual([expect.objectContaining({
-      sellpiaInventorySkuId: expect.any(String),
+      legacySellpiaInventorySkuId: null,
       masterProductId: expect.any(String),
       costBasis: 'ORDER_TIME_SUPPLY_COST',
       vatIncluded: true,
@@ -479,7 +480,7 @@ function owner(prisma: PrismaClient): SellpiaProfitabilitySourceService {
   return new SellpiaProfitabilitySourceService(
     prisma as never,
     new SourceFailureAlerts(prisma as never),
-   new InventoryTransactionalReadRepositoryAdapter());
+    new ProductTransactionalReadRepositoryAdapter());
 }
 
 function completePayload(attempt: { attemptToken: string; plan: { coveredMonths: string[] } }) {
@@ -519,21 +520,11 @@ async function seedMappedSku(
   organizationId: string,
   code: string,
 ): Promise<void> {
-  const master = await prisma.masterProduct.create({
-    data: {
-      organizationId,
-      code: `MASTER-${organizationId.slice(0, 4)}`,
-      name: 'Master product',
-    },
-  });
-  await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId,
-      masterProductId: master.id,
-      code,
-      name: 'Sellpia SKU',
-      currentStock: 1,
-    },
+  await seedSourceProduct(prisma, {
+    organizationId,
+    code,
+    name: 'Sellpia SKU',
+    currentStock: 1,
   });
 }
 

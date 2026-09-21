@@ -13,7 +13,7 @@ const earlierRow = {
   masterProductId: 'master-1',
   recipeStatus: 'matched' as const,
   components: [{
-    sellpiaInventorySkuId: 'sellpia-sku-1',
+    masterProductId: 'master-component-1',
     code: 'SP-1',
     name: 'Component',
     optionName: null,
@@ -162,7 +162,6 @@ describe('previewRocketCapacity', () => {
         components: [{
           ...earlierRow.components[0]!,
           currentStock: null,
-          isActive: null,
         }],
       }],
     });

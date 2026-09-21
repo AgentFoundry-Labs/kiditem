@@ -143,7 +143,7 @@ export type ChannelProductMatchingQueueRow = z.infer<
 
 export const ChannelOptionInventoryComponentSchema = z.object({
   id: z.string().uuid(),
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1).nullable(),
   name: z.string().min(1).nullable(),
   optionName: z.string().nullable(),
@@ -262,7 +262,7 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
   recommendedQuantity: z.number().int().positive().nullable(),
   reason: z.string().min(1),
   existingComponents: z.array(z.object({
-    sellpiaInventorySkuId: z.string().uuid(),
+    masterProductId: z.string().uuid(),
     code: z.string().min(1),
     quantity: z.number().int().positive(),
     source: z.enum(['manual', 'deterministic']),
@@ -270,7 +270,7 @@ export const ChannelRecipeSuggestionResponseSchema = z.object({
     confirmedAt: zIsoDate,
   }).strict()),
   proposals: z.array(z.object({
-    sellpiaInventorySkuId: z.string().uuid(),
+    masterProductId: z.string().uuid(),
     code: z.string().min(1),
     name: z.string().min(1),
     optionName: z.string().min(1).nullable(),

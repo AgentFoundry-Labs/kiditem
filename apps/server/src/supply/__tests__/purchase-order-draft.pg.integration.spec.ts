@@ -7,10 +7,10 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/persistence/sellpia-inventory-sku-read.repository.adapter';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/usecase/sellpia-inventory-sku-read.service';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductSourceReadUseCase } from '../../products/application/usecase/product-source-read.usecase';
 
 const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000001';
 
@@ -26,11 +26,11 @@ describe('purchase-order draft idempotency (PG integration)', () => {
     await Promise.all([prisma.$connect(), otherPrisma.$connect()]);
     first = new ProcurementRepositoryAdapter(
       prisma as unknown as PrismaService,
-      inventorySkuReader(prisma),
+      productSourceReader(prisma),
     );
     second = new ProcurementRepositoryAdapter(
       otherPrisma as unknown as PrismaService,
-      inventorySkuReader(otherPrisma),
+      productSourceReader(otherPrisma),
     );
   });
 
@@ -41,7 +41,7 @@ describe('purchase-order draft idempotency (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await seedActiveSellpiaInventorySku(prisma, {
+    await seedSourceProduct(prisma, {
       id: SELLPIA_SKU_ID,
       organizationId: TEST_ORGANIZATION_ID,
       code: 'SP-DRAFT-1',
@@ -55,7 +55,7 @@ describe('purchase-order draft idempotency (PG integration)', () => {
       supplierName: '1688 Kids Tableware Factory',
       items: [
         {
-          sellpiaInventorySkuId: SELLPIA_SKU_ID,
+          masterProductId: SELLPIA_SKU_ID,
           productName: '실리콘 식판 흡착형 신제품',
           quantity: 6,
           unitPriceCny: 22.8,
@@ -97,9 +97,9 @@ describe('purchase-order draft idempotency (PG integration)', () => {
   });
 });
 
-function inventorySkuReader(prisma: PrismaClient) {
-  return new SellpiaInventorySkuReadService(
-    new SellpiaInventorySkuReadRepositoryAdapter(
+function productSourceReader(prisma: PrismaClient) {
+  return new ProductSourceReadUseCase(
+    new ProductSourceReadRepositoryAdapter(
       prisma as unknown as PrismaService,
     ),
   );

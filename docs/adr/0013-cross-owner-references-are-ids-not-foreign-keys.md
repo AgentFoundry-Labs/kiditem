@@ -35,6 +35,6 @@ touches one of those boundaries removes the `@relation`, keeps the column and
 index, and deletes the allowlist entry. Cross-owner reads go through the
 owner's reader or a raw query, never `include`.
 
-[ADR-0014](0014-inventory-history-retains-deleted-sku-identities.md) defines
+[ADR-0016](0016-inventory-history-retains-deleted-sku-identities.md) defines
 the scoped exception for retained Inventory transfer history: its SKU ID may
 outlive the current SKU while organization and warehouse foreign keys remain.

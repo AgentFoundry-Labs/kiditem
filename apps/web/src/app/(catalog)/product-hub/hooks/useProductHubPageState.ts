@@ -73,7 +73,6 @@ export function useProductHubPageState() {
   const periodDays = PERIOD_DAYS.includes(periodDaysParam as ProductOperationsPeriodDays)
     ? periodDaysParam as ProductOperationsPeriodDays
     : 30;
-  const category = searchParams.get('category') ?? '';
   const abcGrade = searchParams.get('abcGrade') ?? '';
   const dataStatusOpen = searchParams.get('dataStatus') === 'abc';
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
@@ -103,10 +102,9 @@ export function useProductHubPageState() {
     if (inventoryFocus !== 'all') params.set('inventoryFocus', inventoryFocus);
     else if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
-    if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
     return params;
-  }, [abcGrade, activeStatus, adStatus, category, inventoryFocus, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, inventoryFocus, inventoryStatus, page, periodDays, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -129,7 +127,6 @@ export function useProductHubPageState() {
     && inventoryStatus === 'all'
     && inventoryFocus === 'all'
     && !urlSearch.trim()
-    && !category.trim()
     && !abcGrade.trim();
 
   const listQuery = useQuery({
@@ -175,7 +172,6 @@ export function useProductHubPageState() {
     abcGrade,
     activeStatus,
     adStatus,
-    category,
     data: listQuery.data,
     dataStatusOpen,
     errorMessage: listQuery.error
@@ -212,9 +208,6 @@ export function useProductHubPageState() {
     },
     setAdStatus: (value: ProductOperationsAdStatus) => {
       updateListParams({ adStatus: value === 'all' ? undefined : value, page: '1' });
-    },
-    setCategory: (value: string) => {
-      updateListParams({ category: value || undefined, page: '1' });
     },
     setInventoryStatus: (value: ProductInventoryStatusFilter) => {
       updateListParams({
