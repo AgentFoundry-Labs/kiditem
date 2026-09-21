@@ -364,17 +364,18 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
-| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
+| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus the Products transactional read port. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
-| `apps/server/src/inventory` | Hexagonal | Sellpia collection and atomic current-stock publication, organization-scoped inventory reads, completed-attempt validation, and retained warehouse/transfer capabilities behind ports/adapters. |
+| `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
+| `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, usecases, pure domain rules and outgoing adapters. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; the registration draft is published to the Channels fence through `REGISTRATION_DRAFT_PORT`, which runs inside the fence transaction; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
-| `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and collect-before-calculation Rocket policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
+| `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Products-fence transaction adapter, and collect-before-calculation Rocket policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
@@ -384,7 +385,7 @@ Hexagonal owner capabilities use this shape:
 ```text
 apps/server/src/{owner}/
   {owner}.module.ts
-  adapter/in/http/        HTTP controllers and DTO binding, when HTTP exists
+  adapter/in/web/         HTTP controllers and DTO binding; existing http lanes migrate with their owner
   adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts

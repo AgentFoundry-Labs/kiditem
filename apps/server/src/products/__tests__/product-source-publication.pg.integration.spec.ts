@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -35,6 +35,8 @@ describe('Sellpia product source publication (PostgreSQL)', () => {
   afterAll(async () => {
     await prisma?.$disconnect();
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   beforeEach(async () => {
     await resetDb(prisma);
@@ -146,6 +148,75 @@ describe('Sellpia product source publication (PostgreSQL)', () => {
     await expect(alerts.list(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
       { attemptId: failed.attemptId, status: 'OPEN', href: '/product-hub' },
     ]);
+  });
+
+  it('settles a publication failure after rollback and admits the next attempt', async () => {
+    const priorFailed = await begin('prior-failed-attempt');
+    await collection.failAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: priorFailed.attemptId,
+      attemptToken: priorFailed.attemptToken,
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'prior source failure',
+    });
+
+    const baseline = await begin('publication-failure-baseline');
+    await complete(baseline, [
+      '상품코드,상품명,재고,매입가,바코드',
+      'PRODUCT-1-RED,Product 1,7,100,880000000001',
+    ].join('\n'));
+
+    // Fail after the real publication has written rows, so the transaction must roll them back.
+    const resolution = vi.spyOn(alerts, 'resolveSourceFailure')
+      .mockRejectedValueOnce(new Error('publication boom'));
+    const faultedCollection = collection;
+    const failed = await faultedCollection.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      idempotencyKey: 'publication-failure',
+      scope: 'inventory',
+      trigger: 'initial_snapshot',
+    });
+
+    await expect(faultedCollection.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: failed.attemptId,
+      attemptToken: failed.attemptToken,
+      file: {
+        buffer: Buffer.from([
+          '상품코드,상품명,재고,매입가,바코드',
+          'PRODUCT-1-RED,Product 1 changed,99,200,880000000001',
+        ].join('\n')),
+        fileName: 'publication-failure.csv',
+        mimeType: 'text/csv',
+      },
+    })).rejects.toThrow('publication boom');
+
+    expect(resolution).toHaveBeenCalledOnce();
+    await expect(
+      prisma.masterProduct.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceProductCode: 'PRODUCT-1',
+          sourceOptionCode: 'RED',
+        },
+      }),
+    ).resolves.toMatchObject({ name: 'Product 1', currentStock: 7, purchasePrice: 100 });
+    await expect(
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: priorFailed.attemptId } }),
+    ).resolves.toMatchObject({ status: 'failed', errorCode: 'sellpia_network_failed' });
+    await expect(
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: failed.attemptId } }),
+    ).resolves.toMatchObject({ status: 'failed', errorCode: 'sellpia_publication_failed' });
+    await expect(alerts.list(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
+      { attemptId: failed.attemptId, status: 'OPEN', href: '/product-hub' },
+    ]);
+
+    const next = await begin('after-publication-failure');
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(failed.attemptId);
   });
 
   async function begin(idempotencyKey: string): Promise<SellpiaCollectionAttempt> {

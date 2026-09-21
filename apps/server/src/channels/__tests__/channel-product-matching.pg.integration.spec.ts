@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { lockProductMapping } from '../../common/product-mapping-generation';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
 import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -20,6 +20,8 @@ import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/reposito
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -749,6 +751,106 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     })).resolves.toEqual({ masterProductId: sku.id, quantity: 1 });
   });
 
+  it('waits on the mapping lock before acquiring the source lock while publication commits first', async () => {
+    const product = await createProduct('KI-DEADLOCK', 'Auto product');
+    const sku = await createInventorySku('SKU-DEADLOCK', 20, product.id);
+    const snapshot = await prisma.sellpiaManualMatchSnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        targetCount: 1,
+        matchedTargetCount: 1,
+        aliasCount: 1,
+        snapshotHash: 'd'.repeat(64),
+        capturedAt: new Date(),
+      },
+    });
+    await prisma.sellpiaManualMatchAlias.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        snapshotId: snapshot.id,
+        masterProductId: sku.id,
+        aliasTitle: 'Auto product Two pack',
+        normalizedAlias: 'autoproducttwopack',
+        itemCount: 2,
+        matchedType: 'M',
+        evidenceCount: 1,
+      },
+    });
+    const listing = await createListing({ displayName: 'Auto product' });
+    const option = await createOption(listing.id, { itemName: 'Two pack' });
+
+    const publicationPrisma = makeTestPrisma();
+    await publicationPrisma.$connect();
+    const mappingLocked = deferred<void>();
+    const releasePublication = deferred<void>();
+    let completePublication = true;
+    const publication = publicationPrisma.$transaction(async (tx) => {
+      // This is the ProductSourcePublicationRepositoryAdapter order: mapping -> source.
+      await lockProductMapping(tx, TEST_ORGANIZATION_ID);
+      mappingLocked.resolve();
+      await releasePublication.promise;
+      if (!completePublication) return 'aborted';
+      await lockProductSource(tx, TEST_ORGANIZATION_ID);
+      return (await tx.masterProduct.findUniqueOrThrow({
+        where: { id: product.id, organizationId: TEST_ORGANIZATION_ID },
+        select: { id: true },
+      })).id;
+    }, { timeout: 15_000 });
+
+    let matching: ReturnType<ChannelProductMatchingRepositoryAdapter['autoMatch']> | null = null;
+    const productRead = new ProductTransactionalReadRepositoryAdapter();
+    const sourceLock = vi.spyOn(productRead, 'lock');
+    const concurrentRepository = new ChannelProductMatchingRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      productRead,
+      new ProductSourceReadRepositoryAdapter(prisma as unknown as PrismaService),
+      new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(
+          prisma as unknown as PrismaService,
+          new ProductTransactionalReadRepositoryAdapter(),
+        ),
+      ),
+    );
+
+    try {
+      await mappingLocked.promise;
+      matching = concurrentRepository.autoMatch({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+      });
+      await waitForBlockedAdvisoryLock(prisma);
+      expect(sourceLock).not.toHaveBeenCalled();
+
+      releasePublication.resolve();
+      await expect(publication).resolves.toBe(product.id);
+      await expect(matching).resolves.toEqual({
+        evaluatedListings: 1,
+        matchedListings: 1,
+        configuredOptions: 1,
+      });
+      await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+        where: { channelListingOptionId: option.id },
+        select: { masterProductId: true, quantity: true },
+      })).resolves.toEqual({ masterProductId: sku.id, quantity: 2 });
+    } catch (error) {
+      // Before the ordering fix, autoMatch has already acquired source before
+      // waiting on mapping. Let the publication transaction exit without
+      // taking source so the intentionally failing assertion cannot leave a
+      // real deadlock behind for the rest of this file.
+      completePublication = false;
+      releasePublication.resolve();
+      throw error;
+    } finally {
+      releasePublication.resolve();
+      await Promise.allSettled([
+        publication,
+        ...(matching ? [matching] : []),
+      ]);
+      sourceLock.mockRestore();
+      await publicationPrisma.$disconnect();
+    }
+  });
+
   it('leaves duplicate normalized names and unknown selling quantities for review', async () => {
     const first = await createProduct('KI-NAME-DUP-1', '키즈 식판');
     const second = await createProduct('KI-NAME-DUP-2', '키즈 식판');
@@ -1101,4 +1203,20 @@ async function waitForBlockedListingStateRead(prisma: PrismaClient): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error('Timed out waiting for the listing-state read to block.');
+}
+
+async function waitForBlockedAdvisoryLock(prisma: PrismaClient): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_locks
+        WHERE locktype = 'advisory' AND granted = false
+      ) AS waiting
+    `;
+    if (row?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Timed out waiting for the mapping lock waiter.');
 }

@@ -114,15 +114,31 @@ export class SellpiaCollectionUseCase implements SellpiaCollectionPort {
         qualityFacts: parsed.qualityFacts,
       });
     } catch (error) {
-      const terminal = await this.repository.readAttempt({
-        organizationId: input.organizationId,
-        attemptId: input.attemptId,
-      });
-      if (
-        terminal.state === 'COMPLETE'
-        && (terminal.contentChecksum === fileHash
-          || (terminal.contentChecksum === null && terminal.fileHash === fileHash))
-      ) return terminal;
+      try {
+        const terminal = await this.repository.readAttempt({
+          organizationId: input.organizationId,
+          attemptId: input.attemptId,
+        });
+        if (
+          terminal.state === 'COMPLETE'
+          && (terminal.contentChecksum === fileHash
+            || (terminal.contentChecksum === null && terminal.fileHash === fileHash))
+        ) return terminal;
+        if (terminal.state === 'RUNNING') {
+          await this.repository.failAttempt({
+            organizationId: input.organizationId,
+            userId: input.userId,
+            attemptId: input.attemptId,
+            attemptToken: input.attemptToken,
+            errorCode: 'sellpia_publication_failed',
+            errorMessage: 'Sellpia inventory snapshot publication failed',
+            fileName: input.file.fileName,
+            contentChecksum: fileHash,
+          });
+        }
+      } catch {
+        // Preserve the publication error if settlement loses its fence or storage is unavailable.
+      }
       throw error;
     }
     return this.repository.readAttempt({

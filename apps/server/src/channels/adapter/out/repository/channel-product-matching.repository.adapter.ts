@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
   completedCatalogRunWhere,
   publishedCatalogOptionWhere,
@@ -251,7 +252,7 @@ implements ChannelProductMatchingRepositoryPort {
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       if (!this.recipeMutations) {
-        throw new Error('Products recipe mutation owner is unavailable');
+        throw new Error('Channels recipe mutation owner is unavailable');
       }
       if (input.masterProductId === null) {
         await this.recipeMutations.clearListingRecipesInTransaction(tx, {
@@ -280,6 +281,8 @@ implements ChannelProductMatchingRepositoryPort {
     channelAccountId?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
+      // Match publication's mapping -> source order before reading or mutating recipes.
+      await lockProductMapping(tx, input.organizationId);
       const [listings, aliases] = await Promise.all([
         tx.channelListing.findMany({
           where: {
@@ -462,7 +465,7 @@ implements ChannelProductMatchingRepositoryPort {
         }
       }
       if (mutations.length > 0 && !this.recipeMutations) {
-        throw new Error('Products recipe mutation capability is not configured');
+        throw new Error('Channels recipe mutation capability is not configured');
       }
       const result = mutations.length > 0
         ? await this.recipeMutations!.applyPreservingRecipesInTransaction(tx, {
