@@ -22,6 +22,9 @@ import type {
   ChannelOptionRecipeMutation,
   ChannelRecipeComponentInput,
 } from '../../../application/port/in/channel-option-recipe.port';
+import { readPreparedRegistrationRecipes } from '../../../read/registration-execution.reader';
+import { preparedRegistrationRecipe } from '../../../domain/registration-item-code';
+import { hashRegistrationSubmissionPayload } from '../../../domain/registration-submission-payload';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -189,6 +192,30 @@ implements ChannelOptionRecipeRepositoryPort {
       }
       // A historical registration cannot recreate a deleted source identity.
       missingRegisteredOptions.add(mutation.channelListingOptionId);
+    }
+    if (missingRegisteredOptions.size > 0) {
+      const facts = await readPreparedRegistrationRecipes(tx, {
+        organizationId: input.organizationId,
+        channelListingIds: [...new Set(options.filter((option) =>
+          missingRegisteredOptions.has(option.id)).map((option) => option.listingId))],
+      });
+      for (const mutation of input.mutations) {
+        if (!missingRegisteredOptions.has(mutation.channelListingOptionId)) continue;
+        const option = optionById.get(mutation.channelListingOptionId)!;
+        const historicalRegistration = facts.some((fact) => {
+          if (fact.channelListingId !== option.listingId || !fact.submissionPayloadJson) return false;
+          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson);
+          if (hash !== fact.submissionPayloadHash || hash !== fact.requestHash) return false;
+          const recipe = preparedRegistrationRecipe(fact.submissionPayloadJson);
+          return recipe !== null
+            && recipe.kidItemCode === mutation.preparedKidItemCode
+            && recipe.masterProductId === mutation.expectedMasterProductId
+            && sameRecipe(mutation.components, [{ masterProductId: recipe.masterProductId, quantity: recipe.quantity }]);
+        });
+        if (!historicalRegistration) {
+          throw new BadRequestException('Missing product requires a matching successful frozen registration');
+        }
+      }
     }
 
     const conflicts: string[] = [];

@@ -193,6 +193,29 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     })).toEqual([{ kidItemCode: null }, { kidItemCode: null }]);
   });
 
+  it.each(['missing', 'foreign'] as const)(
+    'rejects a caller-supplied prepared code for a %s target without successful registration evidence',
+    async (target) => {
+      const { options } = await createListing(1);
+      const masterProductId = target === 'missing' ? randomUUID() : (await seedSourceProduct(prisma, {
+        organizationId: OTHER_ORGANIZATION_ID, code: 'FOREIGN-SOURCE', name: 'Foreign source', currentStock: 5,
+      })).id;
+      await expect(recipes.applyPreservingRecipes({
+        organizationId: TEST_ORGANIZATION_ID,
+        mutations: [{
+          channelListingOptionId: options[0]!.id,
+          expectedMasterProductId: masterProductId,
+          preparedKidItemCode: 'KID12345678',
+          components: [{ masterProductId, quantity: 2 }],
+        }],
+      })).rejects.toBeInstanceOf(BadRequestException);
+      expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
+      expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: options[0]!.id } }))
+        .toMatchObject({ kidItemCode: null });
+      expect(await readGeneration()).toBe(0n);
+    },
+  );
+
   it('rejects non-positive quantities and foreign organization targets before mutation', async () => {
     const product = await createProduct('VALIDATE', 5);
     const { options } = await createListing(1);
