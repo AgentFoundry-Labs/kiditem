@@ -54,56 +54,26 @@ describe('DashboardGradeCards', () => {
   it('keeps grade, denominator, and ready counts unavailable without ABC evidence', () => {
     render(<DashboardGradeCards {...summary} basis={unavailableAbcBasis} refetchReads={async () => {}} />, { wrapper });
 
+    // 칸은 맨 윗줄의 다른 카드와 같은 규격이다(사장님 2026-09-20): 등급마다 한 줄.
     for (const grade of ['A', 'B', 'C']) {
-      const cell = screen.getByRole('link', { name: new RegExp(`^${grade}등급`) });
-      expect(cell).toHaveAccessibleName(/미수집/);
-      expect(cell).toHaveTextContent(`${grade}—`);
+      expect(screen.getByTestId(`headline-abc${grade}`)).toHaveTextContent(`${grade} 등급—`);
     }
-    expect(screen.getByRole('link', { name: '계산 완료 —' })).toBeInTheDocument();
     expect(screen.queryByText('평가 대기')).not.toBeInTheDocument();
     expect(screen.queryByText('원천 확인 필요')).not.toBeInTheDocument();
     // Which calculation produced these grades identifies the panel; it is not
     // a caption under it.
-    expect(screen.getByRole('heading', { name: '수익성 ABC' }))
+    expect(screen.getByRole('heading', { name: '상품' }))
       .toHaveAttribute('title', '상품 관리에서 등급 새로고침을 실행하세요.');
     expect(screen.queryByText(/자동 계산|자동 평가|NaN/)).not.toBeInTheDocument();
   });
 
-  it("shows how many products came into and left each grade, and the largest moves", () => {
-    render(
-      <DashboardGradeCards
-        {...summary}
-        gradeChanges={{
-          upgraded: 3, downgraded: 1, total: 4,
-          byGrade: { A: { in: 2, out: 0 }, B: { in: 1, out: 2 }, C: { in: 0, out: 1 } },
-          moves: [
-            { from: 'B', to: 'A', count: 2 },
-            { from: 'C', to: 'B', count: 1 },
-            { from: 'B', to: null, count: 1 },
-          ],
-        }}
-        changesMeasured
-        refetchReads={async () => {}}
-      />,
-      { wrapper },
-    );
-
-    expect(screen.getByTestId('abc-flow-A')).toHaveTextContent('▲2 ▼0');
-    expect(screen.getByTestId('abc-flow-B')).toHaveTextContent('▲1 ▼2');
-    expect(screen.getByTestId('abc-grade-moves')).toHaveTextContent('이동 B→A 2 · C→B 1 · B→미분류 1');
-  });
-
-  it('shows no movement it cannot vouch for', () => {
-    render(<DashboardGradeCards {...summary} gradeChanges={{ upgraded: 1, downgraded: 0, total: 1 }} refetchReads={async () => {}} />, { wrapper });
-
-    expect(screen.getByTestId('abc-flow-A')).toHaveTextContent('—');
-    expect(screen.queryByTestId('abc-grade-moves')).toBeNull();
-  });
+  // 등급마다의 들고남(▲▼)과 이동 목록, 계산 완료 수는 대시보드에서 내렸다
+  // (사장님 2026-09-20: 맨 윗줄 카드는 한 규격, 부수적인 말 없음). 상품 관리가 그대로 보여 준다.
 
   it('shows the fixed formula version without an invented activation timestamp', () => {
     render(<DashboardGradeCards {...summary} abcFormula={PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD} refetchReads={async () => {}} asOf="상품 관리에서 새로고침한 시점" />, { wrapper });
 
-    expect(screen.getByRole('heading', { name: '수익성 ABC' })).toHaveAttribute(
+    expect(screen.getByRole('heading', { name: '상품' })).toHaveAttribute(
       'title',
       `절대평가 v${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version} · 반감기 ${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.halfLifeDays}일`,
     );
@@ -115,7 +85,8 @@ describe('DashboardGradeCards', () => {
       <DashboardGradeCards {...summary} refetchReads={async () => {}} />,
       { wrapper },
     );
-    expect(screen.getByRole('link', { name: /A등급/ })).toHaveAccessibleName(/가중 영업이익 미수집/);
+    // 근거가 없으면 가중 영업이익을 아예 적지 않는다 — 0 원으로 보이면 잰 것처럼 읽힌다.
+    expect(screen.getByTestId('headline-abcA')).not.toHaveTextContent('원');
 
     const measured = {
       kind: 'snapshot' as const,
@@ -145,7 +116,8 @@ describe('DashboardGradeCards', () => {
         refetchReads={async () => {}}
       />,
     );
-    expect(screen.getByRole('link', { name: /A등급/ })).toHaveAccessibleName(/12,000원/);
+    // 가중 영업이익은 등급 이름 옆에 붙는다(줄 규격, 사장님 2026-09-20).
+    expect(screen.getByTestId('headline-abcA')).toHaveTextContent('12,000원');
     fireEvent.click(screen.getByRole('button', { name: '수익성 ABC 근거 안내' }));
     expect(screen.getByTestId('abc-contribution-evidence')).toHaveTextContent(
       '공표 r7 · 2026-08-31 · 산식 v2 · 포함 1개 · 보류 1개',

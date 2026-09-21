@@ -3,6 +3,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
 import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AlertsModule } from '../../alerts/alerts.module';
+import { SellpiaProductSalesModule } from '../sellpia-product-sales/sellpia-product-sales.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashboard-sales.repository.adapter';
@@ -10,6 +11,7 @@ import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashbo
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
 import { CollectionFreshnessRepositoryAdapter } from './adapter/out/repository/collection-freshness.repository.adapter';
+import { DashboardFindingsRepositoryAdapter } from './adapter/out/repository/dashboard-findings.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/repository/dashboard-sales.repository.port';
@@ -17,11 +19,13 @@ import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/reposito
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
 import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/collection-freshness.repository.port';
+import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from './application/port/out/repository/dashboard-findings.repository.port';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard-inventory.service';
 import { DashboardTrendService } from './application/service/dashboard-trend.service';
 import { DashboardCollectionsService } from './application/service/dashboard-collections.service';
+import { DashboardFindingsService } from './application/service/dashboard-findings.service';
 
 const repositoryAdapters = [
   ProfitCalculationRepositoryAdapter,
@@ -30,6 +34,7 @@ const repositoryAdapters = [
   WingTrafficAggregationRepositoryAdapter,
   DashboardInventoryRepositoryAdapter,
   CollectionFreshnessRepositoryAdapter,
+  DashboardFindingsRepositoryAdapter,
 ];
 
 const repositoryPorts = [
@@ -39,6 +44,7 @@ const repositoryPorts = [
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
   { provide: COLLECTION_FRESHNESS_REPOSITORY_PORT, useExisting: CollectionFreshnessRepositoryAdapter },
+  { provide: DASHBOARD_FINDINGS_REPOSITORY_PORT, useExisting: DashboardFindingsRepositoryAdapter },
 ];
 
 const dashboardServices = [
@@ -47,10 +53,11 @@ const dashboardServices = [
   DashboardInventoryService,
   DashboardTrendService,
   DashboardCollectionsService,
+  DashboardFindingsService,
 ];
 
 @Module({
-  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule],
+  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, SellpiaProductSalesModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

@@ -134,11 +134,29 @@ export const DashboardAlertItemSchema = z.object({
   updatedAt: zIsoDate.optional(),
 });
 
+/**
+ * Why a sold product carries no ABC grade. The owner sees a blank grade beside
+ * a large revenue and reads it as a bug, so the server says which gate the
+ * product did not pass (사장님 2026-09-21): it is out of stock and therefore
+ * out of the ranking, it has no Coupang/Rocket listing wired to a Sellpia
+ * recipe, or it is simply waiting for the next publication.
+ */
+export const TopProductGradeAbsenceSchema = z.enum(['out_of_stock', 'not_linked', 'pending']);
+export type TopProductGradeAbsence = z.infer<typeof TopProductGradeAbsenceSchema>;
+
 export const TopProductSchema = z.object({
   id: z.string(),
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
+  /** Set only when `grade` is null; never a guess when the grade exists. */
+  gradeAbsence: TopProductGradeAbsenceSchema.nullable().optional(),
+  /**
+   * What the profit on this row is. `net` is settled profit from the listing
+   * helper. `gross` is 매출 − 셀피아 매입 원가: real, but before advertising and
+   * mall fees, so the screen must not call it 순이익 (사장님 2026-09-21).
+   */
+  profitKind: z.enum(['net', 'gross']).optional(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
   /**
@@ -834,6 +852,14 @@ export const SellpiaProductSalesRowSchema = z.object({
   anomalyReason: z.string().nullable(), // 이상치 사유
   // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
   inventoryResolution: SellpiaProductInventoryResolutionSchema,
+  /**
+   * 그 SKU 가 한 달에 몇 개 나가는가 — 완결 최근 두 달 평균(개/월). 같은 SKU 로 해소된
+   * 판매행들은 이 값을 나눠 가지므로 세기 전에 SKU 로 합쳐야 한다. 완결 월이 없으면 null
+   * (0 은 '안 팔렸다', null 은 '잴 근거가 없다').
+   */
+  monthlyOutflow: z.number().nonnegative().nullable(),
+  /** 그 평균이 덮은 완결 월 수. */
+  outflowMonthCount: z.number().int().nonnegative(),
   monthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
   reorderPoint: z.number().nullable(), // 발주점 = 월평균 × (리드타임+안전)
   needsReorder: z.boolean(), // 발주 필요(현재고 ≤ 발주점)
@@ -953,3 +979,90 @@ export const DashboardCollectionsSchema = z.object({
 }).strict();
 
 export type DashboardCollections = z.infer<typeof DashboardCollectionsSchema>;
+
+// ─── Findings endpoint: GET /api/dashboard/findings ───────────────────────
+
+/**
+ * What the dashboard's 'AI가 발견한 문제' and 'AI 제안' panels read.
+ *
+ * Every verdict here is one an owner already published: the decline trend and
+ * the reorder need come from Sellpia product depletion, and a failed
+ * registration is a listing the mall listing state reads as `error`. This read
+ * picks and counts them; it does not decide anything of its own.
+ *
+ * Unknown is null, never 0 — a depletion read that was never collected has no
+ * declining products to count, which is not the same as having none.
+ */
+const YearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+export const DashboardFindingProductSchema = z.object({
+  /** Sellpia product code — the key the depletion read ranks by. */
+  productCode: z.string().min(1),
+  name: z.string().min(1),
+  optionName: z.string().nullable(),
+  /** The operational product the Sellpia SKU is linked to, when it is. */
+  masterProductId: z.string().uuid().nullable(),
+  imageUrl: z.string().url().nullable(),
+}).strict();
+
+export const DashboardSalesDeclineItemSchema = DashboardFindingProductSchema.extend({
+  /** Units sold in the compared month (anomalous months counted as 0, as the trend does). */
+  recentQty: z.number().int().nonnegative(),
+  /** Monthly average of the up-to-three complete months before it. */
+  baselineQty: z.number().nonnegative(),
+  /** How far `recentQty` fell below `baselineQty`, in percent (negative). */
+  changePercent: z.number(),
+}).strict();
+
+export const DashboardSalesDeclineSchema = z.object({
+  /** The last complete month the trend compared; null without two complete months. */
+  month: YearMonthSchema.nullable(),
+  /** 주요 상품 = this many products with the largest monthly revenue before the compared month. */
+  keyProductLimit: z.number().int().positive(),
+  /** Key products whose depletion trend is `down`; null when the trend was not measurable. */
+  count: z.number().int().nonnegative().nullable(),
+  /** The largest losses first. */
+  items: z.array(DashboardSalesDeclineItemSchema).max(5),
+}).strict();
+
+export const DashboardReorderSuggestionSchema = DashboardFindingProductSchema.extend({
+  availableStock: z.number().int().positive(),
+  /** Units a month over the last two complete months, the rate the projection used. */
+  monthlyOutflow: z.number().positive(),
+  /** Days until the available stock runs out at that rate; 0 means today. */
+  daysLeft: z.number().int().nonnegative(),
+  reorderPoint: z.number().nullable(),
+}).strict();
+
+export const DashboardRegistrationFailuresSchema = z.object({
+  /** Active listings a mall rejected — read as `error` by the mall listing state. */
+  count: z.number().int().nonnegative(),
+  byChannel: z.array(z.object({
+    /** The mall key (`ChannelAccount.channel`). */
+    channel: z.string().min(1),
+    /** The name the mall listing matrix gives the mall's column. */
+    mallName: z.string().min(1),
+    count: z.number().int().positive(),
+  }).strict()),
+}).strict();
+
+export const DashboardFindingsSchema = z.object({
+  /** When Sellpia product depletion was last captured; null when it never was. */
+  productSalesCapturedAt: zIsoDate.nullable(),
+  salesDecline: DashboardSalesDeclineSchema,
+  /**
+   * Products the depletion read says to reorder that still have stock, the
+   * soonest-to-run-out first. Null when stock or depletion was never collected.
+   */
+  reorderSuggestions: z.array(DashboardReorderSuggestionSchema).max(5).nullable(),
+  registrationFailures: DashboardRegistrationFailuresSchema,
+  /** Snapshot evidence for `salesDecline.count`, `reorderSuggestions`, `registrationFailures.count`. */
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
+}).strict();
+
+export type DashboardFindingProduct = z.infer<typeof DashboardFindingProductSchema>;
+export type DashboardSalesDeclineItem = z.infer<typeof DashboardSalesDeclineItemSchema>;
+export type DashboardSalesDecline = z.infer<typeof DashboardSalesDeclineSchema>;
+export type DashboardReorderSuggestion = z.infer<typeof DashboardReorderSuggestionSchema>;
+export type DashboardRegistrationFailures = z.infer<typeof DashboardRegistrationFailuresSchema>;
+export type DashboardFindings = z.infer<typeof DashboardFindingsSchema>;

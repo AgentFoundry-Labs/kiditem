@@ -2,7 +2,7 @@
 
 import { useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowRight, ArrowUpRight, Radio } from 'lucide-react';
+import { AlertTriangle, ArrowRight, History, Radio } from 'lucide-react';
 // ⚠️ Agent Org 의 상태 모델을 그대로 읽는다. 대시보드가 에이전트 상태를 따로 계산하면 두
 // 화면이 같은 에이전트를 두고 다른 말을 한다. 두 번째 소비자가 생겼으므로 이 모델은
 // `src/lib` 으로 올리는 것이 맞다(app/CLAUDE.md) — 올리기 전까지는 여기서 직접 읽는다.
@@ -17,6 +17,7 @@ import type { DiagramAgentId } from '@/app/agent-org/lib/pipe-diagram-layout';
 import type { PipeStageView } from '@/app/agent-org/lib/pipe-model';
 import { PIPE_STATE_LABEL, worstPipeState, type PipeState } from '@/app/agent-org/lib/pipe-states';
 import { cn, timeAgo } from '@/lib/utils';
+import { DashboardCardHeader, DashboardHeaderLink } from './DashboardCardHeader';
 
 /**
  * 에이전트 실시간 상태 — 지금 누가 무엇을 하고 있고, 무엇이 급한가.
@@ -56,13 +57,7 @@ function stateTone(state: PipeState): { dot: string; pulse: boolean } {
   }
 }
 
-const LEGEND = [
-  { label: '진행 중', dot: 'bg-emerald-500' },
-  { label: '확인 필요', dot: 'bg-amber-500' },
-  { label: '실패', dot: 'bg-red-500' },
-  { label: '대기', dot: 'bg-slate-400' },
-  { label: '기록 없음', dot: 'bg-white ring-1 ring-inset ring-slate-300' },
-] as const;
+
 
 /** 급한 것부터. 실패 → 막힘 → 대기 → 오래됨, 같으면 최근 것. */
 const URGENCY: Readonly<Partial<Record<PipeState, number>>> = {
@@ -149,25 +144,37 @@ function StatusDot({ dot, pulse }: { dot: string; pulse: boolean }) {
 }
 
 /** 모든 줄이 같은 높이 — 이름 · 지금 하는 일 · 확인 필요 수가 늘 같은 자리에 선다. */
-const ROW_GRID = 'grid grid-cols-[4.75rem_minmax(0,1fr)_auto] items-center gap-2 px-4';
+const ROW_GRID = 'grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3';
 
 function AgentRow({ agent, work }: { agent: AgentLine; work: string }) {
   const tone = stateTone(agent.state);
   return (
-    <li className={cn(ROW_GRID, 'h-10')}>
-      <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
-        <StatusDot dot={tone.dot} pulse={tone.pulse} />
+    <li className={cn(ROW_GRID, 'h-11')}>
+      <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+        {/* 얼굴은 AI 로 만든 가상 인물이다(사장님 2026-09-20) — `public/agents/<id>.png`. */}
+        <span className="relative flex h-6 w-6 flex-none" aria-hidden>
+          <img
+            src={`/agents/${agent.id}.png`}
+            alt=""
+            width={24}
+            height={24}
+            className="h-6 w-6 rounded-full object-cover ring-1 ring-inset ring-violet-100"
+          />
+          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-white p-px">
+            <StatusDot dot={tone.dot} pulse={tone.pulse} />
+          </span>
+        </span>
         {agent.label}
       </span>
-      <span className={cn('truncate text-xs', tone.pulse ? 'font-medium text-emerald-700' : 'text-slate-600')} title={work}>
+      <span className={cn('line-clamp-2 text-[11px] leading-[1.3]', tone.pulse ? 'font-medium text-emerald-700' : 'text-slate-600')} title={work}>
         {work}
       </span>
       {agent.attention > 0 ? (
         <span
-          className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-700 ring-1 ring-inset ring-amber-200"
-          title={`사람이 확인해야 할 일 ${agent.attention}건 — 아래 긴급에서 바로 처리합니다`}
+          className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold tabular-nums text-white"
+          title={`사람이 확인해야 할 일 ${agent.attention}건 — 옆 '지금 해야 할 일'에서 바로 처리합니다`}
         >
-          확인 필요 {agent.attention}
+          {agent.attention}
         </span>
       ) : <span aria-hidden />}
     </li>
@@ -175,7 +182,7 @@ function AgentRow({ agent, work }: { agent: AgentLine; work: string }) {
 }
 
 /** 세 장을 페이지에 넘긴다 — 페이지가 줄마다 왼쪽 칸과 짝지어 아래 선을 맞춘다. */
-export type DashboardAgentStatusParts = { agents: ReactNode; urgent: ReactNode; recent: ReactNode };
+export type DashboardAgentStatusParts = { agents: ReactNode; recent: ReactNode };
 
 export function DashboardAgentStatus({ children }: { children: (parts: DashboardAgentStatusParts) => ReactNode }) {
   const { snapshot, now } = useAgentOrg();
@@ -205,104 +212,20 @@ export function DashboardAgentStatus({ children }: { children: (parts: Dashboard
   const nowDate = new Date(now);
 
   const agentsCard = (
-      <section aria-label="에이전트 실시간 상태" className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="dashboard-agent-status">
-        <header className="flex items-center justify-between h-10 border-b border-slate-100 px-4">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-            <Radio size={14} className="text-violet-600" aria-hidden />
-            에이전트 실시간
-          </h2>
-          <Link
-            href="/agent-org"
-            className="inline-flex items-center gap-0.5 text-xs font-medium text-slate-500 transition-colors hover:text-violet-700"
-          >
-            Agent Org
-            <ArrowUpRight size={12} aria-hidden />
-          </Link>
-        </header>
+      <section aria-label="에이전트 실시간 상태" className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="dashboard-agent-status">
+        <DashboardCardHeader icon={Radio} tone="violet" title="LIVE ACTIVITY" />
 
-        <div className={cn(ROW_GRID, 'h-8 border-b border-slate-100 text-[11px] font-semibold text-slate-400')}>
-          <span>에이전트</span>
-          <span>지금 진행 중인 일</span>
-        </div>
-        <ul className="divide-y divide-slate-100" aria-label="에이전트마다 지금 진행 중인 일">
+        <ul className="divide-y divide-slate-100 pb-2" aria-label="에이전트마다 지금 진행 중인 일">
           {agents.map((agent) => (
             <AgentRow key={agent.id} agent={agent} work={currentWork(agent, views)} />
           ))}
         </ul>
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
-          {LEGEND.map((item) => (
-            <span key={item.label} className="inline-flex items-center gap-1">
-              <span className={cn('inline-flex h-2 w-2 rounded-full', item.dot)} aria-hidden />
-              {item.label}
-            </span>
-          ))}
-        </p>
-      </section>
-  );
-  // 긴급 — 바탕을 붉게 해 에이전트 표와 한눈에 갈린다. 줄을 누르면 그 일을 처리하는 화면으로
-  // 바로 간다. 주소는 Agent Org 모델이 단계마다 정한 것이라 두 화면이 같은 곳을 가리킨다.
-  const urgentCard = (
-      <section aria-label="긴급" className="flex-1 overflow-hidden rounded-xl border border-red-200 bg-red-50">
-        <header className="flex h-10 items-center justify-between border-b border-red-100 px-4">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-red-800">
-            <AlertTriangle size={14} className="text-red-600" aria-hidden />
-            긴급
-          </h2>
-          <span className="text-xs font-semibold tabular-nums text-red-700">{snapshot.inbox.length}건</span>
-        </header>
-        {urgent.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-red-700/70">지금 손이 필요한 일이 없습니다.</p>
-        ) : (
-          <ul className="divide-y divide-red-100">
-            {urgent.map((item) => {
-              const tone = stateTone(item.state);
-              return (
-                <li key={item.key}>
-                  <Link
-                    href={item.href}
-                    className="group flex items-start gap-2 px-4 py-2.5 transition-colors hover:bg-red-100/70 focus-visible:bg-red-100/70 focus-visible:outline-none"
-                  >
-                    <span className={cn('mt-1.5 h-1.5 w-1.5 flex-none rounded-full', tone.dot)} aria-hidden />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-[13px] font-semibold text-slate-900">{item.title}</span>
-                        {item.count > 1 ? (
-                          <span className="flex-none text-[11px] tabular-nums text-red-700/70">×{item.count}</span>
-                        ) : null}
-                      </span>
-                      {item.detail ? (
-                        <span className="mt-0.5 block truncate text-xs text-slate-600" title={item.detail}>{item.detail}</span>
-                      ) : null}
-                      <span className="mt-0.5 block text-[11px] text-slate-400">
-                        {item.lastAt > 0 ? timeAgo(new Date(item.lastAt), nowDate) : ''}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 inline-flex flex-none items-center gap-0.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-red-700 shadow-sm ring-1 ring-red-200 group-hover:bg-red-600 group-hover:text-white group-hover:ring-red-600">
-                      처리
-                      <ArrowRight size={11} aria-hidden />
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {snapshot.inbox.length > urgent.length ? (
-          <Link
-            href="/agent-org"
-            className="block border-t border-red-100 px-4 py-2 text-center text-xs font-medium text-red-700 hover:text-red-900"
-          >
-            {snapshot.inbox.length - urgent.length}건 더 보기
-          </Link>
-        ) : null}
       </section>
   );
   // 방금 한 일. 에이전트가 무엇을 하고 있는지의 나머지 절반이다.
   const recentCard = feed.length > 0 ? (
-        <section className="flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <header className="flex h-10 items-center border-b border-slate-100 px-4">
-            <h2 className="text-sm font-semibold text-slate-800">방금</h2>
-          </header>
+        <section className="flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <DashboardCardHeader icon={History} tone="slate" title="방금" />
           <ul className="divide-y divide-slate-100">
             {feed.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between gap-2 px-4 py-2">
@@ -317,5 +240,5 @@ export function DashboardAgentStatus({ children }: { children: (parts: Dashboard
         </section>
       ) : null;
 
-  return <>{children({ agents: agentsCard, urgent: urgentCard, recent: recentCard })}</>;
+  return <>{children({ agents: agentsCard, recent: recentCard })}</>;
 }

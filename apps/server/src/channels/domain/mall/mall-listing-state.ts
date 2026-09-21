@@ -206,3 +206,13 @@ export const PUBLISHED_LISTING_STATUSES: readonly string[] = [
     // 그대로 맞춰야 하므로 대문자도 함께 둔다.
     .flatMap(([status]) => [status, status.toUpperCase()])),
 ];
+
+/**
+ * 몰이 등록을 거절했다는 뜻의 원문 상태(쿠팡 `승인반려` · `REJECTED`, 몰 관리자 `반려`).
+ * 매트릭스 칸이 `error` 로 읽는 리스팅을 세는 쪽이 같은 표에서 뽑는다.
+ */
+export const ERROR_LISTING_STATUSES: readonly string[] = [
+  ...new Set(Object.entries(LISTING_STATUS_MAP)
+    .filter(([, state]) => state === 'error')
+    .flatMap(([status]) => [status, status.toUpperCase()])),
+];

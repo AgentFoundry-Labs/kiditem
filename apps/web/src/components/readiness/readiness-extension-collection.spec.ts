@@ -190,9 +190,14 @@ describe('readiness extension collection', () => {
       resolve(process.cwd(), 'src/app/(analytics)/dashboard/page.tsx'),
       'utf8',
     );
-    // The dashboard no longer starts any collection (2026-09-18: its collection
-    // row, header button and Wing traffic cell were removed). It must still
-    // open no windows of its own.
+    // The dashboard starts Wing traffic collection through the shared
+    // collection control, composed in the hook the readiness modal's collection
+    // component uses. The page renders that component; it does not start the
+    // source itself.
+    const wingCollectionSource = readFileSync(
+      resolve(process.cwd(), 'src/app/(analytics)/dashboard/hooks/use-wing-traffic-collection.ts'),
+      'utf8',
+    );
     const competitorExtensionSource = readFileSync(
       resolve(
         process.cwd(),
@@ -213,6 +218,8 @@ describe('readiness extension collection', () => {
     expect(readinessSource).not.toContain('BrowserCollectionRunControls');
     expect(readinessSource).not.toContain('issueBrowserCollectionRunId');
     expect(dashboardSource).not.toContain('window.open');
+    expect(wingCollectionSource).toContain('useCollectionSourceControl(wingTrafficCollection)');
+    expect(wingCollectionSource).not.toContain('fallbackOpenTabs');
     expect(competitorExtensionSource).toContain(
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );

@@ -6,6 +6,7 @@ import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { AdvertisingModule } from '../../../advertising/advertising.module';
 import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
+import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 // adapter/out/repository
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
@@ -14,11 +15,13 @@ import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashb
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { CollectionFreshnessRepositoryAdapter } from '../adapter/out/repository/collection-freshness.repository.adapter';
+import { DashboardFindingsRepositoryAdapter } from '../adapter/out/repository/dashboard-findings.repository.adapter';
 // application/service
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
+import { DashboardFindingsService } from '../application/service/dashboard-findings.service';
 import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytics-overview-capability.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
 // application/port/out tokens
@@ -28,6 +31,7 @@ import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/reposit
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/collection-freshness.repository.port';
+import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-findings.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -41,6 +45,7 @@ const EXPECTED_PORT_BINDINGS = [
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
   [COLLECTION_FRESHNESS_REPOSITORY_PORT, CollectionFreshnessRepositoryAdapter],
+  [DASHBOARD_FINDINGS_REPOSITORY_PORT, DashboardFindingsRepositoryAdapter],
 ] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec
@@ -53,9 +58,10 @@ describe('DashboardModule capability wiring', () => {
     expect(imports).toEqual([DashboardCapabilityModule]);
     // AlertsModule is here because the alert rows this dashboard shows belong to
     // the alerts module. The inventory adapter used to read that table directly,
-    // with its own filter, order, and limit.
+    // with its own filter, order, and limit. SellpiaProductSalesModule publishes
+    // the depletion summary the findings pick declining and reorder products from.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule]);
+      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, SellpiaProductSalesModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });
@@ -75,6 +81,7 @@ describe('DashboardModule capability wiring', () => {
       DashboardTrendRepositoryAdapter,
       WingTrafficAggregationRepositoryAdapter,
       DashboardInventoryRepositoryAdapter,
+      DashboardFindingsRepositoryAdapter,
     ]) {
       expect(capabilityProviders).toContain(cls);
     }
@@ -88,6 +95,7 @@ describe('DashboardModule capability wiring', () => {
       DashboardAdService,
       DashboardInventoryService,
       DashboardTrendService,
+      DashboardFindingsService,
       AnalyticsOverviewCapabilityAdapter,
     ]) {
       expect(providers).toContain(cls);

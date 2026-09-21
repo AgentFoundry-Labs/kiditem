@@ -472,12 +472,30 @@ describe("DashboardSalesRepositoryAdapter", () => {
       });
     });
 
-    it("publishes no profit — Sellpia's margin is not a settled profit", async () => {
-      answer([fact({ productCode: "1", orderAmount: 10_000 })]);
+    it("publishes 매출총이익 from Sellpia's own cost, and says it is not settled profit", async () => {
+      // 사장님 2026-09-21: 셀피아가 매입 원가를 주므로 이익을 낼 수 있다. 다만 광고·수수료를
+      // 빼기 전이라 순이익이 아니며, `profitKind` 로 그 사실을 함께 발표한다.
+      // 원가는 판 물건의 원가다: 팔린 5개 × 매입단가 1,200원 = 6,000원.
+      answer([fact({ productCode: "1", orderAmount: 10_000, orderQty: 5, buyPrice: 1_200, inAmount: 900_000 })]);
 
       const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
 
-      expect(row).toMatchObject({ revenue: 10_000, netProfit: null, profitRate: null });
+      expect(row).toMatchObject({ revenue: 10_000, netProfit: 4_000, profitRate: 40, profitKind: "gross" });
+    });
+
+    it("한 옵션이라도 매입 단가를 못 읽으면 이익을 발표하지 않는다", async () => {
+      // 옵션 하나는 단가가 0 이다. 합계(1,000원)만 보면 아는 값처럼 보이지만, 그 옵션의
+      // 매출 49만원이 통째로 이익이 되어 이익률이 99.8% 로 찍힌다(2026-09-21 점검).
+      answer([
+        fact({ productCode: "1", optionCode: "1", orderAmount: 490_000, orderQty: 50, buyPrice: 0 }),
+        fact({ productCode: "1", optionCode: "2", orderAmount: 10_000, orderQty: 1, buyPrice: 1_000 }),
+      ]);
+
+      const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
+
+      expect(row.revenue).toBe(500_000);
+      expect(row.netProfit).toBeNull();
+      expect(row.profitRate).toBeNull();
     });
 
     it("grades a product only when every master product its options map to agrees", async () => {

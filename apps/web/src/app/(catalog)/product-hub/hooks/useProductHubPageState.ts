@@ -10,6 +10,8 @@ import {
   type ProductOperationsAdStatus,
   type ProductOperationsInventoryFocus,
   type ProductOperationsPeriodDays,
+  ProductOperationsSortSchema,
+  type ProductOperationsSort,
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -40,6 +42,7 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
+const SORTS: readonly ProductOperationsSort[] = ProductOperationsSortSchema.options;
 export function useProductHubPageState() {
   const pathname = usePathname();
   const router = useRouter();
@@ -51,6 +54,11 @@ export function useProductHubPageState() {
   const activeStatusParam = searchParams.get('activeStatus');
   const adStatusParam = searchParams.get('adStatus');
   const periodDaysParam = Number(searchParams.get('periodDays'));
+  const sortParam = searchParams.get('sort');
+  // 기본은 최신 등록순(사장님 2026-09-21).
+  const sort: ProductOperationsSort = SORTS.includes(sortParam as ProductOperationsSort)
+    ? sortParam as ProductOperationsSort
+    : 'latest';
   const pageParam = Number(searchParams.get('page'));
   const inventoryStatus = INVENTORY_STATUSES.includes(
     inventoryStatusParam as ProductInventoryStatusFilter,
@@ -99,6 +107,7 @@ export function useProductHubPageState() {
       periodDays: String(periodDays),
       activeStatus,
       adStatus,
+      sort,
     });
     if (inventoryFocus !== 'all') params.set('inventoryFocus', inventoryFocus);
     else if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
@@ -106,7 +115,7 @@ export function useProductHubPageState() {
     if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
     return params;
-  }, [abcGrade, activeStatus, adStatus, category, inventoryFocus, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, category, inventoryFocus, inventoryStatus, page, periodDays, sort, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -119,11 +128,15 @@ export function useProductHubPageState() {
     periodDays: String(periodDays),
     activeStatus: 'active',
     adStatus: 'all',
+    sort: 'latest',
   }), [periodDays]);
   const overviewQueryKeyParams = useMemo(
     () => Object.fromEntries(overviewParams.entries()),
     [overviewParams],
   );
+  // 줄 세우기는 여기 들어가지 않는다. 요약은 거른 전체를 세는 값이라 순서가 바뀌어도
+  // 그대로다 — 넣어 두면 정렬을 누를 때마다 위 카드가 통째로 사라졌다 다시 붙고, 30초마다
+  // 같은 계산을 두 번 돌린다(2026-09-21 점검).
   const canReuseListSummary = activeStatus === 'active'
     && adStatus === 'all'
     && inventoryStatus === 'all'
@@ -234,6 +247,10 @@ export function useProductHubPageState() {
       updateListParams({ periodDays: String(value), page: '1' });
     },
     setSearch,
+    sort,
+    setSort: (value: ProductOperationsSort) => {
+      updateListParams({ sort: value === 'latest' ? undefined : value, page: '1' });
+    },
     totalPages: Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / PAGE_SIZE)),
   };
 }

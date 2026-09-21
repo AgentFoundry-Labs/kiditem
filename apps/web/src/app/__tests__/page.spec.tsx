@@ -346,11 +346,11 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
 
     await screen.findByText('Kiditem Foundry');
-    // Collections start from their owner screens; failures reach the operator
-    // through 긴급. The basis is never painted across the page — it is reached
-    // through one affordance per panel, bounded by panels rather than by how
-    // many numbers happen to be on screen.
-    expect(screen.queryByRole('button', { name: /데이터 수집/ })).toBeNull();
+    // 데이터 수집 opens the shared ReadinessModal (restored by the owner
+    // 2026-09-19); the page itself starts nothing. The basis is never painted
+    // across the page — it is reached through one affordance per panel, bounded
+    // by panels rather than by how many numbers happen to be on screen.
+    expect(screen.getByRole('button', { name: /데이터 수집/ })).toBeInTheDocument();
     expect(screen.queryAllByTestId('dashboard-data-basis')).toHaveLength(0);
     const disclosures = screen.queryAllByRole('button', { name: /근거 안내$/ });
     expect(disclosures.length).toBeGreaterThan(0);

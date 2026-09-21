@@ -2,6 +2,8 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import {
   CreateMasterProductInputSchema,
   MasterProductOperationsListQuerySchema,
+  type ProductMonthlySales,
+  type ProductOperationsSort,
   type MasterProductOperationsListItem,
   type ProductOperationsChannelProductCount,
   type ProductOperationsInventoryFocus,
@@ -56,7 +58,42 @@ import {
   PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
   type ProductChannelOptionRecipeMutationPort,
 } from '../port/in/product-channel-option-recipe-mutation.port';
+import {
+  MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
+  type MasterProductProfitFactReadPort,
+} from '../../../analytics/application/port/in/master-product-profit-fact-read.port';
+import { businessDateKey } from '../../../common/kst';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
+
+
+/**
+ * 목록 줄 세우기(사장님 2026-09-21). 기본은 최신 등록순이고, 나머지는 모르는 값을 맨 뒤로
+ * 보낸다 — 값이 없는 상품이 1등으로 올라오면 순위가 거짓말이 된다.
+ */
+function sortProducts<T extends {
+  createdAt: string | Date;
+  inventoryUnits: number | null;
+  monthly: ProductMonthlySales | null;
+}>(items: readonly T[], sort: ProductOperationsSort): T[] {
+  const rank = (item: T): number | null => {
+    switch (sort) {
+      case 'revenue': return item.monthly?.revenue ?? null;
+      case 'sold': return item.monthly?.soldQuantity ?? null;
+      case 'profit': return item.monthly?.grossProfit ?? null;
+      case 'margin': return item.monthly?.grossMarginRate ?? null;
+      case 'stock': return item.inventoryUnits;
+      default: return new Date(item.createdAt).getTime();
+    }
+  };
+  return [...items].sort((left, right) => {
+    const a = rank(left);
+    const b = rank(right);
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return b - a;
+  });
+}
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -77,7 +114,54 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly contribution: MasterProductContributionReadPort,
     @Inject(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT)
     private readonly recipeMutations: ProductChannelOptionRecipeMutationPort,
+    @Inject(MASTER_PRODUCT_PROFIT_FACT_READ_PORT)
+    private readonly monthlyProfit: MasterProductProfitFactReadPort,
   ) {}
+
+  /**
+   * 그달 장사 — 매출 · 팔린 개수 · 원가, 그리고 그 차이인 매출총이익. 셀피아가 낸 월 사실을
+   * 마스터상품별로 모을 뿐 이 서비스가 나누거나 추정하지 않는다(사장님 2026-09-21).
+   */
+  private async loadMonthly(
+    organizationId: string,
+    masterProductIds: readonly string[],
+    yearMonth: string,
+  ) {
+    const monthly = new Map<string, ProductMonthlySales>();
+    if (masterProductIds.length === 0) return monthly;
+    const from = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 0));
+    const { evidence } = await this.monthlyProfit.readProfitFacts({
+      organizationId,
+      masterProductIds: [...masterProductIds],
+      range: { from, to },
+    });
+    for (const product of evidence) {
+      const fact = product.monthlyFacts.find((month) => month.yearMonth === yearMonth);
+      if (!fact) continue;
+      // 원가는 판 물건의 원가다 — 그달 매입금액이 아니다(사장님 2026-09-21).
+      //
+      // 원가를 안다고 말하려면 두 가지가 맞아야 한다. 판 줄마다 매입 단가가 있어야 하고
+      // (`soldCostComplete`), 매출이 있으면 판 개수도 있어야 한다. 둘 중 하나라도 어긋나면
+      // 0 원이 아니라 모르는 값이다 — 0 으로 빼면 그 매출이 통째로 이익이 되어 이익률이
+      // 100% 에 가깝게 부풀고, 이익순·이익률순에서 거짓 1등이 된다.
+      const costKnown = fact.soldCostComplete
+        && !(fact.revenue !== 0 && fact.orderQty === 0);
+      const cost = costKnown ? fact.soldCost : null;
+      const grossProfit = cost === null ? null : fact.revenue - cost;
+      monthly.set(product.masterProductId, {
+        yearMonth,
+        revenue: fact.revenue,
+        soldQuantity: fact.orderQty,
+        cost,
+        grossProfit,
+        grossMarginRate: grossProfit !== null && fact.revenue > 0
+          ? Math.round((grossProfit / fact.revenue) * 1000) / 10
+          : null,
+      });
+    }
+    return monthly;
+  }
 
   async listProducts(organizationId: string, rawQuery: unknown) {
     const query = parseOrBadRequest(
@@ -139,16 +223,28 @@ export class ProductOperationsService implements ProductOperationsPort {
     const items = query.inventoryFocus
       ? withDepletion.filter((item) => matchesInventoryFocus(item, query.inventoryFocus!))
       : withDepletion;
+    // 그달 장사는 목록 전체에 붙인다 — 매출순 · 이익률순 정렬이 페이지 밖 상품도 보고 줄을 세운다.
+    const monthlyYearMonth = businessDateKey(new Date()).slice(0, 7);
+    const monthlyByProductId = await this.loadMonthly(
+      organizationId,
+      items.map(({ id }) => id),
+      monthlyYearMonth,
+    );
+    const withMonthly = items.map((item) => ({
+      ...item,
+      monthly: monthlyByProductId.get(item.id) ?? null,
+    }));
+    const sorted = sortProducts(withMonthly, query.sort);
     const offset = (query.page - 1) * query.limit;
-    const pageItems = items.slice(offset, offset + query.limit);
+    const pageItems = sorted.slice(offset, offset + query.limit);
     return {
       items: await this.applyDisplayImages(organizationId, pageItems),
-      total: items.length,
+      total: sorted.length,
       page: query.page,
       limit: query.limit,
       summary: {
         ...summarizeProducts(
-          items,
+          sorted,
           summarizeChannelProducts(raw.sellingChannelProducts ?? []),
           contributionOverview(contribution),
           dataStatus.displayDataAsOf,
@@ -352,6 +448,8 @@ function omitLegacyAbcGrade(rawInput: unknown): unknown {
 function noDirectSales(): ProductDepletionProjection {
   return {
     coverage: 'no_direct_sales',
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     needsReorder: false,
     reorderSkuCount: 0,
     minMonthsOfAvailableStockLeft: null,

@@ -13,7 +13,7 @@ import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
-import { PERIOD_OPTIONS } from '../lib/product-page-config';
+import { PERIOD_OPTIONS, SORT_OPTIONS } from '../lib/product-page-config';
 import { ProductCategoryTabs } from './ProductCategoryTabs';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
@@ -204,6 +204,33 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           {formatNumber(data?.total ?? 0)}개 표시
         </span>
       </section>
+
+      {/*
+        줄 세우기 — 표 바로 위에 눌러서 고르는 칸으로 둔다(사장님 2026-09-21). 브라우저 기본
+        고르기 칸은 머리글 구석에 있어 보이지 않았다. 순서는 서버가 거른 전체를 놓고 세우므로
+        지금 보는 쪽이 아니라 목록 전체의 1등이 맨 위로 온다.
+      */}
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="정렬">
+        <span className="text-[13px] font-semibold text-[var(--text-tertiary)]">정렬</span>
+        <div className="flex flex-wrap items-center rounded-xl bg-[var(--surface-sunken)] p-1">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={state.sort === option.value}
+              onClick={() => state.setSort(option.value)}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors',
+                state.sort === option.value
+                  ? 'bg-[var(--primary)] text-white shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <ProductsColumnHeader />
 

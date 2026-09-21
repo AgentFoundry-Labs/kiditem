@@ -6,9 +6,11 @@ import { DashboardAdService } from '../../../application/service/dashboard-ad.se
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../../../application/service/dashboard-trend.service';
 import { DashboardCollectionsService } from '../../../application/service/dashboard-collections.service';
+import { DashboardFindingsService } from '../../../application/service/dashboard-findings.service';
 import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
 import type {
   DashboardCollections,
+  DashboardFindings,
   DashboardSalesSummary,
   DashboardAdSummary,
   DashboardInventorySummary,
@@ -23,6 +25,7 @@ export class DashboardController {
     private readonly inventoryService: DashboardInventoryService,
     private readonly trendService: DashboardTrendService,
     private readonly collectionsService: DashboardCollectionsService,
+    private readonly findingsService: DashboardFindingsService,
   ) {}
 
   /** When each collection last completed. Not a period read: no window applies. */
@@ -31,6 +34,16 @@ export class DashboardController {
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardCollections> {
     return this.collectionsService.getCollections(organizationId);
+  }
+
+  /** What the dashboard flags: declining key products, reorder suggestions, rejected listings. */
+  @Get('findings')
+  async getFindings(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<DashboardFindings> {
+    // range-agnostic — each finding reads its owner's current snapshot
+    const ctx = buildDashboardContext();
+    return this.findingsService.getFindings(ctx, organizationId);
   }
 
   @Get('sales')

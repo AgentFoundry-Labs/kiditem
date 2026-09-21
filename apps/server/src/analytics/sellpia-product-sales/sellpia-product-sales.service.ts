@@ -206,6 +206,8 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
         anomaly: b.anomaly,
         anomalyReason: b.anomalyReason,
         inventoryResolution: inventory.inventoryResolution,
+        monthlyOutflow: inventory.monthlyOutflow,
+        outflowMonthCount: inventory.outflowMonthCount,
         monthsOfAvailableStockLeft: inventory.monthsOfAvailableStockLeft,
         reorderPoint: inventory.reorderPoint,
         needsReorder: inventory.needsReorder,

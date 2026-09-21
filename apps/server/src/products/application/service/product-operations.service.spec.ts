@@ -2,6 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { businessDateKey } from '../../../common/kst';
 import { ProductOperationsService } from './product-operations.service';
 import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
@@ -10,6 +11,12 @@ const userId = '00000000-0000-4000-8000-000000000002';
 const productId = '00000000-0000-4000-8000-000000000003';
 const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
+
+/** 그달 장사 리더 — 시험에서는 아무 사실도 없는 달로 둔다. */
+function makeMonthlyProfit() {
+  return { readProfitFacts: vi.fn().mockResolvedValue({ evidence: [], orphanFacts: [] }) };
+}
+
 
 describe('ProductOperationsService', () => {
   it('reads actual contribution for the basis selected by Finance evidence', async () => {
@@ -38,6 +45,7 @@ describe('ProductOperationsService', () => {
       makeDataStatusRepository(abcStatusFacts()) as never,
       contribution as never,
       makeRecipeMutations() as never,
+      makeMonthlyProfit() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -106,6 +114,7 @@ describe('ProductOperationsService', () => {
         { read: vi.fn().mockResolvedValue(status) } as never,
         makeContributionRead() as never,
         makeRecipeMutations() as never,
+        makeMonthlyProfit() as never,
       );
       const result = await service.listProducts(organizationId, {
         page: 1,
@@ -181,12 +190,16 @@ describe('ProductOperationsService', () => {
           coverage: 'ready',
           needsReorder: true,
           reorderSkuCount: 1,
+          monthlyOutflow: null,
+          outflowMonthCount: 0,
           minMonthsOfAvailableStockLeft: 0.2,
         }],
         [secondId, {
           coverage: 'shared',
           needsReorder: false,
           reorderSkuCount: 0,
+          monthlyOutflow: null,
+          outflowMonthCount: 0,
           minMonthsOfAvailableStockLeft: 1,
         }],
       ])),
@@ -199,6 +212,7 @@ describe('ProductOperationsService', () => {
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
       makeRecipeMutations() as never,
+      makeMonthlyProfit() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -332,6 +346,7 @@ describe('ProductOperationsService', () => {
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
       makeRecipeMutations() as never,
+      makeMonthlyProfit() as never,
     );
     const baseQuery = {
       page: 1,
@@ -684,6 +699,7 @@ function makeService(
     makeDataStatusRepository() as never,
     contribution as never,
     recipeMutations as never,
+    makeMonthlyProfit() as never,
   );
 }
 
@@ -702,6 +718,8 @@ function depletionProjection(needsReorder: boolean, months: number | null) {
     coverage: months === null ? 'no_direct_sales' as const : 'ready' as const,
     needsReorder,
     reorderSkuCount: needsReorder ? 1 : 0,
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     minMonthsOfAvailableStockLeft: months,
   };
 }
@@ -947,3 +965,161 @@ function contributionProduct(masterProductId: string, operatingProfit: number | 
     metricCompleteness: { sales: complete, operatingProfit: complete },
   };
 }
+
+/**
+ * 목록 줄 세우기(사장님 2026-09-21: "매출순으로도 나오게 해주고 최근등록순으로도").
+ *
+ * 순서는 서버가 거른 전체를 놓고 세운 뒤에 페이지를 자른다 — 보고 있는 쪽만 다시 세우면
+ * 1등이 2페이지에 숨는다. 모르는 값은 언제나 맨 뒤다.
+ */
+describe('ProductOperationsService 목록 줄 세우기', () => {
+  const yearMonth = businessDateKey(new Date()).slice(0, 7);
+  const oldest = '00000000-0000-4000-8000-0000000000a1';
+  const newest = '00000000-0000-4000-8000-0000000000a2';
+  const middle = '00000000-0000-4000-8000-0000000000a3';
+
+  function sortingService(monthlyByProductId: Record<string, {
+    revenue: number;
+    orderQty: number;
+    soldCost: number;
+    soldCostComplete?: boolean;
+  }>) {
+    const repository = makeRepository();
+    const dated = (id: string, createdAt: string) => {
+      const product = rawListProduct(id);
+      product.abcCreatedAt = new Date(createdAt);
+      return product;
+    };
+    repository.listProducts.mockResolvedValue({
+      items: [
+        dated(oldest, '2026-01-02T00:00:00.000Z'),
+        dated(newest, '2026-09-02T00:00:00.000Z'),
+        dated(middle, '2026-05-02T00:00:00.000Z'),
+      ],
+      page: 1,
+      limit: 50,
+      sellingChannelProducts: [],
+    });
+    const monthlyProfit = {
+      readProfitFacts: vi.fn().mockResolvedValue({
+        evidence: Object.entries(monthlyByProductId).map(([masterProductId, fact]) => ({
+          masterProductId,
+          monthlyFacts: [{ soldCostComplete: true, yearMonth, ...fact }],
+        })),
+        orphanFacts: [],
+      }),
+    };
+    const service = new ProductOperationsService(
+      repository as never,
+      { findBySkuIds: vi.fn().mockResolvedValue({ snapshot: {}, items: [] }) } as never,
+      { findByMasterProductIds: vi.fn().mockResolvedValue(new Map()) } as never,
+      makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository(abcStatusFacts()) as never,
+      { readContribution: vi.fn().mockResolvedValue(null) } as never,
+      makeRecipeMutations() as never,
+      monthlyProfit as never,
+    );
+    return service;
+  }
+
+  const query = (overrides: Record<string, unknown>) => ({
+    page: 1,
+    limit: 50,
+    periodDays: 30,
+    activeStatus: 'all',
+    adStatus: 'all',
+    ...overrides,
+  });
+
+  it('기본은 최신 등록순이다', async () => {
+    const service = sortingService({});
+
+    const result = await service.listProducts(organizationId, query({}));
+
+    expect(result.items.map(({ id }) => id)).toEqual([newest, middle, oldest]);
+  });
+
+  it('매출순은 매출이 큰 상품부터 세운다', async () => {
+    const service = sortingService({
+      [oldest]: { revenue: 900_000, orderQty: 9, soldCost: 100_000 },
+      [newest]: { revenue: 100_000, orderQty: 1, soldCost: 10_000 },
+      [middle]: { revenue: 500_000, orderQty: 5, soldCost: 50_000 },
+    });
+
+    const result = await service.listProducts(organizationId, query({ sort: 'revenue' }));
+
+    expect(result.items.map(({ id }) => id)).toEqual([oldest, middle, newest]);
+  });
+
+  it('그달 장사를 모르는 상품은 가장 최신이어도 맨 뒤로 간다', async () => {
+    const service = sortingService({
+      [oldest]: { revenue: 900_000, orderQty: 9, soldCost: 100_000 },
+      [middle]: { revenue: 500_000, orderQty: 5, soldCost: 50_000 },
+    });
+
+    const result = await service.listProducts(organizationId, query({ sort: 'revenue' }));
+
+    expect(result.items.map(({ id }) => id)).toEqual([oldest, middle, newest]);
+    expect(result.items.at(-1)?.monthly).toBeNull();
+  });
+
+  it('재고순도 큰 쪽부터 세우고 재고를 모르는 상품은 맨 뒤로 간다', async () => {
+    const service = sortingService({});
+
+    const result = await service.listProducts(organizationId, query({ sort: 'stock' }));
+
+    // 시험 재고 리더가 아무 수량도 내지 않으므로 셋 다 모르는 값이고, 순서가 흐트러지지
+    // 않은 채 그대로 남는다 — 모르는 값끼리는 자리를 바꾸지 않는다.
+    expect(result.items.every(({ inventoryUnits }) => inventoryUnits === null)).toBe(true);
+    expect(result.items).toHaveLength(3);
+  });
+
+  it('한 줄이라도 매입 단가를 못 읽으면 원가와 이익을 모르는 값으로 둔다', async () => {
+    const service = sortingService({
+      // 옵션 하나는 단가가 0 이라 합계(1,000)만 보면 아는 값처럼 보인다.
+      [oldest]: { revenue: 500_000, orderQty: 51, soldCost: 1_000, soldCostComplete: false },
+      [middle]: { revenue: 100_000, orderQty: 10, soldCost: 60_000 },
+    });
+
+    const result = await service.listProducts(organizationId, query({ sort: 'margin' }));
+
+    const partial = result.items.find(({ id }) => id === oldest);
+    expect(partial?.monthly?.cost).toBeNull();
+    expect(partial?.monthly?.grossProfit).toBeNull();
+    expect(partial?.monthly?.grossMarginRate).toBeNull();
+    // 이익률 99.8% 짜리 거짓 1등이 되지 않고 맨 뒤로 간다.
+    expect(result.items.map(({ id }) => id)).toEqual([middle, oldest, newest]);
+  });
+
+  it('매출이 있는데 판 개수가 0 이면 원가를 0 원으로 치지 않는다', async () => {
+    const service = sortingService({
+      [oldest]: { revenue: 80_000, orderQty: 0, soldCost: 0 },
+    });
+
+    const result = await service.listProducts(organizationId, query({}));
+
+    const odd = result.items.find(({ id }) => id === oldest);
+    expect(odd?.monthly?.cost).toBeNull();
+    expect(odd?.monthly?.grossMarginRate).toBeNull();
+  });
+
+  it('줄 세우기는 페이지가 아니라 거른 전체를 놓고 한다', async () => {
+    const service = sortingService({
+      [oldest]: { revenue: 900_000, orderQty: 9, soldCost: 100_000 },
+      [newest]: { revenue: 100_000, orderQty: 1, soldCost: 10_000 },
+      [middle]: { revenue: 500_000, orderQty: 5, soldCost: 50_000 },
+    });
+
+    const result = await service.listProducts(organizationId, query({ sort: 'revenue', limit: 1 }));
+
+    // 첫 페이지가 한 줄이어도 전체 1등이 온다.
+    expect(result.items.map(({ id }) => id)).toEqual([oldest]);
+    expect(result.total).toBe(3);
+
+    const second = await service.listProducts(
+      organizationId,
+      query({ sort: 'revenue', limit: 1, page: 2 }),
+    );
+    expect(second.items.map(({ id }) => id)).toEqual([middle]);
+  });
+});

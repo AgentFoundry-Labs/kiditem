@@ -2,28 +2,26 @@ import Link from 'next/link';
 import { Coins } from 'lucide-react';
 import { AI_USAGE_AGENT_KEYS, AI_USAGE_AGENT_LABELS } from '@kiditem/shared/ai';
 import { KRW_RATE_NOTE, formatKrwApprox, formatUsd, monthToDate, useAiUsage } from '../../_shared/ai-usage';
+import { cn } from '@/lib/utils';
+import { DashboardCardHeader } from './DashboardCardHeader';
 
 /**
  * 에이전트 비용 — 이번 달 AI(Gemini) 추정 비용을 에이전트마다, 사이드바 순서로.
  * 줄을 누르면 그 에이전트 홈으로 간다. 기록은 계량을 시작한 날부터다.
  */
-export function DashboardAgentCost() {
+export function DashboardAgentCost({ className }: { className?: string }) {
   const usage = useAiUsage(monthToDate());
   const byAgent = new Map((usage.data?.agents ?? []).map((row) => [row.agentKey, row]));
   const unattributed = byAgent.get(null);
   const total = usage.data?.totals;
 
   return (
-    <section aria-label="에이전트 비용" className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="dashboard-agent-cost">
-      <header className="flex h-10 items-center justify-between border-b border-slate-100 px-4">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <Coins size={14} className="text-amber-500" aria-hidden />
-          에이전트 비용 · 이번 달
-        </h2>
+    <section aria-label="에이전트 비용" className={cn('flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white', className)} data-testid="dashboard-agent-cost">
+      <DashboardCardHeader icon={Coins} tone="amber" title="에이전트 비용 · 이번 달">
         <span className="text-sm font-bold tabular-nums text-slate-900" title={total ? `${formatKrwApprox(total.costMicroUsd)} · ${KRW_RATE_NOTE}` : undefined}>
           {total ? formatUsd(total.costMicroUsd) : '—'}
         </span>
-      </header>
+      </DashboardCardHeader>
       {usage.isError ? (
         <p className="px-4 py-3 text-xs text-red-600">AI 비용을 읽지 못했습니다.</p>
       ) : (

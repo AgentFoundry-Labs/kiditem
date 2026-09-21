@@ -1,19 +1,23 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Calendar, Zap } from 'lucide-react';
+import { Calendar, Database, Zap } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DashboardSalesSummarySchema,
   DashboardAdSummarySchema,
+  DashboardCollectionsSchema,
+  DashboardFindingsSchema,
   DashboardInventorySummarySchema,
   type TrafficKpi,
 } from '@kiditem/shared/dashboard';
+import { MallListingMatrixResponseSchema } from '@kiditem/shared/mall-publishing';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import { MasterProductOperationsListResponseSchema } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import ReadinessModal from '@/components/ReadinessModal';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, timeAgo } from '@/lib/utils';
 import {
@@ -25,9 +29,13 @@ import { DashboardReadFailures, type DashboardReadFailure } from './components/D
 import { DashboardHeadlineCards, type HeadlineMetric } from './components/DashboardHeadlineCards';
 import { DashboardRevenue } from './components/DashboardRevenue';
 import { DashboardAgentStatus } from './components/DashboardAgentStatus';
-import { DashboardAgentCost } from './components/DashboardAgentCost';
+import { DashboardAgentSummary, DashboardUrgentQueue } from './components/DashboardWorkQueue';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
+import { DashboardAiSuggestion } from './components/DashboardAiSuggestion';
+import { buildAiSuggestions } from './lib/ai-suggestions';
+import { DashboardRecentProducts, RECENT_PRODUCT_SLOTS } from './components/DashboardRecentProducts';
+import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
   basisHasValues,
   readFirstMetricBasis,
@@ -81,10 +89,26 @@ const PRODUCT_OVERVIEW_PARAMS = {
   adStatus: 'all',
 } as const satisfies Record<string, string>;
 
+/** 몰 등록 현황의 첫 줄들 — 셀피아 코드가 큰(나중에 등록된) 상품부터, 몰 등록 여부와 함께. */
+const RECENT_PRODUCTS_PARAMS = {
+  filter: 'all',
+  page: '1',
+  limit: String(RECENT_PRODUCT_SLOTS),
+} as const satisfies Record<string, string>;
+
+/**
+ * findings 는 셀피아 상품별 소진 전체를 읽는 무거운 읽기다(1~2초). 그 원천은 하루 몇 번
+ * 모이므로 5분마다면 충분하다 — 탭 하나에 분당 0.2회씩 두 읽기가 더해진다.
+ */
+const FINDINGS_REFRESH_MS = 5 * 60_000;
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
 
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
+  // 데이터 수집 버튼이 여는 수집 점검 창(사장님 2026-09-19 복원 — 9/18 단순화에서 빠졌던 것).
+  const [showReadiness, setShowReadiness] = useState(false);
+  const requestReadinessOpen = useCallback(() => setShowReadiness(true), []);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const sellpiaKnownThrough = useSellpiaKnownThrough();
@@ -195,6 +219,36 @@ export default function Dashboard() {
       MasterProductOperationsListResponseSchema,
     ),
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+
+  // AI가 발견한 문제 · AI 제안 — 서버가 원천의 판정을 골라 센 값. 대시보드는 세지 않는다.
+  const findingsQuery = useQuery({
+    queryKey: queryKeys.dashboard.findings(),
+    queryFn: () => apiClient.getParsed('/api/dashboard/findings', DashboardFindingsSchema),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+
+  // 쇼핑몰 칸의 '마지막 수집' — 원천마다 마지막으로 끝난 시각. 대시보드는 세지 않는다.
+  const collectionsQuery = useQuery({
+    queryKey: queryKeys.dashboard.collections(),
+    queryFn: () => apiClient.getParsed('/api/dashboard/collections', DashboardCollectionsSchema),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+
+  // 최근 등록된 상품 — Channels 의 몰 등록 현황 읽기를 그대로 쓴다.
+  const recentProductsQuery = useQuery({
+    queryKey: queryKeys.mallPublishing.listingMatrix(RECENT_PRODUCTS_PARAMS),
+    queryFn: () => apiClient.getParsed(
+      `/api/channels/mall-publishing/listing-matrix?${new URLSearchParams(RECENT_PRODUCTS_PARAMS).toString()}`,
+      MallListingMatrixResponseSchema,
+    ),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -398,6 +452,8 @@ export default function Dashboard() {
     });
   }
   addReadFailure('inventory', '상품·재고', inventoryHasErr, inventoryError, () => { void refetchInventory(); });
+  addReadFailure('findings', 'AI 발견 · 제안', findingsQuery.isError, findingsQuery.error, () => { void findingsQuery.refetch(); });
+  addReadFailure('recent-products', '최근 등록 상품', recentProductsQuery.isError, recentProductsQuery.error, () => { void recentProductsQuery.refetch(); });
 
   // ── 맨 위 매출 · 광고 카드 ───────────────────────────────────────────────
   // 처음 대시보드의 KPI 두 줄(매출 넷 · 광고 넷)을 카드 두 장으로 세운다. 값은 아래 기간
@@ -416,6 +472,16 @@ export default function Dashboard() {
   const headlinePrevAdConvRevenue = rkAd ? rkAd.prevAdConvRevenue ?? null : adMonthly?.prevAdRevenue ?? null;
   const prevNote = (prev: number | null, format: (value: number) => string) =>
     prev === null ? null : `이전 ${format(prev)}`;
+  // 빈 칸이 왜 비었는지 한 줄. 광고는 서버가 낸 수집 범위(완료한 날/기간 날)를 그대로 옮기고,
+  // 셀피아 순이익은 서버가 광고비를 모른다고 낸 경우(adCost null)만 그 까닭을 적는다.
+  const adCoverage = rkAd ? rkAd.coverage ?? null : adMonthly?.coverage ?? adKpi?.coverage ?? null;
+  const adCoverageNote = adCoverage && adCoverage.completedDays < adCoverage.targetDays
+    ? `광고 수집 ${adCoverage.completedDays}/${adCoverage.targetDays}일`
+    : null;
+  const profitUnknownNote = sellpiaHasData && sp?.adCost === null ? '광고비 수집 전' : null;
+  // 매출 카드는 영수증이다 — 매출에서 매입 원가와 광고비를 빼면 순이익(사장님 2026-09-20).
+  // 네 값 모두 셀피아 판매현황 읽기가 낸 것이다. 화면은 빼기도 하지 않는다.
+  const receiptReady = sellpiaHasData && sp !== undefined && sp !== null;
   const headlineRevenue: HeadlineMetric[] = [
     {
       key: 'revenue', label: `${rangeLabel} 매출`,
@@ -423,29 +489,29 @@ export default function Dashboard() {
       note: changeNote(headlineRevenueChange), trend: trendOf(headlineRevenueChange),
     },
     {
+      key: 'cost', label: '매입 원가',
+      value: receiptReady ? formatKRW(sp.totalCost) : null, unit: '원',
+      negative: true,
+    },
+    {
+      key: 'adCost', label: '광고비',
+      value: receiptReady && sp.adCost !== null ? formatKRW(sp.adCost) : null, unit: '원',
+      negative: true,
+    },
+    {
       key: 'profit', label: `${rangeLabel} 순이익`,
       value: displayProfit === null ? null : formatKRW(displayProfit), unit: '원',
-      note: changeNote(headlineProfitChange), trend: trendOf(headlineProfitChange),
-    },
-    {
-      key: 'today', label: '오늘 매출',
-      value: today?.revenue === null || today?.revenue === undefined ? null : formatKRW(today.revenue), unit: '원',
-      note: today?.orders === null || today?.orders === undefined ? null : `주문 ${formatNumber(today.orders)}건`,
-    },
-    {
-      key: 'adRate', label: '광고비율',
-      value: kpiAdRate === null ? null : kpiAdRate.toFixed(1), unit: '%',
-      note: prevNote(kpiPrevAdRate, (value) => `${value.toFixed(1)}%`),
-      trend: trendOf(adRateChange), higherIsWorse: true,
-      // 처음 대시보드와 같은 문턱: 광고비율 15% 를 넘으면 붉다.
-      alert: kpiAdRate !== null && kpiAdRate > 15,
+      suffix: receiptReady && sp.profitRate !== null ? `${sp.profitRate.toFixed(1)}%` : undefined,
+      trend: trendOf(headlineProfitChange),
+      emphasis: true,
     },
   ];
   const headlineAds: HeadlineMetric[] = [
     {
       key: 'roas', label: 'ROAS',
       value: adRoas === null ? null : adRoas.toFixed(0), unit: '%',
-      note: prevNote(adPrevRoas, (value) => `${value.toFixed(0)}%`), trend: trendOf(adRoasChange),
+      note: adRoas === null ? adCoverageNote : prevNote(adPrevRoas, (value) => `${value.toFixed(0)}%`),
+      trend: trendOf(adRoasChange),
     },
     {
       key: 'ctr', label: '클릭률 (CTR)',
@@ -465,7 +531,47 @@ export default function Dashboard() {
     },
   ];
 
+  const lastCompleted = collectionsQuery.data?.lastCompleted ?? null;
+  const collectedAgo = (sourceType: string) => {
+    const iso = lastCompleted?.[sourceType];
+    return iso ? timeAgo(new Date(iso), new Date()) : null;
+  };
+  const orderCollectAgo = collectedAgo('order_collection_mall');
+  const trackingAgo = collectedAgo('sellpia_shipment_tracking');
+  const headlineMall: HeadlineMetric[] = [
+    {
+      key: 'mallOrders', label: '오늘 주문',
+      value: today?.orders === null || today?.orders === undefined ? null : formatNumber(today.orders), unit: '건',
+      // 모르면 왜 모르는지 — 오늘 몫을 아직 안 걷었으면 그 말을 한다.
+      note: today?.orders === null || today?.orders === undefined
+        ? (orderCollectAgo ? `오늘은 아직 — 마지막 수집 ${orderCollectAgo}` : '아직 수집 전')
+        : '몰에서 수집해 들어온 주문',
+      href: '/order-collection',
+    },
+    {
+      key: 'mallOrderCollect', label: '주문 수집', value: orderCollectAgo, href: '/order-collection',
+    },
+    {
+      key: 'mallTracking', label: '송장 수집', value: trackingAgo, href: '/order-collection',
+    },
+    {
+      // 서버에 세는 곳이 없다 — 0 으로 찍지 않는다. 세려면 Orders 쪽에 읽기모델이 있어야 한다.
+      key: 'mallCancelReturn', label: '취소 · 반품', value: null,
+    },
+  ];
+
   const stock = productOverview.data?.summary ?? null;
+  // AI 제안 — 이미 발표된 수만 줄로 바꾼다(`lib/ai-suggestions`).
+  const aiSuggestions = buildAiSuggestions({
+    findings: findingsQuery.data,
+    stock: stock
+      ? {
+        outOfStockCount: stock.inventoryStatusCounts?.out_of_stock ?? null,
+        reorderProductCount: stock.reorderProductCount ?? null,
+      }
+      : undefined,
+    unlinkedProducts: channelUnlinkedProducts,
+  });
   const count = (value: number | undefined) => (stock && value !== undefined ? formatNumber(value) : null);
   const headlineInventory: HeadlineMetric[] = [
     {
@@ -492,6 +598,8 @@ export default function Dashboard() {
       higherIsWorse: true, href: '/product-hub',
     },
   ];
+
+  const findings = findingsQuery.data;
 
   // 기간 선택은 대시보드 전체(맨 위 두 장 · 매출)를 다스린다. 그래서 그 모두의 위, 헤더에 선다.
   const periodControls = (
@@ -576,7 +684,9 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="space-y-4 w-full pb-12">
+    <div className="relative w-full space-y-4 pb-12">
+      {/* 화면 위쪽만 아주 옅은 보라 — 머리와 첫 줄 카드가 바탕에서 뜬다(사장님 2026-09-20). */}
+      <div className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-72 bg-gradient-to-b from-violet-100/50 via-violet-50/20 to-transparent" aria-hidden />
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -586,19 +696,19 @@ export default function Dashboard() {
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <span className="text-[13px] font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventoryData.totalProducts) : '—'}</span>
-              <span className="text-[13px] font-mono text-slate-400">·</span>
-              <span className="text-[13px] font-mono text-slate-500">
+              <span className="text-[13px] tabular-nums text-slate-500">운영 상품 {inventoryData ? formatNumber(inventoryData.totalProducts) : '—'}</span>
+              <span className="text-[13px] tabular-nums text-slate-400">·</span>
+              <span className="text-[13px] tabular-nums text-slate-500">
                 채널 연결 {channelLinkedProducts === null ? '—' : formatNumber(channelLinkedProducts)}
               </span>
               {channelUnlinkedProducts !== null && channelUnlinkedProducts > 0 && (
                 <>
-                  <span className="text-[13px] font-mono text-slate-400">·</span>
-                  <span className="text-[13px] font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-[13px] tabular-nums text-slate-400">·</span>
+                  <span className="text-[13px] tabular-nums text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
-              <span className="text-[13px] font-mono text-slate-400" aria-hidden="true">·</span>
-              <span className="text-[13px] font-mono text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
+              <span className="text-[13px] tabular-nums text-slate-400" aria-hidden="true">·</span>
+              <span className="text-[13px] tabular-nums text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
               {periodShifted && latestDataDate && (
                 <span
                   className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
@@ -619,53 +729,97 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={requestReadinessOpen}
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700"
+            title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
+          >
+            <Database size={13} /> 데이터 수집
+          </button>
           {periodControls}
         </div>
       </div>
 
       <DashboardReadFailures failures={readFailures} />
 
-      {/* 두 줄. 줄마다 왼쪽 · 오른쪽 칸의 마지막 카드가 늘어나 아래 선이 맞는다 —
-          매출 추이 ↔ 긴급, Top 상품 ↔ 방금(사장님 2026-09-18). */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
+      {/* 다섯 칸 한 줄. 아래 줄은 매출 추이 세 칸과 AI 에이전트 두 칸이 나란히 선다
+          (사장님 2026-09-20). 바탕으로 묶지 않는다 — 카드만 있다. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 min-[1500px]:grid-cols-5">
         <DashboardAgentStatus>
-          {({ agents, urgent, recent }) => (
+          {({ agents }) => (
             <>
-              <div className="flex min-w-0 flex-col gap-3">
-                <DashboardHeadlineCards revenue={headlineRevenue} ads={headlineAds} inventory={headlineInventory} salesHref={salesAnalysisHref} />
-                <DashboardRevenue
-                  className="flex-1"
-                  summary={channelSales.summary}
-                  isLoading={channelSales.isLoading}
-                  isError={channelSales.isError}
-                  salesHref={salesAnalysisHref}
+              <DashboardHeadlineCards
+                className="contents"
+                revenue={headlineRevenue}
+                mall={headlineMall}
+                ads={headlineAds}
+                inventory={headlineInventory}
+                salesHref={salesAnalysisHref}
+              />
+              {abcPanel}
+
+              <DashboardRevenue
+                className="min-w-0 min-[1500px]:col-span-3"
+                summary={channelSales.summary}
+                isLoading={channelSales.isLoading}
+                isError={channelSales.isError}
+                salesHref={salesAnalysisHref}
+              />
+
+              {/* AI 에이전트 — 무엇을 하고 있나, 내가 할 일, 그리고 제안 하나. */}
+              <section aria-label="AI 에이전트" className="flex min-w-0 flex-col gap-4 self-start rounded-2xl border border-violet-200 bg-violet-100/60 p-3 min-[1500px]:col-span-2">
+                <DashboardAgentSummary findings={findingsQuery.data} />
+                {/* 두 칸은 에이전트 일곱 줄 높이(헤더 40 + 7×40 = 320px)에 딱 맞는다. */}
+                <div className="grid min-w-0 grid-cols-1 gap-4 lg:h-[22.5rem] lg:grid-cols-2">
+                  {agents}
+                  <DashboardUrgentQueue findings={findingsQuery.data} findingsLoading={findingsQuery.isLoading} />
+                </div>
+                <DashboardAiSuggestion
+                  className="min-w-0"
+                  suggestions={aiSuggestions}
+                  basis={readMetricBasis(findings, 'reorderSuggestions')}
+                  isLoading={findingsQuery.isLoading}
+                  isError={findingsQuery.isError}
                 />
-              </div>
-              <div className="flex min-w-0 flex-col gap-3">
-                <DashboardAgentCost />
-                {agents}
-                {urgent}
-              </div>
-              <div className="flex min-w-0 flex-col gap-3">
+              </section>
+
+              {/* 맨 아래 — 매출 상위 상품, 최근 등록된 상품, 방금. */}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 min-[1500px]:col-span-5 min-[1500px]:grid-cols-5">
                 {topProductsHasErr ? (
-                  <DashboardSectionUnavailable label="Top Revenue Products" />
+                  <DashboardSectionUnavailable label="Top Revenue Products" className="rounded-2xl border border-slate-200/80 bg-white min-[1500px]:col-span-3" />
                 ) : topProductsLoading ? (
-                  <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
+                  <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-8 text-center text-sm text-slate-500 min-[1500px]:col-span-3">상품 매출 데이터를 불러오는 중입니다.</div>
                 ) : !effectiveSales ? (
-                  <DashboardSectionEmpty label="Top Revenue Products" />
+                  <div className="rounded-2xl border border-slate-200/80 bg-white min-[1500px]:col-span-3"><DashboardSectionEmpty label="Top Revenue Products" /></div>
                 ) : (
-                  <DashboardTopProducts className="flex-1" products={topProducts} basis={topProductsBasis} />
+                  <DashboardTopProducts className="min-w-0 min-[1500px]:col-span-3" products={topProducts} basis={topProductsBasis} />
                 )}
-              </div>
-              <div className="flex min-w-0 flex-col gap-3">
-                {abcPanel}
-                {recent}
+                <DashboardRecentProducts
+                  className="min-w-0 min-[1500px]:col-span-2"
+                  rows={recentProductsQuery.data?.rows}
+                  isLoading={recentProductsQuery.isLoading}
+                  isError={recentProductsQuery.isError}
+                />
               </div>
             </>
           )}
         </DashboardAgentStatus>
       </div>
 
+      <ReadinessModal
+        open={showReadiness}
+        onClose={() => setShowReadiness(false)}
+        onRequestOpen={requestReadinessOpen}
+        autoOpenWhen="collectionIssue"
+        additionalCollection={(
+          <WingDailyTrafficCollection
+            period={kpiRange}
+            selectedFrom={kpiRange === 'custom' ? dateFrom : undefined}
+            selectedTo={kpiRange === 'custom' ? dateTo : undefined}
+          />
+        )}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { AiModule } from '../../../ai/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';
+import { SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT } from '../sellpia-product-sales-summary-read.port';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../../application/port/in/master-product-profit-fact-read.port';
 import { SELLPIA_PROFITABILITY_SOURCE_READ_PORT } from '../../application/port/in/sellpia-profitability-source-read.port';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
@@ -32,6 +33,19 @@ describe('SellpiaProductSalesModule wiring', () => {
     expect(exports).toContain(SellpiaProfitabilitySourceModule);
     expect(binding?.useExisting).toBe(SellpiaProductSalesService);
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
+  });
+
+  it('exports the depletion summary read the dashboard findings pick from, bound to the service', () => {
+    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProductSalesModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProductSalesModule) ?? [];
+    const binding = providers.find((provider) =>
+      typeof provider === 'object'
+      && provider !== null
+      && (provider as { provide?: unknown }).provide
+        === SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT) as { useExisting?: unknown } | undefined;
+
+    expect(binding?.useExisting).toBe(SellpiaProductSalesService);
+    expect(exports).toContain(SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT);
   });
 
   it('publishes the MasterProduct profitability-fact read port without exporting its concrete provider', () => {

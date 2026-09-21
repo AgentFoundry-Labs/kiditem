@@ -34,6 +34,14 @@ export type SellpiaInventoryProductRow = Readonly<{
 
 export type SellpiaProductInventoryMetrics = Readonly<{
   inventoryResolution: SellpiaProductInventoryResolution;
+  /**
+   * 한 달에 몇 개 나가는가 — 완결된 최근 두 달의 평균(개/월). 완결 월이 하나도 없으면
+   * `null` 이다. 0 은 '측정했더니 안 팔렸다' 이고 `null` 은 '잴 근거가 없다' 라서, 둘을
+   * 같은 0 으로 합치면 화면이 거짓말을 한다(ADR-0006).
+   */
+  monthlyOutflow: number | null;
+  /** 그 평균이 덮은 완결 월 수. 평균이 며칠짜리인지 없이 숫자만 내보내지 않는다. */
+  outflowMonthCount: number;
   monthsOfAvailableStockLeft: number | null;
   reorderPoint: number | null;
   needsReorder: boolean;
@@ -152,10 +160,12 @@ export function projectSellpiaProductInventory(input: {
     const availability = availabilityBySkuId.get(sellpiaInventorySkuId)!;
     const completeQuantities = aggregateCompleteQuantities(products);
     const recent = completeQuantities.slice(-2);
-    const monthlyRate = recent.length > 0
+    // 완결 월이 없으면 평균이 아니라 모르는 값이다. 발주 판정은 예전처럼 0 을 받아 그대로
+    // 돈다 — 거동을 바꾸지 않고 '모름' 만 따로 들고 나간다.
+    const monthlyOutflow = recent.length > 0
       ? Math.round(recent.reduce((sum, quantity) => sum + quantity, 0) / recent.length)
-      : 0;
-    const reorder = computeReorder(availability.availableStock, monthlyRate);
+      : null;
+    const reorder = computeReorder(availability.availableStock, monthlyOutflow ?? 0);
     const deadStock = computeDeadStock(
       completeQuantities,
       availability.availableStock,
@@ -182,12 +192,15 @@ export function projectSellpiaProductInventory(input: {
           : null,
         destinations,
       },
+      monthlyOutflow,
+      outflowMonthCount: recent.length,
       monthsOfAvailableStockLeft: reorder.monthsOfAvailableStockLeft,
       reorderPoint: reorder.reorderPoint,
       needsReorder: reorder.needsReorder,
       deadStock: deadStock.deadStock,
       deadStockReason: deadStock.deadStockReason,
     };
+    // 한 SKU 로 해소된 판매행들은 같은 metrics 를 나눠 갖는다 — 값은 이미 SKU 전체 합이다.
     for (const product of products) byProductKey.set(product.key, metrics);
   }
 
@@ -214,6 +227,8 @@ function emptyMetrics(
 ): SellpiaProductInventoryMetrics {
   return {
     inventoryResolution,
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     monthsOfAvailableStockLeft: null,
     reorderPoint: null,
     needsReorder: false,

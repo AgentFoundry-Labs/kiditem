@@ -123,6 +123,10 @@ export const queryKeys = {
     // When each collection last completed (range-agnostic)
     collections: () =>
       [...queryKeys.dashboard.all, 'collections'] as const,
+    // What the dashboard flags — declining key products, reorder suggestions,
+    // rejected listings (range-agnostic)
+    findings: () =>
+      [...queryKeys.dashboard.all, 'findings'] as const,
     // Trend — keyed by the window it asked for, so a selected range does not
     // read the rolling window's cache.
     trend: (range: string, from?: string, to?: string) =>

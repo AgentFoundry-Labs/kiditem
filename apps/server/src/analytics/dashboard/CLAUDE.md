@@ -104,6 +104,12 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   recalculates contribution profit or owns ABC policy mutations.
 - Thumbnail analysis quality grades remain AI-owned product-registration
   evidence and are not a fallback or input for inventory ABC.
+- Findings (`/api/dashboard/findings`) pick owner verdicts and never make
+  their own: declining products are key products whose Sellpia depletion
+  `trend` is `down`, reorder suggestions are its `needsReorder` SKUs that still
+  have stock (read through `SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT`), and a
+  failed registration is a listing the mall listing state reads as `error`
+  (`channels/read/mall-listing-errors.reader`).
 - Rocket sales splits use Sellpia daily sales facts. `/rocket-orders` uses the
   current Rocket PO catalog; there is no `dashboard.rocket_sales` source.
 - Omit the retired Delivery Statistics surface until an Order-backed owner is

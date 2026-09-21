@@ -88,6 +88,17 @@ export type ProductOperationsAbcCalculationStatusFilter = z.infer<
   typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
 
+/** 목록 정렬. 기본은 최신 등록순(사장님 2026-09-21). */
+export const ProductOperationsSortSchema = z.enum([
+  'latest',
+  'revenue',
+  'stock',
+  'profit',
+  'margin',
+  'sold',
+]);
+export type ProductOperationsSort = z.infer<typeof ProductOperationsSortSchema>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
@@ -100,6 +111,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
+  sort: ProductOperationsSortSchema.default('latest'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
   typeof MasterProductOperationsListQuerySchema
@@ -179,6 +191,14 @@ export const ProductDepletionProjectionSchema = z.object({
   coverage: z.enum(['ready', 'shared', 'no_direct_sales']),
   needsReorder: z.boolean(),
   reorderSkuCount: z.number().int().nonnegative(),
+  /**
+   * 한 달에 몇 개 나가는가 — 그 상품이 가진 셀피아 SKU 들의 완결 2개월 평균 합(개/월).
+   * SKU 하나라도 잴 근거가 없으면 부분 합 대신 `null` 이다: 재고는 다 세고 소진은 일부만
+   * 센 숫자는 남은 개월수를 실제보다 길게 보이게 한다(사장님 2026-09-21).
+   */
+  monthlyOutflow: z.number().nonnegative().nullable(),
+  /** 그 평균이 덮은 완결 월 수. 평균이 며칠짜리인지 없이 숫자만 내보내지 않는다. */
+  outflowMonthCount: z.number().int().nonnegative(),
   minMonthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
 }).strict();
 export type ProductDepletionProjection = z.infer<
@@ -237,10 +257,31 @@ export type ProductOperationsDataStatus = z.infer<
   typeof ProductOperationsDataStatusSchema
 >;
 
+/**
+ * 한 달치 장사. 상품 분석이 운영 센터가 되면서 매출 · 팔린 개수 · 원가가 한 기준으로 맞아야
+ * 한다(사장님 2026-09-21). 셀피아가 그달에 낸 값 그대로이고, 이익은 매출 − 원가라 광고비 ·
+ * 몰 수수료를 빼기 전이다. 그 달에 판 적이 없으면 행 자체가 null 이다 — 0 으로 찍지 않는다.
+ */
+export const ProductMonthlySalesSchema = z.object({
+  yearMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  revenue: z.number().int(),
+  soldQuantity: z.number().int().nonnegative(),
+  /** 판 물건의 원가 = Σ(팔린 개수 × 매입 단가). 그달 매입금액이 아니다. 매입 단가를 못 읽었으면 null. */
+  cost: z.number().int().nullable(),
+  /** 매입 단가를 모르면 null — 0 으로 빼면 이익률이 100% 로 찍힌다. */
+  grossProfit: z.number().int().nullable(),
+  /** 매출총이익률(%). 매출이 0 이면 null. */
+  grossMarginRate: z.number().finite().nullable(),
+}).strict();
+export type ProductMonthlySales = z.infer<typeof ProductMonthlySalesSchema>;
+
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
     isSelling: z.boolean(),
     updatedAt: zIsoDate,
+    /** 등록된 때. 최신등록순 정렬과 신상품 묶음이 이 값을 쓴다. */
+    createdAt: zIsoDate,
+    monthly: ProductMonthlySalesSchema.nullable(),
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,
     inventoryUnits: z.number().int().nonnegative().nullable(),

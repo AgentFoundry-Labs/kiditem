@@ -5,6 +5,7 @@ import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
+import { readMonthlyAdAllocationPublication } from "../../../../../advertising/read/monthly-ad-allocation.reader";
 import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
 import { readCurrentSellpiaProductMonthlyFacts } from "../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import { businessDateKey } from "../../../../../common/kst";
@@ -13,7 +14,7 @@ import {
   readAdEvidenceFromLedger,
   type PerListingProfit,
 } from "../../../../../common/per-listing-profit";
-import type { TopProduct } from "@kiditem/shared/dashboard";
+import type { TopProduct, TopProductGradeAbsence } from "@kiditem/shared/dashboard";
 import type { ProductAbcEvaluation } from "@kiditem/shared/product-abc";
 import type {
   DashboardSalesRepositoryPort,
@@ -27,6 +28,17 @@ interface SellpiaTopProductRow {
   /** The option whose name the row carries — the product's first. */
   nameOptionCode: string;
   revenue: number;
+  /**
+   * 판 물건의 원가 = Σ(팔린 개수 × 매입 단가). 셀피아의 `inAmount`(그달 매입금액)와 다르다 —
+   * 대량 입고한 달은 판매액의 몇십 배라 이익처럼 빼면 말이 안 된다(사장님 2026-09-21).
+   */
+  cost: number;
+  /**
+   * 판 줄마다 매입 단가가 있었는가. `cost` 는 옵션 줄의 합이라 한 줄만 단가가 0 이어도 합은
+   * 0 보다 커서 '아는 값' 처럼 보인다 — 그 줄의 매출이 통째로 이익이 되어 이익률을
+   * 부풀린다(2026-09-21 점검).
+   */
+  costComplete: boolean;
   revenueByMasterProduct: Map<string, number>;
 }
 
@@ -95,6 +107,76 @@ interface TopProductRawRow {
  * and product lookups below are identity/configuration joins only; revenue and
  * quantity always come from the owner reader.
  */
+
+/**
+ * Why these sold products carry no ABC grade. The grade itself is the ABC
+ * owner's publication; this only reads the two gates an operator can act on —
+ * stock and the Coupang/Rocket recipe — so a blank grade beside a large revenue
+ * says which one to fix (사장님 2026-09-21). Anything else is 'pending': the
+ * product is eligible and waiting for the next publication.
+ */
+async function readGradeAbsence(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  masterProductIds: readonly string[],
+): Promise<Map<string, TopProductGradeAbsence>> {
+  const absence = new Map<string, TopProductGradeAbsence>();
+  if (masterProductIds.length === 0) return absence;
+  const rows = await tx.$queryRaw<Array<{ mp: string; stock: number; linked: boolean }>>`
+    select sk.master_product_id::text as mp,
+           coalesce(sum(sk.current_stock), 0)::int as stock,
+           bool_or(exists (
+             select 1
+             from channel_listing_option_inventory_components c
+             join channel_listing_options o on o.id = c.channel_listing_option_id and o.is_active
+             join channel_listings l on l.id = o.listing_id and l.is_active
+             join channel_accounts a on a.id = l.channel_account_id
+               and a.status = 'active' and a.channel in ('coupang', 'rocket')
+             where c.sellpia_inventory_sku_id = sk.id
+           )) as linked
+    from sellpia_inventory_skus sk
+    where sk.organization_id = ${organizationId}::uuid
+      and sk.is_active
+      and sk.master_product_id = any(${[...masterProductIds]}::uuid[])
+    group by 1`;
+  for (const row of rows) {
+    absence.set(row.mp, row.stock <= 0 ? 'out_of_stock' : row.linked ? 'pending' : 'not_linked');
+  }
+  for (const id of masterProductIds) {
+    if (!absence.has(id)) absence.set(id, 'not_linked');
+  }
+  return absence;
+}
+
+
+/**
+ * 그달 상품별 광고비. 광고 owner 가 발표한 배분을 그대로 더한다 — 이 파일은 광고비를 나누지
+ * 않는다. 어느 발표를 읽을지는 대시보드가 고르지 않고, ABC 발표가 쓴 그 발표를 따라간다
+ * (같은 수를 두 화면이 달리 말하지 않게, 사장님 2026-09-21).
+ */
+async function readMonthlyAdSpendByProduct(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  advertisingSourceImportRunId: string | null,
+  yearMonth: string,
+): Promise<Map<string, number> | null> {
+  if (!advertisingSourceImportRunId) return null;
+  const publication = await readMonthlyAdAllocationPublication(tx, {
+    organizationId,
+    sourceImportRunId: advertisingSourceImportRunId,
+  });
+  if (!publication) return null;
+  const spend = new Map<string, number>();
+  for (const allocation of publication.allocations) {
+    if (!allocation.month.startsWith(yearMonth)) continue;
+    spend.set(
+      allocation.masterProductId,
+      (spend.get(allocation.masterProductId) ?? 0) + allocation.allocatedSpend,
+    );
+  }
+  return spend;
+}
+
 @Injectable()
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
@@ -266,6 +348,15 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         product.evaluation,
       ]),
     );
+    const absenceByProductId = await readGradeAbsence(
+      tx,
+      organizationId,
+      rows.flatMap((row) =>
+        row.masterProductId && !evaluationByProductId.get(row.masterProductId)
+          ? [row.masterProductId]
+          : [],
+      ),
+    );
 
     return rows.map((r) => {
       const revenue = r.revenue;
@@ -282,6 +373,10 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         name: r.name,
         organization: r.organization ?? "미지정",
         grade: abcEvaluation?.abcGrade ?? null,
+        profitKind: 'net' as const,
+        gradeAbsence: abcEvaluation
+          ? null
+          : (r.masterProductId ? absenceByProductId.get(r.masterProductId) ?? 'not_linked' : 'not_linked'),
         abcEvaluation,
         revenue,
         netProfit: measured?.netProfit ?? null,
@@ -323,6 +418,8 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
             name: fact.productName,
             nameOptionCode: fact.optionCode,
             revenue: 0,
+            cost: 0,
+            costComplete: true,
             revenueByMasterProduct: new Map<string, number>(),
           };
           // Sellpia names the product on its first option; later options can
@@ -333,6 +430,9 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
             current.name = fact.productName;
           }
           current.revenue += fact.orderAmount;
+          current.cost += fact.orderQty * fact.buyPrice;
+          // 팔린 줄은 전부 매입 단가가 있어야 원가를 안다고 말할 수 있다.
+          if (fact.orderQty > 0 && fact.buyPrice <= 0) current.costComplete = false;
           if (fact.masterProductId) {
             current.revenueByMasterProduct.set(
               fact.masterProductId,
@@ -365,6 +465,22 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
           ]),
         );
 
+        const adSpendByProductId = await readMonthlyAdSpendByProduct(
+          tx,
+          organizationId,
+          abc.publication?.advertisingSourceImportRunId ?? null,
+          yearMonth,
+        );
+        const absenceByProductId = await readGradeAbsence(
+          tx,
+          organizationId,
+          rows.flatMap((row) =>
+            agreedEvaluation(row.revenueByMasterProduct, evaluationByProductId)
+              ? []
+              : [...row.revenueByMasterProduct.keys()],
+          ),
+        );
+
         return {
           coverage,
           products: rows.map((row) => {
@@ -372,15 +488,38 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
               row.revenueByMasterProduct,
               evaluationByProductId,
             );
+            // 한 셀피아 상품이 여러 마스터에 걸리면 가장 많이 판 쪽의 사정을 적는다.
+            const leadProductId = [...row.revenueByMasterProduct.entries()]
+              .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
+            // 이익 = 매출 − 셀피아 매입 원가 − 그달 광고비. 광고비는 지금 ABC 공식(v3)이
+            // 광고를 빼고 매기는 탓에 발표를 따라갈 수 없어 0 으로 두는 달이 있다 — 그때는
+            // 매출총이익이고, 화면이 그렇게 적는다(사장님 2026-09-21).
+            const adSpend = adSpendByProductId === null
+              ? 0
+              : [...row.revenueByMasterProduct.keys()]
+                .reduce((sum, id) => sum + (adSpendByProductId.get(id) ?? 0), 0);
+            // 매입 원가가 0 인 상품은 원가를 못 받은 것이다 — 공짜로 떼어 온 물건은 없다.
+            // 그대로 빼면 이익률이 100% 로 찍히므로 이익을 말하지 않는다(사장님 2026-09-21).
+            // 한 옵션이라도 매입 단가를 못 읽었으면 이익은 모르는 값이다. 합계만 보면
+            // 그 옵션의 매출이 통째로 이익이 되어 이익률이 부풀려진다(2026-09-21 점검).
+            const netProfit = row.costComplete && row.cost > 0
+              ? row.revenue - row.cost - adSpend
+              : null;
             return {
               id: `sellpia:${row.productCode}`,
               name: row.name,
               organization: "셀피아",
               grade: abcEvaluation?.abcGrade ?? null,
+              gradeAbsence: abcEvaluation
+                ? null
+                : (leadProductId ? absenceByProductId.get(leadProductId) ?? 'not_linked' : 'not_linked'),
               abcEvaluation,
               revenue: row.revenue,
-              netProfit: null,
-              profitRate: null,
+              profitKind: 'gross',
+              netProfit,
+              profitRate: netProfit === null || row.revenue <= 0
+                ? null
+                : Math.round((netProfit / row.revenue) * 1000) / 10,
             } satisfies TopProduct;
           }),
         };

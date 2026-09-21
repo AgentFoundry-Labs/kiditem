@@ -264,7 +264,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     expect(screen.getByTestId('headline-stockMatching')).toHaveTextContent('3');
     const loss = screen.getByTestId('headline-lossProducts');
     expect(loss).toHaveTextContent('—');
-    expect(loss).toHaveTextContent('손익 근거 없음');
+    // 까닭은 줄 밑이 아니라 마우스를 얹으면 뜬다(받침 줄은 이름과 숫자뿐).
+    expect(within(loss).getByTitle('손익 근거 없음')).toBeInTheDocument();
   });
 
   it('renders an uncovered Today read as unavailable rather than zero', async () => {
@@ -296,10 +297,10 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    // 맨 위 오늘 매출 칸: 잰 적 없는 오늘은 '—' 이지 0 이 아니다.
-    const today = screen.getByTestId('headline-today');
+    // 잰 적 없는 오늘은 '—' 이지 0 이 아니다. 오늘 수는 이제 쇼핑몰 칸이 말한다
+    // (매출 칸은 영수증이 됐다, 사장님 2026-09-20).
+    const today = screen.getByTestId('headline-mallOrders');
     expect(today).toHaveTextContent('—');
-    expect(today).not.toHaveTextContent('0원');
     expect(today).not.toHaveTextContent('0건');
   });
 
@@ -588,7 +589,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
 
     // 명시적인 0 은 0 이다. 세 칸 모두 지우지 않는다.
     expect(screen.getByTestId('headline-adConvRevenue')).toHaveTextContent('0원');
-    expect(screen.getByTestId('headline-adRate')).toHaveTextContent('0.0%');
+    expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('0원');
     expect(screen.getByTestId('headline-roas')).toHaveTextContent('0%');
   });
 
@@ -732,6 +733,66 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     expect(screen.getByTestId('headline-profit')).toHaveTextContent('0원');
+  });
+});
+
+/**
+ * AI가 발견한 문제 reads the Products summary for 재고 부족 — the same read as
+ * the 재고 card, so the two can never disagree — and the findings read for the
+ * rest. CS inquiries have no source, which is unknown and not zero.
+ */
+describe('Dashboard AI findings', () => {
+  it('renders each area from its owner read and links the suggestion to its product', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path.startsWith('/api/products/masters?')) {
+        return Promise.resolve({
+          summary: {
+            reorderProductCount: 78,
+            imminentProductCount: 36,
+            negativeProfitCount: 0,
+            contributionOverview: null,
+            inventoryStatusCounts: {
+              sellable: 500, out_of_stock: 4, configuration_required: 1, review_required: 2, uncollected: 0,
+            },
+          },
+        });
+      }
+      if (path === '/api/dashboard/findings') {
+        return Promise.resolve({
+          productSalesCapturedAt: '2026-09-17T17:10:53.758Z',
+          salesDecline: { month: '2026-08', keyProductLimit: 30, count: 23, items: [] },
+          reorderSuggestions: [{
+            productCode: '3189',
+            name: '세계지도 만국기',
+            optionName: null,
+            masterProductId: '11111111-1111-4111-8111-111111111111',
+            imageUrl: null,
+            availableStock: 58,
+            monthlyOutflow: 1_064,
+            daysLeft: 3,
+            reorderPoint: 1_596,
+          }],
+          registrationFailures: { count: 12, byChannel: [{ channel: 'coupang', mallName: '쿠팡(마켓플레이스)', count: 12 }] },
+        });
+      }
+      if (path === '/api/dashboard/sales') return Promise.resolve(salesResponse);
+      if (path === '/api/dashboard/ad') return Promise.resolve(adResponse);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(inventoryResponse);
+      return Promise.resolve(null);
+    });
+
+    renderDashboard();
+
+    // 발견한 수는 이제 칸이 아니라 '지금 해야 할 일' 줄로 나온다(사장님 2026-09-20).
+    const queue = await screen.findByTestId('dashboard-work-queue');
+    await waitFor(() => expect(queue).toHaveTextContent('주요 상품 23개가 덜 팔립니다'));
+    expect(queue).toHaveTextContent('몰이 거절한 등록 12건');
+    expect(queue).toHaveTextContent('쿠팡(마켓플레이스) 12건');
+    expect(screen.queryByTestId('dashboard-issue-stock')).toBeNull();
+    expect(screen.getByTestId('dashboard-ai-suggestion-reorder:3189')).toHaveAttribute(
+      'href',
+      '/product-hub/11111111-1111-4111-8111-111111111111',
+    );
   });
 });
 

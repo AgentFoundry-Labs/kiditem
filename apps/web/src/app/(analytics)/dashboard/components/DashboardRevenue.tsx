@@ -1,20 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { ArrowUpRight, LineChart as LineChartIcon, Settings2 } from 'lucide-react';
+import { ArrowUpRight, LineChart as LineChartIcon, Settings2, X } from 'lucide-react';
 import {
+  Bar,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import type { SellpiaSalesDailyPoint, SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { cn, formatKRW } from '@/lib/utils';
+import { DashboardCardHeader } from './DashboardCardHeader';
+import type { SellpiaSalesDailyPoint, SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 
 /**
  * 매출 추이 — 볼 그래프를 사장님이 고른다.
@@ -44,15 +47,18 @@ const MALL_SLOTS = [
   { color: '#1baf7a', dash: '2 3' },
   { color: '#e87ba4', dash: '8 3 2 3' },
 ] as const;
-const CHART_HEIGHT = 360;
+const CHART_HEIGHT = 210;
 const VIEW_KEY = 'kiditem.dashboard.revenue-view.v1';
 
 type BaseKey = 'total' | 'coupang' | 'nonCoupang';
 /** 일별은 그날의 매출, 누적은 기간 첫날부터 그날까지의 합. */
 type RevenueMode = 'daily' | 'cumulative';
+/** 그래프 모양 — 사장님이 고른다(2026-09-20). 기본은 막대. */
+type RevenueShape = 'bar' | 'line';
 
 interface RevenueView {
   mode: RevenueMode;
+  shape: RevenueShape;
   base: Record<BaseKey, boolean>;
   /** 고른 몰과 그 몰이 받은 색 자리. 다른 몰을 끄고 켜도 남은 몰의 색이 바뀌지 않는다. */
   malls: Array<{ id: string; slot: number }>;
@@ -60,6 +66,7 @@ interface RevenueView {
 
 const DEFAULT_VIEW: RevenueView = {
   mode: 'daily',
+  shape: 'bar',
   base: { total: true, coupang: true, nonCoupang: true },
   malls: [],
 };
@@ -79,6 +86,7 @@ function readView(): RevenueView {
       : [];
     return {
       mode: parsed.mode === 'cumulative' ? 'cumulative' : 'daily',
+      shape: parsed.shape === 'line' ? 'line' : 'bar',
       base: { total: base.total !== false, coupang: base.coupang !== false, nonCoupang: base.nonCoupang !== false },
       malls: malls.slice(0, MALL_SLOTS.length),
     };
@@ -129,6 +137,28 @@ export function revenuePoints(
 
 function byDate(daily: readonly SellpiaSalesDailyPoint[]): Map<string, number> {
   return new Map(daily.map((point) => [point.date, point.revenue]));
+}
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;
+
+/** `2026-09-01` → `['월', '09-01']`. 날짜 문자열만 읽는다(표준시 계산 없이). */
+export function dayTick(date: string): [string, string] {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return ['', date.slice(5)];
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? '';
+  return [weekday, date.slice(5)];
+}
+
+/** 요일 · 날짜 두 줄. 주말은 옅게 — 장사 흐름이 요일을 탄다. */
+function DayTick({ x, y, payload }: { x?: number; y?: number; payload?: { value?: string } }) {
+  const [weekday, date] = dayTick(String(payload?.value ?? ''));
+  const weekend = weekday === '토' || weekday === '일';
+  return (
+    <g transform={`translate(${x ?? 0},${y ?? 0})`}>
+      <text textAnchor="middle" fontSize={12} fontWeight={600} fill={weekend ? '#cbd5e1' : '#64748b'} dy={14}>{weekday}</text>
+      <text textAnchor="middle" fontSize={11} fill="#94a3b8" dy={29}>{date}</text>
+    </g>
+  );
 }
 
 function manwon(value: number): string {
@@ -217,15 +247,15 @@ export function DashboardRevenue({
   const mallsFull = view.malls.length >= MALL_SLOTS.length;
 
   return (
-    <section aria-label="매출 추이" className={cn('flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white', className)} data-testid="dashboard-revenue">
-      <header className="flex items-center justify-between gap-2 h-10 border-b border-slate-100 px-4">
-        <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <LineChartIcon size={14} className="flex-none text-slate-500" aria-hidden />
-          매출 추이
-          {range ? (
-            <span className="truncate text-xs font-normal tabular-nums text-slate-400">{range.from} ~ {range.to} · 셀피아 판매현황 · {view.mode === 'cumulative' ? '누적' : '일별'}</span>
-          ) : null}
-        </h2>
+    <section aria-label="매출 추이" className={cn('flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]', className)} data-testid="dashboard-revenue">
+      <DashboardCardHeader
+        icon={LineChartIcon}
+        tone="violet"
+        title="매출 추이"
+        meta={range ? (
+          <span className="truncate text-xs font-normal tabular-nums text-slate-400">{range.from} ~ {range.to} · 셀피아 판매현황 · {view.mode === 'cumulative' ? '누적' : '일별'}</span>
+        ) : null}
+      >
         <button
           type="button"
           onClick={() => setSettingsOpen((open) => !open)}
@@ -241,11 +271,34 @@ export function DashboardRevenue({
           <Settings2 size={12} aria-hidden />
           설정
         </button>
-      </header>
+      </DashboardCardHeader>
 
       {/* 설정 — 볼 선을 고른다. 쿠팡 외 몰은 셋까지 따로 볼 수 있다. */}
-      {settingsOpen ? (
-        <div id="dashboard-revenue-settings" className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+      {settingsOpen && typeof document !== 'undefined' ? createPortal((
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="presentation"
+          onClick={() => setSettingsOpen(false)}
+        >
+        <div
+          id="dashboard-revenue-settings"
+          role="dialog"
+          aria-modal="true"
+          aria-label="매출 추이 설정"
+          onClick={(event) => event.stopPropagation()}
+          className="max-h-[80vh] w-[28rem] max-w-full overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">매출 추이 설정</h3>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(false)}
+              aria-label="설정 닫기"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={15} />
+            </button>
+          </div>
           <fieldset>
             <legend className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">보기 방식</legend>
             <div className="mt-1.5 inline-flex overflow-hidden rounded-md border border-slate-200 bg-white" role="radiogroup" aria-label="보기 방식">
@@ -263,6 +316,30 @@ export function DashboardRevenue({
                   className={cn(
                     'border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors first:border-l-0',
                     view.mode === mode ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="mt-3">
+            <legend className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">그래프 모양</legend>
+            <div className="mt-1.5 inline-flex overflow-hidden rounded-md border border-slate-200 bg-white" role="radiogroup" aria-label="그래프 모양">
+              {([
+                ['bar', '막대', '날마다 얼마였는지 크기로 견준다'],
+                ['line', '선', '오르내림을 이어서 본다'],
+              ] as const).map(([shape, label, hint]) => (
+                <button
+                  key={shape}
+                  type="button"
+                  role="radio"
+                  aria-checked={view.shape === shape}
+                  title={hint}
+                  onClick={() => updateView({ ...view, shape })}
+                  className={cn(
+                    'border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors first:border-l-0',
+                    view.shape === shape ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
                   )}
                 >
                   {label}
@@ -324,7 +401,8 @@ export function DashboardRevenue({
             </ul>
           </fieldset>
         </div>
-      ) : null}
+        </div>
+      ), document.body) : null}
 
       {isLoading ? (
         <p className="px-4 py-16 text-center text-sm text-slate-400">매출을 불러오는 중입니다.</p>
@@ -367,20 +445,34 @@ export function DashboardRevenue({
           {/* 줄 높이에 맞춰 차트가 자란다 — 옆 칸(에이전트 · 긴급)과 아래 선이 맞는다. */}
           <div className="mt-3 flex-1" style={{ minHeight: CHART_HEIGHT }}>
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 800, height: CHART_HEIGHT }}>
-              <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <ComposedChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="18%">
+                <defs>
+                  <linearGradient id="dashboardBarCoupang" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7c3aed" />
+                    <stop offset="100%" stopColor="#a78bfa" />
+                  </linearGradient>
+                  <linearGradient id="dashboardBarNonCoupang" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#c4b5fd" />
+                    <stop offset="100%" stopColor="#ddd6fe" />
+                  </linearGradient>
+                  <linearGradient id="dashboardBarOther" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#818cf8" />
+                    <stop offset="100%" stopColor="#c7d2fe" />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid stroke="#f1f5f9" vertical={false} />
                 <XAxis
                   dataKey="date"
-                  fontSize={11}
+                  fontSize={12}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#94a3b8' }}
-                  tickFormatter={(value: string) => value.slice(5)}
-                  interval="preserveStartEnd"
-                  minTickGap={24}
+                  tick={<DayTick />}
+                  height={38}
+                  interval={0}
+                  minTickGap={0}
                 />
                 <YAxis
-                  fontSize={11}
+                  fontSize={12}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: '#94a3b8' }}
@@ -413,8 +505,30 @@ export function DashboardRevenue({
                     );
                   }}
                 />
-                {series.map((item) => {
+                {series.map((item, index) => {
                   const dimmed = focused !== null && focused !== item.key;
+                  if (view.shape === 'bar') {
+                    // 총 매출은 쌓은 막대 자체가 말한다 — 따로 그리면 같은 돈을 두 번 세운다.
+                    if (item.key === 'total') return null;
+                    const stacked = item.key === 'coupang' || item.key === 'nonCoupang';
+                    const top = stacked && index === series.length - 1;
+                    return (
+                      <Bar
+                        key={item.key}
+                        dataKey={item.key}
+                        stackId={stacked ? 'revenue' : undefined}
+                        fill={item.key === 'coupang'
+                          ? 'url(#dashboardBarCoupang)'
+                          : item.key === 'nonCoupang'
+                            ? 'url(#dashboardBarNonCoupang)'
+                            : 'url(#dashboardBarOther)'}
+                        fillOpacity={dimmed ? 0.15 : 1}
+                        radius={stacked && !top ? undefined : [6, 6, 0, 0]}
+                        maxBarSize={44}
+                        isAnimationActive={false}
+                      />
+                    );
+                  }
                   return (
                     <Line
                       key={item.key}
@@ -431,7 +545,7 @@ export function DashboardRevenue({
                     />
                   );
                 })}
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 

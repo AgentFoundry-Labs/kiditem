@@ -62,6 +62,8 @@ const state = vi.hoisted(() => ({
         coverage: 'shared' as const,
         needsReorder: true,
         reorderSkuCount: 1,
+        monthlyOutflow: null,
+        outflowMonthCount: 0,
         minMonthsOfAvailableStockLeft: 0.5,
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
@@ -155,6 +157,8 @@ const state = vi.hoisted(() => ({
   setInventoryFocus: vi.fn(),
   setPeriodDays: vi.fn(),
   setSearch: vi.fn(),
+  sort: 'latest' as const,
+  setSort: vi.fn(),
   totalPages: 3,
 }));
 const defaultData = state.data;
@@ -222,7 +226,10 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '재고' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
+    // 트래픽 칸은 걷고 그달 장사로 바꿨다(사장님 2026-09-21).
+    expect(screen.getByRole('columnheader', { name: '매출총이익' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '광고비율' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '장바구니' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
     expect(screen.queryByRole('combobox', { name: 'ABC 상태' })).not.toBeInTheDocument();
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
@@ -331,6 +338,19 @@ describe('<ProductsPageContent>', () => {
     expect(state.setInventoryFocus).toHaveBeenNthCalledWith(2, 'out_of_stock');
     expect(state.setInventoryFocus).toHaveBeenNthCalledWith(3, 'imminent');
     expect(state.setInventoryFocus).toHaveBeenNthCalledWith(4, 'reorder');
+  });
+
+  it('줄 세우기를 표 위에서 눌러 고른다 — 브라우저 기본 고르기 칸이 아니라', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    const sortGroup = screen.getByRole('group', { name: '정렬' });
+    expect(within(sortGroup).getByRole('button', { name: '최신 등록순' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(sortGroup).getByRole('button', { name: '매출순' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(within(sortGroup).getByRole('button', { name: '매출순' }));
+    expect(state.setSort).toHaveBeenCalledWith('revenue');
+
+    expect(screen.queryByRole('combobox', { name: '정렬' })).not.toBeInTheDocument();
   });
 
   it('opens the row evaluation evidence without fetching another product payload', () => {

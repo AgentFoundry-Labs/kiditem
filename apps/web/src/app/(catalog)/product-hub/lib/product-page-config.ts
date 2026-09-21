@@ -1,3 +1,13 @@
+/** 목록 줄 세우기 — 기본은 최신 등록순(사장님 2026-09-21). */
+export const SORT_OPTIONS = [
+  { value: 'latest', label: '최신 등록순' },
+  { value: 'revenue', label: '매출순' },
+  { value: 'profit', label: '이익순' },
+  { value: 'margin', label: '이익률순' },
+  { value: 'sold', label: '판매수량순' },
+  { value: 'stock', label: '재고순' },
+] as const;
+
 export const PERIOD_OPTIONS = [
   { days: 7, label: '7일' },
   { days: 14, label: '14일' },

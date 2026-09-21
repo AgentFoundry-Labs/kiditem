@@ -9,31 +9,80 @@ was removed.
 
 ## Composition
 
-- Header: identity, catalog counts, and the period control (월 · 주 · 일 · 기간).
-  The period governs everything below it, so it sits above all of it.
-- Headline cards: 매출 (월 매출 · 월 순이익 · 오늘 매출 · 광고비율), 광고 (ROAS ·
-  CTR · 광고 전환매출 · 광고비) and 재고 (품절 임박 · 품절 상품 · 매칭 확인 필요 ·
-  적자 상품). They render values the page resolves from the server read models;
-  they compute nothing. 재고 reads Products' own summary — the product hub's
-  overview read, same params and cache — and each count links to the hub
-  filtered to it; 적자 without contribution evidence is unknown, not 0.
-- 매출 추이: one line chart. By default 총 매출 · 쿠팡 · 쿠팡 외 몰, 일별; a
-  settings panel switches 일별 / 누적 and adds up to three non-Coupang malls as
-  their own lines, remembered in this browser only. Lines, not stacks — the
-  series overlap in meaning, so stacking would count revenue twice.
-- Top 상품 under the chart. For a whole month the server ranks
-  Sellpia's per-product sales (every channel, options summed); other windows
-  rank collected orders. The table renders what the server ranked.
-- Right column: 에이전트 비용 (this month's estimated AI cost per agent, each
-  row opening that agent's home at `/agents/<key>`), agent status (에이전트 | 지금 진행 중인 일, in the sidebar's
-  order; one 40px row each, a traffic-light dot — green running, amber needs a
-  person, red failed, gray idle, hollow no record — and 확인 필요 N), 긴급 (links
-  straight to the screen that handles each item), 수익성 ABC (A/B/C with each
-  grade's ▲in ▼out and the largest moves the server counted), and 방금.
-- Every card header is one style: 40px, white, `border-slate-100`.
+One five-column grid holds the page (사장님 2026-09-20). There is no grouping
+surface behind the cards — cards on the page background, white with a 16px
+radius, color only in the icon badge and small pills (DESIGN.md).
 
-There is no collection control on this page. Collections start from their
-owner screens; failures reach the operator through 긴급.
+- Top row, five cards of one spec (`HeadlineCard`): 매출 · 쇼핑몰 · 마케팅 ·
+  재고 · 상품 (사장님 2026-09-20). A card carries no header at all (사장님 2026-09-20) — no name, no icon, no
+  owner-screen link; the headline value's own label names it and every row links
+  to the screen that owns it. 상품 keeps only its 근거 and 재계산 controls, which
+  act rather than navigate, and publishes A · B · C · 신상품 as four cells side
+  by side — grade, count, this publication's ▲▼ flow, a share bar and the
+  grade's weighted operating profit — so the distribution reads at a glance. Elsewhere a row is a name and a
+  number: what would have been a caption under the
+  number is a `title`, and a short reading beside the name (이익률, 가중 영업
+  이익) is its `suffix`. 매출 reads as a receipt (사장님 2026-09-20): 월 매출, then 매입
+  원가 and 광고비 as subtracted lines, then 월 순이익 under a heavier rule with
+  its 이익률. All four are the Sellpia sales read's own published fields
+  (`totalRevenue`, `totalCost`, `adCost`, `netProfit`, `profitRate`) — the card
+  does not subtract anything itself, so the lines always add up. Each leads with its headline value large and violet — its own note
+  under it — then a rule, then the other three as name-left / number-right rows
+  with their evidence in small type under the name (사장님 2026-09-20); they render
+  what the page resolved from the server read models and compute nothing. 재고
+  reads Products' own summary — the product hub's overview read, same params and
+  cache — and each count links to the hub filtered to it; 적자 without
+  contribution evidence is unknown, not 0. 쇼핑몰 shows 오늘 주문 with 주문 수집 ·
+  송장 수집 (`/api/dashboard/collections` last-completed times); 취소 · 반품 has
+  no server count and says so instead of rendering 0.
+- Second row, one line: 매출 추이 across three columns and AI 에이전트 across two.
+- AI 에이전트 is where the agents speak: a header strip with 막힌 일 · 돈 새는 일
+  · 내 결정 and this month's total AI cost (per-agent cost belongs to Agent Org),
+  then 지금 하는 일 beside 지금 해야 할 일 in a row exactly as tall as the agent
+  list (40px header + seven 40px rows = 320px, `lg:h-80`), so neither card ends
+  in empty space; 지금 해야 할 일 scrolls inside that height. AI 제안 sits under
+  both as one short row, outside that grid — inside it, it would halve the row.
+  지금 하는 일 is titled LIVE ACTIVITY and lists each agent with its face, a traffic-light dot on that face,
+  what it is doing now, and a red count badge —
+  a number alone, like a notification. No column headings, no legend: the row
+  says it. The faces
+  are AI-generated 3D characters under `public/agents/<agent id>.png`, one set
+  drawn the same way; regenerate the whole set rather than one odd face.
+  지금 해야 할 일 ranks Agent Org's inbox and `/api/dashboard/findings` into one
+  list (막힘 → 돈 → 결정, longest-waiting first) where every row says why in
+  numbers and opens the screen that ends it. A row is two lines: the title with
+  how long it has waited beside it, the evidence under it, and one arrow on the
+  right — no button, no emoji. A blocked row is tinted red so the urgent ones
+  read before the words do. `lib/work-queue` only ranks and phrases,
+  inventing no value. Reorder rows stop at two so a decision is never
+  pushed off; the header says how many are left. AI 제안 shows two cards at a time and pages
+  through the rest (`lib/ai-suggestions`): the urgent reorders, then the money
+  already on the table — 판매상품 not yet on any mall, 품절 that could reopen —
+  then 매출 하락 and 등록 반려. Every line is a number an owner already
+  published; a claim like "매출 10% 상승" is never written, because nobody
+  measured it.
+- Bottom row: Top 상품 · 매출순 across three columns and 최근 등록된 상품 across
+  two. The 방금 feed was removed (사장님 2026-09-20); `DashboardAgentStatus`
+  still builds it, and the page ignores it. For a whole month the server ranks Sellpia's per-product
+  sales (every channel, options summed); other windows rank collected orders.
+  A row with no grade says why in that cell — 품절 · 미연결 · 대기 — from the
+  server's `gradeAbsence` (사장님 2026-09-21); a blank beside a large revenue
+  reads as a bug. The profit columns follow the row's `profitKind`: for a whole
+  month they are 매출총이익 · 총이익률 (매출 − 셀피아 매입 원가, before ads and
+  mall fees), and for other windows the settled 순이익 · 이익률. A product whose
+  cost came in as 0 has no cost, not a 100% margin, so its profit stays blank. 최근 등록된 상품 renders the first rows of Channels' mall listing matrix
+  (`filter=all`, Sellpia code order) with the published-mall count.
+- Every card header is one style: `DashboardCardHeader` — 40px, a tinted icon
+  badge, and the owner-screen link on the right.
+
+The 'AI가 발견한 문제' tiles were removed (사장님 2026-09-20): 재고 부족 is the
+재고 card's 품절 임박, and 매출 하락 · 상품 등록 실패 are rows in 지금 해야 할 일.
+`DashboardAiIssues` stays unused rather than being deleted.
+
+The header's 데이터 수집 button (restored by the owner 2026-09-19) opens the
+shared `ReadinessModal`, which also opens itself once per session on a
+collection issue, with the Wing daily traffic control underneath. Every other
+collection starts from its owner screen; failures also reach 긴급.
 
 ## State Rules
 
@@ -66,4 +115,7 @@ owner screens; failures reach the operator through 긴급.
   The dashboard reads; the owner screens act.
 - New dashboard metrics require checking backend dashboard schemas and this
   route rendering together, and must not repeat a value another panel on the
-  page already shows.
+  page already shows. 지금 해야 할 일 repeats on purpose (owner 2026-09-20): it
+  restates Agent Org's inbox and the findings as one queue, reading the same
+  published source as the panel it repeats, so the two cannot disagree. A repeat
+  that reads a second source is still forbidden.

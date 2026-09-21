@@ -74,6 +74,11 @@ export class SellpiaMasterProductProfitFactReader
         coverageEndDate: first.coverageEndDate!,
         coveredDays: calendarDaysInclusive(first.coverageStartDate!, first.coverageEndDate!),
         revenue: sourceRows.reduce((sum, row) => sum + row.orderAmount, 0),
+        orderQty: sourceRows.reduce((sum, row) => sum + row.orderQty, 0),
+        soldCost: sourceRows.reduce((sum, row) => sum + row.orderQty * row.buyPrice, 0),
+        // 팔린 줄은 전부 매입 단가가 있어야 원가를 안다고 말할 수 있다. 안 팔린 줄은 원가에
+        // 보태는 것이 없으므로 따지지 않는다.
+        soldCostComplete: sourceRows.every((row) => row.orderQty <= 0 || row.buyPrice > 0),
         sellpiaInAmount: sourceRows.reduce((sum, row) => sum + row.inAmount, 0),
         sourceProductCodes: [...new Set(sourceRows.map((row) => row.productCode))].sort(),
         sourceOptionCodes: [...new Set(sourceRows.map((row) => row.optionCode))].sort(),

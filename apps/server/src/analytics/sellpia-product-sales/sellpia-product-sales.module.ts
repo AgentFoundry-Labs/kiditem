@@ -7,6 +7,7 @@ import { SellpiaProductSalesController } from './sellpia-product-sales.controlle
 import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion-read.port';
+import { SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT } from './sellpia-product-sales-summary-read.port';
 import { SellpiaMasterProductProfitFactReader } from './sellpia-master-product-profit-fact.reader';
 import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source.module';
 
@@ -29,6 +30,10 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
       useExisting: SellpiaProductSalesService,
     },
     {
+      provide: SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT,
+      useExisting: SellpiaProductSalesService,
+    },
+    {
       provide: MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
       useExisting: SellpiaMasterProductProfitFactReader,
     },
@@ -36,6 +41,7 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
   exports: [
     SellpiaProfitabilitySourceModule,
     SELLPIA_PRODUCT_DEPLETION_READ_PORT,
+    SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT,
     MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
   ],
 })
