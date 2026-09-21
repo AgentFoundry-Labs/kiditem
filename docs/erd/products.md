@@ -87,7 +87,6 @@ erDiagram
     Json formulaJson
     String formulaChecksum
     DateTime createdAt
-    DateTime updatedAt
   }
   MasterProductAbcGradeHistory {
     String id PK
@@ -115,10 +114,8 @@ erDiagram
     String sourceAccountKey
     DateTime lastVerifiedAt
     String lastCompletedImportRunId FK
-    DateTime refreshRequestedAt
     String refreshReason
     String requestedSyncScope
-    DateTime syncNotBefore
     String activeSyncToken
     String activeSyncOwnerUserId FK
     DateTime activeSyncStartedAt

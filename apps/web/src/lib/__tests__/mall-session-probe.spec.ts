@@ -1,27 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 
 const mockDetectRuntime = vi.hoisted(() => vi.fn());
 const mockSend = vi.hoisted(() => vi.fn());
-
-const mockSummary = vi.hoisted(() => vi.fn());
-const mockRecord = vi.hoisted(() => vi.fn());
 
 vi.mock('../extension-bridge', () => ({
   detectOrderCollectionExtensionRuntime: mockDetectRuntime,
   sendToExtension: mockSend,
 }));
 
-vi.mock('../mall-operation-outcomes-api', () => ({
-  mallOperationOutcomesApi: { summary: mockSummary },
-  recordMallOperationOutcome: mockRecord,
-}));
-
 import {
   detectMallSessionProbe,
-  loginCheckRecord,
   probeMallSession,
-  shouldRememberLogin,
   sweepMallSessions,
 } from '../mall-session-probe';
 
@@ -94,51 +83,8 @@ describe('probeMallSession', () => {
   });
 });
 
-describe('shouldRememberLogin — 계정 행을 함께 쓰는 몰', () => {
-  const NOW = Date.parse('2026-09-17T03:00:00.000Z');
-
-  function rocketRow(occurredAt: string): MallOperationOutcomeSummaryRow {
-    return {
-      mallKey: 'rocket',
-      operation: 'login_check',
-      latest: {
-        id: '44444444-4444-4444-8444-444444444444',
-        mallKey: 'rocket',
-        operation: 'login_check',
-        outcome: 'attention',
-        reasonCode: 'login_required',
-        message: null,
-        itemCount: null,
-        failedCount: null,
-        warningCount: null,
-        occurredAt,
-      },
-      counts: { succeeded: 0, empty: 0, attention: 1, failed: 0, cancelled: 0 },
-    };
-  }
-
-  /**
-   * 쿠팡직배송 카드가 로켓 줄을 읽지 못하면 같은 상태인데도 한 바퀴마다 한 줄씩 새로 쌓인다.
-   */
-  it('⭐ 쿠팡직배송 카드가 로켓 줄을 제 기록으로 읽는다', () => {
-    const record = loginCheckRecord({
-      mallKey: 'coupang-direct',
-      state: 'signed_out',
-      reason: 'login_page',
-      checkedAt: NOW,
-    })!;
-
-    expect(shouldRememberLogin(record, NOW, [rocketRow(new Date(NOW - 60 * 60 * 1000).toISOString())])).toBe(false);
-    expect(shouldRememberLogin(record, NOW, [])).toBe(true);
-  });
-});
-
 describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSummary.mockResolvedValue({ rows: [] });
-    mockRecord.mockResolvedValue(undefined);
-  });
+  beforeEach(() => vi.clearAllMocks());
 
   /**
    * 로그인이 안 된 몰을 그냥 수집하면 로그인 화면만 열고 실패하면서 몰 탭이 하나 남는다.
@@ -169,12 +115,7 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
     );
   });
 
-  /**
-   * 계정 행을 함께 쓰는 몰들(쿠팡직배송 · 로켓)의 로그인 확인은 한 줄에 쌓인다. 기억 요약은
-   * 바퀴 처음에 한 번만 읽고 일꾼 셋이 동시에 도니, 이번 바퀴에 적은 것을 서로 모르면 둘 다
-   * '적어야 한다'로 보고 같은 줄을 두 번 쌓는다 — 한 바퀴에 한 줄이어야 한다.
-   */
-  it('⭐ 한 바퀴에 같은 줄로 접히는 몰은 한 번만 적는다', async () => {
+  it('keeps successful current probing local without calling a history API', async () => {
     mockDetectRuntime.mockResolvedValueOnce({ status: 'ready', extensionId: 'ext', version: '1.0.96' });
     mockSend.mockImplementation((_id: string, message: { mallKey: string }) =>
       Promise.resolve({ success: true, mallKey: message.mallKey, state: 'signed_out' }),
@@ -182,14 +123,8 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
 
     const sweep = await sweepMallSessions(['coupang-direct', 'rocket']);
 
-    // 확인은 몰마다 한다 — 접는 것은 기록뿐이다.
     expect(sweep).toMatchObject({ checked: 2, signedOut: 2 });
-    expect(mockRecord).toHaveBeenCalledTimes(1);
-    expect(mockRecord.mock.calls[0]?.[0]).toMatchObject({
-      operation: 'login_check',
-      outcome: 'attention',
-      reasonCode: 'login_required',
-    });
+    expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
   it('확장이 없으면 아무 몰도 건드리지 않고 빈 목록을 돌려준다', async () => {

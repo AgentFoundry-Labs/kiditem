@@ -358,7 +358,6 @@ export async function readProductSourceSnapshotList(
             ON listing.id = option.listing_id
             AND listing.organization_id = ${organizationId}::uuid
             AND listing.is_active = TRUE
-            AND listing.master_product_id IS NOT NULL
           WHERE component.organization_id = ${organizationId}::uuid
             AND component.master_product_id = product.id
         ))::bigint AS "linkedProducts",
@@ -373,7 +372,6 @@ export async function readProductSourceSnapshotList(
             ON listing.id = option.listing_id
             AND listing.organization_id = ${organizationId}::uuid
             AND listing.is_active = TRUE
-            AND listing.master_product_id IS NOT NULL
           WHERE component.organization_id = ${organizationId}::uuid
             AND component.master_product_id = product.id
         ))::bigint AS "unlinkedProducts"
@@ -682,7 +680,6 @@ function inventoryActiveComponentWhere(organizationId: string) {
       listing: {
         organizationId,
         isActive: true,
-        masterProductId: { not: null },
       },
     },
   } satisfies Prisma.ChannelListingOptionInventoryComponentWhereInput;
@@ -737,7 +734,6 @@ async function readInventoryLinkedDestinations(
           listing: {
             select: {
               id: true,
-              masterProductId: true,
               channelAccount: { select: { channel: true } },
             },
           },
@@ -748,7 +744,7 @@ async function readInventoryLinkedDestinations(
   const linkedMasterProductIds = [
     ...new Set(
       rows
-        .map(({ channelListingOption }) => channelListingOption.listing.masterProductId)
+        .map((row) => row.masterProductId)
         .filter((id): id is string => id !== null),
     ),
   ];
@@ -761,9 +757,7 @@ async function readInventoryLinkedDestinations(
   const masterProductById = new Map(masterProducts.map((product) => [product.id, product]));
   for (const row of rows) {
     const listing = row.channelListingOption.listing;
-    const masterProduct = listing.masterProductId === null
-      ? null
-      : masterProductById.get(listing.masterProductId) ?? null;
+    const masterProduct = masterProductById.get(row.masterProductId) ?? null;
     if (!masterProduct) continue;
     const destination: InventoryChannelOptionDestination = {
       masterProductId: row.masterProductId,

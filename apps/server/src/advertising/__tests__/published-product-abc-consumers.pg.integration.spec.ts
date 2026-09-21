@@ -58,7 +58,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       data: {
         organizationId: ORG,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'SELLER-PRODUCT-1',
         channelName: 'Wing product',
         status: 'active',
@@ -72,6 +71,14 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         itemName: '1개',
         salePrice: 12_000,
         status: '판매중',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: ORG,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
       },
     });
     const sellpiaRun = await prisma.sourceImportRun.create({

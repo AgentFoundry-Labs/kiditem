@@ -109,15 +109,12 @@ export type FrozenFact = Readonly<{
   yearMonth: string;
   orderQty: number;
   orderAmount: number;
-  inQty: number;
   inAmount: number;
   coverageStartDate: string;
   coverageEndDate: string;
   productName: string;
   optionName: string | null;
   providerName: string | null;
-  salePrice: number;
-  buyPrice: number;
   barcode: string | null;
 }>;
 
@@ -199,6 +196,12 @@ export function freezeFacts(
     const totalOrderQty = sourceTotal(product.totalOrderQty);
     const totalInAmount = sourceTotal(product.totalInAmount);
     const totalInQty = sourceTotal(product.totalInQty);
+    // Prices remain transient parser inputs: the extension uses them to
+    // classify financial-only adjustment rows, while the monthly fact keeps no
+    // price columns. Validate them at this boundary even though they are not
+    // included in the persisted fact.
+    boundedInt(product.salePrice);
+    boundedInt(product.buyPrice);
     let summedOrderAmount = 0;
     let summedOrderQty = 0;
     let summedInAmount = 0;
@@ -227,15 +230,12 @@ export function freezeFacts(
         yearMonth: month.yearMonth,
         orderQty,
         orderAmount,
-        inQty,
         inAmount,
         coverageStartDate: coverage.from,
         coverageEndDate: coverage.to,
         productName,
         optionName: nullableBoundedString(product.optionName, 400),
         providerName: nullableBoundedString(product.providerName, 200),
-        salePrice: boundedInt(product.salePrice),
-        buyPrice: boundedInt(product.buyPrice),
         barcode,
       };
       const factIdentity = `${productIdentity}\u0000${month.yearMonth}`;
@@ -271,9 +271,9 @@ export async function insertFacts(
         id, organization_id, source_import_run_id,
         sellpia_inventory_sku_id, master_product_id,
         product_code, option_code, year_month,
-        order_qty, order_amount, in_qty, in_amount,
+        order_qty, order_amount, in_amount,
         cost_basis, vat_included, coverage_start_date, coverage_end_date,
-        product_name, option_name, provider_name, sale_price, buy_price,
+        product_name, option_name, provider_name,
         barcode, captured_at
       )
       SELECT
@@ -283,12 +283,11 @@ export async function insertFacts(
         (record->>'masterProductId')::uuid,
         record->>'productCode', record->>'optionCode', record->>'yearMonth',
         (record->>'orderQty')::integer, (record->>'orderAmount')::integer,
-        (record->>'inQty')::integer, (record->>'inAmount')::integer,
+        (record->>'inAmount')::integer,
         'ORDER_TIME_SUPPLY_COST', true,
         (record->>'coverageStartDate')::date,
         (record->>'coverageEndDate')::date,
         record->>'productName', record->>'optionName', record->>'providerName',
-        (record->>'salePrice')::integer, (record->>'buyPrice')::integer,
         record->>'barcode', now()
       FROM jsonb_array_elements(${JSON.stringify(batch)}::jsonb) AS record
     `);

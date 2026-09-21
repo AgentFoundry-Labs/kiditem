@@ -51,11 +51,4 @@ export interface ChannelOptionRecipePort {
       channelListingId: string;
     },
   ): Promise<ChannelRecipeMutationResult>;
-  synchronizeListingSummaryInTransaction(
-    transaction: object,
-    input: {
-      organizationId: string;
-      channelListingId: string;
-    },
-  ): Promise<{ masterProductId: string | null; mappingChanged: boolean }>;
 }

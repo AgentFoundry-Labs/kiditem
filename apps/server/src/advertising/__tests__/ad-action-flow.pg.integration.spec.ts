@@ -77,7 +77,6 @@ describe('AdAction flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
-        masterProductId: master.id,
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
         lastImportRunId: importRun.id,
       },
@@ -92,16 +91,14 @@ describe('AdAction flow (PG integration)', () => {
         isActive: true,
       },
     });
-    if (params.sellableStock != null) {
-      await prisma.channelListingOptionInventoryComponent.create({
-        data: {
-          organizationId: params.organizationId,
-          channelListingOptionId: listingOption.id,
-          masterProductId: master.id,
-          quantity: 1,
-        },
-      });
-    }
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: params.organizationId,
+        channelListingOptionId: listingOption.id,
+        masterProductId: master.id,
+        quantity: 1,
+      },
+    });
     const option = listingOption;
     return { master, option, listing, listingOption };
   }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isChannelKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import {
   derivedMallAlerts,
   isMallAlert,
@@ -131,7 +130,7 @@ describe('derivedMallAlerts', () => {
       signedOut: [{ mallKey: 'onch', mallName: '온채널' }],
       soldOutTotal: null,
       coupangPendingAccept: null,
-    }), [], { onch: 'signed_out' });
+    }), { onch: 'signed_out' });
     expect(tiles[0]).toMatchObject({ tone: 'attention', label: '로그인 필요', login: 'signed_out', attentionCount: 1 });
   });
 
@@ -162,7 +161,7 @@ describe('mallStatusTiles', () => {
       ['쿠팡 로켓', 'failed', '쿠팡 쉽먼트 수집 실패 실패'],
       ['키즈노트', 'attention', '로그인 정보 없음'],
       ['쿠팡', 'ok', '윙 트래픽 수집 실패 해결'],
-      ['올웨이즈', 'idle', '최근 기록 없음'],
+      ['올웨이즈', 'idle', '현재 기록 없음'],
     ]);
     expect(tiles[0]?.attentionCount).toBe(1);
     expect(tiles[1]?.attentionCount).toBe(1);
@@ -176,72 +175,6 @@ describe('mallStatusTiles', () => {
     const rocket = mallStatusTiles(channels, alerts, []).find((tile) => tile.mallKey === 'rocket');
     expect(rocket?.tone).toBe('ok');
     expect(rocket?.attentionCount).toBe(1);
-  });
-
-  /** 관찰 기록만 있어도 타일이 선다 — 알림이 몰을 말하지 않는 몰도 채워진다. */
-  it('⭐ 관찰 기록에 남은 결과로 상태를 적는다', () => {
-    const tiles = mallStatusTiles(channels, [], [], [
-      remembered('rocket', 'login_test', { outcome: 'attention', reasonCode: 'login_required' }),
-      remembered('coupang', 'registration_fill', { outcome: 'succeeded', itemCount: 12 }),
-      remembered('always', 'registration_fill', { outcome: 'attention', reasonCode: 'manual_submit_required' }),
-    ]);
-    const byKey = new Map(tiles.map((tile) => [tile.mallKey, tile]));
-    expect(byKey.get('rocket')).toMatchObject({ tone: 'attention', label: '로그인 테스트 로그인 필요', attentionCount: 1 });
-    expect(byKey.get('coupang')).toMatchObject({ tone: 'ok', label: '상품등록 성공 · 12건' });
-    expect(byKey.get('always')).toMatchObject({ tone: 'attention', label: '상품등록 제출 필요' });
-  });
-
-  /**
-   * 같은 사건이 알림과 관찰 기록에 두 번 남을 때, 알림이 몇 초 늦게 찍혔다고 이기면 사장님은 인증인지
-   * 로그인인지 알 수 없다.
-   */
-  it('⭐ 할 일을 이름으로 부르는 쪽이 이긴다 — 늦게 찍힌 막연한 실패에 지지 않는다', () => {
-    const vagueAlert = alert('session', { updatedAt: '2026-09-12T02:00:00.000Z' });
-    const verification = remembered('rocket', 'login_test', {
-      outcome: 'attention',
-      reasonCode: 'operator_action_required',
-      message: '본인 인증이 필요합니다.',
-      occurredAt: '2026-09-12T01:00:00.000Z',
-    });
-    const rocket = mallStatusTiles(channels, [vagueAlert], [], [verification], {
-      rocket: 'signed_in',
-    }).find((tile) => tile.mallKey === 'rocket');
-
-    expect(rocket?.label).toBe('로그인 테스트 인증 필요');
-    expect(rocket?.detail).toBe('본인 인증이 필요합니다.');
-    // 세션은 살아 있어도 몰이 인증을 요구하면 '로그인됨'이라고 적지 않는다.
-    expect(rocket?.login).toBe('verification');
-  });
-
-  it('로그인이 필요한 몰은 인증이 아니라 로그인 필요로 남는다', () => {
-    const rocket = mallStatusTiles(
-      channels,
-      [],
-      [],
-      [remembered('rocket', 'login_test', { outcome: 'attention', reasonCode: 'login_required' })],
-      { rocket: 'signed_out' },
-    ).find((tile) => tile.mallKey === 'rocket');
-    expect(rocket?.label).toBe('로그인 테스트 로그인 필요');
-    expect(rocket?.login).toBe('signed_out');
-  });
-
-  /**
-   * 쿠팡직배송은 로켓 계정 행을 함께 쓴다 — 관찰 기록도 로켓 줄이라 카드가 그 줄을 읽어야
-   * '최근 기록 없음'으로 서지 않는다.
-   */
-  it('⭐ 쿠팡직배송 카드가 함께 쓰는 로켓 줄을 읽는다', () => {
-    const tile = mallStatusTiles(
-      [channel('coupang-direct', '쿠팡직배송')],
-      [],
-      [],
-      [remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
-    )[0];
-    expect(tile).toMatchObject({
-      mallKey: 'coupang-direct',
-      tone: 'attention',
-      label: '로그인 확인 로그인 필요',
-      attentionCount: 1,
-    });
   });
 
   /**
@@ -263,23 +196,6 @@ describe('mallStatusTiles', () => {
     });
   });
 
-  it('⭐ 방금 확인한 로그인 상태가 지난 로그인 확인 기록보다 앞선다', () => {
-    const lastCheck = remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' });
-    const rocketOnly = [channel('rocket', '쿠팡 로켓')];
-    // 확인 전 — 지난 기록이 말한다.
-    expect(mallStatusTiles(rocketOnly, [], [], [lastCheck])[0]).toMatchObject({
-      tone: 'attention',
-      label: '로그인 확인 로그인 필요',
-      login: null,
-    });
-    // 방금 다시 로그인된 것을 확인했다 — 지난 '로그인 필요'로 조르지 않는다.
-    expect(mallStatusTiles(rocketOnly, [], [], [lastCheck], { rocket: 'signed_in' })[0]).toMatchObject({
-      tone: 'idle',
-      label: '최근 기록 없음',
-      login: 'signed_in',
-      attentionCount: 0,
-    });
-  });
 });
 
 describe('mallAlertCounts', () => {
@@ -301,31 +217,6 @@ describe('mallAlertCounts', () => {
     expect(mallAlertCounts([], derived)).toEqual({ attention: 0 });
   });
 });
-
-function remembered(
-  mallKey: string,
-  operation: MallOperationOutcomeSummaryRow['operation'],
-  latest: Partial<MallOperationOutcomeSummaryRow['latest']>,
-): MallOperationOutcomeSummaryRow {
-  return {
-    mallKey,
-    operation,
-    latest: {
-      id: `${mallKey}-${operation}`,
-      mallKey,
-      operation,
-      outcome: 'succeeded',
-      reasonCode: null,
-      message: null,
-      itemCount: null,
-      failedCount: null,
-      warningCount: null,
-      occurredAt: '2026-09-12T01:00:00.000Z',
-      ...latest,
-    },
-    counts: { succeeded: 0, empty: 0, attention: 0, failed: 0, cancelled: 0 },
-  };
-}
 
 /**
  * 알림이 가리키는 몰은 채널 레지스트리의 키여야 한다(KID-250). 레지스트리에 없는 키를 적으면

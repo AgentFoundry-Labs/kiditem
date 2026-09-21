@@ -4,17 +4,9 @@ import type { TileLoginState } from './mall-alerts';
 /**
  * 몰 로그인 상태 — 확장이 조용히 확인한 결과를 화면 말로 옮긴다.
  *
- * 확인 자체와 기억에 적을지 정하는 규칙은 `@/lib/mall-session-probe` 가 가진다. 쇼핑몰 홈과
- * 앱 전역 자동 운전 고리가 같은 규칙을 쓰기 때문이다. 여기는 화면이 쓰는 모양만 만든다 —
- * 상태는 로그인됨 · 인증 필요 · 로그인 필요 셋뿐이다(사장님 2026-09-17).
+ * 확인 자체는 `@/lib/mall-session-probe` 가 담당한다. 여기는 화면이 쓰는 모양만 만든다 —
+ * 상태는 로그인됨 · 인증 필요 · 로그인 필요 셋뿐이다.
  */
-export {
-  LOGIN_RECORD_REFRESH_MS,
-  loginCheckRecord,
-  shouldRememberLogin,
-} from '@/lib/mall-session-probe';
-export type { LoginCheckRecord, RecordedLoginCheck } from '@/lib/mall-session-probe';
-
 export type MallSessionProbeStatus = 'idle' | 'running' | 'done' | 'no_extension' | 'outdated';
 
 export interface MallSessionCounts {

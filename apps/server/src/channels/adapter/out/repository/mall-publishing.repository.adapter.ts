@@ -12,6 +12,7 @@ import {
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
+import { withListingProductSummary } from '../../../domain/listing-product-summary';
 import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
 import type {
   MallAccountRow,
@@ -146,23 +147,44 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         || identity.code.toLocaleLowerCase().includes(search)
         || identity.name.toLocaleLowerCase().includes(search)),
     );
-    const listingRows = await this.prisma.channelListing.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        masterProductId: { in: selected.map((identity) => identity.masterProductId) },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      select: {
-        masterProductId: true,
-        updatedAt: true,
-        sourceCandidate: { select: { isDeleted: true, rawData: true } },
-        options: {
-          where: { isActive: true },
-          select: { itemName: true, salePrice: true },
+    const selectedIds = selected.map((identity) => identity.masterProductId);
+    const listingRows = selectedIds.length === 0
+      ? []
+      : (await this.prisma.channelListing.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+          options: {
+            some: {
+              organizationId,
+              inventoryComponents: {
+                some: { organizationId, masterProductId: { in: selectedIds } },
+              },
+            },
+          },
         },
-      },
-    });
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          updatedAt: true,
+          sourceCandidate: { select: { isDeleted: true, rawData: true } },
+          options: {
+            where: { organizationId },
+            select: {
+              isActive: true,
+              itemName: true,
+              salePrice: true,
+              inventoryComponents: {
+                where: { organizationId },
+                select: { masterProductId: true },
+              },
+            },
+          },
+        },
+      }))
+        .map((listing) => withListingProductSummary(listing))
+        .filter((listing) => listing.masterProductId !== null
+          && selectedIds.includes(listing.masterProductId));
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
     selected.sort((left, right) =>
       (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
@@ -178,7 +200,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     );
     const rows = records.map<PreflightProductRow>((record) => {
       const productListings = listingByMasterProductId.get(record.masterProductId) ?? [];
-      const options = productListings.flatMap((listing) => listing.options);
+      const options = productListings.flatMap((listing) =>
+        listing.options.filter((option) => option.isActive));
       const optionNames = [
         ...new Set(options.map((option) => option.itemName?.trim()).filter(
           (name): name is string => Boolean(name),
@@ -236,12 +259,23 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
                 organizationId,
                 channelAccountId: row.channelAccountId,
                 isActive: true,
-                masterProductId: { not: null },
               },
-              distinct: ['masterProductId'],
-              select: { masterProductId: true },
+              select: {
+                options: {
+                  where: { organizationId },
+                  select: {
+                    inventoryComponents: {
+                      where: { organizationId },
+                      select: { masterProductId: true },
+                    },
+                  },
+                },
+              },
             })
-          ).length,
+          ).map((listing) => withListingProductSummary(listing).masterProductId)
+            .filter((masterProductId): masterProductId is string => masterProductId !== null)
+            .filter((masterProductId, index, values) => values.indexOf(masterProductId) === index)
+            .length,
         })),
       ),
     ]);
@@ -282,18 +316,26 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
 
     const identities = await this.listVisibleProductIdentities(organizationId);
     const search = query.search?.trim().toLocaleLowerCase();
-    const listingRows = await this.prisma.channelListing.findMany({
+    const listingRows = (await this.prisma.channelListing.findMany({
       where: {
         ...listingScope,
-        masterProductId: { not: null },
       },
       select: {
-        masterProductId: true,
+        id: true,
         channelAccountId: true,
         status: true,
         externalId: true,
         category: true,
         updatedAt: true,
+        options: {
+          where: { organizationId },
+          select: {
+            inventoryComponents: {
+              where: { organizationId },
+              select: { masterProductId: true },
+            },
+          },
+        },
         // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
         // 리스팅에 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
         contentWorkspaces: {
@@ -317,7 +359,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           },
         },
       },
-    });
+    }))
+      .map((listing) => withListingProductSummary(listing))
+      .filter((listing) => listing.masterProductId !== null);
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
     const listedIds = new Set(listingByMasterProductId.keys());
     const filtered = identities.filter((identity) => {

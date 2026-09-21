@@ -436,7 +436,6 @@ async function seedProductFact(
       organizationId: sources.organizationId,
       channelAccountId: sources.accountId,
       externalId: `contribution-listing-${fact.code}`,
-      masterProductId: product.id,
     },
   });
   if (!fact.omitSellpia) {

@@ -266,7 +266,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     } });
     const listing = await prisma.channelListing.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id,
-      masterProductId: product.id, externalId: 'LISTING-OWN', status: 'active',
+      externalId: 'LISTING-OWN', status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
     } });
     const option = await prisma.channelListingOption.create({ data: {

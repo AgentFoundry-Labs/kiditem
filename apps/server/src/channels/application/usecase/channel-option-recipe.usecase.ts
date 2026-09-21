@@ -64,15 +64,6 @@ implements ChannelOptionRecipePort {
     return this.repository.clearListingRecipesInTransaction(transaction, input);
   }
 
-  synchronizeListingSummaryInTransaction(
-    transaction: object,
-    input: {
-      organizationId: string;
-      channelListingId: string;
-    },
-  ) {
-    return this.repository.synchronizeListingSummaryInTransaction(transaction, input);
-  }
 }
 
 function validateMutations(mutations: readonly ChannelOptionRecipeMutation[]): void {

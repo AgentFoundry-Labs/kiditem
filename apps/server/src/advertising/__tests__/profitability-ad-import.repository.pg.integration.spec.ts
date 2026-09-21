@@ -1265,7 +1265,6 @@ async function seedAccount(
       organizationId,
       channelAccountId: account.id,
       externalId: `AD-LISTING-${suffix}`,
-      masterProductId: master.id,
       isActive: true,
     },
   });

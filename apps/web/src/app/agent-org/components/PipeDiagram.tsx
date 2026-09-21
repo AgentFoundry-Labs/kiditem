@@ -489,14 +489,13 @@ function MemoryNode({ node, snapshot, connection }: { node: DiagramPanelNode; sn
   const { sources } = snapshot;
   const rows = [
     { label: '열린 알림', value: sources.openAlerts },
-    { label: '관찰 기록', value: sources.outcomes },
     { label: '알림 기록', value: sources.alerts },
   ];
   return (
-    <ExternalFrame node={node} label="관찰 기록 · 알림 열기">
+    <ExternalFrame node={node} label="알림 열기">
       <div className="flex items-center gap-2">
         <NotebookTabs className="h-4 w-4 text-slate-300" aria-hidden />
-        <span className="text-[12px] text-slate-400">모든 단계가 여기에 남습니다</span>
+        <span className="text-[12px] text-slate-400">현재 알림이 여기에 모입니다</span>
       </div>
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (

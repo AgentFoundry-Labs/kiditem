@@ -672,24 +672,6 @@
       "legacyReaders": []
     },
     {
-      "name": "Mall operation outcome",
-      "table": "mall_operation_outcomes",
-      "prismaModel": "mallOperationOutcome",
-      "prismaType": "MallOperationOutcome",
-      "relationNames": [
-        "mallOperationOutcomes",
-        "recordedMallOperationOutcomes"
-      ],
-      "reader": "apps/server/src/channels/read/mall-operation-outcome.reader.ts",
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/channels/adapter/out/repository/mall-operation-outcome.repository.adapter.ts",
-          "reason": "Channels appends one observed mall outcome per organization idempotency key and re-reads that key to return the row it already wrote."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
       "name": "Product registration execution",
       "table": "product_registration_executions",
       "prismaModel": "productRegistrationExecution",

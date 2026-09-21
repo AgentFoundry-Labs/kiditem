@@ -170,7 +170,6 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
     },
     reorderCount: 0,
     deadStockCount: 0,
-    anomalyCount: 0,
     abcCounts: { A: hasData ? 1 : 0, B: 0, C: 0 },
     abcStatusCounts: {
       READY: hasData ? 1 : 0,
@@ -202,8 +201,6 @@ function row(
     productName,
     optionName: null,
     providerName: '공급처',
-    salePrice: 1_000,
-    buyPrice: 500,
     barcode: suffix,
     monthly: [{ yearMonth: '2026-07', orderQty: 1 }],
     qty1m: 1,
@@ -214,8 +211,6 @@ function row(
     deadStock: false,
     deadStockReason: null,
     seasonTag: null,
-    anomaly: false,
-    anomalyReason: null,
     inventoryResolution: {
       status: 'matched',
       masterProductId: `11111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,

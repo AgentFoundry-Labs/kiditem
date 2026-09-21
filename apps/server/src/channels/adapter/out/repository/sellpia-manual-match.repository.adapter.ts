@@ -112,11 +112,11 @@ implements SellpiaManualMatchRepositoryPort {
         { itemCount: 'asc' },
       ],
     });
-    return rows.flatMap((row) => row.masterProductId === null ? [] : [{
+    return rows.map((row) => ({
       ...row,
       masterProductId: row.masterProductId,
       matchedType: checkedMatchedType(row.matchedType),
-    }]);
+    }));
   }
 
   async beginAttempt(input: SellpiaManualMatchAttemptInput): Promise<SellpiaManualMatchAttempt> {
@@ -477,7 +477,12 @@ async function replaceCurrentIn(
       data: batch.map((row) => ({
         organizationId: input.organizationId,
         snapshotId: snapshot.id,
-        ...row,
+        masterProductId: row.masterProductId,
+        aliasTitle: row.aliasTitle,
+        normalizedAlias: row.normalizedAlias,
+        itemCount: row.itemCount,
+        matchedType: row.matchedType,
+        evidenceCount: row.evidenceCount,
       })),
     });
   }

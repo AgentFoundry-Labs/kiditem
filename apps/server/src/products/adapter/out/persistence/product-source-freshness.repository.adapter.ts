@@ -194,12 +194,10 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryCollectionState {
     sourceAccountKey: row.sourceAccountKey,
     lastVerifiedAt: row.lastVerifiedAt,
     lastCompletedImportRunId: row.lastCompletedImportRunId,
-    refreshRequestedAt: row.refreshRequestedAt,
     refreshReason: row.refreshReason === null
       ? null
       : SellpiaInventoryStoredCollectionTriggerSchema.parse(row.refreshReason),
     requestedSyncScope: SellpiaSyncScopeSchema.parse(row.requestedSyncScope),
-    syncNotBefore: row.syncNotBefore,
     activeSyncToken: row.activeSyncToken,
     activeSyncOwnerUserId: row.activeSyncOwnerUserId,
     activeSyncStartedAt: row.activeSyncStartedAt,

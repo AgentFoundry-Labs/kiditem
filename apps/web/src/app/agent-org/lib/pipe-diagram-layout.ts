@@ -55,7 +55,7 @@ import type { PipeStageId } from './pipe-stages';
  *   분석 에이전트    키워드 · SNS · 신상품 · 경쟁사 (모여서 아래로)
  *   소싱 에이전트    소싱 후보 → 1688 · 타오바오 · 알리바바 → 괜찮은 상품 선별
  *   사장님 컨펌      확인 필요 · 사용자 컨펌 ↔ 텔레그램 보고
- *   상품 · 쇼핑몰    상품등록(상세페이지 · 썸네일) → 쇼핑몰 등록 → 쇼핑몰 · 관찰 기록
+ *   상품 · 쇼핑몰    상품등록(상세페이지 · 썸네일) → 쇼핑몰 등록 → 쇼핑몰 · 현재 알림
  *   주문 · 재고 · CS 셀피아 ↔ 주문 → 재고 → CS → 고객
  *   마케팅 에이전트  상품 → 릴스 제작 → 블로그 제작 → 광고 마케팅 → 고객 유입
  *
@@ -142,7 +142,7 @@ export const DIAGRAM_AGENTS: readonly DiagramAgentDef[] = [
   { id: 'owner', label: '사장님 컨펌', summary: '확인 필요 · 최종 선별 · 텔레그램', color: '#a78bfa', icon: UserCheck, face: { color: 'violet', role: 'ceo' } },
   { id: 'product', label: '상품 에이전트', summary: '상품등록 · 상세페이지 · 썸네일', color: '#f472b6', icon: PackagePlus, face: { color: 'pink', role: 'product' } },
   { id: 'marketing', label: '마케팅 에이전트', summary: '릴스 · 블로그 · 광고 마케팅', color: '#fb7185', icon: Megaphone, face: { color: 'rose', role: 'marketing' } },
-  { id: 'mall', label: '쇼핑몰 에이전트', summary: '몰 등록 · 몰 연결 · 관찰 기록', color: '#fb923c', icon: Store, face: { color: 'orange', role: 'mall' } },
+  { id: 'mall', label: '쇼핑몰 에이전트', summary: '몰 등록 · 몰 연결 · 현재 알림', color: '#fb923c', icon: Store, face: { color: 'orange', role: 'mall' } },
   { id: 'order', label: '주문 에이전트', summary: '주문수집 · 셀피아 전송 · 송장', color: '#2dd4bf', icon: ShoppingCart, face: { color: 'teal', role: 'orders' } },
   { id: 'inventory', label: '재고 에이전트', summary: '셀피아 재고 · 품절 · 매칭', color: '#a3e635', icon: Warehouse, face: { color: 'emerald', role: 'inventory' } },
   { id: 'cs', label: 'CS 에이전트', summary: '리뷰 · 반품 · 문의', color: '#818cf8', icon: Headset, face: { color: 'indigo', role: 'cs' } },
@@ -292,7 +292,7 @@ export const DIAGRAM_NODES: readonly DiagramNode[] = [
     { icon: Upload, caption: '제출' },
   ]),
   { kind: 'external', id: 'marketplaces', agent: 'mall', label: '쇼핑몰', x: AXIS, y: B4, w: BOX_W, h: BOX_H, href: '/mall-home' },
-  { kind: 'panel', id: 'memory', agent: 'mall', label: '관찰 기록 · 알림', x: R1, y: B4, w: BOX_W, h: BOX_H, href: '/mall-home' },
+  { kind: 'panel', id: 'memory', agent: 'mall', label: '현재 알림', x: R1, y: B4, w: BOX_W, h: BOX_H, href: '/mall-home' },
   // 주문 에이전트
   { kind: 'external', id: 'sellpia', agent: 'order', label: '셀피아', x: L1, y: B5, w: BOX_W, h: BOX_H, href: '/inventory-hub' },
   stage('order', ['orders'], '주문 · 출고 · 송장', AXIS, B5, { icon: ShoppingCart, caption: '주문 흐름' }, [

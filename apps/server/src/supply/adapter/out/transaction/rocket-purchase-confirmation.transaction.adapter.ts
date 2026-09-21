@@ -541,12 +541,13 @@ async function assertCurrentRecipes(
       listing: {
         channelAccountId,
         isActive: true,
-        masterProductId: { not: null },
+        organizationId,
       },
     },
     select: {
       id: true,
       inventoryComponents: {
+        where: { organizationId },
         select: { masterProductId: true, quantity: true },
         orderBy: { masterProductId: 'asc' },
       },

@@ -11,7 +11,7 @@ belong to Supply; supplier payments belong to Finance.
 
 - `SourcingCandidate` is the raw opportunity workspace. Its status is only
   `sourced|rejected`; registration state is derived from the Channels execution
-  fence and listings, not from the draft's mirrored submission columns.
+  fence and listings.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
@@ -21,7 +21,9 @@ belong to Supply; supplier payments belong to Finance.
   decisions. Coverage confidence is not a calibrated probability and cannot
   make a test order execution-eligible.
 - `ProductPreparation` owns reviewed content and registration input for one
-  candidate/account attempt. `ChannelListing` registration is owned by
+  candidate/account attempt. `closedAt` controls the one-open-draft constraint;
+  submission status and the resulting listing are read from Channels execution
+  facts. Editing draft input or content clears its approval. `ChannelListing` registration is owned by
   Channels and is reached through the narrow registration capability; sourcing
   must not create or return a `MasterProduct`.
 - Cross-domain reads and mutations use named owner interfaces. Sourcing does

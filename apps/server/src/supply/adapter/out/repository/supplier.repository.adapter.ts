@@ -40,9 +40,6 @@ export class SupplierRepositoryAdapter implements SupplierRepositoryPort {
         phone: command.phone,
         email: command.email,
         address: command.address,
-        leadTimeDays: command.leadTimeDays,
-        paymentTerms: command.paymentTerms,
-        notes: command.notes,
       },
     });
   }
@@ -84,9 +81,5 @@ function buildSupplierUpdateData(command: SupplierUpdateCommand) {
     ...(command.phone !== undefined && { phone: command.phone }),
     ...(command.email !== undefined && { email: command.email }),
     ...(command.address !== undefined && { address: command.address }),
-    ...(command.leadTimeDays !== undefined && { leadTimeDays: command.leadTimeDays }),
-    ...(command.paymentTerms !== undefined && { paymentTerms: command.paymentTerms }),
-    ...(command.notes !== undefined && { notes: command.notes }),
-    ...(command.status !== undefined && { status: command.status }),
   };
 }

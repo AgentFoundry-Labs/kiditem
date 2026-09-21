@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -11,6 +10,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   blocksCandidateTerminalTransition as executionsBlockTerminalTransition,
   readRegistrationExecutionFacts,
+  registrationDraftState,
 } from '../../../../channels/read/registration-execution.reader';
 import type {
   CreateOrGetActiveDraftInput,
@@ -23,11 +23,8 @@ import type {
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 import {
   blocksCandidateTerminalTransition,
-  canDiscardProviderIdentity,
-  resolveProviderOutcome,
 } from '../../../domain/product-preparation-state';
 import {
-  ACTIVE_PREPARATION_STATUSES,
   assertActiveCandidate,
   assertRegistrationIdentity,
   isUniqueConstraintError,
@@ -64,11 +61,7 @@ export class ProductPreparationRepositoryAdapter
       },
       select: {
         id: true,
-        status: true,
-        providerOutcome: true,
-        submissionKey: true,
-        providerSubmissionId: true,
-        registrationResult: true,
+        closedAt: true,
       },
     });
     // 울타리 쪽 근거는 Channels 리더로 읽는다. 실행 행은 Sourcing 것이 아니다.
@@ -82,11 +75,7 @@ export class ProductPreparationRepositoryAdapter
       );
     }
     if (preparations.some((row) => blocksCandidateTerminalTransition({
-      status: row.status,
-      outcome: resolveProviderOutcome(row),
-      submissionKey: row.submissionKey,
-      providerSubmissionId: row.providerSubmissionId,
-      registrationResult: row.registrationResult,
+      status: registrationDraftState(row.closedAt, executions.find((fact) => fact.productPreparationId === row.id)),
     }))) {
       throw new ConflictException(
         'Candidate has an active product preparation or retained provider identity.',
@@ -133,13 +122,14 @@ export class ProductPreparationRepositoryAdapter
             organizationId: input.organizationId,
             sourceCandidateId: input.sourceCandidateId,
             channelAccountId: input.input.channelAccountId,
-            status: { in: [...ACTIVE_PREPARATION_STATUSES] },
+            closedAt: null,
             isDeleted: false,
           },
-          select: { id: true, status: true, sourceContentWorkspaceId: true },
+          select: { id: true, closedAt: true, reviewPayloadHash: true, sourceContentWorkspaceId: true },
         });
         if (existing) {
-          if (existing.status !== 'draft') {
+          const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: input.organizationId, productPreparationIds: [existing.id] });
+          if (existing.reviewPayloadHash !== null || registrationDraftState(existing.closedAt, execution) !== 'draft') {
             throw new ConflictException('An active submission already exists for this account.');
           }
           return {
@@ -167,11 +157,9 @@ export class ProductPreparationRepositoryAdapter
             channelAccountId: input.input.channelAccountId,
             sourceContentWorkspaceId,
             displayName: input.input.displayName,
-            status: 'draft',
-            submissionKey: randomUUID(),
+            closedAt: null,
             registrationInput: input.input.registrationInput as Prisma.InputJsonValue,
             ...resolvedSelectionData(resolvedSelections),
-            providerOutcome: 'not_attempted',
             createdByUserId: input.createdByUserId,
           },
           select: { id: true },
@@ -190,12 +178,19 @@ export class ProductPreparationRepositoryAdapter
           organizationId: input.organizationId,
           sourceCandidateId: input.sourceCandidateId,
           channelAccountId: input.input.channelAccountId,
-          status: 'draft',
+          closedAt: null,
           isDeleted: false,
         },
-        select: { id: true, sourceContentWorkspaceId: true },
+        select: { id: true, closedAt: true, reviewPayloadHash: true, sourceContentWorkspaceId: true },
       });
       if (winner) {
+        const [execution] = await readRegistrationExecutionFacts(this.prisma, {
+          organizationId: input.organizationId,
+          productPreparationIds: [winner.id],
+        });
+        if (winner.reviewPayloadHash !== null || registrationDraftState(winner.closedAt, execution) !== 'draft') {
+          throw new ConflictException('An active submission already exists for this account.');
+        }
         return {
           preparationId: winner.id,
           status: 'draft',
@@ -252,50 +247,35 @@ export class ProductPreparationRepositoryAdapter
         organizationId: input.organizationId,
         productPreparationIds: [current.id],
       });
+      const currentState = registrationDraftState(current.closedAt, executions[0]);
+      if (current.reviewPayloadHash !== null && executions.length === 0) {
+        throw new ConflictException('Approved preparation is missing its registration execution.');
+      }
       if (executionsBlockTerminalTransition(executions)) {
         throw new ConflictException(
           'Preparation execution cannot be discarded or edited.',
         );
       }
 
-      const providerOutcome = resolveProviderOutcome(current);
-      const providerIdentityCanBeDiscarded = canDiscardProviderIdentity({
-        outcome: providerOutcome,
-        providerSubmissionId: current.providerSubmissionId,
-        registrationResult: current.registrationResult,
-      });
-
       if (input.command.kind === 'cancel') {
-        if (current.status !== 'draft' && current.status !== 'failed') {
-          throw new ConflictException(`Preparation cannot be cancelled from '${current.status}'.`);
-        }
-        if (!providerIdentityCanBeDiscarded) {
-          throw new ConflictException(
-            'Preparation provider identity cannot be discarded by cancellation.',
-          );
+        if (currentState !== 'draft' && currentState !== 'failed') {
+          throw new ConflictException(`Preparation cannot be cancelled from '${currentState}'.`);
         }
         await tx.productPreparation.updateMany({
           where: { id: current.id, organizationId: input.organizationId, isDeleted: false },
           data: {
-            status: 'cancelled',
+            closedAt: new Date(),
             isDeleted: true,
             deletedAt: new Date(),
-            submissionLeaseToken: null,
-            submissionLeaseClaimedAt: null,
           },
         });
         return { preparationId: current.id, status: 'cancelled' as const };
       }
 
-      if (current.status !== 'draft' && current.status !== 'failed') {
-        throw new ConflictException(`Preparation cannot be edited from '${current.status}'.`);
+      if (currentState !== 'draft' && currentState !== 'failed') {
+        throw new ConflictException(`Preparation cannot be edited from '${currentState}'.`);
       }
 
-      if (!providerIdentityCanBeDiscarded) {
-        throw new ConflictException(
-          'Preparation provider identity cannot be discarded or edited.',
-        );
-      }
       assertPatchFresh(current, input.command.input);
       assertRegistrationIdentity(current);
       await assertActiveCandidate(tx, input.organizationId, current.sourceCandidateId);
@@ -308,12 +288,12 @@ export class ProductPreparationRepositoryAdapter
         ),
       );
 
-      if (current.status === 'draft') {
+      if (currentState === 'draft') {
         await tx.productPreparation.updateMany({
           where: {
             id: current.id,
             organizationId: input.organizationId,
-            status: 'draft',
+            closedAt: null,
             isDeleted: false,
           },
           data: {
@@ -327,15 +307,13 @@ export class ProductPreparationRepositoryAdapter
         where: {
           id: current.id,
           organizationId: input.organizationId,
-          status: 'failed',
+          closedAt: null,
           isDeleted: false,
         },
         data: {
-          status: 'cancelled',
+          closedAt: new Date(),
           isDeleted: true,
           deletedAt: new Date(),
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
         },
       });
       const created = await tx.productPreparation.create({
@@ -365,6 +343,9 @@ function editableUpdate(
   input: ReplaceInput,
 ): Prisma.ProductPreparationUncheckedUpdateInput {
   return {
+    reviewPayloadHash: null,
+    approvedAt: null,
+    approvedByUserId: null,
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
     ...(input.registrationInput !== undefined
       ? {
@@ -411,16 +392,12 @@ function replacementCreateData(
     channelAccountId: current.channelAccountId,
     sourceContentWorkspaceId: current.sourceContentWorkspaceId,
     displayName: update.displayName ?? current.displayName,
-    status: 'draft',
-    submissionKey: randomUUID(),
+    closedAt: null,
     registrationInput: (update.registrationInput === undefined
       ? current.registrationInput
       : mergeRegistrationInput(current.registrationInput, update.registrationInput)
     ) as Prisma.InputJsonValue,
     ...resolvedSelectionData(resolvedSelections),
-    providerOutcome: 'not_attempted',
-    submissionLeaseToken: null,
-    submissionLeaseClaimedAt: null,
     createdByUserId: userId,
   };
 }

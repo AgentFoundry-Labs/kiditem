@@ -109,7 +109,8 @@ describe('registration execution fence (PG integration)', () => {
       where: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
-        status: 'draft',
+        closedAt: null,
+        isDeleted: false,
       },
     })).toBe(2);
   });
@@ -444,7 +445,7 @@ describe('registration execution fence (PG integration)', () => {
     });
     await prisma.productPreparation.update({
       where: { id: draft.preparationId },
-      data: { submissionPayloadHash: 'drifted-request-hash' },
+      data: { reviewPayloadHash: 'drifted-request-hash' },
     });
 
     await expect(repository.claimForSubmission(
@@ -454,92 +455,16 @@ describe('registration execution fence (PG integration)', () => {
     )).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('imports an execution-less legacy submitting row as uncertain rather than preparing a new create', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await prisma.productRegistrationExecution.delete({ where: { id: claimed.executionId } });
+  it('rejects a closed preparation without an execution instead of creating a new submission', async () => {
+    const draft = await drafts.createOrGetActiveDraft(createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections);
+    const closedAt = new Date('2026-07-30T12:00:00.000Z');
     await prisma.productPreparation.update({
       where: { id: draft.preparationId },
-      data: {
-        status: 'submitting',
-        providerOutcome: 'not_attempted',
-        submissionLeaseClaimedAt: new Date(
-          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
-        ),
-      },
+      data: { closedAt, isDeleted: true, deletedAt: closedAt },
     });
-
-    const imported = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (imported.status === 'registered') throw new Error('unexpected registered state');
-    expect(imported.providerOutcome).toBe('uncertain');
-    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
-      select: { status: true, providerOutcome: true, requestHash: true },
-    })).resolves.toEqual({
-      status: 'reconciling',
-      providerOutcome: 'uncertain',
-      requestHash: claimed.submissionPayloadHash,
-    });
-  });
-
-  it('replays an execution-less legacy registered preparation from its persisted listing', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
-    const listingId = await prisma.$transaction((transaction) => createListingBranch(
-      transaction,
-      '427011920',
-    ));
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
-      data: {
-        status: 'registered',
-        channelListingId: listingId,
-        submissionPayloadJson: Prisma.DbNull,
-        submissionPayloadHash: null,
-      },
-    });
-
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).resolves.toEqual({
-      preparationId: draft.preparationId,
-      status: 'registered',
-      listingId,
-    });
-    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId },
-      select: {
-        status: true,
-        providerOutcome: true,
-        channelListingId: true,
-        externalListingId: true,
-        requestHash: true,
-      },
-    })).resolves.toEqual({
-      status: 'succeeded',
-      providerOutcome: 'succeeded',
-      channelListingId: listingId,
-      externalListingId: '427011920',
-      requestHash: expect.any(String),
-    });
+    await expect(repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID))
+      .rejects.toThrow("Preparation cannot be submitted from 'cancelled'");
+    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId } })).toBe(0);
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
@@ -759,8 +684,8 @@ describe('registration execution fence (PG integration)', () => {
     expect(cancelled).toBe(1);
     await expect(prisma.productPreparation.findUniqueOrThrow({
       where: { id: prepared.preparationId },
-      select: { status: true, isDeleted: true, deletedAt: true },
-    })).resolves.toEqual({ status: 'cancelled', isDeleted: true, deletedAt: cancelledAt });
+      select: { closedAt: true, isDeleted: true, deletedAt: true },
+    })).resolves.toEqual({ closedAt: cancelledAt, isDeleted: true, deletedAt: cancelledAt });
     await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: prepared.executionId },
       select: { status: true, completedAt: true },
@@ -1229,9 +1154,9 @@ describe('registration execution fence (PG integration)', () => {
     expect(fresh.preparationId).not.toBe(stale.preparationId);
     await expect(prisma.productPreparation.findUniqueOrThrow({
       where: { id: stale.preparationId },
-      select: { status: true, isDeleted: true, deletedAt: true },
+      select: { closedAt: true, isDeleted: true, deletedAt: true },
     })).resolves.toEqual({
-      status: 'cancelled',
+      closedAt: expect.any(Date),
       isDeleted: true,
       deletedAt: expect.any(Date),
     });
@@ -1294,8 +1219,8 @@ describe('registration execution fence (PG integration)', () => {
     })).rejects.toBeInstanceOf(ConflictException);
     await expect(prisma.productPreparation.findUniqueOrThrow({
       where: { id: stale.preparationId },
-      select: { status: true, isDeleted: true },
-    })).resolves.toEqual({ status: 'submitting', isDeleted: false });
+      select: { closedAt: true, isDeleted: true },
+    })).resolves.toEqual({ closedAt: null, isDeleted: false });
   });
 
   it('never supersedes an ordinary create execution or its live claim lease', async () => {
@@ -1396,10 +1321,9 @@ describe('registration execution fence (PG integration)', () => {
     });
     await expect(prisma.productPreparation.findUniqueOrThrow({
       where: { id: stale.preparationId },
-      select: { status: true, providerOutcome: true, isDeleted: true },
+      select: { closedAt: true, isDeleted: true },
     })).resolves.toEqual({
-      status: 'cancelled',
-      providerOutcome: 'uncertain',
+      closedAt: expect.any(Date),
       isDeleted: true,
     });
   });

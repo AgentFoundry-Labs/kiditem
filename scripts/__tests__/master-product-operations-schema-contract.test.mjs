@@ -89,12 +89,12 @@ describe('master-product operations final schema contract', () => {
     assert.doesNotMatch(core, /inventorySkus\s+SellpiaInventorySku\[\]/);
   });
 
-  it('keeps cross-owner channel references as indexed nullable IDs', () => {
+  it('keeps sourcing references on listings while option recipes own product mapping', () => {
     const listing = modelBlock(core, 'ChannelListing');
     const option = modelBlock(core, 'ChannelListingOption');
-    assert.match(listing, /^\s*masterProductId\s+String\?/m);
-    assert.match(listing, /@@index\(\[masterProductId\]/);
-    rejectFields(listing, ['masterProduct', 'originatedMasterProduct']);
+    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
+    assert.match(listing, /@@index\(\[sourceCandidateId\]/);
+    rejectFields(listing, ['masterProductId', 'masterProduct', 'originatedMasterProduct']);
     assert.match(option, /^\s*inventoryComponents\s+ChannelListingOptionInventoryComponent\[\]/m);
     rejectFields(option, ['productVariantId', 'mappingStatus']);
   });
@@ -105,9 +105,18 @@ describe('master-product operations final schema contract', () => {
     assert.doesNotMatch(schema, /^\s*channelSkuComponents\s+/m);
   });
 
-  it('preserves legacy physical SKU ids with optional MasterProduct links', () => {
+  it('removes legacy SupplierProduct SKU aliases while preserving order and transfer links', () => {
+    const supplierProduct = modelBlock(supply, 'SupplierProduct');
+    expectFields(supplierProduct, ['masterProductId', 'supplyPrice', 'isPrimary']);
+    rejectFields(supplierProduct, [
+      'legacySellpiaInventorySkuId',
+      'sellpiaInventorySkuId',
+      'minOrderQty',
+      'memo',
+    ]);
+    assert.match(supplierProduct, /@@index\(\[organizationId, masterProductId\]/);
+
     const references = [
-      [supply, 'SupplierProduct'],
       [supply, 'PurchaseOrderItem'],
       [inventory, 'StockTransfer'],
       [inventory, 'ReturnTransfer'],

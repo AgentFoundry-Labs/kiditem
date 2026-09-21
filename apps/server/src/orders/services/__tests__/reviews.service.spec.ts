@@ -155,8 +155,7 @@ function display(id: string, productName: string, masterProductId: string | null
     id,
     channelName: productName,
     displayName: null,
-    masterProductId,
-    options: [],
+    options: [{ inventoryComponents: masterProductId ? [{ masterProductId }] : [] }],
     organization: { name: '회사' },
   };
 }

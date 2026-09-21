@@ -24,7 +24,6 @@ const listingSelect = {
   brand: true,
   manufacturer: true,
   sourceCandidateId: true,
-  masterProductId: true,
   status: true,
   exposureStatus: true,
   channelAccountId: true,
@@ -369,7 +368,7 @@ function toSummary(
     status: row.status,
     exposureStatus: row.exposureStatus,
     optionCount: row.options.length,
-    mappingStatus: aggregateMappingStatus(row.masterProductId, row.options),
+    mappingStatus: aggregateMappingStatus(row.options),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     ...(includeProviderDetail ? { providerDetail: buildProviderDetail(row as WorkspaceListingRow) } : {}),
@@ -511,7 +510,6 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 }
 
 function aggregateMappingStatus(
-  _masterProductId: string | null,
   options: Array<{
     inventoryComponents: Array<{ masterProductId: string }>;
   }>,

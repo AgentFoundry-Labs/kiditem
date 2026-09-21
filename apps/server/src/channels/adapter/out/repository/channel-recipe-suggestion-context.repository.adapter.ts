@@ -4,6 +4,7 @@ import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
+import { withListingProductSummary } from '../../../domain/listing-product-summary';
 import type {
   ChannelRecipeSuggestionContext,
   ChannelRecipeSuggestionContextRepositoryPort,
@@ -33,9 +34,17 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         id: true,
         listing: {
           select: {
-            masterProductId: true,
             displayName: true,
             channelName: true,
+            options: {
+              where: { organizationId },
+              select: {
+                inventoryComponents: {
+                  where: { organizationId },
+                  select: { masterProductId: true },
+                },
+              },
+            },
           },
         },
         inventoryComponents: {
@@ -50,6 +59,7 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
       },
     });
     if (!selected) return null;
+    const listingSummary = withListingProductSummary(selected.listing);
 
     const products = await this.products.findByIds(
       organizationId,
@@ -69,7 +79,7 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
     });
     return {
       channelListingOptionId: selected.id,
-      masterProductId: selected.listing.masterProductId,
+      masterProductId: listingSummary.masterProductId,
       options: options.map((option) => ({
         channelListingOptionId: option.id,
         listingName: option.listing.displayName ?? option.listing.channelName,

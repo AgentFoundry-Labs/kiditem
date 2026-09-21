@@ -72,7 +72,6 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
         supplierId: supplier.id,
         masterProductId: params.masterProductId,
         supplyPrice: params.supplyPrice,
-        minOrderQty: 1,
         isPrimary: params.isPrimary ?? true,
       },
     });
@@ -112,7 +111,6 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
       data: {
         organizationId,
         channelAccountId: channelAccount.id,
-        masterProductId: master.id,
         externalId: `PRODUCT-${suffix}`,
         channelName: `Listing ${suffix}`,
       },

@@ -57,6 +57,8 @@ describe("data migration registry", () => {
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:016_master_product_inventory_cutover",
+      "v0.1.31:017_simplify_product_references",
+      "v0.1.31:018_consolidate_registration_execution",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
@@ -282,6 +284,8 @@ describe("data migration registry", () => {
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:016_master_product_inventory_cutover",
+      "v0.1.31:017_simplify_product_references",
+      "v0.1.31:018_consolidate_registration_execution",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -324,6 +328,8 @@ describe("data migration registry", () => {
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:016_master_product_inventory_cutover",
+      "v0.1.31:017_simplify_product_references",
+      "v0.1.31:018_consolidate_registration_execution",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(

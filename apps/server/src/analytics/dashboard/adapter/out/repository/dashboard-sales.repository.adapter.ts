@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
@@ -124,7 +125,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountIds = [
       ...new Set(facts.orders.map((order) => order.channelAccountId)),
     ];
-    const options = await tx.channelListingOption.findMany({
+    const optionRows = await tx.channelListingOption.findMany({
         where: { organizationId, id: { in: optionIds } },
         select: {
           id: true,
@@ -134,11 +135,13 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
               externalId: true,
               channelName: true,
               displayName: true,
-              masterProductId: true,
+
             },
           },
         },
       });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const options = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
     const accounts = await tx.channelAccount.findMany({
         where: { organizationId, id: { in: accountIds } },
         select: { id: true, name: true, channel: true },

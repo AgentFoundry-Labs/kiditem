@@ -19,7 +19,6 @@ const input = (overrides: Partial<AgentPipelineInput> = {}): AgentPipelineInput 
   coupangPendingAccept: 0,
   openAlertCount: 0,
   totals,
-  outcomes: { total: 12, malls: 3, loginRecords: 2 },
   ...overrides,
 });
 
@@ -59,8 +58,8 @@ describe('buildAgentPipeline', () => {
     const mission = stageOf('mission');
     expect(mission.status).toBe('progress');
     expect(mission.tally).toBe('10개 · 진행 중 5 · 아직 5');
-    expect(stageOf('sense').tally).toBe('10개 · 됨 5 · 일부 2 · 아직 3');
-    expect(stageOf('remember').tally).toBe('6개 · 됨 3 · 일부 1 · 아직 2');
+    expect(stageOf('sense').tally).toBe('9개 · 됨 5 · 일부 1 · 아직 3');
+    expect(stageOf('remember').tally).toBe('4개 · 됨 1 · 일부 1 · 아직 2');
     for (const key of ['sense', 'act', 'approve', 'remember']) {
       expect(stageOf(key).status).toBe('progress');
     }
@@ -94,21 +93,16 @@ describe('buildAgentPipeline', () => {
       coupangPendingAccept: null,
       openAlertCount: null,
       totals: null,
-      outcomes: null,
     };
     for (const id of ['sense-work', 'sense-login', 'sense-session', 'sense-soldout', 'sense-coupang', 'sense-open-alerts']) {
       expect(itemOf('sense', id, unknown).detail).toBe(PIPELINE_UNKNOWN);
     }
     expect(itemOf('act', 'act-orders', unknown).detail).toBe(PIPELINE_UNKNOWN);
-    expect(itemOf('remember', 'remember-results', unknown).detail).toBe(PIPELINE_UNKNOWN);
   });
 
-  /** 기억이 생겼다 — 몰 작업 결과와 로그인 결과가 몰별로 쌓인다. 사람이 고친 칸은 아직. */
-  it('⭐ 기억 — 몰 작업 결과를 쌓고, 사람이 고친 칸은 아직이다', () => {
-    const results = itemOf('remember', 'remember-results');
-    expect(results.status).toBe('done');
-    expect(results.detail).toBe('최근 7일 12건 · 몰 3곳');
-    expect(itemOf('remember', 'remember-login').detail).toBe('최근 7일 로그인 기록 2건');
+  /** 현재 등록 값은 남기고, 로그인·폼 중간 결과는 과거 기록으로 쌓지 않는다. */
+  it('⭐ 기억 — 사람이 고른 값은 남기고 실행 결과는 현재 화면에만 둔다', () => {
+    expect(stageOf('remember').items.some((item) => item.id === 'remember-results' || item.id === 'remember-login')).toBe(false);
     expect(itemOf('remember', 'remember-values').status).toBe('done');
     expect(itemOf('remember', 'remember-fixes').status).toBe('todo');
   });

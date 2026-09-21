@@ -1,3 +1,5 @@
+import { withListingProductSummary } from '../../../../../channels/domain/listing-product-summary';
+import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
@@ -224,7 +226,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   async readInventoryAvailabilityFacts(organizationId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const listings = await tx.channelListing.findMany({
+        const listingRows = await tx.channelListing.findMany({
           where: {
             organizationId,
             channelAccount: {
@@ -237,7 +239,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           },
           select: {
             id: true,
-            masterProductId: true,
             isActive: true,
             status: true,
             rawJson: true,
@@ -255,6 +256,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
             },
           },
         });
+        const listings = listingRows.map(withListingProductSummary);
         const inventoryContext = { client: tx };
         const [statusFacts, identities] = await Promise.all([
           readLatestListingSaleStatusFacts(tx, {
@@ -370,12 +372,13 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         const listings = await tx.channelListing.findMany({
           where: {
             organizationId,
-            masterProductId: { in: [...masterProductIds] },
+            options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: [...masterProductIds] } } } } },
             isActive: true,
           },
-          select: { id: true, masterProductId: true },
+          select: { id: true },
         });
-        const listingIds = listings.map((listing) => listing.id);
+        const summaries = await readListingProductIds(tx, { organizationId, listingIds: listings.map((listing) => listing.id) });
+        const listingIds = listings.filter((listing) => masterProductIds.includes(summaries.get(listing.id) ?? "")).map((listing) => listing.id);
         const stats = await readCurrentReviewListingStats(
           tx,
           organizationId,
@@ -386,10 +389,11 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         );
         const countByProductId = new Map<string, number>();
         for (const listing of listings) {
-          if (!listing.masterProductId) continue;
+          const masterProductId = summaries.get(listing.id);
+          if (!masterProductId || !masterProductIds.includes(masterProductId)) continue;
           countByProductId.set(
-            listing.masterProductId,
-            (countByProductId.get(listing.masterProductId) ?? 0)
+            masterProductId,
+            (countByProductId.get(masterProductId) ?? 0)
               + (countByListingId.get(listing.id) ?? 0),
           );
         }

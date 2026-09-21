@@ -20,10 +20,8 @@ export type SellpiaInventoryCollectionState = {
   lastVerifiedAt: Date | null;
   lastCompletedImportRunId: string | null;
   /** Request/lease fields remain internal fencing facts, not public freshness. */
-  refreshRequestedAt: Date | null;
   refreshReason: SellpiaInventoryStoredCollectionTrigger | null;
   requestedSyncScope: SellpiaSyncScope;
-  syncNotBefore: Date | null;
   activeSyncToken: string | null;
   activeSyncOwnerUserId: string | null;
   activeSyncStartedAt: Date | null;
@@ -55,10 +53,8 @@ export function createInitialCollectionState(input: {
     sourceAccountKey: null,
     lastVerifiedAt: null,
     lastCompletedImportRunId: null,
-    refreshRequestedAt: input.now,
     refreshReason: 'initial_snapshot',
     requestedSyncScope: 'inventory',
-    syncNotBefore: null,
     activeSyncToken: null,
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
@@ -220,10 +216,8 @@ export function planCollectionRequest(
   return {
     requestedGeneration,
     failedGeneration: state.failedGeneration,
-    refreshRequestedAt: now,
     refreshReason: reason,
     requestedSyncScope: scope,
-    syncNotBefore: now,
     freshnessFence,
   };
 }

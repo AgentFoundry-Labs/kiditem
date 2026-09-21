@@ -13,6 +13,7 @@ import {
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
+import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductMatchingCandidate,
@@ -24,6 +25,7 @@ import {
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
 import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
+import { withListingProductSummary } from '../../../domain/listing-product-summary';
 import {
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidateIfComparable,
@@ -54,7 +56,6 @@ function listingSelect(organizationId: string) {
     status: true,
     rawJson: true,
     channelName: true,
-    masterProductId: true,
     updatedAt: true,
     isActive: true,
     channelAccount: {
@@ -80,9 +81,9 @@ function listingSelect(organizationId: string) {
             masterProductId: true,
             quantity: true,
           },
-          },
         },
       },
+    },
   };
 }
 
@@ -93,6 +94,7 @@ type RawOptionRow = RawListingRow['options'][number];
 type RawComponentRow = RawOptionRow['inventoryComponents'][number];
 type InventorySkuIdentity = ProductSourceReadModel;
 type ListingRow = Omit<RawListingRow, 'options'> & {
+  masterProductId: string | null;
   linkedProduct: ProductSourceReadModel | null;
   options: Array<Omit<RawOptionRow, 'inventoryComponents'> & {
     inventoryComponents: Array<RawComponentRow & {
@@ -174,13 +176,22 @@ implements ChannelProductMatchingRepositoryPort {
       select: {
         id: true,
         externalId: true,
-        masterProductId: true,
         displayName: true,
         channelName: true,
         rawJson: true,
+        options: {
+          where: { organizationId },
+          select: {
+            inventoryComponents: {
+              where: { organizationId },
+              select: { masterProductId: true },
+            },
+          },
+        },
       },
     });
     if (!listing) return null;
+    const listingSummary = withListingProductSummary(listing);
     const manualSearch = search?.trim();
     const candidates = await this.readProductCandidates(organizationId, manualSearch);
     const candidateIds = candidates.map((candidate) => candidate.masterProductId);
@@ -190,13 +201,21 @@ implements ChannelProductMatchingRepositoryPort {
         where: {
           organizationId,
           isActive: true,
-          masterProductId: { in: candidateIds },
+          options: {
+            some: {
+              organizationId,
+              inventoryComponents: {
+                some: { organizationId, masterProductId: { in: candidateIds } },
+              },
+            },
+          },
         },
         select: {
-          masterProductId: true,
+          id: true,
           options: {
-            where: { organizationId, isActive: true },
+            where: { organizationId },
             select: {
+              isActive: true,
               inventoryComponents: {
                 where: { organizationId },
                 select: { masterProductId: true },
@@ -205,27 +224,37 @@ implements ChannelProductMatchingRepositoryPort {
           },
         },
       });
-    const componentIds = [...new Set(candidateListings.flatMap((candidateListing) =>
-      candidateListing.options.flatMap((option) =>
-        option.inventoryComponents.map((component) => component.masterProductId))))];
+    const candidateIdSet = new Set(candidateIds);
+    const matchingCandidateListings = candidateListings
+      .map((candidateListing) => withListingProductSummary(candidateListing))
+      .filter((candidateListing) => candidateListing.masterProductId !== null
+        && candidateIdSet.has(candidateListing.masterProductId));
+    const componentIds = [...new Set(matchingCandidateListings.flatMap((candidateListing) =>
+      candidateListing.options
+        .filter((option) => option.isActive)
+        .flatMap((option) => option.inventoryComponents
+          .map((component) => component.masterProductId))))];
     const componentIdentities = await this.readProductIdentities(organizationId, componentIds);
     const barcodeByMasterProductId = new Map(componentIdentities.map((identity) => [
       identity.masterProductId,
       identity.barcode,
     ]));
     const componentIdsByCandidate = new Map<string, string[]>();
-    for (const candidateListing of candidateListings) {
-      if (!candidateListing.masterProductId) continue;
-      const ids = componentIdsByCandidate.get(candidateListing.masterProductId) ?? [];
-      ids.push(...candidateListing.options.flatMap((option) =>
-        option.inventoryComponents.map((component) => component.masterProductId)));
-      componentIdsByCandidate.set(candidateListing.masterProductId, ids);
+    for (const candidateListing of matchingCandidateListings) {
+      const masterProductId = candidateListing.masterProductId;
+      if (!masterProductId) continue;
+      const ids = componentIdsByCandidate.get(masterProductId) ?? [];
+      ids.push(...candidateListing.options
+        .filter((option) => option.isActive)
+        .flatMap((option) => option.inventoryComponents
+          .map((component) => component.masterProductId)));
+      componentIdsByCandidate.set(masterProductId, ids);
     }
     const raw = asRecord(listing.rawJson);
     return {
       listingId: listing.id,
       externalId: listing.externalId,
-      masterProductId: listing.masterProductId,
+      masterProductId: listingSummary.masterProductId,
       displayName: listing.displayName ?? listing.channelName,
       explicitCode: firstString(raw, ['masterProductCode', 'productCode', 'code']),
       barcode: firstString(raw, ['barcode', 'productBarcode']),
@@ -260,14 +289,15 @@ implements ChannelProductMatchingRepositoryPort {
           channelListingId: input.channelListingId,
         });
       } else {
-        const summary = await this.recipeMutations.synchronizeListingSummaryInTransaction(
-          tx,
-          {
-            organizationId: input.organizationId,
-            channelListingId: input.channelListingId,
-          },
-        );
-        if (summary.masterProductId !== input.masterProductId) {
+        await lockProductMapping(tx, input.organizationId);
+        const summaries = await readListingProductIds(tx, {
+          organizationId: input.organizationId,
+          listingIds: [input.channelListingId],
+        });
+        if (!summaries.has(input.channelListingId)) {
+          throw new NotFoundException('Channel listing was not found');
+        }
+        if (summaries.get(input.channelListingId) !== input.masterProductId) {
           throw new BadRequestException(
             'MasterProduct link is derived from complete option inventory recipes',
           );
@@ -283,7 +313,7 @@ implements ChannelProductMatchingRepositoryPort {
     return this.prisma.$transaction(async (tx) => {
       // Match publication's mapping -> source order before reading or mutating recipes.
       await lockProductMapping(tx, input.organizationId);
-      const [listings, aliases] = await Promise.all([
+      const [rawListings, aliases] = await Promise.all([
         tx.channelListing.findMany({
           where: {
             organizationId: input.organizationId,
@@ -294,7 +324,6 @@ implements ChannelProductMatchingRepositoryPort {
             displayName: true,
             channelName: true,
             rawJson: true,
-            masterProductId: true,
             options: {
               where: { organizationId: input.organizationId },
               select: {
@@ -319,11 +348,11 @@ implements ChannelProductMatchingRepositoryPort {
           select: {
             normalizedAlias: true,
             masterProductId: true,
-            legacySellpiaInventorySkuId: true,
             itemCount: true,
           },
         }),
       ]);
+      const listings = rawListings.map((listing) => withListingProductSummary(listing));
       const aliasesByName = new Map<string, typeof aliases>();
       for (const alias of aliases) {
         const rows = aliasesByName.get(alias.normalizedAlias) ?? [];
@@ -621,19 +650,20 @@ implements ChannelProductMatchingRepositoryPort {
       select: listingSelect(organizationId),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
-    return listings.map((listing) => ({
-      ...listing,
-      linkedProduct: null,
-      options: listing.options.map((option) => ({
-        ...option,
-        inventoryComponents: option.inventoryComponents.map((component) => {
-          return {
+    return listings.map((rawListing) => {
+      const listing = withListingProductSummary(rawListing);
+      return {
+        ...listing,
+        linkedProduct: null,
+        options: listing.options.map((option) => ({
+          ...option,
+          inventoryComponents: option.inventoryComponents.map((component) => ({
             ...component,
             product: null,
-          };
-        }),
-      })),
-    }));
+          })),
+        })),
+      };
+    });
   }
 }
 

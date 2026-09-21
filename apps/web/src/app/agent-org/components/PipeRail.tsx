@@ -14,8 +14,8 @@ const FEED_LIMIT = 14;
 /**
  * 확인 필요 — 원인별로 묶은 사람의 할 일. 실시간 활동 패널의 윗칸.
  *
- * 증상이 아니라 원인으로 묶는다. GS샵 로그인 만료 하나는 수집 알림 · 관찰 기록 · 자동 멈춤에
- * 흩어져 있어도 한 장이다. 재시도 중인 것은 올리지 않는다 — 다음 바퀴가 스스로 다시 묻는다.
+ * 증상이 아니라 원인으로 묶는다. GS샵 로그인 만료 하나는 수집 알림 · 자동 멈춤에 흩어져
+ * 있어도 한 장이다. 현재 실행 결과가 없는 단계는 올리지 않는다.
  */
 export function AttentionInbox({ items, now }: { items: PipeInboxItem[]; now: number }) {
   const shown = items.slice(0, INBOX_LIMIT);

@@ -212,15 +212,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       name: 'Channel-origin product',
     });
     const internalCode = product.code;
-    await prisma.channelListing.update({
-      where: { id: listing.id },
-      data: { masterProductId: product.id },
-    });
     const option = await prisma.channelListingOption.create({
       data: {
         listingId: listing.id,
         organizationId: TEST_ORGANIZATION_ID,
         externalOptionId: '13684204503001',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
       },
     });
 
@@ -284,9 +288,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       name: 'Channel image fallback',
       imageUrls: [],
     });
-    await prisma.channelListing.update({
-      where: { id: listing.id },
-      data: { masterProductId: product.id },
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'DISPLAY-P-1-O',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
+      },
     });
     const displayUrl = 'https://cdn.example.com/channel-primary.jpg';
     await attachCatalogPrimaryImage(listing.id, 'coupang', displayUrl);
@@ -309,9 +324,23 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         channelAccountId: foreignAccount.id,
-        masterProductId: foreignProduct.id,
         externalId: 'DISPLAY-P-1',
         isActive: true,
+      },
+    });
+    const foreignOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        listingId: foreignListing.id,
+        externalOptionId: 'DISPLAY-P-1-O',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelListingOptionId: foreignOption.id,
+        masterProductId: foreignProduct.id,
+        quantity: 1,
       },
     });
     await attachCatalogPrimaryImage(
@@ -679,7 +708,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     );
     const first = await prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: options[0]!.id },
-      select: { id: true, createdAt: true, updatedAt: true },
+      select: { id: true, createdAt: true },
     });
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
 
@@ -692,7 +721,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: options[0]!.id },
-      select: { id: true, createdAt: true, updatedAt: true },
+      select: { id: true, createdAt: true },
     })).resolves.toEqual(first);
   });
 
@@ -856,8 +885,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       option.id,
       [{ masterProductId: product.id, quantity: 1 }],
     )).resolves.toEqual({ masterProductId: product.id });
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: product.id });
     expect(await prisma.channelListingOptionInventoryComponent.count({
       where: { channelListingOptionId: option.id },
     })).toBe(1);
@@ -874,7 +901,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       name: 'Second inventory',
       currentStock: 5,
     });
-    const { listing, options } = await linkedProductWithOptions('LEGACY-MIXED', 2);
+    const { options } = await linkedProductWithOptions('LEGACY-MIXED', 2);
 
     await expect(replaceRecipe(
       TEST_ORGANIZATION_ID,
@@ -886,20 +913,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       options[1]!.id,
       [{ masterProductId: second.id, quantity: 1 }],
     )).resolves.toEqual({ masterProductId: null });
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: null });
 
     await expect(replaceRecipe(
       TEST_ORGANIZATION_ID,
       options[1]!.id,
       [{ masterProductId: first.id, quantity: 2 }],
     )).resolves.toEqual({ masterProductId: first.id });
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: first.id });
   });
 
   it('uses completed Orders coverage for product sales in the selected closed KST window', async () => {
-    const { product, options } = await linkedProductWithOptions('ORDERS-WINDOW', 1);
+    const { product, options } = await linkedProductWithOptions('ORDERS-WINDOW', 1, 0, true);
     const cutoff = evidenceCutoffDate();
     const start = addDays(cutoff, -6);
     const order = await seedOrderWithLineItems(prisma, {
@@ -983,16 +1006,44 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: spent.id,
         externalId: 'ADS-SPENT-LISTING',
       },
     });
-    await prisma.channelListing.create({
+    const listingOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'ADS-SPENT-OPTION',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: listingOption.id,
+        masterProductId: spent.id,
+        quantity: 1,
+      },
+    });
+    const zeroListing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: zero.id,
         externalId: 'ADS-ZERO-LISTING',
+      },
+    });
+    const zeroOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: zeroListing.id,
+        externalOptionId: 'ADS-ZERO-OPTION',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: zeroOption.id,
+        masterProductId: zero.id,
+        quantity: 1,
       },
     });
     const cutoff = evidenceCutoffDate();
@@ -1031,7 +1082,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('ends the advertising window at the evidence cutoff while the sweep holds yesterday as unreported', async () => {
-    const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1);
+    const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1, 0, true);
     // The newest complete sweep requested 2026-09-06 and held it back.
     const heldSweep = await seedCompletedAdSweepRun(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -1087,7 +1138,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('withholds the ad spend rate while the ad window and the sales window end on different days', async () => {
-    const { product, listing, options } = await linkedProductWithOptions('ADS-RATE', 1);
+    const { product, listing, options } = await linkedProductWithOptions('ADS-RATE', 1, 0, true);
     const order = await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'ADS-RATE-ORDER',
@@ -1193,11 +1244,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId,
-        masterProductId: withFacts.id,
         externalId: 'P-001',
         createdAt: CATALOG_SEEDED_AT,
       },
     });
+    await seedListingRecipe(listing, withFacts.id, 'P-001-O');
     const now = new Date();
     const businessDate = productAbcEvidenceCutoff(now);
     const businessDateAtUtc = new Date(`${businessDate}T00:00:00.000Z`);
@@ -1346,6 +1397,14 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         externalOptionId: 'KI-TRAFFIC-PARTIAL-WINDOW-O-1',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
       },
     });
     const dates = closedWindowDates(14);
@@ -1507,15 +1566,15 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         name: 'Empty traffic window Wing',
       },
     });
-    await prisma.channelListing.create({
+    const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-WINDOW',
         createdAt: CATALOG_SEEDED_AT,
       },
     });
+    await seedListingRecipe(listing, product.id, 'TRAFFIC-EMPTY-WINDOW-O');
     const cutoff = productAbcEvidenceCutoff(new Date());
     const cutoffDate = new Date(`${cutoff}T00:00:00.000Z`);
     const confirmedDates = Array.from({ length: 7 }, (_, index) => {
@@ -1577,11 +1636,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'TRAFFIC-ZERO-WINDOW',
         createdAt: CATALOG_SEEDED_AT,
       },
     });
+    await seedListingRecipe(listing, product.id, 'TRAFFIC-ZERO-WINDOW-O');
     const cutoff = productAbcEvidenceCutoff(new Date());
     const confirmedDates = Array.from({ length: 7 }, (_, index) =>
       businessDateKey(addDays(new Date(`${cutoff}T00:00:00.000Z`), index - 6)));
@@ -1645,7 +1704,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'TRAFFIC-STATUS-1',
       },
     });
@@ -1703,18 +1761,18 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: accounts[0]!.id,
-        masterProductId: observedProduct.id,
         externalId: 'TRAFFIC-PARTIAL-OBSERVED',
       },
     });
-    await prisma.channelListing.create({
+    await seedListingRecipe(observedListing, observedProduct.id, 'TRAFFIC-PARTIAL-OBSERVED-O');
+    const missingListing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: accounts[1]!.id,
-        masterProductId: missingProduct.id,
         externalId: 'TRAFFIC-PARTIAL-MISSING',
       },
     });
+    await seedListingRecipe(missingListing, missingProduct.id, 'TRAFFIC-PARTIAL-MISSING-O');
     const cutoff = productAbcEvidenceCutoff(new Date());
     const dates = Array.from({ length: 7 }, (_, index) => {
       const date = new Date(`${cutoff}T00:00:00.000Z`);
@@ -1762,15 +1820,15 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         name: 'Empty traffic Wing',
       },
     });
-    await prisma.channelListing.create({
+    const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'TRAFFIC-EMPTY-1',
         createdAt: CATALOG_SEEDED_AT,
       },
     });
+    await seedListingRecipe(listing, product.id, 'TRAFFIC-EMPTY-1-O');
     const cutoff = productAbcEvidenceCutoff(new Date());
     const confirmedDates = Array.from({ length: 7 }, (_, index) => {
       const date = new Date(`${cutoff}T00:00:00.000Z`);
@@ -1859,11 +1917,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'TRAFFIC-MIXED-1',
         createdAt: CATALOG_SEEDED_AT,
       },
     });
+    await seedListingRecipe(listing, product.id, 'TRAFFIC-MIXED-1-O');
     const cutoff = productAbcEvidenceCutoff(new Date());
     const confirmedDates = Array.from({ length: 7 }, (_, index) => {
       const date = new Date(`${cutoff}T00:00:00.000Z`);
@@ -1939,7 +1997,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'SALE-STATUS-1',
       },
     });
@@ -2021,10 +2078,34 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   }
 
+  async function seedListingRecipe(
+    listing: { id: string },
+    masterProductId: string,
+    externalOptionId: string,
+  ) {
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        masterProductId,
+        quantity: 1,
+      },
+    });
+    return option;
+  }
+
   async function linkedProductWithOptions(
     code: string,
     optionCount: number,
     currentStock = 0,
+    seedRecipe = false,
   ) {
     const product = await seedProduct(TEST_ORGANIZATION_ID, {
       code,
@@ -2042,7 +2123,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: `${code}-P`,
       },
     });
@@ -2054,6 +2134,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           externalOptionId: `${code}-O-${index + 1}`,
         },
       })));
+    if (seedRecipe) {
+      await prisma.channelListingOptionInventoryComponent.createMany({
+        data: options.map((option) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        })),
+      });
+    }
     return { product, listing, options };
   }
 
@@ -2066,16 +2156,32 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const account = await prisma.channelAccount.create({
       data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: `${code} Wing` },
     });
-    const listings = await Promise.all(Array.from({ length: listingCount }, (_, index) =>
-      prisma.channelListing.create({
+    const listings = await Promise.all(Array.from({ length: listingCount }, async (_, index) => {
+      const listing = await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: account.id,
-          masterProductId: product.id,
           externalId: `${code}-P-${index + 1}`,
           createdAt: CATALOG_SEEDED_AT,
         },
-      })));
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          externalOptionId: `${code}-O-${index + 1}`,
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        },
+      });
+      return listing;
+    }));
     return { product, account, listings };
   }
 

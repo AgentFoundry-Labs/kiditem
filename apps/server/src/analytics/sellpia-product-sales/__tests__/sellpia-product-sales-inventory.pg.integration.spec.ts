@@ -269,8 +269,8 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(byCode.SUMMER.seasonTag).toBe('여름');
     expect(byCode.ANOMALY).toMatchObject({
       avg2m: 0,
-      totalQty: 0,
-      anomaly: true,
+      totalQty: 60_000,
+      deadStock: true,
       needsReorder: false,
     });
     expect(byCode.ANOMALY).not.toHaveProperty('abcGrade');
@@ -283,13 +283,11 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(byCode.ANOMALY.monthly.find((month) => month.yearMonth === completeMonths[0])).toEqual({
       yearMonth: completeMonths[0],
       orderQty: 60_000,
-      anomaly: true,
     });
     expect(result).toMatchObject({
       hasStock: true,
       reorderCount: 1,
-      deadStockCount: 1,
-      anomalyCount: 1,
+      deadStockCount: 2,
       abcCounts: { A: 0, B: 0, C: 0 },
       classifiedProductCount: 0,
       unclassifiedProductCount: 4,
@@ -533,13 +531,10 @@ function sales(productCode: string, optionCode: string, barcode: string | null) 
     optionCode,
     orderQty: 10,
     orderAmount: 10_000,
-    inQty: 0,
     inAmount: 0,
     productName: `Sales ${productCode}`,
     optionName: null,
     providerName: 'Test supplier',
-    salePrice: 1_000,
-    buyPrice: 500,
     barcode,
     capturedAt: new Date('2026-07-17T01:00:00.000Z'),
   };
@@ -558,7 +553,6 @@ function metricSales(
     orderQty,
     orderAmount: orderQty * salePrice,
     productName: `Metrics ${productCode}`,
-    salePrice,
     costBasis: 'ORDER_TIME_SUPPLY_COST',
     vatIncluded: true,
   };
@@ -661,7 +655,6 @@ async function seedMasterRecipe(
     data: {
       organizationId: input.organizationId,
       channelAccountId: account.id,
-      masterProductId: master.id,
       externalId: `${input.code}-LISTING`,
       displayName: input.code,
     },
@@ -704,7 +697,6 @@ async function seedAdditionalListingForMasterSku(
     data: {
       organizationId: input.organizationId,
       channelAccountId: account.id,
-      masterProductId: input.masterProductId,
       externalId: `${input.code}-LISTING`,
       displayName: input.code,
     },

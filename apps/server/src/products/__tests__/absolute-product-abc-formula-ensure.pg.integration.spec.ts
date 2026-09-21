@@ -414,7 +414,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         formulaJson: true,
         formulaChecksum: true,
         createdAt: true,
-        updatedAt: true,
       },
     });
     const states = await prisma.masterProductAbcFormulaState.findMany({

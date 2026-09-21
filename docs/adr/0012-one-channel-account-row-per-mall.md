@@ -36,15 +36,14 @@ row instead of its own: Coupang direct shipping (`coupang-direct`) signs in on
 the `rocket` row, where its orders and attempts already live, and saving that
 login leaves the row's name and status to the marketplace connection. Login
 credentials stay in `config.orderCollection`; a mall's listing profile lives in
-`config.listingProfile` on the same row. Observed mall outcomes
-(`MallOperationOutcome`) are the exception: they key on the mall's channel key
-rather than on the account row, because some outcomes — a registration fill
-among them — are recorded for a mall that has no row. A mall that shares
-another mall's account row records under that row's key (`coupang-direct` under
-`rocket`), a fold that lives in `@kiditem/shared` (`channelOutcomeKey`) so
-writers and readers agree. Mall registration adds no product model: it
-creates `ChannelListing` rows under the mall's account that point at
-`MasterProduct`, the only canonical product. The seed, the mall account
+`config.listingProfile` on the same row. Login checks and form fills expose the current browser result
+without a permanent observation ledger: historical observations cannot establish
+whether a browser is logged in now, while actual submission evidence belongs to
+`ProductRegistrationExecution`. This trades cross-device observation history for
+one execution authority. Mall registration creates `ChannelListing` rows under
+the mall's account; option recipes link those listings to source `MasterProduct`
+identities ([ADR-0017](0017-products-owns-source-products-channels-owns-recipes.md)).
+The seed, the mall account
 service and the collection source repository switch from
 `channel: 'order_collection'` to `channel: mallKey`. There is no data migration:
 after the v0.1.31 cutover the operator re-runs the mall account seed

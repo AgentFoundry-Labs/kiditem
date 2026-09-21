@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // Product identity and published grade hydrated through a scoped channel link.
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -56,7 +57,7 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     ids: string[],
   ): Promise<ScopedAdListingSnapshot> {
-    const listings = await tx.channelListing.findMany({
+    const listingRows = await tx.channelListing.findMany({
       where: {
         id: { in: ids },
         organizationId,
@@ -67,9 +68,10 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         externalId: true,
         channelName: true,
         displayName: true,
-        masterProductId: true,
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const listings = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
     const masterProductIds = [...new Set(listings.flatMap((listing) =>
       listing.masterProductId ? [listing.masterProductId] : []))];
     const identities = this.products

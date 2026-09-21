@@ -479,7 +479,6 @@ async function seedSellingProduct(
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: account.id,
-      masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },
@@ -550,7 +549,6 @@ async function seedSellingProduct(
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: adAccount.id,
-      masterProductId: product.id,
       externalId: `AD-LISTING-${randomUUID()}`,
       status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },

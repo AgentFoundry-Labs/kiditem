@@ -106,7 +106,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         id: LISTING_ID,
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: CHANNEL_ACCOUNT_ID,
-        masterProductId: MASTER_PRODUCT_ID,
         externalId: 'P-1',
       },
     });

@@ -9,8 +9,8 @@ payments.
 
 ## Identity And State
 
-- `SupplierProduct` links a Products-owned `MasterProduct` to
-  supplier price, MOQ, and primary-supplier policy.
+- `SupplierProduct` links a Products-owned `MasterProduct` to supplier price
+  and primary-supplier policy.
 - Offer snapshots and price tiers are immutable commercial evidence.
   `ProcurementTestIntent` is a proposed RFQ/sample/test order, never a
   purchase order or provider submission.

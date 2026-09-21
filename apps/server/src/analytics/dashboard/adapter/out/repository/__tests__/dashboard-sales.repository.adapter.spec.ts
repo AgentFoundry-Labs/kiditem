@@ -61,7 +61,6 @@ const prismaWith = (topProductRows: unknown[]) => {
               externalId: row.listingId,
               channelName: row.organization,
               displayName: row.name,
-              masterProductId: row.masterProductId ?? null,
             },
           },
         ]
@@ -132,6 +131,10 @@ const prismaWith = (topProductRows: unknown[]) => {
     $transaction: vi.fn(),
     $queryRaw: vi.fn().mockResolvedValue([]),
     order: { findMany: vi.fn().mockResolvedValue([]) },
+    channelListing: { findMany: vi.fn().mockResolvedValue(rows.filter((row) => row.listingId).map((row) => ({
+      id: row.listingId,
+      options: [{ inventoryComponents: row.masterProductId ? [{ masterProductId: row.masterProductId }] : [] }],
+    }))) },
     channelListingOption: { findMany: vi.fn().mockResolvedValue(options) },
     channelAccount: {
       findFirst: vi.fn().mockResolvedValue(null),

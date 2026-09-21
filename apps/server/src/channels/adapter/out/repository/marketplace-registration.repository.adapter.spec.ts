@@ -158,6 +158,7 @@ describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => 
             externalId: "427011919",
             status: "active",
           }),
+        findMany: vi.fn().mockResolvedValue([{ id: "listing-1", options: [] }]),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -215,6 +216,7 @@ describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => 
           id: "listing-1",
           sourceCandidateId: "other-candidate",
         }),
+        findMany: vi.fn().mockResolvedValue([{ id: "listing-1", options: [] }]),
         updateMany: vi.fn(),
       },
     };

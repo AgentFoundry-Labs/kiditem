@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // Hydrates every input the strategy sub-services need from
 // `ChannelListingDailySnapshot` and friends. The adapter does NOT fetch
 // `AdsConfig` — the application service passes it in as a parameter so
@@ -281,7 +282,7 @@ export class AdStrategyContextRepositoryAdapter
     listingIds: string[],
   ): Promise<HydratedListing[]> {
     if (listingIds.length === 0) return [];
-    const rows = await tx.channelListing.findMany({
+    const listingRows = await tx.channelListing.findMany({
       where: {
         id: { in: listingIds },
         organizationId,
@@ -293,7 +294,6 @@ export class AdStrategyContextRepositoryAdapter
         channelName: true,
         displayName: true,
         channelAccount: { select: { channel: true } },
-        masterProductId: true,
         options: {
           where: { isActive: true },
           orderBy: [
@@ -311,6 +311,8 @@ export class AdStrategyContextRepositoryAdapter
         },
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const rows = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
     const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.masterProductId ? [row.masterProductId] : []))];
     const identities = await this.inventoryTransactionalRead.readSourceIdentities(

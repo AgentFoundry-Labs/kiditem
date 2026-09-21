@@ -342,8 +342,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     await expect(service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
       masterProductId: product.id,
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: null });
+    expect((await service.list(TEST_ORGANIZATION_ID)).products
+      .find((row) => row.listing.id === listing.id)?.listing.masterProductId).toBeNull();
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
     expect(await prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -366,8 +366,6 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
     await service.linkProduct(TEST_ORGANIZATION_ID, listing.id, { masterProductId: null });
 
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: null });
     expect(await prisma.channelListingOptionInventoryComponent.count({
       where: { channelListingOptionId: option.id },
     })).toBe(0);
@@ -443,7 +441,6 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         organizationId: OTHER_ORGANIZATION_ID,
         channelAccountId: OTHER_ACCOUNT_ID,
         externalId: `OTHER-${randomUUID()}`,
-        masterProductId: otherProduct.id,
       },
     });
     await prisma.channelListingOption.create({
@@ -663,8 +660,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       where: { channelListingOptionId: option.id },
       select: { masterProductId: true, quantity: true },
     })).resolves.toEqual({ masterProductId: slime.id, quantity: 9 });
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .resolves.toMatchObject({ masterProductId: product.id });
+    expect((await service.list(TEST_ORGANIZATION_ID)).products
+      .find((row) => row.listing.id === listing.id)?.listing.masterProductId).toBe(product.id);
     await expect(prisma.masterProduct.findUniqueOrThrow({
       where: { id: slime.id },
       select: { id: true, currentStock: true },
@@ -720,8 +717,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
       .resolves.toMatchObject({ evaluatedListings: 1, configuredOptions: 0 });
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .resolves.toMatchObject({ masterProductId: null });
+    expect((await service.list(TEST_ORGANIZATION_ID)).products
+      .find((row) => row.listing.id === listing.id)?.listing.masterProductId).toBeNull();
     await expect(prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
       select: { masterProductId: true, quantity: true },
@@ -979,7 +976,6 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         externalId: `P-${randomUUID()}`,
         channelName: input.channelName,
         displayName: input.displayName,
-        masterProductId: input.masterProductId,
         rawJson: input.rawJson,
         lastImportRunId: completedRunId,
         status: '승인완료',

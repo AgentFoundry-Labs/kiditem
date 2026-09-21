@@ -232,3 +232,22 @@ Release `0.1.8` is a schema-only database rebuild. It deliberately has no data
 migration: legacy product, inventory, option, and identity-map rows are not
 read or transformed. The guarded reset creates the final schema, after which
 approved Sellpia and channel sources are replayed through application imports.
+
+### Product reference contraction (0.1.31)
+
+`017_simplify_product_references` follows `016_master_product_inventory_cutover`
+in the writer-stopped pre-schema cutover. It deletes unresolvable manual-match
+hints, recomputes their snapshot counts, and refuses duplicate canonical alias
+keys or unresolved supplier links. It never changes confirmed option recipes.
+Run only through the existing `data:migrate` cutover workflow; verify its recorded
+counts before schema contraction. Recovery follows the deployment data-loss policy.
+
+`018_consolidate_registration_execution` then imports legacy submission evidence
+into the Channels execution ledger before mirrored preparation columns are
+dropped. Conflicting frozen hashes/provider results abort the transaction;
+uncertain prior submissions remain reconciliation work, never fresh creates.
+
+Preparation closure replaces stored submission status: 018 fills `closed_at`
+for terminal/archived drafts and rejects multiple remaining open drafts before
+the active-draft unique predicate changes. The current API projects submission
+state and the resulting listing from executions.

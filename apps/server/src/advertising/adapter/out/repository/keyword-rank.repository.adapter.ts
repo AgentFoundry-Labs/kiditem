@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // Coupang keyword rank tracking persistence adapter.
 //
 // Tracker mutations use `updateMany`/`deleteMany` with `(id, organizationId)`
@@ -166,7 +167,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     tx: Prisma.TransactionClient,
     organizationId: string,
   ): Promise<OwnVendorItem[]> {
-    const rows = await tx.channelListingOption.findMany({
+    const optionRows = await tx.channelListingOption.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -186,11 +187,13 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             channelName: true,
             displayName: true,
             category: true,
-            masterProductId: true,
+            id: true,
           },
         },
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const rows = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
     const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.listing.masterProductId ? [row.listing.masterProductId] : []))];
     const identities = this.products

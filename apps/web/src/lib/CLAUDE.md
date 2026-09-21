@@ -58,18 +58,12 @@ multiple route groups.
   control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
   by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
   fail a source.
-- `mall-operation-outcomes-api.ts` owns recording the mall observation log
-  (관찰 기록) for login checks, login tests, and registration fills only.
-  Recording is fire-and-forget and never blocks the work; payloads carry counts
-  and reason codes only (no credentials, recipients, or order numbers), and the
-  strict contract drops unknown keys.
 - `mall-session-probe.ts` owns the mall login check (`probeMallSession`) and the
   `sweepMallSessions` round used by the agent loop. A mall is `signed_in`,
   `verification_required`, or `signed_out` — there is no unknown state. It sends
   only a mall key and the operator's saved site address, never credentials;
   anything unexpected or unanswered is `signed_out` with its reason, and
-  our-side reasons (no answer, unreachable screen, no address) are not recorded
-  as observations. A stale extension is reported as outdated, not absent. The
+  results stay in the current UI rather than a permanent login history. A stale extension is reported as outdated, not absent. The
   sweep names the malls needing a person (`signedOutKeys`, verification
   included) so the loop can skip collecting them this round.
 - `mall-login-block.ts` owns both guards against locking the operator's mall

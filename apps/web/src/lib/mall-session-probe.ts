@@ -1,16 +1,7 @@
 'use client';
 
-import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
-import {
-  type MallOperationOutcomeSummaryRow,
-} from '@kiditem/shared/mall-operation-outcomes';
 import { detectOrderCollectionExtensionRuntime, sendToExtension } from './extension-bridge';
 import { clearMallAutoLoginBlock } from './mall-login-block';
-import {
-  mallOperationOutcomesApi,
-  recordMallOperationOutcome,
-  type MallOperationOutcomeInput,
-} from './mall-operation-outcomes-api';
 
 /**
  * 몰 로그인 상태 확인 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나.
@@ -25,9 +16,6 @@ import {
 export const MALL_SESSION_PROBE_CAPABILITY = 'mallLoginCheckV2';
 
 export type MallSessionState = 'signed_in' | 'verification_required' | 'signed_out';
-
-/** 우리 쪽 사정으로 몰을 보지 못한 이유. 몰을 본 사실이 아니라서 관찰 기록에는 남기지 않는다. */
-const OUR_SIDE_REASONS = new Set(['extension_no_answer', 'login_page_not_reachable', 'no_login_address']);
 
 export interface MallSessionProbeResult {
   mallKey: string;
@@ -51,72 +39,6 @@ export async function detectMallSessionProbe(): Promise<MallSessionProbeRuntime>
   return { status: 'not_found' };
 }
 
-/** 상태가 같으면 이 시간이 지나야 기억에 다시 적는다 — 열 때마다 같은 줄이 쌓이지 않게. */
-export const LOGIN_RECORD_REFRESH_MS = 6 * 60 * 60 * 1000;
-
-export type LoginCheckRecord = MallOperationOutcomeInput & { outcome: 'succeeded' | 'attention' };
-
-/** 이 화면에서 이미 적은 것 — 기억 요약을 다시 받기 전에 같은 줄을 두 번 적지 않게. */
-export interface RecordedLoginCheck {
-  outcome: string;
-  at: number;
-}
-
-/**
- * 확인 결과를 기억 한 줄로. 몰 키와 이유 코드만 담는다. 우리 쪽 사정으로 몰을 보지 못한
- * 결과(확장 무응답 · 화면에 닿지 못함 · 확인할 주소 없음)는 몰에 대한 관찰이 아니라 적지 않는다.
- */
-export function loginCheckRecord(result: MallSessionProbeResult): LoginCheckRecord | null {
-  if (result.state === 'signed_in') {
-    return {
-      mallKey: result.mallKey,
-      operation: 'login_check',
-      outcome: 'succeeded',
-      reasonCode: 'session_alive',
-    };
-  }
-  if (result.state === 'verification_required') {
-    return {
-      mallKey: result.mallKey,
-      operation: 'login_check',
-      outcome: 'attention',
-      reasonCode: 'verification_required',
-    };
-  }
-  if (result.reason && OUR_SIDE_REASONS.has(result.reason)) return null;
-  return {
-    mallKey: result.mallKey,
-    operation: 'login_check',
-    outcome: 'attention',
-    reasonCode: 'login_required',
-  };
-}
-
-/**
- * 기억에 적을까 — 처음이거나, 상태가 바뀌었거나, 같은 상태로 6시간이 지났을 때만.
- *
- * 줄은 기록 키로 찾는다. 계정 행을 함께 쓰는 몰(쿠팡직배송)은 로켓 줄이 제 기록이다 —
- * 몰 키 그대로 찾으면 못 찾아 한 바퀴마다 같은 줄을 새로 쌓는다.
- */
-export function shouldRememberLogin(
-  record: LoginCheckRecord,
-  checkedAt: number,
-  remembered: readonly MallOperationOutcomeSummaryRow[],
-  recordedHere?: RecordedLoginCheck,
-): boolean {
-  const outcomeKey = channelOutcomeKey(record.mallKey);
-  const latest = remembered.find(
-    (row) => row.mallKey === outcomeKey && row.operation === 'login_check',
-  )?.latest;
-  const previous = [
-    ...(latest ? [{ outcome: latest.outcome as string, at: Date.parse(latest.occurredAt) }] : []),
-    ...(recordedHere ? [recordedHere] : []),
-  ].sort((a, b) => b.at - a.at)[0];
-  if (!previous) return true;
-  if (previous.outcome !== record.outcome) return true;
-  return checkedAt - previous.at > LOGIN_RECORD_REFRESH_MS;
-}
-
 export interface MallSessionSweep {
   checked: number;
   signedIn: number;
@@ -132,8 +54,8 @@ export interface MallSessionSweep {
 /**
  * 여러 몰의 로그인 상태를 한 바퀴 확인한다 — 자동 운전 고리가 쓰는 길.
  *
- * 확장이 없거나 옛 버전이면 아무 몰도 건드리지 않고 0으로 돌려준다. 결과가 바뀐 몰만
- * 기억(`login_check`)에 남는다. 로그인은 하지 않는다.
+ * 확장이 없거나 옛 버전이면 아무 몰도 건드리지 않고 0으로 돌려준다. 결과는 현재 실행의
+ * 화면 상태와 자동 운전 차단에만 반영한다. 로그인은 하지 않는다.
  */
 export async function sweepMallSessions(
   mallKeys: readonly string[],
@@ -146,18 +68,7 @@ export async function sweepMallSessions(
   const runtime = await detectMallSessionProbe();
   if (runtime.status !== 'ready') return empty;
 
-  const remembered = await mallOperationOutcomesApi
-    .summary(7)
-    .then((summary) => summary.rows)
-    .catch(() => [] as MallOperationOutcomeSummaryRow[]);
   const sweep: MallSessionSweep = { ...empty, signedOutKeys: [] };
-  /**
-   * 이번 바퀴에 이미 적은 기록 키. 계정 행을 함께 쓰는 몰들(쿠팡직배송 · 로켓)은 한 줄에
-   * 쌓이는데, 위 기억 요약은 바퀴 처음에 한 번만 읽고 일꾼 셋이 동시에 돈다 — 서로 모르면
-   * 둘 다 '적어야 한다'로 보고 같은 줄을 두 번 쌓는다. 적기 전에(먼저 담고 나서 보낸다)
-   * 담아 두어 한 바퀴에 한 줄로 만든다.
-   */
-  const recordedThisRound = new Set<string>();
   let cursor = 0;
   const worker = async () => {
     while (cursor < keys.length) {
@@ -174,14 +85,6 @@ export async function sweepMallSessions(
         if (result.state === 'verification_required') sweep.verification += 1;
         else sweep.signedOut += 1;
         sweep.signedOutKeys.push(key);
-      }
-      const record = loginCheckRecord(result);
-      if (record) {
-        const outcomeKey = channelOutcomeKey(record.mallKey);
-        if (!recordedThisRound.has(outcomeKey) && shouldRememberLogin(record, result.checkedAt, remembered)) {
-          recordedThisRound.add(outcomeKey);
-          await recordMallOperationOutcome(record);
-        }
       }
     }
   };

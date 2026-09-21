@@ -21,13 +21,14 @@ describe('channel Sellpia final schema contract', () => {
     }
   });
 
-  it('requires account-owned parent listings with a nullable operating-product link', () => {
+  it('requires account-owned parent listings with source-candidate identity', () => {
     const listing = modelBlock(core, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
-    assert.match(listing, /^\s*masterProductId\s+String\?/m);
+    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
     assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
-    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
+    assert.match(listing, /@@index\(\[sourceCandidateId\]\)/);
+    assert.doesNotMatch(listing, /^\s*(?:masterProductId|masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 

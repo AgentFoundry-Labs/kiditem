@@ -461,16 +461,23 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          masterProductId: product.id,
           externalId: 'EXT-1',
         },
       });
-      await prisma.channelListingOption.createMany({
+      const options = await prisma.channelListingOption.createManyAndReturn({
         data: [
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-1', itemName: '기본', salePrice: 24900 },
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-2', itemName: '2개입', salePrice: 19900 },
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-3', itemName: '단종', salePrice: 100, isActive: false },
         ],
+      });
+      await prisma.channelListingOptionInventoryComponent.createMany({
+        data: options.slice(0, 2).map((option) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        })),
       });
 
       const { rows, total } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, {
@@ -503,9 +510,28 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          masterProductId: product.id,
           sourceCandidateId: candidate.id,
           externalId: 'EXT-2',
+        },
+      });
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'EXT-2' },
+        select: { id: true },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          listingId: listing.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOptionId: 'O-2',
+          itemName: '기본',
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
         },
       });
 
@@ -522,9 +548,28 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          masterProductId: product.id,
           externalId: 'EXT-3',
           sourceCandidateId: candidate.id,
+        },
+      });
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'EXT-3' },
+        select: { id: true },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          listingId: listing.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOptionId: 'O-3',
+          itemName: '기본',
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
         },
       });
 

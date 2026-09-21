@@ -241,7 +241,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(new Set(products.map((row) => row.id))).toHaveLength(1_225);
     expect(new Set(skus.map((row) => row.id))).toHaveLength(2_241);
     expect(products.every((row) => row.channelAccount.channel === 'coupang')).toBe(true);
-    expect(products.every((row) => row.masterProductId === null)).toBe(true);
     expect(skus.every((row) => row.sellerSku === null && row.salePrice === null)).toBe(true);
     expect(result.changes).toEqual({
       createdProductCount: 1_225,
@@ -416,12 +415,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         expect.objectContaining({ masterProductId: replacement.id }),
       ]));
 
-      await expect(prisma.channelListing.findUniqueOrThrow({
-        where: { id: listing.id },
-        select: { masterProductId: true },
-      })).resolves.toEqual({
-        masterProductId: recipePresentBeforeDeletion ? source.id : null,
-      });
       const [availabilityItem] = await availability.findByChannelSkuIds(
         TEST_ORGANIZATION_ID,
         [option.id],
@@ -907,12 +900,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         name: 'Preserved product link',
       },
     });
-    await prisma.channelListing.update({
-      where: { id: productBefore.id },
-      data: {
-        masterProductId: linkedProduct.id,
-      },
-    });
     const contentBefore = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1048,7 +1035,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       status: '변경 승인상태',
       lastImportRunId: second.run.id,
       isActive: true,
-      masterProductId: linkedProduct.id,
     });
     expect(new Set(skusAfter.map((sku) => sku.id))).toEqual(
       new Set(skusBefore.filter((sku) => sku.externalOptionId !== 'S-ABSENT').map((sku) => sku.id)),

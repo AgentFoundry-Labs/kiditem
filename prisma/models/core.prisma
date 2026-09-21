@@ -114,7 +114,6 @@ model Organization {
   channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — 몰별 상품등록·품절 송신 (Phase 0)
-  mallOperationOutcomes MallOperationOutcome[] @relation("MallOperationOutcomeOrganization")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -217,7 +216,6 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
-  recordedMallOperationOutcomes              MallOperationOutcome[]                         @relation("MallOperationOutcomeActor")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
@@ -484,9 +482,9 @@ model MasterProduct {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                 Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  abcEvaluation                MasterProductAbcEvaluation?
-  abcGradeHistories            MasterProductAbcGradeHistory[]
+  organization      Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  abcEvaluation     MasterProductAbcEvaluation?
+  abcGradeHistories MasterProductAbcGradeHistory[]
 
   @@unique([id, organizationId], map: "master_products_id_org_key")
   @@unique([organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode], map: "master_products_source_identity_key")
@@ -503,7 +501,6 @@ model MasterProductAbcFormulaVersion {
   formulaJson     Json     @map("formula_json") @db.JsonB
   formulaChecksum String   @map("formula_checksum")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   activeFormulaState MasterProductAbcFormulaState?  @relation("MasterProductAbcFormulaStateActiveFormula")
@@ -643,7 +640,6 @@ model ChannelListing {
   organizationId    String  @map("organization_id") @db.Uuid
   channelAccountId  String  @map("channel_account_id") @db.Uuid
   sourceCandidateId String? @map("source_candidate_id") @db.Uuid
-  masterProductId   String? @map("master_product_id") @db.Uuid
 
   externalId String @map("external_id")
 
@@ -674,7 +670,6 @@ model ChannelListing {
   lastImportRun                 SourceImportRun?                  @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options                       ChannelListingOption[]
   contentWorkspaces             ContentWorkspace[]
-  productPreparations           ProductPreparation[]
   productRegistrationExecutions ProductRegistrationExecution[]    @relation("ChannelListingProductRegistrationExecutions")
   deletionOperations            ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperations")
 
@@ -699,8 +694,6 @@ model ChannelListing {
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([sourceCandidateId])
-  @@index([masterProductId])
-  @@index([organizationId, masterProductId])
   @@index([lastImportRunId])
   @@index([organizationId, channelAccountId, isActive])
   @@index([organizationId, updatedAt, id])
@@ -747,8 +740,8 @@ model ChannelListingOption {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([listingId, externalOptionId])
-  @@index([kidItemCode], map: "channel_listing_options_kid_item_code_idx")
   @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
+  @@index([kidItemCode], map: "channel_listing_options_kid_item_code_idx")
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
   @@index([lastImportRunId])
@@ -764,7 +757,6 @@ model ChannelListingOptionInventoryComponent {
   masterProductId        String   @map("master_product_id") @db.Uuid
   quantity               Int
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)

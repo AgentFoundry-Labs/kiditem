@@ -190,7 +190,6 @@ async function seedPublication(prisma: PrismaClient) {
   const listing = await prisma.channelListing.create({ data: {
     organizationId: TEST_ORGANIZATION_ID,
     channelAccountId: account.id,
-    masterProductId: product.id,
     externalId: 'ALLOCATION-LISTING',
   } });
   const run = await prisma.sourceImportRun.create({ data: {

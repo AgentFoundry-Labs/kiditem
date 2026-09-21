@@ -26,7 +26,6 @@ type PhysicalProductPolicy = {
   id: string;
   masterProductId: string;
   supplyPrice: number;
-  minOrderQty: number;
   isPrimary: boolean;
   masterProduct: {
     id: string;
@@ -198,7 +197,6 @@ export class SupplierStatsService {
         masterName: product.name,
         optionName: product.optionName,
         supplyPrice: policy.supplyPrice,
-        minOrderQty: policy.minOrderQty,
         totalOrders: stats.orderLineIds.size,
         totalQuantity: stats.totalQuantity,
         totalRevenue: stats.totalRevenue,
@@ -270,7 +268,6 @@ export class SupplierStatsService {
               id: true,
               masterProductId: true,
               supplyPrice: true,
-              minOrderQty: true,
               isPrimary: true,
             },
           },
@@ -321,7 +318,6 @@ export class SupplierStatsService {
             id: policy.id,
             masterProductId,
             supplyPrice: policy.supplyPrice,
-            minOrderQty: policy.minOrderQty,
             isPrimary: policy.isPrimary,
             masterProduct: { ...identity, id: identity.masterProductId },
           }]

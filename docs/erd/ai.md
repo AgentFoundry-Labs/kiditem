@@ -242,9 +242,8 @@ erDiagram
     String sourceCandidateId FK
     String channelAccountId FK
     String sourceContentWorkspaceId FK
-    String channelListingId FK
+    DateTime closedAt
     String displayName
-    String status
     String selectedThumbnailUrl
     String selectedThumbnailGenerationId FK
     String selectedThumbnailGenerationCandidateId FK
@@ -252,15 +251,6 @@ erDiagram
     String selectedDetailPageRevisionId FK
     String selectedDetailPageGenerationId FK
     Json registrationInput
-    String submissionKey
-    String providerSubmissionId
-    String lastError
-    Json registrationResult
-    Json submissionPayloadJson
-    String submissionPayloadHash
-    String providerOutcome
-    String submissionLeaseToken
-    DateTime submissionLeaseClaimedAt
     String reviewPayloadHash
     DateTime approvedAt
     String approvedByUserId FK
@@ -506,7 +496,6 @@ erDiagram
 | DetailPageRevision | organization | references external | Core | Organization |
 | ProductPreparation | approvedByUser | references external | Core | User |
 | ProductPreparation | channelAccount | references external | Core | ChannelAccount |
-| ProductPreparation | channelListing | references external | Channels | ChannelListing |
 | ProductPreparation | createdByUser | references external | Core | User |
 | ProductPreparation | organization | references external | Core | Organization |
 | ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |

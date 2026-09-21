@@ -135,7 +135,7 @@ describe('AI content ownership constraints (PG integration)', () => {
         channelAccountId: localAccount.id,
         sourceContentWorkspaceId: localWorkspace.id,
         displayName: 'Cross-tenant preparation',
-        submissionKey: randomUUID(),
+        registrationInput: {},
         selectedDetailPageArtifactId: foreignArtifact.id,
       },
     })).rejects.toMatchObject({ code: 'P2003' });

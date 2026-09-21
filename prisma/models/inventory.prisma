@@ -13,10 +13,8 @@ model SellpiaInventoryState {
   sourceAccountKey         String?   @map("source_account_key")
   lastVerifiedAt           DateTime? @map("last_verified_at") @db.Timestamptz
   lastCompletedImportRunId String?   @map("last_completed_import_run_id") @db.Uuid
-  refreshRequestedAt       DateTime? @map("refresh_requested_at") @db.Timestamptz
   refreshReason            String?   @map("refresh_reason")
   requestedSyncScope       String    @default("inventory") @map("requested_sync_scope")
-  syncNotBefore            DateTime? @map("sync_not_before") @db.Timestamptz
   activeSyncToken          String?   @map("active_sync_token") @db.Uuid
   activeSyncOwnerUserId    String?   @map("active_sync_owner_user_id") @db.Uuid
   activeSyncStartedAt      DateTime? @map("active_sync_started_at") @db.Timestamptz
@@ -48,7 +46,7 @@ model SellpiaInventoryState {
 model StockTransfer {
   id                          String    @id @default(uuid()) @db.Uuid
   organizationId              String    @map("organization_id") @db.Uuid
-  legacySellpiaInventorySkuId String?    @map("sellpia_inventory_sku_id") @db.Uuid
+  legacySellpiaInventorySkuId String?   @map("sellpia_inventory_sku_id") @db.Uuid
   masterProductId             String?   @map("master_product_id") @db.Uuid
   optionName                  String?   @map("option_name")
   fromWarehouseId             String    @map("from_warehouse_id") @db.Uuid
@@ -104,7 +102,7 @@ model ReturnTransfer {
   organizationId              String    @map("organization_id") @db.Uuid
   rtNumber                    String    @map("rt_number")
   orderId                     String?   @map("order_id") @db.Uuid
-  legacySellpiaInventorySkuId String?    @map("sellpia_inventory_sku_id") @db.Uuid
+  legacySellpiaInventorySkuId String?   @map("sellpia_inventory_sku_id") @db.Uuid
   masterProductId             String?   @map("master_product_id") @db.Uuid
   optionName                  String?   @map("option_name")
   quantity                    Int

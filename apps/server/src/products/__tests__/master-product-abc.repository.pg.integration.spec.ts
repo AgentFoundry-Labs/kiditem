@@ -47,9 +47,9 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     const publisher = makeTestPrisma();
     const observer = makeTestPrisma();
     await Promise.all([publisher.$connect(), observer.$connect()]);
-    const { productId } = await seedSellingProduct(prisma);
+    const { productId, listingId } = await seedSellingProduct(prisma);
     const listing = await prisma.channelListing.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+      where: { id: listingId, organizationId: TEST_ORGANIZATION_ID },
     });
     await prisma.channelListingDailySnapshot.create({
       data: {
@@ -323,10 +323,10 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   });
 
   it('rejects a changed mapped sale start date without partially publishing', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const { productId, listingId, formulaVersionId, sources } = await fixture(prisma);
     const before = await repository.getFormulaState(TEST_ORGANIZATION_ID);
     await prisma.channelListing.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+      where: { id: listingId, organizationId: TEST_ORGANIZATION_ID },
       data: { rawJson: { source: 'wing_app_data', saleStartedAt: '2026-06-01' } },
     });
 
@@ -361,9 +361,9 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   });
 
   it('rejects a candidate after the captured product stops selling', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const { productId, listingId, formulaVersionId, sources } = await fixture(prisma);
     await prisma.channelListing.updateMany({
-      where: { masterProductId: productId, organizationId: TEST_ORGANIZATION_ID },
+      where: { id: listingId, organizationId: TEST_ORGANIZATION_ID },
       data: { isActive: false },
     });
 
@@ -519,6 +519,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
 async function fixture(prisma: PrismaClient): Promise<{
   productId: string;
   skuCode: string;
+  listingId: string;
   formulaVersionId: string;
   sources: ProductAbcPublicationInput['sourceFences'];
 }> {
@@ -549,6 +550,7 @@ async function fixture(prisma: PrismaClient): Promise<{
   return {
     productId: product.productId,
     skuCode: product.skuCode,
+    listingId: product.listingId,
     formulaVersionId: formulaVersion.id,
     sources: {
       sellpia: { selectedComplete: sourceView(sellpiaRun) },
@@ -639,7 +641,7 @@ function sourceViewById(sourceImportRunId: string) {
   };
 }
 
-async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: string; skuCode: string }> {
+async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: string; skuCode: string; listingId: string }> {
   const skuCode = `SKU-${randomUUID()}`;
   const product = await seedSourceProduct(prisma, {
     organizationId: TEST_ORGANIZATION_ID, code: skuCode, name: 'ABC product', currentStock: 10,
@@ -658,7 +660,6 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: account.id,
-      masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
@@ -713,7 +714,7 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
       quantity: 1,
     },
   });
-  return { productId: product.id, skuCode };
+  return { productId: product.id, skuCode, listingId: listing.id };
 }
 
 async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{

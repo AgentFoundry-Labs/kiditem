@@ -171,7 +171,6 @@ async function seedMappedProduct(
     data: {
       organizationId,
       channelAccountId: account.id,
-      masterProductId: product.id,
       externalId: `listing-${suffix.toLowerCase()}`,
       status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },

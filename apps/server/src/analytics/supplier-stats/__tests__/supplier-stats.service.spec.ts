@@ -41,7 +41,6 @@ function supplierProduct(params: {
     id: `policy-${params.supplierId}-${params.masterProductId}`,
     masterProductId: params.masterProductId,
     supplyPrice: params.supplyPrice,
-    minOrderQty: 1,
     isPrimary: params.isPrimary ?? true,
   };
 }
@@ -270,7 +269,6 @@ describe('SupplierStatsService', () => {
         masterName: '우파루팡반짝슈가말랑이',
         optionName: null,
         supplyPrice: 500,
-        minOrderQty: 1,
         totalOrders: 1,
         totalQuantity: 8,
         totalRevenue: 8_000,

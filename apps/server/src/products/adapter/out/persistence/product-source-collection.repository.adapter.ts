@@ -167,10 +167,8 @@ implements ProductSourceCollectionRepositoryPort {
         },
         data: {
           requestedGeneration: generation,
-          refreshRequestedAt: now,
           refreshReason: normalizedTrigger,
           requestedSyncScope: input.scope,
-          syncNotBefore: now,
           activeSyncToken: attemptToken,
           activeSyncOwnerUserId: input.userId,
           activeSyncStartedAt: now,

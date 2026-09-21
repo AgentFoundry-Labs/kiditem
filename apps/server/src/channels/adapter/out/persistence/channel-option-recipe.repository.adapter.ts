@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import {
   BadRequestException,
@@ -58,7 +59,6 @@ implements ChannelOptionRecipeRepositoryPort {
           id: true,
           listingId: true,
           kidItemCode: true,
-          listing: { select: { masterProductId: true } },
           inventoryComponents: {
             where: { organizationId: input.organizationId },
             select: { masterProductId: true, quantity: true },
@@ -88,20 +88,10 @@ implements ChannelOptionRecipeRepositoryPort {
       const codeChanged = await this.synchronizeOptionCode(
         tx, input.organizationId, option, input.components,
       );
-      const masterProductId = await resolveListingMasterProductId(
-        tx,
-        input.organizationId,
-        option.listingId,
-      );
-      const listingChanged = option.listing.masterProductId !== masterProductId;
-      if (listingChanged) {
-        const updated = await tx.channelListing.updateMany({
-          where: { id: option.listingId, organizationId: input.organizationId },
-          data: { masterProductId },
-        });
-        if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
-      }
-      if (recipeChanged || listingChanged || codeChanged) {
+      const masterProductId = (await readListingProductIds(tx, {
+        organizationId: input.organizationId, listingIds: [option.listingId],
+      })).get(option.listingId) ?? null;
+      if (recipeChanged || codeChanged) {
         await advanceProductMappingGeneration(tx, input.organizationId);
       }
       return { masterProductId };
@@ -150,7 +140,6 @@ implements ChannelOptionRecipeRepositoryPort {
         id: true,
         listingId: true,
         kidItemCode: true,
-        listing: { select: { masterProductId: true } },
         inventoryComponents: {
           where: { organizationId: input.organizationId },
           select: { masterProductId: true, quantity: true },
@@ -160,6 +149,9 @@ implements ChannelOptionRecipeRepositoryPort {
     if (options.length !== optionIds.length) {
       throw new NotFoundException('Channel listing option was not found');
     }
+    const previousProducts = await readListingProductIds(tx, {
+      organizationId: input.organizationId, listingIds: [...new Set(options.map((option) => option.listingId))],
+    });
     const optionById = new Map(options.map((option) => [option.id, option]));
     const allComponentIds = input.mutations.flatMap((mutation) =>
       mutation.components.map((component) => component.masterProductId));
@@ -280,28 +272,12 @@ implements ChannelOptionRecipeRepositoryPort {
         tx, input.organizationId, option, mutation.components,
       ) || codeChanged;
     }
-    let matchedListingCount = 0;
-    let listingChanged = false;
-    for (const listingId of [...listingIds].sort()) {
-      const previousMasterProductId = options.find((option) =>
-        option.listingId === listingId)!.listing.masterProductId;
-      const masterProductId = await resolveListingMasterProductId(
-        tx,
-        input.organizationId,
-        listingId,
-      );
-      if (previousMasterProductId === masterProductId) continue;
-      const updated = await tx.channelListing.updateMany({
-        where: { id: listingId, organizationId: input.organizationId },
-        data: { masterProductId },
-      });
-      if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
-      listingChanged = true;
-      if (previousMasterProductId === null && masterProductId !== null) {
-        matchedListingCount += 1;
-      }
-    }
-    const mappingChanged = applied.length > 0 || listingChanged || codeChanged;
+    const currentProducts = await readListingProductIds(tx, {
+      organizationId: input.organizationId, listingIds: [...listingIds],
+    });
+    const matchedListingCount = [...listingIds].filter((id) =>
+      previousProducts.get(id) == null && currentProducts.get(id) != null).length;
+    const mappingChanged = applied.length > 0 || codeChanged;
     if (mappingChanged) {
       await advanceProductMappingGeneration(tx, input.organizationId);
     }
@@ -363,7 +339,6 @@ implements ChannelOptionRecipeRepositoryPort {
       },
       select: {
         id: true,
-        masterProductId: true,
         options: {
           where: { organizationId: input.organizationId },
           select: {
@@ -388,15 +363,7 @@ implements ChannelOptionRecipeRepositoryPort {
         },
       });
     }
-    const listingChanged = listing.masterProductId !== null;
-    if (listingChanged) {
-      const updated = await tx.channelListing.updateMany({
-        where: { id: listing.id, organizationId: input.organizationId },
-        data: { masterProductId: null },
-      });
-      if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
-    }
-    const mappingChanged = changedOptionIds.length > 0 || listingChanged;
+    const mappingChanged = changedOptionIds.length > 0;
     if (mappingChanged) {
       await advanceProductMappingGeneration(tx, input.organizationId);
     }
@@ -408,39 +375,7 @@ implements ChannelOptionRecipeRepositoryPort {
     };
   }
 
-  async synchronizeListingSummaryInTransaction(
-    transaction: object,
-    input: {
-      organizationId: string;
-      channelListingId: string;
-    },
-  ) {
-    const tx = transaction as Prisma.TransactionClient;
-    await lockProductMapping(tx, input.organizationId);
-    const listing = await tx.channelListing.findFirst({
-      where: {
-        id: input.channelListingId,
-        organizationId: input.organizationId,
-      },
-      select: { id: true, masterProductId: true },
-    });
-    if (!listing) throw new NotFoundException('Channel listing was not found');
-    const masterProductId = await resolveListingMasterProductId(
-      tx,
-      input.organizationId,
-      listing.id,
-    );
-    const mappingChanged = listing.masterProductId !== masterProductId;
-    if (mappingChanged) {
-      const updated = await tx.channelListing.updateMany({
-        where: { id: listing.id, organizationId: input.organizationId },
-        data: { masterProductId },
-      });
-      if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
-      await advanceProductMappingGeneration(tx, input.organizationId);
-    }
-    return { masterProductId, mappingChanged };
-  }
+
 }
 
 function emptyResult() {
@@ -520,34 +455,4 @@ function sameRecipe(
   ]));
   return replacement.every((component) =>
     bySku.get(component.masterProductId) === component.quantity);
-}
-
-async function resolveListingMasterProductId(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  channelListingId: string,
-): Promise<string | null> {
-  const listing = await tx.channelListing.findFirst({
-    where: { id: channelListingId, organizationId },
-    select: {
-      options: {
-        where: { organizationId },
-        select: {
-          inventoryComponents: {
-            where: { organizationId },
-            select: { masterProductId: true },
-          },
-        },
-      },
-    },
-  });
-  if (!listing || listing.options.length === 0) return null;
-  const masterProductIds = new Set<string>();
-  for (const option of listing.options) {
-    if (option.inventoryComponents.length === 0) return null;
-    for (const component of option.inventoryComponents) {
-      masterProductIds.add(component.masterProductId);
-    }
-  }
-  return masterProductIds.size === 1 ? [...masterProductIds][0]! : null;
 }

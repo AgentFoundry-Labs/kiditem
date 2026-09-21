@@ -20,7 +20,6 @@ import { ChannelProductMatchingController } from './adapter/in/http/channel-prod
 import { ChannelOptionRecipeController } from './adapter/in/web/channel-option-recipe.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { MallPublishingController } from './adapter/in/http/mall-publishing.controller';
-import { MallOperationOutcomeController } from './adapter/in/http/mall-operation-outcome.controller';
 import { CoupangWingInventoryExportController } from './adapter/in/http/coupang-wing-inventory-export.controller';
 import { CoupangWingRegistrationExportController } from './adapter/in/http/coupang-wing-registration-export.controller';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
@@ -50,7 +49,6 @@ import { SellpiaManualMatchService } from './application/service/sellpia-manual-
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
 import { ChannelOptionRecipeCandidateService } from './application/service/channel-option-recipe-candidate.service';
 import { MallPublishingService } from './application/service/mall-publishing.service';
-import { MallOperationOutcomeService } from './application/service/mall-operation-outcome.service';
 import { CoupangWingInventoryExportService } from './application/service/coupang-wing-inventory-export.service';
 import { CoupangWingRegistrationExportService } from './application/service/coupang-wing-registration-export.service';
 import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
@@ -77,8 +75,6 @@ import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from './application/port/out
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 import { MallPublishingRepositoryAdapter } from './adapter/out/repository/mall-publishing.repository.adapter';
 import { MALL_PUBLISHING_REPOSITORY_PORT } from './application/port/out/repository/mall-publishing.repository.port';
-import { MallOperationOutcomeRepositoryAdapter } from './adapter/out/repository/mall-operation-outcome.repository.adapter';
-import { MALL_OPERATION_OUTCOME_REPOSITORY_PORT } from './application/port/out/repository/mall-operation-outcome.repository.port';
 import { CHANNEL_LISTING_REPORT_READ_PORT } from './application/port/in/channel-listing-report-read.port';
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
@@ -110,7 +106,6 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelOptionRecipeController,
     ChannelSkuAvailabilityController,
     MallPublishingController,
-    MallOperationOutcomeController,
     CoupangWingInventoryExportController,
     CoupangWingRegistrationExportController,
   ],
@@ -218,12 +213,6 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     {
       provide: MALL_PUBLISHING_REPOSITORY_PORT,
       useExisting: MallPublishingRepositoryAdapter,
-    },
-    MallOperationOutcomeService,
-    MallOperationOutcomeRepositoryAdapter,
-    {
-      provide: MALL_OPERATION_OUTCOME_REPOSITORY_PORT,
-      useExisting: MallOperationOutcomeRepositoryAdapter,
     },
   ],
   exports: [

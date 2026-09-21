@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../channels/read/listing-product-summary.reader';
 // apps/server/src/orders/services/reviews.service.ts
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -226,13 +227,12 @@ export class ReviewsService {
     listingIds: string[],
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
-    const rows = await tx.channelListing.findMany({
+    const listingRows = await tx.channelListing.findMany({
       where: { id: { in: listingIds }, organizationId, isActive: true },
       select: {
         id: true,
         channelName: true,
         displayName: true,
-        masterProductId: true,
         options: {
           select: { sellerSku: true },
           where: { isActive: true },
@@ -242,6 +242,8 @@ export class ReviewsService {
         organization: { select: { name: true } },
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const rows = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
     const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.masterProductId ? [row.masterProductId] : []))];
     const products = masterProductIds.length === 0

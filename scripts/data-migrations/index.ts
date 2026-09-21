@@ -23,6 +23,8 @@ import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_rem
 import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
 import { closeStaleAdApprovalsAtCutoverMigration } from "./v0.1.31/015_close_stale_ad_approvals_at_cutover";
 import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_master_product_inventory_cutover";
+import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
+import { consolidateRegistrationExecutionMigration } from "./v0.1.31/018_consolidate_registration_execution";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -59,6 +61,8 @@ export const dataMigrations: readonly DataMigration[] = [
   removeRowsBlockingRequiredColumnsMigration,
   closeStaleAdApprovalsAtCutoverMigration,
   migrateMasterProductInventoryCutoverMigration,
+  simplifyProductReferencesMigration,
+  consolidateRegistrationExecutionMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];

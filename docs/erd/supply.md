@@ -21,7 +21,7 @@
 | SupplierOfferPriceTier | `supplier_offer_price_tiers` | Immutable quantity price tier nested under one supplier-offer snapshot. |
 | SupplierOfferSkuSnapshot | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | `supplier_payments` | - |
-| SupplierProduct | `supplier_products` | 공급사별 MasterProduct 단위 공급가/주공급처 정책. Legacy Sellpia id는 보존 근거로만 남긴다. |
+| SupplierProduct | `supplier_products` | 공급사별 MasterProduct 단위 공급가/주공급처 정책. |
 
 ## Mermaid ER Diagram
 
@@ -174,10 +174,6 @@ erDiagram
     String phone
     String email
     String address
-    Int leadTimeDays
-    String paymentTerms
-    String notes
-    String status
     DateTime createdAt
     DateTime updatedAt
   }
@@ -246,12 +242,9 @@ erDiagram
     String id PK
     String organizationId FK
     String supplierId FK
-    String legacySellpiaInventorySkuId
     String masterProductId UK
     Int supplyPrice
-    Int minOrderQty
     Boolean isPrimary
-    String memo
     DateTime createdAt
     DateTime updatedAt
   }

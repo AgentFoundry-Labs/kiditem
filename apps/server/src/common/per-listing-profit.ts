@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../channels/read/listing-product-summary.reader';
 import type { Prisma } from '@prisma/client';
 import {
   buildPeriodBasis,
@@ -281,7 +282,6 @@ async function readProfitLines(
           channelName: true,
           displayName: true,
           category: true,
-          masterProductId: true,
           channelAccount: { select: { channel: true, status: true } },
           thumbnails: {
             where: { status: 'active' },
@@ -293,6 +293,7 @@ async function readProfitLines(
       },
     },
   });
+  const listingProducts = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(options.map((option) => option.listing.id))] });
   // The order's channel account decides whether a commission and other
   // per-sale cost apply to its lines (KID-114).
   const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
@@ -306,7 +307,7 @@ async function readProfitLines(
   ]));
   const masterProductIds = [...new Set(options.flatMap((option) =>
     [
-      ...(option.listing.masterProductId ? [option.listing.masterProductId] : []),
+      ...(listingProducts.get(option.listing.id) ? [listingProducts.get(option.listing.id)!] : []),
       ...option.inventoryComponents.map((component) => component.masterProductId),
     ]))];
   const inventorySkus = await inventory.readSourceIdentities(
@@ -322,7 +323,7 @@ async function readProfitLines(
     product,
   ]));
   const optionById = new Map(options.map((option) => {
-    const listing = option.listing;
+    const listing = { ...option.listing, masterProductId: listingProducts.get(option.listing.id) ?? null };
     const identity: ProfitListingIdentity = {
       listingId: listing.id,
       externalId: listing.externalId,

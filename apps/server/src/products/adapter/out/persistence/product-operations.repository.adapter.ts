@@ -1,3 +1,4 @@
+import { listingProductIdFromRecipes } from '../../../../channels/domain/listing-product-summary';
 import { ProductStateException } from '../../../application/exception/product-state.exception';
 import type { ProductSourceChange } from '../../../domain/product-source-change';
 import { advanceProductMappingGeneration, lockProductMapping } from '../../../../common/product-mapping-generation';
@@ -97,24 +98,20 @@ async function attachChannelListings(
   const listings = await tx.channelListing.findMany({
     where: {
       organizationId,
-      OR: [
-        { masterProductId: { in: products.map(({ id }) => id) } },
-        { options: { some: {
+      options: { some: {
           organizationId,
           inventoryComponents: { some: {
             organizationId,
             masterProductId: { in: products.map(({ id }) => id) },
           } },
-        } } },
-      ],
+        } },
     },
-    select: { ...channelListingSelect(organizationId), masterProductId: true },
+    select: channelListingSelect(organizationId),
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
   const byProduct = new Map<string, ChannelProductRow[]>();
   for (const listing of listings) {
     const linkedProductIds = new Set([
-      ...(listing.masterProductId ? [listing.masterProductId] : []),
       ...listing.options.flatMap((option) =>
         option.inventoryComponents.map((component) => component.masterProductId)),
     ]);
@@ -152,19 +149,20 @@ implements ProductOperationsRepositoryPort {
     const rows = await this.prisma.channelListing.findMany({
       where: {
         organizationId,
-        masterProductId: { in: ids },
+        options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: ids } } } } },
         isActive: true,
         channelAccount: { is: { organizationId, status: 'active' } },
       },
       select: {
         id: true,
         externalId: true,
-        masterProductId: true,
+        options: { where: { organizationId }, select: { inventoryComponents: { where: { organizationId }, select: { masterProductId: true } } } },
         channelAccount: { select: { isPrimary: true } },
 
       },
     });
-    return rows.flatMap((row) => row.masterProductId
+    return rows.map((row) => ({ ...row, masterProductId: listingProductIdFromRecipes(row.options) }))
+      .flatMap((row) => row.masterProductId && ids.includes(row.masterProductId)
       ? [{
         masterProductId: row.masterProductId,
         channelListingId: row.id,

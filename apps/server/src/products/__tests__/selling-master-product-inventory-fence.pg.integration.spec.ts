@@ -94,7 +94,6 @@ async function seedSellingProduct(input: {
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: input.accountId,
-      masterProductId: product.id,
       externalId: `LISTING-${input.code}`,
       status: 'active',
       isActive: true,

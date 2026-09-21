@@ -1,3 +1,4 @@
+import { listingProductIdFromRecipes } from '../../../../channels/domain/listing-product-summary';
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
@@ -357,6 +358,23 @@ async function findAutoBatchCandidatesSnapshot(
   const aGradeProductIds = publication.products.flatMap((product) =>
     product.evaluation?.abcGrade === 'A' ? [product.masterProductId] : []);
   if (aGradeProductIds.length === 0) return [];
+  const candidateListings = await tx.channelListing.findMany({
+    where: {
+      organizationId,
+      isActive: true,
+      options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: aGradeProductIds } } } } },
+    },
+    select: {
+      id: true,
+      options: { where: { organizationId }, select: { inventoryComponents: { where: { organizationId }, select: { masterProductId: true } } } },
+    },
+  });
+  const aGradeIds = new Set(aGradeProductIds);
+  const listingIds = candidateListings.filter((listing) => {
+    const productId = listingProductIdFromRecipes(listing.options);
+    return productId !== null && aGradeIds.has(productId);
+  }).map((listing) => listing.id);
+  if (listingIds.length === 0) return [];
   const rows = await tx.contentWorkspace.findMany({
     where: {
       organizationId,
@@ -365,7 +383,8 @@ async function findAutoBatchCandidatesSnapshot(
       channelListing: {
         is: {
           isActive: true,
-          masterProductId: { in: aGradeProductIds },
+          organizationId,
+          id: { in: listingIds },
         },
       },
     },

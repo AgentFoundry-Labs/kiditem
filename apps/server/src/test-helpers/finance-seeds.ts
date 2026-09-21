@@ -157,7 +157,6 @@ export async function setupChannelListing(
     data: {
       organizationId: opts.organizationId,
       channelAccountId: channelAccount.id,
-      masterProductId: opts.masterId,
       externalId: opts.externalId,
       displayName: master.name,
       category: opts.category ?? null,

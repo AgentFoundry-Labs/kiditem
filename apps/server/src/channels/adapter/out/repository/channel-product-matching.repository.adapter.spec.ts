@@ -189,6 +189,7 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
           displayName: 'Registered',
           channelName: null,
           rawJson: null,
+          options: [],
         }),
       },
       masterProduct: { findMany },

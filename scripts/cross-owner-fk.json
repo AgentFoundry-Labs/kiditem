@@ -34,7 +34,6 @@
     "ai.ContentWorkspace -> sourcing.SourcingCandidate",
     "ai.DetailPageImageRenderIntent -> sourcing.SourcingCandidate",
     "ai.ProductPreparation -> channels.ChannelAccount",
-    "ai.ProductPreparation -> channels.ChannelListing",
     "ai.ProductPreparation -> sourcing.SourcingCandidate",
     "ai.Thumbnail -> channels.ChannelListing",
     "ai.ThumbnailGeneration -> sourcing.SourcingCandidate",

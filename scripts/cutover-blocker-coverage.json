@@ -105,6 +105,23 @@
       ],
       "coveredBy": "v0.1.31:016_master_product_inventory_cutover",
       "note": "016 validates explicit source identity and organization-safe references, removes only approved unreferenced empty channel-origin products, migrates current references and allocates canonical KID codes before schema contraction; unresolved mappings abort the transaction."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "not-null:sellpia_manual_match_aliases.master_product_id",
+        "unique:sellpia_manual_match_aliases_org_alias_master_qty_key"
+      ],
+      "coveredBy": "v0.1.31:017_simplify_product_references",
+      "note": "After 016 maps legacy identifiers, 017 deletes only unresolvable matching hints, checks duplicate canonical keys and verifies supplier references; confirmed recipes and historical orders remain untouched."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "unique:product_preparations_org_source_account_active_key"
+      ],
+      "coveredBy": "v0.1.31:018_consolidate_registration_execution",
+      "note": "018 preserves legacy submission evidence in the execution ledger, closes previously registered/cancelled/archived drafts and rejects duplicate remaining active drafts before replacing the partial unique predicate."
     }
   ]
 }

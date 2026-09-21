@@ -213,10 +213,6 @@ export const queryKeys = {
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
   },
-  mallOperationOutcomes: {
-    all: ['mallOperationOutcomes'] as const,
-    summary: (days: number) => [...queryKeys.mallOperationOutcomes.all, 'summary', days] as const,
-  },
   logs: {
     all: ['logs'] as const,
     list: () => [...queryKeys.logs.all, 'list'] as const,

@@ -14,6 +14,39 @@ function makePrisma() {
 }
 
 describe('SupplierRepositoryAdapter', () => {
+  it('creates a supplier with identity, contact, and address fields only', async () => {
+    const prisma = makePrisma();
+    prisma.supplier.create.mockResolvedValue({
+      id: 'supplier-1',
+      organizationId: 'organization-1',
+      name: 'Supplier A',
+      contactName: 'Contact',
+      phone: '010-0000-0000',
+      email: 'supplier@example.com',
+      address: 'Seoul',
+    });
+    const adapter = new SupplierRepositoryAdapter(prisma as never);
+
+    await adapter.create('organization-1', {
+      name: 'Supplier A',
+      contactName: 'Contact',
+      phone: '010-0000-0000',
+      email: 'supplier@example.com',
+      address: 'Seoul',
+    });
+
+    expect(prisma.supplier.create).toHaveBeenCalledWith({
+      data: {
+        organizationId: 'organization-1',
+        name: 'Supplier A',
+        contactName: 'Contact',
+        phone: '010-0000-0000',
+        email: 'supplier@example.com',
+        address: 'Seoul',
+      },
+    });
+  });
+
   it('lists organization suppliers with product and order counts', async () => {
     const prisma = makePrisma();
     prisma.supplier.findMany.mockResolvedValue([

@@ -47,7 +47,6 @@ let overview: unknown;
 let manifests: unknown;
 let availability: unknown;
 let coupangSummary: unknown;
-let outcomes: unknown;
 /** 쇼핑몰 계정 목록 — 고정 확인 주소가 없는 몰은 여기 저장된 사이트 주소를 연다. */
 let mallAccounts: unknown = [];
 
@@ -61,9 +60,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
         ? availability
         : queryKey.includes('coupangDashboard')
           ? coupangSummary
-          : queryKey.includes('mallOperationOutcomes')
-            ? outcomes
-            : queryKey.includes('malls')
+          : queryKey.includes('malls')
               ? mallAccounts
               : overview,
     isLoading: false,
@@ -153,7 +150,6 @@ beforeEach(() => {
   };
   availability = { candidates: [], total: 0, loaded: 0, sendableCount: 0, blockedCount: 0 };
   coupangSummary = { todayOrders: { count: 0, revenue: 0 }, pendingAccept: 0, pendingReturns: 0, lastModifiedAt: null };
-  outcomes = undefined;
   alertsQuery.data = [];
   alertsQuery.isSuccess = true;
   alertsQuery.isError = false;
@@ -349,38 +345,6 @@ describe('쇼핑몰 홈 — 에이전트 파이프라인', () => {
     }
   });
 
-  it('⭐ 관찰 기록에 남은 결과가 몰별 상태와 기억 칸을 채운다', () => {
-    outcomes = {
-      since: '2026-09-05T00:00:00.000Z',
-      days: 7,
-      total: 3,
-      rows: [
-        {
-          mallKey: 'onch',
-          operation: 'login_test',
-          latest: {
-            id: '33333333-3333-4333-8333-333333333333',
-            mallKey: 'onch',
-            operation: 'login_test',
-            outcome: 'attention',
-            reasonCode: 'login_required',
-            message: null,
-            itemCount: null,
-            failedCount: null,
-            warningCount: null,
-            occurredAt: '2026-09-12T01:00:00.000Z',
-          },
-          counts: { succeeded: 2, empty: 0, attention: 1, failed: 0, cancelled: 0 },
-        },
-      ],
-    };
-    render(<MallHomePage />);
-    const onchTile = screen.getByRole('button', { name: '온채널 로그인 테스트 로그인 필요' });
-    expect(onchTile.className).toContain('bg-red-50');
-    const remember = pipelineColumns()[5]!;
-    expect(within(remember).getByText('최근 7일 3건 · 몰 1곳')).toBeInTheDocument();
-  });
-
   it('감지 칸은 알림판과 같은 숫자를 쓴다', () => {
     seedAlerts(orderCollectionFailed, rocketResolved);
     render(<MallHomePage />);
@@ -459,8 +423,7 @@ describe('쇼핑몰 홈 — 미션', () => {
 /**
  * 열면 확장이 몰마다 로그인 상태를 확인한다. 로그인은 하지 않는다 — 확장에는 몰 키와 저장된
  * 사이트 주소만 간다. 결과는 로그인됨 · 인증 필요 · 로그인 필요 셋뿐이다(사장님 2026-09-17).
- * 확인할 주소가 없어 몰을 보지 못한 결과는 로그인 필요로 서되, 몰에 대한 관찰이 아니라
- * 관찰 기록에는 남지 않는다.
+ * 확인할 주소가 없어 몰을 보지 못한 결과는 로그인 필요로 선다.
  */
 describe('쇼핑몰 홈 — 로그인 상태', () => {
   const REASON = {
@@ -514,34 +477,16 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     expect(await screen.findByRole('button', { name: /^온채널 .*로그인 상태 인증 필요$/ })).toBeInTheDocument();
   });
 
-  it('⭐ 확인 결과를 관찰 기록에 남긴다 — 몰을 본 결과만, 몰 키와 이유 코드만', async () => {
-    outcomes = { since: '2026-09-05T00:00:00.000Z', days: 7, total: 0, rows: [] };
+  it('⭐ 현재 확인 결과만 보여 주고 history API를 호출하지 않는다', async () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_out' });
+    answer({ onch: 'signed_out', rocket: 'signed_in' });
     render(<MallHomePage />);
 
-    await waitFor(() =>
-      expect(queryClientStub.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['mallOperationOutcomes'] }),
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
+    expect(mockApiPost).not.toHaveBeenCalledWith(
+      '/api/channels/mall-operation-outcomes',
+      expect.anything(),
     );
-    const recorded = mockApiPost.mock.calls
-      .filter(([url]) => url === '/api/channels/mall-operation-outcomes')
-      .map(([, body]) => body as Record<string, unknown>);
-    // 확인할 주소가 없어 몰을 보지 못한 결과(쿠팡 로켓)는 몰에 대한 관찰이 아니라 적지 않는다.
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toMatchObject({
-      mallKey: 'onch',
-      operation: 'login_check',
-      outcome: 'attention',
-      reasonCode: 'login_required',
-    });
-    expect(Object.keys(recorded[0]!).sort()).toEqual([
-      'idempotencyKey',
-      'mallKey',
-      'message',
-      'operation',
-      'outcome',
-      'reasonCode',
-    ]);
   });
 
   it('10분 안에 다시 열면 몰에 다시 묻지 않는다', async () => {

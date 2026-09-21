@@ -558,10 +558,6 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         currentStock: 5,
       },
     });
-    await prisma.channelListing.update({
-      where: { id: option.listingId },
-      data: { masterProductId: master.id },
-    });
     const inventoryImportedAt = new Date();
     const inventoryRun = await prisma.sourceImportRun.create({
       data: {
@@ -941,10 +937,6 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         currentStock: 7,
       },
     });
-    await prisma.channelListing.update({
-      where: { id: option.listingId },
-      data: { masterProductId: master.id },
-    });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
         organizationId: ORG,
@@ -958,13 +950,6 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     const c = (await start()).body;
     await finish(c).expect(200);
     expect(await prisma.masterProduct.count()).toBe(1);
-    expect(
-      (
-        await prisma.channelListing.findUniqueOrThrow({
-          where: { id: option.listingId },
-        })
-      ).masterProductId,
-    ).toBe(master.id);
     expect(
       await prisma.channelListingOptionInventoryComponent.findMany({
         where: { channelListingOptionId: option.id },

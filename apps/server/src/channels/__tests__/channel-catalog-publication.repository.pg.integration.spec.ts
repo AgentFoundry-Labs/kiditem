@@ -124,7 +124,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
     expect(listing).toMatchObject({
-      masterProductId: null,
       displayName: 'P-1 노출상품',
       isActive: true,
     });
@@ -169,16 +168,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       where: { channelAccountId: ACCOUNT_ID, externalId: 'P-2' },
       include: { options: true },
     });
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'KI-1',
-        sourceAccountKey: 'fixture',
-        sourceProductCode: 'KI-1',
-        sourceOptionCode: '',
-        name: '운영 상품',
-      },
-    });
     const inventorySku = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -189,10 +178,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         name: '실재고',
         currentStock: 20,
       },
-    });
-    await prisma.channelListing.update({
-      where: { id: before.id },
-      data: { masterProductId: master.id },
     });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
@@ -214,7 +199,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       include: { options: true },
     });
     expect(after).toMatchObject({
-      masterProductId: master.id,
       displayName: '수정된 노출명',
       isActive: true,
     });
@@ -293,9 +277,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       kidItemCode: 'KID12345678',
       inventoryComponents: [{ masterProductId: component.id, quantity: 2 }],
     });
-    await expect(prisma.channelListing.findUniqueOrThrow({
-      where: { id: listing.id },
-    })).resolves.toMatchObject({ masterProductId: component.id });
   });
 
   it.each([
@@ -381,12 +362,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         expect.objectContaining({ masterProductId: replacement.id }),
       ]));
 
-      await expect(prisma.channelListing.findUniqueOrThrow({
-        where: { id: listing.id },
-        select: { masterProductId: true },
-      })).resolves.toEqual({
-        masterProductId: recipePresentBeforeDeletion ? source.id : null,
-      });
       const [availabilityItem] = await availability.findByChannelSkuIds(
         TEST_ORGANIZATION_ID,
         [option.id],

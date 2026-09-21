@@ -54,7 +54,6 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
     const listing = await prisma.channelListing.create({ data: {
       organizationId: ORG,
       channelAccountId: account.id,
-      masterProductId: officialA.id,
       externalId: 'OFFICIAL-A-LISTING',
       channelName: 'Official A listing',
       status: 'active',
@@ -62,7 +61,6 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
     const staleListing = await prisma.channelListing.create({ data: {
       organizationId: ORG,
       channelAccountId: account.id,
-      masterProductId: staleCacheA.id,
       externalId: 'STALE-A-LISTING',
       channelName: 'Stale A listing',
       status: 'active',
@@ -73,6 +71,12 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       externalOptionId: 'OFFICIAL-A-OPTION',
       salePrice: 12_000,
       status: '판매중',
+    } });
+    await prisma.channelListingOptionInventoryComponent.create({ data: {
+      organizationId: ORG,
+      channelListingOptionId: option.id,
+      masterProductId: officialA.id,
+      quantity: 1,
     } });
     await prisma.thumbnail.createMany({ data: [
       { organizationId: ORG, listingId: listing.id, imageUrl: 'https://example.com/a.jpg' },

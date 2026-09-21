@@ -73,7 +73,6 @@ async function setupListing(
     data: {
       organizationId,
       channelAccountId: channelAccount.id,
-      masterProductId: master.id,
       externalId: `EXT-${suffix}`,
       channelName: `Listing ${suffix}`,
       displayName: `Master ${suffix}`,

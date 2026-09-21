@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // `AdAction` aggregate adapter: query + persistence + dedup + transaction-
 // wrapped lifecycle writes. The adapter owns `$transaction` for approve /
 // reject / execution reports so the application service stays Prisma-free.
@@ -319,7 +320,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           Prisma.sql`
         WITH scoped_listings AS (
           -- Active listings of the organization's active Coupang accounts.
-          SELECT cl.id, cl.channel_account_id, cl.master_product_id, cl.display_name,
+          SELECT cl.id, cl.channel_account_id, cl.display_name,
             cl.channel_name, cl.external_id, account.channel AS account_channel
           FROM channel_listings cl
           JOIN channel_accounts account
@@ -358,7 +359,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          cl.master_product_id        AS "masterProductId",
+          NULL::uuid                  AS "masterProductId",
           cl.account_channel           AS "listingChannel",
           -- Keyword rows frequently have no listing match (7,432 of 9,266 in
           -- the live account), but the advertised item name is always stamped
@@ -382,6 +383,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND clo.is_active = true
       `,
         );
+        const summaries = await readListingProductIds(tx, { organizationId, listingIds: targets.flatMap((target) => target.listingId ? [target.listingId] : []) });
+        for (const target of targets) target.masterProductId = target.listingId ? summaries.get(target.listingId) ?? null : null;
         const masterProductIds = [...new Set(targets.flatMap((target) =>
           target.masterProductId ? [target.masterProductId] : []))];
         const identities = this.products

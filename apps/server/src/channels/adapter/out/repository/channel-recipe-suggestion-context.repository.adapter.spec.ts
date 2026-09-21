@@ -44,7 +44,11 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
       channelListingOption: {
         findFirst: vi.fn().mockResolvedValue({
           id: optionId,
-          listing: { masterProductId: 'product-1', displayName: '키즈 식판', channelName: null },
+          listing: {
+            displayName: '키즈 식판',
+            channelName: null,
+            options: [{ inventoryComponents: [{ masterProductId: 'product-1' }] }],
+          },
           inventoryComponents: [{
             quantity: 2,
             createdAt: new Date('2026-07-18T00:00:00.000Z'),

@@ -116,6 +116,17 @@ export function candidateRegistrationState(
   return 'none';
 }
 
+/** Public draft view: only closure is stored on the draft, submission state is a ledger projection. */
+export function registrationDraftState(
+  closedAt: Date | null,
+  execution?: Pick<RegistrationExecutionFact, 'status' | 'channelListingId'>,
+): 'draft' | 'submitting' | 'failed' | 'registered' | 'cancelled' {
+  if (execution?.status === 'succeeded') return 'registered';
+  if (closedAt !== null || execution?.status === 'cancelled') return 'cancelled';
+  if (execution?.status === 'failed') return 'failed';
+  return execution ? 'submitting' : 'draft';
+}
+
 /** Successful immutable registration recipes awaiting their real catalog option identities. */
 export async function readPreparedRegistrationRecipes(
   tx: Prisma.TransactionClient,

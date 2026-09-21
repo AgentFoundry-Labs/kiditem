@@ -23,6 +23,7 @@ import {
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
 } from "../../../domain/kiditem-first-registration-links";
+import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import { lockChannelListingRow } from "./channel-listing-row-lock";
 import type { MarketplaceRegistrationRepositoryPort } from "../../../application/port/out/repository/channel-listing.repository.port";
 
@@ -229,7 +230,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
             externalId: true,
             status: true,
             isActive: true,
-            masterProductId: true,
           },
         })
       : null;
@@ -256,6 +256,12 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         );
       }
     }
+    const existingListingProductId = existing
+      ? (await readListingProductIds(tx, {
+        organizationId: input.organizationId,
+        listingIds: [existing.id],
+      })).get(existing.id) ?? null
+      : null;
     if (
       existing?.sourceCandidateId &&
       existing.sourceCandidateId !== candidate.id
@@ -265,9 +271,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       );
     }
     if (
-      existing?.masterProductId &&
+      existingListingProductId &&
       exactLinks.masterProductId &&
-      existing.masterProductId !== exactLinks.masterProductId
+      existingListingProductId !== exactLinks.masterProductId
     ) {
       throw new ConflictException(
         "Marketplace listing is linked to another MasterProduct.",
@@ -283,7 +289,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
           displayName: input.displayName,
           status: "active",
           isActive: true,
-          masterProductId: null,
         },
         select: {
           id: true,

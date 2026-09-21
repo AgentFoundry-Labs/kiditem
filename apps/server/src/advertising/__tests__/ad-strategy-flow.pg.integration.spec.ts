@@ -159,7 +159,6 @@ describe('AdStrategy flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
-        masterProductId: master.id,
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
         lastImportRunId: importRun.id,

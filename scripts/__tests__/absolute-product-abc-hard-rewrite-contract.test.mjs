@@ -26,8 +26,8 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
     "formulaJson",
     "formulaChecksum",
     "createdAt",
-    "updatedAt",
   ]) assert.match(formulaVersion, new RegExp(`\\b${field}\\b`));
+  assert.doesNotMatch(formulaVersion, /^\s*updatedAt\s+/m);
   assert.doesNotMatch(
     formulaVersion,
     /calculationCodeChecksum|training(Start|End)Date|sampleCount|foldCount|calibration|firstActivatedAt/,

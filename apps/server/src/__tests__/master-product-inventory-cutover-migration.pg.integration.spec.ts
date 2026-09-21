@@ -328,6 +328,26 @@ describe('v0.1.31:016 MasterProduct inventory cutover (PostgreSQL)', () => {
         ADD COLUMN sellpia_inventory_sku_id uuid
     `;
     await prisma.$executeRaw`
+      ALTER TABLE channel_listing_option_inventory_components
+        ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE channel_listings
+        ADD COLUMN IF NOT EXISTS master_product_id uuid
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE sellpia_manual_match_aliases
+        ADD COLUMN IF NOT EXISTS sellpia_inventory_sku_id uuid
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE sellpia_manual_match_aliases
+        ALTER COLUMN master_product_id DROP NOT NULL
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE supplier_products
+        ADD COLUMN IF NOT EXISTS sellpia_inventory_sku_id uuid
+    `;
+    await prisma.$executeRaw`
       ALTER TABLE master_products
         ADD COLUMN IF NOT EXISTS origin_channel_listing_id uuid
     `;
@@ -371,6 +391,10 @@ describe('v0.1.31:016 MasterProduct inventory cutover (PostgreSQL)', () => {
     }
     await prisma.$executeRaw`
       ALTER TABLE channel_listing_option_inventory_components
+        DROP COLUMN IF EXISTS updated_at
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE channel_listing_option_inventory_components
         ADD COLUMN IF NOT EXISTS master_product_id uuid
     `;
     await prisma.$executeRaw`
@@ -380,6 +404,22 @@ describe('v0.1.31:016 MasterProduct inventory cutover (PostgreSQL)', () => {
     await prisma.$executeRaw`
       CREATE UNIQUE INDEX IF NOT EXISTS channel_listing_option_inventory_components_channel_listing_key
       ON channel_listing_option_inventory_components (channel_listing_option_id, master_product_id)
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE channel_listings
+        DROP COLUMN IF EXISTS master_product_id
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE sellpia_manual_match_aliases
+        DROP COLUMN IF EXISTS sellpia_inventory_sku_id
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE sellpia_manual_match_aliases
+        ALTER COLUMN master_product_id SET NOT NULL
+    `;
+    await prisma.$executeRaw`
+      ALTER TABLE supplier_products
+        DROP COLUMN IF EXISTS sellpia_inventory_sku_id
     `;
     await prisma.$executeRaw`
       ALTER TABLE master_products

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import type { SellpiaInventoryCollectionStatusView } from '@kiditem/shared/sellpia-inventory-freshness';
 import { buildPipeSnapshot, mergeStageViews, type PipeInputs, type PipeStageView } from './pipe-model';
 import { PIPE_STAGES } from './pipe-stages';
@@ -27,36 +26,10 @@ function alert(overrides: Partial<AlertItem> = {}): AlertItem {
   };
 }
 
-function outcome(
-  mallKey: string,
-  operation: MallOperationOutcomeSummaryRow['operation'],
-  latest: Partial<MallOperationOutcomeSummaryRow['latest']> = {},
-): MallOperationOutcomeSummaryRow {
-  return {
-    mallKey,
-    operation,
-    latest: {
-      id: `${mallKey}-${operation}`,
-      mallKey,
-      operation,
-      outcome: 'succeeded',
-      reasonCode: null,
-      message: null,
-      itemCount: null,
-      failedCount: null,
-      warningCount: null,
-      occurredAt: ago(5),
-      ...latest,
-    },
-    counts: { succeeded: 0, empty: 0, attention: 0, failed: 0, cancelled: 0 },
-  } as MallOperationOutcomeSummaryRow;
-}
-
 function inputs(overrides: Partial<PipeInputs> = {}): PipeInputs {
   return {
     now: NOW,
     alerts: { data: [], failed: false },
-    outcomes: { data: [], failed: false },
     malls: {
       data: [
         { key: 'gs-shop', name: 'GS샵', enabled: true },
@@ -75,11 +48,8 @@ function inputs(overrides: Partial<PipeInputs> = {}): PipeInputs {
 const stage = (views: PipeStageView[], id: string) => views.find((view) => view.def.id === id)!;
 
 describe('단계 표', () => {
-  it('⭐ 한 알림 원천 · 몰 작업 종류가 두 단계에 걸리지 않는다', () => {
-    for (const pick of [
-      (s: (typeof PIPE_STAGES)[number]) => s.alertSourceTypes,
-      (s: (typeof PIPE_STAGES)[number]) => s.mallOperations,
-    ]) {
+  it('⭐ 한 알림 원천이 두 단계에 걸리지 않는다', () => {
+    for (const pick of [(s: (typeof PIPE_STAGES)[number]) => s.alertSourceTypes]) {
       const keys = PIPE_STAGES.flatMap((s) => [...pick(s)]);
       expect(new Set(keys).size).toBe(keys.length);
     }
@@ -185,50 +155,22 @@ describe('원천 실패 알림', () => {
   it('단계에 이어지지 않는 알림은 그림에 올리지 않는다', () => {
     const snapshot = buildPipeSnapshot(inputs({ alerts: { data: [alert({ sourceType: 'rules_evaluation' })], failed: false } }));
     expect(snapshot.inbox).toEqual([]);
-    expect(snapshot.sources).toEqual({ alerts: 1, openAlerts: 1, outcomes: 0 });
-  });
-});
-
-describe('실패라고 다 같은 실패가 아니다', () => {
-  it('⭐ 확장 응답 시간 초과는 재시도 중이지 실패가 아니고, 인박스에 올리지 않는다', () => {
-    const snapshot = buildPipeSnapshot(
-      inputs({ outcomes: { data: [outcome('haebub-mall', 'registration_fill', { outcome: 'failed', reasonCode: 'extension_timeout' })], failed: false } }),
-    );
-    expect(stage(snapshot.stages, 'malls').state).toBe('retrying');
-    expect(snapshot.inbox).toEqual([]);
-  });
-
-  it('⭐ 몰 화면을 못 따라간 것은 로직 점검으로 올린다', () => {
-    const snapshot = buildPipeSnapshot(
-      inputs({ outcomes: { data: [outcome('gs-shop', 'registration_fill', { outcome: 'failed', reasonCode: 'provider_contract_changed' })], failed: false } }),
-    );
-    expect(stage(snapshot.stages, 'malls').state).toBe('failed');
-    expect(snapshot.inbox[0]).toMatchObject({ state: 'failed', title: 'GS샵 · 상품등록 로직 점검 필요' });
-  });
-
-  it('⭐ 사람이 제출할 차례는 실패가 아니라 사람 대기다', () => {
-    const snapshot = buildPipeSnapshot(
-      inputs({ outcomes: { data: [outcome('onch', 'registration_fill', { outcome: 'attention', reasonCode: 'manual_submit_required' })], failed: false } }),
-    );
-    expect(stage(snapshot.stages, 'malls').state).toBe('waiting_human');
-    expect(snapshot.inbox[0]).toMatchObject({ state: 'waiting_human', title: '온채널 · 제출 필요' });
+    expect(snapshot.sources).toEqual({ alerts: 1, openAlerts: 1 });
   });
 });
 
 describe('원인이 같으면 한 장이다', () => {
-  /** GS샵 로그인 만료가 관찰 기록 · 자동 멈춤에 따로 남아도 사람이 할 일은 하나다. */
-  it('⭐ 같은 몰의 로그인 막힘은 출처가 둘이어도 인박스 한 장으로 묶이고, 가장 구체적인 이름을 쓴다', () => {
+  it('⭐ 자동 로그인 막힘은 인박스 한 장으로 묶인다', () => {
     const snapshot = buildPipeSnapshot(
       inputs({
-        outcomes: { data: [outcome('gs-shop', 'registration_fill', { outcome: 'attention', reasonCode: 'login_required' })], failed: false },
         loginBlocks: [{ mallKey: 'gs-shop', kind: 'login', reason: '비밀번호가 맞지 않습니다.', at: NOW - 30 * 60_000 }],
       }),
     );
     const login = snapshot.inbox.filter((item) => item.key === 'login:gs-shop');
     expect(login).toHaveLength(1);
-    expect(login[0]).toMatchObject({ state: 'blocked_external', count: 2, title: 'GS샵 · 자동 멈춤, 직접 로그인' });
-    expect(login[0]?.stageIds).toEqual(expect.arrayContaining(['malls', 'orders']));
-    expect(snapshot.header.attention).toBe(1);
+    expect(login[0]).toMatchObject({ state: 'blocked_external', count: 1, title: 'GS샵 · 자동 멈춤, 직접 로그인' });
+    expect(login[0]?.stageIds).toEqual(['orders']);
+    expect(snapshot.header.attention).toBe(0);
   });
 
   /** 자동 로그인 차단은 이 브라우저에만 있다. 목록에는 서되 다른 사람이 볼 수 없는 숫자를 만들지 않는다. */
@@ -279,88 +221,21 @@ describe('셀피아 재고 수집 상태', () => {
 });
 
 describe('몰 연결', () => {
-  it('⭐ 가장 최근 증거가 이긴다 — 로그인 확인 성공이 차단보다 늦으면 차단은 낡은 것이다', () => {
+  it('uses current browser login blocks and leaves the rest unknown', () => {
     const { connectors } = buildPipeSnapshot(
       inputs({
-        outcomes: {
-          data: [
-            outcome('gs-shop', 'login_check', { outcome: 'succeeded', occurredAt: ago(1) }),
-            outcome('haebub-mall', 'login_test', { outcome: 'attention', reasonCode: 'login_required', occurredAt: ago(3) }),
-          ],
-          failed: false,
-        },
-        loginBlocks: [{ mallKey: 'gs-shop', kind: 'login', reason: '실패', at: NOW - 60 * 60_000 }],
-      }),
-    );
-    expect(connectors).toMatchObject({ total: 3, signedIn: 1, needsLogin: 1, unknown: 1, needsLoginNames: ['해법몰'] });
-    expect(connectors.malls).toEqual([
-      { key: 'gs-shop', name: 'GS샵', state: 'signed_in' },
-      { key: 'haebub-mall', name: '해법몰', state: 'needs_login' },
-      { key: 'onch', name: '온채널', state: 'unknown' },
-    ]);
-  });
-
-  it('⭐ 몰 연결 숫자는 관찰 기록만 센다 — 더 늦은 자동 로그인 차단은 몰 표시에만 보인다', () => {
-    const { connectors } = buildPipeSnapshot(
-      inputs({
-        outcomes: {
-          data: [outcome('gs-shop', 'login_check', { outcome: 'succeeded', occurredAt: ago(90) })],
-          failed: false,
-        },
         loginBlocks: [
           { mallKey: 'gs-shop', kind: 'login', reason: '실패', at: NOW - 30 * 60_000 },
           { mallKey: 'onch', kind: 'login', reason: '실패', at: NOW - 30 * 60_000 },
         ],
       }),
     );
-    expect(connectors).toMatchObject({ total: 3, signedIn: 1, needsLogin: 0, unknown: 2, needsLoginNames: [] });
+    expect(connectors).toMatchObject({ total: 3, signedIn: 0, needsLogin: 2, unknown: 1, needsLoginNames: ['GS샵', '온채널'] });
     expect(connectors.malls).toEqual([
       { key: 'gs-shop', name: 'GS샵', state: 'needs_login' },
       { key: 'haebub-mall', name: '해법몰', state: 'unknown' },
       { key: 'onch', name: '온채널', state: 'needs_login' },
     ]);
-  });
-
-  /** 쿠팡직배송은 로켓 계정 행을 함께 쓴다 — 그 줄이 이 몰의 로그인 증거다. */
-  it('⭐ 계정 행을 함께 쓰는 몰은 그 행의 관찰 기록을 제 증거로 읽는다', () => {
-    const { connectors } = buildPipeSnapshot(
-      inputs({
-        malls: { data: [{ key: 'coupang-direct', name: '쿠팡직배송', enabled: true }], failed: false },
-        outcomes: {
-          data: [outcome('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
-          failed: false,
-        },
-      }),
-    );
-    expect(connectors).toMatchObject({ total: 1, signedIn: 0, needsLogin: 1, unknown: 0, needsLoginNames: ['쿠팡직배송'] });
-    expect(connectors.malls).toEqual([{ key: 'coupang-direct', name: '쿠팡직배송', state: 'needs_login' }]);
-  });
-
-  /**
-   * 함께 쓰는 몰과 그 행의 몰이 둘 다 목록에 있을 때, 이름은 제 키를 가진 몰이 먼저다.
-   * 별칭이 덮으면 로켓 줄이 '쿠팡직배송'으로 불려 사장님은 로켓 계정을 찾지 못한다.
-   */
-  it('⭐ 계정 행을 가진 몰의 이름을 함께 쓰는 몰의 별칭이 덮지 않는다', () => {
-    const { connectors } = buildPipeSnapshot(
-      inputs({
-        malls: {
-          data: [
-            { key: 'rocket', name: '쿠팡 로켓', enabled: true },
-            { key: 'coupang-direct', name: '쿠팡직배송', enabled: true },
-          ],
-          failed: false,
-        },
-        outcomes: {
-          data: [outcome('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' })],
-          failed: false,
-        },
-      }),
-    );
-    expect(connectors.malls).toEqual([
-      { key: 'rocket', name: '쿠팡 로켓', state: 'needs_login' },
-      { key: 'coupang-direct', name: '쿠팡직배송', state: 'needs_login' },
-    ]);
-    expect(connectors.needsLoginNames).toEqual(['쿠팡 로켓', '쿠팡직배송']);
   });
 
   it('몰 목록을 못 받았으면 전체 수를 지어내지 않는다', () => {
