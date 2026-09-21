@@ -67,8 +67,23 @@ function setup(existingExecution: {
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
     productPreparation: { findFirst, updateMany },
+    // 실행 장부는 Channels 리더로만 읽는다(ADR-0009). 리더가 실제로 부르는
+    // findMany 를 그대로 흉내 내야 경계가 바뀌면 이 테스트가 먼저 깨진다.
     productRegistrationExecution: {
-      findFirst: vi.fn().mockResolvedValue(existingExecution),
+      findMany: vi.fn().mockResolvedValue(
+        existingExecution
+          ? [{
+            id: 'execution-1',
+            productPreparationId: current.id,
+            channelAccountId: current.channelAccountId,
+            channelListingId: null,
+            executionKind: 'external_wing',
+            createdAt: new Date('2026-07-13T00:30:00.000Z'),
+            providerOutcome: 'not_attempted',
+            ...existingExecution,
+          }]
+          : [],
+      ),
     },
     sourcingCandidate: {
       findFirst: vi.fn().mockResolvedValue({ id: current.sourceCandidateId }),

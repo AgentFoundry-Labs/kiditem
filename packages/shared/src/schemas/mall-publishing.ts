@@ -39,6 +39,7 @@ export const MallPreflightRuleSchema = z.enum([
   'charset_korean_english_only',
   'option_count_within_limit',
   'profile_selected',
+  'out_of_stock',
 ]);
 export type MallPreflightRule = z.infer<typeof MallPreflightRuleSchema>;
 

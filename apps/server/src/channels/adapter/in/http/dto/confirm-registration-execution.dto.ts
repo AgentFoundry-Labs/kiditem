@@ -38,7 +38,7 @@ class VerifiedWingEvidenceConstraint implements ValidatorConstraintInterface {
  * 등록상품ID 를 입력한 경우에만 쓴다. 신규 등록은 확장이 확인한 WING vendorId를
  * 저장된 계정과 대조하고, 이미 동기화된 상품은 준비 시 frozen한 내부 리스팅을 쓴다.
  */
-export class ConfirmExternalRegistrationDto {
+export class ConfirmRegistrationExecutionDto {
   @IsUUID()
   executionId!: string;
 

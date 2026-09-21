@@ -44,6 +44,7 @@ export const PREFLIGHT_RULE_LABEL: Record<MallPreflightRule, string> = {
   charset_korean_english_only: '문자 규칙',
   option_count_within_limit: '옵션 수 상한',
   profile_selected: '등록 기본값',
+  out_of_stock: '재고',
 };
 
 export interface MallHazardBadge {

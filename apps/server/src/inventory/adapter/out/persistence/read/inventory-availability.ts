@@ -388,6 +388,32 @@ export async function readInventorySkuSnapshot(
 }
 
 /**
+ * Master products that still carry a live (not discontinued) Sellpia SKU.
+ *
+ * Identity only, and deliberately narrower than the identity reader: the caller
+ * asks whether the SKU is still in the snapshot, never what its stock is, so
+ * this read needs neither the inventory lock nor the published-run basis. A
+ * consumer that must filter or paginate master products on this fact takes the
+ * ids from here rather than joining the ledger relation (ADR-0009).
+ */
+export async function readInventoryMasterIdsWithAliveSku(
+  store: Pick<Prisma.TransactionClient, 'sellpiaInventorySku'>,
+  input: { organizationId: string },
+): Promise<string[]> {
+  const rows = await store.sellpiaInventorySku.findMany({
+    where: {
+      organizationId: input.organizationId,
+      isActive: true,
+      masterProductId: { not: null },
+    },
+    select: { masterProductId: true },
+    distinct: ['masterProductId'],
+    orderBy: { masterProductId: 'asc' },
+  });
+  return rows.flatMap((row) => (row.masterProductId === null ? [] : [row.masterProductId]));
+}
+
+/**
  * Inventory's identity-only reader. Matching and reference validation can use
  * these facts without treating snapshot collection or stock as identity.
  */

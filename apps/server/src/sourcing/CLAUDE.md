@@ -10,8 +10,8 @@ belong to Supply; supplier payments belong to Finance.
 ## Ownership
 
 - `SourcingCandidate` is the raw opportunity workspace. Its status is only
-  `sourced|rejected`; registration state is derived from preparations and
-  listings.
+  `sourced|rejected`; registration state is derived from the Channels execution
+  fence and listings, not from the draft's mirrored submission columns.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
@@ -57,6 +57,11 @@ belong to Supply; supplier payments belong to Finance.
 
 ## Registration invariants
 
+- Sourcing stops at the draft: reach the submission fence through the Channels
+  registration execution interface and read candidate registration state back
+  through `channels/read/registration-execution.reader.ts`; never write
+  `ProductRegistrationExecution` rows
+  ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Registration freezes the reviewed payload, content/hash, idempotency key,
   actor, account, execution kind, provider outcome, reconciliation state, and
   terminal listing in its ledger.

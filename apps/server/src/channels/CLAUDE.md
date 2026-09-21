@@ -51,6 +51,12 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Registration And Provider Contract
 
+- Every submission to a channel account passes the registration execution fence
+  (`ProductRegistrationExecution`), which opens the transaction, writes the
+  execution row itself, and touches the draft only through
+  `REGISTRATION_DRAFT_PORT`; a form fill without a submission stays an
+  observation
+  ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.

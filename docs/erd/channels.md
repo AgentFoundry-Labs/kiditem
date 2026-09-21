@@ -26,6 +26,7 @@
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | MallOperationOutcome | `mall_operation_outcomes` | 쇼핑몰 에이전트의 관찰 기록 — 원천 owner 가 없는 브라우저 몰 작업 결과 한 줄(로그인 확인 · 로그인 테스트 · 등록 폼 채움). 주문 수집 · 송장 전송 결과는 Orders 리더에서 파생하고 여기에 쓰지 않는다. append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
+| ProductRegistrationExecution | `product_registration_executions` | 채널 계정 하나에 초안 하나를 최대 한 번만 제출하는 등록 실행 울타리. 동결 payload·SHA-256·idempotency key·lease·provider 결과를 보존한다. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
 | SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
@@ -375,6 +376,34 @@ erDiagram
     Int warningCount
     DateTime occurredAt
   }
+  ProductRegistrationExecution {
+    String id PK
+    String organizationId FK
+    String productPreparationId
+    String channelAccountId FK
+    String channelListingId FK
+    String executionKind
+    String expectedProviderAccountId
+    String idempotencyKey
+    String requestHash
+    String ownerIdempotencyKey
+    Json submissionPayloadJson
+    String submissionPayloadHash
+    String status
+    String providerOutcome
+    String providerSubmissionId
+    String externalListingId
+    Json resultJson
+    String lastErrorCode
+    String lastErrorMessage
+    String leaseToken
+    DateTime leaseClaimedAt
+    String requestedByUserId FK
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPoCatalogLine {
     String id PK
     String organizationId FK
@@ -540,6 +569,10 @@ erDiagram
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
 | MallOperationOutcome | actorUser | references external | Core | User |
 | MallOperationOutcome | organization | references external | Core | Organization |
+| ProductRegistrationExecution | channelAccount | references external | Core | ChannelAccount |
+| ProductRegistrationExecution | channelListing | references external | Core | ChannelListing |
+| ProductRegistrationExecution | organization | references external | Core | Organization |
+| ProductRegistrationExecution | requestedByUser | references external | Core | User |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |

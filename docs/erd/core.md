@@ -338,17 +338,17 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
+| ChannelAccount | channelAccount | referenced by external | Channels | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | CoupangDirectTransportReceipt |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
-| ChannelAccount | channelAccount | referenced by external | Sourcing | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
 | ChannelAccount | targetChannelAccount | referenced by external | Sourcing | SourcingLaunchCandidate |
 | ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
 | ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
 | ChannelListing | channelListing | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | ChannelListing | channelListing | referenced by external | Channels | ChannelListingDeletionOperation |
-| ChannelListing | channelListing | referenced by external | Sourcing | ProductRegistrationExecution |
+| ChannelListing | channelListing | referenced by external | Channels | ProductRegistrationExecution |
 | ChannelListing | listing | referenced by external | Advertising | AdAction |
 | ChannelListing | listing | referenced by external | AI | Thumbnail |
 | ChannelListing | listing | referenced by external | AI | ThumbnailTracking |
@@ -409,6 +409,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | Channels | MallOperationOutcome |
+| Organization | organization | referenced by external | Channels | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
@@ -438,7 +439,6 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
-| Organization | organization | referenced by external | Sourcing | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | Sourcing1688OfferKeywordObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
@@ -527,7 +527,7 @@ erDiagram
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
-| User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
+| User | requestedByUser | referenced by external | Channels | ProductRegistrationExecution |
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
 | User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |

@@ -24,7 +24,8 @@ import {
   WING_DISPLAY_NAME_MAX,
   WING_FORM_FILL_TIMEOUT_MS,
 } from './wing-registration-flow';
-import { candidatesApi, productsApi } from './sourcing-api';
+import { productsApi } from './sourcing-api';
+import { registrationExecutionApi } from '../../../../(channels)/_shared/registration-execution-api';
 import {
   renderCandidateDetailImageOnServer,
 } from './detail-page-image-api';
@@ -61,33 +62,37 @@ vi.mock('./sourcing-api', async (importOriginal) => {
       ...actual.productsApi,
       getDetail: vi.fn(),
     },
-    candidatesApi: {
-      ...actual.candidatesApi,
-      previewExternalWingRegistrationMatch: vi.fn().mockResolvedValue({
-        status: 'matched',
-        reason: 'one match',
-        sellpiaMatch: {
-          sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
-          code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
-          currentStock: 13, quantity: 1,
-        },
-        proposals: [],
-      }),
-      prepareExternalWingRegistration: vi.fn().mockResolvedValue({
-        executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345',
-        sellpiaMatch: {
-          sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
-          code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
-          currentStock: 13, quantity: 1,
-        },
-        existingListing: null,
-      }),
-      startExternalWingRegistration: vi.fn().mockResolvedValue({ status: 'executing' }),
-      markExternalWingRegistrationUnresolved: vi.fn().mockResolvedValue({ status: 'reconciling' }),
-      markExternalWingRegistrationNotSubmitted: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-    },
   };
 });
+
+// HTTP 경계만 대역으로 세운다. 울타리 호출은 이제 Channels 클라이언트 하나를 지난다(ADR-0014).
+vi.mock('../../../../(channels)/_shared/registration-execution-api', () => ({
+  registrationExecutionApi: {
+    previewSellpiaMatch: vi.fn().mockResolvedValue({
+      status: 'matched',
+      reason: 'one match',
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
+        currentStock: 13, quantity: 1,
+      },
+      proposals: [],
+    }),
+    prepare: vi.fn().mockResolvedValue({
+      executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345',
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
+        currentStock: 13, quantity: 1,
+      },
+      existingListing: null,
+    }),
+    start: vi.fn().mockResolvedValue({ status: 'executing' }),
+    markUnresolved: vi.fn().mockResolvedValue({ status: 'reconciling' }),
+    markNotSubmitted: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+    confirm: vi.fn(),
+  },
+}));
 
 vi.mock('./wing-category-resolution', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./wing-category-resolution')>();
@@ -99,10 +104,10 @@ vi.mock('./wing-category-resolution', async (importOriginal) => {
 
 beforeEach(() => {
   vi.mocked(sendToExtensionViaPort).mockReset();
-  vi.mocked(candidatesApi.previewExternalWingRegistrationMatch).mockClear();
-  vi.mocked(candidatesApi.prepareExternalWingRegistration).mockClear();
-  vi.mocked(candidatesApi.startExternalWingRegistration).mockClear();
-  vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockClear();
+  vi.mocked(registrationExecutionApi.previewSellpiaMatch).mockClear();
+  vi.mocked(registrationExecutionApi.prepare).mockClear();
+  vi.mocked(registrationExecutionApi.start).mockClear();
+  vi.mocked(registrationExecutionApi.markUnresolved).mockClear();
   vi.mocked(detectWingFormExtensionId).mockResolvedValue('extension-1');
   vi.mocked(productsApi.getDetail).mockReset();
   vi.mocked(renderCandidateDetailImageOnServer).mockReset();
@@ -908,7 +913,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(sent.productName).toBe('확인한 노출상품명');
     expect(sent.variants[0].salePrice).toBe(4900);
     expect(sent.variants[0].stock).toBe(12);
-    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenCalledWith(
+    expect(registrationExecutionApi.prepare).toHaveBeenCalledWith(
       'candidate-1',
       expect.objectContaining({
         sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
@@ -947,7 +952,7 @@ describe('external WING pre-intent choreography', () => {
   };
 
   it('sends the server-verified real Sellpia code as the WING vendor item code', async () => {
-    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+    vi.mocked(registrationExecutionApi.prepare).mockResolvedValue({
       executionId: '33333333-3333-4333-8333-333333333333',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
@@ -977,7 +982,7 @@ describe('external WING pre-intent choreography', () => {
     // 자동 실행이 꺼진 경로에서는 확장이 '상품등록' 버튼을 누를 수 없다. 그러니
     // 채우다 멈춘 것은 마켓에 아무것도 안 올라갔다는 뜻이다. 닫지 않으면 그 상품은
     // "An active registration preparation already exists." 로 영영 막힌다.
-    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+    vi.mocked(registrationExecutionApi.prepare).mockResolvedValue({
       executionId: '55555555-5555-4555-8555-555555555555',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
@@ -994,17 +999,17 @@ describe('external WING pre-intent choreography', () => {
 
     await expect(submitWingRegistration(draft, draft.overrides, false)).rejects.toThrow(/옵션 목록/);
 
-    expect(candidatesApi.markExternalWingRegistrationNotSubmitted).toHaveBeenCalledWith(
+    expect(registrationExecutionApi.markNotSubmitted).toHaveBeenCalledWith(
       draft.candidateId,
       '55555555-5555-4555-8555-555555555555',
       expect.objectContaining({ attempted: false }),
     );
     // 제출을 시도조차 못 했으므로 미해결로 남기지 않는다.
-    expect(candidatesApi.markExternalWingRegistrationUnresolved).not.toHaveBeenCalled();
+    expect(registrationExecutionApi.markUnresolved).not.toHaveBeenCalled();
   });
 
   it('returns an existing Coupang listing for canonical confirmation without opening the extension', async () => {
-    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+    vi.mocked(registrationExecutionApi.prepare).mockResolvedValue({
       executionId: '33333333-3333-4333-8333-333333333333',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
@@ -1032,16 +1037,16 @@ describe('external WING pre-intent choreography', () => {
       },
     });
     expect(sendToExtensionViaPort).not.toHaveBeenCalled();
-    expect(candidatesApi.startExternalWingRegistration).not.toHaveBeenCalled();
+    expect(registrationExecutionApi.start).not.toHaveBeenCalled();
   });
 
   it('orders prepare, start, extension, then reconciles an unknown outcome with extension evidence', async () => {
     const order: string[] = [];
-    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
+    vi.mocked(registrationExecutionApi.prepare).mockImplementation(async () => {
       order.push('prepare');
       return PREPARED_WING_RESPONSE as never;
     });
-    vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
+    vi.mocked(registrationExecutionApi.start).mockImplementation(async () => {
       order.push('start');
       return { status: 'executing' } as never;
     });
@@ -1053,7 +1058,7 @@ describe('external WING pre-intent choreography', () => {
         evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
       };
     });
-    vi.mocked(candidatesApi.markExternalWingRegistrationUnresolved).mockImplementation(async () => {
+    vi.mocked(registrationExecutionApi.markUnresolved).mockImplementation(async () => {
       order.push('unresolved');
       return {} as never;
     });
@@ -1067,11 +1072,11 @@ describe('external WING pre-intent choreography', () => {
 
   it('keeps manual form fill in not-attempted state until the user actually submits in WING', async () => {
     const order: string[] = [];
-    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockImplementation(async () => {
+    vi.mocked(registrationExecutionApi.prepare).mockImplementation(async () => {
       order.push('prepare');
       return PREPARED_WING_RESPONSE as never;
     });
-    vi.mocked(candidatesApi.startExternalWingRegistration).mockImplementation(async () => {
+    vi.mocked(registrationExecutionApi.start).mockImplementation(async () => {
       order.push('start');
       return { status: 'executing' } as never;
     });
@@ -1091,7 +1096,7 @@ describe('external WING pre-intent choreography', () => {
       attempted: false,
       executionId: '33333333-3333-4333-8333-333333333333',
     });
-    expect(candidatesApi.markExternalWingRegistrationUnresolved).not.toHaveBeenCalled();
+    expect(registrationExecutionApi.markUnresolved).not.toHaveBeenCalled();
   });
 
   it('accepts a registered product id for server verification even when browser evidence is absent', () => {
@@ -1106,7 +1111,7 @@ describe('external WING pre-intent choreography', () => {
   it('marks the durable execution unresolved when the extension throws after start', async () => {
     vi.mocked(sendToExtensionViaPort).mockRejectedValue(new Error('extension disconnected'));
     await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('extension disconnected');
-    expect(candidatesApi.markExternalWingRegistrationUnresolved).toHaveBeenCalledWith(
+    expect(registrationExecutionApi.markUnresolved).toHaveBeenCalledWith(
       'candidate-1',
       '33333333-3333-4333-8333-333333333333',
       expect.objectContaining({ reason: 'extension_throw' }),
@@ -1114,7 +1119,7 @@ describe('external WING pre-intent choreography', () => {
   });
 
   it('reuses the modal draft idempotency key across a retry after prepare fails', async () => {
-    vi.mocked(candidatesApi.prepareExternalWingRegistration)
+    vi.mocked(registrationExecutionApi.prepare)
       .mockRejectedValueOnce(new Error('prepare response lost'))
       .mockResolvedValueOnce(PREPARED_WING_RESPONSE as never);
     vi.mocked(sendToExtensionViaPort).mockResolvedValue({
@@ -1124,10 +1129,10 @@ describe('external WING pre-intent choreography', () => {
     });
     await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('prepare response lost');
     await submitWingRegistration(draft, draft.overrides, true);
-    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
+    expect(registrationExecutionApi.prepare).toHaveBeenNthCalledWith(
       1, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
-    expect(candidatesApi.prepareExternalWingRegistration).toHaveBeenNthCalledWith(
+    expect(registrationExecutionApi.prepare).toHaveBeenNthCalledWith(
       2, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
   });
@@ -1144,8 +1149,8 @@ describe('external WING pre-intent choreography', () => {
       productName: '사용자가 수정한 노출상품명',
     }, false);
 
-    const firstKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[0]?.[1].idempotencyKey;
-    const secondKey = vi.mocked(candidatesApi.prepareExternalWingRegistration).mock.calls[1]?.[1].idempotencyKey;
+    const firstKey = vi.mocked(registrationExecutionApi.prepare).mock.calls[0]?.[1].idempotencyKey;
+    const secondKey = vi.mocked(registrationExecutionApi.prepare).mock.calls[1]?.[1].idempotencyKey;
     expect(secondKey).not.toBe(firstKey);
   });
 });

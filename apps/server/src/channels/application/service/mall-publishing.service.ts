@@ -205,6 +205,7 @@ export class MallPublishingService {
             // 몰 카테고리를 직접 지정한 경우만 매핑된 것으로 센다.
             hasMallCategory: Boolean(account?.listingProfile?.categoryCode),
             kc: row.kc,
+            stock: row.stock,
           },
           account: toPreflightAccount(account),
         });
@@ -464,7 +465,7 @@ export class MallPublishingService {
       this.repository.listMallAccounts(organizationId),
       this.repository.listAccountsWithListings(organizationId),
       this.repository.countOrdersByAccount(organizationId),
-      this.repository.countActiveMasterProducts(organizationId),
+      this.repository.countVisibleMasterProducts(organizationId),
     ]);
 
     const mallAccountByKey = new Map(mallAccounts.map((row) => [row.mallKey, row]));

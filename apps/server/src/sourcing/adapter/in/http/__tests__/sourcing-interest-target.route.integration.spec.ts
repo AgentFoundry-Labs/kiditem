@@ -7,7 +7,7 @@ import { SourcingPromotionService } from '../../../../application/service/sourci
 import { SourcingInterestTargetService } from '../../../../application/service/sourcing-interest-target.service';
 import { SourcingService } from '../../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../../application/service/sourcing-workspace-archive.service';
-import { ProductRegistrationService } from '../../../../application/service/product-registration.service';
+import { ProductPreparationService } from '../../../../application/service/product-preparation.service';
 import { SourcingCandidateWorkspaceController } from '../sourcing-candidate-workspace.controller';
 import { SourcingInterestTargetController } from '../sourcing-interest-target.controller';
 
@@ -31,7 +31,7 @@ describe('SourcingInterestTargetController route', () => {
         { provide: SourcingService, useValue: sourcing },
         { provide: SourcingPromotionService, useValue: {} },
         { provide: SourcingWorkspaceArchiveService, useValue: {} },
-        { provide: ProductRegistrationService, useValue: {} },
+        { provide: ProductPreparationService, useValue: {} },
         { provide: SourcingInterestTargetService, useValue: interests },
       ],
     }).compile();

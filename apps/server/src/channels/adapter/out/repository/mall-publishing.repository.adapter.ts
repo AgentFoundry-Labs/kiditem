@@ -128,18 +128,21 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     organizationId: string,
     query: PreflightProductQuery,
   ): Promise<{ rows: PreflightProductRow[]; total: number }> {
+    const visible = await this.visibleMasterWhere(organizationId);
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
-      isActive: true,
       ...(query.masterProductIds?.length ? { id: { in: query.masterProductIds } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        visible,
+        ...(query.search
+          ? [{
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' as const } },
+                { code: { contains: query.search, mode: 'insensitive' as const } },
+              ],
+            }]
+          : []),
+      ],
     };
 
     const [records, total] = await Promise.all([
@@ -172,6 +175,10 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       this.prisma.masterProduct.count({ where }),
     ]);
 
+    const stockByMaster = await this.readMatrixStock(
+      organizationId,
+      records.map((record) => record.id),
+    );
     const rows = records.map<PreflightProductRow>((record) => {
       const options = record.channelListings.flatMap((listing) => listing.options);
       const optionNames = [
@@ -195,6 +202,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
         kc: candidate ? readManualKc(candidate.rawData) : null,
+        // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
+        stock: stockByMaster.get(record.id) ?? null,
       };
     });
 
@@ -274,19 +283,22 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         : {}),
     };
 
+    const visible = await this.visibleMasterWhere(organizationId);
     const where: Prisma.MasterProductWhereInput = {
       organizationId,
-      isActive: true,
       ...(query.listed === true ? { channelListings: { some: listingScope } } : {}),
       ...(query.listed === false ? { channelListings: { none: listingScope } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        visible,
+        ...(query.search
+          ? [{
+              OR: [
+                { name: { contains: query.search, mode: 'insensitive' as const } },
+                { code: { contains: query.search, mode: 'insensitive' as const } },
+              ],
+            }]
+          : []),
+      ],
     };
 
     const [records, total] = await Promise.all([
@@ -368,9 +380,45 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   }
 
   /**
-   * 한 페이지 마스터의 재고. 재고 원장은 Inventory 리더로만 읽는다 — 끝나지 않은
-   * 수집의 줄은 재고로 보이지 않는다. 연결된 SKU 가 없거나 발행된 스냅샷에 없으면
-   * null 이다. 재고는 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
+   * 매트릭스와 송신 전 점검이 행으로 세우는 마스터.
+   *
+   * 정본 재고 마스터의 `isActive` 는 재고 관찰의 대체 신호가 아니다. 셀피아 SKU 정체성이
+   * 살아 있으면 재고와 무관하게 세우고(품절과 최신 스냅샷에서 빠진 SKU 는 재고 0 으로
+   * 보인다), 보낼 수 있는지는 송신 전 점검(`out_of_stock`)이 답한다. 셀피아에서 오지
+   * 않은 마스터는 종전대로 `isActive` 가 조건이다.
+   */
+  private async visibleMasterWhere(
+    organizationId: string,
+  ): Promise<Prisma.MasterProductWhereInput> {
+    // 재고 원장은 Inventory 공개 리더로만 읽는다 — Prisma 관계로 조인하면 원장 하나에
+    // 리더가 둘이 된다. 여기서 필요한 것은 재고가 아니라 SKU 정체성이 살아 있는가뿐이다.
+    const aliveMasterIds = await this.prisma.$transaction(async (tx) => {
+      const identities = await this.inventoryTransactionalRead.readSkuIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'all' } },
+      );
+      return [
+        ...new Set(
+          identities.flatMap((identity) =>
+            identity.isActive && identity.masterProductId
+              ? [identity.masterProductId]
+              : [],
+          ),
+        ),
+      ];
+    });
+    return {
+      OR: [
+        { isActive: true },
+        ...(aliveMasterIds.length > 0 ? [{ id: { in: aliveMasterIds } }] : []),
+      ],
+    };
+  }
+
+  /**
+   * 한 페이지 마스터의 재고. 재고 원장은 Inventory 리더로만 읽는다 — 연결된 SKU 가
+   * 없으면 null 이고, SKU 정체성이 있으면 발행된 재고 0 도 그대로 보인다. 재고는
+   * 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
    */
   private async readMatrixStock(
     organizationId: string,
@@ -414,7 +462,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     return readOrderCountsByChannelAccount(this.prisma, organizationId);
   }
 
-  countActiveMasterProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({ where: { organizationId, isActive: true } });
+  async countVisibleMasterProducts(organizationId: string): Promise<number> {
+    return this.prisma.masterProduct.count({
+      where: { organizationId, ...(await this.visibleMasterWhere(organizationId)) },
+    });
   }
 }

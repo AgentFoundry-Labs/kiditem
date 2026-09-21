@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SourcingFrozenRegistrationReadCapabilityAdapter } from "./sourcing-frozen-registration-capability.adapter";
+import { FrozenRegistrationReadAdapter } from "./frozen-registration-read.adapter";
 
 const organizationId = "00000000-0000-4000-8000-000000000001";
 const preparationId = "00000000-0000-4000-8000-000000000002";
@@ -40,11 +40,11 @@ const frozen = {
   displayName: "Toy",
 };
 
-describe("SourcingFrozenRegistrationReadCapabilityAdapter", () => {
-  it("loads frozen payload, provider state, and product links from Sourcing instead of accepting them from an Agent", async () => {
-    const preparations = {
+describe("FrozenRegistrationReadAdapter", () => {
+  it("loads frozen payload, provider state, and product links from the registration execution fence instead of accepting them from an Agent", async () => {
+    const executions = {
       loadFrozenSubmission: vi.fn().mockResolvedValue(frozen),
-      getExternalExecution: vi.fn().mockResolvedValue({
+      get: vi.fn().mockResolvedValue({
         executionId,
         preparationId,
         status: "executing",
@@ -52,8 +52,8 @@ describe("SourcingFrozenRegistrationReadCapabilityAdapter", () => {
         expectedProviderAccountId: "vendor-1",
       }),
     };
-    const adapter = new SourcingFrozenRegistrationReadCapabilityAdapter(
-      preparations as never,
+    const adapter = new FrozenRegistrationReadAdapter(
+      executions as never,
     );
 
     await expect(adapter.loadSubmission(reference)).resolves.toEqual({
@@ -68,11 +68,11 @@ describe("SourcingFrozenRegistrationReadCapabilityAdapter", () => {
       ],
       expectedProviderAccountId: null,
     });
-    expect(preparations.loadFrozenSubmission).toHaveBeenCalledWith(
+    expect(executions.loadFrozenSubmission).toHaveBeenCalledWith(
       organizationId,
       preparationId,
     );
-    expect(preparations.getExternalExecution).toHaveBeenCalledWith({
+    expect(executions.get).toHaveBeenCalledWith({
       organizationId,
       sourceCandidateId: candidateId,
       executionId,
@@ -94,9 +94,9 @@ describe("SourcingFrozenRegistrationReadCapabilityAdapter", () => {
   });
 
   it("rejects an execution that is not the actor-bound frozen preparation", async () => {
-    const preparations = {
+    const executions = {
       loadFrozenSubmission: vi.fn().mockResolvedValue(frozen),
-      getExternalExecution: vi.fn().mockResolvedValue({
+      get: vi.fn().mockResolvedValue({
         executionId,
         preparationId: "00000000-0000-4000-8000-000000000099",
         status: "executing",
@@ -104,8 +104,8 @@ describe("SourcingFrozenRegistrationReadCapabilityAdapter", () => {
         expectedProviderAccountId: "vendor-1",
       }),
     };
-    const adapter = new SourcingFrozenRegistrationReadCapabilityAdapter(
-      preparations as never,
+    const adapter = new FrozenRegistrationReadAdapter(
+      executions as never,
     );
 
     await expect(adapter.loadExternalConfirmation(reference)).rejects.toThrow(

@@ -11,7 +11,7 @@ import MallChannelsPage from './page';
  *     사용여부 · 설정 · 등록 상품, 그리고 되는 일 아홉 칸(주문수집 · 클레임수집 · 운송장 송신 ·
  *     문의수집 · 문의답변 · 상품등록 · 상품수정 · 상품상태송신 · 재고송신)이 초록(됨) ·
  *     회색(아직) · 빨강(불가)으로 선다. 다 되는 몰부터 선다.
- *  3. **칸 머리가 몇 곳에서 되는지 말한다.** 맨 위 요약은 활성 상품 · 연결된 몰 둘이다.
+ *  3. **칸 머리가 몇 곳에서 되는지 말한다.** 맨 위 요약은 표시 상품 · 연결된 몰 둘이다.
  */
 
 let overview: unknown;
@@ -118,9 +118,15 @@ const fourMalls = () => ({
 });
 
 describe('쇼핑몰 현황 — 맨 위 요약', () => {
-  it('활성 상품과 연결된 몰을 센다', () => {
+  /**
+   * 맨 위 숫자는 등록 현황 표와 같은 집합이다 — 품절 상품도 표에 서므로 여기도 센다.
+   * '활성'이라고 부르면 품절된 줄이 표에 보이는데 숫자에는 빠져 둘이 갈라진다.
+   */
+  it('⭐ 표시 상품과 연결된 몰을 센다 — 등록 현황 표와 같은 기준', () => {
     render(<MallChannelsPage />);
-    expect(screen.getByText('활성 상품')).toBeInTheDocument();
+    expect(screen.getByText('표시 상품')).toBeInTheDocument();
+    expect(screen.getByText('등록 현황 표 기준')).toBeInTheDocument();
+    expect(screen.queryByText('활성 상품')).not.toBeInTheDocument();
     expect(screen.getByText('2,951')).toBeInTheDocument();
     expect(screen.getByText('25')).toBeInTheDocument();
   });

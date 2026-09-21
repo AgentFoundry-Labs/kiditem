@@ -4,6 +4,7 @@ import { AlertsModule } from "../alerts/alerts.module";
 import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
+import { ChannelsRegistrationExecutionModule } from "../channels/channels-registration-execution.module";
 import { InventoryModule } from "../inventory/inventory.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
@@ -25,7 +26,6 @@ import { SOURCING_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
 import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capability/sourcing-capability-admission.port';
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
 import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
-import { SourcingFrozenRegistrationReadCapabilityModule } from './sourcing-frozen-registration-read-capability.module';
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
@@ -63,7 +63,7 @@ import { SOURCING_CONFIRM_MESSENGER_PORT } from "./application/port/out/provider
 import { SourcingKeywordPreferenceService } from "./application/service/sourcing-keyword-preference.service";
 import { SourcingKeywordSuggestionService } from "./application/service/sourcing-keyword-suggestion.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
-import { ProductRegistrationService } from "./application/service/product-registration.service";
+import { ProductPreparationService } from "./application/service/product-preparation.service";
 import { SourcingMarketDiscoveryService } from "./application/service/sourcing-market-discovery.service";
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
 import { SourcingCollectionSourceControlService } from "./application/service/sourcing-collection-source-control.service";
@@ -93,7 +93,6 @@ import { SourcingBrowserSourceAttemptRepositoryAdapter } from "./adapter/out/rep
 import { Sourcing1688SearchResultRepositoryAdapter } from "./adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "./adapter/out/repository/live-commerce.repository.adapter";
 import { ProductPreparationRepositoryAdapter } from "./adapter/out/repository/product-preparation.repository.adapter";
-import { ChannelProductRegistrationAdapter } from "./adapter/out/channels/channel-product-registration.adapter";
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
@@ -127,7 +126,6 @@ import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/ou
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
 import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-browser-source-attempt.repository.port";
 import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-1688-search-result.repository.port";
-import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
 import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cross-domain/candidate-content-asset.port";
@@ -157,10 +155,10 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     PrismaModule,
     AlertsModule,
     SourcingAgentRuntimeModule,
-    SourcingFrozenRegistrationReadCapabilityModule,
     AiModule,
     AdvertisingModule,
     ChannelsModule,
+    ChannelsRegistrationExecutionModule,
     InventoryModule,
     SupplyModule,
   ],
@@ -231,7 +229,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingTiktokSourceAttemptService,
     TrendQueryService,
     LiveCommerceService,
-    ProductRegistrationService,
+    ProductPreparationService,
     NaverDatalabPopularKeywordAdapter,
     NaverDatalabTrendAdapter,
     NaverAutocompleteKeywordAdapter,
@@ -248,7 +246,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     Sourcing1688SearchResultRepositoryAdapter,
     LiveCommerceRepositoryAdapter,
     ProductPreparationRepositoryAdapter,
-    ChannelProductRegistrationAdapter,
     CoupangMomentumAdapter,
     RegistrationContentWorkspaceAdapter,
     CandidateContentAssetAdapter,
@@ -350,10 +347,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     {
       provide: PRODUCT_PREPARATION_REPOSITORY_PORT,
       useExisting: ProductPreparationRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_PRODUCT_REGISTRATION_PORT,
-      useExisting: ChannelProductRegistrationAdapter,
     },
     {
       provide: COUPANG_MOMENTUM_PORT,
