@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CreateMasterProductInputSchema,
   MasterProductOperationsMetadataSchema,
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
@@ -37,7 +36,7 @@ const abcFixture = {
   },
 };
 
-const createProductDetailFixture = (availableStock = 80) => ({
+const createProductDetailFixture = (currentStock = 80) => ({
   id: productId,
   code: 'KI-001',
   displayReference: {
@@ -46,21 +45,15 @@ const createProductDetailFixture = (availableStock = 80) => ({
     value: '13712531060',
   },
   name: '키즈 식판',
-  description: null,
-  category: '주방',
-  brand: null,
-  tags: [],
   imageUrls: [],
   displayImageUrls: [],
   abcGrade: null,
   abcEvaluation: null,
   abc: abcFixture,
   contribution: null,
-  adBudgetLimit: null,
-  isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
-  inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+  inventory: { skuCount: 1, measuredSkuCount: 1 },
   inventoryUnits: 80,
   channelListings: [{
     id: '00000000-0000-4000-8000-000000000004',
@@ -82,14 +75,12 @@ const createProductDetailFixture = (availableStock = 80) => ({
       capacity: 8,
       inventoryComponents: [{
         id: '00000000-0000-4000-8000-000000000006',
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
         code: 'SP-001',
         name: '식판',
         optionName: null,
         barcode: null,
-        currentStock: 80,
-        availableStock,
-        isActive: true,
+        currentStock,
         quantity: 8,
       }],
     }],
@@ -105,16 +96,10 @@ const metadataFixture = {
     value: 'KI-001',
   },
   name: '키즈 식판',
-  description: null,
-  category: '주방',
-  brand: null,
-  tags: ['식판'],
   abcGrade: null,
   abcEvaluation: null,
   abc: abcFixture,
   contribution: null,
-  adBudgetLimit: null,
-  isActive: true,
 };
 
 function missingAbcSource() {
@@ -158,7 +143,7 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     },
     channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
     inventoryUnits: 0,
-    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    inventory: { skuCount: 0, measuredSkuCount: 0 },
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [],
@@ -252,7 +237,7 @@ describe('product operations contracts', () => {
         },
         channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
         inventoryUnits: 0,
-        inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+        inventory: { skuCount: 0, measuredSkuCount: 0 },
         channelCount: 0,
         channelStatus: 'unlisted',
         activeChannels: [],
@@ -332,13 +317,12 @@ describe('product operations contracts', () => {
     expect(() => MasterProductOperationsMetadataSchema.parse(missingDisplay)).toThrow();
   });
 
-  it('strictly parses the supported product list filters', () => {
+  it('strictly parses supported product list filters without source category', () => {
     expect(MasterProductOperationsListQuerySchema.parse({
       page: 2,
       limit: 25,
       query: '  식판  ',
       periodDays: 14,
-      category: '  주방  ',
       activeStatus: 'active',
       inventoryStatus: 'uncollected',
       inventoryFocus: 'imminent',
@@ -347,12 +331,12 @@ describe('product operations contracts', () => {
       adStatus: 'active',
     })).toMatchObject({
       query: '식판',
-      category: '주방',
       periodDays: 14,
       abcGrade: 'unclassified',
       abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
       inventoryFocus: 'imminent',
     });
+    expect(() => MasterProductOperationsListQuerySchema.parse({ category: '주방' })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
     })).toThrow();
@@ -362,25 +346,22 @@ describe('product operations contracts', () => {
     expect(() => MasterProductOperationsListQuerySchema.parse({ abcCalculationStatus: 'LIMITED_HISTORY' })).toThrow();
   });
 
-  it('exposes stored ABC as read-only product metadata', () => {
-    expect(() => CreateMasterProductInputSchema.parse({
-      code: 'KI-001',
-      name: '식판',
+  it('exposes stored ABC as response metadata and excludes it from image updates', () => {
+    const metadata = MasterProductOperationsMetadataSchema.parse({
+      ...metadataFixture,
+      imageUrls: [],
+      displayImageUrls: [],
       abcGrade: 'A',
-    })).toThrow();
-    expect(() => UpdateMasterProductInputSchema.parse({ abcGrade: 'B' })).toThrow();
+    });
+    expect(metadata.abcGrade).toBe('A');
+    expect(() => UpdateMasterProductInputSchema.parse({ imageUrls: [], abcGrade: 'B' })).toThrow();
   });
 
   it.each(['adTier', 'profitTag'] as const)(
     'carries no operator %s on product metadata or mutations',
     (operatorField) => {
       const results = [
-        CreateMasterProductInputSchema.safeParse({
-          code: 'KI-001',
-          name: '식판',
-          [operatorField]: 'operator text',
-        }),
-        UpdateMasterProductInputSchema.safeParse({ name: '식판', [operatorField]: null }),
+        UpdateMasterProductInputSchema.safeParse({ imageUrls: [], [operatorField]: null }),
         MasterProductOperationsMetadataSchema.safeParse({
           ...metadataFixture,
           imageUrls: [],
@@ -391,9 +372,6 @@ describe('product operations contracts', () => {
 
       for (const result of results) {
         expect(result.success).toBe(false);
-        expect(result.error?.issues).toEqual([
-          expect.objectContaining({ code: 'unrecognized_keys', keys: [operatorField] }),
-        ]);
       }
     },
   );
@@ -429,7 +407,7 @@ describe('product operations contracts', () => {
 
     expect(ProductRecipeComponentCandidateListResponseSchema.parse({
       items: [{
-        sellpiaInventorySkuId: skuId,
+        masterProductId: skuId,
         code: 'SP-001',
         name: '식판',
         optionName: '분홍',
@@ -437,7 +415,7 @@ describe('product operations contracts', () => {
         currentStock: 8,
       }],
     }).items[0]).toMatchObject({
-      sellpiaInventorySkuId: skuId,
+      masterProductId: skuId,
       currentStock: 8,
     });
   });
@@ -452,18 +430,12 @@ describe('product operations contracts', () => {
         value: 'KI-001',
       },
       name: '키즈 식판',
-      description: null,
-      category: '주방',
-      brand: null,
-      tags: ['식판'],
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
       abcEvaluation: null,
       abc: abcFixture,
       contribution: null,
-      adBudgetLimit: null,
-      isActive: true,
       isSelling: true,
       updatedAt: '2026-07-16T00:00:00.000Z',
       depletion: {
@@ -474,7 +446,7 @@ describe('product operations contracts', () => {
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
-      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 0, measuredSkuCount: 0 },
       channelCount: 2,
       channelStatus: 'partial',
       activeChannels: [{
@@ -562,14 +534,25 @@ describe('product operations contracts', () => {
   it('parses direct channel option components and capacity in product detail', () => {
     const detail = MasterProductOperationsDetailSchema.parse(createProductDetailFixture());
     expect(detail.channelListings[0]?.options[0]?.capacity).toBe(8);
-    expect(detail.channelListings[0]?.options[0]?.inventoryComponents[0]?.sellpiaInventorySkuId).toBe(skuId);
+    expect(detail.channelListings[0]?.options[0]?.inventoryComponents[0]?.masterProductId).toBe(skuId);
     expect(detail.displayReference.value).toBe('13712531060');
   });
 
-  it('requires component availability to equal physical current stock in product detail', () => {
-    expect(() => MasterProductOperationsDetailSchema.parse(
-      createProductDetailFixture(64),
-    )).toThrow(/availableStock/i);
+  it('rejects the retired duplicate available stock field in product detail', () => {
+    const fixture = createProductDetailFixture();
+    const listing = fixture.channelListings[0]!;
+    const option = listing.options[0]!;
+    const component = option.inventoryComponents[0]!;
+    expect(() => MasterProductOperationsDetailSchema.parse({
+      ...fixture,
+      channelListings: [{
+        ...listing,
+        options: [{
+          ...option,
+          inventoryComponents: [{ ...component, availableStock: 64 }],
+        }],
+      }],
+    })).toThrow(/availableStock/i);
   });
 
   it('rejects negative component availability in product detail', () => {
@@ -578,21 +561,15 @@ describe('product operations contracts', () => {
       code: 'KI-001',
       displayReference: { type: 'product_code', label: '상품 코드', value: 'KI-001' },
       name: '키즈 식판',
-      description: null,
-      category: null,
-      brand: null,
-      tags: [],
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
       abcEvaluation: null,
       abc: abcFixture,
       contribution: null,
-      adBudgetLimit: null,
-      isActive: true,
       createdAt: '2026-07-16T00:00:00.000Z',
       updatedAt: '2026-07-16T00:00:00.000Z',
-      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 1 },
       inventoryUnits: 80,
       channelListings: [{
         id: '00000000-0000-4000-8000-000000000004',
@@ -614,58 +591,54 @@ describe('product operations contracts', () => {
           capacity: null,
           inventoryComponents: [{
             id: '00000000-0000-4000-8000-000000000006',
-            sellpiaInventorySkuId: skuId,
+            masterProductId: skuId,
             code: 'SP-001',
             name: '식판',
             optionName: null,
             barcode: null,
-            currentStock: 80,
-            availableStock: -1,
-            isActive: true,
+            currentStock: -1,
             quantity: 8,
           }],
         }],
       }],
-    })).toThrow(/availableStock/i);
+    })).toThrow(/currentStock/i);
   });
 
-  it('enforces product code normalization and mutation strictness', () => {
-    expect(CreateMasterProductInputSchema.parse({
+  it('normalizes product codes in responses and enforces image-only mutation strictness', () => {
+    expect(MasterProductOperationsMetadataSchema.parse({
+      ...metadataFixture,
       code: '  KI-001  ',
-      name: '  키즈 식판  ',
-    })).toMatchObject({ code: 'KI-001', name: '키즈 식판' });
-    expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }))
-      .not.toHaveProperty('variants');
-    expect(() => CreateMasterProductInputSchema.parse({
+      imageUrls: [],
+      displayImageUrls: [],
+    }).code).toBe('KI-001');
+    expect(UpdateMasterProductInputSchema.parse({
+      imageUrls: [' https://cdn.example.com/image.jpg '],
+    })).toEqual({ imageUrls: ['https://cdn.example.com/image.jpg'] });
+    expect(() => UpdateMasterProductInputSchema.parse({
+      imageUrls: [],
       code: 'KI-001',
-      name: '식판',
-      variants: [],
-    })).toThrow();
-    expect(() => CreateMasterProductInputSchema.parse({
-      code: 'x'.repeat(101),
-      name: '식판',
     })).toThrow();
     expect(() => UpdateMasterProductInputSchema.parse({})).toThrow();
   });
 
   it('accepts bounded direct channel option recipes with positive integer quantities', () => {
     expect(ReplaceChannelOptionInventoryInputSchema.parse({
-      components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
+      components: [{ masterProductId: skuId, quantity: 2 }],
     }).components).toHaveLength(1);
     expect(ReplaceChannelOptionInventoryInputSchema.parse({ components: [] }).components).toEqual([]);
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
-      components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }],
+      components: [{ masterProductId: skuId, quantity: 0 }],
     })).toThrow();
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: Array.from({ length: 51 }, (_, index) => ({
-        sellpiaInventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        masterProductId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
         quantity: 1,
       })),
     })).toThrow();
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: [
-        { sellpiaInventorySkuId: skuId, quantity: 1 },
-        { sellpiaInventorySkuId: skuId, quantity: 2 },
+        { masterProductId: skuId, quantity: 1 },
+        { masterProductId: skuId, quantity: 2 },
       ],
     })).toThrow();
   });

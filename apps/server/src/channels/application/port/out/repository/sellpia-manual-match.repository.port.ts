@@ -11,7 +11,7 @@ export const SELLPIA_MANUAL_MATCH_REPOSITORY_PORT = Symbol(
 );
 
 export type SellpiaManualMatchAliasRecord = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   aliasTitle: string;
   normalizedAlias: string;
   itemCount: number;

@@ -89,11 +89,11 @@ export class ChannelRecipeSuggestionService {
 
   async resolveSelectedRegistrationSku(
     organizationId: string,
-    sellpiaInventorySkuId: string,
+    masterProductId: string,
   ) {
     const [sku] = await this.evidence.findByIds(
       organizationId,
-      [sellpiaInventorySkuId],
+      [masterProductId],
     );
     if (!sku) {
       throw new ConflictException(
@@ -143,7 +143,7 @@ export class ChannelRecipeSuggestionService {
     ]);
     const matchingNameIndex = createChannelRecipeNameIndex(activeMatchingSkus);
     const activeMatchingSkuById = new Map(activeMatchingSkus.map((sku) => [
-      sku.sellpiaInventorySkuId,
+      sku.masterProductId,
       sku,
     ]));
 
@@ -193,7 +193,7 @@ export class ChannelRecipeSuggestionService {
         manualMatchRows
           .filter((row) => row.normalizedAlias === candidate.normalizedValue)
           .flatMap((row) => {
-            const sku = activeMatchingSkuById.get(row.sellpiaInventorySkuId);
+            const sku = activeMatchingSkuById.get(row.masterProductId);
             return sku ? [{
               channelValue: candidate.channelValue,
               normalizedValue: candidate.normalizedValue,
@@ -253,7 +253,7 @@ type RecipeSuggestionContext = {
     barcode: string | null;
   }>;
   existingComponents: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     quantity: number;
     source: 'manual' | 'deterministic';

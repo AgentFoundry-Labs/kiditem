@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductSourceModule } from '../products/product-source.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SupplyCapabilityCompositionAdapter } from './adapter/in/agent/supply-capability-composition.adapter';
@@ -22,7 +22,7 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
   imports: [
     PrismaModule,
     AgentOsCapabilityModule,
-    InventoryModule,
+    ProductSourceModule,
   ],
   providers: [
     ProcurementService,

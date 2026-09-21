@@ -166,7 +166,7 @@ export default function ProductTabContent({
     setIsBasicEditing(false);
   };
   const saveBasicEditing = async () => {
-    const input = productBasicsInputFromDraft(basicDraft, basicInfo);
+    const input = productBasicsInputFromDraft(basicDraft);
     setIsBasicSaving(true);
     try {
       await onCommitBasicInfo?.(input);

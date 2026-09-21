@@ -242,9 +242,8 @@ erDiagram
     String sourceCandidateId FK
     String channelAccountId FK
     String sourceContentWorkspaceId FK
-    String channelListingId FK
+    DateTime closedAt
     String displayName
-    String status
     String selectedThumbnailUrl
     String selectedThumbnailGenerationId FK
     String selectedThumbnailGenerationCandidateId FK
@@ -252,15 +251,6 @@ erDiagram
     String selectedDetailPageRevisionId FK
     String selectedDetailPageGenerationId FK
     Json registrationInput
-    String submissionKey
-    String providerSubmissionId
-    String lastError
-    Json registrationResult
-    Json submissionPayloadJson
-    String submissionPayloadHash
-    String providerOutcome
-    String submissionLeaseToken
-    DateTime submissionLeaseClaimedAt
     String reviewPayloadHash
     DateTime approvedAt
     String approvedByUserId FK
@@ -488,7 +478,7 @@ erDiagram
 | ContentGenerationGroup | organization | references external | Core | Organization |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| ContentWorkspace | channelListing | references external | Core | ChannelListing |
+| ContentWorkspace | channelListing | references external | Channels | ChannelListing |
 | ContentWorkspace | createdByUser | references external | Core | User |
 | ContentWorkspace | organization | references external | Core | Organization |
 | ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
@@ -506,11 +496,10 @@ erDiagram
 | DetailPageRevision | organization | references external | Core | Organization |
 | ProductPreparation | approvedByUser | references external | Core | User |
 | ProductPreparation | channelAccount | references external | Core | ChannelAccount |
-| ProductPreparation | channelListing | references external | Core | ChannelListing |
 | ProductPreparation | createdByUser | references external | Core | User |
 | ProductPreparation | organization | references external | Core | Organization |
 | ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| Thumbnail | listing | references external | Core | ChannelListing |
+| Thumbnail | listing | references external | Channels | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | organization | references external | Core | Organization |
@@ -522,6 +511,6 @@ erDiagram
 | ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
-| ThumbnailTracking | listing | references external | Core | ChannelListing |
+| ThumbnailTracking | listing | references external | Channels | ChannelListing |
 | ThumbnailTracking | organization | references external | Core | Organization |
 | ThumbnailTrackingDailySnapshot | organization | references external | Core | Organization |

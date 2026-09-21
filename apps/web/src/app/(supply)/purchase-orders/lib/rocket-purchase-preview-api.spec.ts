@@ -20,6 +20,7 @@ function input() {
   return {
     channelAccountId: ACCOUNT_ID,
     sourceImportRunId: RUN_ID,
+    inventoryAttemptId: RUN_ID,
     editedQuantities: {},
   };
 }
@@ -87,30 +88,10 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
-  it('requests fresh inventory only when the caller explicitly requires it', async () => {
-    await previewRocketPurchases(input(), { inventoryRequirement: 'fresh' });
-
-    expect(apiClient.post).toHaveBeenCalledWith('/api/purchase-orders', {
-      action: 'previewRocket',
-      inventoryRequirement: 'fresh',
-      ...input(),
-    });
-  });
-
-  it('parses a freshness-pending checkpoint with advisory rows', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce({
-      status: 'freshness_pending',
-      collectionRunId: RUN_ID,
-      catalog: publication(),
-      requestedGeneration: '8',
-      rows: [],
-    });
-
-    await expect(previewRocketPurchases(input())).resolves.toMatchObject({
-      status: 'freshness_pending',
-      requestedGeneration: '8',
-      rows: [],
-    });
+  it('rejects requests without the successful inventory collection reference', async () => {
+    const { inventoryAttemptId: _omitted, ...missing } = input();
+    await expect(previewRocketPurchases(missing as ReturnType<typeof input>)).rejects.toThrow();
+    expect(apiClient.post).not.toHaveBeenCalled();
   });
 
   it('translates the stale inventory gate and preserves ordinary API messages', () => {

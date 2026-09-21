@@ -56,7 +56,7 @@ export default function SellpiaMasterProductPicker({ value, onChange, label }: S
         >
           <option value="">{isLoading ? '불러오는 중...' : 'Sellpia 상품을 선택하세요'}</option>
           {(data?.items ?? []).map((item) => (
-            <option key={item.sellpiaInventorySkuId} value={item.sellpiaInventorySkuId}>
+            <option key={item.masterProductId} value={item.masterProductId}>
               {item.code} · {item.name} · {item.optionName ?? '옵션 없음'} · 현재고 {formatNumber(item.currentStock)}
             </option>
           ))}

@@ -3,9 +3,9 @@ import { ErrorCodes } from '@kiditem/shared/errors';
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
-  SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
-  type SellpiaInventoryFreshnessGatePort,
-} from '../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
+  PRODUCT_COLLECTION_FRESHNESS_GATE_PORT,
+  type ProductCollectionFreshnessGatePort,
+} from '../../../products/application/port/in/product-collection-freshness-gate.port';
 import type {
   PurchaseOrderSubmissionPort,
   ReconcilePurchaseOrderSubmissionInput,
@@ -30,8 +30,8 @@ export class PurchaseOrderSubmissionService
 implements PurchaseOrderSubmissionPort {
   constructor(
     private readonly procurement: ProcurementService,
-    @Inject(SELLPIA_INVENTORY_FRESHNESS_GATE_PORT)
-    private readonly freshness: SellpiaInventoryFreshnessGatePort,
+    @Inject(PRODUCT_COLLECTION_FRESHNESS_GATE_PORT)
+    private readonly freshness: ProductCollectionFreshnessGatePort,
     @Inject(PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT)
     private readonly transaction: PurchaseOrderSubmissionTransactionPort,
     @Optional()
@@ -54,12 +54,20 @@ implements PurchaseOrderSubmissionPort {
       input.organizationId,
       input.purchaseOrderId,
     );
-    const sellpiaInventorySkuIds = [
-      ...new Set(purchaseOrder.items.map((item) => item.sellpiaInventorySkuId)),
+    const masterProductIds = [
+      ...new Set(purchaseOrder.items.flatMap((item) => (
+        item.masterProductId ? [item.masterProductId] : []
+      ))),
     ];
-    const gate = await this.freshness.assertFreshAndActive({
+    if (masterProductIds.length !== purchaseOrder.items.length) {
+      throw new BadRequestException(
+        'Purchase orders created before the MasterProduct cutover must be recreated before submission.',
+      );
+    }
+    const gate = await this.freshness.requireCollectedStock({
       organizationId: input.organizationId,
-      sellpiaInventorySkuIds,
+      attemptId: input.inventoryAttemptId,
+      masterProductIds,
     });
     const externalOrder = {
       externalOrderPlatform: optionalString(input.externalOrderPlatform),
@@ -74,13 +82,14 @@ implements PurchaseOrderSubmissionPort {
     const prepared = await this.transaction.prepare({
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
-      sellpiaInventorySkuIds,
+      masterProductIds,
+      inventoryAttemptId: gate.attemptId,
+      inventoryFence: gate.fence,
+      inventoryGeneration: gate.generation,
+      inventoryCompletedAt: gate.completedAt,
       idempotencyKey,
       requestHash,
       userId: input.userId,
-      freshnessFence: gate.fence,
-      freshnessLastVerifiedAt: gate.lastVerifiedAt,
-      freshnessExpiresAt: gate.expiresAt,
       requiresProvider,
       externalOrder,
     });
@@ -175,6 +184,7 @@ function cleanKey(value: string): string {
 function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
   const businessInput = {
     purchaseOrderId: input.purchaseOrderId,
+    inventoryAttemptId: input.inventoryAttemptId,
     ...(input.externalOrderPlatform !== undefined && {
       externalOrderPlatform: input.externalOrderPlatform,
     }),

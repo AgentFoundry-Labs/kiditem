@@ -66,7 +66,7 @@ const state = vi.hoisted(() => ({
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
-      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 0, measuredSkuCount: 0 },
       channelCount: 1,
       channelStatus: 'partial' as const,
       activeChannels: [{
@@ -217,8 +217,8 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('기간 매출')).toBeInTheDocument();
     expect(screen.getByText('순영업이익')).toBeInTheDocument();
     expect(screen.getByText('ABC 등급 현황')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '전체 카테고리' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '완구/놀이' })).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '재고' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
@@ -236,23 +236,23 @@ describe('<ProductsPageContent>', () => {
     expect(inventoryCard).not.toHaveTextContent('17');
   });
 
-  it('shows a channel product number instead of a CP UUID for channel-origin products', () => {
+  it('shows the canonical source product KID code', () => {
     state.data = {
       ...defaultData,
       items: [{
         ...defaultData.items[0],
-        code: 'CP-11111111-1111-4111-8111-111111111111',
+        code: 'KID00000001',
         displayReference: {
-          type: 'channel_product',
-          label: 'Coupang Wing 상품번호',
-          value: '13712531060',
+          type: 'product_code',
+          label: '상품 코드',
+          value: 'KID00000001',
         },
       }],
     };
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByText(/Coupang Wing 상품번호 13712531060/)).toBeInTheDocument();
+    expect(screen.getByText('KID00000001')).toBeInTheDocument();
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
@@ -264,8 +264,6 @@ describe('<ProductsPageContent>', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '7일' }));
     expect(state.setPeriodDays).toHaveBeenCalledWith(7);
-    fireEvent.click(screen.getByRole('button', { name: '완구/놀이' }));
-    expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
     expect(screen.queryByRole('button', { name: '+ 상품 추가' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });

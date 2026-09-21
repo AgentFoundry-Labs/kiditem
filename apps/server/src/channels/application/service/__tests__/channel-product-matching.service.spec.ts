@@ -59,25 +59,21 @@ function queue() {
           updatedAt: new Date('2026-08-01T00:00:00.000Z'),
           inventoryComponents: [{
             id: '00000000-0000-4000-8000-000000000009',
-            sellpiaInventorySkuId: firstSkuId,
+            masterProductId: firstSkuId,
             code: 'SP-1',
             name: '첫 재고',
             optionName: null,
             barcode: null,
             currentStock: 999,
-            availableStock: 999,
-            isActive: true,
             quantity: 2,
           }, {
             id: '00000000-0000-4000-8000-000000000010',
-            sellpiaInventorySkuId: secondSkuId,
+            masterProductId: secondSkuId,
             code: 'SP-2',
             name: '둘째 재고',
             optionName: null,
             barcode: null,
             currentStock: 999,
-            availableStock: 999,
-            isActive: true,
             quantity: 3,
           }],
         },
@@ -123,20 +119,16 @@ function repository() {
 }
 
 function inventoryAvailability(items = [{
-  sellpiaInventorySkuId: firstSkuId,
+  masterProductId: firstSkuId,
   currentStock: 10,
-  availableStock: 10,
-  isActive: true,
   generation: '1',
 }, {
-  sellpiaInventorySkuId: secondSkuId,
+  masterProductId: secondSkuId,
   currentStock: 7,
-  availableStock: 7,
-  isActive: true,
   generation: '1',
 }]) {
   return {
-    findBySkuIds: vi.fn().mockResolvedValue({
+    findByMasterProductIds: vi.fn().mockResolvedValue({
       snapshot: {
         collected: true,
         generation: '1',
@@ -177,7 +169,7 @@ describe('ChannelProductMatchingService', () => {
 
   it('does not publish repository stock or capacity before Inventory has collected a snapshot', async () => {
     const inventory = inventoryAvailability([]);
-    inventory.findBySkuIds.mockResolvedValue({
+    inventory.findByMasterProductIds.mockResolvedValue({
       snapshot: { collected: false, generation: null, verifiedAt: null },
       items: [],
     });
@@ -185,24 +177,20 @@ describe('ChannelProductMatchingService', () => {
 
     const result = await matching.list(organizationId);
 
-    expect(inventory.findBySkuIds).toHaveBeenCalledTimes(1);
-    expect(inventory.findBySkuIds).toHaveBeenCalledWith({
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledTimes(1);
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledWith({
       organizationId,
-      sellpiaInventorySkuIds: [firstSkuId, secondSkuId],
+      masterProductIds: [firstSkuId, secondSkuId],
     });
     expect(result.options[0]).toMatchObject({
       capacity: null,
       option: {
         inventoryComponents: [{
-          sellpiaInventorySkuId: firstSkuId,
+          masterProductId: firstSkuId,
           currentStock: null,
-          availableStock: null,
-          isActive: null,
         }, {
-          sellpiaInventorySkuId: secondSkuId,
+          masterProductId: secondSkuId,
           currentStock: null,
-          availableStock: null,
-          isActive: null,
         }],
       },
     });
@@ -214,20 +202,16 @@ describe('ChannelProductMatchingService', () => {
 
     const result = await matching.list(organizationId);
 
-    expect(inventory.findBySkuIds).toHaveBeenCalledTimes(1);
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledTimes(1);
     expect(result.options[0]).toMatchObject({
       capacity: 2,
       option: {
         inventoryComponents: [{
-          sellpiaInventorySkuId: firstSkuId,
+          masterProductId: firstSkuId,
           currentStock: 10,
-          availableStock: 10,
-          isActive: true,
         }, {
-          sellpiaInventorySkuId: secondSkuId,
+          masterProductId: secondSkuId,
           currentStock: 7,
-          availableStock: 7,
-          isActive: true,
         }],
       },
     });

@@ -77,10 +77,9 @@ function previewResult() {
       channelListingOptionId: '77777777-7777-4777-8777-777777777777',
       masterProductId: '88888888-8888-4888-8888-888888888888',
       components: [{
-        sellpiaInventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        masterProductId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         quantity: 1,
         currentStock: 5,
-        isActive: true,
       }],
     }],
   };
@@ -88,7 +87,7 @@ function previewResult() {
 
 function reference(source = request()) {
   const { collection: _collection, rows: _rows, ...decision } = source;
-  return { ...decision, sourceImportRunId };
+  return { ...decision, sourceImportRunId, inventoryAttemptId: collectionRunId };
 }
 
 function dependencies() {
@@ -177,15 +176,9 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
-  it('does not persist a workbook while the collected preview waits for freshness', async () => {
+  it('does not persist a workbook when the inventory collection has not completed', async () => {
     const deps = dependencies();
-    deps.preview.preview.mockResolvedValue({
-      status: 'freshness_pending',
-      requestedGeneration: '13',
-      rows: [],
-      collectionRunId,
-      catalog: previewResult().catalog,
-    });
+    deps.preview.preview.mockRejectedValue(new Error('Collection incomplete'));
     const service = new RocketWorkbookExportService(
       deps.preview as never,
       deps.transactions as never,
@@ -197,7 +190,7 @@ describe('RocketWorkbookExportService', () => {
       userId,
       request: reference(),
       artifactBytes,
-    })).rejects.toThrow('generation 13');
+    })).rejects.toThrow('Collection incomplete');
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
@@ -219,10 +212,10 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.preview.preview).toHaveBeenCalledWith({
       organizationId,
       userId,
-      inventoryRequirement: 'fresh',
       request: {
         channelAccountId,
         sourceImportRunId,
+        inventoryAttemptId: collectionRunId,
         editedQuantities: request().editedQuantities,
         previewScope: 'confirmation_requested',
       },

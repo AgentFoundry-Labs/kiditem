@@ -38,7 +38,6 @@ model SourcingCandidate {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                 Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provenanceMasterProduct      MasterProduct?                @relation("SourcingCandidateProvenance", fields: [provenanceMasterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rejectedByUser               User?                         @relation("SourcingCandidateRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
   triggeredByUser              User?                         @relation("SourcingCandidateTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
   images                       CandidateImage[]

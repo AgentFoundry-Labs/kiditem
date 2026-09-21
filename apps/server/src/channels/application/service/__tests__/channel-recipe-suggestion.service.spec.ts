@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import type { ChannelRecipeSuggestionContext } from '../../port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { ChannelRecipeSuggestionService } from '../channel-recipe-suggestion.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
@@ -7,7 +8,7 @@ const optionId = '00000000-0000-4000-8000-000000000002';
 
 describe('ChannelRecipeSuggestionService', () => {
   it('uses Sellpia manual-match quantity as the authoritative physical-unit recipe', async () => {
-    const context = {
+    const context: ChannelRecipeSuggestionContext = {
       channelListingOptionId: optionId,
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
@@ -21,7 +22,7 @@ describe('ChannelRecipeSuggestionService', () => {
       existingComponents: [],
     };
     const sellpiaSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      masterProductId: '00000000-0000-4000-8000-000000000005',
       code: '634-1',
       name: '1500샤이니무지개칼라링',
       optionName: null,
@@ -37,7 +38,7 @@ describe('ChannelRecipeSuggestionService', () => {
     };
     const manualMatches = {
       findByNormalizedAliases: vi.fn().mockResolvedValue([{
-        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        masterProductId: sellpiaSku.masterProductId,
         aliasTitle: context.options[0].listingName,
         normalizedAlias: '샤이니무지개칼라링12개입매직스프링완구',
         itemCount: 12,
@@ -56,7 +57,7 @@ describe('ChannelRecipeSuggestionService', () => {
       automationDecision: 'auto_apply',
       recommendedQuantity: 12,
       proposals: [{
-        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        masterProductId: sellpiaSku.masterProductId,
         code: '634-1',
         recommendedQuantity: 12,
       }],
@@ -70,7 +71,7 @@ describe('ChannelRecipeSuggestionService', () => {
   it('strips a leading Sellpia price code but requires registration quantity confirmation', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
+      masterProductId: '00000000-0000-4000-8000-000000000051',
       code: '10451-1',
       name: '3500꿀사과슬랑이',
       optionName: null,
@@ -96,7 +97,7 @@ describe('ChannelRecipeSuggestionService', () => {
       automationDecision: 'quantity_review',
       recommendedQuantity: null,
       proposals: [{
-        sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
+        masterProductId: sellpiaSku.masterProductId,
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         currentStock: 13,
@@ -118,7 +119,7 @@ describe('ChannelRecipeSuggestionService', () => {
     const repository = { getContext: vi.fn().mockResolvedValue(context) };
     const evidence = {
       findByCodes: vi.fn().mockResolvedValue([{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005', code: 'SP-001',
+        masterProductId: '00000000-0000-4000-8000-000000000005', code: 'SP-001',
         name: '키즈 식판', optionName: null, barcode: '001234567890', currentStock: 8,
       }]),
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
@@ -152,7 +153,7 @@ describe('ChannelRecipeSuggestionService', () => {
       existingComponents: [],
     };
     const rejectedBarcodeSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      masterProductId: '00000000-0000-4000-8000-000000000005',
       code: 'SP-BAD',
       name: '전혀 다른 상품',
       optionName: null,
@@ -160,7 +161,7 @@ describe('ChannelRecipeSuggestionService', () => {
       currentStock: 8,
     };
     const validNameSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000006',
+      masterProductId: '00000000-0000-4000-8000-000000000006',
       code: 'SP-GOOD',
       name: '키즈 식판',
       optionName: null,
@@ -181,10 +182,10 @@ describe('ChannelRecipeSuggestionService', () => {
       status: 'identifier_name_mismatch',
       automationDecision: 'operator_review',
     });
-    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+    expect(result.proposals.map(({ masterProductId }) => masterProductId))
       .toEqual([
-        rejectedBarcodeSku.sellpiaInventorySkuId,
-        validNameSku.sellpiaInventorySkuId,
+        rejectedBarcodeSku.masterProductId,
+        validNameSku.masterProductId,
       ]);
   });
 
@@ -203,7 +204,7 @@ describe('ChannelRecipeSuggestionService', () => {
       existingComponents: [],
     };
     const barcodeSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000007',
+      masterProductId: '00000000-0000-4000-8000-000000000007',
       code: 'SP-UNKNOWN-NAME',
       name: '알 수 없는 상품',
       optionName: null,
@@ -222,7 +223,7 @@ describe('ChannelRecipeSuggestionService', () => {
     await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
       status: 'quantity_review',
       automationDecision: 'quantity_review',
-      proposals: [{ sellpiaInventorySkuId: barcodeSku.sellpiaInventorySkuId }],
+      proposals: [{ masterProductId: barcodeSku.masterProductId }],
     });
   });
 
@@ -245,7 +246,7 @@ describe('ChannelRecipeSuggestionService', () => {
       findByCodes: vi.fn().mockResolvedValue([]),
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
       findByNormalizedNames: vi.fn().mockResolvedValue([{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        masterProductId: '00000000-0000-4000-8000-000000000005',
         code: 'SP-001',
         name: '키즈 식판',
         optionName: '블루 1개',
@@ -264,7 +265,7 @@ describe('ChannelRecipeSuggestionService', () => {
   });
 
   it('keeps duplicate typed barcodes ambiguous and detects code/name disagreement', async () => {
-    const context = {
+    const context: ChannelRecipeSuggestionContext = {
       channelListingOptionId: optionId,
       masterProductId: '00000000-0000-4000-8000-000000000004',
       options: [{
@@ -279,7 +280,7 @@ describe('ChannelRecipeSuggestionService', () => {
     };
     const repository = { getContext: vi.fn().mockResolvedValue(context) };
     const barcodeSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      masterProductId: '00000000-0000-4000-8000-000000000005',
       code: 'SP-001', name: '키즈 식판', optionName: null,
       barcode: '001234567890', currentStock: 8,
     };
@@ -287,7 +288,7 @@ describe('ChannelRecipeSuggestionService', () => {
       findByCodes: vi.fn().mockResolvedValue([]),
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([
         barcodeSku,
-        { ...barcodeSku, sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000006', code: 'SP-002' },
+        { ...barcodeSku, masterProductId: '00000000-0000-4000-8000-000000000006', code: 'SP-002' },
       ]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
       listActiveForMatching: vi.fn().mockResolvedValue([]),
@@ -301,7 +302,7 @@ describe('ChannelRecipeSuggestionService', () => {
     context.options[0]!.barcode = null;
     evidence.findByCodes.mockResolvedValue([{
       ...barcodeSku,
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000007',
+      masterProductId: '00000000-0000-4000-8000-000000000007',
       code: 'SP-CODE',
     }]);
     evidence.findByNormalizedBarcodes.mockResolvedValue([]);
@@ -365,7 +366,7 @@ describe('ChannelRecipeSuggestionService', () => {
       findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
       listActiveForMatching: vi.fn().mockResolvedValue([{
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        masterProductId: '00000000-0000-4000-8000-000000000005',
         code: '914-1', name: '동물인형목욕타올', optionName: null,
         barcode: null, currentStock: 8,
       }]),
@@ -390,7 +391,7 @@ describe('ChannelRecipeSuggestionService', () => {
       existingComponents: [],
     };
     const wrongSku = {
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      masterProductId: '00000000-0000-4000-8000-000000000005',
       code: '9726-1', name: '입체 오리 청소 세트', optionName: null,
       barcode: null, currentStock: 8,
     };

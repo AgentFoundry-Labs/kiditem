@@ -11,7 +11,7 @@ describe('direct channel inventory Prisma contract', () => {
   it('keeps one option-owned inventory component and removes operating variants', () => {
     expect(coreSchema).toContain('model ChannelListingOptionInventoryComponent');
     expect(coreSchema).toContain('channelListingOptionId String');
-    expect(coreSchema).toContain('sellpiaInventorySkuId  String');
+    expect(coreSchema).toContain('masterProductId        String');
     expect(coreSchema).not.toContain('model ProductVariant {');
     expect(coreSchema).not.toContain('model ProductVariantComponent {');
     expect(coreSchema).not.toContain('productVariantId String?');

@@ -88,6 +88,7 @@ function makeRow(
     skuStatus: null,
     modelNumber: null,
     barcode: null,
+    attributesJson: [],
     rawJson: {},
   };
 }

@@ -8,8 +8,8 @@ snapshot, lets the operator decide confirmed/stockout quantities, and generates
 the workbook uploaded back to Coupang. This review does not create a Sellpia
 order, call a marketplace provider, or mutate physical inventory.
 
-Automatic freshness operation and recovery are defined in
-[Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
+Collection operation and recovery are defined in
+[Sellpia Inventory Collection](sellpia-inventory-freshness.md).
 Component matching is defined in
 [Import Channel Data And Match Sellpia Components](channel-sellpia-matching.md).
 
@@ -25,8 +25,8 @@ authenticated Rocket PO collection
   -> extension captures the provider and uploads directly to the owner
   -> Channels atomically stores COMPLETE snapshot + identities + Alert resolution
   -> UI reads the COMPLETE source independently of row count
-  -> Inventory refreshes Sellpia when needed
-  -> Supply recalculates a deterministic preview from the fresh generation
+  -> shared control starts/joins Sellpia collection and waits for COMPLETE
+  -> Supply verifies the named successful Inventory attempt and calculates
   -> operator reviews every quantity and shortage reason
   -> Supply reruns the fresh preview and stores the exact official workbook
   -> operator uploads the workbook to Coupang
@@ -36,12 +36,12 @@ authenticated Rocket PO collection
   -> no provider submit / no direct Sellpia stock write
 ```
 
-Inventory owns freshness, publication, physical `SellpiaInventorySku`, and
+Inventory owns collection, publication, physical `SellpiaInventorySku`, and
 `currentStock`. Channels owns Rocket `ChannelAccount` and observed listing/SKU
 identity. Products owns the operator-confirmed direct
 `ChannelListingOptionInventoryComponent` rules. Supply owns the preview
 calculation and Rocket decision/workbook audit.
-Orders owns PA persistence in the general order spine. Inventory owns freshness
+Orders owns PA persistence in the general order spine. Inventory owns collection
 and physical stock; Supply and Orders do not derive freshness or write inventory
 state.
 
@@ -90,13 +90,12 @@ loads canonical COMPLETE rows through Channels. They never publish browser
 rows or change the source terminal state. Preview failure leaves COMPLETE
 intact. Reopening an existing snapshot performs no new provider collection.
 
-Before final stockout allocation, Supply requires a fresh Inventory read
-containing one verified generation, active state, and `currentStock` for every
-confirmed option component. When inventory is stale, the server first returns
-a `freshness_pending` checkpoint containing rows calculated from the last stored
-snapshot. The UI shows those collected rows immediately, labels their quantities
-as advisory, joins the automatic refresh, then replaces them with the target
-generation calculation. Workbook export stays disabled during that wait.
+Before each calculation action, the UI starts or joins Sellpia inventory
+collection and waits for atomic publication. Preview and server export requests
+must include `inventoryAttemptId`. Supply verifies that exact successful
+current collection through Inventory's input port and reads `currentStock`.
+Failed/cancelled collection stops calculation. There is no TTL gate or advisory
+calculation while waiting; absent SKU references stay unavailable, not zero.
 
 Rows are allocated in stable ETA, PO, and line order. For each confirmed
 component:
@@ -113,19 +112,20 @@ stable allocation order. Any later edit marks the UI preview dirty and disables
 confirmation until a whole-preview revalidation returns effective quantities.
 
 Explicit block reasons cover incomplete collection, vendor mismatch, missing
-mapping, inactive component, and insufficient capacity. Missing mapping is not
+mapping, missing component, and insufficient capacity. Missing mapping is not
 treated as a confirmed zero-capacity recipe.
 
 ## Workbook Review, Coupang Confirmation, And Sellpia Application
 
 1. Review every row quantity. Every line must have an explicit value; every
    quantity below the PO order quantity must use one controlled shortage reason.
-2. Choose **쿠팡 엑셀 다운로드**. The browser uses a stable UUID idempotency key.
-3. Supply reruns the canonical preview against fresh Inventory capacity, verifies
-   the completed source run and unchanged option/component rules, and
-   persists the exact uploaded workbook bytes plus immutable line evidence.
-4. Replaying the same key and input returns the same workbook bytes; changed
-   input with the same key is rejected.
+2. Choose **쿠팡 엑셀 다운로드**.
+3. The UI collects Sellpia, reruns the canonical preview, builds the reviewed
+   workbook in the browser and downloads it directly. Download is not provider
+   acceptance and does not mutate physical stock.
+4. The existing backend workbook audit API and exact-byte replay remain for
+   internal callers/Orders reconciliation; the screen does not start a new
+   post-download tracking workflow.
 5. The operator uploads that workbook to Coupang. KidItem does not describe the
    download or upload as Coupang acceptance.
 6. Coupang evaluates the response and exposes accepted PA rows through Coupang

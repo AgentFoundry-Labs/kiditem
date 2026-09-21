@@ -12,6 +12,7 @@ import {
   FactConflictError,
   FactInputError,
   FactNotFoundError,
+  FactReferenceError,
 } from '../errors/fact-errors';
 
 @Catch()
@@ -81,7 +82,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = exception.message;
     } else if (exception instanceof FactConflictError) {
       statusCode = 409;
-      error = 'Conflict';
+      error = exception.details?.code ?? 'Conflict';
+      message = exception.message;
+      if (exception.details) {
+        details.code = exception.details.code;
+        if (exception.details.attemptId && UUID.test(exception.details.attemptId)) {
+          details.attemptId = exception.details.attemptId;
+        }
+      }
+    } else if (exception instanceof FactReferenceError) {
+      statusCode = 422;
+      error = exception.code;
       message = exception.message;
     } else if (exception instanceof FactInputError) {
       statusCode = 400;

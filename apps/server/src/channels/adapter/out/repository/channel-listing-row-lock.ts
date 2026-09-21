@@ -2,7 +2,6 @@ import type { Prisma } from '@prisma/client';
 
 export type LockedChannelListingRow = Readonly<{
   id: string;
-  masterProductId: string | null;
 }>;
 
 export async function lockChannelListingRow(
@@ -15,8 +14,7 @@ export async function lockChannelListingRow(
 ): Promise<LockedChannelListingRow | null> {
   const [listing] = await tx.$queryRaw<LockedChannelListingRow[]>`
     SELECT
-      id,
-      master_product_id AS "masterProductId"
+      id
     FROM channel_listings
     WHERE id = ${input.channelListingId}::uuid
       AND organization_id = ${input.organizationId}::uuid
@@ -24,5 +22,5 @@ export async function lockChannelListingRow(
     FOR UPDATE
   `;
   if (!listing) return null;
-  return { id: listing.id, masterProductId: listing.masterProductId };
+  return { id: listing.id };
 }

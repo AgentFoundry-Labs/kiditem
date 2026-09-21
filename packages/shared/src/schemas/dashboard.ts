@@ -716,11 +716,11 @@ export const SellpiaProductSalesIngestResultSchema = z.object({
   months: z.array(z.string()),
 });
 
-// Read 응답: GET /api/sellpia-product-sales
+// Read 응답: GET /api/sellpia-product-sales. Unit prices are transient
+// collection inputs and are intentionally absent from this read model.
 export const SellpiaProductSalesMonthPointSchema = z.object({
   yearMonth: z.string(),
   orderQty: z.number(),
-  anomaly: z.boolean().optional(), // 이상치(일회성 벌크/저가 대량) 월 — 평균/등급 산정 제외
 });
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
 export const SellpiaProductDestinationDisplayImageSchema = z.object({
@@ -763,29 +763,19 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
     }).strict(),
     z.object({
       status: z.literal('mapping_required'),
-      reason: z.enum(['not_found', 'inactive_candidate', 'ambiguous_barcode']),
+      reason: z.enum(['not_found', 'ambiguous_barcode']),
       candidateCount: z.number().int().nonnegative(),
     }).strict(),
     z.object({
       status: z.literal('matched'),
-      sellpiaInventorySkuId: z.string().uuid(),
+      masterProductId: z.string().uuid(),
       currentStock: z.number().int().nonnegative(),
-      availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
       inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
       destinations: z.array(SellpiaProductDestinationSchema),
     }).strict(),
   ],
-).superRefine((resolution, ctx) => {
-  if (resolution.status !== 'matched') return;
-  if (resolution.availableStock !== resolution.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+);
 
 export const SellpiaProductSalesRowSchema = z.object({
   productCode: z.string(),
@@ -793,8 +783,6 @@ export const SellpiaProductSalesRowSchema = z.object({
   productName: z.string(),
   optionName: z.string().nullable(),
   providerName: z.string().nullable(),
-  salePrice: z.number(),
-  buyPrice: z.number(),
   barcode: z.string().nullable(),
   monthly: z.array(SellpiaProductSalesMonthPointSchema), // 월별 추이(오름차순)
   qty1m: z.number(), // 최근 1개월(직전 완결 월) 소진량
@@ -806,8 +794,6 @@ export const SellpiaProductSalesRowSchema = z.object({
   deadStock: z.boolean(), // 악성재고 여부(정체/급감)
   deadStockReason: z.string().nullable(), // 악성 사유
   seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
-  anomaly: z.boolean(), // 이상치(일회성 벌크/저가 대량) 포함 — 평균/ABC/발주는 이상치 제외로 산정
-  anomalyReason: z.string().nullable(), // 이상치 사유
   // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
   inventoryResolution: SellpiaProductInventoryResolutionSchema,
   monthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
@@ -835,7 +821,6 @@ export const SellpiaProductSalesSummarySchema = z.object({
   }).strict(),
   reorderCount: z.number().int().nonnegative(), // 발주 필요 distinct SKU 수
   deadStockCount: z.number().int().nonnegative(), // 악성재고 distinct SKU 수
-  anomalyCount: z.number(), // 이상치 포함 상품 수
   abcCounts: z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),

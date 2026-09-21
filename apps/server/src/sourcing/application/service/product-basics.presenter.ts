@@ -6,7 +6,7 @@
  *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
  *   - `none`:    둘 다 없음. `salePrice` 는 0이다.
  */
-export type SalePriceSource = 'input' | 'sellpia' | 'none';
+export type SalePriceSource = 'input' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -145,7 +145,6 @@ export function buildProductBasics({
   preparation,
   registrationImages,
   workspaceThumbnailSelection,
-  sellpiaSalePrice,
 }: {
   candidate: CandidateLike;
   preparation: PreparationLike;
@@ -157,7 +156,6 @@ export function buildProductBasics({
    * 프리젠터는 순수 함수로 남는다. 매칭 실패는 `null`/`undefined` 이며, 추정하지
    * 않고 0원으로 남긴다.
    */
-  sellpiaSalePrice?: number | null;
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
   // `ProductPreparation` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
@@ -178,14 +176,9 @@ export function buildProductBasics({
     candidate.imageUrl,
   ].filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
 
-  // 수기 입력이 항상 이긴다. 셀피아 판매가는 수기 값이 비어 있을 때만 채우는
-  // 폴백이며, 사용자가 고친 값을 절대 덮어쓰지 않는다. 준비 registrationInput 이
-  // 없으면 후보 수기 저장값(manual)도 사용자 입력으로 취급한다.
-  const inputSalePrice = num(input.salePrice) || num(manual.salePrice);
-  const fallbackSalePrice = num(sellpiaSalePrice);
-  const salePrice = inputSalePrice > 0 ? inputSalePrice : fallbackSalePrice;
-  const salePriceSource: SalePriceSource =
-    inputSalePrice > 0 ? 'input' : fallbackSalePrice > 0 ? 'sellpia' : 'none';
+  // Registration prices come only from reviewed operator input.
+  const salePrice = num(input.salePrice) || num(manual.salePrice);
+  const salePriceSource: SalePriceSource = salePrice > 0 ? 'input' : 'none';
 
   return {
     name: str(input.name) ?? str(input.title) ?? candidate.name,

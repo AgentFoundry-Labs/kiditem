@@ -198,14 +198,14 @@ describe('owner capability composition', () => {
       .resolveImplementation('supply.create_purchase_order_draft')!
       .invoke({
         context: mutationContext({
-          sellpiaInventorySkuId: identifiers.candidateId,
+          masterProductId: identifiers.candidateId,
           productName: 'Toy',
           supplierName: 'Supplier',
           unitPriceCny: 1,
           moq: 1,
         }),
         input: {
-          sellpiaInventorySkuId: identifiers.candidateId,
+          masterProductId: identifiers.candidateId,
           productName: 'Toy',
           supplierName: 'Supplier',
           unitPriceCny: 1,

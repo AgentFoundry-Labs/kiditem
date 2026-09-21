@@ -113,12 +113,12 @@ function ownerSourceReadiness(source: {
   });
 }
 
-/** Sellpia inventory is ready only when fresh; it covers through the KST date of its last verification. */
-function sellpiaReadiness(state: { status: string; lastVerifiedAt: string | null }): SourceReadinessStatus {
-  const verifiedDate = toBusinessDate(state.lastVerifiedAt);
+/** Sellpia inventory is ready after a completed collection; it has no age cutoff. */
+function sellpiaReadiness(state: { status: string; lastCompletedAt: string | null }): SourceReadinessStatus {
+  const completedDate = toBusinessDate(state.lastCompletedAt);
   return sourceReadinessStatus({
-    ready: state.status === 'fresh',
-    latestComplete: verifiedDate ? { actualCutoff: businessDateKey(verifiedDate) } : null,
+    ready: state.status === 'complete',
+    latestComplete: completedDate ? { actualCutoff: businessDateKey(completedDate) } : null,
   });
 }
 
@@ -554,7 +554,7 @@ export function StockSyncRow() {
             {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            마지막 검증 {formatRelative(state?.lastVerifiedAt ?? null)}
+            마지막 수집 {formatRelative(state?.lastCompletedAt ?? null)}
           </p>
           {state?.status === 'failed' && state.errorMessage && (
             <p className="mt-1 text-xs text-[var(--danger)]">{state.errorMessage}</p>

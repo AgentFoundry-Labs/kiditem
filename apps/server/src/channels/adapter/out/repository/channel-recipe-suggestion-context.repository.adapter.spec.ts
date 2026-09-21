@@ -4,13 +4,28 @@ import { ChannelRecipeSuggestionContextRepositoryAdapter } from './channel-recip
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
 
+function inventoryReader() {
+  return {
+    findByIds: vi.fn().mockResolvedValue([{
+      masterProductId: 'sku-1',
+      code: 'SP-001',
+      name: '상품',
+      optionName: null,
+      barcode: null,
+      purchasePrice: null,
+      salePrice: null,
+      isActive: false,
+    }]),
+  };
+}
+
 describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
   it('returns null without querying related options when the organization-scoped option is absent', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const findMany = vi.fn();
     const repository = new ChannelRecipeSuggestionContextRepositoryAdapter({
       channelListingOption: { findFirst, findMany },
-    } as never);
+    } as never, inventoryReader() as never);
 
     await expect(repository.getContext(organizationId, optionId)).resolves.toBeNull();
     expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -29,22 +44,26 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
       channelListingOption: {
         findFirst: vi.fn().mockResolvedValue({
           id: optionId,
-          listing: { masterProductId: 'product-1', displayName: '키즈 식판', channelName: null },
+          listing: {
+            displayName: '키즈 식판',
+            channelName: null,
+            options: [{ inventoryComponents: [{ masterProductId: 'product-1' }] }],
+          },
           inventoryComponents: [{
             quantity: 2,
             createdAt: new Date('2026-07-18T00:00:00.000Z'),
-            sellpiaInventorySku: { id: 'sku-1', code: 'SP-001' },
+            masterProductId: 'sku-1',
           }],
         }),
         findMany,
       },
-    } as never);
+    } as never, inventoryReader() as never);
 
     await expect(repository.getContext(organizationId, optionId)).resolves.toMatchObject({
       channelListingOptionId: optionId, masterProductId: 'product-1',
       options: [expect.objectContaining({ barcode: '001234567890' })],
       existingComponents: [{
-        sellpiaInventorySkuId: 'sku-1',
+        masterProductId: 'sku-1',
         code: 'SP-001',
         quantity: 2,
         source: 'manual',

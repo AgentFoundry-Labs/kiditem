@@ -70,11 +70,11 @@
 10 apps/server/src/channels/application/service/coupang-wing-workbook.parser.spec.ts
 6 apps/server/src/common/product-sale-age.spec.ts
 1 apps/server/src/finance/controllers/finance-report-export.controller.spec.ts
-2 apps/server/src/inventory/__tests__/coupang-shipment-summary-source.pg.integration.spec.ts
-1 apps/server/src/inventory/adapter/in/http/sellpia-inventory-freshness.controller.spec.ts
-4 apps/server/src/inventory/adapter/out/repository/sellpia-import-run.repository.adapter.spec.ts
-8 apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.spec.ts
-4 apps/server/src/inventory/application/service/sellpia-inventory-import.service.spec.ts
+2 apps/server/src/orders/shipments/__tests__/coupang-shipment-summary-source.pg.integration.spec.ts
+1 apps/server/src/inventory/adapter/in/web/sellpia-inventory-freshness.controller.spec.ts
+4 apps/server/src/inventory/adapter/out/persistence/sellpia-import-run.repository.adapter.spec.ts
+8 apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.spec.ts
+4 apps/server/src/inventory/application/usecase/sellpia-inventory-import.service.spec.ts
 3 apps/server/src/orders/mapper/coupang-direct-order.mapper.spec.ts
 3 apps/server/src/orders/services/__tests__/order-collection-mall-account.service.spec.ts
 1 apps/server/src/products/application/service/master-product-abc.service.spec.ts

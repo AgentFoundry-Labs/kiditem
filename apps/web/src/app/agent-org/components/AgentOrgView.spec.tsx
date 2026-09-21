@@ -1,7 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
 import type { ConfirmReportStatus } from '../lib/confirm-report-api';
 import { buildPipeSnapshot, type PipeInputs } from '../lib/pipe-model';
@@ -9,31 +8,6 @@ import { AgentOrgView } from './AgentOrgView';
 
 const NOW = Date.parse('2026-09-13T06:00:00.000Z');
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
-
-function outcome(
-  mallKey: string,
-  operation: MallOperationOutcomeSummaryRow['operation'],
-  latest: Partial<MallOperationOutcomeSummaryRow['latest']>,
-): MallOperationOutcomeSummaryRow {
-  return {
-    mallKey,
-    operation,
-    latest: {
-      id: `${mallKey}-${operation}`,
-      mallKey,
-      operation,
-      outcome: 'succeeded',
-      reasonCode: null,
-      message: null,
-      itemCount: null,
-      failedCount: null,
-      warningCount: null,
-      occurredAt: ago(5),
-      ...latest,
-    },
-    counts: { succeeded: 0, empty: 0, attention: 0, failed: 0, cancelled: 0 },
-  } as MallOperationOutcomeSummaryRow;
-}
 
 function snapshot(overrides: Partial<PipeInputs> = {}) {
   return buildPipeSnapshot({
@@ -58,13 +32,6 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
       ],
       failed: false,
     },
-    outcomes: {
-      data: [
-        outcome('gs-shop', 'registration_fill', { outcome: 'attention', reasonCode: 'login_required' }),
-        outcome('icecream-mall', 'registration_fill', { outcome: 'succeeded', itemCount: 4 }),
-      ],
-      failed: false,
-    },
     malls: {
       data: [
         { key: 'gs-shop', name: 'GS샵', enabled: true },
@@ -72,7 +39,7 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
       ],
       failed: false,
     },
-    freshness: { data: null, failed: false },
+    collectionStatus: { data: null, failed: false },
     confirm: { data: null, failed: false },
     loginBlocks: [{ mallKey: 'gs-shop', kind: 'login', reason: '비밀번호 거부', at: NOW - 60_000 }],
     ...overrides,
@@ -98,9 +65,9 @@ describe('AgentOrgView', () => {
     }
   });
 
-  it('바깥 시스템(쇼핑몰 · 셀피아 · 텔레그램)과 사람 확인 · 관찰 기록 박스가 선다', () => {
+  it('바깥 시스템(쇼핑몰 · 셀피아 · 텔레그램)과 사람 확인 · 알림 박스가 선다', () => {
     render(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} />);
-    for (const name of ['쇼핑몰 연결 상태 열기', '셀피아 재고 열기', '확인 필요 목록으로', '관찰 기록 · 알림 열기']) {
+    for (const name of ['쇼핑몰 연결 상태 열기', '셀피아 재고 열기', '확인 필요 목록으로', '알림 열기']) {
       expect(screen.getByRole('link', { name })).toBeInTheDocument();
     }
     expect(screen.getByRole('region', { name: '텔레그램 컨펌 보고' })).toBeInTheDocument();
@@ -148,10 +115,9 @@ describe('AgentOrgView', () => {
     render(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} />);
     const keyword = screen.getByRole('link', { name: '1단계 실시간 키워드 열기' });
     expect(keyword).toHaveAttribute('href', '/sourcing-ai/market');
-    // 건수는 관찰 기록이 알려 준다 — 아이스크림몰 등록 폼 4건.
     const malls = screen.getByRole('link', { name: '11단계 쇼핑몰 등록 열기' });
     expect(malls).toHaveAttribute('href', '/mall-listings');
-    expect(within(malls).getByText('최근 4건')).toBeInTheDocument();
+    expect(within(malls).getByText('데이터 없음')).toBeInTheDocument();
   });
 
   it('⭐ 같은 몰 로그인 막힘은 확인 필요에 한 장이고, 몰 연결 줄에도 같은 사실이 선다', () => {
@@ -159,7 +125,7 @@ describe('AgentOrgView', () => {
     const inbox = screen.getByRole('heading', { name: '확인 필요' }).closest('section')!;
     expect(within(inbox).getAllByRole('link')).toHaveLength(1);
     expect(within(inbox).getByText('GS샵 · 자동 멈춤, 직접 로그인')).toBeInTheDocument();
-    expect(within(inbox).getByText('기록 2')).toBeInTheDocument();
+    expect(within(inbox).queryByText(/기록 \d+/)).toBeNull();
     expect(screen.getByText('몰 연결 2곳')).toBeInTheDocument();
   });
 
@@ -278,7 +244,7 @@ describe('AgentOrgView', () => {
     const feed = screen.getByRole('heading', { name: '실시간 기록' }).closest('section')!;
     const before = within(feed).getAllByRole('listitem').length;
 
-    rerender(<AgentOrgView snapshot={snapshot({ outcomes: { data: [], failed: false } })} connection="connected" now={NOW} />);
+    rerender(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} />);
     expect(within(feed).getAllByRole('listitem')).toHaveLength(before);
     expect(screen.getByRole('button', { name: '다시 흐르기' })).toHaveAttribute('aria-pressed', 'true');
   });

@@ -43,7 +43,6 @@ describe('supplier stats contracts', () => {
         masterName: '우파루팡반짝슈가말랑이',
         optionName: null,
         supplyPrice: 1_000,
-        minOrderQty: 1,
         totalOrders: 1,
         totalQuantity: 8,
         totalRevenue: 12_000,

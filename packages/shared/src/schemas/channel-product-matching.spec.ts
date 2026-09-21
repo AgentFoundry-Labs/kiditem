@@ -20,14 +20,13 @@ describe('direct channel product and inventory matching contracts', () => {
   it('requires physical availability to equal current stock', () => {
     expect(ChannelOptionInventoryComponentSchema.safeParse({
       id: componentId,
-      sellpiaInventorySkuId: inventorySkuId,
+      masterProductId: inventorySkuId,
       code: 'SP-100',
       name: '낱개 재고',
       optionName: null,
       barcode: null,
       currentStock: 85,
       availableStock: 84,
-      isActive: true,
       quantity: 10,
     }).success).toBe(false);
   });
@@ -108,14 +107,12 @@ describe('direct channel product and inventory matching contracts', () => {
           updatedAt: '2026-08-03T00:00:00.000Z',
           inventoryComponents: [{
             id: componentId,
-            sellpiaInventorySkuId: inventorySkuId,
+            masterProductId: inventorySkuId,
             code: 'SP-100',
             name: '낱개 재고',
             optionName: null,
             barcode: null,
             currentStock: 85,
-            availableStock: 85,
-            isActive: true,
             quantity: 10,
           }],
         },
@@ -128,7 +125,7 @@ describe('direct channel product and inventory matching contracts', () => {
     });
 
     expect(parsed.options[0]?.option.inventoryComponents[0]).toMatchObject({
-      sellpiaInventorySkuId: inventorySkuId,
+      masterProductId: inventorySkuId,
       quantity: 10,
     });
     expect(parsed.options[0]?.capacity).toBe(8);
@@ -170,7 +167,7 @@ describe('direct channel product and inventory matching contracts', () => {
       reason: '판매자 SKU와 Sellpia 코드가 일치합니다.',
       existingComponents: [],
       proposals: [{
-        sellpiaInventorySkuId: inventorySkuId,
+        masterProductId: inventorySkuId,
         code: 'SP-100',
         name: '낱개 재고',
         optionName: null,

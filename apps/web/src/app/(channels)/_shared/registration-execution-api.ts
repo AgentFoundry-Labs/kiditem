@@ -5,7 +5,7 @@ import { apiClient } from '@/lib/api-client';
  *
  * 채널 계정에 상품을 보내는 길은 하나다 — 수집상품 화면의 WING 자동 제출도,
  * 몰 마법사도 이 파일을 지난다([ADR-0014](../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
- * 제출 없이 폼만 채운 것은 울타리가 아니라 관찰 기록(`mall-operation-outcomes-api`)이다.
+ * 제출 없이 폼만 채운 것은 울타리를 여는 등록 실행이 아니다.
  *
  * 화면별로 다른 등록 호출을 두면 "같은 상품을 한 계정에 두 번 보내지 않는다"가
  * 화면마다 달라진다. 서버 울타리가 그걸 막지만, 막힌 이유를 사람이 읽을 수 있는
@@ -17,7 +17,7 @@ const base = (candidateId: string) =>
 
 /** 셀피아 재고 SKU 한 줄. 울타리가 동결하는 vendorItemCode 의 출처다. */
 export interface SellpiaInventoryRef {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -54,7 +54,7 @@ export interface PrepareRegistrationExecutionBody {
   displayName: string;
   registrationInput: Record<string, unknown>;
   idempotencyKey: string;
-  sellpiaInventorySkuId?: string;
+  masterProductId?: string;
   sellpiaQuantity?: number;
 }
 

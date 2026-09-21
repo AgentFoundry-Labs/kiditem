@@ -1,11 +1,16 @@
-import { Injectable } from "@nestjs/common";
+import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
-import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
+import { readProductAbcPublication } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from "../../../../../products/application/port/in/product-transactional-read.port";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
@@ -38,7 +43,11 @@ interface TopProductRawRow {
  */
 @Injectable()
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+  ) {}
 
   /**
    * KST today KPI with the owner's completeness verdict intact.
@@ -116,7 +125,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountIds = [
       ...new Set(facts.orders.map((order) => order.channelAccountId)),
     ];
-    const options = await tx.channelListingOption.findMany({
+    const optionRows = await tx.channelListingOption.findMany({
         where: { organizationId, id: { in: optionIds } },
         select: {
           id: true,
@@ -126,13 +135,13 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
               externalId: true,
               channelName: true,
               displayName: true,
-              masterProduct: {
-                select: { id: true, name: true },
-              },
+
             },
           },
         },
       });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const options = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
     const accounts = await tx.channelAccount.findMany({
         where: { organizationId, id: { in: accountIds } },
         select: { id: true, name: true, channel: true },
@@ -141,6 +150,16 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountById = new Map(
       accounts.map((account) => [account.id, account]),
     );
+    const masterProductIds = [...new Set(options.flatMap((option) =>
+      option.listing.masterProductId ? [option.listing.masterProductId] : []))];
+    const masterProducts = await this.inventoryTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+    );
+    const masterProductById = new Map(masterProducts.map((product) => [
+      product.masterProductId,
+      product,
+    ]));
     const grouped = new Map<string, TopProductRawRow>();
     for (const line of lines) {
       const listing = line.listingOptionId
@@ -151,9 +170,11 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       const current = grouped.get(id) ?? {
         id,
         listingId: listing?.id ?? null,
-        masterProductId: listing?.masterProduct?.id ?? null,
+        masterProductId: listing?.masterProductId ?? null,
         name:
-          listing?.masterProduct?.name ??
+          (listing?.masterProductId
+            ? masterProductById.get(listing.masterProductId)?.name
+            : null) ??
           listing?.displayName ??
           listing?.channelName ??
           listing?.externalId ??
@@ -255,6 +276,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
+      this.inventoryTransactionalRead,
     );
     return new Map(rows.map((row) => [row.listingId, row]));
   }

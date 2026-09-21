@@ -1,7 +1,7 @@
-import type { SellpiaInventoryFreshnessWithBlockers } from '@/lib/sellpia-inventory-freshness-api';
+import type { SellpiaInventoryCollectionStatusWithBlockers } from '@/lib/sellpia-inventory-freshness-api';
 
 /**
- * What a refresh request actually achieved.
+ * What a collection request actually achieved.
  *
  * A refresh request only marks work as due; the background coordinator performs
  * the collection, so callers classify the returned state instead of trusting
@@ -11,26 +11,20 @@ export type SellpiaStockSyncOutcome =
   | { kind: 'running' }
   | { kind: 'queued'; startsInMs: number }
   | { kind: 'stalled'; errorMessage: string | null }
-  | { kind: 'fresh' }
+  | { kind: 'complete' }
   | { kind: 'request_failed' };
 
 export function classifySellpiaStockSync(
-  state: SellpiaInventoryFreshnessWithBlockers | null,
-  now: number = Date.now(),
+  state: SellpiaInventoryCollectionStatusWithBlockers | null,
 ): SellpiaStockSyncOutcome {
   if (!state) return { kind: 'request_failed' };
 
-  if (state.status === 'syncing') return { kind: 'running' };
+  if (state.status === 'running') return { kind: 'running' };
   if (state.status === 'failed') {
     return { kind: 'stalled', errorMessage: state.lastAttempt?.errorMessage ?? null };
   }
-  if (state.status === 'fresh') return { kind: 'fresh' };
-
-  const notBefore = state.syncNotBefore ? Date.parse(state.syncNotBefore) : now;
-  return {
-    kind: 'queued',
-    startsInMs: Number.isNaN(notBefore) ? 0 : Math.max(0, notBefore - now),
-  };
+  if (state.status === 'complete') return { kind: 'complete' };
+  return { kind: 'queued', startsInMs: 0 };
 }
 
 export function describeSellpiaStockSync(
@@ -55,8 +49,8 @@ export function describeSellpiaStockSync(
           ? `직전 수집이 실패한 상태입니다: ${outcome.errorMessage}`
           : '직전 수집이 실패한 상태라 동기화를 예약하지 못했습니다.',
       };
-    case 'fresh':
-      return { tone: 'success', message: '셀피아 데이터가 이미 최신입니다.' };
+    case 'complete':
+      return { tone: 'success', message: '셀피아 데이터 수집이 완료되었습니다.' };
     case 'request_failed':
       return { tone: 'error', message: '셀피아 동기화 요청에 실패했습니다.' };
   }

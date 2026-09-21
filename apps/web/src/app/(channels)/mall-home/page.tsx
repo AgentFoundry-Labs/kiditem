@@ -42,16 +42,6 @@ export default function MallHomePage() {
     [home.overview, home.totals],
   );
   const serverAttention = useMemo(() => home.alerts.filter(needsAttention).length, [home.alerts]);
-  // 관찰 기록 요약 — 최근 7일 결과 건수 · 몰 수 · 로그인 기록 수.
-  const outcomeStats = useMemo(() => {
-    const summary = home.outcomeSummary;
-    if (!summary) return null;
-    const rows = summary.rows ?? [];
-    const loginRecords = rows
-      .filter((row) => row.operation === 'login_test' || row.operation === 'login_check')
-      .reduce((sum, row) => sum + Object.values(row.counts).reduce((a, b) => a + b, 0), 0);
-    return { total: summary.total, malls: new Set(rows.map((row) => row.mallKey)).size, loginRecords };
-  }, [home.outcomeSummary]);
   // 로그인 상태는 다 확인한 뒤의 숫자만 파이프라인에 적는다.
   const sessionCounts = home.session.status === 'done' ? home.session.counts : null;
   const pipeline = useMemo(
@@ -65,10 +55,8 @@ export default function MallHomePage() {
         coupangPendingAccept: home.coupangPendingAccept,
         openAlertCount: home.openAlertCount,
         totals: home.overview ? home.totals : null,
-        outcomes: outcomeStats,
       }),
     [
-      outcomeStats,
       missions,
       home.alertsReady,
       home.alerts.length,

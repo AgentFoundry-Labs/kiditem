@@ -1,3 +1,4 @@
+import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, expect, it, vi } from 'vitest';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
@@ -6,6 +7,7 @@ import { SellpiaProductSalesModule } from '../analytics/sellpia-product-sales/se
 import { SellpiaProfitabilitySourceModule } from '../analytics/sellpia-product-sales/sellpia-profitability-source.module';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/master-product-profitability-read.port';
 import { MasterProductProfitabilityReadService } from './application/service/master-product-profitability-read.service';
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
@@ -213,7 +215,15 @@ function makeService(input: {
   const prisma = {
     masterProduct: {
       findMany: vi.fn().mockResolvedValue(
-        input.products ?? [{ id: PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } }],
+        input.products ?? [{
+          id: PRODUCT_ID,
+          code: 'KID00000001',
+          name: 'Product 1',
+          optionName: null,
+          barcode: null,
+          purchasePrice: 100,
+          imageUrls: [],
+        }],
       ),
     },
     channelListing: {
@@ -223,11 +233,7 @@ function makeService(input: {
         options: [{
           inventoryComponents: [{
             quantity: 1,
-            sellpiaInventorySku: {
-              isActive: true,
-              masterProductId: PRODUCT_ID,
-              masterProduct: { isActive: true },
-            },
+            masterProductId: PRODUCT_ID,
           }],
         }],
       }]),
@@ -252,7 +258,7 @@ function makeService(input: {
       sellpia as never,
       advertising as never,
       prisma as never,
-    ) as unknown as { load(input: { organizationId: string; targetCutoff: string }): Promise<any> },
+     new ProductTransactionalReadRepositoryAdapter()) as unknown as { load(input: { organizationId: string; targetCutoff: string }): Promise<any> },
     sellpia,
     advertising,
     prisma,
@@ -699,7 +705,15 @@ describe('ProfitabilityEvidence', () => {
     const completeFacts = sellpiaFacts({ facts: [] });
     const { service } = makeService({
       sellpiaFacts: completeFacts,
-      products: [{ id: PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } }],
+      products: [{
+        id: PRODUCT_ID,
+        code: 'KID00000001',
+        name: 'Product 1',
+        optionName: null,
+        barcode: null,
+        purchasePrice: 100,
+        imageUrls: [],
+      }],
     });
 
     const result = await service.load({
@@ -716,9 +730,33 @@ describe('ProfitabilityEvidence', () => {
 
   it('preserves valid, multi-master, invalid-mapping, and unmapped fact semantics', async () => {
     const products = [
-      { id: PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
-      { id: MULTI_MASTER_PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
-      { id: INVALID_MAPPING_PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
+      {
+        id: PRODUCT_ID,
+        code: 'KID00000001',
+        name: 'Product 1',
+        optionName: null,
+        barcode: null,
+        purchasePrice: 100,
+        imageUrls: [],
+      },
+      {
+        id: MULTI_MASTER_PRODUCT_ID,
+        code: 'KID00000002',
+        name: 'Product 2',
+        optionName: null,
+        barcode: null,
+        purchasePrice: 100,
+        imageUrls: [],
+      },
+      {
+        id: INVALID_MAPPING_PRODUCT_ID,
+        code: 'KID00000003',
+        name: 'Product 3',
+        optionName: null,
+        barcode: null,
+        purchasePrice: 100,
+        imageUrls: [],
+      },
     ];
     const { service, sellpia, prisma } = makeService({ products });
     prisma.channelListing.findMany.mockResolvedValue([{
@@ -728,19 +766,11 @@ describe('ProfitabilityEvidence', () => {
         inventoryComponents: [
           {
             quantity: 1,
-            sellpiaInventorySku: {
-              isActive: true,
-              masterProductId: PRODUCT_ID,
-              masterProduct: { isActive: true },
-            },
+            masterProductId: PRODUCT_ID,
           },
           {
             quantity: 1,
-            sellpiaInventorySku: {
-              isActive: true,
-              masterProductId: MULTI_MASTER_PRODUCT_ID,
-              masterProduct: { isActive: true },
-            },
+            masterProductId: MULTI_MASTER_PRODUCT_ID,
           },
         ],
       }],
@@ -905,6 +935,7 @@ describe('ProfitabilityEvidenceModule', () => {
     expect(Reflect.getMetadata(MODULE_METADATA.IMPORTS, ProfitabilityEvidenceModule)).toEqual([
       SellpiaProfitabilitySourceModule,
       AdvertisingProfitabilityReadModule,
+      ProductCollectionRuntimeModule,
     ]);
     expect(Reflect.getMetadata(MODULE_METADATA.PROVIDERS, ProfitabilityEvidenceModule)).toEqual([
       MasterProductProfitabilityReadService,

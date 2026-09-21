@@ -93,17 +93,17 @@ export default function ChannelOptionInventoryPanel({
                   ) : option.inventoryComponents.map((component) => (
                     <div key={component.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2 text-xs">
                       <span className="flex min-w-0 items-center gap-2 font-semibold text-[var(--text-secondary)]">
-                        {component.isActive === true ? <PackageCheck size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
-                        <span className="truncate">{component.code} · {component.name}{component.optionName ? ` / ${component.optionName}` : ''}</span>
+                        {component.currentStock !== null ? <PackageCheck size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
+                        <span className="truncate">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}{component.optionName ? ` / ${component.optionName}` : ''}</span>
                       </span>
-                      <span className="font-bold tabular-nums text-[var(--text-primary)]">가용 {component.availableStock === null ? '미수집' : formatNumber(component.availableStock)} · 차감 {formatNumber(component.quantity)}</span>
+                      <span className="font-bold tabular-nums text-[var(--text-primary)]">현재 재고 {component.currentStock === null ? '연결 없음' : formatNumber(component.currentStock)} · 차감 {formatNumber(component.quantity)}</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-3">
                   <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-tertiary)]">
-                    <Boxes size={14} /> 병목 {bottleneck ? `${bottleneck.code} (${formatNumber(Math.floor(bottleneck.availableStock / bottleneck.quantity))}개)` : '미확정'}
+                    <Boxes size={14} /> 병목 {bottleneck ? `${bottleneck.code} (${formatNumber(Math.floor(bottleneck.currentStock / bottleneck.quantity))}개)` : '미확정'}
                   </p>
                   <button type="button" onClick={() => setEditingOption(option)} className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs font-extrabold text-[var(--primary)]">
                     재고 구성 편집
@@ -134,15 +134,15 @@ export default function ChannelOptionInventoryPanel({
 
 function findBottleneck(option: ProductChannelListingSummary['options'][number]) {
   type AvailableComponent = ProductChannelListingSummary['options'][number]['inventoryComponents'][number] & {
-    availableStock: number;
+    currentStock: number;
   };
 
   return option.inventoryComponents
-    .filter((component): component is AvailableComponent => component.isActive === true && component.availableStock !== null)
+    .filter((component): component is AvailableComponent => component.currentStock !== null)
     .reduce<AvailableComponent | null>((lowest, component) => {
       if (!lowest) return component;
-      return Math.floor(component.availableStock / component.quantity)
-        < Math.floor(lowest.availableStock / lowest.quantity)
+      return Math.floor(component.currentStock / component.quantity)
+        < Math.floor(lowest.currentStock / lowest.quantity)
         ? component
         : lowest;
     }, null);

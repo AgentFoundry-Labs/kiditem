@@ -42,7 +42,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     capability = new SourcingFinalCapabilityAdapter(undefined as never, undefined as never, undefined as never,
       undefined as never, owner, undefined as never, undefined as never);
     const sourcing = new SourcingService(candidates, undefined as never, undefined as never, undefined as never,
-      undefined as never, undefined as never, owner);
+      undefined as never, owner);
     const module = await Test.createTestingModule({ controllers: [SourcingExtensionIngestController], providers: [
       { provide: SourcingService, useValue: sourcing }, { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(attempts) },
     ] }).compile();

@@ -33,12 +33,7 @@ export function ProductRowCard({
       : inventoryStatus === 'uncollected'
         ? 'bg-slate-100 text-slate-600'
         : 'bg-emerald-50 text-emerald-700';
-  const categoryLabel = categoryLabelForList(product.category);
-  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
-    || !isInternalProductCode(product.displayReference.value);
-  const secondaryLabel = hasVisibleDisplayReference
-    ? `${product.displayReference.label} ${product.displayReference.value} · ${product.brand ?? '브랜드 미등록'}`
-    : product.brand ?? null;
+  const secondaryLabel = product.code;
   const alertStyle = isWarning
     ? 'border-amber-300 bg-amber-50/70'
     : isOutOfStock
@@ -72,9 +67,6 @@ export function ProductRowCard({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              {categoryLabel ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
-                {categoryLabel}
-              </span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isSelling ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {product.isSelling ? '판매중' : '판매중지'}
               </span>
@@ -165,10 +157,4 @@ function Metric({ value, label, currency, suffix }: {
       <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">{label}</p>
     </div>
   );
-}
-
-function categoryLabelForList(category: string | null): string | null {
-  const normalized = category?.trim();
-  if (!normalized) return '미분류';
-  return /^[\d\s/._-]+$/.test(normalized) ? null : normalized;
 }

@@ -12,15 +12,12 @@ import {
   getMallLoginBlocksServerSnapshot,
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
-import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
 import { queryKeys } from '@/lib/query-keys';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
 import type { PipeBusiness } from '../components/PipeBottomDashboard';
 import { buildPipeSnapshot, type PipeSnapshot } from '../lib/pipe-model';
 import { useConfirmReport, type PipeConfirmChannel } from './use-confirm-report';
 
-/** 관찰 기록은 오늘 것만 본다 — 지난주 로그인 실패로 오늘 화면을 빨갛게 칠하지 않는다. */
-const OUTCOME_DAYS = 1;
 /** 상대 시간("12분 전")을 다시 그리는 간격. */
 const CLOCK_MS = 30_000;
 /** 하단 열린 알림에 올리는 수. */
@@ -30,9 +27,9 @@ const EMPTY_ALERTS: AlertItem[] = [];
 /**
  * Agent Org 가 읽는 기록을 모은다.
  *
- * 새 실시간 스트림을 만들지 않는다. 알림은 앱 전역과 같은 알림 쿼리(10초 폴링)를, 몰 작업
- * 관찰 기록 · 셀피아 신선도 · 매출 · 광고는 다른 화면과 같은 쿼리 키를 써서 캐시를 나눠 쓴다.
- * 새로 읽는 것은 사장님 컨펌 보고 상태 하나다.
+ * 새 실시간 스트림을 만들지 않는다. 알림은 앱 전역과 같은 알림 쿼리(10초 폴링)를, 셀피아
+ * 신선도 · 매출 · 광고는 다른 화면과 같은 쿼리 키를 써서 캐시를 나눠 쓴다. 새로 읽는 것은
+ * 사장님 컨펌 보고 상태 하나다.
  */
 export function useAgentOrg(): {
   snapshot: PipeSnapshot;
@@ -51,21 +48,15 @@ export function useAgentOrg(): {
   }, []);
 
   const alerts = useAlertsQuery();
-  const outcomes = useQuery({
-    queryKey: queryKeys.mallOperationOutcomes.summary(OUTCOME_DAYS),
-    queryFn: () => mallOperationOutcomesApi.summary(OUTCOME_DAYS),
-    refetchInterval: 60_000,
-    meta: { suppressGlobalErrorToast: true },
-  });
   const malls = useQuery({
     queryKey: queryKeys.orders.collectionMalls(),
     queryFn: orderMallAccountApi.list,
     staleTime: 5 * 60_000,
     meta: { suppressGlobalErrorToast: true },
   });
-  const freshness = useQuery({
-    queryKey: queryKeys.inventory.freshness(),
-    queryFn: sellpiaInventoryFreshnessApi.getState,
+  const collectionStatus = useQuery({
+    queryKey: queryKeys.inventory.collectionStatus(),
+    queryFn: sellpiaInventoryCollectionStatusApi.getState,
     refetchInterval: 60_000,
     meta: { suppressGlobalErrorToast: true },
   });
@@ -101,9 +92,8 @@ export function useAgentOrg(): {
       buildPipeSnapshot({
         now,
         alerts: { data: alerts.data ?? null, failed: alerts.isError },
-        outcomes: { data: outcomes.data?.rows ?? null, failed: outcomes.isError },
         malls: { data: Array.isArray(malls.data) ? malls.data : null, failed: malls.isError },
-        freshness: { data: freshness.data ?? null, failed: freshness.isError },
+        collectionStatus: { data: collectionStatus.data ?? null, failed: collectionStatus.isError },
         confirm: {
           data: confirm.status?.candidates
             ? { ...confirm.status.candidates, lastReportAt: confirm.status.lastReport?.sentAt ?? null }
@@ -112,7 +102,7 @@ export function useAgentOrg(): {
         },
         loginBlocks,
       }),
-    [now, alerts.data, alerts.isError, outcomes.data, outcomes.isError, malls.data, malls.isError, freshness.data, freshness.isError, confirm.status, confirm.failed, loginBlocks],
+    [now, alerts.data, alerts.isError, malls.data, malls.isError, collectionStatus.data, collectionStatus.isError, confirm.status, confirm.failed, loginBlocks],
   );
 
   const business = useMemo<PipeBusiness>(
@@ -133,8 +123,7 @@ export function useAgentOrg(): {
     setNow(Date.now());
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.mallOperationOutcomes.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.freshness() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.collectionStatus() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesBaseline() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adBaseline() }),
     ]);

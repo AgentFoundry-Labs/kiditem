@@ -96,7 +96,7 @@ implements RocketWorkbookExportPort {
   }): Promise<RocketWorkbookExportResponse> {
     const publicRequest = RocketWorkbookExportRequestSchema.parse(input.request);
     const source = await this.catalog.readComplete({ organizationId: input.organizationId, channelAccountId: publicRequest.channelAccountId, sourceImportRunId: publicRequest.sourceImportRunId });
-    const { sourceImportRunId, ...decisionFields } = publicRequest;
+    const { sourceImportRunId, inventoryAttemptId, ...decisionFields } = publicRequest;
     const request = RocketWorkbookDecisionRequestSchema.parse({ ...decisionFields, collection: source.collection, rows: source.rows });
     if (input.artifactBytes.byteLength === 0 || input.artifactBytes.byteLength > 10 * 1024 * 1024) {
       throw new BadRequestException('Rocket workbook artifact must be between 1 byte and 10 MiB.');
@@ -105,19 +105,14 @@ implements RocketWorkbookExportPort {
     const preview = await this.previewPort.preview({
       organizationId: input.organizationId,
       userId: input.userId,
-      inventoryRequirement: 'fresh',
       request: {
         channelAccountId: publicRequest.channelAccountId,
         sourceImportRunId,
+        inventoryAttemptId,
         editedQuantities: publicRequest.editedQuantities,
         previewScope: 'confirmation_requested',
       } satisfies RocketPurchasePreviewRequest,
     });
-    if (preview.status === 'freshness_pending') {
-      throw new ConflictException(
-        `Sellpia inventory refresh is still pending for generation ${preview.requestedGeneration}.`,
-      );
-    }
     if (!preview.catalog) {
       throw new BadRequestException(
         'A complete Rocket PO collection is required before workbook export.',

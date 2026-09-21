@@ -24,7 +24,7 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
       code: 'SP-1',
       name: '가격 없는 상품',
       optionName: null,
@@ -53,15 +53,6 @@ beforeEach(() => {
 });
 
 describe('StockAssets', () => {
-  it('keys physical inventory rows by Sellpia inventory SKU identity', () => {
-    const source = readFileSync(resolve(
-      process.cwd().endsWith('/apps/web') ? process.cwd() : resolve(process.cwd(), 'apps/web'),
-      'src/app/(inventory)/inventory-hub/components/StockAssets.tsx',
-    ), 'utf8');
-
-    expect(source).toContain('key={item.sellpiaInventorySkuId}');
-    expect(source).not.toContain('item.masterProductId');
-  });
 
   it('uses the backend summary and labels nullable purchase prices as unpriced', async () => {
     renderAssets();
@@ -70,13 +61,15 @@ describe('StockAssets', () => {
     expect(screen.getByText('평가 재고자산')).toBeInTheDocument();
     expect(screen.getByText('가격 미등록 SKU')).toBeInTheDocument();
     expect(screen.getByText('가격 미등록')).toBeInTheDocument();
-    expect(screen.getAllByText('미수집')).toHaveLength(3);
+    expect(screen.getByText('0원')).toBeInTheDocument();
+    expect(screen.getByText('4개')).toBeInTheDocument();
+    expect(screen.getByText('1개')).toBeInTheDocument();
   });
 
   it('requests and renders the selected server page with the full result total', async () => {
     listSellpiaInventorySkus.mockImplementation(async ({ page, limit }) => ({
       items: [{
-        sellpiaInventorySkuId: page === 1
+        masterProductId: page === 1
           ? '00000000-0000-4000-8000-000000000001'
           : '00000000-0000-4000-8000-000000000002',
         code: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',

@@ -8,7 +8,7 @@ import {
   SellpiaImportRunListResponseSchema,
 } from './inventory-snapshot';
 
-const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000001';
+const masterProductId = '00000000-0000-4000-8000-000000000001';
 const runId = '00000000-0000-4000-8000-000000000002';
 const productId = '00000000-0000-4000-8000-000000000003';
 const firstChannelOptionId = '00000000-0000-4000-8000-000000000004';
@@ -16,7 +16,7 @@ const secondChannelOptionId = '00000000-0000-4000-8000-000000000005';
 const channelListingId = '00000000-0000-4000-8000-000000000006';
 
 const snapshotItem = {
-  sellpiaInventorySkuId,
+  masterProductId,
   code: 'SP-001',
   name: '상품',
   optionName: null,
@@ -120,12 +120,13 @@ describe('InventorySku snapshot contracts', () => {
     ]);
   });
 
-  it('rejects the former physical MasterProduct response identity', () => {
+  it('preserves the canonical MasterProduct identity and rejects the retired SKU alias', () => {
+    expect(InventorySkuSnapshotItemSchema.parse(snapshotItem).masterProductId)
+      .toBe(masterProductId);
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      sellpiaInventorySkuId: undefined,
-      masterProductId: sellpiaInventorySkuId,
-    })).toThrow();
+      sellpiaInventorySkuId: masterProductId,
+    })).toThrow(/sellpiaInventorySkuId|unrecognized/i);
   });
 
   it('requires linked destinations to agree with counts without a redundant wire status', () => {

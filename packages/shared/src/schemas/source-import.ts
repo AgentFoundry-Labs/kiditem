@@ -4,7 +4,7 @@ import {
   SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryGenerationSchema,
   SellpiaInventoryQualityReportSchema,
-  SellpiaInventoryRefreshReasonSchema,
+  SellpiaInventoryStoredCollectionTriggerSchema,
 } from './sellpia-inventory-freshness.js';
 
 export const MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS = 20_000;
@@ -27,9 +27,8 @@ export type SellpiaInventoryBrowserSnapshotRow = z.infer<
 export const SellpiaInventoryBrowserSnapshotSchema = z.object({
   source: z.literal('sellpia_product_search'),
   version: z.literal(1),
-  rowCount: z.number().int().min(1).max(MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS),
+  rowCount: z.number().int().min(0).max(MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS),
   rows: z.array(SellpiaInventoryBrowserSnapshotRowSchema)
-    .min(1)
     .max(MAX_SELLPIA_INVENTORY_BROWSER_SNAPSHOT_ROWS),
 }).strict().superRefine((snapshot, ctx) => {
   if (snapshot.rowCount !== snapshot.rows.length) {
@@ -165,7 +164,7 @@ const SourceImportRunObjectSchema = z.object({
   importedAt: zIsoDate.nullable(),
   lastVerifiedAt: zIsoDate.nullable(),
   verificationCount: z.number().int().nonnegative(),
-  lastTrigger: SellpiaInventoryRefreshReasonSchema.nullable(),
+  lastTrigger: SellpiaInventoryStoredCollectionTriggerSchema.nullable(),
   freshnessGeneration: SellpiaInventoryGenerationSchema.nullable(),
   manualFreshExportConfirmedAt: zIsoDate.nullable(),
   manualFreshExportConfirmedBy: z.string().uuid().nullable(),

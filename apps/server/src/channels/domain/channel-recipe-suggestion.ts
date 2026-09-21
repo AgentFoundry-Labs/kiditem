@@ -31,7 +31,7 @@ export type ChannelRecipeSuggestionEvidenceKind =
   | 'fuzzy_name';
 
 export type ChannelRecipeSuggestionSku = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -94,7 +94,7 @@ export type ChannelRecipeSuggestionInput = {
     barcode: string | null;
   }>;
   existingComponents: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     quantity: number;
     source: 'manual' | 'deterministic';
@@ -133,7 +133,7 @@ export type ChannelRecipeSuggestionResponse = {
   reason: string;
   existingComponents: ChannelRecipeSuggestionInput['existingComponents'];
   proposals: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     code: string;
     name: string;
     optionName: string | null;
@@ -222,7 +222,7 @@ export function classifyChannelRecipeSuggestion(
       'One deterministic identifier resolves to multiple Sellpia SKUs');
   }
 
-  const skuIds = new Set(strongEvidence.map((item) => item.sku.sellpiaInventorySkuId));
+  const skuIds = new Set(strongEvidence.map((item) => item.sku.masterProductId));
   if (skuIds.size > 1) {
     return decision(base, strongEvidence, 'conflict', 'blocked', null,
       'Deterministic identifiers resolve to different Sellpia SKUs');
@@ -343,7 +343,7 @@ function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
   const identifiers = new Map<string, Set<string>>();
   for (const item of evidence) {
     const skuIds = identifiers.get(item.identifier) ?? new Set<string>();
-    skuIds.add(item.sku.sellpiaInventorySkuId);
+    skuIds.add(item.sku.masterProductId);
     identifiers.set(item.identifier, skuIds);
   }
   return [...identifiers.values()].some((skuIds) => skuIds.size > 1);
@@ -501,15 +501,15 @@ function reviewEvidence(
   input: ChannelRecipeSuggestionInput,
   evidence: StrongEvidence[],
 ): StrongEvidence[] {
-  const seen = new Set(evidence.map((item) => item.sku.sellpiaInventorySkuId));
+  const seen = new Set(evidence.map((item) => item.sku.masterProductId));
   const add = (
     sku: ChannelRecipeSuggestionSku,
     item: StrongEvidence['evidence'],
   ) => {
-    if (seen.has(sku.sellpiaInventorySkuId)) return;
-    seen.add(sku.sellpiaInventorySkuId);
+    if (seen.has(sku.masterProductId)) return;
+    seen.add(sku.masterProductId);
     evidence.push({
-      identifier: `review:${sku.sellpiaInventorySkuId}`,
+      identifier: `review:${sku.masterProductId}`,
       source: 'name_option',
       sku,
       evidence: item,
@@ -599,9 +599,9 @@ function extractComparableAttributes(values: Array<string | null>): {
 function bestSimilarityPerSku(evidence: SimilarityEvidence[]): SimilarityEvidence[] {
   const bySku = new Map<string, SimilarityEvidence>();
   for (const item of evidence) {
-    const previous = bySku.get(item.sku.sellpiaInventorySkuId);
+    const previous = bySku.get(item.sku.masterProductId);
     if (!previous || item.score > previous.score) {
-      bySku.set(item.sku.sellpiaInventorySkuId, item);
+      bySku.set(item.sku.masterProductId, item);
     }
   }
   return [...bySku.values()].sort((left, right) =>
@@ -679,9 +679,9 @@ function proposalsFromStrongEvidence(
 ): ChannelRecipeSuggestionResponse['proposals'] {
   const bySku = new Map<string, StrongEvidence[]>();
   for (const item of evidence) {
-    const values = bySku.get(item.sku.sellpiaInventorySkuId) ?? [];
+    const values = bySku.get(item.sku.masterProductId) ?? [];
     values.push(item);
-    bySku.set(item.sku.sellpiaInventorySkuId, values);
+    bySku.set(item.sku.masterProductId, values);
   }
   return [...bySku.values()].map((items) => proposal(
     items[0]!.sku,
@@ -696,9 +696,9 @@ function proposalsFromLooseNameEvidence(
 ): ChannelRecipeSuggestionResponse['proposals'] {
   const bySku = new Map<string, NameEvidence[]>();
   for (const item of nameEvidence) {
-    const values = bySku.get(item.sku.sellpiaInventorySkuId) ?? [];
+    const values = bySku.get(item.sku.masterProductId) ?? [];
     values.push(item);
-    bySku.set(item.sku.sellpiaInventorySkuId, values);
+    bySku.set(item.sku.masterProductId, values);
   }
   return [...bySku.values()].map((items) => proposal(
     items[0]!.sku,
@@ -717,7 +717,7 @@ function proposal(
   recommendedQuantity: number | null,
 ): ChannelRecipeSuggestionResponse['proposals'][number] {
   return {
-    sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
+    masterProductId: sku.masterProductId,
     code: sku.code,
     name: sku.name,
     optionName: sku.optionName,

@@ -3,6 +3,7 @@ import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-impor
 import { businessDateKey } from '../../common/kst';
 import { currentRowTieBreakSql } from '../../common/current-row';
 import { wingListingRegistrationDate } from '../domain/wing-listing-registration';
+import { readListingProductIds } from './listing-product-summary.reader';
 import {
   dailyTrafficFactSource,
   type DailyTrafficFactSource,
@@ -57,6 +58,34 @@ export async function readListingTrafficWindowFacts(
 ): Promise<ListingTrafficWindowFacts> {
   if (input.listingIds?.length === 0) return emptyTrafficFacts();
 
+  const populationCandidates = await prisma.channelListing.findMany({
+    where: {
+      organizationId: input.organizationId,
+      isActive: true,
+      channelAccount: {
+        is: {
+          organizationId: input.organizationId,
+          channel: 'coupang',
+          status: 'active',
+        },
+      },
+      ...(input.listingIds ? { id: { in: [...input.listingIds] } } : {}),
+    },
+    select: { id: true, channelAccountId: true },
+    orderBy: { id: 'asc' },
+  });
+  const listingProductIds = input.requireMasterProductLink
+    ? await readListingProductIds(prisma, {
+      organizationId: input.organizationId,
+      listingIds: populationCandidates.map((listing) => listing.id),
+    })
+    : new Map<string, string | null>();
+  const population = input.requireMasterProductLink
+    ? populationCandidates.filter((listing) => listingProductIds.get(listing.id) !== null)
+    : populationCandidates;
+  const rowListingIds = input.requireMasterProductLink
+    ? population.map((listing) => listing.id)
+    : input.listingIds;
   const rows = await prisma.channelListingDailySnapshot.findMany({
       where: {
         organizationId: input.organizationId,
@@ -67,7 +96,7 @@ export async function readListingTrafficWindowFacts(
             ...(input.to ? { lt: input.to } : {}),
           },
         } : {}),
-        ...(input.listingIds ? { listingId: { in: [...input.listingIds] } } : {}),
+        ...(rowListingIds ? { listingId: { in: [...rowListingIds] } } : {}),
         listing: {
           is: {
             organizationId: input.organizationId,
@@ -79,9 +108,6 @@ export async function readListingTrafficWindowFacts(
                 status: 'active',
               },
             },
-            ...(input.requireMasterProductLink ? {
-              masterProductId: { not: null },
-            } : {}),
           },
         },
       },
@@ -102,24 +128,6 @@ export async function readListingTrafficWindowFacts(
         },
       },
     });
-  const population = await prisma.channelListing.findMany({
-      where: {
-        organizationId: input.organizationId,
-        isActive: true,
-        channelAccount: {
-          is: {
-            organizationId: input.organizationId,
-            channel: 'coupang',
-            status: 'active',
-          },
-        },
-        ...(input.listingIds ? { id: { in: [...input.listingIds] } } : {}),
-        ...(input.requireMasterProductLink ? { masterProductId: { not: null } } : {}),
-      },
-      select: { id: true, channelAccountId: true },
-      orderBy: { id: 'asc' },
-    });
-
   const observedFacts = rows.flatMap((row) => row.trafficObservedAt ? [{
     listingId: row.listingId,
     channelAccountId: row.listing.channelAccountId,

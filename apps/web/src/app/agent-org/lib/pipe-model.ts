@@ -1,13 +1,8 @@
-import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import {
-  type MallOperationOutcomeSummaryRow,
-} from '@kiditem/shared/mall-operation-outcomes';
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryCollectionStatusView } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   PIPE_STAGES,
   STAGE_BY_ALERT_SOURCE_TYPE,
-  STAGE_BY_MALL_OPERATION,
   type PipeStageDef,
   type PipeStageId,
 } from './pipe-stages';
@@ -17,16 +12,16 @@ import { pipeStateRank, worstPipeState, type PipeState } from './pipe-states';
  * Agent Org 판정 — 지금 있는 기록만으로 단계마다 "어떤 상태인가"를 정한다.
  *
  * 읽는 것: 원천 실패 알림(`/api/alerts` — 원천 소유자가 끝내 실패한 수집에 열고 다음 성공이
- * 닫는다), 관찰 기록(MallOperationOutcome), 셀피아 재고 신선도, 사장님 컨펌, 자동 로그인
+ * 닫는다), 셀피아 재고 신선도, 사장님 컨펌, 현재 브라우저의 자동 로그인 차단
  * 멈춤. 새 숫자를 지어내지 않는다 — 셀 곳이 없는 단계는 `noSourceReason` 을 그대로 들고
  * '모름'으로 선다.
  *
  * 세 가지 원칙을 코드로 지킨다.
  * 1. **같은 대상은 최신 것만 상태가 된다.** 어제 실패한 수집이 오늘 성공했으면 빨강이 아니다.
  *    지난 실패는 예외 레인의 숫자로만 남는다.
- * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료가 관찰 기록 · 자동 멈춤에 따로 남아도
- *    인박스에는 `login:gs-shop` 한 장으로 선다.
- * 3. **답을 못 들은 것은 고장이 아니다.** 확장 응답 시간 초과는 재시도 중이지 실패가 아니다.
+ * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료와 자동 멈춤이 함께 보여도 인박스에는
+ *    `login:gs-shop` 한 장으로 선다.
+ * 3. **답을 못 들은 것은 고장이 아니다.** 현재 실행 결과가 없으면 상태를 지어내지 않는다.
  */
 
 export interface PipeSource<T> {
@@ -64,14 +59,13 @@ export interface PipeInputs {
   now: number;
   /** 원천 실패 알림 — 열린 것은 지금 실패, 닫힌 것은 다시 성공했다는 뜻. */
   alerts: PipeSource<readonly AlertItem[]>;
-  outcomes: PipeSource<readonly MallOperationOutcomeSummaryRow[]>;
   malls: PipeSource<readonly PipeMallAccount[]>;
-  freshness: PipeSource<SellpiaInventoryFreshnessView>;
+  collectionStatus: PipeSource<SellpiaInventoryCollectionStatusView>;
   confirm: PipeSource<PipeConfirmCounts>;
   loginBlocks: readonly PipeLoginBlock[];
 }
 
-type SignalSource = 'alert' | 'outcome' | 'freshness' | 'confirm' | 'block' | 'derived';
+type SignalSource = 'alert' | 'collection_status' | 'confirm' | 'block' | 'derived';
 
 export interface PipeSignal {
   id: string;
@@ -152,13 +146,12 @@ export interface PipeConnectors {
   malls: PipeMallConnector[];
 }
 
-/** 이번 판정에 쓴 기록의 양. 관찰 기록 · 알림 박스가 보여 준다. 못 받았으면 `null`. */
+/** 이번 판정에 쓴 알림의 양. 못 받았으면 `null`. */
 export interface PipeSourceCounts {
   /** 받은 알림 수(열림 · 닫힘). */
   alerts: number | null;
   /** 그중 아직 열린 알림 수. */
   openAlerts: number | null;
-  outcomes: number | null;
 }
 
 export interface PipeFeedEntry {
@@ -179,21 +172,13 @@ export interface PipeSnapshot {
   feed: PipeFeedEntry[];
 }
 
-/** 우리가 답을 못 들은 것 — 몰 실패가 아니다. */
-const NO_ANSWER_REASON_CODES = new Set(['extension_timeout', 'extension_unavailable']);
-
 /** 원천 실패 알림 글이 로그인 · 인증 때문에 멈췄다고 말하는가. */
 const LOGIN_MESSAGE = /로그인|인증|login|captcha|otp/i;
-
-const MALL_OPERATION_LABEL: Readonly<Record<string, string>> = {
-  registration_fill: '상품등록',
-};
 
 /** 인박스 제목을 고를 때 더 구체적인 기록을 앞세운다. */
 const LABEL_PRIORITY: Readonly<Record<SignalSource, number>> = {
   block: 4,
-  outcome: 3,
-  freshness: 3,
+  collection_status: 3,
   confirm: 3,
   derived: 2,
   alert: 1,
@@ -252,113 +237,28 @@ export function sourceAlertSignal(alert: AlertItem): PipeSignal | null {
   };
 }
 
-export function outcomeSignal(
-  row: MallOperationOutcomeSummaryRow,
-  mallName: (mallKey: string) => string,
-): PipeSignal | null {
-  const item = row.latest;
-  const stageId = STAGE_BY_MALL_OPERATION.get(item.operation);
-  if (!stageId) return null;
-  const who = mallName(item.mallKey);
-  const what = MALL_OPERATION_LABEL[item.operation] ?? item.operation;
+export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusView): PipeSignal {
   const base = {
-    id: `outcome:${item.id}`,
-    stageId,
-    entityKey: `outcome:${item.mallKey}:${item.operation}`,
-    source: 'outcome' as const,
-    at: time(item.occurredAt),
-    title: `${who} ${what}`,
-    reason: item.message,
-    count: item.itemCount,
-  };
-  switch (item.outcome) {
-    case 'succeeded':
-    case 'empty':
-      return { ...base, state: 'done', cause: null, actionable: false, lane: null };
-    case 'attention': {
-      if (item.reasonCode === 'login_required') {
-        return {
-          ...base,
-          state: 'blocked_external',
-          cause: { key: `login:${item.mallKey}`, label: `${who} · 로그인 필요` },
-          actionable: true,
-          lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
-        };
-      }
-      if (item.reasonCode === 'operator_action_required' || item.reasonCode === 'verification_required') {
-        return {
-          ...base,
-          state: 'blocked_external',
-          cause: { key: `login:${item.mallKey}`, label: `${who} · 인증 필요` },
-          actionable: true,
-          lane: { dir: 'rejoin', label: '인증하면 이어짐' },
-        };
-      }
-      const need =
-        item.reasonCode === 'manual_submit_required'
-          ? '제출 필요'
-          : item.reasonCode === 'manual_upload_required'
-            ? '업로드 필요'
-            : item.reasonCode === 'no_credentials'
-              ? '로그인 정보 없음'
-              : '확인 필요';
-      return {
-        ...base,
-        state: 'waiting_human',
-        cause: { key: `human:${item.mallKey}:${item.operation}`, label: `${who} · ${need}` },
-        actionable: true,
-        lane: { dir: 'rejoin', label: '사람이 하면 이어짐' },
-      };
-    }
-    case 'failed':
-      if (item.reasonCode && NO_ANSWER_REASON_CODES.has(item.reasonCode)) {
-        return { ...base, state: 'retrying', cause: null, actionable: false, lane: { dir: 'rejoin', label: '다음 바퀴에 다시 확인' } };
-      }
-      if (item.reasonCode === 'provider_contract_changed') {
-        return {
-          ...base,
-          state: 'failed',
-          cause: { key: `logic:${item.mallKey}:${item.operation}`, label: `${who} · ${what} 로직 점검 필요` },
-          actionable: true,
-          lane: { dir: 'exit', label: '로직 점검' },
-        };
-      }
-      return {
-        ...base,
-        state: 'failed',
-        cause: { key: `fail:${item.mallKey}:${item.operation}`, label: `${who} · ${what} 실패` },
-        actionable: true,
-        lane: { dir: 'exit', label: '실패' },
-      };
-    case 'cancelled':
-      return { ...base, state: null, cause: null, actionable: false, lane: { dir: 'exit', label: '취소' } };
-    default:
-      return null;
-  }
-}
-
-export function freshnessSignal(view: SellpiaInventoryFreshnessView): PipeSignal {
-  const base = {
-    id: 'freshness:sellpia',
+    id: 'collection:sellpia',
     stageId: 'inventory' as const,
-    entityKey: 'freshness:sellpia',
-    source: 'freshness' as const,
+    entityKey: 'collection:sellpia',
+    source: 'collection_status' as const,
     title: '셀피아 재고',
     count: null,
   };
-  const lastAttemptAt = time(view.lastAttempt?.attemptedAt ?? null, time(view.lastVerifiedAt));
+  const lastAttemptAt = time(view.lastAttempt?.attemptedAt ?? null, time(view.lastCompletedAt));
   switch (view.status) {
-    case 'fresh':
-      return { ...base, state: 'done', at: time(view.lastVerifiedAt), reason: null, cause: null, actionable: false, lane: null };
-    case 'syncing':
+    case 'complete':
+      return { ...base, state: 'done', at: time(view.lastCompletedAt), reason: null, cause: null, actionable: false, lane: null };
+    case 'running':
       return { ...base, state: 'running', at: time(view.activeSync?.startedAt ?? null, lastAttemptAt), reason: null, cause: null, actionable: false, lane: null };
-    case 'refresh_required':
+    case 'not_collected':
       return {
         ...base,
-        state: 'stale',
-        at: time(view.lastVerifiedAt),
-        reason: '마지막 확인이 기준 시간을 넘었습니다.',
-        cause: { key: 'stale:sellpia', label: '셀피아 재고 · 새로고침 필요' },
+        state: 'failed',
+        at: lastAttemptAt,
+        reason: '셀피아 재고를 아직 수집하지 않았습니다.',
+        cause: { key: 'not-collected:sellpia', label: '셀피아 재고 · 수집 필요' },
         actionable: true,
         lane: null,
       };
@@ -498,8 +398,7 @@ function staleSignal(def: PipeStageDef, current: readonly PipeSignal[], now: num
 function stageSourceFailed(def: PipeStageDef, inputs: PipeInputs): boolean {
   return (
     (def.alertSourceTypes.length > 0 && inputs.alerts.failed) ||
-    (def.mallOperations.length > 0 && inputs.outcomes.failed) ||
-    (def.id === 'inventory' && inputs.freshness.failed) ||
+    (def.id === 'inventory' && inputs.collectionStatus.failed) ||
     (def.id === 'gate' && inputs.confirm.failed)
   );
 }
@@ -602,64 +501,36 @@ function buildInbox(current: readonly PipeSignal[]): PipeInboxItem[] {
     .sort((a, b) => pipeStateRank(a.state) - pipeStateRank(b.state) || b.lastAt - a.lastAt);
 }
 
-function buildConnectors(inputs: PipeInputs, mallName: (mallKey: string) => string): PipeConnectors {
+function buildConnectors(inputs: PipeInputs): PipeConnectors {
   const accounts = inputs.malls.data?.filter((account) => account.enabled) ?? null;
   if (!accounts) return { total: null, signedIn: 0, needsLogin: 0, unknown: 0, needsLoginNames: [], malls: [] };
 
-  const rows = inputs.outcomes.data ?? [];
   let signedIn = 0;
   let unknown = 0;
   const needsLoginNames: string[] = [];
   const malls: PipeMallConnector[] = [];
   for (const account of accounts) {
-    const recorded: { at: number; signedIn: boolean }[] = [];
-    // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 관찰 기록은 그 행의 키로 쌓인다.
-    const outcomeKey = channelOutcomeKey(account.key);
-    for (const row of rows) {
-      if (row.mallKey !== outcomeKey) continue;
-      const item = row.latest;
-      const at = time(item.occurredAt);
-      if (item.operation === 'login_check' || item.operation === 'login_test') {
-        if (item.outcome === 'succeeded') recorded.push({ at, signedIn: true });
-        else if (item.outcome === 'attention') recorded.push({ at, signedIn: false });
-      }
-    }
-    const latestRecorded = recorded.sort((a, b) => b.at - a.at)[0] ?? null;
     const blockedAt = Math.max(
       Number.NEGATIVE_INFINITY,
       ...inputs.loginBlocks.filter((block) => block.mallKey === account.key).map((block) => block.at),
     );
-    const name = mallName(account.key);
-
-    // 몰 표시는 가장 최근 증거가 이긴다 — 로그인 확인 성공이 차단보다 늦게 왔으면 차단은 낡은 것이다.
-    const shownBlocked = blockedAt > (latestRecorded?.at ?? Number.NEGATIVE_INFINITY);
+    const name = account.name;
+    const shownBlocked = blockedAt > Number.NEGATIVE_INFINITY;
     malls.push({
       key: account.key,
       name,
-      state: shownBlocked || latestRecorded?.signedIn === false
-        ? 'needs_login'
-        : latestRecorded ? 'signed_in' : 'unknown',
+      state: shownBlocked ? 'needs_login' : 'unknown',
     });
 
-    // 숫자는 서버에 남은 관찰 기록만 센다. 자동 로그인 차단은 이 브라우저에만 있는 값이라 몰
-    // 표시에는 보이지만 숫자에 섞지 않는다 — 다른 사람 · 다른 브라우저가 같은 숫자를 볼 수 없다.
-    if (!latestRecorded) unknown += 1;
-    else if (latestRecorded.signedIn) signedIn += 1;
-    else needsLoginNames.push(name);
+    if (shownBlocked) needsLoginNames.push(name);
+    else unknown += 1;
   }
   return { total: accounts.length, signedIn, needsLogin: needsLoginNames.length, unknown, needsLoginNames, malls };
 }
 
 export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
-  // 계정 키와 그 계정이 관찰 기록에 쓰는 키를 둘 다 건다 — 로켓 줄이 '쿠팡직배송'으로 읽힌다.
-  // 제 키가 먼저다: 로켓도 목록에 있으면 그 줄은 로켓 것이고, 함께 쓰는 몰의 별칭이 덮으면
-  // 로켓 계정이 '쿠팡직배송'으로 불린다.
   const accounts = inputs.malls.data ?? [];
   const names = new Map(accounts.map((account) => [account.key, account.name] as const));
-  for (const account of accounts) {
-    const outcomeKey = channelOutcomeKey(account.key);
-    if (!names.has(outcomeKey)) names.set(outcomeKey, account.name);
-  }
   const mallName = (mallKey: string) => names.get(mallKey) ?? mallKey;
 
   const signals: PipeSignal[] = [];
@@ -667,11 +538,7 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
     const signal = sourceAlertSignal(alert);
     if (signal) signals.push(signal);
   }
-  for (const row of inputs.outcomes.data ?? []) {
-    const signal = outcomeSignal(row, mallName);
-    if (signal) signals.push(signal);
-  }
-  if (inputs.freshness.data) signals.push(freshnessSignal(inputs.freshness.data));
+  if (inputs.collectionStatus.data) signals.push(collectionStatusSignal(inputs.collectionStatus.data));
   if (inputs.confirm.data) signals.push(confirmSignal(inputs.confirm.data));
   for (const block of inputs.loginBlocks) signals.push(loginBlockSignal(block, mallName));
 
@@ -688,11 +555,10 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
   return {
     stages,
     inbox,
-    connectors: buildConnectors(inputs, mallName),
+    connectors: buildConnectors(inputs),
     sources: {
       alerts: inputs.alerts.data?.length ?? null,
       openAlerts: inputs.alerts.data ? inputs.alerts.data.filter((alert) => alert.status === 'OPEN').length : null,
-      outcomes: inputs.outcomes.data?.length ?? null,
     },
     header: {
       running: counted('running'),

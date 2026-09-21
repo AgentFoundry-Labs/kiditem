@@ -1,3 +1,4 @@
+import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { AlertsModule } from '../../../alerts/alerts.module';
@@ -55,7 +56,7 @@ describe('DashboardModule capability wiring', () => {
     // the alerts module. The inventory adapter used to read that table directly,
     // with its own filter, order, and limit.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule]);
+      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });

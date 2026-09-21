@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   candidateRegistrationState,
   readRegistrationExecutionFacts,
+  registrationDraftState,
   type CandidateRegistrationState,
 } from '../../../../channels/read/registration-execution.reader';
 import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
@@ -250,11 +251,8 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       },
     });
     if (!row) return null;
-    return {
-      ...hydrateCandidate(row),
-      registrationState:
-        (await this.readRegistrationStates(organizationId, [row])).get(row.id) ?? 'none',
-    };
+    const states = await this.readRegistrationStates(organizationId, [row]);
+    return { ...hydrateCandidate(row), registrationState: states.get(row.id) ?? 'none' };
   }
 
   async listSourced(query: {
@@ -317,7 +315,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
    */
   private async readRegistrationStates(
     organizationId: string,
-    rows: Array<{ id: string; productPreparations: Array<{ id: string }> }>,
+    rows: Array<{ id: string; productPreparations: Array<{ id: string; closedAt: Date | null; status?: string; channelListingId?: string | null }> }>,
   ): Promise<Map<string, CandidateRegistrationState>> {
     const candidateOf = new Map<string, string>();
     for (const row of rows) {
@@ -331,6 +329,14 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       organizationId,
       productPreparationIds: [...candidateOf.keys()],
     });
+    const byPreparation = new Map(facts.map((fact) => [fact.productPreparationId, fact]));
+    for (const row of rows) {
+      for (const preparation of row.productPreparations) {
+        const execution = byPreparation.get(preparation.id);
+        preparation.status = registrationDraftState(preparation.closedAt, execution);
+        preparation.channelListingId = execution?.channelListingId ?? null;
+      }
+    }
     const byCandidate = new Map<string, typeof facts[number][]>();
     for (const fact of facts) {
       const candidateId = candidateOf.get(fact.productPreparationId);

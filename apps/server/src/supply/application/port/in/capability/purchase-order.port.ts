@@ -8,7 +8,7 @@ export interface SupplyPurchaseOrderDraftCapabilityInput {
   idempotencyKey: string;
   inputHash: string;
   recommendationArtifactId?: string;
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   productName: string;
   supplierName: string;
   supplierId?: string;
@@ -23,6 +23,7 @@ export interface SupplyPurchaseOrderSubmissionCapabilityInput {
   idempotencyKey: string;
   inputHash: string;
   purchaseOrderId: string;
+  inventoryAttemptId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
   externalOrderUrl?: string | null;

@@ -1,15 +1,13 @@
 export type ChannelOptionCapacityComponent = Readonly<{
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   currentStock: number | null;
-  availableStock: number | null;
   quantity: number;
-  isActive: boolean | null;
 }>;
 
 export type ChannelOptionCapacityProjection = Readonly<{
   capacity: number | null;
   warningState: 'none' | 'configuration_required' | 'review_required';
-  bottleneckSellpiaInventorySkuIds: readonly string[];
+  bottleneckMasterProductIds: readonly string[];
 }>;
 
 export function projectChannelOptionCapacity(
@@ -19,32 +17,32 @@ export function projectChannelOptionCapacity(
     return {
       capacity: null,
       warningState: 'configuration_required',
-      bottleneckSellpiaInventorySkuIds: [],
+      bottleneckMasterProductIds: [],
     };
   }
   if (components.some((component) => component.quantity <= 0)) {
     throw new Error('Channel option inventory quantity must be positive');
   }
   if (components.some(
-    (component) => component.isActive !== true || component.availableStock === null,
+    (component) => component.currentStock === null,
   )) {
     return {
       capacity: null,
       warningState: 'review_required',
-      bottleneckSellpiaInventorySkuIds: [],
+      bottleneckMasterProductIds: [],
     };
   }
 
   const capacities = components.map((component) => ({
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-    capacity: Math.floor(component.availableStock! / component.quantity),
+    masterProductId: component.masterProductId,
+    capacity: Math.floor(component.currentStock! / component.quantity),
   }));
   const capacity = Math.min(...capacities.map((component) => component.capacity));
   return {
     capacity,
     warningState: 'none',
-    bottleneckSellpiaInventorySkuIds: capacities
+    bottleneckMasterProductIds: capacities
       .filter((component) => component.capacity === capacity)
-      .map((component) => component.sellpiaInventorySkuId),
+      .map((component) => component.masterProductId),
   };
 }

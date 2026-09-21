@@ -28,7 +28,6 @@ type FilterKey =
   | 'reorder'
   | 'mapping'
   | 'dead'
-  | 'anomaly'
   | 'A'
   | 'B'
   | 'C'
@@ -111,7 +110,6 @@ function monthLabel(ym: string): { mon: string; yr: string } {
 interface RowVM {
   row: SellpiaProductSalesRow;
   monthMap: Map<string, number>;
-  anomalySet: Set<string>;
   peakYm: string | null;
 }
 
@@ -144,7 +142,6 @@ function ProductOutflowTable({
     if (hasStock) chips.push({ key: 'reorder', label: '발주 필요', count: summary.reorderCount, tone: 'amber' });
     chips.push({ key: 'mapping', label: '매칭 필요', count: summary.inventoryResolutionCounts.mappingRequiredSalesRows, tone: 'orange' });
     chips.push({ key: 'dead', label: '악성재고', count: summary.deadStockCount, tone: 'rose' });
-    chips.push({ key: 'anomaly', label: '이상치', count: summary.anomalyCount, tone: 'orange' });
     chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.A, tone: 'emerald' });
     chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
     chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
@@ -166,7 +163,6 @@ function ProductOutflowTable({
     if (filter === 'reorder') list = list.filter((p) => p.needsReorder);
     else if (filter === 'mapping') list = list.filter((p) => p.inventoryResolution.status === 'mapping_required');
     else if (filter === 'dead') list = list.filter((p) => p.deadStock);
-    else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.inventoryProduct?.abc.abcGrade === filter);
@@ -177,17 +173,14 @@ function ProductOutflowTable({
 
     const vms: RowVM[] = list.map((row) => {
       const monthMap = new Map<string, number>();
-      const anomalySet = new Set<string>();
       let peakYm: string | null = null;
       let peak = -1;
       for (const pt of row.monthly) {
         monthMap.set(pt.yearMonth, pt.orderQty);
-        if (pt.anomaly) anomalySet.add(pt.yearMonth);
-        // 피크 하이라이트는 이상치 월 제외(정상 최고 월)
-        if (!pt.anomaly && pt.orderQty > peak) { peak = pt.orderQty; peakYm = pt.yearMonth; }
+        if (pt.orderQty > peak) { peak = pt.orderQty; peakYm = pt.yearMonth; }
       }
       if (peak <= 0) peakYm = null;
-      return { row, monthMap, anomalySet, peakYm };
+      return { row, monthMap, peakYm };
     });
 
     const valOf = (vm: RowVM): number => {
@@ -304,7 +297,7 @@ function TrendIcon({ trend }: { trend: SellpiaProductTrend }) {
 }
 
 function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDesc: string[]; hasStock: boolean; sortKey: SortKey }) {
-  const { row: p, monthMap, anomalySet, peakYm } = vm;
+  const { row: p, monthMap, peakYm } = vm;
   const resolution = p.inventoryResolution;
   const abc = resolution.status === 'matched' ? resolution.inventoryProduct?.abc : null;
   const abcStatus = abc ? productAbcDisplayStatus(abc) : null;
@@ -336,11 +329,6 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
               악성{p.deadStockReason ? ` · ${p.deadStockReason}` : ''}
             </span>
           )}
-          {p.anomaly && (
-            <span className="text-[10px] font-semibold text-orange-700 bg-orange-100 rounded px-1 py-px whitespace-nowrap" title={p.anomalyReason ? `${p.anomalyReason} — 평균·등급·발주 산정에서 제외됨` : undefined}>
-              이상치{p.anomalyReason ? ` · ${p.anomalyReason}` : ''}
-            </span>
-          )}
           {p.seasonTag && p.seasonTag !== '상시' && (
             <span className={cn('text-[10px] font-semibold rounded px-1 py-px whitespace-nowrap', SEASON_STYLE[p.seasonTag] ?? 'bg-slate-50 text-slate-400')}>
               {p.seasonTag}
@@ -362,7 +350,7 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
           <ProductOutflowDestinations destinations={resolution.destinations} />
         ) : resolution.status === 'mapping_required' ? (
           <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800">
-            매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : resolution.reason === 'inactive_candidate' ? '비활성 SKU' : '바코드 중복'}
+            매칭 필요 · {resolution.reason === 'not_found' ? 'SKU 없음' : '바코드 중복'}
           </span>
         ) : (
           <span className="whitespace-nowrap text-xs font-semibold text-slate-400">재고 미수집</span>
@@ -389,13 +377,11 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
         const v = monthMap.get(ym) ?? 0;
         const isPeak = ym === peakYm;
         const isSorted = ym === sortKey;
-        const isAnomaly = anomalySet.has(ym);
         return (
-          <td key={ym} className={cn('px-2 py-2 text-right tabular-nums border-b border-slate-50 border-l border-slate-50', isAnomaly ? 'bg-orange-50' : isSorted && 'bg-slate-50/70')}>
+          <td key={ym} className={cn('px-2 py-2 text-right tabular-nums border-b border-slate-50 border-l border-slate-50', isSorted && 'bg-slate-50/70')}>
             {v > 0 ? (
               <span
-                className={cn(isAnomaly ? 'text-orange-400 line-through decoration-orange-300' : isPeak ? 'font-bold text-purple-700' : 'text-slate-600')}
-                title={isAnomaly ? '이상치(일회성 벌크) — 평균·발주 산정 제외' : undefined}
+                className={cn(isPeak ? 'font-bold text-purple-700' : 'text-slate-600')}
               >
                 {formatNumber(v)}
               </span>

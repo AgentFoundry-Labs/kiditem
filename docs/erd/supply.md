@@ -21,7 +21,7 @@
 | SupplierOfferPriceTier | `supplier_offer_price_tiers` | Immutable quantity price tier nested under one supplier-offer snapshot. |
 | SupplierOfferSkuSnapshot | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | `supplier_payments` | - |
-| SupplierProduct | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
+| SupplierProduct | `supplier_products` | 공급사별 MasterProduct 단위 공급가/주공급처 정책. |
 
 ## Mermaid ER Diagram
 
@@ -85,7 +85,8 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String sellpiaInventorySkuId FK
+    String legacySellpiaInventorySkuId
+    String masterProductId
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -131,7 +132,8 @@ erDiagram
     String id PK
     String organizationId FK
     String confirmationLineId FK
-    String sellpiaInventorySkuId FK
+    String legacySellpiaInventorySkuId
+    String masterProductId
     Int unitsPerSale
     Int quantity
     DateTime createdAt
@@ -172,10 +174,6 @@ erDiagram
     String phone
     String email
     String address
-    Int leadTimeDays
-    String paymentTerms
-    String notes
-    String status
     DateTime createdAt
     DateTime updatedAt
   }
@@ -244,11 +242,9 @@ erDiagram
     String id PK
     String organizationId FK
     String supplierId FK
-    String sellpiaInventorySkuId FK,UK
+    String masterProductId UK
     Int supplyPrice
-    Int minOrderQty
     Boolean isPrimary
-    String memo
     DateTime createdAt
     DateTime updatedAt
   }
@@ -278,7 +274,6 @@ erDiagram
 | ProcurementTestIntent | reviewedByUser | references external | Core | User |
 | PurchaseOrder | organization | references external | Core | Organization |
 | PurchaseOrderItem | organization | references external | Core | Organization |
-| PurchaseOrderItem | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | PurchaseOrderSubmissionAttempt | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | reconciler | references external | Core | User |
 | RocketPurchaseConfirmation | channelAccount | references external | Core | ChannelAccount |
@@ -287,7 +282,6 @@ erDiagram
 | RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
 | RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
-| RocketPurchaseConfirmationAllocation | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | RocketPurchaseConfirmationLine | channelListingOption | references external | Core | ChannelListingOption |
 | RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
@@ -300,4 +294,3 @@ erDiagram
 | SupplierOfferSkuSnapshot | supplierOfferSkuSnapshot | referenced by external | Sourcing | SourcingLaunchCandidate |
 | SupplierPayment | organization | references external | Core | Organization |
 | SupplierProduct | organization | references external | Core | Organization |
-| SupplierProduct | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |

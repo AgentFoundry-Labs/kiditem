@@ -161,6 +161,30 @@ describe('RegistrationExecutionService', () => {
     }));
   });
 
+  it('returns the server-frozen bundle code and ignores a client-assigned code', async () => {
+    const { service, executions } = setup({
+      executions: { prepare: vi.fn().mockResolvedValue(liveExecution({
+        status: 'prepared', kidItemCode: 'KID00000999',
+      })) },
+    });
+    const result = await service.prepareWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Bundle',
+      registrationInput: {
+        kidItemCode: 'KID99999999',
+        wingProduct: { sellerProductName: 'Bundle', productName: 'Bundle', variants: [{ stock: 999, vendorItemCode: 'client-code' }] },
+      },
+      idempotencyKey: LEASE,
+    });
+    expect(result.sellpiaMatch.code).toBe('KID00000999');
+    const request = vi.mocked(executions.prepare).mock.calls[0]![0];
+    expect(request.registrationInput).not.toHaveProperty('kidItemCode');
+    expect(request.registrationInput).toMatchObject({
+      sellpiaMatch: { code: '10451-1' },
+      wingProduct: { variants: [{ vendorItemCode: '10451-1' }] },
+    });
+  });
+
   it('freezes the verified Sellpia match and its real code into the WING vendor item code', async () => {
     const preflightExternalProductRegistration = vi.fn().mockResolvedValue({
       sellpiaMatch: {
@@ -264,7 +288,14 @@ describe('RegistrationExecutionService', () => {
   });
 
   it('branches the sourcing content workspace to the resolved listing inside the finalize transaction', async () => {
-    const { service, drafts, registration } = setup();
+    const { service, drafts, registration } = setup({ executions: {
+      loadFrozenSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+        submissionPayloadJson: { registrationInput: {
+          kidItemCode: 'KID00000999',
+          sellpiaMatch: { sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051', quantity: 2 },
+        } },
+      })),
+    } });
 
     await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
       executionId: 'execution-1',
@@ -279,6 +310,7 @@ describe('RegistrationExecutionService', () => {
         sourceCandidateId: CANDIDATE_ID,
         channelAccountId: ACCOUNT_ID,
         externalListingId: '427011919',
+        preparedRecipe: { kidItemCode: 'KID00000999', masterProductId: '00000000-0000-4000-8000-000000000051', quantity: 2 },
       }),
     );
     expect(drafts.branchContentToListing).toHaveBeenCalledWith(

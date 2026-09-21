@@ -4,12 +4,12 @@ import {
   type ProductAbcEvaluation,
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
-import { readProductAbcPublication } from "../../../../../../products/read/product-abc-publication.reader";
+import { readProductAbcPublication } from "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import { readOrderLineWindowFacts } from "../../../../../../orders/read/order-facts.reader";
 import { businessDatesInWindow } from "../../../../domain/period/dashboard-period";
 
 vi.mock(
-  "../../../../../../products/read/product-abc-publication.reader",
+  "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader",
   () => ({
     readProductAbcPublication: vi.fn(),
     readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
@@ -37,6 +37,10 @@ vi.mock(
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 
+function inventoryTransactionalRead() {
+  return { readSourceIdentities: vi.fn().mockResolvedValue([]) } as never;
+}
+
 /**
  * The ranking settles profit through `buildPerListingProfit`, whose own
  * behavior is proved against PostgreSQL in its spec and in the dashboard sales
@@ -57,9 +61,6 @@ const prismaWith = (topProductRows: unknown[]) => {
               externalId: row.listingId,
               channelName: row.organization,
               displayName: row.name,
-              masterProduct: row.masterProductId
-                ? { id: row.masterProductId, name: row.name }
-                : null,
             },
           },
         ]
@@ -130,6 +131,10 @@ const prismaWith = (topProductRows: unknown[]) => {
     $transaction: vi.fn(),
     $queryRaw: vi.fn().mockResolvedValue([]),
     order: { findMany: vi.fn().mockResolvedValue([]) },
+    channelListing: { findMany: vi.fn().mockResolvedValue(rows.filter((row) => row.listingId).map((row) => ({
+      id: row.listingId,
+      options: [{ inventoryComponents: row.masterProductId ? [{ masterProductId: row.masterProductId }] : [] }],
+    }))) },
     channelListingOption: { findMany: vi.fn().mockResolvedValue(options) },
     channelAccount: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -189,6 +194,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]),
+      inventoryTransactionalRead(),
     );
     mockedReadProductAbcPublication.mockResolvedValue({
       currentFormulaRevision: 1,
@@ -232,6 +238,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const result = await repository.fetchTopProducts(
@@ -274,6 +281,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 12,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
@@ -296,7 +304,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -321,7 +329,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
       const settled = vi
         .spyOn(
           repository as unknown as {
@@ -357,6 +365,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);

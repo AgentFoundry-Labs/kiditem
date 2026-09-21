@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type {
   InventorySkuStockStatus,
-  SellpiaInventorySkuActiveStatus,
   SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 import type { SellpiaInventorySkuListParams } from '../../_shared/inventory-api';
@@ -25,11 +24,6 @@ export function useInventoryWorkspaceState() {
     ['all', 'in_stock', 'out_of_stock'] as const,
     'in_stock',
   );
-  const activeStatus = parseValue(
-    searchParams.get('activeStatus'),
-    ['all', 'active', 'inactive'] as const,
-    'all',
-  );
   const linkStatus = parseValue(
     searchParams.get('linkStatus'),
     ['all', 'linked', 'unlinked'] as const,
@@ -43,10 +37,8 @@ export function useInventoryWorkspaceState() {
     limit: INVENTORY_PAGE_SIZE,
     query: urlSearch.trim() || undefined,
     stockStatus,
-    activeStatus,
     linkStatus: linkStatus === 'all' ? undefined : linkStatus,
   } satisfies SellpiaInventorySkuListParams), [
-    activeStatus,
     linkStatus,
     page,
     stockStatus,
@@ -67,7 +59,6 @@ export function useInventoryWorkspaceState() {
 
   return {
     ...query,
-    activeStatus,
     linkStatus,
     page,
     requestParams,
@@ -75,10 +66,6 @@ export function useInventoryWorkspaceState() {
     setSearch,
     stockStatus,
     submitSearch: () => updateParams({ search: search.trim() || undefined, page: '1' }),
-    setActiveStatus: (value: SellpiaInventorySkuActiveStatus) => updateParams({
-      activeStatus: value === 'all' ? undefined : value,
-      page: '1',
-    }),
     setLinkStatus: (value: InventoryLinkStatusFilter) => updateParams({
       linkStatus: value === 'all' ? undefined : value,
       page: '1',

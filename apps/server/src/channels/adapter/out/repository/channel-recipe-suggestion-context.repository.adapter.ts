@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
+import { withListingProductSummary } from '../../../domain/listing-product-summary';
 import type {
   ChannelRecipeSuggestionContext,
   ChannelRecipeSuggestionContextRepositoryPort,
@@ -8,7 +13,11 @@ import type {
 @Injectable()
 export class ChannelRecipeSuggestionContextRepositoryAdapter
 implements ChannelRecipeSuggestionContextRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly products: ProductSourceReadPort,
+  ) {}
 
   async getContext(
     organizationId: string,
@@ -25,9 +34,17 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         id: true,
         listing: {
           select: {
-            masterProductId: true,
             displayName: true,
             channelName: true,
+            options: {
+              where: { organizationId },
+              select: {
+                inventoryComponents: {
+                  where: { organizationId },
+                  select: { masterProductId: true },
+                },
+              },
+            },
           },
         },
         inventoryComponents: {
@@ -36,12 +53,22 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
           select: {
             quantity: true,
             createdAt: true,
-            sellpiaInventorySku: { select: { id: true, code: true } },
+            masterProductId: true,
           },
         },
       },
     });
     if (!selected) return null;
+    const listingSummary = withListingProductSummary(selected.listing);
+
+    const products = await this.products.findByIds(
+      organizationId,
+      selected.inventoryComponents.map((component) => component.masterProductId),
+    );
+    const productById = new Map(products.map((product) => [
+      product.masterProductId,
+      product,
+    ]));
 
     const options = await this.prisma.channelListingOption.findMany({
       where: { id: selected.id, organizationId },
@@ -52,7 +79,7 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
     });
     return {
       channelListingOptionId: selected.id,
-      masterProductId: selected.listing.masterProductId,
+      masterProductId: listingSummary.masterProductId,
       options: options.map((option) => ({
         channelListingOptionId: option.id,
         listingName: option.listing.displayName ?? option.listing.channelName,
@@ -61,14 +88,17 @@ implements ChannelRecipeSuggestionContextRepositoryPort {
         modelNumber: option.modelNumber,
         barcode: option.barcode,
       })),
-      existingComponents: selected.inventoryComponents.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySku.id,
-        code: component.sellpiaInventorySku.code,
-        quantity: component.quantity,
-        source: 'manual' as const,
-        confirmedBy: null,
-        confirmedAt: component.createdAt,
-      })),
+      existingComponents: selected.inventoryComponents.flatMap((component) => {
+        const product = productById.get(component.masterProductId);
+        return product ? [{
+          masterProductId: product.masterProductId,
+          code: product.code,
+          quantity: component.quantity,
+          source: 'manual' as const,
+          confirmedBy: null,
+          confirmedAt: component.createdAt,
+        }] : [];
+      }),
     };
   }
 }

@@ -1,22 +1,37 @@
 import { z } from 'zod';
 
-export const SELLPIA_INVENTORY_FRESHNESS_STATUSES = [
-  'fresh',
-  'refresh_required',
-  'syncing',
+/**
+ * The inventory read describes collection state. A completed snapshot stays
+ * usable until a newer collection publishes it; time never changes this
+ * status.
+ */
+export const SELLPIA_INVENTORY_COLLECTION_STATUSES = [
+  'not_collected',
+  'running',
+  'complete',
   'failed',
 ] as const;
 
-export const SELLPIA_INVENTORY_REFRESH_REASONS = [
+/**
+ * Triggers are source-owner facts, rather than freshness policy decisions.
+ * `ttl_expired` and `purchase_preflight` intentionally have no public form.
+ * The historical values are retained only for rows already persisted by an
+ * older source owner.
+ */
+export const SELLPIA_INVENTORY_COLLECTION_TRIGGERS = [
   'initial_snapshot',
-  'ttl_expired',
-  // Historical persisted/import trigger only; order submission cannot request it.
   'order_transmission_requested',
   'same_hash_confirmation',
-  'purchase_preflight',
   'manual_request',
   'retry',
   'legacy_manual_import',
+] as const;
+
+/** Values that may still exist in persisted state during the cutover. */
+export const SELLPIA_INVENTORY_STORED_COLLECTION_TRIGGERS = [
+  ...SELLPIA_INVENTORY_COLLECTION_TRIGGERS,
+  'ttl_expired',
+  'purchase_preflight',
 ] as const;
 
 export const SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES = [
@@ -27,11 +42,14 @@ export const SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES = [
   'sellpia_network_failed',
 ] as const;
 
-export const SellpiaInventoryFreshnessStatusSchema = z.enum(
-  SELLPIA_INVENTORY_FRESHNESS_STATUSES,
+export const SellpiaInventoryCollectionStatusSchema = z.enum(
+  SELLPIA_INVENTORY_COLLECTION_STATUSES,
 );
-export const SellpiaInventoryRefreshReasonSchema = z.enum(
-  SELLPIA_INVENTORY_REFRESH_REASONS,
+export const SellpiaInventoryCollectionTriggerSchema = z.enum(
+  SELLPIA_INVENTORY_COLLECTION_TRIGGERS,
+);
+export const SellpiaInventoryStoredCollectionTriggerSchema = z.enum(
+  SELLPIA_INVENTORY_STORED_COLLECTION_TRIGGERS,
 );
 export const SellpiaInventoryCollectionFailureCodeSchema = z.enum(
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
@@ -83,11 +101,7 @@ const SellpiaInventorySourceBindingViewSchema = z.discriminatedUnion(
 
 const SellpiaInventoryActiveSyncViewSchema = z
   .object({
-    /**
-     * The browser source attempt holding the lease, which an operator stops by
-     * id from any browser. A manual upload holds the lease without one. The
-     * lease token is the attempt's write fence and is never part of the view.
-     */
+    /** The source attempt holding the collection lease. */
     attemptId: z.string().uuid().nullable(),
     generation: SellpiaInventoryGenerationSchema,
     scope: SellpiaSyncScopeSchema,
@@ -100,25 +114,23 @@ const SellpiaInventoryActiveSyncViewSchema = z
 const SellpiaInventoryLastAttemptViewSchema = z
   .object({
     attemptedAt: IsoDateTimeStringSchema,
-    trigger: SellpiaInventoryRefreshReasonSchema.nullable(),
+    trigger: SellpiaInventoryCollectionTriggerSchema.nullable(),
     scope: SellpiaSyncScopeSchema,
-    errorCode: SellpiaInventoryCollectionFailureCodeSchema.nullable(),
+    errorCode: z.string().max(100).nullable(),
     errorMessage: z.string().max(300).nullable(),
   })
   .strict();
 
-export const SellpiaInventoryFreshnessViewSchema = z
+/** Public organization-scoped collection state. */
+export const SellpiaInventoryCollectionStatusViewSchema = z
   .object({
-    status: SellpiaInventoryFreshnessStatusSchema,
+    status: SellpiaInventoryCollectionStatusSchema,
     sourceBinding: SellpiaInventorySourceBindingViewSchema,
-    lastVerifiedAt: IsoDateTimeStringSchema.nullable(),
-    expiresAt: IsoDateTimeStringSchema.nullable(),
     requestedGeneration: SellpiaInventoryGenerationSchema,
     verifiedGeneration: SellpiaInventoryGenerationSchema,
-    refreshRequestedAt: IsoDateTimeStringSchema.nullable(),
-    refreshReason: SellpiaInventoryRefreshReasonSchema.nullable(),
-    requestedSyncScope: SellpiaSyncScopeSchema,
-    syncNotBefore: IsoDateTimeStringSchema.nullable(),
+    lastCompletedAttemptId: z.string().uuid().nullable(),
+    lastCompletedAt: IsoDateTimeStringSchema.nullable(),
+    lastAttemptId: z.string().uuid().nullable(),
     activeSync: SellpiaInventoryActiveSyncViewSchema.nullable(),
     lastAttempt: SellpiaInventoryLastAttemptViewSchema.nullable(),
   })
@@ -132,11 +144,14 @@ export const SellpiaInventorySourceBindingRequestSchema = z
   })
   .strict();
 
-export type SellpiaInventoryFreshnessStatus = z.infer<
-  typeof SellpiaInventoryFreshnessStatusSchema
+export type SellpiaInventoryCollectionStatus = z.infer<
+  typeof SellpiaInventoryCollectionStatusSchema
 >;
-export type SellpiaInventoryRefreshReason = z.infer<
-  typeof SellpiaInventoryRefreshReasonSchema
+export type SellpiaInventoryCollectionTrigger = z.infer<
+  typeof SellpiaInventoryCollectionTriggerSchema
+>;
+export type SellpiaInventoryStoredCollectionTrigger = z.infer<
+  typeof SellpiaInventoryStoredCollectionTriggerSchema
 >;
 export type SellpiaInventoryCollectionFailureCode = z.infer<
   typeof SellpiaInventoryCollectionFailureCodeSchema
@@ -148,59 +163,47 @@ export type SellpiaInventoryQualityIssue = z.infer<
 export type SellpiaInventoryQualityReport = z.infer<
   typeof SellpiaInventoryQualityReportSchema
 >;
-export type SellpiaInventoryFreshnessView = z.infer<
-  typeof SellpiaInventoryFreshnessViewSchema
+export type SellpiaInventoryCollectionStatusView = z.infer<
+  typeof SellpiaInventoryCollectionStatusViewSchema
 >;
 export type SellpiaInventorySourceBindingRequest = z.infer<
   typeof SellpiaInventorySourceBindingRequestSchema
 >;
 
-export type SellpiaFreshnessDerivationInput = {
+export type SellpiaCollectionStatusDerivationInput = {
   now: Date;
-  lastVerifiedAt: Date | null;
   requestedGeneration: bigint;
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   activeSyncLeaseExpiresAt: Date | null;
-  /** @deprecated Transmission reconciliation is independent from stock freshness. */
-  hasUnresolvedOrderTransmissionIntent?: boolean;
 };
 
-export function deriveSellpiaInventoryFreshness(
-  input: SellpiaFreshnessDerivationInput,
-): SellpiaInventoryFreshnessStatus {
-  if (
-    input.activeSyncLeaseExpiresAt &&
-    input.activeSyncLeaseExpiresAt > input.now
-  ) return 'syncing';
-  if (
-    input.failedGeneration === input.requestedGeneration &&
-    input.failedGeneration > input.verifiedGeneration
-  ) return 'failed';
-  if (!input.lastVerifiedAt) return 'refresh_required';
-  if (input.requestedGeneration > input.verifiedGeneration) {
-    return 'refresh_required';
+export function deriveSellpiaInventoryCollectionStatus(
+  input: SellpiaCollectionStatusDerivationInput,
+): SellpiaInventoryCollectionStatus {
+  if (input.activeSyncLeaseExpiresAt && input.activeSyncLeaseExpiresAt > input.now) {
+    return 'running';
   }
-  return input.now.getTime() - input.lastVerifiedAt.getTime() < 10 * 60_000
-    ? 'fresh'
-    : 'refresh_required';
+  if (
+    input.failedGeneration === input.requestedGeneration
+    && input.failedGeneration > input.verifiedGeneration
+  ) {
+    return 'failed';
+  }
+  return input.verifiedGeneration > 0n ? 'complete' : 'not_collected';
 }
 
 /**
- * Whether the view's last attempt was stopped, derived from the facts the
- * owner publishes. Owner rule: an attempt that ends with neither a verified
- * snapshot nor an error fact is a stop. A completion verifies at the
- * attempt's own instant and a failure keeps an error code or message, so only
- * a stop leaves a last attempt after the verified snapshot without either;
- * the previous snapshot stays in use. A syncing or failed view is never
- * stopped.
+ * A stopped attempt leaves the previous completed snapshot in use. The owner
+ * publishes a last attempt without error facts for that case; this predicate
+ * keeps cancellation distinct from a collection failure.
  */
-export function isSellpiaInventoryLastAttemptStopped(
-  view: Pick<SellpiaInventoryFreshnessView, 'status' | 'lastVerifiedAt' | 'lastAttempt'>,
+export function isSellpiaInventoryCollectionStopped(
+  view: Pick<SellpiaInventoryCollectionStatusView, 'status' | 'lastCompletedAt' | 'lastAttempt'>,
 ): boolean {
   const attempt = view.lastAttempt;
-  if (view.status !== 'refresh_required' || attempt === null) return false;
+  if (attempt === null || view.status === 'running' || view.status === 'failed') return false;
   if (attempt.errorCode !== null || attempt.errorMessage !== null) return false;
-  return view.lastVerifiedAt === null
-    || Date.parse(attempt.attemptedAt) > Date.parse(view.lastVerifiedAt);
+  return view.lastCompletedAt === null
+    || Date.parse(attempt.attemptedAt) > Date.parse(view.lastCompletedAt);
 }

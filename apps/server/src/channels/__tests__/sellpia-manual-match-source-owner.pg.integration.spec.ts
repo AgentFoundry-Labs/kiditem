@@ -15,7 +15,8 @@ import { ChannelProductMatchingController } from '../adapter/in/http/channel-pro
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
-import { lockSellpiaInventory } from '../../inventory/transaction/sellpia-inventory-lock';
+import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
   SellpiaManualMatchSourceStatusSchema,
   type SellpiaManualMatchSnapshot,
@@ -107,18 +108,26 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
         isActive: true,
       },
     });
-    const firstSku = await prisma.sellpiaInventorySku.create({
+    const firstSku = await prisma.masterProduct.create({
       data: {
+        id: '26000000-0000-4000-8000-000000000003',
         organizationId: TEST_ORGANIZATION_ID,
         code: '6402-1',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: '6402-1',
+        sourceOptionCode: '',
         name: 'First SKU',
         currentStock: 10,
       },
     });
-    const secondSku = await prisma.sellpiaInventorySku.create({
+    const secondSku = await prisma.masterProduct.create({
       data: {
+        id: '26000000-0000-4000-8000-000000000004',
         organizationId: TEST_ORGANIZATION_ID,
         code: '6402-2',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: '6402-2',
+        sourceOptionCode: '',
         name: 'Second SKU',
         currentStock: 10,
       },
@@ -132,9 +141,9 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       idempotencyKey: 'same-key',
     });
-    await prisma.sellpiaInventorySku.update({
+    await prisma.masterProduct.update({
       where: { id: secondSkuId },
-      data: { isActive: false },
+      data: { code: '6402-3' },
     });
 
     await expect(owner.beginAttempt({
@@ -167,9 +176,9 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       idempotencyKey: 'drifted-refresh',
     });
 
-    await prisma.sellpiaInventorySku.update({
+    await prisma.masterProduct.update({
       where: { id: secondSkuId },
-      data: { isActive: false },
+      data: { code: '6402-3' },
     });
     await expect(owner.completeAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -213,13 +222,13 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     await expect(prisma.sellpiaManualMatchAlias.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID },
       select: {
-        sellpiaInventorySkuId: true,
+        masterProductId: true,
         aliasTitle: true,
         matchedType: true,
         evidenceCount: true,
       },
     })).resolves.toEqual([{
-      sellpiaInventorySkuId: firstSkuId,
+      masterProductId: firstSkuId,
       aliasTitle: 'Match Alias',
       matchedType: 'M',
       evidenceCount: 3,
@@ -257,6 +266,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     const failingOwner = new SellpiaManualMatchRepositoryAdapter(
       prisma as unknown as PrismaService,
       failingAlerts,
+      new ProductTransactionalReadRepositoryAdapter(),
     );
 
     await expect(failingOwner.completeAttempt({
@@ -489,12 +499,12 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     let releaseLock!: () => void;
     const lockRelease = new Promise<void>((resolve) => { releaseLock = resolve; });
     const mutation = prisma.$transaction(async (tx) => {
-      await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+      await lockProductSource(tx, TEST_ORGANIZATION_ID);
       lockAcquired();
       await lockRelease;
-      await tx.sellpiaInventorySku.update({
+      await tx.masterProduct.update({
         where: { id: secondSkuId },
-        data: { isActive: false },
+        data: { code: '6402-3' },
       });
     }, { maxWait: 10_000, timeout: 30_000 });
     await lockReady;
@@ -519,6 +529,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     return new SellpiaManualMatchRepositoryAdapter(
       client as unknown as PrismaService,
       new SourceFailureAlerts(client as unknown as PrismaService),
+      new ProductTransactionalReadRepositoryAdapter(),
     );
   }
 
@@ -617,12 +628,12 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       await expect(
         prisma.sellpiaManualMatchAlias.findMany({
           where: { organizationId: TEST_ORGANIZATION_ID },
-          select: { aliasTitle: true, sellpiaInventorySkuId: true },
+          select: { aliasTitle: true, masterProductId: true },
         }),
       ).resolves.toEqual([
         {
           aliasTitle: 'Rocket Alias',
-          sellpiaInventorySkuId: firstSkuId,
+          masterProductId: firstSkuId,
         },
       ]);
     });
@@ -716,12 +727,12 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     await expect(
       prisma.sellpiaManualMatchAlias.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
-        select: { aliasTitle: true, sellpiaInventorySkuId: true },
+        select: { aliasTitle: true, masterProductId: true },
       }),
     ).resolves.toEqual([
       {
         aliasTitle: 'Rocket CSV Alias',
-        sellpiaInventorySkuId: firstSkuId,
+        masterProductId: firstSkuId,
       },
     ]);
   });

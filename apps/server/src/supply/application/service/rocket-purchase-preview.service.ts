@@ -20,9 +20,9 @@ import {
   type ChannelSkuAvailabilityPort,
 } from '../../../channels/application/port/in/channel-sku-availability.port';
 import {
-  SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
-  type SellpiaInventoryFreshnessGatePort,
-} from '../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
+  PRODUCT_COLLECTION_FRESHNESS_GATE_PORT,
+  type ProductCollectionFreshnessGatePort,
+} from '../../../products/application/port/in/product-collection-freshness-gate.port';
 import {
   RocketPreviewQuantityExceededError,
   previewRocketCapacity,
@@ -36,14 +36,13 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     private readonly catalog: RocketPoCatalogPort,
     @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
     private readonly availability: ChannelSkuAvailabilityPort,
-    @Inject(SELLPIA_INVENTORY_FRESHNESS_GATE_PORT)
-    private readonly freshness: SellpiaInventoryFreshnessGatePort,
+    @Inject(PRODUCT_COLLECTION_FRESHNESS_GATE_PORT)
+    private readonly freshness: ProductCollectionFreshnessGatePort,
   ) {}
 
   async preview(input: {
     organizationId: string;
     userId: string;
-    inventoryRequirement: 'advisory' | 'fresh';
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
     const parsed = RocketPurchasePreviewRequestSchema.safeParse(input.request);
@@ -53,7 +52,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       channelAccountId: parsed.data.channelAccountId,
       sourceImportRunId: parsed.data.sourceImportRunId,
     });
-    const { sourceImportRunId: _sourceId, ...decisionFields } = parsed.data;
+    const { sourceImportRunId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
     const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
     if (!decision.success) throw new BadRequestException(decision.error.message);
     const request = decision.data;
@@ -81,58 +80,37 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         masterProductId: item?.masterProductId ?? null,
         recipeStatus: item?.recipeStatus ?? 'unmatched' as const,
         components: item?.components.map((component) => ({
-          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          masterProductId: component.masterProductId,
           code: component.code,
           name: component.name,
           optionName: component.optionName,
           quantity: component.quantity,
           currentStock: component.currentStock,
-          isActive: component.isActive,
         })) ?? [],
       };
     });
-    const sellpiaInventorySkuIds = [...new Set(previewRows
+    const masterProductIds = [...new Set(previewRows
       .filter(({ recipeStatus }) => recipeStatus === 'matched')
       .flatMap(({ components }) => components
-        .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
+        .map(({ masterProductId }) => masterProductId)))];
     const calculateRows = () => translatePreviewPolicy(() => previewRocketCapacity({
       rows: previewRows,
       editedQuantities: request.editedQuantities,
       clampEditedQuantities: request.clampEditedQuantities,
     }));
-    let inventoryGeneration: string | null = null;
-    if (
-      input.inventoryRequirement === 'fresh'
-      && sellpiaInventorySkuIds.length > 0
-    ) {
-      const gated = await this.freshness.readFreshCapacityOrRequest({
-        organizationId: input.organizationId,
-        sellpiaInventorySkuIds,
-      });
-      if (gated.status === 'refresh_required') {
-        return {
-          status: 'freshness_pending',
-          collectionRunId: request.collection.collectionRunId,
-          catalog: catalog.catalog,
-          requestedGeneration: gated.requestedGeneration,
-          rows: calculateRows(),
-        };
-      }
-      inventoryGeneration = gated.generation;
-      const inventorySkuById = new Map(gated.inventorySkus.map((sku) =>
-        [sku.sellpiaInventorySkuId, sku]));
-      for (const row of previewRows) {
-        row.components = row.components.map((component) => {
-          const inventorySku = inventorySkuById.get(
-            component.sellpiaInventorySkuId,
-          );
-          return {
-            ...component,
-            currentStock: inventorySku?.currentStock ?? null,
-            isActive: inventorySku?.isActive ?? null,
-          };
-        });
-      }
+    const collected = await this.freshness.requireCollectedStock({
+      organizationId: input.organizationId,
+      attemptId: inventoryAttemptId,
+      masterProductIds,
+    });
+    const inventoryGeneration = collected.generation;
+    const stockById = new Map(collected.products.map((sku) =>
+      [sku.masterProductId, sku.currentStock]));
+    for (const row of previewRows) {
+      row.components = row.components.map((component) => ({
+        ...component,
+        currentStock: stockById.get(component.masterProductId) ?? null,
+      }));
     }
 
     return {

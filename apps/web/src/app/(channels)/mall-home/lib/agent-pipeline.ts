@@ -51,8 +51,6 @@ export interface AgentPipelineInput {
   /** 아직 열린 몰 원천 실패 알림 수. 못 받았으면 `null`. */
   openAlertCount: number | null;
   totals: CapabilityTotals | null;
-  /** 관찰 기록(MallOperationOutcome) 요약 — 최근 7일 건수 · 몰 수 · 로그인 기록 수. 못 받았으면 `null`. */
-  outcomes: { total: number; malls: number; loginRecords: number } | null;
 }
 
 /** 못 받은 숫자 자리. 불러오는 중이든 실패했든 지어내지 않는다. */
@@ -184,13 +182,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         status: 'done',
         detail: amount(input.openAlertCount, '건'),
         href: { path: '#mall-alerts', label: '알림판' },
-      },
-      {
-        id: 'sense-form',
-        title: '등록 폼 경고',
-        status: 'progress',
-        detail: '경고 수가 관찰 기록에 남아 몰별 상태에 보인다. 알림으로는 아직 안 뜬다.',
-        href: null,
       },
       {
         id: 'sense-tracking',
@@ -343,15 +334,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         href: null,
       },
       {
-        id: 'remember-results',
-        title: '관찰 기록 (로그인 확인 · 로그인 테스트 · 등록 폼)',
-        status: 'done',
-        detail: input.outcomes
-          ? `최근 7일 ${formatNumber(input.outcomes.total)}건 · 몰 ${formatNumber(input.outcomes.malls)}곳`
-          : PIPELINE_UNKNOWN,
-        href: null,
-      },
-      {
         id: 'remember-fixes',
         title: '사람이 고친 칸',
         status: 'todo',
@@ -364,15 +346,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         status: 'todo',
         detail: '칸 지도가 언제 어떻게 바뀌었는지 남기지 않는다.',
         href: null,
-      },
-      {
-        id: 'remember-login',
-        title: '로그인 성공 · 실패',
-        status: 'done',
-        detail: input.outcomes
-          ? `최근 7일 로그인 기록 ${formatNumber(input.outcomes.loginRecords)}건`
-          : PIPELINE_UNKNOWN,
-        href: { path: '/mall-settings', label: '로그인 테스트' },
       },
     ]),
   ];

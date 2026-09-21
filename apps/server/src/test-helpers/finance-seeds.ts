@@ -6,9 +6,10 @@
  *
  * Usage:
  *   import { setupMaster, setupProductOption, setupChannelListing,
- *            seedOrderWithLineItems, seedAd } from '../test-helpers/finance-seeds';
+ *            seedOrderWithLineItems, seedAd } from './finance-seeds';
  */
 import type { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
 // setupMaster — MasterProduct
@@ -24,18 +25,27 @@ export async function setupMaster(
     code: string;
     name: string;
     legacyCode?: string | null;
-    category?: string | null;
     thumbnailUrl?: string | null;
+    /** Retained for callers; channel category is supplied to setupChannelListing. */
+    category?: string | null;
   },
 ): Promise<{ id: string }> {
+  const [{ value }] = await prisma.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('kid_item_code_seq'::regclass) AS value
+  `;
   const master = await prisma.masterProduct.create({
     data: {
+      id: randomUUID(),
       organizationId: opts.organizationId,
-      code: opts.code,
+      code: `KID${value.toString().padStart(8, '0')}`,
+      sourceAccountKey: 'kiditem',
+      sourceProductCode: opts.code,
+      sourceOptionCode: '',
       name: opts.name,
-      category: opts.category ?? null,
+      optionName: null,
+      currentStock: 0,
+      purchasePrice: null,
       imageUrls: opts.thumbnailUrl ? [opts.thumbnailUrl] : [],
-      tags: opts.legacyCode ? [`legacy:${opts.legacyCode}`] : [],
     },
     select: { id: true },
   });
@@ -65,20 +75,18 @@ export async function setupProductOption(
 ): Promise<{ id: string }> {
   const master = await prisma.masterProduct.findFirstOrThrow({
     where: { id: opts.masterId, organizationId: opts.organizationId },
-    select: { code: true, name: true },
+    select: { id: true },
   });
-  const inventorySku = await prisma.sellpiaInventorySku.create({
+  await prisma.masterProduct.update({
+    where: { id: master.id },
     data: {
-      organizationId: opts.organizationId,
-      code: opts.sku,
-      name: master.name,
+      sourceOptionCode: opts.sku,
       optionName: opts.sku,
       currentStock: 100,
       purchasePrice: opts.costPrice ?? 5000,
     },
-    select: { id: true },
   });
-  return inventorySku;
+  return { id: master.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +108,7 @@ export async function setupChannelListing(
     optionId: string;
     externalOptionId: string;
     channelAccountId?: string;
+    category?: string | null;
   },
 ): Promise<{ listingId: string; listingOptionId: string }> {
   const channelAccount = opts.channelAccountId
@@ -134,11 +143,10 @@ export async function setupChannelListing(
     where: { id: opts.masterId, organizationId: opts.organizationId },
     select: {
       name: true,
-      category: true,
       imageUrls: true,
     },
   });
-  await prisma.sellpiaInventorySku.findFirstOrThrow({
+  await prisma.masterProduct.findFirstOrThrow({
     where: {
       id: opts.optionId,
       organizationId: opts.organizationId,
@@ -149,10 +157,9 @@ export async function setupChannelListing(
     data: {
       organizationId: opts.organizationId,
       channelAccountId: channelAccount.id,
-      masterProductId: opts.masterId,
       externalId: opts.externalId,
       displayName: master.name,
-      category: master.category,
+      category: opts.category ?? null,
       ...(opts.channelName !== undefined && { channelName: opts.channelName }),
     },
     select: { id: true },
@@ -181,7 +188,7 @@ export async function setupChannelListing(
     data: {
       organizationId: opts.organizationId,
       channelListingOptionId: listingOption.id,
-      sellpiaInventorySkuId: opts.optionId,
+      masterProductId: opts.optionId,
       quantity: 1,
     },
   });
@@ -364,10 +371,6 @@ export async function seedCompletedInventorySnapshot(
       lastVerifiedAt: verifiedAt,
     },
     select: { id: true },
-  });
-  await prisma.sellpiaInventorySku.updateMany({
-    where: { organizationId },
-    data: { lastImportRunId: run.id },
   });
   await prisma.sellpiaInventoryState.upsert({
     where: { organizationId },

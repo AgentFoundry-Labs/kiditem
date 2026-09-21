@@ -108,8 +108,8 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         channelAccountId: account.id,
         sourceContentWorkspaceId: workspace.id,
         displayName: 'Active registration candidate',
-        status: 'draft',
-        submissionKey: randomUUID(),
+        closedAt: null,
+        registrationInput: {},
       },
     });
 

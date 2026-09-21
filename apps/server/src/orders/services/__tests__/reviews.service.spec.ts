@@ -25,7 +25,7 @@ vi.mock('../../read/order-facts.reader', () => ({
   readObservedOrderBounds: vi.fn(),
   readOrderWindowFacts: vi.fn(),
 }));
-vi.mock('../../../products/read/product-abc-publication.reader', () => ({
+vi.mock('../../../products/adapter/out/persistence/read/product-abc-publication.reader', () => ({
   readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
 }));
 
@@ -35,6 +35,9 @@ describe('ReviewsService', () => {
     channelListing: { findMany: vi.fn() },
     channelListingOption: { findMany: vi.fn() },
   };
+  const products = {
+    readSourceIdentities: vi.fn(),
+  };
   const prisma = {
     $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
   };
@@ -42,6 +45,7 @@ describe('ReviewsService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation((callback) => callback(tx));
+    products.readSourceIdentities.mockResolvedValue([]);
     vi.mocked(readObservedOrderBounds).mockResolvedValue({
       from: new Date('2026-04-01T00:00:00.000Z'),
       to: new Date('2026-05-01T00:00:00.000Z'),
@@ -76,13 +80,16 @@ describe('ReviewsService', () => {
     }]);
     tx.channelListing.findMany.mockResolvedValue([
       display('listing-low', '낮은 리뷰 상품'),
-      display('listing-top', '상위 리뷰 상품'),
+      display('listing-top', '상위 리뷰 상품', 'master-top'),
+    ]);
+    products.readSourceIdentities.mockResolvedValue([
+      sourceProduct('master-top', '상품 source name'),
     ]);
     tx.channelListingOption.findMany.mockResolvedValue([
       { id: 'option-top', listingId: 'listing-top' },
     ]);
 
-    const result = await new ReviewsService(prisma as never).list('organization-1', {
+    const result = await new ReviewsService(prisma as never, products as never).list('organization-1', {
       page: 1,
       limit: 1,
       filter: 'all',
@@ -92,9 +99,18 @@ describe('ReviewsService', () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({
       listingId: 'listing-top',
+      productId: 'master-top',
+      productName: '상품 source name',
       recentReviews: 3,
       orderCount: 1,
     });
+    expect(products.readSourceIdentities).toHaveBeenCalledWith(
+      { client: tx },
+      {
+        organizationId: 'organization-1',
+        selector: { kind: 'ids', values: ['master-top'] },
+      },
+    );
   });
 
   it('keeps listing order counts null before any order observation', async () => {
@@ -115,7 +131,7 @@ describe('ReviewsService', () => {
     });
     tx.channelListing.findMany.mockResolvedValue([display('listing-1', '상품')]);
 
-    const result = await new ReviewsService(prisma as never).list('organization-1', {});
+    const result = await new ReviewsService(prisma as never, products as never).list('organization-1', {});
 
     expect(result.items[0]?.orderCount).toBeNull();
   });
@@ -134,13 +150,27 @@ describe('computeSummary', () => {
   });
 });
 
-function display(id: string, productName: string) {
+function display(id: string, productName: string, masterProductId: string | null = null) {
   return {
     id,
     channelName: productName,
     displayName: null,
-    masterProduct: null,
-    options: [],
+    options: [{ inventoryComponents: masterProductId ? [{ masterProductId }] : [] }],
     organization: { name: '회사' },
+  };
+}
+
+function sourceProduct(masterProductId: string, name: string) {
+  return {
+    masterProductId,
+    code: 'KID123',
+    sourceAccountKey: 'kiditem',
+    sourceProductCode: 'source-product',
+    sourceOptionCode: 'source-option',
+    name,
+    optionName: null,
+    barcode: null,
+    purchasePrice: null,
+    imageUrls: [],
   };
 }

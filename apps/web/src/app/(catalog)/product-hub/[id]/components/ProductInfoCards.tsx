@@ -15,8 +15,7 @@ export default function ProductInfoCards({
   product: MasterProductOperationsDetail;
   onOpenAbcDetail: () => void;
 }) {
-  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
-    || !isInternalProductCode(product.displayReference.value);
+  const hasVisibleDisplayReference = true;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -25,8 +24,6 @@ export default function ProductInfoCards({
           label={product.displayReference.label}
           value={<span className="font-mono">{product.displayReference.value}</span>}
         /> : null}
-        <InfoRow label="카테고리" value={product.category ?? '미등록'} />
-        <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
         <InfoRow label="ABC 등급" value={
           <button
             type="button"
@@ -37,7 +34,6 @@ export default function ProductInfoCards({
             <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} showConfidence />
           </button>
         } />
-        <InfoRow label="태그" value={product.tags.length > 0 ? product.tags.join(', ') : '미등록'} />
       </InfoCard>
 
       <InfoCard title="재고 요약" icon={<Boxes size={16} />}>
@@ -51,9 +47,6 @@ export default function ProductInfoCards({
         </p>
       </InfoCard>
 
-      <InfoCard title="광고 설정" icon={<ChartNoAxesCombined size={16} />}>
-        <InfoRow label="광고 예산 한도" value={product.adBudgetLimit === null ? '미설정' : `${formatKRW(product.adBudgetLimit)}원`} />
-      </InfoCard>
 
       <InfoCard title="변경 기록" icon={<History size={16} />}>
         <InfoRow label="생성" value={formatDateTime(product.createdAt)} />

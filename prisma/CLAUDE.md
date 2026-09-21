@@ -40,7 +40,10 @@ generic guidance.
 - Optional FKs declare `onDelete` explicitly.
 - A reference to another owner's row is a plain id column with an index and no
   `@relation`; organization/user scope, relations inside one owner, and
-  `SourceImportRun` keep their foreign keys. `npm run check:cross-owner-fk`
+  `SourceImportRun` keep their foreign keys. Retained Inventory transfer history
+  follows the scoped SKU-reference exception in
+  [ADR-0016](../docs/adr/0016-inventory-history-retains-deleted-sku-identities.md).
+  `npm run check:cross-owner-fk`
   fails an unlisted cross-owner relation and a stale
   `scripts/cross-owner-fk.json` entry; it cannot stop an entry being added, so
   a PR that adds one states why, and a PR that drops a `@relation` drops its

@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
-import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
-import { SellpiaImportRunRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-import-run.repository.adapter';
-import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../../../../inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
-import { SellpiaInventoryFileValidator } from '../../../../../inventory/application/service/sellpia-inventory-file.validator';
-import { SellpiaInventoryImportService } from '../../../../../inventory/application/service/sellpia-inventory-import.service';
-import { readInventoryAvailabilityCandidates } from '../../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../../inventory/transaction/sellpia-inventory-lock';
+import { ProductAvailabilityRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../../../../products/application/usecase/product-availability.usecase';
+import { ProductSourceCollectionRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-collection.repository.adapter';
+import { ProductSourcePublicationRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-publication.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { SellpiaCollectionUseCase } from '../../../../../products/application/usecase/sellpia-collection.usecase';
+import { SellpiaPayloadDecoderAdapter } from '../../../../../products/adapter/out/sellpia/sellpia-payload-decoder.adapter';
+import { SellpiaPayloadValidator } from '../../../../../products/adapter/out/sellpia/sellpia-payload.validator';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { getMallAdapterManifest } from '../../../../domain/mall/mall-adapter-manifest';
 import { evaluateMallPreflight } from '../../../../domain/mall/mall-publish-preflight';
@@ -33,7 +35,13 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new MallPublishingRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new MallPublishingRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ProductSourceReadRepositoryAdapter(prisma as never),
+      new ProductAvailabilityUseCase(
+        new ProductAvailabilityRepositoryAdapter(prisma as never),
+      ),
+    );
   });
 
   afterAll(async () => {
@@ -165,32 +173,44 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
   }
 
   /**
-   * 셀피아 스냅샷 한 번. 정본 재고 마스터(`INV-SELLPIA-*`)와 그 `isActive` 는 이 발행이
+   * 셀피아 스냅샷 한 번. 정본 재고 마스터(`INV-SELLPIA-*`)와 재고 사실은 이 발행이
    * 만든다 — 표가 보는 사실을 테스트가 손으로 적지 않게 한다.
    */
   async function publishSellpiaSnapshot(rows: readonly string[]) {
     const alerts = new SourceFailureAlerts(prisma as never);
-    const inventory = new SellpiaInventoryImportService(
-      new SellpiaImportRunRepositoryAdapter(prisma as never, alerts),
-      new SellpiaSnapshotPublicationRepositoryAdapter(prisma as never, alerts),
-      new ConfirmedChannelComponentReferenceRepositoryAdapter(prisma as never),
-      new SellpiaInventoryFileValidator(),
+    const collection = new SellpiaCollectionUseCase(
+      new ProductSourceCollectionRepositoryAdapter(prisma as never, alerts),
+      new ProductSourcePublicationRepositoryAdapter(prisma as never, alerts),
+      new SellpiaPayloadDecoderAdapter(new SellpiaPayloadValidator()),
     );
-    return inventory.importInventory({
+    const attempt = await collection.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
+      idempotencyKey: randomUUID(),
+      scope: 'inventory',
+    });
+    return collection.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
       file: {
         buffer: Buffer.from([SELLPIA_HEADER, ...rows].join('\n')),
         fileName: 'sellpia.csv',
         mimeType: 'text/csv',
       },
-      execution: { kind: 'manual', manualFreshExportConfirmed: true },
     });
   }
 
   async function sellpiaSku(code: string) {
-    return prisma.sellpiaInventorySku.findUniqueOrThrow({
-      where: { organizationId_code: { organizationId: TEST_ORGANIZATION_ID, code } },
+    const separator = code.lastIndexOf('-');
+    return prisma.masterProduct.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: separator > 0 ? code.slice(0, separator) : code,
+        sourceOptionCode: separator > 0 ? code.slice(separator + 1) : '',
+      },
     });
   }
 
@@ -207,32 +227,19 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
           freshnessFence: randomUUID(),
         },
       });
-      const alerts = new SourceFailureAlerts(prisma as never);
-      const inventory = new SellpiaInventoryImportService(
-        new SellpiaImportRunRepositoryAdapter(prisma as never, alerts),
-        new SellpiaSnapshotPublicationRepositoryAdapter(prisma as never, alerts),
-        new ConfirmedChannelComponentReferenceRepositoryAdapter(prisma as never),
-        new SellpiaInventoryFileValidator(),
-      );
-      await expect(inventory.importInventory({
-        organizationId: TEST_ORGANIZATION_ID,
-        userId: TEST_USER_ID,
-        file: {
-          buffer: Buffer.from([
-            '상품코드,상품명,재고,바코드,매입가,판매가',
-            'SP-101,원목 블록,7,8800000000101,100,200',
-          ].join('\n')),
-          fileName: 'sellpia.csv',
-          mimeType: 'text/csv',
-        },
-        execution: { kind: 'manual', manualFreshExportConfirmed: true },
-      })).resolves.toMatchObject({ outcome: 'published' });
-      const publishedSku = await prisma.sellpiaInventorySku.findUniqueOrThrow({
-        where: { organizationId_code: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-101' } },
-      });
-      expect(publishedSku.masterProductId).not.toBeNull();
+      await expect(publishSellpiaSnapshot([
+        'SP-101,원목 블록,7,8800000000101,100,200',
+      ])).resolves.toMatchObject({ state: 'COMPLETE' });
+      const publishedSku = await sellpiaSku('SP-101');
       const unlinkedMaster = await prisma.masterProduct.create({
-        data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-NO-STOCK', name: '재고 연결 없음' },
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID-NO-STK',
+          sourceAccountKey: 'kiditem',
+          sourceProductCode: 'KID-NO-STOCK',
+          sourceOptionCode: '',
+          name: '재고 연결 없음',
+        },
       });
 
       const { rows, total } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
@@ -242,29 +249,26 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
 
       expect(total).toBe(2);
       expect(rows).toEqual(expect.arrayContaining([
-        expect.objectContaining({ masterProductId: publishedSku.masterProductId, stock: 7 }),
-        expect.objectContaining({ masterProductId: unlinkedMaster.id, stock: null }),
+        expect.objectContaining({ masterProductId: publishedSku.id, stock: 7 }),
+        expect.objectContaining({ masterProductId: unlinkedMaster.id, stock: 0 }),
       ]));
     });
 
     /**
      * 품절은 표에서 사라질 일이 아니다.
      *
-     * 정본 재고 마스터의 `isActive` 는 "재고가 있고 파는 중"이라 재고가 0 이 되면 꺼진다.
-     * 그 깃발로 행을 고르면 이미 몰에 올라간 상품이 품절되는 순간 표에서 사라져, 표가
-     * "어느 몰에 무엇이 있나"를 답하지 못한다. 품절은 재고 0(빨강)으로 선다.
+     * 정본 재고 마스터의 `isActive` 는 재고 관찰과 별개다. 그 깃발로 행을 고르면 이미
+     * 몰에 올라간 상품이 품절되는 순간 표에서 사라질 수 있다. 품절은 재고 0(빨강)으로 선다.
      */
     it('⭐ keeps an out-of-stock canonical master in the matrix with stock 0', async () => {
       await seedSellpiaSourceState();
       await expect(publishSellpiaSnapshot([
         'SP-201,품절 블록,0,8800000000201,100,200',
-      ])).resolves.toMatchObject({ outcome: 'published' });
+      ])).resolves.toMatchObject({ state: 'COMPLETE' });
       const sku = await sellpiaSku('SP-201');
-      const master = await prisma.masterProduct.findUniqueOrThrow({
-        where: { id: sku.masterProductId! },
-      });
-      // 마스터의 판매 깃발 자체는 그대로 꺼져 있다 — 표만 다르게 읽는다.
-      expect(master.isActive).toBe(false);
+      const master = sku;
+      // 재고 관찰은 Products 정체성을 끄지 않는다 — 표는 재고 0 으로 선다.
+      expect(master.currentStock).toBe(0);
 
       const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
         offset: 0,
@@ -276,8 +280,8 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       ]));
     });
 
-    /** 단종(SKU 가 스냅샷에서 사라짐)은 품절과 다른 사실이다. 표에서 내린다. */
-    it('⭐ drops a canonical master whose Sellpia SKU left the snapshot', async () => {
+    /** 최신 스냅샷에서 빠진 SKU 정체성도 재고 0 으로 남아 표에서 숨기지 않는다. */
+    it('⭐ retains a canonical master whose Sellpia SKU left the snapshot with stock 0', async () => {
       await seedSellpiaSourceState();
       await publishSellpiaSnapshot([
         'SP-301,블록 A,3,8800000000301,100,200',
@@ -291,9 +295,9 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         'SP-302,블록 B,3,8800000000302,100,200',
         'SP-303,블록 C,3,8800000000303,100,200',
         'SP-304,블록 D,3,8800000000304,100,200',
-      ])).resolves.toMatchObject({ outcome: 'published' });
+      ])).resolves.toMatchObject({ state: 'COMPLETE' });
       const discontinued = await sellpiaSku('SP-305');
-      expect(discontinued.isActive).toBe(false);
+      expect(discontinued.currentStock).toBe(0);
       const alive = await sellpiaSku('SP-301');
 
       const { rows } = await repository.listMatrixProducts(TEST_ORGANIZATION_ID, {
@@ -302,18 +306,21 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       const shown = rows.map((row) => row.masterProductId);
-      expect(shown).toContain(alive.masterProductId);
-      expect(shown).not.toContain(discontinued.masterProductId);
+      expect(shown).toContain(alive.id);
+      expect(shown).toContain(discontinued.id);
+      expect(rows.find((row) => row.masterProductId === discontinued.id)?.stock).toBe(0);
     });
 
-    /** 셀피아에서 오지 않은 마스터는 종전 그대로 `isActive` 가 표에 서는 조건이다. */
+    /** Products source identities outside Sellpia are not visible in the matrix. */
     it('still hides an inactive master that has no Sellpia SKU', async () => {
       const inactive = await prisma.masterProduct.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           code: 'KID-OFF',
+          sourceAccountKey: 'other-source',
+          sourceProductCode: 'KID-OFF',
+          sourceOptionCode: '',
           name: '판매 중지',
-          isActive: false,
         },
       });
 
@@ -336,7 +343,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
    * 사장님이 "상품 3개인데 표에 4줄"을 보고 어느 쪽이 맞는지 우리에게 묻게 된다.
    */
   describe('countVisibleMasterProducts', () => {
-    it('⭐ counts the same set the matrix shows — sold-out in, discontinued out', async () => {
+    it('⭐ counts the same set the matrix shows — sold-out and missing identities in', async () => {
       await seedSellpiaSourceState();
       await publishSellpiaSnapshot([
         'SP-701,블록 A,3,8800000000701,100,200',
@@ -354,9 +361,11 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       await prisma.masterProduct.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          code: 'KID-OFF-COUNT',
+          code: 'KID-OFF-CT',
+          sourceAccountKey: 'other-source',
+          sourceProductCode: 'KID-OFF-COUNT',
+          sourceOptionCode: '',
           name: '판매 중지',
-          isActive: false,
         },
       });
 
@@ -365,8 +374,8 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         limit: 50,
       });
 
-      // 판매중 3 + 품절 1 = 4. 단종과 셀피아 아닌 비활성은 양쪽 모두에서 빠진다.
-      expect(total).toBe(4);
+      // 판매중 3 + 품절 1 + 최신 스냅샷에서 빠진 정체성 1 = 5.
+      expect(total).toBe(5);
       expect(await repository.countVisibleMasterProducts(TEST_ORGANIZATION_ID)).toBe(total);
     });
   });
@@ -384,18 +393,20 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         offset: 0,
         limit: 10,
       });
-      expect(rows.map((row) => row.masterProductId)).toContain(soldOut.masterProductId);
+      expect(rows.map((row) => row.masterProductId)).toContain(soldOut.id);
 
       const candidates = await prisma.$transaction(async (tx) => {
-        const lock = await lockSellpiaInventory(tx, TEST_ORGANIZATION_ID);
+        const context = { client: tx };
+        const productRead = new ProductTransactionalReadRepositoryAdapter();
+        const lock = await productRead.lock(context, TEST_ORGANIZATION_ID);
         return {
-          inStock: await readInventoryAvailabilityCandidates(tx, lock, {
+          inStock: await productRead.readAvailabilityCandidates(context, lock, {
             organizationId: TEST_ORGANIZATION_ID,
             query: '블록',
             limit: 10,
             stockStatus: 'in_stock',
           }),
-          all: await readInventoryAvailabilityCandidates(tx, lock, {
+          all: await productRead.readAvailabilityCandidates(context, lock, {
             organizationId: TEST_ORGANIZATION_ID,
             query: '블록',
             limit: 10,
@@ -405,9 +416,9 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       // 품절 행은 여전히 '재고 있는 후보'가 아니다.
-      expect(candidates.inStock.map((entry) => entry.sellpiaInventorySkuId)).not.toContain(soldOut.id);
+      expect(candidates.inStock.map((entry) => entry.masterProductId)).not.toContain(soldOut.id);
       expect(candidates.all).toEqual(expect.arrayContaining([
-        expect.objectContaining({ sellpiaInventorySkuId: soldOut.id, currentStock: 0 }),
+        expect.objectContaining({ masterProductId: soldOut.id, currentStock: 0 }),
       ]));
     });
   });
@@ -418,6 +429,9 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           code,
+          sourceAccountKey: 'kiditem',
+          sourceProductCode: code,
+          sourceOptionCode: '',
           name: '유아 원목 블록',
           imageUrls: ['a.jpg', 'b.jpg'],
         },
@@ -447,16 +461,23 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          masterProductId: product.id,
           externalId: 'EXT-1',
         },
       });
-      await prisma.channelListingOption.createMany({
+      const options = await prisma.channelListingOption.createManyAndReturn({
         data: [
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-1', itemName: '기본', salePrice: 24900 },
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-2', itemName: '2개입', salePrice: 19900 },
           { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'O-3', itemName: '단종', salePrice: 100, isActive: false },
         ],
+      });
+      await prisma.channelListingOptionInventoryComponent.createMany({
+        data: options.map((option) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        })),
       });
 
       const { rows, total } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, {
@@ -482,6 +503,37 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       await createCandidate('https://example.com/kid-2', {
         manualBasics: { kcCertificationStatus: 'exists', kcCertificationNumber: 'CB061R1234-1001' },
       }, product.id);
+      const candidate = await prisma.sourcingCandidate.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, sourceUrl: 'https://example.com/kid-2' },
+      });
+      await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: COUPANG_ACCOUNT,
+          sourceCandidateId: candidate.id,
+          externalId: 'EXT-2',
+        },
+      });
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'EXT-2' },
+        select: { id: true },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          listingId: listing.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOptionId: 'O-2',
+          itemName: '기본',
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        },
+      });
 
       const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, { limit: 10, offset: 0 });
       expect(rows[0]?.kc).toEqual({ status: 'exists', number: 'CB061R1234-1001' });
@@ -496,9 +548,28 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          masterProductId: product.id,
           externalId: 'EXT-3',
           sourceCandidateId: candidate.id,
+        },
+      });
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'EXT-3' },
+        select: { id: true },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          listingId: listing.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOptionId: 'O-3',
+          itemName: '기본',
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
         },
       });
 
@@ -510,7 +581,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
      * 송신 전 점검의 후보도 표와 같은 기준으로 세운다. 품절이라 보내지 않는다는 판정은
      * 목록에서 지우는 것이 아니라 `evaluateMallPreflight` 가 이유와 함께 말할 일이다.
      */
-    it('⭐ keeps an out-of-stock canonical master as a preflight candidate and drops a discontinued one', async () => {
+    it('⭐ keeps out-of-stock and latest-snapshot-missing canonical masters as preflight candidates', async () => {
       await seedSellpiaSourceState();
       await publishSellpiaSnapshot([
         'SP-401,블록 A,3,8800000000401,100,200',
@@ -524,7 +595,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         'SP-402,블록 B,3,8800000000402,100,200',
         'SP-403,블록 C,3,8800000000403,100,200',
         'SP-404,품절 블록,0,8800000000404,100,200',
-      ])).resolves.toMatchObject({ outcome: 'published' });
+      ])).resolves.toMatchObject({ state: 'COMPLETE' });
       const soldOut = await sellpiaSku('SP-404');
       const discontinued = await sellpiaSku('SP-405');
 
@@ -534,9 +605,10 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       const candidates = rows.map((row) => row.masterProductId);
-      expect(candidates).toContain(soldOut.masterProductId);
-      expect(candidates).not.toContain(discontinued.masterProductId);
-      expect(rows.find((row) => row.masterProductId === soldOut.masterProductId)?.stock).toBe(0);
+      expect(candidates).toContain(soldOut.id);
+      expect(candidates).toContain(discontinued.id);
+      expect(rows.find((row) => row.masterProductId === soldOut.id)?.stock).toBe(0);
+      expect(rows.find((row) => row.masterProductId === discontinued.id)?.stock).toBe(0);
     });
 
     /** 목록에 서는 것과 보내도 되는 것은 다르다. 후자는 송신 전 점검이 이유와 함께 답한다. */
@@ -545,7 +617,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       await publishSellpiaSnapshot(['SP-501,품절 블록,0,8800000000501,100,200']);
       const soldOut = await sellpiaSku('SP-501');
       await prisma.masterProduct.update({
-        where: { id: soldOut.masterProductId! },
+        where: { id: soldOut.id },
         data: { imageUrls: ['a.jpg'] },
       });
 
@@ -553,7 +625,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         limit: 10,
         offset: 0,
       });
-      const row = rows.find((entry) => entry.masterProductId === soldOut.masterProductId)!;
+      const row = rows.find((entry) => entry.masterProductId === soldOut.id)!;
       const result = evaluateMallPreflight({
         manifest: getMallAdapterManifest('kidsnote')!,
         product: {

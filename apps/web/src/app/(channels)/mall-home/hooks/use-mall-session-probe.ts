@@ -1,23 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { clearMallAutoLoginBlock } from '@/lib/mall-login-block';
-import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import {
   detectMallSessionProbe,
   probeMallSession,
   type MallSessionProbeResult,
 } from '@/lib/mall-session-probe';
-import { queryKeys } from '@/lib/query-keys';
-import {
-  loginCheckRecord,
-  shouldRememberLogin,
-  type MallSessionProbeStatus,
-  type RecordedLoginCheck,
-} from '../lib/mall-session';
+import type { MallSessionProbeStatus } from '../lib/mall-session';
 
 // v2: 결과가 셋(로그인됨 · 인증 필요 · 로그인 필요)으로 바뀌어 옛 캐시(확인 불가)를 읽지 않는다.
 const CACHE_KEY = 'kiditem.mall-home.session-probe.v2';
@@ -51,13 +42,10 @@ function readCache(): ProbeCache | null {
  * 인증 필요 · 로그인 필요 셋 중 하나다. 10분 안에 다시 열면 이 탭에 둔 결과를 쓴다.
  * '다시 확인'은 바로 다시 묻는다. 확장이 없거나 옛 버전이면 확인하지 않고 그렇다고 알린다.
  *
- * 로그인됨 · 인증 필요 · 로그인 필요는 기억(`login_check`)에 남는다(우리 쪽 사정으로 몰을 못 본
- * 결과는 빼고). 기억 요약을 아직 못 받았으면 적지
- * 않고, 받은 뒤에는 상태가 바뀌었거나 6시간이 지났을 때만 적는다.
+ * 로그인됨 · 인증 필요 · 로그인 필요는 이 탭의 현재 실행 결과로만 보여 준다.
  */
 export function useMallSessionProbe(
   mallKeys: readonly string[] | null,
-  remembered: readonly MallOperationOutcomeSummaryRow[] | null,
   /** 몰마다 쇼핑몰 계정에 저장된 사이트 주소. 고정 확인 주소가 없는 몰은 이 화면을 열어 본다. */
   siteUrls: Readonly<Record<string, string | null>> = {},
   /**
@@ -66,22 +54,16 @@ export function useMallSessionProbe(
    */
   sitesReady = true,
 ) {
-  const queryClient = useQueryClient();
   const [results, setResults] = useState<Record<string, MallSessionProbeResult>>({});
   const [checking, setChecking] = useState<ReadonlySet<string>>(() => new Set());
   const [status, setStatus] = useState<MallSessionProbeStatus>('idle');
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const runningRef = useRef(false);
-  const rememberedRef = useRef(remembered);
-  const queryClientRef = useRef(queryClient);
   const siteUrlsRef = useRef(siteUrls);
-  const recordedRef = useRef(new Map<string, RecordedLoginCheck>());
   useEffect(() => {
-    rememberedRef.current = remembered;
-    queryClientRef.current = queryClient;
     siteUrlsRef.current = siteUrls;
-  }, [remembered, queryClient, siteUrls]);
+  }, [siteUrls]);
   const keysKey = useMemo(() => (mallKeys ? [...new Set(mallKeys)].sort().join(',') : ''), [mallKeys]);
 
   const run = useCallback(
@@ -110,7 +92,6 @@ export function useMallSessionProbe(
         setStatus('running');
         setChecking(new Set(keys));
         const next: Record<string, MallSessionProbeResult> = {};
-        const recordings: Promise<void>[] = [];
         let cursor = 0;
         const worker = async () => {
           while (cursor < keys.length) {
@@ -128,12 +109,6 @@ export function useMallSessionProbe(
             // 사람이 직접 로그인했다 — 막아 뒀던 자동 로그인을 다시 연다. 이 경로로 확인해도
             // 풀려야 한다(서버 일괄 확인에만 넣으면 화면에서 본 로그인은 표시가 안 풀린다).
             if (result.state === 'signed_in') clearMallAutoLoginBlock(key);
-            const record = loginCheckRecord(result);
-            const known = rememberedRef.current;
-            if (record && known && shouldRememberLogin(record, result.checkedAt, known, recordedRef.current.get(key))) {
-              recordedRef.current.set(key, { outcome: record.outcome, at: result.checkedAt });
-              recordings.push(recordMallOperationOutcome(record));
-            }
           }
         };
         await Promise.all(Array.from({ length: Math.min(CONCURRENCY, keys.length) }, () => worker()));
@@ -141,10 +116,6 @@ export function useMallSessionProbe(
         safeStorageSet('session', CACHE_KEY, JSON.stringify({ at, results: next } satisfies ProbeCache));
         setCheckedAt(at);
         setStatus('done');
-        if (recordings.length > 0) {
-          await Promise.all(recordings);
-          void queryClientRef.current.invalidateQueries({ queryKey: queryKeys.mallOperationOutcomes.all });
-        }
       } finally {
         runningRef.current = false;
       }

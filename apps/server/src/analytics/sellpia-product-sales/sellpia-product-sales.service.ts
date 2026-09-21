@@ -4,7 +4,6 @@ import {
   LEAD_TIME_MONTHS,
   computeSeasonTag,
   computeTrend,
-  detectAnomaly,
 } from './sellpia-product-sales.metrics';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
@@ -64,23 +63,16 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     // as a complete month for averages, trends, or stock projections.
     const completeMonths = months.filter((m) =>
       m < currentYm && fullMonthCoverage.get(m) === true);
-    const last1 = new Set(completeMonths.slice(-1));
-    const last2 = new Set(completeMonths.slice(-2));
-
     interface Agg {
       productCode: string;
       optionCode: string;
       productName: string;
       optionName: string | null;
       providerName: string | null;
-      salePrice: number;
-      buyPrice: number;
       barcode: string | null;
       latestCapturedAt: Date;
       monthMap: Map<string, number>;
       totalQty: number;
-      qty1m: number;
-      qty2m: number;
     }
     const byProduct = new Map<string, Agg>();
     let grandTotalQty = 0;
@@ -96,14 +88,10 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
           productName: r.productName,
           optionName: r.optionName,
           providerName: r.providerName,
-          salePrice: r.salePrice,
-          buyPrice: r.buyPrice,
           barcode: r.barcode,
           latestCapturedAt: r.capturedAt,
           monthMap: new Map(),
           totalQty: 0,
-          qty1m: 0,
-          qty2m: 0,
         };
         byProduct.set(key, agg);
       }
@@ -113,14 +101,10 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
         agg.productName = r.productName;
         agg.optionName = r.optionName;
         agg.providerName = r.providerName;
-        agg.salePrice = r.salePrice;
-        agg.buyPrice = r.buyPrice;
         agg.barcode = r.barcode;
       }
       agg.monthMap.set(r.yearMonth, (agg.monthMap.get(r.yearMonth) ?? 0) + r.orderQty);
       agg.totalQty += r.orderQty;
-      if (last1.has(r.yearMonth)) agg.qty1m += r.orderQty;
-      if (last2.has(r.yearMonth)) agg.qty2m += r.orderQty;
       grandTotalQty += r.orderQty;
       if (!lastCapturedAt || r.capturedAt > lastCapturedAt) lastCapturedAt = r.capturedAt;
     }
@@ -129,39 +113,35 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const completeMonthCount = completeMonths.length;
     const last1Ym = completeMonths.slice(-1)[0];
 
-    // 1) 기본 행. 이상치(일회성 벌크/저가 대량)를 감지해 평균/발주는 clean(이상치 제외)로,
-    //    월별 컬럼은 raw + 이상치 표시로 낸다.
+    // Keep source quantities intact. Only complete calendar months are eligible
+    // for averages, trends, and stock projections.
     const bases = [...byProduct.values()].map((a) => {
       const rawMonthly = months.map((m) => ({ yearMonth: m, orderQty: a.monthMap.get(m) ?? 0 }));
-      const { anomalyMonths, anomalyReason } = detectAnomaly(rawMonthly, a.salePrice);
-      const anomalySet = new Set(anomalyMonths);
-      const cleanOf = (m: string) => (anomalySet.has(m) ? 0 : (a.monthMap.get(m) ?? 0));
 
       const monthly: SellpiaProductSalesMonthPoint[] = rawMonthly.map((p) => ({
         yearMonth: p.yearMonth,
         orderQty: p.orderQty,
-        anomaly: anomalySet.has(p.yearMonth) ? true : undefined,
       }));
       const completeMonthly: SellpiaProductSalesMonthPoint[] = completeMonths.map((m) => ({
         yearMonth: m,
-        orderQty: cleanOf(m), // 시즌 판단도 clean 기준
+        orderQty: a.monthMap.get(m) ?? 0,
       }));
       const completeQtys = completeMonthly.map((p) => p.orderQty);
-      const cleanTotal = months.reduce((s, m) => s + cleanOf(m), 0);
-      const cleanQty1m = last1Ym ? cleanOf(last1Ym) : 0;
-      const cleanQty2m = completeMonths.slice(-2).reduce((s, m) => s + cleanOf(m), 0);
+      const qty1m = last1Ym ? a.monthMap.get(last1Ym) ?? 0 : 0;
+      const qty2m = completeMonths.slice(-2).reduce(
+        (s, m) => s + (a.monthMap.get(m) ?? 0),
+        0,
+      );
       return {
         key: `${a.productCode} ${a.optionCode}`,
         a,
         monthly,
         completeMonthly,
         completeQtys,
-        cleanTotal,
-        qty1m: cleanQty1m,
-        qty2m: cleanQty2m,
-        avg2m: complete2Count > 0 ? Math.round(cleanQty2m / complete2Count) : 0,
-        anomaly: anomalyMonths.length > 0,
-        anomalyReason,
+        totalQty: a.totalQty,
+        qty1m,
+        qty2m,
+        avg2m: complete2Count > 0 ? Math.round(qty2m / complete2Count) : 0,
       };
     });
 
@@ -177,34 +157,28 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const { availability, projection: inventoryProjection } =
       await this.inventoryReader.project(organizationId, inventoryInputs);
 
-    // 3) 파생 지표.
-    let anomalyCount = 0;
+    // Derived metrics use the actual source quantities from complete months.
     const products: SellpiaProductSalesRow[] = bases.map((b) => {
       const { a } = b;
       const inventory = inventoryProjection.byProductKey.get(b.key)!;
       const trend = computeTrend(b.completeQtys);
       const seasonTag = computeSeasonTag(b.completeMonthly, completeMonthCount);
-      if (b.anomaly) anomalyCount++;
       return {
         productCode: a.productCode,
         optionCode: a.optionCode,
         productName: a.productName,
         optionName: a.optionName,
         providerName: a.providerName,
-        salePrice: a.salePrice,
-        buyPrice: a.buyPrice,
         barcode: a.barcode,
         monthly: b.monthly,
         qty1m: b.qty1m,
         qty2m: b.qty2m,
         avg2m: b.avg2m,
-        totalQty: b.cleanTotal,
+        totalQty: b.totalQty,
         trend,
         deadStock: inventory.deadStock,
         deadStockReason: inventory.deadStockReason,
         seasonTag,
-        anomaly: b.anomaly,
-        anomalyReason: b.anomalyReason,
         inventoryResolution: inventory.inventoryResolution,
         monthsOfAvailableStockLeft: inventory.monthsOfAvailableStockLeft,
         reorderPoint: inventory.reorderPoint,
@@ -233,7 +207,6 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       },
       reorderCount: inventoryProjection.summary.reorderCount,
       deadStockCount: inventoryProjection.summary.deadStockCount,
-      anomalyCount,
       abcCounts: inventoryProjection.summary.abcCounts,
       abcStatusCounts: inventoryProjection.summary.abcStatusCounts,
       abcContributionProfitByGrade: inventoryProjection.summary.abcContributionProfitByGrade,

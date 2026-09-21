@@ -9,6 +9,7 @@ import {
   SOURCE_IMPORT_RUN_STATUS_CHECK,
   sourceImportRunStatusCheckExpression,
 } from '../../../../scripts/data-migrations/helpers/source-import-run-status-check';
+import { kidItemCodeSequenceStep } from '../../../../scripts/data-migrations/ensure/kid-item-code-sequence';
 
 const repoRoot = path.resolve(__dirname, '../../../..');
 const tsxCli = require.resolve('tsx/cli');
@@ -43,12 +44,14 @@ describe('data:migrate ensure steps on a freshly pushed database (PostgreSQL)', 
 
   beforeEach(async () => {
     await resetDb(prisma);
+    await resetKidItemCodeSequence();
     await dropStatusCheck();
   });
 
   afterEach(async () => {
     // Later suites share this database, so restore the pushed shape.
     await resetDb(prisma);
+    await resetKidItemCodeSequence();
     await dropStatusCheck();
     await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
   });
@@ -83,6 +86,19 @@ describe('data:migrate ensure steps on a freshly pushed database (PostgreSQL)', 
           createdFormulaVersionCount: 0,
           createdFormulaStateCount: 0,
           attachedMappingOnlyStateCount: 0,
+        },
+      },
+      {
+        migrationId: 'ensure:kid_item_code_sequence',
+        status: 'ensured',
+        affectedRows: 0,
+        details: {
+          sequence: 'kid_item_code_seq',
+          outcome: 'unchanged',
+          maxExistingSuffix: 0,
+          sequenceLastValue: 1,
+          sequenceWasCreated: false,
+          sequenceWasAdvanced: false,
         },
       },
     ]);
@@ -127,6 +143,19 @@ describe('data:migrate ensure steps on a freshly pushed database (PostgreSQL)', 
           attachedMappingOnlyStateCount: 0,
         },
       },
+      {
+        migrationId: 'ensure:kid_item_code_sequence',
+        status: 'ensured',
+        affectedRows: 0,
+        details: {
+          sequence: 'kid_item_code_seq',
+          outcome: 'unchanged',
+          maxExistingSuffix: 0,
+          sequenceLastValue: 1,
+          sequenceWasCreated: false,
+          sequenceWasAdvanced: false,
+        },
+      },
     ]);
     await expect(readFormulas()).resolves.toEqual([
       installedFormula('kid243-inventory'),
@@ -135,10 +164,29 @@ describe('data:migrate ensure steps on a freshly pushed database (PostgreSQL)', 
     ]);
 
     const third = up('post-schema');
-    expect(third.results.map(({ affectedRows }) => affectedRows)).toEqual([0, 0]);
+    expect(third.results.map(({ affectedRows }) => affectedRows)).toEqual([0, 0, 0]);
     // Ensure steps leave no ledger rows.
     await expect(prisma.dataMigrationRun.count()).resolves.toBe(0);
   }, 180_000);
+
+  it('fails closed when the shared KID sequence definition is malformed', async () => {
+    for (const alteration of ['MAXVALUE 100', 'INCREMENT BY 2', 'CYCLE']) {
+      try {
+        await prisma.$executeRawUnsafe(`ALTER SEQUENCE kid_item_code_seq ${alteration}`);
+        await expect(prisma.$transaction((tx) =>
+          kidItemCodeSequenceStep.run(tx, { target: 'local' })))
+          .rejects.toThrow(/kid_item_code_seq has a malformed definition/);
+      } finally {
+        await prisma.$executeRaw`
+          ALTER SEQUENCE kid_item_code_seq
+            MINVALUE 1
+            MAXVALUE 99999999
+            INCREMENT BY 1
+            NO CYCLE
+        `;
+      }
+    }
+  }, 60_000);
 
   function up(phase: 'pre-schema' | 'post-schema'): UpReport {
     const stdout = runScript('scripts/run-data-migrations.ts', [
@@ -165,6 +213,21 @@ describe('data:migrate ensure steps on a freshly pushed database (PostgreSQL)', 
 
   async function dropStatusCheck() {
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
+  }
+
+  async function resetKidItemCodeSequence(): Promise<void> {
+    // The allocator is global and is not owned by a table, so reset only the
+    // disposable integration fixture between tests. Production code never
+    // rewinds this sequence.
+    await prisma.$executeRaw`
+      ALTER SEQUENCE kid_item_code_seq
+        MINVALUE 1
+        MAXVALUE 99999999
+        START WITH 1
+        INCREMENT BY 1
+        NO CYCLE
+        RESTART WITH 1
+    `;
   }
 
   function readStatusCheck() {

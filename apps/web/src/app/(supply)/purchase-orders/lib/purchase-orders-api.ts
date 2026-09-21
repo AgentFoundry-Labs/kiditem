@@ -49,6 +49,7 @@ export type PurchaseOrderCounts = {
 
 export type SubmitPurchaseOrderRequest = {
   purchaseOrderId: string;
+  inventoryAttemptId: string;
   idempotencyKey: string;
 };
 
@@ -126,6 +127,7 @@ export const purchaseOrdersApi = {
     return apiClient.post('/api/purchase-orders', {
       action: 'submit',
       id: input.purchaseOrderId,
+      inventoryAttemptId: input.inventoryAttemptId,
       idempotencyKey: input.idempotencyKey,
     });
   },

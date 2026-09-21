@@ -9,9 +9,8 @@ function inputs(overrides: Partial<PipeInputs> = {}): PipeInputs {
   return {
     now: NOW,
     alerts: { data: [], failed: false },
-    outcomes: { data: [], failed: false },
     malls: { data: [{ key: 'gs-shop', name: 'GS샵', enabled: true }], failed: false },
-    freshness: { data: null, failed: false },
+    collectionStatus: { data: null, failed: false },
     confirm: { data: null, failed: false },
     loginBlocks: [],
     ...overrides,

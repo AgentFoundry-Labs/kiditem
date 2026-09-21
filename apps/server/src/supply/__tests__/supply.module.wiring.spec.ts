@@ -26,6 +26,7 @@ import { SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT } from '../application/port
 import { SUPPLY_SOURCING_PROCUREMENT_PORT } from '../application/port/in/procurement/supply-sourcing-procurement.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from '../application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { InventoryModule } from '../../inventory/inventory.module';
+import { ProductSourceModule } from '../../products/product-source.module';
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from '../application/port/out/transaction/purchase-order-submission.transaction.port';
 import { ChannelsModule } from '../../channels/channels.module';
@@ -98,6 +99,7 @@ describe('SupplyModule owner wiring', () => {
     const imports: unknown[] = Reflect.getMetadata('imports', SupplyModule) ?? [];
     expect(imports).toContain(SupplyAgentRuntimeModule);
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ProductSourceModule);
     expect(imports).toContain(ChannelsModule);
   });
 

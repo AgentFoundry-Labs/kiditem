@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ProfitabilityEvidenceModule } from '../finance/profitability-evidence.module';
-import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
+import { ProductCollectionRuntimeModule } from './product-collection-runtime.module';
+import { MasterProductAbcRepositoryAdapter } from './adapter/out/persistence/master-product-abc.repository.adapter';
 import { PRODUCT_ABC_READ_PORT } from './application/port/in/product-abc-read.port';
-import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
-import { ProductAbcReadService } from './application/service/product-abc-read.service';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/persistence/master-product-abc.repository.port';
+import { ProductAbcReadUseCase } from './application/usecase/product-abc-read.usecase';
 
 /**
  * Products' ABC read seam, published on its own so consumers in other owner
@@ -11,15 +12,15 @@ import { ProductAbcReadService } from './application/service/product-abc-read.se
  * imports them back). Mirrors `ProfitabilityEvidenceModule`.
  */
 @Module({
-  imports: [ProfitabilityEvidenceModule],
+  imports: [ProfitabilityEvidenceModule, ProductCollectionRuntimeModule],
   providers: [
     MasterProductAbcRepositoryAdapter,
     {
       provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
       useExisting: MasterProductAbcRepositoryAdapter,
     },
-    ProductAbcReadService,
-    { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadService },
+    ProductAbcReadUseCase,
+    { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadUseCase },
   ],
   exports: [PRODUCT_ABC_READ_PORT, MASTER_PRODUCT_ABC_REPOSITORY_PORT],
 })

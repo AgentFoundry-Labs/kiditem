@@ -1,5 +1,3 @@
-import type { MallOperationKind } from '@kiditem/shared/mall-operation-outcomes';
-
 /**
  * Agent Org 의 단계 목록 — 소싱부터 CS 까지.
  *
@@ -49,8 +47,6 @@ export interface PipeStageDef {
    * 성공이 닫으므로, 알림으로 그 원천의 실패 · 회복을 본다.
    */
   alertSourceTypes: readonly string[];
-  /** 이 단계의 관찰 기록 종류. */
-  mallOperations: readonly MallOperationKind[];
   /** 이 간격 안에 성공이 한 번은 있어야 '최신'이다. 신호 단계만 가진다. */
   expectedEveryMs: number | null;
   /**
@@ -71,7 +67,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/market',
     alertSourceTypes: ['coupang_keyword_serp', 'coupang_wing_rank'],
-    mallOperations: [],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -83,7 +78,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/market',
     alertSourceTypes: ['tiktok.creative'],
-    mallOperations: [],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -95,7 +89,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/rising-products',
     alertSourceTypes: ['1688.hot_product'],
-    mallOperations: [],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -107,7 +100,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '광고팀',
     href: '/sourcing-ai/competitor-analysis',
     alertSourceTypes: ['coupang_competitor_catalog', 'coupang_competitor_seller_identity', 'coupang_wing_itemwinner', 'coupang_wing_tracked_products'],
-    mallOperations: [],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -119,7 +111,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/decision-center',
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '추천은 트렌드 수집 안에서 다시 계산돼 따로 실행 기록이 남지 않습니다.',
   },
@@ -131,7 +122,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/wholesale-search',
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '1688 · 타오바오 검색은 결과만 남기고 실행 · 실패 기록을 따로 두지 않습니다.',
   },
@@ -143,7 +133,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '소싱팀',
     href: '/sourcing-ai/validation',
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '환율·배송비·몰 수수료 입력이 없어 검증이 모두 막혀 있습니다.',
   },
@@ -156,7 +145,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     href: '/sourcing-ai/final-selection',
     gate: true,
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     // 최종 선택의 결정 수(텔레그램 답장 포함)를 컨펌 보고 상태에서 읽는다.
     noSourceReason: null,
@@ -169,7 +157,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '콘텐츠팀',
     href: '/product-pipeline/collected-products',
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '상세페이지 · 썸네일 생성 기록을 모아 볼 곳이 아직 없습니다.',
   },
@@ -181,7 +168,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '상품관리팀',
     href: '/product-pipeline/registered-products',
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '상품등록 실행 기록이 서버에 남지 않습니다.',
   },
@@ -193,9 +179,8 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '운영팀',
     href: '/mall-listings',
     alertSourceTypes: [],
-    mallOperations: ['registration_fill'],
     expectedEveryMs: null,
-    noSourceReason: null,
+    noSourceReason: '상품등록 폼 채우기 결과는 등록 화면의 현재 실행 상태로 확인합니다.',
   },
   {
     id: 'orders',
@@ -205,8 +190,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '운영팀',
     href: '/order-collection',
     alertSourceTypes: ['order_collection_mall', 'coupang_direct_order_capture', 'coupang_rocket_final_order', 'coupang_shipment_summary'],
-    // 주문수집 · 셀피아 전송 · 송장 결과는 Orders 가 가진 사실이다. 관찰 기록에서 읽지 않는다.
-    mallOperations: [],
+    // 주문수집 · 셀피아 전송 · 송장 결과는 Orders 가 가진 사실이다.
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -218,7 +202,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '상품관리팀',
     href: '/inventory-hub',
     alertSourceTypes: ['sellpia_inventory', 'sellpia_product_profitability'],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -230,7 +213,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '운영팀',
     href: '/reviews',
     alertSourceTypes: ['coupang_reviews'],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -243,7 +225,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '마케팅팀',
     href: null,
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '릴스 제작은 아직 준비 중입니다. 자리만 잡아 두었습니다.',
   },
@@ -255,7 +236,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '마케팅팀',
     href: null,
     alertSourceTypes: [],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: '블로그 제작은 아직 준비 중입니다. 자리만 잡아 두었습니다.',
   },
@@ -267,7 +247,6 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     owner: '마케팅팀',
     href: '/ad-ops',
     alertSourceTypes: ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ads_daily', 'coupang_ad_profitability', 'coupang_wing_traffic'],
-    mallOperations: [],
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -286,4 +265,3 @@ function indexBy(pick: (stage: PipeStageDef) => readonly string[]): ReadonlyMap<
 }
 
 export const STAGE_BY_ALERT_SOURCE_TYPE = indexBy((stage) => stage.alertSourceTypes);
-export const STAGE_BY_MALL_OPERATION = indexBy((stage) => stage.mallOperations);

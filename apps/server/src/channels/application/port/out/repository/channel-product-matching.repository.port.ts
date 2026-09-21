@@ -46,9 +46,9 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
     updatedAt: Date;
   };
   inventoryComponents: ReadonlyArray<{
-    sellpiaInventorySkuId: string;
-    code: string;
-    name: string;
+    masterProductId: string;
+    code: string | null;
+    name: string | null;
     optionName: string | null;
     barcode: string | null;
     purchasePrice: number | null;
@@ -69,12 +69,12 @@ export type ChannelOptionMatchingRepositoryRow = Readonly<{
     itemName: string | null;
     sellerSku: string | null;
     barcode: string | null;
-    updatedAt: Date;
+      updatedAt: Date;
     inventoryComponents: ReadonlyArray<{
       id: string;
-      sellpiaInventorySkuId: string;
-      code: string;
-      name: string;
+      masterProductId: string;
+      code: string | null;
+      name: string | null;
       optionName: string | null;
       barcode: string | null;
       quantity: number;

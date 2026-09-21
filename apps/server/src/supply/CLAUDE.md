@@ -2,15 +2,15 @@ Before working in this directory, always read this document first rather than re
 
 # supply — Suppliers And Procurement
 
-`src/supply/` owns private supplier identity, Sellpia-SKU supplier policy,
+`src/supply/` owns private supplier identity, source-product supplier policy,
 supplier-offer evidence, procurement test intents, purchase orders, and Rocket
 workbook decisions. Sourcing owns discovery and handoff; Finance owns supplier
 payments.
 
 ## Identity And State
 
-- `SupplierProduct` links an Inventory-owned `SellpiaInventorySku` to
-  supplier price, MOQ, and primary-supplier policy.
+- `SupplierProduct` links a Products-owned `MasterProduct` to supplier price
+  and primary-supplier policy.
 - Offer snapshots and price tiers are immutable commercial evidence.
   `ProcurementTestIntent` is a proposed RFQ/sample/test order, never a
   purchase order or provider submission.
@@ -36,6 +36,9 @@ are executable in [the Supply tests](__tests__/).
 - Real ordering uses the submission port with an authenticated actor and
   caller-stable idempotency key; generic status updates cannot perform
   pending-to-ordered.
+- Submission verifies the completed Sellpia attempt and revalidates its
+  generation and fence inside the submission transaction; elapsed time is not
+  an inventory rejection rule.
 - Persist a prepared attempt before external checkout. Only its creator may
   call the provider. Observers reconcile unresolved outcomes rather than
   calling create again.
@@ -45,14 +48,16 @@ are executable in [the Supply tests](__tests__/).
 ## Rocket Workbook Contract
 
 - Preview reads the referenced account-scoped COMPLETE Rocket snapshot through
-  Channels and evaluates the latest stored Inventory snapshot. Source publication
+  Channels after Sellpia collection successfully publishes to Products. Each
+  calculation carries the exact completed Products attempt ID; failed or
+  cancelled collection cannot fall back to older stock. Rocket source publication
   and failure belong to Channels; preview only allocates and never reserves stock,
   writes a workbook, or calls a purchase provider.
 - Allocate shared component stock once in stable ETA/PO/line order. Strict edits
   fail by default; explicit clamping applies in that same global order.
-- Official export reruns canonical preview in fresh mode, requires every line
+- Official export reruns canonical preview against that completed attempt, requires every line
   to have an active confirmed option recipe and reviewed quantity, and fences
-  the artifact to the source snapshot, Inventory generation, and unchanged
+  the artifact to the source snapshot, Products generation, and unchanged
   component identities.
 - Only recipe-backed insufficient capacity may export with quantity zero and a
   controlled shortage reason. Mapping or configuration blockers cannot export.
@@ -61,8 +66,8 @@ are executable in [the Supply tests](__tests__/).
   not recalculate.
 - Orders reconciliation links exact account, PO, product, and available barcode
   evidence. Matching classifies rows but does not filter collection output or
-  mutate Orders/Inventory tables.
-- Completion depends on linked Orders transmission intents, not an Inventory
+  mutate Orders/Products tables.
+- Completion depends on linked Orders transmission intents, not a Products
   refresh. Abandonment uses the tested empty-probe policy and takes no reason.
 
 Read
@@ -72,11 +77,11 @@ before changing the operator boundary.
 ## Ports And Boundaries
 
 - Sourcing creates handoffs only through
-  `SUPPLY_SOURCING_PROCUREMENT_PORT`; Channels and Inventory capabilities are
+  `SUPPLY_SOURCING_PROCUREMENT_PORT`; Channels and Products capabilities are
   consumed through their published ports.
 - Application services use repository/transaction ports. Submission and
   workbook units of work are the documented locked transaction exceptions.
-- Supply may read but never mutate Inventory state or stock, and an exported
+- Supply may read but never mutate Products current stock, and an exported
   workbook is operator evidence rather than proof of provider acceptance.
 - Supplier-product currently has no write path; analytics reads it through a
   read-only join.

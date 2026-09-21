@@ -125,13 +125,16 @@ const scenarios: readonly InvocationScenario[] = [
   }),
   scenario('sourcing.scrapeProductUrl', 'sourcing.scrapeProductUrl', 'none', { sourceUrl: SOURCE_URL }, { snapshot }),
   scenario('supply.create_purchase_order_draft', 'supply.createPurchaseOrderDraft', 'low', {
-    sellpiaInventorySkuId: CANDIDATE_ID,
+    masterProductId: CANDIDATE_ID,
     productName: 'Toy',
     supplierName: 'Supplier',
     unitPriceCny: 1,
     moq: 1,
   }, { orderId: 'purchase-order-1', status: 'draft' }),
-  scenario('supply.submit_purchase_order', 'supply.submitPurchaseOrder', 'high', { purchaseOrderId: PURCHASE_ORDER_ID }, {
+  scenario('supply.submit_purchase_order', 'supply.submitPurchaseOrder', 'high', {
+    purchaseOrderId: PURCHASE_ORDER_ID,
+    inventoryAttemptId: '00000000-0000-4000-8000-000000000008',
+  }, {
     orderId: 'purchase-order-1',
     status: 'ordered',
   }),

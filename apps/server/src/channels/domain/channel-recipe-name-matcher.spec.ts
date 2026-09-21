@@ -6,7 +6,7 @@ import {
 } from './channel-recipe-name-matcher';
 
 const sku = (code: string, name: string, optionName: string | null = null) => ({
-  sellpiaInventorySkuId: `00000000-0000-4000-8000-${code.padStart(12, '0')}`,
+  masterProductId: `00000000-0000-4000-8000-${code.padStart(12, '0')}`,
   code,
   name,
   optionName,

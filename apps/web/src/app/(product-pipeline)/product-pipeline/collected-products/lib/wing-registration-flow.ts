@@ -844,7 +844,7 @@ export async function submitWingRegistration(
     const request = {
       channelAccountId,
       displayName: product.productName,
-      sellpiaInventorySkuId: sellpiaSelection.sellpiaInventorySkuId,
+      masterProductId: sellpiaSelection.masterProductId,
       sellpiaQuantity: sellpiaSelection.quantity,
       registrationInput: {
         ...draft.registrationInput,

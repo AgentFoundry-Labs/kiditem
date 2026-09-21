@@ -9,6 +9,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { readMonthlyAdAllocationPublication } from '../read/monthly-ad-allocation.reader';
 import type { PrismaClient } from '@prisma/client';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('monthly advertising allocation publication reader (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -181,15 +182,14 @@ async function seedPublication(prisma: PrismaClient) {
     name: 'Allocation account',
     status: 'active',
   } });
-  const product = await prisma.masterProduct.create({ data: {
+  const product = await seedSourceProduct(prisma, {
     organizationId: TEST_ORGANIZATION_ID,
     code: 'ALLOCATION-PRODUCT',
     name: 'Allocation product',
-  } });
+  });
   const listing = await prisma.channelListing.create({ data: {
     organizationId: TEST_ORGANIZATION_ID,
     channelAccountId: account.id,
-    masterProductId: product.id,
     externalId: 'ALLOCATION-LISTING',
   } });
   const run = await prisma.sourceImportRun.create({ data: {

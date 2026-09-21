@@ -58,6 +58,8 @@ export interface PrepareRegistrationExecutionInput {
 }
 
 export interface RegistrationExecutionResult {
+  /** Assigned in the frozen preparation; absent on historical executions. */
+  kidItemCode?: string;
   executionId: string;
   preparationId: string;
   requestHash: string;

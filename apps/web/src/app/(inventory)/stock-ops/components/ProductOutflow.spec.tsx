@@ -9,9 +9,10 @@ const productSalesApi = vi.hoisted(() => ({ fetch: vi.fn() }));
 const sourceOwner = vi.hoisted(() => ({ start: vi.fn(), state: null as Record<string, unknown> | null }));
 const freshness = vi.hoisted(() => ({
   state: {
-    status: 'refresh_required',
-    lastVerifiedAt: '2026-08-01T00:30:00.000Z',
-    syncNotBefore: null,
+    status: 'not_collected',
+    lastCompletedAt: null,
+    lastCompletedAttemptId: null,
+    lastAttemptId: null,
   },
 }));
 
@@ -50,9 +51,10 @@ describe('ProductOutflow', () => {
     productSalesApi.fetch.mockResolvedValue(summary(false));
     sourceOwner.start.mockResolvedValue({ state: 'RUNNING' });
     freshness.state = {
-      status: 'refresh_required',
-      lastVerifiedAt: '2026-08-01T00:30:00.000Z',
-      syncNotBefore: null,
+      status: 'not_collected',
+      lastCompletedAt: null,
+      lastCompletedAttemptId: null,
+      lastAttemptId: null,
     };
     sourceOwner.state = freshness.state;
   });
@@ -72,8 +74,9 @@ describe('ProductOutflow', () => {
   it('keeps failed inventory refreshes on the inventory-only operation scope', async () => {
     freshness.state = {
       status: 'failed',
-      lastVerifiedAt: '2026-08-01T00:30:00.000Z',
-      syncNotBefore: null,
+      lastCompletedAt: null,
+      lastCompletedAttemptId: null,
+      lastAttemptId: null,
     };
     sourceOwner.state = freshness.state;
     renderProductOutflow();
@@ -167,7 +170,6 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
     },
     reorderCount: 0,
     deadStockCount: 0,
-    anomalyCount: 0,
     abcCounts: { A: hasData ? 1 : 0, B: 0, C: 0 },
     abcStatusCounts: {
       READY: hasData ? 1 : 0,
@@ -199,8 +201,6 @@ function row(
     productName,
     optionName: null,
     providerName: '공급처',
-    salePrice: 1_000,
-    buyPrice: 500,
     barcode: suffix,
     monthly: [{ yearMonth: '2026-07', orderQty: 1 }],
     qty1m: 1,
@@ -211,13 +211,10 @@ function row(
     deadStock: false,
     deadStockReason: null,
     seasonTag: null,
-    anomaly: false,
-    anomalyReason: null,
     inventoryResolution: {
       status: 'matched',
-      sellpiaInventorySkuId: `11111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
+      masterProductId: `11111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
       currentStock: 10,
-      availableStock: 10,
       salesRowCount: 1,
       inventoryProduct: {
         masterProductId: `21111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,

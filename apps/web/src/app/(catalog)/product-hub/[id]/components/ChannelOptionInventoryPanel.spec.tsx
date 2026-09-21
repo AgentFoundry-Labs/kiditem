@@ -26,14 +26,12 @@ const channelListings = [{
     capacity: 8,
     inventoryComponents: [{
       id: '33333333-3333-4333-8333-333333333333',
-      sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+      masterProductId: '44444444-4444-4444-8444-444444444444',
       code: 'SP-100',
       name: '동물 블록 낱개',
       optionName: null,
       barcode: null,
       currentStock: 85,
-      availableStock: 85,
-      isActive: true,
       quantity: 10,
     }],
   }, {
@@ -52,10 +50,30 @@ describe('<ChannelOptionInventoryPanel />', () => {
 
     expect(screen.getByRole('heading', { name: '채널 판매 옵션 · 재고 구성' })).toBeInTheDocument();
     expect(screen.getByText('SP-100 · 동물 블록 낱개')).toBeInTheDocument();
-    expect(screen.getByText('가용 85 · 차감 10')).toBeInTheDocument();
+    expect(screen.getByText('현재 재고 85 · 차감 10')).toBeInTheDocument();
     expect(screen.getByText('판매 가능 8개')).toBeInTheDocument();
     expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
     expect(screen.getByText('판매 가능 미확정')).toBeInTheDocument();
+  });
+
+  it('shows a deleted reference as disconnected while retaining its editable identity', () => {
+    const listing = channelListings[0]!;
+    const option = listing.options[0]!;
+    const component = option.inventoryComponents[0]!;
+    render(<ChannelOptionInventoryPanel channelListings={[{
+      ...listing,
+      options: [{ ...option, capacity: null, inventoryComponents: [{
+        ...component, code: null, name: null, currentStock: null,
+      }] }],
+    }]} />);
+    expect(screen.getByText('연결 없음 · 삭제된 재고')).toBeInTheDocument();
+    expect(screen.getByText('판매 가능 미확정')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '재고 구성 편집' }));
+    expect(inventoryDialog).toHaveBeenLastCalledWith(expect.objectContaining({
+      option: expect.objectContaining({ inventoryComponents: [expect.objectContaining({
+        masterProductId: component.masterProductId, quantity: 10, currentStock: null,
+      })] }),
+    }));
   });
 
   it('opens the editor for the exact channel listing option', () => {

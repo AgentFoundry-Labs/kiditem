@@ -33,6 +33,7 @@ describe('data migration ensure steps', () => {
     expect(ENSURE_STEP_IDS).toEqual([
       'ensure:source_import_run_status_check',
       'ensure:absolute_product_abc_formula',
+      'ensure:kid_item_code_sequence',
     ]);
     for (const id of ENSURE_STEP_IDS) expect(id).toMatch(/^ensure:[a-z0-9_]+$/);
     expect(new Set(ENSURE_STEP_IDS).size).toBe(ENSURE_STEP_IDS.length);
@@ -151,7 +152,7 @@ describe('ensure:absolute_product_abc_formula', () => {
     expect(mapping).toMatch(/pg_advisory_xact_lock\(\s*hashtextextended\(\$\{lockKey\}, 0\)\s*\)/);
 
     const publication = readRepoFile(
-      'apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts',
+      'apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts',
     );
     const lockOrder = [
       "await lockNamed(tx, 'kiditem.sellpia-product-profitability', input.organizationId);",

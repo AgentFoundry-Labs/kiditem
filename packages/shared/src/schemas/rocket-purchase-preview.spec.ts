@@ -21,7 +21,7 @@ const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
 const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const CHANNEL_LISTING_OPTION_ID = '44444444-4444-4444-8444-444444444444';
-const SELLPIA_INVENTORY_SKU_ID = '55555555-5555-4555-8555-555555555555';
+const COMPONENT_MASTER_PRODUCT_ID = '55555555-5555-4555-8555-555555555555';
 const CONFIRMATION_ID = '66666666-6666-4666-8666-666666666666';
 
 function request() {
@@ -298,7 +298,7 @@ describe('Rocket purchase preview contract', () => {
     expect(response).not.toHaveProperty('submissionAttempt');
   });
 
-  it('keeps product, channel option, and physical Sellpia identities distinct', () => {
+  it('keeps product and recipe MasterProduct identities distinct', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       status: 'ready',
       collectionRunId: RUN_ID,
@@ -318,13 +318,12 @@ describe('Rocket purchase preview contract', () => {
         channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
         masterProductId: MASTER_PRODUCT_ID,
         components: [{
-          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          masterProductId: COMPONENT_MASTER_PRODUCT_ID,
           code: 'SP-100',
           name: 'Sellpia 연결 상품',
           optionName: null,
           quantity: 1,
           currentStock: 5,
-          isActive: true,
         }],
       }],
     });
@@ -333,9 +332,12 @@ describe('Rocket purchase preview contract', () => {
     expect(response.rows[0]).toMatchObject({
       masterProductId: MASTER_PRODUCT_ID,
       channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
-      components: [{ sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID }],
+      components: [{ masterProductId: COMPONENT_MASTER_PRODUCT_ID }],
     });
-    expect(response.rows[0]?.components[0]).not.toHaveProperty('masterProductId');
+    expect(response.rows[0]?.components[0]?.masterProductId)
+      .toBe(COMPONENT_MASTER_PRODUCT_ID);
+    expect(response.rows[0]?.masterProductId)
+      .not.toBe(response.rows[0]?.components[0]?.masterProductId);
   });
 
   it.each(['configuration_required', 'review_required'] as const)(
@@ -391,89 +393,48 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow(/plannedDeliveryDate/i);
   });
 
-  it('parses a freshness-pending checkpoint with immediately visible advisory rows', () => {
-    const response = RocketPurchasePreviewResponseSchema.parse({
-      status: 'freshness_pending',
-      collectionRunId: RUN_ID,
-      catalog: publication(),
-      requestedGeneration: '8',
-      rows: [{
-        poLineId: request().rows[0]!.poLineId,
-        poNumber: '1001',
-        productNo: 'P-1',
-        productName: '로켓 상품',
-        plannedDeliveryDate: '2026-07-20',
-        orderQuantity: 4,
-        recommendedQuantity: 2,
-        maxQuantity: 2,
-        editedQuantity: null,
-        reason: 'insufficient_capacity',
-        channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
-        masterProductId: MASTER_PRODUCT_ID,
-        components: [{
-          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-          code: 'SP-100',
-          name: 'Sellpia 연결 상품',
-          optionName: null,
-          quantity: 1,
-          currentStock: 2,
-          isActive: true,
-        }],
-      }],
-    });
-
-    expect(response).toMatchObject({
-      status: 'freshness_pending',
-      collectionRunId: RUN_ID,
-      requestedGeneration: '8',
-      rows: [expect.objectContaining({ poLineId: request().rows[0]!.poLineId })],
-    });
-    expect(response).not.toHaveProperty('inventoryGeneration');
-    expect(() => RocketPurchasePreviewResponseSchema.parse({
-      ...response,
-      inventoryGeneration: '7',
-    })).toThrow();
+  it('rejects advisory calculations made before inventory collection completes', () => {
+    expect(RocketPurchasePreviewResponseSchema.safeParse({
+      status: 'freshness_pending', collectionRunId: RUN_ID,
+      catalog: publication(), requestedGeneration: '8', rows: [],
+    }).success).toBe(false);
   });
 
   it('accepts current stock as the only Rocket stock quantity', () => {
     expect(RocketPurchasePreviewComponentSchema.parse({
-      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      masterProductId: COMPONENT_MASTER_PRODUCT_ID,
       code: 'SP-100',
       name: 'Sellpia 연결 상품',
       optionName: null,
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     })).toEqual({
-      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      masterProductId: COMPONENT_MASTER_PRODUCT_ID,
       code: 'SP-100',
       name: 'Sellpia 연결 상품',
       optionName: null,
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     });
     expect(() => RocketPurchasePreviewComponentSchema.parse({
-      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      masterProductId: COMPONENT_MASTER_PRODUCT_ID,
       code: 'SP-100',
       name: 'Sellpia 연결 상품',
       optionName: null,
       quantity: 1,
       currentStock: 5,
       availableStock: 4,
-      isActive: true,
     })).toThrow();
   });
 
   it('carries the Sellpia product identity needed to review a recipe', () => {
     expect(RocketPurchasePreviewComponentSchema.parse({
-      sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+      masterProductId: COMPONENT_MASTER_PRODUCT_ID,
       code: 'SP-100',
       name: 'Sellpia 연결 상품',
       optionName: '랜덤',
       quantity: 1,
       currentStock: 5,
-      isActive: true,
     })).toMatchObject({
       code: 'SP-100',
       name: 'Sellpia 연결 상품',

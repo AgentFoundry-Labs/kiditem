@@ -97,8 +97,6 @@
       "prismaModel": "sellpiaProductMonthlySales",
       "prismaType": "SellpiaProductMonthlySales",
       "relationNames": [
-        "frozenProfitFacts",
-        "frozenSellpiaProfitFacts",
         "sellpiaProductMonthlySales"
       ],
       "reader": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
@@ -190,21 +188,23 @@
       "legacyReaders": []
     },
     {
-      "name": "Sellpia inventory availability",
-      "table": "sellpia_inventory_skus",
-      "prismaModel": "sellpiaInventorySku",
-      "prismaType": "SellpiaInventorySku",
+      "name": "Products source inventory",
+      "table": "master_products",
+      "prismaModel": "masterProduct",
+      "prismaType": "MasterProduct",
       "relationNames": [
-        "frozenSellpiaInventorySku",
-        "inventorySkus",
-        "sellpiaInventorySku",
-        "sellpiaInventorySkus"
+        "masterProduct",
+        "masterProducts"
       ],
-      "reader": "apps/server/src/inventory/read/inventory-availability.ts",
+      "reader": "apps/server/src/products/adapter/out/persistence/read/product-source-availability.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
-          "reason": "Stages, validates, and publishes Sellpia inventory rows inside Inventory’s terminal source-owner transaction."
+          "path": "apps/server/src/products/adapter/out/persistence/product-source-publication.repository.adapter.ts",
+          "reason": "Publishes source facts and completion atomically as the Products source owner."
+        },
+        {
+          "path": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts",
+          "reason": "Owns explicit operator image/source-identity corrections; never changes source stock."
         }
       ],
       "legacyReaders": []
@@ -590,10 +590,10 @@
         "abcEvaluation",
         "evaluations"
       ],
-      "reader": "apps/server/src/products/read/product-abc-publication.reader.ts",
+      "reader": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts",
+          "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
           "reason": "Publishes, carries forward, and reads Products-owned official ABC evaluation rows inside the explicit publication boundary."
         }
       ],
@@ -606,8 +606,7 @@
       "prismaType": "ChannelAdListingProductMonthlyFact",
       "relationNames": [
         "channelAdListingProductMonthlyFacts",
-        "adListingProductMonthlyFacts",
-        "frozenAdvertisingProfitFacts"
+        "adListingProductMonthlyFacts"
       ],
       "reader": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
       "ownerPublications": [
@@ -663,29 +662,11 @@
       "relationNames": [
         "coupangShipmentDateSummaries"
       ],
-      "reader": "apps/server/src/inventory/read/coupang-shipment-date-summary.reader.ts",
+      "reader": "apps/server/src/orders/shipments/read/coupang-shipment-date-summary.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/inventory/adapter/out/repository/coupang-shipment-date-summary.repository.adapter.ts",
-          "reason": "Inventory publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
-      "name": "Mall operation outcome",
-      "table": "mall_operation_outcomes",
-      "prismaModel": "mallOperationOutcome",
-      "prismaType": "MallOperationOutcome",
-      "relationNames": [
-        "mallOperationOutcomes",
-        "recordedMallOperationOutcomes"
-      ],
-      "reader": "apps/server/src/channels/read/mall-operation-outcome.reader.ts",
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/channels/adapter/out/repository/mall-operation-outcome.repository.adapter.ts",
-          "reason": "Channels appends one observed mall outcome per organization idempotency key and re-reads that key to return the row it already wrote."
+          "path": "apps/server/src/orders/shipments/adapter/out/persistence/coupang-shipment-date-summary.repository.adapter.ts",
+          "reason": "Orders publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
         }
       ],
       "legacyReaders": []

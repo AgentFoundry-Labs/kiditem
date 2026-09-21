@@ -72,7 +72,7 @@ vi.mock('../../../../(channels)/_shared/registration-execution-api', () => ({
       status: 'matched',
       reason: 'one match',
       sellpiaMatch: {
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
         currentStock: 13, quantity: 1,
       },
@@ -81,7 +81,7 @@ vi.mock('../../../../(channels)/_shared/registration-execution-api', () => ({
     prepare: vi.fn().mockResolvedValue({
       executionId: '33333333-3333-4333-8333-333333333333', expectedVendorId: 'A00012345',
       sellpiaMatch: {
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
         currentStock: 13, quantity: 1,
       },
@@ -127,7 +127,7 @@ const PREPARED_WING_RESPONSE = {
   executionId: '33333333-3333-4333-8333-333333333333',
   expectedVendorId: 'A00012345',
   sellpiaMatch: {
-    sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+    masterProductId: '44444444-4444-4444-8444-444444444444',
     code: '10451-1',
     name: '3500꿀사과슬랑이',
     optionName: null,
@@ -916,7 +916,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(registrationExecutionApi.prepare).toHaveBeenCalledWith(
       'candidate-1',
       expect.objectContaining({
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         sellpiaQuantity: 1,
         registrationInput: expect.objectContaining({
           salePrice: 2200,
@@ -956,7 +956,7 @@ describe('external WING pre-intent choreography', () => {
       executionId: '33333333-3333-4333-8333-333333333333',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         optionName: null,
@@ -986,7 +986,7 @@ describe('external WING pre-intent choreography', () => {
       executionId: '55555555-5555-4555-8555-555555555555',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
         currentStock: 13, quantity: 1,
       },
@@ -1013,7 +1013,7 @@ describe('external WING pre-intent choreography', () => {
       executionId: '33333333-3333-4333-8333-333333333333',
       expectedVendorId: 'A00012345',
       sellpiaMatch: {
-        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        masterProductId: '44444444-4444-4444-8444-444444444444',
         code: '10451-1',
         name: '3500꿀사과슬랑이',
         optionName: null,

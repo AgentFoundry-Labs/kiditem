@@ -1,7 +1,7 @@
 export const SELLPIA_RECIPE_EVIDENCE_PORT = Symbol('SELLPIA_RECIPE_EVIDENCE_PORT');
 
 export type SellpiaRecipeEvidenceSku = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;

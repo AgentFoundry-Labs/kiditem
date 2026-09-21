@@ -117,6 +117,31 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    never ran, campaign registrations included, with the manual-action or
    cutover message (KID-230).
 
+   `v0.1.31:016_master_product_inventory_cutover` runs last in this
+   pre-schema phase. It is the MasterProduct/legacy-Sellpia inventory
+   boundary and fails closed before any source table is dropped: every
+   surviving MasterProduct must have one explicit legacy SKU mapping with
+   source identity evidence, and missing, cross-organization, multiple-SKU,
+   duplicate, or conflicting mappings stop the transaction. An unlinked
+   MasterProduct is deleted only when the legacy schema has a non-null
+   `origin_channel_listing_id`, empty `image_urls`, and zero references from
+   ABC/evaluation history, facts, Sourcing, Channel, supply, or inventory
+   records; every other unlinked row remains a blocker. The deletion count is
+   included in the migration result and rolls back with the transaction.
+   It preserves all other MasterProduct UUIDs and historical legacy SKU
+   identifiers, maps only live references that resolve, and leaves unresolved
+   historical identifiers for history reads. It explicitly removes known
+   inbound legacy-SKU foreign keys while retaining their historical columns.
+   It also prepares the shared bounded `kid_item_code_seq`,
+   allocates independent MasterProduct and bundle codes atomically, permits a
+   singleton Channel option to reuse its component MasterProduct code, and
+   runs the same strict sequence check before dropping the legacy table. A
+   malformed existing sequence definition (bound, increment, or cycle policy)
+   blocks the cutover; it is never silently reset.
+   Treat any 016 failure as a blocked cutover; correct the data decision and
+   rerun the complete pre-schema phase before proceeding to the survey or
+   schema push.
+
    A table that already has its column, and a key whose index exists, are
    left alone. Tables and columns a database no longer has are skipped:
 
@@ -168,6 +193,11 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    npm run test:scripts
    npm run build --workspace=packages/shared
    ```
+
+   The post-schema `ensure:kid_item_code_sequence` step runs after the 016
+   in-transaction check and after Prisma applies the final schema. It must
+   still pass before the application is started; it rejects invalid codes,
+   independently issued duplicates, and illegal Channel reuse.
 
 ### Irreversible boundary and recovery
 

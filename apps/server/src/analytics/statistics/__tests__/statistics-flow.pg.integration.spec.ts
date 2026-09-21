@@ -22,6 +22,8 @@ import {
   setupProductOption,
 } from '../../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../../products/__tests__/test-helpers/published-product-abc';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 
 describe('Statistics flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -33,6 +35,7 @@ describe('Statistics flow (PG integration)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         StatisticsService,
         { provide: PrismaService, useValue: prisma },
       ],
@@ -65,15 +68,17 @@ describe('Statistics flow (PG integration)', () => {
       organizationId,
       code: `${prefix}-M-001`,
       name: `${prefix} Master M1`,
-      category: '유아용품',
       thumbnailUrl: 'https://cdn/m1.jpg',
     });
     const { id: masterM2 } = await setupMaster(prisma, {
       organizationId,
       code: `${prefix}-M-002`,
       name: `${prefix} Master M2`,
-      category: '완구',
     });
+    const [masterM1Code, masterM2Code] = await Promise.all([
+      prisma.masterProduct.findUniqueOrThrow({ where: { id: masterM1 }, select: { code: true } }),
+      prisma.masterProduct.findUniqueOrThrow({ where: { id: masterM2 }, select: { code: true } }),
+    ]).then((masters) => masters.map((master) => master.code));
     await seedPublishedProductAbcGrades(prisma, {
       organizationId,
       grades: [
@@ -88,9 +93,14 @@ describe('Statistics flow (PG integration)', () => {
       sku: `${prefix}-SKU-M1A`,
       costPrice: 5_000,
     });
+    const { id: masterM1b } = await setupMaster(prisma, {
+      organizationId,
+      code: `${prefix}-M-001-B`,
+      name: `${prefix} Master M1`,
+    });
     const { id: optM1b } = await setupProductOption(prisma, {
       organizationId,
-      masterId: masterM1,
+      masterId: masterM1b,
       sku: `${prefix}-SKU-M1B`,
       costPrice: 4_000,
     });
@@ -107,6 +117,7 @@ describe('Statistics flow (PG integration)', () => {
       channel: 'coupang',
       externalId: `${prefix}-EXT-L1`,
       channelName: `${prefix} L1`,
+      category: '유아용품',
       optionId: optM1a,
       externalOptionId: `${prefix}-VI-L1A`,
     });
@@ -122,7 +133,7 @@ describe('Statistics flow (PG integration)', () => {
       data: {
         organizationId,
         channelListingOptionId: listingL1b.id,
-        sellpiaInventorySkuId: optM1b,
+        masterProductId: optM1b,
         quantity: 1,
       },
     });
@@ -132,6 +143,7 @@ describe('Statistics flow (PG integration)', () => {
       channel: 'coupang',
       externalId: `${prefix}-EXT-L2`,
       channelName: `${prefix} L2`,
+      category: '완구',
       optionId: optM2a,
       externalOptionId: `${prefix}-VI-L2A`,
     });
@@ -236,6 +248,8 @@ describe('Statistics flow (PG integration)', () => {
     return {
       masterM1,
       masterM2,
+      masterM1Code,
+      masterM2Code,
       listingL1: listingL1.listingId,
       listingL2: listingL2.listingId,
     };
@@ -259,8 +273,8 @@ describe('Statistics flow (PG integration)', () => {
     }
   });
 
-  it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
-    const { masterM1, masterM2, listingL1, listingL2 } = await seedStatisticsFixture();
+  it('products keeps mixed-source identity unassigned while preserving profitRate and single-source metadata', async () => {
+    const { masterM2, masterM2Code, listingL1, listingL2 } = await seedStatisticsFixture();
 
     const result = await service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
@@ -269,11 +283,11 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL1,
         externalId: 'TEST-EXT-L1',
         channelName: 'TEST L1',
-        masterId: masterM1,
-        masterCode: 'TEST-M-001',
+        masterId: listingL1,
+        masterCode: 'TEST-EXT-L1',
         productName: 'TEST Master M1',
         category: '유아용품',
-        grade: 'A',
+        grade: null,
         thumbnailUrl: 'https://cdn/m1.jpg',
         totalRevenue: 32_000,
         netProfit: 15_000,
@@ -286,7 +300,7 @@ describe('Statistics flow (PG integration)', () => {
         externalId: 'TEST-EXT-L2',
         channelName: 'TEST L2',
         masterId: masterM2,
-        masterCode: 'TEST-M-002',
+        masterCode: masterM2Code,
         productName: 'TEST Master M2',
         category: '완구',
         grade: 'B',
@@ -314,7 +328,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 11_000, productCount: 1 },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
+      { grade: 'N/A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
       { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, productCount: 1, adCost: 1_000 },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
@@ -684,7 +698,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
+      { grade: 'N/A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
       { grade: 'B', revenue: null, profit: null, count: null, productCount: null, adCost: null },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('partial');
@@ -701,7 +715,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 9_000, productCount: 1 },
     ]);
     expect(openGrades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'N/A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
       { grade: 'B', revenue: 15_000, profit: 9_000, count: 1, productCount: 1, adCost: 0 },
     ]);
     expect(periodBasisStatus(openCategories.basis!.revenue)).toBe('complete');

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
+  Inject,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -819,7 +820,7 @@ export class ProfitabilityAdImportRepositoryAdapter
 
   private async listFrozenListings(tx: Transaction, organizationId: string, accountIds: readonly string[]) {
     if (accountIds.length === 0) return [];
-    return tx.channelListing.findMany({
+    const listings = await tx.channelListing.findMany({
       where: {
         organizationId,
         channelAccountId: { in: [...accountIds] },
@@ -835,13 +836,22 @@ export class ProfitabilityAdImportRepositoryAdapter
             inventoryComponents: {
               select: {
                 quantity: true,
-                sellpiaInventorySku: { select: { masterProductId: true } },
+                masterProductId: true,
               },
             },
           },
         },
       },
     });
+    return listings.map((listing) => ({
+      ...listing,
+      options: listing.options.map((option) => ({
+        inventoryComponents: option.inventoryComponents.map((component) => ({
+          quantity: component.quantity,
+          masterProduct: { masterProductId: component.masterProductId },
+        })),
+      })),
+    }));
   }
 
   private async resolveTargetRows(
@@ -1974,7 +1984,7 @@ function freezeMonthlyFacts(
     options: readonly {
       inventoryComponents: readonly {
         quantity: number;
-        sellpiaInventorySku: { masterProductId: string | null };
+        masterProduct: { masterProductId: string | null };
       }[];
     }[];
   }[],
@@ -2011,22 +2021,22 @@ function freezeMonthlyFacts(
 }
 
 function freezeRecipe(
-  options: readonly { inventoryComponents: readonly { quantity: number; sellpiaInventorySku: { masterProductId: string | null } }[] }[],
+  options: readonly { inventoryComponents: readonly { quantity: number; masterProduct: { masterProductId: string | null } }[] }[],
 ): Map<string, number> | null {
   if (options.length === 0) return null;
   const recipe = new Map<string, number>();
   for (const option of options) {
     if (option.inventoryComponents.length === 0) return null;
     for (const component of option.inventoryComponents) {
-      if (!component.sellpiaInventorySku.masterProductId
+      if (!component.masterProduct.masterProductId
         || !Number.isSafeInteger(component.quantity)
         || component.quantity <= 0
         || component.quantity > INT4_MAX) return null;
-      const nextWeight = (recipe.get(component.sellpiaInventorySku.masterProductId) ?? 0)
+      const nextWeight = (recipe.get(component.masterProduct.masterProductId) ?? 0)
         + component.quantity;
       if (!Number.isSafeInteger(nextWeight) || nextWeight > INT4_MAX) return null;
       recipe.set(
-        component.sellpiaInventorySku.masterProductId,
+        component.masterProduct.masterProductId,
         nextWeight,
       );
     }

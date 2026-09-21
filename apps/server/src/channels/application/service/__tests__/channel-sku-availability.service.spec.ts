@@ -33,29 +33,26 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
     },
     inventoryComponents: overrides.components ?? [{
-      sellpiaInventorySkuId: skuId,
+      masterProductId: skuId,
       code: 'SP-1',
       name: '재고',
       optionName: null,
       barcode: null,
       currentStock: 999,
       purchasePrice: 1_000,
-      isActive: true,
       quantity: 2,
     }],
   };
 }
 
 function dependencies(rows = [row()], inventoryItems = [{
-  sellpiaInventorySkuId: skuId,
+  masterProductId: skuId,
   currentStock: 10,
-  availableStock: 10,
-  isActive: true,
   generation: '1',
 }]) {
   const repository = { listAvailabilityRows: vi.fn().mockResolvedValue(rows) };
   const inventory = {
-    findBySkuIds: vi.fn().mockResolvedValue({
+    findByMasterProductIds: vi.fn().mockResolvedValue({
       snapshot: { collected: true, generation: '1', verifiedAt: '2026-08-01T00:00:00.000Z' },
       items: inventoryItems,
     }),
@@ -71,15 +68,15 @@ describe('ChannelSkuAvailabilityService', () => {
   it('calculates sellable capacity from the direct channel-option recipe and common availability', async () => {
     const { inventory, service } = dependencies();
     const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);
-    expect(inventory.findBySkuIds).toHaveBeenCalledWith({
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledWith({
       organizationId,
-      sellpiaInventorySkuIds: [skuId],
+      masterProductIds: [skuId],
     });
     expect(result).toMatchObject({
       masterProductId,
       recipeStatus: 'matched',
       sku: { id: optionId, mappingStatus: 'matched', sellableStock: 5 },
-      components: [{ quantity: 2, availableStock: 10, componentCapacity: 5, isBottleneck: true }],
+      components: [{ quantity: 2, currentStock: 10, componentCapacity: 5, isBottleneck: true }],
     });
   });
 
@@ -126,8 +123,6 @@ describe('ChannelSkuAvailabilityService', () => {
       warnings: ['inventory_unavailable'],
       components: [{
         currentStock: null,
-        availableStock: null,
-        isActive: null,
         componentCapacity: null,
         isBottleneck: null,
       }],

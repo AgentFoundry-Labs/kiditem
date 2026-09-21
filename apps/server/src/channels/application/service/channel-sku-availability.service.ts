@@ -7,9 +7,9 @@ import type {
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import {
-  INVENTORY_AVAILABILITY_PORT,
-  type InventoryAvailabilityPort,
-} from '../../../inventory/application/port/in/stock/inventory-availability.port';
+  PRODUCT_AVAILABILITY_PORT,
+  type ProductAvailabilityPort,
+} from '../../../products/application/port/in/product-availability.port';
 import {
   CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
   type ChannelAvailabilityRepositoryRow,
@@ -22,8 +22,8 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
   constructor(
     @Inject(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT)
     private readonly repository: ChannelProductMatchingRepositoryPort,
-    @Inject(INVENTORY_AVAILABILITY_PORT)
-    private readonly inventory: InventoryAvailabilityPort,
+    @Inject(PRODUCT_AVAILABILITY_PORT)
+    private readonly inventory: ProductAvailabilityPort,
   ) {}
 
   async list(
@@ -92,29 +92,29 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
     organizationId: string,
     rows: ChannelAvailabilityRepositoryRow[],
   ): Promise<ChannelSkuAvailabilityItem[]> {
-    const sellpiaInventorySkuIds = [...new Set(rows.flatMap((row) =>
-      row.inventoryComponents.map(({ sellpiaInventorySkuId }) =>
-        sellpiaInventorySkuId)))].sort((left, right) =>
+    const masterProductIds = [...new Set(rows.flatMap((row) =>
+      row.inventoryComponents.map(({ masterProductId }) =>
+        masterProductId)))].sort((left, right) =>
       left.localeCompare(right));
-    const availability = await this.inventory.findBySkuIds({
+    const availability = await this.inventory.findByMasterProductIds({
       organizationId,
-      sellpiaInventorySkuIds,
+      masterProductIds,
     });
-    const inventoryBySkuId = new Map(availability.items.map((item) => [
-      item.sellpiaInventorySkuId,
+    const inventoryByMasterProductId = new Map<string, InventorySkuAvailability>(availability.items.map((item) => [
+      item.masterProductId,
       item,
     ]));
-    return rows.map((row) => toAvailabilityItem(row, inventoryBySkuId));
+    return rows.map((row) => toAvailabilityItem(row, inventoryByMasterProductId));
   }
 }
 
 function toAvailabilityItem(
   row: ChannelAvailabilityRepositoryRow,
-  inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
+  inventoryByMasterProductId: ReadonlyMap<string, InventorySkuAvailability>,
 ): ChannelSkuAvailabilityItem {
   const { components, projection } = projectChannelInventoryComponents(
     row.inventoryComponents,
-    inventoryBySkuId,
+    inventoryByMasterProductId,
   );
   const recipeStatus = components.length === 0
     ? row.listing.masterProductId
@@ -131,9 +131,9 @@ function toAvailabilityItem(
   const sellableStock = mappingStatus === 'matched' ? projection.capacity : null;
   const componentCapacities = components.map((component) => ({
     component,
-    capacity: component.availableStock === null
+    capacity: component.currentStock === null
       ? null
-      : Math.floor(component.availableStock / component.quantity),
+      : Math.floor(component.currentStock / component.quantity),
   }));
 
   return {
@@ -161,15 +161,13 @@ function toAvailabilityItem(
     },
     recipeStatus,
     components: componentCapacities.map(({ component, capacity }) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      masterProductId: component.masterProductId,
       code: component.code,
       name: component.name,
       optionName: component.optionName,
       barcode: component.barcode,
       currentStock: component.currentStock,
-      availableStock: component.availableStock,
       purchasePrice: component.purchasePrice,
-      isActive: component.isActive,
       quantity: component.quantity,
       componentCapacity: capacity,
       isBottleneck: mappingStatus === 'matched' && capacity !== null
@@ -178,9 +176,7 @@ function toAvailabilityItem(
     })),
     warnings: recipeStatus === 'configuration_required'
       ? ['configuration_required']
-      : components.some((component) => component.isActive === false)
-        ? ['component_inactive']
-        : components.some((component) => component.isActive === null)
+      : components.some((component) => component.currentStock === null)
           ? ['inventory_unavailable']
           : [],
   };

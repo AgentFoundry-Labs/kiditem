@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { DataMigrationContext } from '../types';
 import { absoluteProductAbcFormulaStep } from './absolute-product-abc-formula';
 import { sourceImportRunStatusCheckStep } from './source-import-run-status-check';
+import { kidItemCodeSequenceStep } from './kid-item-code-sequence';
 import type { EnsureStep } from './types';
 
 export type { EnsureStep, EnsureStepResult } from './types';
@@ -10,6 +11,7 @@ export type { EnsureStep, EnsureStepResult } from './types';
 export const ensureSteps: readonly EnsureStep[] = Object.freeze([
   sourceImportRunStatusCheckStep,
   absoluteProductAbcFormulaStep,
+  kidItemCodeSequenceStep,
 ]);
 
 export const ENSURE_STEP_IDS = Object.freeze(ensureSteps.map((step) => step.id));

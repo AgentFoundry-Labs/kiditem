@@ -8,6 +8,7 @@ import { PurchaseOrderSubmissionService } from '../purchase-order-submission.ser
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
+const INVENTORY_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
 
 function snapshot() {
   return {
@@ -17,7 +18,8 @@ function snapshot() {
     totalAmountCny: '45.60',
     items: [{
       productName: 'Silicone plate',
-      sellpiaInventorySkuId: SELLPIA_SKU_ID,
+      masterProductId: SELLPIA_SKU_ID,
+      legacySellpiaInventorySkuId: null,
       quantity: 2,
       unitPriceCny: '22.80',
     }],
@@ -29,6 +31,7 @@ function submissionInput(input: {
   purchaseOrderId?: string;
   idempotencyKey?: string;
   userId?: string;
+  inventoryAttemptId?: string;
   requestHash?: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
@@ -37,12 +40,14 @@ function submissionInput(input: {
   const value = {
     organizationId: 'org-1',
     purchaseOrderId: ORDER_ID,
+    inventoryAttemptId: INVENTORY_ATTEMPT_ID,
     idempotencyKey: 'submit-1',
     userId: 'user-1',
     ...input,
   };
   const businessInput = {
     purchaseOrderId: value.purchaseOrderId,
+    inventoryAttemptId: value.inventoryAttemptId,
     ...(value.externalOrderPlatform !== undefined && {
       externalOrderPlatform: value.externalOrderPlatform,
     }),
@@ -64,10 +69,12 @@ function harness(options: { runtime?: boolean } = {}) {
     getPurchaseOrderCheckoutSnapshot: vi.fn().mockResolvedValue(snapshot()),
   };
   const freshness = {
-    assertFreshAndActive: vi.fn().mockResolvedValue({
+    requireCollectedStock: vi.fn().mockResolvedValue({
+      attemptId: INVENTORY_ATTEMPT_ID,
       fence: '00000000-0000-4000-8000-000000000099',
-      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
-      expiresAt: '2026-07-16T00:10:00.000Z',
+      generation: '7',
+      completedAt: '2026-07-16T00:00:00.000Z',
+      products: [{ masterProductId: SELLPIA_SKU_ID, currentStock: 1 }],
     }),
   };
   const transaction = {
@@ -129,7 +136,7 @@ function harness(options: { runtime?: boolean } = {}) {
 }
 
 describe('PurchaseOrderSubmissionService', () => {
-  it('allows preparation while stale but never enters ordered before the freshness gate', async () => {
+  it('requires the exact completed inventory collection before ordering the purchase', async () => {
     const { service, procurement, freshness, transaction } = harness();
     const input = submissionInput({
       externalOrderPlatform: 'MANUAL',
@@ -147,26 +154,28 @@ describe('PurchaseOrderSubmissionService', () => {
     expect(transaction.prepareDraft).toHaveBeenCalledBefore(
       procurement.getPurchaseOrderCheckoutSnapshot,
     );
-    expect(transaction.prepareDraft).toHaveBeenCalledBefore(
-      freshness.assertFreshAndActive,
-    );
-    expect(freshness.assertFreshAndActive).toHaveBeenCalledWith({
+    expect(freshness.requireCollectedStock).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+      attemptId: INVENTORY_ATTEMPT_ID,
+      masterProductIds: [SELLPIA_SKU_ID],
     });
-    expect(freshness.assertFreshAndActive).toHaveBeenCalledBefore(
+    expect(freshness.requireCollectedStock).toHaveBeenCalledBefore(
+      transaction.prepare,
+    );
+    expect(transaction.prepareDraft).toHaveBeenCalledBefore(
       transaction.prepare,
     );
     expect(transaction.prepare).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,
-      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+      masterProductIds: [SELLPIA_SKU_ID],
+      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+      inventoryFence: '00000000-0000-4000-8000-000000000099',
+      inventoryGeneration: '7',
+      inventoryCompletedAt: '2026-07-16T00:00:00.000Z',
       idempotencyKey: 'submit-1',
       requestHash: input.requestHash,
       userId: 'user-1',
-      freshnessFence: '00000000-0000-4000-8000-000000000099',
-      freshnessLastVerifiedAt: '2026-07-16T00:00:00.000Z',
-      freshnessExpiresAt: '2026-07-16T00:10:00.000Z',
       requiresProvider: false,
       externalOrder: {
         externalOrderPlatform: 'MANUAL',
@@ -185,7 +194,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
-    expect(freshness.assertFreshAndActive).not.toHaveBeenCalled();
+    expect(freshness.requireCollectedStock).not.toHaveBeenCalled();
   });
 
   it('rejects an owner request hash that does not bind the canonical business input', async () => {
@@ -197,7 +206,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
-    expect(freshness.assertFreshAndActive).not.toHaveBeenCalled();
+    expect(freshness.requireCollectedStock).not.toHaveBeenCalled();
   });
 
   it('rejects an inactive actor before draft mutation reaches checkout lookup', async () => {
@@ -343,7 +352,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
   it('preserves the freshness error without creating an attempt or calling a provider', async () => {
     const { service, freshness, transaction, runtime } = harness({ runtime: true });
-    freshness.assertFreshAndActive.mockRejectedValue(
+    freshness.requireCollectedStock.mockRejectedValue(
       new AppException(409, 'SELLPIA_SYNC_REQUIRED', 'fresh snapshot required'),
     );
 

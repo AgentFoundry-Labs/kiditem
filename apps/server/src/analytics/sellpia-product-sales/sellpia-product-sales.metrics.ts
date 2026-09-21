@@ -13,43 +13,6 @@ import type {
 export const LEAD_TIME_MONTHS = 1;
 export const SAFETY_MONTHS = 0.5;
 
-// ─── 이상치(일회성 벌크/저가 대량) 감지 ───────────────────────────────────────
-// 정상 실수요가 아닌 판매를 걸러 평균/ABC/발주를 왜곡하지 않게 한다.
-//   (A) 저가 대량: 단가 < 100원(사은품/부자재/B2B) + 총량 큼 → 큰 달을 이상치로.
-//   (B) 단일월 급증: 한 달이 나머지 달 합의 4배↑ + 절대량 큼 → 그 달을 이상치로.
-// 시즌 스파이크(여름 등)는 나머지 합 대비 4배 미만이라 보통 걸리지 않는다.
-const ANOMALY_LOW_PRICE = 100; // 원 미만 = 비정상 저가(사은품/부자재/B2B)
-const ANOMALY_LOW_PRICE_MIN_TOTAL = 10000; // 저가 대량으로 볼 최소 총량
-const ANOMALY_SPIKE_ABS = 20000; // 단일월 급증 최소 절대량(보수적)
-const ANOMALY_DOMINANCE = 6; // 단일월 ≥ 나머지 합 × 6 (일회성 판단)
-
-export function detectAnomaly(
-  monthly: { yearMonth: string; orderQty: number }[],
-  salePrice: number,
-): { anomalyMonths: string[]; anomalyReason: string | null } {
-  const total = monthly.reduce((a, m) => a + m.orderQty, 0);
-  // (A) 저가 대량: 단가<100원 + 총량 큼 + **1~2달에 몰빵(집중)** → 일회성 벌크.
-  // 저가라도 매달 꾸준히 팔리면(집중도 낮음) 정상 상품이므로 제외하지 않는다.
-  if (salePrice < ANOMALY_LOW_PRICE && total >= ANOMALY_LOW_PRICE_MIN_TOTAL) {
-    const desc = monthly.map((m) => m.orderQty).sort((a, b) => b - a);
-    const top2 = (desc[0] ?? 0) + (desc[1] ?? 0);
-    const concentrated = total > 0 && top2 >= 0.85 * total; // 상위 2개월이 85%↑
-    if (concentrated) {
-      const anomalyMonths = monthly.filter((m) => m.orderQty > 0).map((m) => m.yearMonth);
-      return { anomalyMonths, anomalyReason: `저가 대량(단가 ${salePrice}원)` };
-    }
-  }
-  // (B) 단일월 급증: 한 달이 크고(≥20000) 나머지 합의 6배↑ → 일회성 대량.
-  const anomalyMonths: string[] = [];
-  for (const m of monthly) {
-    if (m.orderQty < ANOMALY_SPIKE_ABS) continue;
-    const rest = total - m.orderQty;
-    if (m.orderQty >= ANOMALY_DOMINANCE * rest) anomalyMonths.push(m.yearMonth);
-  }
-  if (!anomalyMonths.length) return { anomalyMonths: [], anomalyReason: null };
-  return { anomalyMonths, anomalyReason: '단일월 급증(일회성)' };
-}
-
 // ─── 추세 ───────────────────────────────────────────────────────────────────
 // 최근 완결 월 소진량 vs 직전 최대 3개월 평균. ±20% 밴드 밖이면 up/down.
 export function computeTrend(monthlyAsc: number[]): SellpiaProductTrend {
@@ -145,19 +108,19 @@ export interface ReorderResult {
   needsReorder: boolean;
 }
 
-// monthlyRate = 월평균 소진(avg2m 등). availableStock=null 이면 계산 보류.
+// monthlyRate = 월평균 소진(avg2m 등). currentStock=null 이면 계산 보류.
 export function computeReorder(
-  availableStock: number | null,
+  currentStock: number | null,
   monthlyRate: number,
 ): ReorderResult {
-  if (availableStock === null) {
+  if (currentStock === null) {
     return { monthsOfAvailableStockLeft: null, reorderPoint: null, needsReorder: false };
   }
   const reorderPoint = Math.round(monthlyRate * (LEAD_TIME_MONTHS + SAFETY_MONTHS));
   // 소진이 없으면(월평균 0) 잔여 개월수는 무한 → null 로 표기, 발주 대상 아님(악성재고로 분리).
   const monthsOfAvailableStockLeft = monthlyRate > 0
-    ? Math.round((availableStock / monthlyRate) * 10) / 10
+    ? Math.round((currentStock / monthlyRate) * 10) / 10
     : null;
-  const needsReorder = monthlyRate > 0 && availableStock <= reorderPoint;
+  const needsReorder = monthlyRate > 0 && currentStock <= reorderPoint;
   return { monthsOfAvailableStockLeft, reorderPoint, needsReorder };
 }

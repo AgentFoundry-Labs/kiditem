@@ -5,11 +5,14 @@ import {
   type CatalogDisplayMediaTarget,
 } from '../../ai/application/port/in/workspace/catalog-display-media.port';
 import {
-  INVENTORY_AVAILABILITY_PORT,
-  type InventoryAvailabilityPort,
-} from '../../inventory/application/port/in/stock/inventory-availability.port';
+  PRODUCT_AVAILABILITY_PORT,
+  type ProductAvailabilityPort,
+} from '../../products/application/port/in/product-availability.port';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
@@ -26,12 +29,14 @@ export class SellpiaProductInventoryReader {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(INVENTORY_AVAILABILITY_PORT)
-    private readonly inventory: InventoryAvailabilityPort,
+    @Inject(PRODUCT_AVAILABILITY_PORT)
+    private readonly inventory: ProductAvailabilityPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async project(
@@ -39,27 +44,22 @@ export class SellpiaProductInventoryReader {
     products: readonly SellpiaProductInventoryProjectionInput[],
   ) {
     const candidates = await this.prisma.$transaction(async (tx) => {
-      const identities = await readInventorySkuIdentities(tx, {
-        organizationId,
-        selector: { kind: 'all' },
-      });
-      const masterProductIds = [...new Set(identities.flatMap((identity) =>
-        identity.masterProductId ? [identity.masterProductId] : []))];
-      const masterProducts = masterProductIds.length > 0
-        ? await tx.masterProduct.findMany({
-          where: { organizationId, id: { in: masterProductIds } },
-          select: { id: true, code: true, name: true, createdAt: true },
-        })
-        : [];
-      const masterById = new Map(masterProducts.map((product) => [product.id, product]));
+      const identities = await this.inventoryTransactionalRead.readSourceIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'all' } },
+      );
       return identities.map((identity) => ({
-        id: identity.sellpiaInventorySkuId,
+        masterProductId: identity.masterProductId,
         code: identity.code,
+        sourceAccountKey: identity.sourceAccountKey,
+        sourceProductCode: identity.sourceProductCode,
+        sourceOptionCode: identity.sourceOptionCode,
         barcode: identity.barcode,
-        isActive: identity.isActive,
-        masterProduct: identity.masterProductId
-          ? masterById.get(identity.masterProductId) ?? null
-          : null,
+        masterProduct: {
+          id: identity.masterProductId,
+          code: identity.code,
+          name: identity.name,
+        },
       }));
     });
     // ABC belongs to Products: this read names the inventory products it
@@ -78,23 +78,22 @@ export class SellpiaProductInventoryReader {
       if (!product) return [];
       const abc = abcByProductId.get(product.id);
       if (!abc) return [];
-      return [[candidate.id, {
-        sellpiaInventorySkuId: candidate.id,
+      return [[candidate.masterProductId, {
         masterProductId: product.id,
         masterProductCode: product.code,
         masterProductName: product.name,
         abc,
       }] as const];
     }));
-    const availability = await this.inventory.findBySkuIds({
+    const availability = await this.inventory.findByMasterProductIds({
       organizationId,
-      sellpiaInventorySkuIds: resolved.matchedSkuIds,
+      masterProductIds: resolved.matchedSkuIds,
     });
     const destinationRows = resolved.matchedSkuIds.length > 0
       ? await this.prisma.channelListingOptionInventoryComponent.findMany({
         where: {
           organizationId,
-          sellpiaInventorySkuId: { in: resolved.matchedSkuIds },
+          masterProductId: { in: resolved.matchedSkuIds },
           channelListingOption: {
             organizationId,
             isActive: true,
@@ -106,7 +105,7 @@ export class SellpiaProductInventoryReader {
           },
         },
         select: {
-          sellpiaInventorySkuId: true,
+          masterProductId: true,
           quantity: true,
           channelListingOption: {
             select: {
@@ -148,10 +147,9 @@ export class SellpiaProductInventoryReader {
       availability,
       inventoryProducts: [...canonicalProductBySkuId.values()],
       destinations: destinationRows.flatMap((row) => {
-        const product = canonicalProductBySkuId.get(row.sellpiaInventorySkuId);
+        const product = canonicalProductBySkuId.get(row.masterProductId);
         if (!product) return [];
         return [{
-        sellpiaInventorySkuId: row.sellpiaInventorySkuId,
         unitsPerSale: row.quantity,
         masterProductId: product.masterProductId,
         masterProductCode: product.masterProductCode,

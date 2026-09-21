@@ -185,9 +185,11 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     const declared = IMPORT_RUN_STEPS.map((step) => `${step.table}.${step.column} -> ${step.references}`).sort();
 
     expect(live.filter((link) => !declared.includes(link))).toEqual([]);
-    // Office 0.1.30 still has the account-day KPI table that v0.1.31 drops.
+    // Pre-schema 014 still handles the Office KPI and legacy SKU tables;
+    // later v0.1.31 schema/cutover steps retire them.
     expect(declared.filter((link) => !live.includes(link))).toEqual([
       'channel_account_daily_kpi_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
+      'sellpia_inventory_skus.last_import_run_id -> source_import_runs',
     ]);
     expect(live.length).toBeGreaterThan(40);
   });

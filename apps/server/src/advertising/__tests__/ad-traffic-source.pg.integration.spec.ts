@@ -1,3 +1,4 @@
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { createHash, randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
@@ -1095,7 +1096,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         row('2001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
       ]);
 
-      const context = await new AdStrategyContextRepositoryAdapter(prisma as never).loadStrategyContext(
+      const context = await new AdStrategyContextRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter()).loadStrategyContext(
         ORG,
         { from: businessDate, to: new Date(businessDate.getTime() + DAY_MS) },
         '7d',

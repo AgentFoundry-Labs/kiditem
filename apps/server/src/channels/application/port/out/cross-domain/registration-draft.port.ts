@@ -12,7 +12,7 @@ export const REGISTRATION_DRAFT_PORT = Symbol('REGISTRATION_DRAFT_PORT');
  * 직접 쓰지 않는다.
  */
 
-/** 울타리가 판단에 쓰는 초안 한 줄. 내용 칸이 아니라 제출 상태만 담는다. */
+/** Draft identity and approval; provider facts belong only to the execution. */
 export interface RegistrationDraftRow {
   preparationId: string;
   organizationId: string;
@@ -21,26 +21,15 @@ export interface RegistrationDraftRow {
   sourceContentWorkspaceId: string;
   displayName: string;
   status: string;
+  closedAt: Date | null;
   isDeleted: boolean;
-  submissionKey: string | null;
-  submissionPayloadHash: string | null;
-  hasSubmissionPayload: boolean;
-  providerOutcome: string | null;
-  providerSubmissionId: string | null;
-  hasRegistrationResult: boolean;
   channelListingId: string | null;
-  submissionLeaseToken: string | null;
-  submissionLeaseClaimedAt: Date | null;
   approvedByUserId: string | null;
+  reviewPayloadHash: string | null;
 }
 
 /** 실행이 동결한 제출본을 되읽을 때 필요한 초안 내용. */
 export interface FrozenRegistrationDraft extends RegistrationDraftRow {
-  /** Sourcing 이 초안 칸들에서 정리해 준 공급자 결과. 울타리가 다시 계산하지 않는다. */
-  resolvedProviderOutcome: string;
-  submissionPayloadJson: unknown;
-  registrationResult: unknown;
-  lastError: string | null;
   updatedAt: Date;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationId: string | null;
@@ -57,53 +46,32 @@ export interface FreezeRegistrationDraftInput {
   channelAccountId: string;
   displayName: string;
   registrationInput: Record<string, unknown>;
-  submissionKey: string;
-  frozenPayload: unknown;
   frozenHash: string;
   requestedByUserId: string | null;
 }
 
-/** 실행 전이를 초안에 반영할 때의 비교-후-쓰기 조건과 값. */
-export interface ApplyRegistrationDraftStateInput {
+/** Close the editable draft atomically with its execution; no execution facts are mirrored. */
+export interface CloseRegistrationDraftInput {
   organizationId: string;
   preparationId: string;
   sourceCandidateId?: string;
-  expect?: {
-    status?: string;
-    providerOutcome?: string | null;
-    submissionLeaseToken?: string | null;
-    submissionLeaseClaimedAt?: Date | null;
-    noProviderIdentity?: boolean;
-  };
-  set: {
-    status?: string;
-    providerOutcome?: string | null;
-    submissionLeaseToken?: string | null;
-    submissionLeaseClaimedAt?: Date | null;
-    lastError?: string | null;
-    providerSubmissionId?: string | null;
-    registrationResult?: unknown;
-    channelListingId?: string | null;
-    isDeleted?: boolean;
-    deletedAt?: Date | null;
-  };
+  closedAt: Date;
+  archive?: boolean;
 }
 
 export interface ClaimRegistrationDraftInput {
   organizationId: string;
   preparationId: string;
   userId: string | null;
-  submissionLeaseToken: string;
   now: Date;
   /** 실행 장부가 이미 있는 재청구. 내용을 다시 동결하지 않는다. */
   reuseFrozenSubmission: boolean;
-  providerOutcome?: string | null;
 }
 
 export interface ClaimedRegistrationDraft {
   draft: FrozenRegistrationDraft;
   /** 새로 동결한 제출본. `reuseFrozenSubmission` 이면 `null`. */
-  frozen: { payload: unknown; hash: string; submissionKey: string } | null;
+  frozen: { payload: unknown; hash: string } | null;
 }
 
 export interface RegistrationDraftPort {
@@ -159,12 +127,12 @@ export interface RegistrationDraftPort {
   ): Promise<FrozenRegistrationDraft>;
 
   /** 실행 전이를 초안에 반영한다. 조건이 안 맞으면 0 을 돌려준다. */
-  applyExecutionState(
+  closeDraft(
     tx: ChannelsRepositoryTransaction,
-    input: ApplyRegistrationDraftStateInput,
+    input: CloseRegistrationDraftInput,
   ): Promise<number>;
 
-  /** Open API 제출 경로의 리스 청구. 필요하면 내용을 다시 동결한다. */
+  /** Resolve and approve submission content; Channels alone claims execution leases. */
   claimForSubmission(
     tx: ChannelsRepositoryTransaction,
     input: ClaimRegistrationDraftInput,

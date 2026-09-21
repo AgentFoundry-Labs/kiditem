@@ -56,6 +56,10 @@ describe('upsertChannelCatalogIdentities', () => {
               id: 'option-1',
               externalOptionId: 'P-1',
             }],
+          }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
           }]),
       },
       channelListingOption: {
@@ -108,6 +112,10 @@ describe('upsertChannelCatalogIdentities', () => {
             externalId: 'P-1',
             masterProductId: 'master-1',
             options: [{ id: 'option-1', externalOptionId: 'P-1' }],
+          }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
           }]),
       },
       channelListingOption: {
@@ -197,6 +205,10 @@ describe('upsertChannelCatalogBasics identity promotion', () => {
             externalId: 'P-1',
             masterProductId: 'master-1',
             options: [{ id: 'option-1', externalOptionId: 'vendor-1' }],
+          }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
           }]),
       },
       channelListingOption: {
@@ -276,6 +288,10 @@ describe('upsertChannelCatalogBasics identity promotion', () => {
             externalId: 'P-1',
             masterProductId: 'master-1',
             options: [{ id: 'option-1', externalOptionId: 'vendor-1' }],
+          }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
           }]),
       },
       channelListingOption: {
@@ -446,6 +462,10 @@ function detailTransaction() {
             { id: 'option-a', externalOptionId: 'option-a-inventory' },
             { id: 'option-b', externalOptionId: 'option-b' },
           ],
+        }])
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
         }]),
     },
     channelListingOption: {

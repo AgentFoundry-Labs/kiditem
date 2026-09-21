@@ -149,7 +149,7 @@ interval through yesterday. Collection does not refresh ABC. Order and Rocket PO
 pagination and field mapping. Excel conversion runs on the server and returns
 transient downloads; converted files do not acquire a database lifecycle.
 
-Coupang shipment-summary lookup now begins an Inventory-owned SourceImportRun.
+Coupang shipment-summary lookup now begins an Orders-owned SourceImportRun.
 The extension reads its frozen plan and uploads directly; immutable date facts,
 COMPLETE metadata, and Alert resolution commit together. The page reads the
 latest capture separately from calendar history, which retains the last
@@ -163,7 +163,7 @@ notification, not execution state. Owner attempts are fenced by an
 The global notification view reads durable Alerts only, with ten-second
 foreground polling, focus refetch, and dismissal invalidation. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
-and current-source reads; shipment-summary failures use Inventory's source Alert.
+and current-source reads; shipment-summary failures use Orders' source Alert.
 
 Sourcing collection uses its source owners directly:
 
@@ -331,19 +331,19 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: one submission per draft and account, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall observation log (`/api/channels/mall-operation-outcomes`: login checks, login tests, and registration fills, read through its registered reader). |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: one submission per draft and account, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
-| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
+| `apps/server/src/inventory` | Owner Domain | Warehouse and stock-transfer records plus read-only Rocket workbook progress; Products owns source collection/current stock, Orders owns return records. |
 | `apps/server/src/orders` | Owner Domain | Orders, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its reader ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
-| `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
+| `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, MasterProduct supplier policy, collected-inventory-fenced purchase submission attempts/reconciliation, and Rocket capacity preview after Sellpia publication. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
 | `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
@@ -364,17 +364,18 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
-| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
+| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus the Products transactional read port. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
-| `apps/server/src/inventory` | Hexagonal | Sellpia source attempt and publication single-writer, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
+| `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
+| `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, usecases, pure domain rules and outgoing adapters. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; the registration draft is published to the Channels fence through `REGISTRATION_DRAFT_PORT`, which runs inside the fence transaction; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
-| `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
+| `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Products-fence transaction adapter, and collect-before-calculation Rocket policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
@@ -384,21 +385,22 @@ Hexagonal owner capabilities use this shape:
 ```text
 apps/server/src/{owner}/
   {owner}.module.ts
-  adapter/in/http/        HTTP controllers and DTO binding, when HTTP exists
+  adapter/in/web/         HTTP controllers and DTO binding; existing http lanes migrate with their owner
   adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
   domain/capability/      owner-defined Agent capability contracts, when platform-visible
-  application/service/    orchestration, transactions, organization context
+  application/usecase/   orchestration; existing application/service lanes follow owner guides
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
   read/                   pure ledger readers over the caller's transaction client
   transaction/            lock/fence functions for the caller's transaction (not a port lane)
 ```
 
-Required: module file, `application/service/`, and a port/adapter boundary for
+Required: module file, orchestration in `application/usecase/` (or the owner's
+existing `application/service/`), and a port/adapter boundary for
 each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
-Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
+Optional: `adapter/in/web/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
@@ -563,7 +565,7 @@ Kinds:
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/decision-center` (초기 진입 추천 표: 1688 신상품·키워드 트렌드·쿠팡 경쟁상품·쿠팡 급상승을 합쳐 상품을 직접 추천하고, 관심 키워드로 분류하며, 자사 데이터 RAG 어시스턴트를 곁들인다), `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
-| `apps/web/src/app/agent-org` | App Internal | Fullscreen dark `/agent-org` (Agent Org, linked from the workspace hub) in the former Agent OS frame: the pipeline canvas in the center with a floating agents list on the left (selecting an agent focuses its group), live activity (attention inbox + feed) on the right, and a bottom summary of agent health, monthly sales/profit/ROAS/CTR (same dashboard sales/ad queries), and open alerts. The canvas draws the sourcing-to-CS pipeline as one top-down architecture diagram whose stages are framed and colored by the owning agent (analysis, sourcing, owner confirm, product, mall, order, inventory, CS, and marketing with planned ads, reels, and blog stages), with external-service brand marks (`lib/brand-marks.ts`, Simple Icons paths), the marketplace box on the center axis, routed connectors, Sellpia/Telegram system boxes, oversight and memory panels, and canvas zoom and pan; coordinates in `lib/pipe-diagram-layout.ts` plus a root-cause attention inbox and a live feed. Reads the shared alert query (`/api/alerts`, polled every ten seconds), mall operation outcomes, Sellpia freshness, dashboard sales/ad summaries, and the sourcing confirm-report status; `lib/pipe-stages.ts` maps them to stages and a stage with no source says why instead of showing a number. Its only write is the person-pressed "지금 보고 보내기" Telegram confirm report. |
+| `apps/web/src/app/agent-org` | App Internal | Fullscreen dark `/agent-org` (Agent Org, linked from the workspace hub) in the former Agent OS frame: the pipeline canvas in the center with a floating agents list on the left (selecting an agent focuses its group), live activity (attention inbox + feed) on the right, and a bottom summary of agent health, monthly sales/profit/ROAS/CTR (same dashboard sales/ad queries), and open alerts. The canvas draws the sourcing-to-CS pipeline as one top-down architecture diagram whose stages are framed and colored by the owning agent (analysis, sourcing, owner confirm, product, mall, order, inventory, CS, and marketing with planned ads, reels, and blog stages), with external-service brand marks (`lib/brand-marks.ts`, Simple Icons paths), the marketplace box on the center axis, routed connectors, Sellpia/Telegram system boxes, oversight and memory panels, and canvas zoom and pan; coordinates in `lib/pipe-diagram-layout.ts` plus a root-cause attention inbox and a live feed. Reads the shared alert query (`/api/alerts`, polled every ten seconds), current source and registration state, Sellpia freshness, dashboard sales/ad summaries, and the sourcing confirm-report status; `lib/pipe-stages.ts` maps them to stages and a stage with no source says why instead of showing a number. Its only write is the person-pressed "지금 보고 보내기" Telegram confirm report. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
 | `apps/web/src/app/login` | Route Leaf | Login route. |
@@ -854,8 +856,10 @@ training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.26`)
 
-Sourcing owns reviewed registration input in `ProductPreparation` and stops
-there. Channels owns the submission fence `ProductRegistrationExecution` —
+Sourcing owns reviewed registration input in `ProductPreparation` and its
+`closedAt` lifecycle. One open draft per candidate/account is enforced by a
+partial unique index; displayed submission state and the resulting listing
+come from the execution ledger. Channels owns the submission fence `ProductRegistrationExecution` —
 frozen payload JSON, SHA-256, idempotency key, lease, provider outcome and
 `externalListingId` — so that one draft reaches one channel account at most
 once, whatever path sends it
@@ -887,21 +891,20 @@ run inside that transaction through the Sourcing-owned `REGISTRATION_DRAFT_PORT`
 so Channels never writes draft rows and Sourcing never writes execution rows.
 Sourcing reflects candidate registration state (`none`, `preparing`,
 `confirming`, `failed`, `registered`) by reading
-`channels/read/registration-execution.reader.ts`, not the draft's mirrored
+`channels/read/registration-execution.reader.ts`; drafts have no mirrored
 submission columns ([ADR-0009](adr/0009-one-ledger-one-reader.md)).
 
 A mall form fill or a generated bulk workbook is not a submission: no channel
-account has received anything yet, so those paths stay observations
-(`MallOperationOutcome`) and do not open an execution. A path that starts
+account has received anything yet, so those paths return their current result
+without storing an observation or opening an execution. A path that starts
 submitting to an account enters the fence first.
 
-No bulk cutover backfill copies legacy preparation or deletion rows into these
-operation ledgers. The registration runtime may import one scoped legacy
-preparation under its row lock when that row is actually claimed; it never
-turns an uncertain legacy provider attempt into a fresh create.
-The retired hosted database was not authoritative and was deleted without a
-cutover. Environments with data worth preserving require a separately reviewed,
-hash-bound migration before adopting this ownership model. Listing deletion
+The pre-schema `018_consolidate_registration_execution` migration transfers
+legacy preparation submission evidence into the execution ledger before the
+mirror columns are removed. It rejects conflicting evidence, closes terminal
+drafts, and preserves uncertain provider attempts for reconciliation. Runtime
+submission does not import legacy rows or turn uncertain attempts into fresh
+creates. Listing deletion rows are not converted by this migration. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
@@ -932,74 +935,52 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia Freshness, Physical Availability, And Channel Capacity (`0.1.19`–`0.1.22`)
+## Sellpia Current Inventory And Collection
 
-Sellpia is the upstream stock authority. Inventory owns one persisted
-organization-scoped `SellpiaInventoryState`, the fixed source binding, server
-clock freshness derivation, browser claim lease, validation/quality policy, and
-atomic full-snapshot publication. Only that publication adapter may write
-`SellpiaInventorySku.currentStock`; Products, orders, Supply, Channels, Rocket,
-and web code do
-not estimate, reserve, increment, or decrement it.
+Products owns Sellpia collection attempts, the fixed source binding, generation
+and lease fences, and atomic publication of current stock. Its implementation
+separates `domain/`, `application/usecase/`, `application/port/in|out/`,
+`adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
+contracts to implementations. Consumers use published Products contracts.
+The canonical reader and locking implementation remain single authorities.
+MasterProduct has fourteen scalar fields; source identity is stored directly as
+organization/account/product-code/option-code, without a second source table or
+per-product collection pointer. Operator metadata is images only. Unknown
+purchase price remains null and is counted separately from priced asset totals.
+See [ADR-0017](adr/0017-products-owns-source-products-channels-owns-recipes.md).
 
-| Logical contract | Prisma model | Physical table | Identity / authority |
-|---|---|---|---|
-| Sellpia trust state | `SellpiaInventoryState` | `sellpia_inventory_states` | Exactly one per organization; fixed origin/account binding, requested/verified/failed generations, 90-second owner lease, timestamps, last attempt, and opaque UUID fence. |
-| Import/attempt history | `SourceImportRun` | `source_import_runs` | Unified completed workbook and pre-download failure provenance; hash/idempotency, generation, trigger, verification, attestation, bounded quality, and sanitized failure fields. |
-| Canonical inventory product | `MasterProduct` | `master_products` | Organization-scoped inventory-product identity, metadata, active state, and sole ABC grade. It may have one source row per provider type and any number of consuming channel options; it never owns provider stock facts. |
-| Physical Sellpia source SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code and a unique canonical `masterProductId`. Only a completed valid Inventory publication writes active state and `current_stock`, and that publication atomically provisions/updates the canonical MasterProduct. |
-| Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity. An option is the sellable channel identity and may consume source SKUs. A listing's nullable MasterProduct is only a derived summary when every option resolves to the same product. Provider metadata is never inventory truth. |
-| Option inventory consumption | `ChannelListingOptionInventoryComponent` | `channel_listing_option_inventory_components` | Positive quantity of one SellpiaInventorySku consumed by one channel-option sale; every cross-model relation is organization-fenced. |
-| External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
-| Sellpia order submission fence | `SellpiaOrderTransmissionIntent` / `SellpiaOrderTransmissionIntentReconciliation` | `sellpia_order_transmission_intents` / `sellpia_order_transmission_intent_reconciliations` | Orders-owned organization + stable workbook intent key. Prevents duplicate browser submission and audits explicit reconciliation without reading or advancing Inventory freshness. |
-| Rocket confirmation | `RocketPurchaseConfirmation` / `RocketPurchaseConfirmationLine` | `rocket_purchase_confirmations` / `rocket_purchase_confirmation_lines` | Organization + Rocket account + completed source run + UUID idempotency key; records every explicit line decision and confirmation/release actor. |
-| Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable Supply audit snapshot for one confirmed line; not a second capacity ledger. |
+Successful full collection updates existing product codes with stable MasterProduct UUIDs and KID codes,
+adds new codes, and sets missing codes to `currentStock = 0` while retaining rows
+and product links. A verified empty complete collection sets all quantities to
+zero. Incomplete, failed or cancelled attempts preserve the previous rows.
+Publication and terminal state commit together; a late or repeated completion
+cannot publish a second result. Failures update one deduplicated source Alert; successful publication resolves
+it. Failed collection attempts remain in source history. Cancellation has no
+failure Alert. Existing Alert policies apply to every source.
 
-The commitment, Picking, Unshipped, and Sellpia receipt-batch application
-capabilities and persistence models are retired. Availability is physical:
-`availableStock === currentStock`.
+All organization-scoped current DB rows are available for listing, detail,
+search, totals, Excel and barcode operations, regardless of per-row snapshot
+membership. There is no duplicate `availableStock`, inventory active filter,
+age-based stock gate, 30% loss rejection or channel-reference quality warning.
+Basic shape, complete-source, organization and attempt checks remain mandatory.
 
-Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and
-`failed`. A verified snapshot is fresh for strictly less than 10 minutes;
-exactly 10 minutes is stale. The authenticated web coordinator polls and uses a
-per-organization browser lock plus the server's atomic 90-second claim. The
-owner heartbeats every 20 seconds; only that owner may cancel. A dead owner is
-reclaimable after server expiry, never merely because another tab closes.
+Collection control reports progress, terminal outcome and last successful
+publication. Lease expiry protects abandoned browser execution, not the age of
+usable stock. Extensions capture and transport facts; only Products publishes
+physical quantities. Manual recovery upload and transfer-state PATCH are retired.
 
-```text
-fixed source binding confirmed by owner/admin
-  -> web claims due generation
-  -> extension uses authenticated Chrome session without focus theft
-  -> direct option-product Excel request (no visible button click)
-  -> KidItem uploads raw bytes with claim/generation/source evidence
-  -> Inventory validates + quality-checks + publishes one full transaction
-  -> freshness and unified history update
-```
+Before a purchase submission or Rocket calculation, the browser shared source
+control starts or joins Sellpia collection and waits for that exact execution to
+complete. The calculation request names its successful attempt. Products
+verifies the current completed generation; failed/cancelled collection cannot
+fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
+provider idempotency and explicit reconciliation. Ordinary inventory reads need
+no new collection. Orders transmission to Sellpia does not write local stock.
 
-Hard quality loss preserves the previous completed snapshot. Row loss or active
-code loss of at least 30% is blocked; missing fields, duplicate barcodes,
-10–30% churn, and inactive confirmed-component references are bounded warnings.
-The first post-order identical hash schedules one three-minute confirmation;
-the next identical file verifies it without a third loop. An attested manual
-fresh export uses the same validation/publication path and records actor/time.
-
-Sellpia order-workbook submission is independent from Inventory freshness.
-Orders prepares and finalizes a stable transmission intent only to fence an
-irreversible browser submission. KidItem does not pre-check local stock for the
-upload; Sellpia accepts or rejects the workbook and its exact provider error is
-shown to the operator. Preparation, acceptance, rejection, and reconciliation
-never request or advance an Inventory generation, invalidate Inventory queries,
-or expose an Inventory recovery action.
-
-Supply consumes only Inventory's narrow gate. Before any real `pending ->
-ordered` transition, it checks fresh active product identities, then locks the
-Sellpia state and purchase order together and compares the opaque fence. A
-providerless transition commits atomically. External checkout creates one
-durable `prepared` attempt before the provider call and reuses the caller's
-idempotency key. Ambiguous response or an unresolved 15-minute prepared attempt
-becomes `provider_unknown`; it requires explicit authenticated reconciliation
-and cannot call the provider again. The web may auto-refresh and retry once only
-for `SELLPIA_SYNC_REQUIRED`, with the same key.
+Coupang shipment summary, files and source attempts belong to `orders/shipments`;
+existing routes and PDF download/merge behavior remain available. Existing Rocket
+workbook audit and Orders reconciliation are retained because they have active
+internal callers; they do not reserve or change physical inventory.
 
 Channels persists account-scoped Wing and Rocket identity. Catalog publication
 upserts observed listings and options while preserving direct option-component
@@ -1009,26 +990,23 @@ canonical MasterProduct, otherwise `ChannelListing.masterProductId` is null.
 
 The matching center owns direct option-component review. Its deterministic
 command may fill only an empty option component list when organization-fenced
-evidence uniquely selects one active Sellpia SKU and a verified positive pack
+evidence uniquely selects one Sellpia SKU and a verified positive pack
 quantity. Manual replacement is a complete,
 expected-current-component-fenced write. Existing components, duplicate or
 conflicting evidence, uncertain pack/BOM evidence, raw aliases, and AI remain
-untouched until operator review. Inventory remains the sole physical-stock
+untouched until operator review. Products remains the sole physical-stock
 writer.
 
 Confirmed direct option components remain the capacity truth.
-Capacity is
-`min(floor(availableStock / quantity))`, where
-`availableStock === currentStock`. Channels and Products obtain that value from
-Inventory's organization-scoped availability batch rather than reading stock
-from recipe persistence. An uncollected snapshot publishes no SKU availability;
-configured components therefore remain visible with zero stock, inactive state,
-and null capacity until collection. Inactive components keep their stored rule
-visible in `needs_review` instead of being silently removed.
+Capacity is `min(floor(currentStock / quantity))`. Channels and Products read
+Products' organization-scoped current quantities. A missing or deleted SKU
+remains absent (`currentStock: null`) and requires connection review; a retained
+SKU with quantity zero is an observed zero. Consumers must not turn missing
+identities into zero stock or silently restore an old ID by matching its code.
 
 Rocket preview uses the same canonical physical availability batch. A complete
 extension collection also carries allowlisted official-workbook fields. Supply
-reruns the preview under an organization lock, fences the Inventory generation
+reruns the preview under an organization lock, fences the Products source generation
 and completed source artifact, verifies that channel option and direct
 component identities have not changed, and persists explicit line decisions
 plus immutable component allocations. Those audit rows do not reserve capacity
@@ -1037,22 +1015,22 @@ input drift conflicts.
 
 Confirmation creates the official workbook in the browser after the server
 commit. It never submits to a marketplace provider or writes
-`SellpiaInventorySku.currentStock`.
+`MasterProduct.currentStock`.
 
 Coupang PA collection belongs to Orders. The selected Rocket account and
 transport are validated, and `SourceImportRun`, `Order`, and `OrderLineItem`
 are persisted with deterministic identities. In the same Prisma transaction,
 Orders calls Supply's reconciliation port; Supply resolves exactly one active
-confirmation line by account/PO/product without mutating Inventory availability
+confirmation line by account/PO/product without mutating Products current stock
 or physical stock. A barcode mismatch, ambiguous confirmation, or persistence
 failure rolls back the entire import and no Sellpia workbook is returned.
 Replays are idempotent. A later completed Sellpia snapshot remains the only
 source of any physical stock decrease.
 
 Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads
-Inventory's canonical physical availability. Exact product code, exact option
-code, and a unique normalized barcode are deterministic resolution signals; missing,
-inactive, or ambiguous candidates remain `mapping_required`, never synthetic
+Products' canonical physical availability. Exact product code, exact option
+code, and a unique normalized barcode are deterministic resolution signals; missing
+or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
 variant destination. Analytics persists raw Sellpia product-profit coverage;
@@ -1073,7 +1051,7 @@ preserve the last published grade. Organization-locked publication fences stale
 concurrent calculations. AI thumbnail analysis quality grades remain an
 independent product-registration signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
-copying image URLs into Inventory.
+copying image URLs into source products.
 
 Product Hub renders visit/view/cart/order/sales/revenue/ad-rate from existing
 listing daily facts independently of ABC. Missing fields remain null instead
@@ -1082,8 +1060,8 @@ in the header; one status modal owns source-specific freshness, composite
 progress/failure, and aggregate order/mapping recovery counts.
 
 The frontend preserves the active route ownership and compositions recorded in
-the Frontend Route Map and nearest route guides. One shared coordinator/drawer
-supplies Sellpia freshness, while active pages may expose compact status and
+the Frontend Route Map and nearest route guides. The shared source control
+supplies Sellpia collection state, while active pages may expose compact status and
 sync controls without rearranging their documented layouts. Product list,
 detail, and matching keep their exact ownership; Inventory owns the complete
 read-only Sellpia SKU table. The
@@ -1094,7 +1072,7 @@ absent from sidebar navigation and the App Router unless product names a
 canonical replacement. Marketplace provider submission remains disabled.
 
 Exact operation and recovery steps live in the
-[freshness runbook](runbooks/sellpia-inventory-freshness.md),
+[collection runbook](runbooks/sellpia-inventory-freshness.md),
 [channel matching runbook](runbooks/channel-sellpia-matching.md), and
 [Rocket confirmation boundary](runbooks/sellpia-rocket-inventory-sync.md).
 Source/evidence onboarding through the non-ordering procurement handoff lives

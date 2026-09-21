@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { FinanceReportExportService } from '../finance-report-export.service';
 import type { AdsHubData } from '@kiditem/shared/advertising';
 import type { PLData } from '@kiditem/shared/finance';
-import type { InventorySkuSnapshotListPort } from '../../../inventory/application/port/in/stock/inventory-sku-snapshot-list.port';
+import type { ProductSourceSnapshotPort } from '../../../products/application/port/in/product-source-snapshot.port';
 import type { ChannelListingReportReadPort } from '../../../channels/application/port/in/channel-listing-report-read.port';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
@@ -67,18 +67,16 @@ function buildService() {
       marketCounts: [],
     }),
   };
-  const inventory: InventorySkuSnapshotListPort = {
+  const inventory: ProductSourceSnapshotPort = {
     listSnapshot: vi.fn().mockResolvedValue({
       items: [{
-        sellpiaInventorySkuId: MASTER,
+        masterProductId: MASTER,
         code: 'SKU-1',
         name: '테스트 상품',
         optionName: null,
         barcode: null,
         currentStock: 3,
         purchasePrice: 400,
-        salePrice: 1200,
-        isActive: true,
         stockValue: 1200,
         lastImportRunId: null,
         lastImportedAt: '2026-08-01T00:00:00.000Z',
@@ -96,6 +94,7 @@ function buildService() {
     } as never),
     getSnapshot: vi.fn(),
     listImportRuns: vi.fn(),
+    listSnapshotForExport: vi.fn(),
   };
   const ads: AdsHubData = {
     products: [{
@@ -168,7 +167,7 @@ describe('FinanceReportExportService', () => {
     expect(headerRow(workbook, '광고현황')).not.toContain('광고등급');
     expect(result.fileName).toMatch(/^통합리포트_2026-08_\d{4}-\d{2}-\d{2}\.xlsx$/);
     expect(listings.list).toHaveBeenCalledWith(ORG, expect.objectContaining({ tab: 'registered' }));
-    expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, expect.objectContaining({ activeStatus: 'active' }));
+    expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, { page: 1, limit: 200 });
     expect(advertising.getHubData).toHaveBeenCalledWith(ORG);
     expect(profitLoss.findAll).toHaveBeenCalledWith(ORG, 2026, 8, NOW);
   });

@@ -21,13 +21,14 @@ describe('channel Sellpia final schema contract', () => {
     }
   });
 
-  it('requires account-owned parent listings with a nullable operating-product link', () => {
+  it('requires account-owned parent listings with source-candidate identity', () => {
     const listing = modelBlock(core, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
-    assert.match(listing, /^\s*masterProductId\s+String\?/m);
+    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
     assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
-    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
+    assert.match(listing, /@@index\(\[sourceCandidateId\]\)/);
+    assert.doesNotMatch(listing, /^\s*(?:masterProductId|masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 
@@ -51,10 +52,10 @@ describe('channel Sellpia final schema contract', () => {
 
   it('stores the inventory consumption recipe only on the channel listing option', () => {
     const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
-    for (const field of ['channelListingOptionId', 'sellpiaInventorySkuId', 'quantity']) {
+    for (const field of ['channelListingOptionId', 'masterProductId', 'quantity']) {
       assert.match(component, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
-    assert.match(component, /@@unique\(\[channelListingOptionId, sellpiaInventorySkuId\]\)/);
+    assert.match(component, /@@unique\(\[channelListingOptionId, masterProductId\]\)/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
     assert.doesNotMatch(channels, /channel_sku_components/);
     assert.doesNotMatch(core, /model ProductVariant\b/);

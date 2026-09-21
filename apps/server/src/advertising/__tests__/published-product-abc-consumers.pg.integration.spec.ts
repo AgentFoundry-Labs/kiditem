@@ -15,6 +15,8 @@ import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campai
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 
 describe('Advertising published product ABC consumers (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -47,18 +49,15 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         status: 'active',
       },
     });
-    const product = await prisma.masterProduct.create({
-      data: {
-        organizationId: ORG,
-        code: 'ABC-AD-CONSUMER',
-        name: 'Published A product',
-      },
+    const product = await seedSourceProduct(prisma, {
+      organizationId: ORG,
+      code: 'ABC-AD-CONSUMER',
+      name: 'Published A product',
     });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: ORG,
         channelAccountId: account.id,
-        masterProductId: product.id,
         externalId: 'SELLER-PRODUCT-1',
         channelName: 'Wing product',
         status: 'active',
@@ -72,6 +71,14 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         itemName: '1개',
         salePrice: 12_000,
         status: '판매중',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: ORG,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
       },
     });
     const sellpiaRun = await prisma.sourceImportRun.create({
@@ -175,9 +182,15 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       },
     });
 
-    const listingReader = new AdListingRepositoryAdapter(prisma as never);
+    const listingReader = new AdListingRepositoryAdapter(
+      prisma as never,
+      new ProductTransactionalReadRepositoryAdapter(),
+    );
     const campaignReader = new AdCampaignRepositoryAdapter(prisma as never);
-    const keywordReader = new KeywordRankRepositoryAdapter(prisma as never);
+    const keywordReader = new KeywordRankRepositoryAdapter(
+      prisma as never,
+      new ProductTransactionalReadRepositoryAdapter(),
+    );
     const actionReader = new AdActionRepositoryAdapter(prisma as never, listingReader);
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))

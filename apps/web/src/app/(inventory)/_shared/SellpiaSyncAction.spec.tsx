@@ -27,7 +27,7 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
-const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
+const FRESHNESS_PATH = '/api/inventory/sellpia-collection-status';
 const BEGIN_PATH = '/api/inventory/sellpia-source/attempts';
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
@@ -64,7 +64,7 @@ function attempt(state: AttemptState, patch: Record<string, unknown> = {}) {
 }
 
 function freshness(
-  status: 'fresh' | 'refresh_required' | 'syncing' | 'failed',
+  status: 'not_collected' | 'complete' | 'running' | 'failed',
   patch: Record<string, unknown> = {},
 ) {
   return {
@@ -74,15 +74,12 @@ function freshness(
       accountKey: 'kiditem',
       confirmed: true,
     },
-    lastVerifiedAt: '2026-09-14T00:30:00.000Z',
-    expiresAt: null,
     requestedGeneration: '7',
     verifiedGeneration: '7',
-    refreshRequestedAt: null,
-    refreshReason: null,
-    requestedSyncScope: 'inventory',
-    syncNotBefore: null,
-    activeSync: status === 'syncing'
+    lastCompletedAttemptId: ATTEMPT_ID,
+    lastCompletedAt: '2026-09-14T00:30:00.000Z',
+    lastAttemptId: null,
+    activeSync: status === 'running'
       ? {
           attemptId: ATTEMPT_ID,
           generation: '8',
@@ -133,7 +130,7 @@ function extensionMessages(action: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  freshnessView = freshness('refresh_required');
+  freshnessView = freshness('not_collected');
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
     status: 'ready',
     extensionId: 'sellpia-extension',
@@ -149,7 +146,7 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
     if (path === BEGIN_PATH) {
-      freshnessView = freshness('syncing');
+      freshnessView = freshness('running');
       return attempt('RUNNING');
     }
     throw new Error(`unexpected POST ${path}`);
@@ -194,7 +191,7 @@ describe('SellpiaSyncAction', () => {
   it('joins the attempt the owner reports as already running instead of starting another', async () => {
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-      freshnessView = freshness('syncing');
+      freshnessView = freshness('running');
       throw new ApiError(409, 'Conflict', 'Conflict', {
         code: 'ATTEMPT_IN_PROGRESS',
         attemptId: ATTEMPT_ID,
@@ -209,8 +206,8 @@ describe('SellpiaSyncAction', () => {
   });
 
   it('shows a live lease that names no attempt, such as a manual upload, as running without a stop', async () => {
-    const syncing = freshness('syncing');
-    freshnessView = freshness('syncing', { activeSync: { ...syncing.activeSync, attemptId: null } });
+    const syncing = freshness('running');
+    freshnessView = freshness('running', { activeSync: { ...syncing.activeSync, attemptId: null } });
     renderActions(<SellpiaSyncAction />);
 
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
@@ -219,10 +216,10 @@ describe('SellpiaSyncAction', () => {
   });
 
   it('stops a collection another browser started, by the attempt the owner read names', async () => {
-    freshnessView = freshness('syncing');
+    freshnessView = freshness('running');
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`) throw new Error(`unexpected POST ${path}`);
-      freshnessView = freshness('refresh_required', { lastAttempt: stoppedLastAttempt() });
+      freshnessView = freshness('complete', { lastAttempt: stoppedLastAttempt() });
       return attempt('FAILED', { errorCode: 'USER_CANCELLED', errorMessage: STOPPED });
     });
     renderActions(<SellpiaSyncAction />);
@@ -234,7 +231,7 @@ describe('SellpiaSyncAction', () => {
   });
 
   it('shows a stopped collection as stopped, not failed, and begins the next one as a manual request', async () => {
-    freshnessView = freshness('refresh_required', { lastAttempt: stoppedLastAttempt() });
+    freshnessView = freshness('complete', { lastAttempt: stoppedLastAttempt() });
     renderActions(<SellpiaSyncAction showStatus />);
 
     expect(await screen.findByText('수집 중단됨')).toBeInTheDocument();
@@ -263,16 +260,16 @@ describe('SellpiaSyncAction', () => {
   });
 
   it('refreshes inventory readers only when a newer verified generation appears', async () => {
-    freshnessView = freshness('fresh');
+    freshnessView = freshness('complete');
     const { client } = renderActions(<SellpiaSyncAction />);
     client.setQueryData(queryKeys.inventory.snapshots(), { rows: [] });
     expect(await screen.findByRole('button', { name: '셀피아 재고 동기화' })).toBeEnabled();
 
-    await act(() => client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    await act(() => client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
     expect(client.getQueryState(queryKeys.inventory.snapshots())?.isInvalidated).toBe(false);
 
-    freshnessView = freshness('fresh', { verifiedGeneration: '8', requestedGeneration: '8' });
-    await act(() => client.refetchQueries({ queryKey: queryKeys.inventory.freshness() }));
+    freshnessView = freshness('complete', { verifiedGeneration: '8', requestedGeneration: '8' });
+    await act(() => client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
 
     await waitFor(() =>
       expect(client.getQueryState(queryKeys.inventory.snapshots())?.isInvalidated).toBe(true),
@@ -280,18 +277,18 @@ describe('SellpiaSyncAction', () => {
   });
 
   it('confirms the Sellpia source binding when the owner reports it missing', async () => {
-    freshnessView = freshness('refresh_required', {
+    freshnessView = freshness('not_collected', {
       sourceBinding: { origin: 'https://kiditem.sellpia.com', accountKey: null, confirmed: false },
     });
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${FRESHNESS_PATH}/source-binding`) throw new Error(`unexpected POST ${path}`);
-      freshnessView = freshness('refresh_required');
+      freshnessView = freshness('not_collected');
       return freshnessView;
     });
     renderActions(<SellpiaSyncAction showStatus />);
 
     expect(await screen.findByText(/https:\/\/kiditem\.sellpia\.com · kiditem/)).toBeInTheDocument();
-    expect(screen.getByText('갱신 필요')).toBeInTheDocument();
+    expect(screen.getByText('미수집')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '셀피아 계정 연결 확인' }));
 
     await waitFor(() => expect(

@@ -1,3 +1,5 @@
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -7,16 +9,18 @@ import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/ada
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
-import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
-import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/repository/master-product-abc.repository.port';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/persistence/master-product-abc.repository.port';
 import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
-import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
+import { ProductAbcReadUseCase } from '../../../products/application/usecase/product-abc-read.usecase';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
 import { businessDateText } from '../domain/period/dashboard-period';
 import { shiftBusinessDateKey } from '../../../common/kst';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { PRODUCT_SOURCE_READ_PORT } from '../../../products/application/port/in/product-source-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 import {
@@ -48,23 +52,25 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const alerts = new SourceFailureAlerts(prisma as never);
-    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
     advertisingSource = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     const evidence = new MasterProductProfitabilityReadService(
       sellpiaSource,
       advertisingSource,
       prisma as never,
-    );
+      new ProductTransactionalReadRepositoryAdapter());
     const m = await Test.createTestingModule({
       providers: [
         DashboardInventoryService,
         { provide: MASTER_PRODUCT_PROFITABILITY_READ_PORT, useValue: evidence },
         MasterProductAbcRepositoryAdapter,
         { provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT, useExisting: MasterProductAbcRepositoryAdapter },
-        ProductAbcReadService,
-        { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadService },
+        ProductAbcReadUseCase,
+        { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadUseCase },
         DashboardInventoryRepositoryAdapter,
+        ProductSourceReadRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         // The panel's rows come from the alerts module, against the same Postgres.
         { provide: SourceFailureAlerts, useValue: alerts },
@@ -72,6 +78,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         // account published anything for the window is a fact only rows can
         // hold, so a stub here would decide the very thing under test.
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useValue: inventoryTransactionalRead },
+        { provide: PRODUCT_SOURCE_READ_PORT, useExisting: ProductSourceReadRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardInventoryService);
@@ -271,16 +279,12 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.alerts[0]).not.toHaveProperty('severity');
   });
 
-  it('separates active products from channel-linked products', async () => {
+  it('counts current Products rows separately from channel-linked products', async () => {
     const masterLinked = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-LINKED', name: 'Linked Master',
     });
     const optionLinked = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId: masterLinked.id, sku: 'SKU-T-LINKED',
-    });
-    await prisma.sellpiaInventorySku.update({
-      where: { id: optionLinked.id },
-      data: { masterProductId: masterLinked.id },
     });
     await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -307,10 +311,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId: inactiveOption.id,
       externalOptionId: 'VI-T-INACTIVE',
     });
-    await prisma.masterProduct.update({
-      where: { id: inactiveMaster.id },
-      data: { isActive: false },
-    });
     const otherMaster = await setupMaster(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-LINKED', name: 'Other Linked Master',
     });
@@ -332,8 +332,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(2);
-    expect(result.channelLinkedProducts).toBe(1);
+    expect(result.totalProducts).toBe(3);
+    expect(result.channelLinkedProducts).toBe(2);
     expect(result.channelUnlinkedProducts).toBe(1);
     expect(result.gradeCount.A).toBe(1);
     expect(result.gradeCount.B).toBe(1);
@@ -350,11 +350,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       masterId: master.id,
       sku: 'SKU-T-CONFIG-LINK',
     });
-    await prisma.sellpiaInventorySku.update({
+    await prisma.masterProduct.update({
       where: { id: inventory.id },
-      data: { masterProductId: master.id, currentStock: 0 },
+      data: { currentStock: 0 },
     });
-    const linkedListing = await setupChannelListing(prisma, {
+    await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: master.id,
       channel: 'coupang',
@@ -362,14 +362,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId: inventory.id,
       externalOptionId: 'VI-T-CONFIG-LINK',
     });
-    // The product↔listing identity is direct CONFIG. Recipe/inventory mapping
-    // can be missing and is reported separately as mapping attention.
-    await prisma.channelListingOptionInventoryComponent.deleteMany({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingOptionId: linkedListing.listingOptionId,
-      },
-    });
+    // The recipe is the CONFIG linkage. Inventory evidence and current stock
+    // affect availability metrics, but do not remove a valid product link.
 
     const withoutInventory = await service.getSummary(
       buildDashboardContext(),
@@ -407,10 +401,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: master.id,
       sku: 'SKU-T-SALE-STATUS',
-    });
-    await prisma.sellpiaInventorySku.update({
-      where: { id: inventory.id },
-      data: { masterProductId: master.id },
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -460,10 +450,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: master.id,
       sku: 'SKU-T-CONCURRENT-STATUS',
-    });
-    await prisma.sellpiaInventorySku.update({
-      where: { id: inventory.id },
-      data: { masterProductId: master.id },
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,

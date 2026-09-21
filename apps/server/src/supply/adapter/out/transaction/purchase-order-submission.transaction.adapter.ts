@@ -3,6 +3,7 @@ import { ErrorCodes } from '@kiditem/shared/errors';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -23,20 +24,16 @@ import type {
 } from '../../../application/port/out/transaction/purchase-order-submission.transaction.port';
 import { isDeletablePurchaseOrderStatus } from '../../../domain/policy/purchase-order-status';
 import {
-  readInventoryAvailability as readInventoryAvailabilityFact,
-} from '../../../../inventory/read/inventory-availability';
-import { lockSellpiaInventory } from '../../../../inventory/transaction/sellpia-inventory-lock';
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductCollectionFence as LockedFreshnessRow,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const PREPARED_RECONCILIATION_MS = 15 * 60_000;
 
-type LockedFreshnessRow = {
-  freshnessFence: string;
-  freshnessGeneration: bigint;
-  lastVerifiedAt: Date | null;
-  databaseNow: Date;
-};
+
 
 type LockedOrderRow = { id: string; status: string };
 
@@ -57,7 +54,11 @@ type ReconciliationLockedAttemptRow = LockedAttemptRow & {
 @Injectable()
 export class PurchaseOrderSubmissionTransactionAdapter
 implements PurchaseOrderSubmissionTransactionPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort,
+  ) {}
 
   prepareDraft(
     input: PreparePurchaseOrderDraftInput,
@@ -138,13 +139,14 @@ implements PurchaseOrderSubmissionTransactionPort {
       const availability = await readPurchaseInventoryAvailability(
         tx,
         input.organizationId,
-        input.sellpiaInventorySkuIds,
+        input.masterProductIds,
+        this.products,
       );
-      const freshness = await lockFreshness(tx, input.organizationId);
+      const freshness = await this.products.lockCollectionFence({ client: tx }, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
       await assertActor(tx, input.organizationId, input.userId);
-      assertFreshness(freshness, input);
+      assertCollectedInventory(freshness, input);
       await assertPurchaseItems(tx, input, availability);
 
       if (order.status === 'ordered') {
@@ -228,7 +230,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           purchaseOrderId: input.purchaseOrderId,
           idempotencyKey: input.idempotencyKey,
           requestHash: input.requestHash,
-          freshnessGeneration: freshness.freshnessGeneration,
+          freshnessGeneration: BigInt(input.inventoryGeneration),
           status: 'prepared',
         },
       });
@@ -379,22 +381,6 @@ implements PurchaseOrderSubmissionTransactionPort {
   }
 }
 
-async function lockFreshness(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<LockedFreshnessRow | null> {
-  const rows = await tx.$queryRaw<LockedFreshnessRow[]>`
-    SELECT
-      freshness_fence AS "freshnessFence",
-      verified_generation AS "freshnessGeneration",
-      last_verified_at AS "lastVerifiedAt",
-      CURRENT_TIMESTAMP AS "databaseNow"
-    FROM sellpia_inventory_states
-    WHERE organization_id = ${organizationId}::uuid
-    FOR UPDATE
-  `;
-  return rows[0] ?? null;
-}
 
 async function lockOrder(
   tx: Prisma.TransactionClient,
@@ -462,28 +448,37 @@ async function assertActor(
   }
 }
 
-function assertFreshness(
+function assertCollectedInventory(
   freshness: LockedFreshnessRow | null,
-  input: Pick<
-    PreparePurchaseOrderSubmissionInput,
-    'freshnessFence' | 'freshnessLastVerifiedAt' | 'freshnessExpiresAt'
-  >,
+  input: Pick<PreparePurchaseOrderSubmissionInput,
+    'inventoryAttemptId' | 'inventoryFence' | 'inventoryGeneration' | 'inventoryCompletedAt'>,
 ): asserts freshness is LockedFreshnessRow {
-  const expectedLastVerifiedAt = new Date(input.freshnessLastVerifiedAt);
-  const expiresAt = new Date(input.freshnessExpiresAt);
+  const expectedCompletedAt = new Date(input.inventoryCompletedAt);
+  let expectedGeneration: bigint;
+  try {
+    expectedGeneration = BigInt(input.inventoryGeneration);
+  } catch {
+    throw syncRequired();
+  }
   if (
     !freshness
-    || freshness.freshnessFence !== input.freshnessFence
+    || freshness.freshnessFence !== input.inventoryFence
+    || freshness.lastCompletedImportRunId !== input.inventoryAttemptId
     || freshness.lastVerifiedAt === null
-    || Number.isNaN(expectedLastVerifiedAt.getTime())
-    || Number.isNaN(expiresAt.getTime())
-    || freshness.lastVerifiedAt.getTime() !== expectedLastVerifiedAt.getTime()
-    || freshness.databaseNow >= expiresAt
+    || Number.isNaN(expectedCompletedAt.getTime())
+    || freshness.lastVerifiedAt.getTime() !== expectedCompletedAt.getTime()
+    || freshness.freshnessGeneration !== expectedGeneration
+    || freshness.requestedGeneration !== freshness.freshnessGeneration
+    || freshness.activeGeneration !== null
+    || (
+      freshness.failedGeneration !== null
+      && freshness.failedGeneration > freshness.freshnessGeneration
+    )
   ) {
     throw new AppException(
       409,
       ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
-      'A fresh Sellpia inventory snapshot is required before purchase.',
+      'The requested Sellpia inventory collection is no longer complete.',
     );
   }
 }
@@ -493,16 +488,18 @@ async function assertPurchaseItems(
   input: PreparePurchaseOrderSubmissionInput,
   availability: InventoryAvailabilityBatch,
 ): Promise<void> {
-  const expectedIds = [...new Set(input.sellpiaInventorySkuIds)].sort();
+  const expectedIds = [...new Set(input.masterProductIds)].sort();
   if (expectedIds.length === 0) throw referenceInvalid();
   const items = await tx.purchaseOrderItem.findMany({
     where: {
       organizationId: input.organizationId,
       orderId: input.purchaseOrderId,
     },
-    select: { sellpiaInventorySkuId: true },
+    select: { masterProductId: true },
   });
-  const actualIds = [...new Set(items.map((item) => item.sellpiaInventorySkuId))].sort();
+  const actualIds = [...new Set(
+    items.flatMap((item) => item.masterProductId ? [item.masterProductId] : []),
+  )].sort();
   if (
     actualIds.length !== expectedIds.length
     || actualIds.some((id, index) => id !== expectedIds[index])
@@ -510,29 +507,27 @@ async function assertPurchaseItems(
     throw referenceInvalid();
   }
 
+  const actualAvailabilityIds = [...new Set(availability.items.map((item) =>
+    item.masterProductId))].sort();
   if (!availability.snapshot.collected
-    || availability.items.length !== expectedIds.length) {
+    || actualAvailabilityIds.length !== expectedIds.length
+    || actualAvailabilityIds.some((id, index) => id !== expectedIds[index])) {
     throw syncRequired();
   }
-  if (availability.items.some((sku) => !sku.isActive)) {
-    throw new AppException(
-      422,
-      ErrorCodes.PURCHASE.ITEM_INACTIVE,
-      'A purchase item is inactive in the Sellpia inventory snapshot.',
-    );
-  }
+
 }
 
 async function readPurchaseInventoryAvailability(
   transaction: Prisma.TransactionClient,
   organizationId: string,
-  sellpiaInventorySkuIds: string[],
+  masterProductIds: string[],
+  products: ProductTransactionalReadPort,
 ): Promise<InventoryAvailabilityBatch> {
-  const inventoryLock = await lockSellpiaInventory(transaction, organizationId);
+  const productLock = await products.lock({ client: transaction }, organizationId);
   try {
-    return await readInventoryAvailabilityFact(transaction, inventoryLock, {
+    return await products.readAvailability({ client: transaction }, productLock, {
       organizationId,
-      sellpiaInventorySkuIds,
+      masterProductIds,
     });
   } catch (error) {
     if (error instanceof FactNotFoundError) throw referenceInvalid();

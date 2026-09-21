@@ -3,7 +3,6 @@ import {
   type InventorySkuSnapshotItem,
   type InventorySkuSnapshotListResponse,
   type InventorySkuStockStatus,
-  type SellpiaInventorySkuActiveStatus,
   type SellpiaInventorySkuLinkStatus,
   type SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
@@ -13,14 +12,13 @@ import {
   type ChannelSkuAvailabilityStatus,
 } from '@kiditem/shared/channel-sku-availability';
 import { apiClient } from '@/lib/api-client';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
 
 export interface SellpiaInventorySkuListParams {
   page?: number;
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
-  activeStatus?: SellpiaInventorySkuActiveStatus;
   linkStatus?: SellpiaInventorySkuLinkStatus;
 }
 
@@ -96,7 +94,7 @@ export async function fetchAllSellpiaInventorySkus(
 export async function listSellpiaImportRuns(
   params: SellpiaImportRunListParams = {},
 ): Promise<SellpiaImportRunListResponse> {
-  return sellpiaInventoryFreshnessApi.listHistory(params);
+  return sellpiaInventoryCollectionStatusApi.listHistory(params);
 }
 
 export async function listChannelSkuAvailability(

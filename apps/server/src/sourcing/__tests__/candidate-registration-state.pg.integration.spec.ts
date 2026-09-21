@@ -14,11 +14,9 @@ import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/so
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
 /**
- * 수집후보가 보여 주는 등록 상태는 초안 행이 아니라 울타리가 근거다(ADR-0014).
- *
- * 초안의 제출 칸은 울타리가 함께 갱신하는 거울이라 드리프트가 가능하고, 실제로
- * 그 드리프트 때문에 "등록됐다는데 목록에 없다"가 나왔다. 그래서 각 사례는 초안
- * 쪽 값을 **일부러 다르게** 두고 울타리 쪽이 이기는지 본다.
+ * 수집후보와 초안의 공개 등록 상태는 초안의 `closedAt`과 Channels 실행 장부에서
+ * 계산한다(ADR-0014). 원시 초안에는 제출 결과를 복제하지 않고, 이 사례들은 장부의
+ * uncertain/succeeded/failed 전이가 읽기 모델에 반영되는지를 본다.
  */
 describe('candidate registration state (PG integration)', () => {
   let prisma: PrismaClient;
@@ -71,7 +69,7 @@ describe('candidate registration state (PG integration)', () => {
   });
 
   it('reports no registration state for a candidate whose draft never reached the fence', async () => {
-    await createDraft('draft');
+    await createDraft();
 
     const row = await candidates.findById(candidateId, TEST_ORGANIZATION_ID);
 
@@ -79,8 +77,8 @@ describe('candidate registration state (PG integration)', () => {
   });
 
   it('reports confirming while the fence is reconciling an uncertain submission', async () => {
-    // 초안은 아직 'submitting' 이지만 제출 여부를 모르는 것은 울타리만 안다.
-    const preparationId = await createDraft('submitting');
+    // 제출 여부를 모르는 상태는 Channels 실행 장부에서만 읽는다.
+    const preparationId = await createDraft();
     await createExecution(preparationId, { status: 'reconciling', providerOutcome: 'uncertain' });
 
     const row = await candidates.findById(candidateId, TEST_ORGANIZATION_ID);
@@ -88,8 +86,8 @@ describe('candidate registration state (PG integration)', () => {
     expect(row?.registrationState).toBe('confirming');
   });
 
-  it('reports registered from the succeeded execution even when the draft row lags behind', async () => {
-    const preparationId = await createDraft('submitting');
+  it('projects registered from the succeeded execution while the raw draft remains open', async () => {
+    const preparationId = await createDraft();
     await createExecution(preparationId, {
       status: 'succeeded',
       providerOutcome: 'succeeded',
@@ -98,12 +96,12 @@ describe('candidate registration state (PG integration)', () => {
 
     const row = await candidates.findById(candidateId, TEST_ORGANIZATION_ID);
 
-    expect(row?.productPreparation?.status).toBe('submitting');
+    expect(row?.productPreparation?.status).toBe('registered');
     expect(row?.registrationState).toBe('registered');
   });
 
-  it('reports failed from a definitively failed execution even when the draft still reads submitting', async () => {
-    const preparationId = await createDraft('submitting');
+  it('projects failed from a definitively failed execution while the raw draft remains open', async () => {
+    const preparationId = await createDraft();
     await createExecution(preparationId, {
       status: 'failed',
       providerOutcome: 'definitive_failure',
@@ -111,12 +109,12 @@ describe('candidate registration state (PG integration)', () => {
 
     const row = await candidates.findById(candidateId, TEST_ORGANIZATION_ID);
 
-    expect(row?.productPreparation?.status).toBe('submitting');
+    expect(row?.productPreparation?.status).toBe('failed');
     expect(row?.registrationState).toBe('failed');
   });
 
   it('carries the same fence-derived state into the sourced list', async () => {
-    const preparationId = await createDraft('submitting');
+    const preparationId = await createDraft();
     await createExecution(preparationId, { status: 'reconciling', providerOutcome: 'uncertain' });
 
     const listed = await candidates.listSourced({
@@ -130,7 +128,7 @@ describe('candidate registration state (PG integration)', () => {
       .toBe('confirming');
   });
 
-  async function createDraft(status: string): Promise<string> {
+  async function createDraft(): Promise<string> {
     return (await prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -138,10 +136,8 @@ describe('candidate registration state (PG integration)', () => {
         channelAccountId: ACCOUNT_ID,
         sourceContentWorkspaceId: workspaceId,
         displayName: 'Kids rain boots',
-        status,
-        submissionKey: randomUUID(),
+        closedAt: null,
         registrationInput: {},
-        providerOutcome: 'not_attempted',
         createdByUserId: TEST_USER_ID,
       },
     })).id;

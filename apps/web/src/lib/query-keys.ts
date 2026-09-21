@@ -87,10 +87,10 @@ export const queryKeys = {
     importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
-    freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
-    // The collection control's read: the organization's freshness, which names its running attempt.
-    sellpiaSource: (organizationId: string) =>
-      [...queryKeys.inventory.freshness(), 'source', organizationId] as const,
+    collectionStatus: () => [...queryKeys.inventory.all, 'sellpia-collection-status'] as const,
+    // The collection control's read names the organization's running attempt.
+    sellpiaCollectionStatus: (organizationId: string) =>
+      [...queryKeys.inventory.collectionStatus(), 'source', organizationId] as const,
     currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
@@ -212,10 +212,6 @@ export const queryKeys = {
     returnSummary: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnSummary', params] as const,
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
-  },
-  mallOperationOutcomes: {
-    all: ['mallOperationOutcomes'] as const,
-    summary: (days: number) => [...queryKeys.mallOperationOutcomes.all, 'summary', days] as const,
   },
   logs: {
     all: ['logs'] as const,

@@ -24,9 +24,8 @@ export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema
 export const ProductInventoryFactsSchema = z.object({
   skuCount: z.number().int().nonnegative(),
   measuredSkuCount: z.number().int().nonnegative(),
-  inactiveSkuCount: z.number().int().nonnegative(),
-}).strict().refine((facts) => facts.inactiveSkuCount <= facts.measuredSkuCount
-  && facts.measuredSkuCount <= facts.skuCount, 'inventory counts must be nested subsets');
+}).strict().refine((facts) => facts.measuredSkuCount <= facts.skuCount,
+  'inventory counts must be nested subsets');
 export type ProductInventoryFacts = z.infer<typeof ProductInventoryFactsSchema>;
 
 export const ProductOperationsInventoryFocusSchema = z.enum([
@@ -93,7 +92,6 @@ export const MasterProductOperationsListQuerySchema = z.object({
   limit: z.number().int().positive().max(100).default(50),
   query: z.string().trim().min(1).max(200).optional(),
   periodDays: ProductOperationsPeriodDaysSchema.default(30),
-  category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('active'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
   inventoryFocus: ProductOperationsInventoryFocusSchema.optional(),
@@ -115,7 +113,7 @@ export type ProductRecipeComponentCandidateQuery = z.infer<
 >;
 
 export const ProductRecipeComponentCandidateSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
@@ -150,18 +148,12 @@ export const MasterProductOperationsMetadataSchema = z.object({
   code: ProductCodeSchema,
   displayReference: MasterProductDisplayReferenceSchema,
   name: ProductNameSchema,
-  description: z.string().nullable(),
-  category: z.string().nullable(),
-  brand: z.string().nullable(),
-  tags: z.array(z.string().min(1)),
   imageUrls: z.array(z.string().min(1)),
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   abc: ProductAbcReadModelSchema,
   contribution: ProductAbcContributionProductSchema.nullable(),
-  adBudgetLimit: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
 }).strict();
 export type MasterProductOperationsMetadata = z.infer<
   typeof MasterProductOperationsMetadataSchema
@@ -348,24 +340,14 @@ export const ProductChannelListingSummarySchema = z.object({
     capacity: z.number().int().nonnegative().nullable(),
     inventoryComponents: z.array(z.object({
       id: z.string().uuid(),
-      sellpiaInventorySkuId: z.string().uuid(),
-      code: z.string().min(1),
-      name: z.string().min(1),
+      masterProductId: z.string().uuid(),
+      code: z.string().min(1).nullable(),
+      name: z.string().min(1).nullable(),
       optionName: z.string().nullable(),
       barcode: z.string().nullable(),
       currentStock: z.number().int().nonnegative().nullable(),
-      availableStock: z.number().int().nonnegative().nullable(),
-      isActive: z.boolean().nullable(),
       quantity: z.number().int().positive(),
-    }).strict().superRefine((component, ctx) => {
-      if (component.availableStock !== component.currentStock) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['availableStock'],
-          message: 'availableStock must equal currentStock',
-        });
-      }
-    })).max(50),
+    }).strict()).max(50),
   }).strict()),
 }).strict();
 export type ProductChannelListingSummary = z.infer<
@@ -385,7 +367,7 @@ export type MasterProductOperationsDetail = z.infer<
 >;
 
 export const ChannelOptionInventoryComponentInputSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   quantity: z.number().int().positive(),
 }).strict();
 export type ChannelOptionInventoryComponentInput = z.infer<
@@ -400,55 +382,26 @@ export type ReplaceChannelOptionInventoryInput = z.infer<
 >;
 
 function rejectDuplicateRecipeComponents(
-  value: { components?: Array<{ sellpiaInventorySkuId: string }> },
+  value: { components?: Array<{ masterProductId: string }> },
   ctx: z.RefinementCtx,
 ) {
   const seen = new Set<string>();
   value.components?.forEach((component, index) => {
-    const key = component.sellpiaInventorySkuId.toLowerCase();
+    const key = component.masterProductId.toLowerCase();
     if (seen.has(key)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['components', index, 'sellpiaInventorySkuId'],
-        message: 'duplicate sellpiaInventorySkuId',
+        path: ['components', index, 'masterProductId'],
+        message: 'duplicate masterProductId',
       });
     }
     seen.add(key);
   });
 }
 
-const MasterProductMutationFieldsSchema = z.object({
-  code: ProductCodeSchema,
-  name: ProductNameSchema,
-  description: z.string().nullable(),
-  category: z.string().trim().min(1).max(100).nullable(),
-  brand: z.string().trim().min(1).max(100).nullable(),
-  tags: z.array(z.string().trim().min(1).max(100)).max(50),
+export const UpdateMasterProductInputSchema = z.object({
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50),
-  adBudgetLimit: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
 }).strict();
-
-export const CreateMasterProductInputSchema = z.object({
-  code: ProductCodeSchema,
-  name: ProductNameSchema,
-  description: z.string().nullable().optional(),
-  category: z.string().trim().min(1).max(100).nullable().optional(),
-  brand: z.string().trim().min(1).max(100).nullable().optional(),
-  tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
-  imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50).optional(),
-  adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
-  isActive: z.boolean().optional(),
-}).strict();
-export type CreateMasterProductInput = z.infer<
-  typeof CreateMasterProductInputSchema
->;
-
-export const UpdateMasterProductInputSchema =
-  MasterProductMutationFieldsSchema.partial().refine(
-    (value) => Object.keys(value).length > 0,
-    { message: 'At least one product field is required' },
-  );
 export type UpdateMasterProductInput = z.infer<
   typeof UpdateMasterProductInputSchema
 >;

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { readRegistrationExecutionFacts, registrationDraftState } from '../../../../channels/read/registration-execution.reader';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type ProductPreparation } from '@prisma/client';
 import {
@@ -6,7 +6,7 @@ import {
   type RegistrationSubmissionJson,
 } from '../../../../channels/domain/registration-submission-payload';
 import type {
-  ApplyRegistrationDraftStateInput,
+  CloseRegistrationDraftInput,
   ClaimRegistrationDraftInput,
   ClaimedRegistrationDraft,
   FreezeRegistrationDraftInput,
@@ -19,7 +19,6 @@ import {
   type RegistrationContentWorkspacePort,
 } from '../../../application/port/out/cross-domain/registration-content-workspace.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
-import { resolveProviderOutcome } from '../../../domain/product-preparation-state';
 import {
   assertActiveCandidate,
   assertRegistrationIdentity,
@@ -74,7 +73,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const row = await client(tx).productPreparation.findFirst({
       where: { id: input.preparationId, organizationId: input.organizationId },
     });
-    return row ? toFrozenDraft(row) : null;
+    return row ? toFrozenDraft(client(tx), row) : null;
   }
 
   async findDraftIds(
@@ -93,12 +92,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         ...(input.isDeleted === undefined ? {} : { isDeleted: input.isDeleted }),
         ...(input.fenceIdle === true
           ? {
-            status: 'submitting',
-            providerOutcome: 'not_attempted',
-            providerSubmissionId: null,
-            registrationResult: { equals: Prisma.DbNull },
-            submissionLeaseToken: null,
-            submissionLeaseClaimedAt: null,
+            closedAt: null,
           }
           : {}),
       },
@@ -117,15 +111,15 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     },
   ): Promise<FrozenRegistrationDraft | null> {
     const row = await client(tx).productPreparation.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
-        channelAccountId: input.channelAccountId,
-        isDeleted: false,
-        ...(input.status ? { status: input.status } : {}),
-      },
+      where: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId,
+        channelAccountId: input.channelAccountId, isDeleted: false, closedAt: null },
     });
-    return row ? toFrozenDraft(row) : null;
+    if (!row) return null;
+    const draft = await toFrozenDraft(client(tx), row);
+    if (row.reviewPayloadHash !== null && draft.status === 'draft') {
+      throw new ConflictException('Approved preparation is missing its registration execution.');
+    }
+    return input.status && draft.status !== input.status ? null : draft;
   }
 
   async freezeForSubmission(
@@ -140,7 +134,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         sourceCandidateId: input.sourceCandidateId,
         channelAccountId: input.channelAccountId,
         isDeleted: false,
-        status: 'draft',
+        closedAt: null,
       },
     });
     const sourceContentWorkspaceId = existing?.sourceContentWorkspaceId
@@ -157,14 +151,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const frozenColumns = {
       displayName: input.displayName,
       registrationInput: input.registrationInput as Prisma.InputJsonValue,
-      status: 'submitting',
-      submissionKey: input.submissionKey,
-      submissionPayloadJson: input.frozenPayload as Prisma.InputJsonValue,
-      submissionPayloadHash: input.frozenHash,
       reviewPayloadHash: input.frozenHash,
       approvedAt: new Date(),
       approvedByUserId: input.requestedByUserId,
-      providerOutcome: 'not_attempted',
       ...resolvedSelectionData(resolved),
     };
     const row = existing
@@ -182,38 +171,16 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
           ...frozenColumns,
         },
       });
-    return toFrozenDraft(row);
+    return toFrozenDraft(tx, row);
   }
 
-  async applyExecutionState(
-    tx: ChannelsRepositoryTransaction,
-    input: ApplyRegistrationDraftStateInput,
-  ): Promise<number> {
-    const expect = input.expect ?? {};
+  async closeDraft(tx: ChannelsRepositoryTransaction, input: CloseRegistrationDraftInput): Promise<number> {
     const updated = await client(tx).productPreparation.updateMany({
-      where: {
-        id: input.preparationId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-        ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}),
-        ...(expect.status === undefined ? {} : { status: expect.status }),
-        ...(expect.providerOutcome === undefined
-          ? {}
-          : { providerOutcome: expect.providerOutcome }),
-        ...(expect.submissionLeaseToken === undefined
-          ? {}
-          : { submissionLeaseToken: expect.submissionLeaseToken }),
-        ...(expect.submissionLeaseClaimedAt === undefined
-          ? {}
-          : { submissionLeaseClaimedAt: expect.submissionLeaseClaimedAt }),
-        ...(expect.noProviderIdentity === true
-          ? {
-            providerSubmissionId: null,
-            registrationResult: { equals: Prisma.DbNull },
-          }
-          : {}),
-      },
-      data: executionStateData(input.set),
+      where: { id: input.preparationId, organizationId: input.organizationId,
+        isDeleted: false, closedAt: null,
+        ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}) },
+      data: { closedAt: input.closedAt,
+        ...(input.archive ? { isDeleted: true, deletedAt: input.closedAt } : {}) },
     });
     return updated.count;
   }
@@ -230,13 +197,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     if (!current) throw new NotFoundException('Product preparation not found.');
 
     if (input.reuseFrozenSubmission) {
-      const updated = await updatePreparationAndLoad(tx, input.organizationId, current.id, {
-        status: 'submitting',
-        providerOutcome: input.providerOutcome ?? current.providerOutcome,
-        submissionLeaseToken: input.submissionLeaseToken,
-        submissionLeaseClaimedAt: input.now,
-      });
-      return { draft: toFrozenDraft(updated), frozen: null };
+      return { draft: await toFrozenDraft(tx, current), frozen: null };
     }
 
     const resolvedSelections = await this.contentWorkspaces.resolveSourceSelections(
@@ -252,24 +213,15 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       ...resolvedSelectionData(resolvedSelections),
     } as ProductPreparation;
     const frozen = freezeProductRegistrationPayload(buildSubmissionPayload(resolvedCurrent));
-    const submissionKey = current.submissionKey || randomUUID();
     const updated = await updatePreparationAndLoad(tx, input.organizationId, current.id, {
-      status: 'submitting',
-      submissionKey,
-      submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
-      submissionPayloadHash: frozen.hash,
-      providerOutcome: 'not_attempted',
-      submissionLeaseToken: input.submissionLeaseToken,
-      submissionLeaseClaimedAt: input.now,
-      lastError: null,
       reviewPayloadHash: frozen.hash,
       approvedAt: input.now,
       approvedByUserId: input.userId,
       ...resolvedSelectionData(resolvedSelections),
     });
     return {
-      draft: toFrozenDraft(updated),
-      frozen: { payload: frozen.payload, hash: frozen.hash, submissionKey },
+      draft: await toFrozenDraft(tx, updated),
+      frozen: { payload: frozen.payload, hash: frozen.hash },
     };
   }
 
@@ -295,23 +247,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     );
   }
 
-}
-
-/** 울타리가 준 전이 값을 Prisma 갱신 데이터로 옮긴다. JSON 널만 따로 다룬다. */
-function executionStateData(
-  set: ApplyRegistrationDraftStateInput['set'],
-): Prisma.ProductPreparationUncheckedUpdateManyInput {
-  const { registrationResult, ...rest } = set;
-  return {
-    ...rest,
-    ...(registrationResult === undefined
-      ? {}
-      : {
-        registrationResult: registrationResult === null
-          ? Prisma.JsonNull
-          : registrationResult as Prisma.InputJsonValue,
-      }),
-  };
 }
 
 function client(tx: ChannelsRepositoryTransaction): Prisma.TransactionClient {
@@ -353,7 +288,8 @@ function buildSubmissionPayload(row: ProductPreparation): RegistrationSubmission
   };
 }
 
-function toFrozenDraft(row: ProductPreparation): FrozenRegistrationDraft {
+async function toFrozenDraft(tx: Prisma.TransactionClient, row: ProductPreparation): Promise<FrozenRegistrationDraft> {
+  const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, productPreparationIds: [row.id] });
   return {
     preparationId: row.id,
     organizationId: row.organizationId,
@@ -361,22 +297,12 @@ function toFrozenDraft(row: ProductPreparation): FrozenRegistrationDraft {
     channelAccountId: row.channelAccountId,
     sourceContentWorkspaceId: row.sourceContentWorkspaceId,
     displayName: row.displayName,
-    status: row.status,
+    status: registrationDraftState(row.closedAt, execution),
+    closedAt: row.closedAt,
     isDeleted: row.isDeleted,
-    submissionKey: row.submissionKey,
-    submissionPayloadHash: row.submissionPayloadHash,
-    hasSubmissionPayload: row.submissionPayloadJson !== null,
-    providerOutcome: row.providerOutcome,
-    providerSubmissionId: row.providerSubmissionId,
-    hasRegistrationResult: row.registrationResult !== null,
-    channelListingId: row.channelListingId,
-    submissionLeaseToken: row.submissionLeaseToken,
-    submissionLeaseClaimedAt: row.submissionLeaseClaimedAt,
+    channelListingId: execution?.channelListingId ?? null,
     approvedByUserId: row.approvedByUserId,
-    resolvedProviderOutcome: resolveProviderOutcome(row),
-    submissionPayloadJson: row.submissionPayloadJson,
-    registrationResult: row.registrationResult,
-    lastError: row.lastError,
+    reviewPayloadHash: row.reviewPayloadHash,
     updatedAt: row.updatedAt,
     selectedThumbnailUrl: row.selectedThumbnailUrl,
     selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,

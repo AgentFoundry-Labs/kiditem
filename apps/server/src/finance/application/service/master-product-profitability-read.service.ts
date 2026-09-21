@@ -34,6 +34,10 @@ import {
 } from '../../../common/kst';
 import { readProductSaleAgeEvidence } from '../../../common/product-sale-age';
 import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../products/application/port/in/product-transactional-read.port';
+import {
   type MasterProductAbcFormulaReadyMonthlyFact,
   type ProductProfitabilityEvidence,
   type ProfitabilityEvidence,
@@ -64,7 +68,6 @@ type SelectedPair = Readonly<{
 
 type ProductRow = Readonly<{
   id: string;
-  isActive: boolean;
   mappingValid: boolean;
   saleStartDate: string | null;
 }>;
@@ -108,6 +111,8 @@ export class MasterProductProfitabilityReadService
     @Inject(ADVERTISING_PROFITABILITY_READ_PORT)
     private readonly advertising: AdvertisingProfitabilityReadPort,
     private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async load(input: {
@@ -258,14 +263,10 @@ export class MasterProductProfitabilityReadService
     targetCutoff: string,
   ): Promise<ProductSnapshot> {
     return this.prisma.$transaction(async (tx) => {
-      const products = await tx.masterProduct.findMany({
-        where: { organizationId },
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          isActive: true,
-        },
-      });
+      const products = await this.inventoryTransactionalRead.readSourceIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'all' } },
+      );
       // A Prisma interactive transaction owns one database client. Do not
       // overlap queries on that client: PrismaPg reports "client.query when
       // already executing" and can leave the second read waiting for the
@@ -277,19 +278,19 @@ export class MasterProductProfitabilityReadService
       const saleAgeEvidence = await readProductSaleAgeEvidence(
         tx,
         organizationId,
-        products.map((product) => product.id),
+        products.map((product) => product.masterProductId),
         null,
+        this.inventoryTransactionalRead,
       );
       const saleStartDateByProduct = new Map(
         saleAgeEvidence.map((evidence) => [evidence.masterProductId, evidence]),
       );
       return {
         products: products.map((product) => ({
-          id: product.id,
-          isActive: product.isActive,
-          mappingValid: saleStartDateByProduct.get(product.id)?.mappingValid ?? false,
+          id: product.masterProductId,
+          mappingValid: saleStartDateByProduct.get(product.masterProductId)?.mappingValid ?? false,
           saleStartDate: beforeOrOnCutoff(
-            saleStartDateByProduct.get(product.id)?.saleStartDate ?? null,
+            saleStartDateByProduct.get(product.masterProductId)?.saleStartDate ?? null,
             targetCutoff,
           ),
         })),
@@ -481,7 +482,9 @@ function emptyGeneration(): SourceGenerationView {
 function emptyProduct(product: ProductRow): ProductProfitabilityEvidence {
   return {
     masterProductId: product.id,
-    selling: product.isActive,
+    // MasterProduct no longer carries lifecycle state. Current product rows
+    // are the source population; channel sellability is owned by Channels.
+    selling: true,
     mappingValid: product.mappingValid,
     saleStartDate: product.saleStartDate,
     evaluationPeriodComplete: false,
@@ -632,7 +635,7 @@ function buildProductEvidence(input: {
   }
   return {
     masterProductId: input.product.id,
-    selling: input.product.isActive,
+    selling: true,
     mappingValid: input.product.mappingValid,
     saleStartDate: input.product.saleStartDate,
     evaluationPeriodComplete,

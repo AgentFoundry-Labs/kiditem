@@ -100,7 +100,7 @@ const basePreview: RocketPurchasePreviewResponse = {
       masterProductId: "44444444-4444-4444-8444-444444444444",
       components: [
         {
-          sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+          masterProductId: "66666666-6666-4666-8666-666666666666",
           code: "SP-100",
           name: "Sellpia 연결 상품",
           optionName: "랜덤",
@@ -670,7 +670,7 @@ describe("<RocketConfirmPanel />", () => {
     expect(inventoryStart).toHaveBeenCalledTimes(1);
     expect(baseWorkflow.retryInventoryAndPreview).not.toHaveBeenCalled();
 
-    fireEvent.click(within(alert).getByRole("button", { name: "재고 반영해 다시 계산" }));
+    fireEvent.click(within(alert).getByRole("button", { name: "셀피아 수집 후 다시 계산" }));
     expect(baseWorkflow.retryInventoryAndPreview).toHaveBeenCalledTimes(1);
   });
 

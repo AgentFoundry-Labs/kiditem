@@ -3,13 +3,10 @@ import type {
   RocketPurchasePreviewResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
 
-export type RocketInventoryRequirement = 'advisory' | 'fresh';
-
 export interface RocketPurchasePreviewPort {
   preview(input: {
     organizationId: string;
     userId: string;
-    inventoryRequirement: RocketInventoryRequirement;
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse>;
 }

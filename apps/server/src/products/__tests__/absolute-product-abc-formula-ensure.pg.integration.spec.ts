@@ -8,6 +8,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../common/product-mapping-generation';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -15,8 +16,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
-import type { ProductAbcPublicationInput } from '../application/port/out/repository/master-product-abc.repository.port';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
+import type { ProductAbcPublicationInput } from '../application/port/out/persistence/master-product-abc.repository.port';
 import { runEnsureSteps } from '../../../../../scripts/data-migrations/ensure/index';
 import {
   AbsoluteProductAbcFormulaConflictError,
@@ -309,7 +310,10 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
     await acquired.promise;
 
     const publication = settleLater(
-      new MasterProductAbcRepositoryAdapter(prisma as never).publish(publicationInput()),
+      new MasterProductAbcRepositoryAdapter(
+        prisma as never,
+        new ProductTransactionalReadRepositoryAdapter(),
+      ).publish(publicationInput()),
     );
     try {
       await waitForAdvisoryLockWaiter();
@@ -410,7 +414,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         formulaJson: true,
         formulaChecksum: true,
         createdAt: true,
-        updatedAt: true,
       },
     });
     const states = await prisma.masterProductAbcFormulaState.findMany({

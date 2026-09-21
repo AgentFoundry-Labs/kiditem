@@ -1,25 +1,37 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from '@prisma/client';
 
-/**
- * Explicit test-only fixture for an owned, active Sellpia SKU. Production
- * inventory rows are published only by the snapshot-publication adapter.
- */
-export async function seedActiveSellpiaInventorySku(
+/** Test-only source product fixture; production writes use collection publication. */
+export async function seedSourceProduct(
   prisma: PrismaClient,
   input: {
-    id: string;
+    id?: string;
     organizationId: string;
     code: string;
     name: string;
     optionName?: string | null;
     currentStock?: number;
+    purchasePrice?: number | null;
+    barcode?: string | null;
+    imageUrls?: string[];
   },
-): Promise<void> {
-  await prisma.sellpiaInventorySku.create({
+) {
+  const [{ value }] = await prisma.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('kid_item_code_seq'::regclass) AS value
+  `;
+  return prisma.masterProduct.create({
     data: {
-      ...input,
+      id: input.id,
+      organizationId: input.organizationId,
+      code: `KID${value.toString().padStart(8, '0')}`,
+      sourceAccountKey: 'kiditem',
+      sourceProductCode: input.code,
+      sourceOptionCode: '',
+      name: input.name,
+      optionName: input.optionName ?? null,
       currentStock: input.currentStock ?? 0,
-      isActive: true,
+      purchasePrice: input.purchasePrice ?? null,
+      barcode: input.barcode ?? null,
+      imageUrls: input.imageUrls ?? [],
     },
   });
 }

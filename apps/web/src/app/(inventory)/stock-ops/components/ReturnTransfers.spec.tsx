@@ -35,10 +35,10 @@ describe('ReturnTransfers', () => {
     await userEvent.click(screen.getByRole('button', { name: '기록 저장' }));
 
     expect(post).toHaveBeenCalledWith('/api/return-transfers', expect.objectContaining({
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
     }));
     expect(post).not.toHaveBeenCalledWith('/api/return-transfers', expect.objectContaining({
-      masterProductId: expect.anything(),
+      legacySellpiaInventorySkuId: expect.anything(),
     }));
     expect(screen.getByText(/Sellpia 반영 전까지 현재고는 바뀌지 않습니다/)).toBeInTheDocument();
   });
@@ -53,13 +53,13 @@ describe('ReturnTransfers', () => {
     vi.spyOn(apiClient, 'get').mockResolvedValue([{
       id: 'return-transfer-1',
       rtNumber: 'RT-1',
-      sellpiaInventorySkuId: 'missing-sellpia-sku-2',
+      masterProductId: 'missing-sellpia-sku-2',
       quantity: 2,
       status: 'pending',
       condition: 'good',
       notes: null,
       createdAt: '2026-07-13T00:00:00.000Z',
-      sellpiaInventorySku: null,
+      masterProduct: null,
     }] as never);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -73,13 +73,13 @@ describe('ReturnTransfers', () => {
     vi.spyOn(apiClient, 'get').mockResolvedValue([{
       id: 'return-transfer-1',
       rtNumber: 'RT-1',
-      sellpiaInventorySkuId: 'sellpia-sku-1',
+      masterProductId: 'sellpia-sku-1',
       quantity: 2,
       status: 'pending',
       condition: 'good',
       notes: null,
       createdAt: '2026-07-13T00:00:00.000Z',
-      sellpiaInventorySku: {
+      masterProduct: {
         id: 'sellpia-sku-1',
         code: 'SP-FINAL-2',
         name: '최종 반품 상품',

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../adapter/out/repository/profit-calculation.repository.adapter";
 import type { PrismaService } from "../../../prisma/prisma.service";
+import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/read/order-facts.reader";
-import { readInventorySkuIdentities } from "../../../inventory/read/inventory-availability";
 import {
   advertisingApplies,
   readAdWindowFacts,
@@ -17,15 +17,6 @@ vi.mock("../../../orders/read/order-facts.reader", async (importOriginal) => ({
   >()),
   readOrderLineWindowFacts: vi.fn(),
 }));
-vi.mock(
-  "../../../inventory/read/inventory-availability",
-  async (importOriginal) => ({
-    ...(await importOriginal<
-      typeof import("../../../inventory/read/inventory-availability")
-    >()),
-    readInventorySkuIdentities: vi.fn(),
-  }),
-);
 vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../advertising/read/ad-target-facts")>()),
   advertisingApplies: vi.fn(),
@@ -33,7 +24,6 @@ vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => (
 }));
 
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
-const mockedReadInventorySkuIdentities = vi.mocked(readInventorySkuIdentities);
 const mockedAdvertisingApplies = vi.mocked(advertisingApplies);
 const mockedReadAdWindowFacts = vi.mocked(readAdWindowFacts);
 
@@ -47,6 +37,9 @@ type PrismaMock = {
   $transaction: ReturnType<typeof vi.fn>;
   channelListingOption: { findMany: ReturnType<typeof vi.fn> };
   channelAccount: { findMany: ReturnType<typeof vi.fn> };
+  productTransactionalRead: {
+    readSourceIdentities: ReturnType<typeof vi.fn>;
+  };
 };
 
 /**
@@ -54,7 +47,10 @@ type PrismaMock = {
  * (KID-114: the only cost input an option has).
  */
 const pricedOption = (purchasePrice: number | null) => ({
-  inventoryComponents: [{ quantity: 1, sellpiaInventorySku: { purchasePrice } }],
+  inventoryComponents: [{
+    quantity: 1,
+    masterProductId: purchasePrice === null ? 'master-unpriced' : `master-${purchasePrice}`,
+  }],
 });
 
 /** Inside every `calculateForRange` window used below. */
@@ -87,21 +83,21 @@ function makePrisma(
         const components = (
           (option.inventoryComponents ?? []) as Array<Record<string, unknown>>
         ).map((component, componentIndex) => {
-          const skuId = `sku-${orderIndex}-${lineIndex}-${componentIndex}`;
-          const sku = component.sellpiaInventorySku as
-            Record<string, unknown> | undefined;
+          const masterProductId = String(
+            component.masterProductId ?? `master-${orderIndex}-${lineIndex}-${componentIndex}`,
+          );
           identityRows.push({
-            sellpiaInventorySkuId: skuId,
-            code: skuId,
-            name: skuId,
+            masterProductId,
+            code: `KID-${masterProductId}`,
+            name: masterProductId,
             optionName: null,
             barcode: null,
-            purchasePrice: sku?.purchasePrice ?? null,
-            salePrice: null,
-            isActive: true,
-            masterProductId: null,
+            purchasePrice: masterProductId === 'master-unpriced'
+              ? null
+              : Number(masterProductId.replace('master-', '')),
+            imageUrls: [],
           });
-          return { quantity: component.quantity, sellpiaInventorySkuId: skuId };
+          return { quantity: component.quantity, masterProductId };
         });
         optionRows.push({ id: optionId, inventoryComponents: components });
       }
@@ -159,7 +155,9 @@ function makePrisma(
       orders: factOrders,
     };
   });
-  mockedReadInventorySkuIdentities.mockResolvedValue(identityRows as never);
+  const inventoryTransactionalRead = {
+    readSourceIdentities: vi.fn().mockResolvedValue(identityRows as never),
+  };
 
   const prisma = {
     $transaction: vi.fn(),
@@ -169,6 +167,7 @@ function makePrisma(
         { id: ACCOUNT_ID, channel: options.accountChannel ?? "rocket" },
       ]),
     },
+    productTransactionalRead: inventoryTransactionalRead,
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return prisma;
@@ -205,6 +204,7 @@ function makeAdapter(
   });
   return new ProfitCalculationRepositoryAdapter(
     prisma as unknown as PrismaService,
+    prisma.productTransactionalRead as unknown as ProductTransactionalReadPort,
   );
 }
 

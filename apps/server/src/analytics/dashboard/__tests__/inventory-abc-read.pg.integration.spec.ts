@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
-import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
-import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
-import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
-import { MasterProductAbcService } from '../../../products/application/service/master-product-abc.service';
+import { ProductAvailabilityRepositoryAdapter } from '../../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../../products/application/usecase/product-availability.usecase';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
+import { ProductAbcReadUseCase } from '../../../products/application/usecase/product-abc-read.usecase';
+import { RecalculateProductAbcUseCase } from '../../../products/application/usecase/recalculate-product-abc.usecase';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
@@ -14,6 +16,7 @@ import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/d
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../../test-helpers/real-prisma';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 describe('Analytics inventory ABC reads (PostgreSQL)', () => {
@@ -23,7 +26,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
   let evidence: MasterProductProfitabilityReadService;
-  let availability: InventoryAvailabilityService;
+  let availability: ProductAvailabilityUseCase;
 
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
   afterAll(async () => { await prisma.$disconnect(); });
@@ -31,34 +34,36 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     const alerts = new SourceFailureAlerts(prisma as never);
-    sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+    const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
+    sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
-    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
-    availability = new InventoryAvailabilityService(
-      new InventoryAvailabilityRepositoryAdapter(prisma as never),
+    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
+    availability = new ProductAvailabilityUseCase(
+      new ProductAvailabilityRepositoryAdapter(prisma as never),
     );
-    const productAbc = new ProductAbcReadService(
-      new MasterProductAbcRepositoryAdapter(prisma as never), evidence,
+    const productAbc = new ProductAbcReadUseCase(
+      new MasterProductAbcRepositoryAdapter(prisma as never, inventoryTransactionalRead), evidence,
     );
     dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(
       prisma as never,
       productAbc,
       // The panel's rows come from the alerts module, not from this adapter.
       alerts,
+      inventoryTransactionalRead,
+      new ProductSourceReadRepositoryAdapter(prisma as never),
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       availability,
-      { findDisplayMedia: async () => new Map() }, productAbc);
+      { findDisplayMedia: async () => new Map() }, productAbc, inventoryTransactionalRead);
   });
 
   it('reports source attention for a product without complete evidence without inventing C', async () => {
-    const product = await prisma.masterProduct.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, code: 'MASTER-OWN', name: 'Own product',
-    } });
-    await prisma.sellpiaInventorySku.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, masterProductId: product.id,
-      code: 'SKU-OWN', name: 'Own SKU', currentStock: 10,
-    } });
+    const product = await seedSourceProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'SKU-OWN',
+      name: 'Own product',
+      currentStock: 10,
+    });
 
     const result = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
@@ -238,48 +243,50 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   });
 
   async function publishProduct() {
-    const product = await prisma.masterProduct.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, code: 'MASTER-OWN', name: 'Own product',
-    } });
-    const inventoryImportedAt = new Date('2026-09-06T00:00:00.000Z');
-    const inventoryRun = await prisma.sourceImportRun.create({ data: {
+    const product = await seedSourceProduct(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceType: 'sellpia_inventory',
-      channelAccountId: null,
-      fileName: 'dashboard-inventory.json',
-      fileHash: 'd'.repeat(64),
-      status: 'completed',
-      rowCount: 1,
-      importedAt: inventoryImportedAt,
-      lastVerifiedAt: inventoryImportedAt,
-      verificationCount: 1,
-      freshnessGeneration: 1n,
-    } });
-    const sku = await prisma.sellpiaInventorySku.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, masterProductId: product.id,
-      code: 'SKU-OWN', name: 'Own SKU', currentStock: 10,
-      lastImportRunId: inventoryRun.id,
-    } });
+      code: 'SKU-OWN',
+      name: 'Own product',
+      currentStock: 10,
+    });
+    const importedAt = new Date('2026-09-06T00:00:00.000Z');
+    const inventoryRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: 'dashboard-inventory-abc.json',
+        fileHash: 'd'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt,
+        lastVerifiedAt: importedAt,
+        verificationCount: 1,
+        freshnessGeneration: 1n,
+      },
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: importedAt,
+        lastCompletedImportRunId: inventoryRun.id,
+      },
+    });
     const account = await prisma.channelAccount.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channel: 'rocket', name: 'Rocket', status: 'active',
     } });
     const listing = await prisma.channelListing.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id,
-      masterProductId: product.id, externalId: 'LISTING-OWN', status: 'active',
+      externalId: 'LISTING-OWN', status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
     } });
     const option = await prisma.channelListingOption.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, listingId: listing.id, externalOptionId: 'OPTION-OWN', status: '판매중',
     } });
     await prisma.channelListingOptionInventoryComponent.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, sellpiaInventorySkuId: sku.id, quantity: 1,
-    } });
-    await prisma.sellpiaInventoryState.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      requestedGeneration: 1n,
-      verifiedGeneration: 1n,
-      lastVerifiedAt: inventoryImportedAt,
-      lastCompletedImportRunId: inventoryRun.id,
+      organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: product.id, quantity: 1,
     } });
     const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'analytics-own-source');
     const months = attempt.plan.coveredMonths.map((yearMonth) => ({
@@ -312,7 +319,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       create: { organizationId: TEST_ORGANIZATION_ID, activeFormulaVersionId: formula.id, formulaRevision: 1 },
       update: { activeFormulaVersionId: formula.id, formulaRevision: 1 },
     });
-    await expect(new MasterProductAbcService(new MasterProductAbcRepositoryAdapter(prisma as never), evidence)
+    await expect(new RecalculateProductAbcUseCase(new MasterProductAbcRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter()), evidence)
       .recalculate({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ outcome: 'PUBLISHED', classifiedProductCount: 1 });
     return attempt.plan.to;
   }

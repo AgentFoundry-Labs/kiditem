@@ -13,22 +13,22 @@ describe('ProductHeader', () => {
     fireEvent.error(image);
 
     expect(screen.queryByRole('img', { name: '상세 테스트 상품 상품 이미지' })).not.toBeInTheDocument();
-    expect(screen.getByText(/상품코드 MASTER-1/)).toBeInTheDocument();
+    expect(screen.getByText(/상품 코드 KID00000001/)).toBeInTheDocument();
   });
 
-  it('hides a system-owned Sellpia code from the detail header', () => {
+  it('shows the canonical KID code in the detail header', () => {
     render(<ProductHeader product={{
       ...product(),
-      code: 'INV-SELLPIA-100',
+      code: 'KID00000100',
       displayReference: {
         type: 'product_code',
         label: '상품 코드',
-        value: 'INV-SELLPIA-100',
+        value: 'KID00000100',
       },
     }} onEdit={() => undefined} onBack={() => undefined} />);
 
     expect(screen.getByRole('heading', { level: 1, name: '상세 테스트 상품' })).toBeInTheDocument();
-    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+    expect(screen.getByText(/KID00000100/)).toBeInTheDocument();
   });
 
   it('delegates returning to the route-owned navigation callback', () => {
@@ -44,13 +44,10 @@ describe('ProductHeader', () => {
 function product(): MasterProductOperationsDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
-    code: 'MASTER-1',
-    displayReference: { type: 'product_code', label: '상품코드', value: 'MASTER-1' },
+    code: 'KID00000001',
+    displayReference: { type: 'product_code', label: '상품코드', value: 'KID00000001' },
     name: '상세 테스트 상품',
-    category: '완구',
-    brand: 'KidItem',
     imageUrls: [],
     displayImageUrls: ['https://cdn.example.com/detail-channel.jpg'],
-    isActive: true,
   } as MasterProductOperationsDetail;
 }

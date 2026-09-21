@@ -9,7 +9,7 @@ import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryOption,
-} from '../application/port/out/repository/product-operations.repository.port';
+} from '../application/port/out/persistence/product-operations.repository.port';
 
 type AvailabilityBySkuId = ReadonlyMap<string, InventorySkuAvailability>;
 
@@ -18,20 +18,16 @@ function hydrateOption(
   inventoryBySkuId: AvailabilityBySkuId,
 ) {
   const inventoryComponents = option.inventoryComponents.map((component) => {
-    const availability = inventoryBySkuId.get(component.sellpiaInventorySkuId);
+    const availability = inventoryBySkuId.get(component.masterProductId);
     return {
       ...component,
       currentStock: availability?.currentStock ?? null,
-      availableStock: availability?.availableStock ?? null,
-      isActive: availability?.isActive ?? null,
     };
   });
   const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+    masterProductId: component.masterProductId,
     currentStock: component.currentStock,
-    availableStock: component.availableStock,
     quantity: component.quantity,
-    isActive: component.isActive,
   })));
   return { ...option, inventoryComponents, capacity: capacity.capacity };
 }
@@ -100,11 +96,10 @@ function projectCanonicalInventory(
   return {
     inventoryUnits: inventory.length === 0 || measured.length !== inventory.length
       ? null
-      : measured.reduce((sum, item) => sum + (item.isActive ? item.availableStock : 0), 0),
+      : measured.reduce((sum, item) => sum + item.currentStock, 0),
     inventory: {
       skuCount: inventory.length,
       measuredSkuCount: measured.length,
-      inactiveSkuCount: measured.filter((item) => !item.isActive).length,
     },
   };
 }

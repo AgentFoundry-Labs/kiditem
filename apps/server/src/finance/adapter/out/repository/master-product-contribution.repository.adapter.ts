@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -10,6 +11,10 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { readMonthlyAdAllocationPublication } from '../../../../advertising/read/monthly-ad-allocation.reader';
 import { readExactSellpiaProductMonthlyFacts } from '../../../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+} from '../../../../products/application/port/in/product-transactional-read.port';
+import type { ProductTransactionalReadPort } from '../../../../products/application/port/in/product-transactional-read.port';
 import type {
   MasterProductContributionRepositoryPort,
   MasterProductContributionRepositoryReadInput,
@@ -59,7 +64,11 @@ const CALENDAR_DATE = /^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/;
 export class MasterProductContributionRepositoryAdapter
   implements MasterProductContributionRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort,
+  ) {}
 
   async readContribution(
     input: MasterProductContributionRepositoryReadInput,
@@ -101,6 +110,21 @@ export class MasterProductContributionRepositoryAdapter
           allocated_spend: fact.allocatedSpend,
         })) ?? [],
       );
+      const productIdentities = await this.products.readSourceIdentities(
+        { client: tx },
+        {
+          organizationId: input.organizationId,
+          selector: { kind: 'all' },
+        },
+      );
+      const currentMasterProductIds = [
+        ...new Set(productIdentities.map((product) => product.masterProductId)),
+      ];
+      const currentMasterProductIdsSql = currentMasterProductIds.length === 0
+        ? Prisma.sql`ARRAY[]::uuid[]`
+        : Prisma.sql`ARRAY[
+          ${Prisma.join(currentMasterProductIds.map((id) => Prisma.sql`${id}::uuid`))}
+        ]::uuid[]`;
       return tx.$queryRaw<RawContributionRow[]>(Prisma.sql`
       WITH params AS (
         SELECT
@@ -115,7 +139,8 @@ export class MasterProductContributionRepositoryAdapter
           ${sellpia.generation?.coverageEndDate ?? null}::date AS sellpia_coverage_end_date,
           ${sellpia.generation?.coveredMonths ?? []}::text[] AS sellpia_covered_months,
           ${advertisingPublication !== null}::boolean AS advertising_publication_ready,
-          ${advertisingAllocations}::jsonb AS advertising_allocations
+          ${advertisingAllocations}::jsonb AS advertising_allocations,
+          ${currentMasterProductIdsSql} AS current_master_product_ids
       ),
       source_candidates AS (
         SELECT
@@ -232,11 +257,9 @@ export class MasterProductContributionRepositoryAdapter
         FROM source_status status
         JOIN sellpia_facts facts
           ON status.sellpia_ready
-        JOIN master_products products
-          ON products.id = facts.master_product_id
-         AND products.organization_id = status.organization_id
         WHERE facts.year_month BETWEEN to_char(status.basis_from_date, 'YYYY-MM')
                                    AND to_char(status.basis_cutoff_date, 'YYYY-MM')
+          AND facts.master_product_id = ANY(status.current_master_product_ids)
           AND facts.coverage_start_date <= status.basis_cutoff_date
           AND facts.coverage_end_date >= status.basis_from_date
         GROUP BY facts.master_product_id
@@ -263,11 +286,9 @@ export class MasterProductContributionRepositoryAdapter
           observed_target_day_count integer,
           allocated_spend numeric
         ) ON status.advertising_ready
-        JOIN master_products products
-          ON products.id = facts.master_product_id
-         AND products.organization_id = status.organization_id
         WHERE facts.month BETWEEN date_trunc('month', status.basis_from_date)::date
                               AND status.basis_cutoff_date
+          AND facts.master_product_id = ANY(status.current_master_product_ids)
           AND facts.covered_start_date <= status.basis_cutoff_date
           AND facts.covered_end_date >= status.basis_from_date
         GROUP BY facts.master_product_id

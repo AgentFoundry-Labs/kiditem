@@ -1,3 +1,6 @@
+import { registrationDraftState } from '../../../read/registration-execution.reader';
+import { allocateKidItemCode } from '../../../../common/kid-item-code';
+import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration-item-code';
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -136,24 +139,9 @@ export class RegistrationExecutionRepositoryAdapter
       });
       if (execution.count !== 1) continue;
 
-      const draftCancelled = await this.drafts.applyExecutionState(transaction, {
-        organizationId: input.organizationId,
-        preparationId: current.productPreparationId,
-        sourceCandidateId: input.sourceCandidateId,
-        expect: {
-          status: 'submitting',
-          providerOutcome: 'not_attempted',
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-          noProviderIdentity: true,
-        },
-        set: {
-          status: 'cancelled',
-          isDeleted: true,
-          deletedAt: input.cancelledAt,
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-        },
+      const draftCancelled = await this.drafts.closeDraft(transaction, {
+        organizationId: input.organizationId, preparationId: current.productPreparationId,
+        sourceCandidateId: input.sourceCandidateId, closedAt: input.cancelledAt, archive: true,
       });
       if (draftCancelled !== 1) {
         throw new ConflictException(
@@ -168,7 +156,7 @@ export class RegistrationExecutionRepositoryAdapter
   async prepare(
     input: PrepareRegistrationExecutionInput,
   ): Promise<RegistrationExecutionResult> {
-    const frozen = freezeProductRegistrationPayload({
+    const requested = freezeProductRegistrationPayload({
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
       registrationInput: input.registrationInput,
@@ -180,7 +168,7 @@ export class RegistrationExecutionRepositoryAdapter
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         });
         if (replay) {
-          if (replay.requestHash !== frozen.hash) {
+          if (!matchesPreparedRequest(replay, requested.hash)) {
             throw new ConflictException('External registration idempotency key was reused with a different payload.');
           }
           if (replay.channelAccountId !== input.channelAccountId
@@ -198,7 +186,7 @@ export class RegistrationExecutionRepositoryAdapter
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         });
         if (lockedReplay) {
-          if (lockedReplay.requestHash !== frozen.hash
+          if (!matchesPreparedRequest(lockedReplay, requested.hash)
             || lockedReplay.channelAccountId !== input.channelAccountId
             || await this.executionCandidateId(handle, input.organizationId, lockedReplay) !== input.sourceCandidateId
             || lockedReplay.requestedByUserId !== input.requestedByUserId) {
@@ -227,23 +215,26 @@ export class RegistrationExecutionRepositoryAdapter
           sourceCandidateId: input.sourceCandidateId,
           isDeleted: false,
         });
-        const resumable = livePreparationIds.length === 0 ? null : await tx.productRegistrationExecution.findFirst({
+        const previousExecutions = livePreparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
           where: {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
             executionKind: 'external_wing',
-            requestHash: frozen.hash,
             requestedByUserId: input.requestedByUserId,
             status: {
               in: input.providerAbsenceVerified === true
-                ? ['prepared']
-                : ['prepared', 'executing', 'reconciling'],
+                ? ['prepared', 'failed']
+                : ['prepared', 'executing', 'reconciling', 'failed'],
             },
             productPreparationId: { in: livePreparationIds },
           },
           orderBy: { createdAt: 'desc' },
         });
+        const matching = previousExecutions.filter((execution) => matchesPreparedRequest(execution, requested.hash));
+        const resumable = matching.find((execution) => execution.status !== 'failed');
         if (resumable) return externalExecutionResult(resumable);
+        const retryCode = matching.find((execution) => execution.status === 'failed'
+          && execution.providerOutcome === 'definitive_failure');
 
         const draft = await this.drafts.findAccountDraft(handle, {
           organizationId: input.organizationId,
@@ -252,16 +243,30 @@ export class RegistrationExecutionRepositoryAdapter
           status: 'draft',
         });
         if (!draft) {
-          await this.supersedeAbandonedDraft(tx, input, expectedProviderAccountId, frozen.hash);
+          await this.supersedeAbandonedDraft(tx, input, expectedProviderAccountId, requested.hash);
         }
+        let registrationInput = input.registrationInput;
+        const match = registrationInput.sellpiaMatch as Record<string, unknown> | undefined;
+        if (match) {
+          if (typeof match.code !== 'string' || !/^KID[0-9]{8}$/.test(match.code)
+            || !Number.isSafeInteger(match.quantity) || Number(match.quantity) < 1) {
+            throw new ConflictException('Registration requires a valid source KID code and positive quantity');
+          }
+          const previousCode = retryCode ? preparedRegistrationRecipe(retryCode.submissionPayloadJson)?.kidItemCode : undefined;
+          const code = previousCode ?? (match.quantity === 1 ? match.code : await allocateKidItemCode(tx));
+          registrationInput = withRegistrationItemCode(registrationInput, code);
+        }
+        const frozen = freezeProductRegistrationPayload({
+          channelAccountId: input.channelAccountId,
+          displayName: input.displayName,
+          registrationInput,
+        } as RegistrationSubmissionJson);
         const frozenDraft = await this.drafts.freezeForSubmission(handle, {
           organizationId: input.organizationId,
           sourceCandidateId: input.sourceCandidateId,
           channelAccountId: input.channelAccountId,
           displayName: input.displayName,
-          registrationInput: input.registrationInput,
-          submissionKey: input.idempotencyKey,
-          frozenPayload: frozen.payload,
+          registrationInput,
           frozenHash: frozen.hash,
           requestedByUserId: input.requestedByUserId,
         });
@@ -290,7 +295,7 @@ export class RegistrationExecutionRepositoryAdapter
         where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
       });
       if (!replay
-        || replay.requestHash !== frozen.hash
+        || !matchesPreparedRequest(replay, requested.hash)
         || replay.channelAccountId !== input.channelAccountId
         || await this.executionCandidateId(handle, input.organizationId, replay) !== input.sourceCandidateId
         || replay.requestedByUserId !== input.requestedByUserId) {
@@ -404,23 +409,9 @@ export class RegistrationExecutionRepositoryAdapter
         'Registration execution changed while it was being superseded.',
       );
     }
-    const cancelled = await this.drafts.applyExecutionState(handle, {
-      organizationId: input.organizationId,
-      preparationId: active.preparationId,
-      sourceCandidateId: input.sourceCandidateId,
-      expect: {
-        status: active.status,
-        providerOutcome: active.providerOutcome,
-        submissionLeaseToken: active.submissionLeaseToken,
-        submissionLeaseClaimedAt: active.submissionLeaseClaimedAt,
-      },
-      set: {
-        status: 'cancelled',
-        isDeleted: true,
-        deletedAt: supersededAt,
-        submissionLeaseToken: null,
-        submissionLeaseClaimedAt: null,
-      },
+    const cancelled = await this.drafts.closeDraft(handle, {
+      organizationId: input.organizationId, preparationId: active.preparationId,
+      sourceCandidateId: input.sourceCandidateId, closedAt: supersededAt, archive: true,
     });
     if (cancelled !== 1) {
       throw new ConflictException(
@@ -488,9 +479,7 @@ export class RegistrationExecutionRepositoryAdapter
       }
       if (execution.status === 'executing' && execution.providerOutcome === 'uncertain') {
         if (
-          preparation.providerOutcome !== 'uncertain'
-          || !execution.leaseToken
-          || preparation.submissionLeaseToken !== execution.leaseToken
+          !execution.leaseToken
         ) {
           throw new ConflictException(
             'External registration execution drifted from its active preparation.',
@@ -504,11 +493,7 @@ export class RegistrationExecutionRepositoryAdapter
         || execution.leaseToken !== null
         || execution.leaseClaimedAt !== null
         || execution.startedAt !== null
-        || preparation.providerOutcome !== 'not_attempted'
-        || preparation.providerSubmissionId !== null
-        || preparation.hasRegistrationResult
-        || preparation.submissionLeaseToken !== null
-        || preparation.submissionLeaseClaimedAt !== null
+        || retainsProviderIdentity(execution)
       ) {
         throw new ConflictException('External registration execution cannot be started from its current state.');
       }
@@ -518,28 +503,6 @@ export class RegistrationExecutionRepositoryAdapter
         where: { id: execution.id },
         data: { status: 'executing', providerOutcome: 'uncertain', leaseToken, leaseClaimedAt: startedAt, startedAt },
       });
-      const preparationUpdated = await this.drafts.applyExecutionState(handle, {
-        organizationId: input.organizationId,
-        preparationId: execution.productPreparationId,
-        sourceCandidateId: input.sourceCandidateId,
-        expect: {
-          status: 'submitting',
-          providerOutcome: 'not_attempted',
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-        },
-        set: {
-          status: 'submitting',
-          providerOutcome: 'uncertain',
-          submissionLeaseToken: leaseToken,
-          submissionLeaseClaimedAt: startedAt,
-        },
-      });
-      if (preparationUpdated !== 1) {
-        throw new ConflictException(
-          'External registration preparation changed while the execution was starting.',
-        );
-      }
       return externalExecutionResult(updated);
     });
   }
@@ -710,18 +673,6 @@ export class RegistrationExecutionRepositoryAdapter
         throw new ConflictException('External registration changed while it was being closed.');
       }
       // 준비도 함께 풀어 준다. `submitting` 으로 남으면 취소도 재시도도 막힌다.
-      await this.drafts.applyExecutionState(handle, {
-        organizationId: input.organizationId,
-        preparationId: identity.productPreparationId,
-        sourceCandidateId: input.sourceCandidateId,
-        expect: { noProviderIdentity: true },
-        set: {
-          status: 'failed',
-          providerOutcome: 'definitive_failure',
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-        },
-      });
       return closed();
     });
   }
@@ -754,11 +705,8 @@ export class RegistrationExecutionRepositoryAdapter
       if (execution?.executionKind === 'external_wing') {
         throw new ConflictException('External WING executions must use their explicit start/completion contract.');
       }
-      if (!execution && current.status === 'registered') {
-        execution = await importLegacyRegisteredExecution(tx, current, organizationId);
-      }
-      if (!execution && ['submitting', 'failed'].includes(current.status)) {
-        execution = await importLegacyExecution(tx, current, organizationId);
+      if (!execution && current.reviewPayloadHash !== null) {
+        throw new ConflictException('Preparation requires its migrated registration execution.');
       }
       if (execution?.status === 'succeeded') {
         if (!execution.channelListingId) {
@@ -786,9 +734,6 @@ export class RegistrationExecutionRepositoryAdapter
       if (execution?.status === 'cancelled' || execution?.status === 'failed') {
         throw new ConflictException(`Registration execution cannot be submitted from '${execution.status}'.`);
       }
-      if (current.status === 'registered' && !execution) {
-        throw new ConflictException('Registered preparation is missing its registration execution.');
-      }
       if (!['draft', 'submitting', 'failed', 'registered'].includes(current.status)) {
         throw new ConflictException(`Preparation cannot be submitted from '${current.status}'.`);
       }
@@ -799,7 +744,6 @@ export class RegistrationExecutionRepositoryAdapter
           organizationId,
           preparationId: current.preparationId,
           userId,
-          submissionLeaseToken,
           now,
           reuseFrozenSubmission: false,
         });
@@ -809,7 +753,7 @@ export class RegistrationExecutionRepositoryAdapter
             organizationId,
             productPreparationId: claimed.draft.preparationId,
             channelAccountId: claimed.draft.channelAccountId,
-            idempotencyKey: frozen.submissionKey,
+            idempotencyKey: randomUUID(),
             requestHash: frozen.hash,
             submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
             submissionPayloadHash: frozen.hash,
@@ -823,9 +767,8 @@ export class RegistrationExecutionRepositoryAdapter
         return toFrozenSubmission(claimed.draft, execution);
       }
 
-      if (execution.idempotencyKey !== current.submissionKey
-        || execution.requestHash !== current.submissionPayloadHash) {
-        throw new ConflictException('Registration execution idempotency key or request hash drifted.');
+      if (execution.requestHash !== current.reviewPayloadHash) {
+        throw new ConflictException('Registration execution differs from the approved draft hash.');
       }
       if (!execution.submissionPayloadJson || !execution.submissionPayloadHash) {
         throw new ConflictException('Registration execution is missing its frozen submission.');
@@ -834,10 +777,8 @@ export class RegistrationExecutionRepositoryAdapter
         organizationId,
         preparationId: current.preparationId,
         userId,
-        submissionLeaseToken,
         now,
         reuseFrozenSubmission: true,
-        providerOutcome: execution.providerOutcome,
       });
       if (execution.requestedByUserId !== userId) {
         throw new ConflictException('Registration execution belongs to a different actor.');
@@ -899,11 +840,6 @@ export class RegistrationExecutionRepositoryAdapter
       if (started.count !== 1) {
         throw new ConflictException('Product registration submission lease was lost.');
       }
-      await this.drafts.applyExecutionState(handle, {
-        organizationId,
-        preparationId,
-        set: { status: 'submitting', providerOutcome: 'uncertain', lastError: null },
-      });
     });
   }
 
@@ -944,16 +880,6 @@ export class RegistrationExecutionRepositoryAdapter
           status: 'executing',
           lastErrorCode: null,
           lastErrorMessage: null,
-        },
-      });
-      await this.drafts.applyExecutionState(handle, {
-        organizationId,
-        preparationId,
-        set: {
-          providerSubmissionId: result.providerSubmissionId ?? result.externalListingId,
-          registrationResult,
-          providerOutcome: 'succeeded',
-          lastError: null,
         },
       });
       const updated = await this.drafts.loadDraft(handle, { organizationId, preparationId });
@@ -1011,17 +937,6 @@ export class RegistrationExecutionRepositoryAdapter
         data: {
           status: executionStatus, providerOutcome,
           lastErrorMessage: input.error, leaseToken: null, leaseClaimedAt: null,
-        },
-      });
-      await this.drafts.applyExecutionState(handle, {
-        organizationId: input.organizationId,
-        preparationId: current.preparationId,
-        set: {
-          status: 'failed',
-          lastError: input.error,
-          providerOutcome,
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
         },
       });
       return { preparationId: current.preparationId, status: 'failed' as const };
@@ -1087,18 +1002,8 @@ export class RegistrationExecutionRepositoryAdapter
       if (!listing) {
         throw new ConflictException('Final listing is outside the preparation account or source.');
       }
-      const updated = await this.drafts.applyExecutionState(handle, {
-        organizationId,
-        preparationId: current.preparationId,
-        expect: { status: 'submitting', submissionLeaseToken },
-        set: {
-          status: 'registered',
-          channelListingId: listing.id,
-          lastError: null,
-          providerOutcome: 'succeeded',
-          submissionLeaseToken: null,
-          submissionLeaseClaimedAt: null,
-        },
+      const updated = await this.drafts.closeDraft(handle, {
+        organizationId, preparationId: current.preparationId, closedAt: new Date(),
       });
       if (updated !== 1) {
         throw new ConflictException('Product registration finalization lease was lost.');
@@ -1181,11 +1086,6 @@ function isUnstartedExternalRegistrationIntent(
     && draft.organizationId === organizationId
     && draft.sourceCandidateId === sourceCandidateId
     && draft.status === 'submitting'
-    && draft.providerOutcome === 'not_attempted'
-    && draft.providerSubmissionId === null
-    && !draft.hasRegistrationResult
-    && draft.submissionLeaseToken === null
-    && draft.submissionLeaseClaimedAt === null
     && draft.isDeleted === false;
 }
 
@@ -1224,15 +1124,8 @@ function canSupersedePreparedExternalExecution(input: {
 }): boolean {
   const { draft, execution } = input;
   return draft.status === 'submitting'
-    && draft.providerOutcome === 'not_attempted'
-    && draft.providerSubmissionId === null
-    && !draft.hasRegistrationResult
     && draft.channelListingId === null
-    && draft.submissionLeaseToken === null
-    && draft.submissionLeaseClaimedAt === null
-    && draft.hasSubmissionPayload
-    && draft.submissionPayloadHash === execution.requestHash
-    && draft.submissionKey === execution.idempotencyKey
+    && draft.reviewPayloadHash === execution.requestHash
     && draft.approvedByUserId === input.requestedByUserId
     && execution.executionKind === 'external_wing'
     && execution.status === 'prepared'
@@ -1260,16 +1153,8 @@ function canRestartVerifiedMissingExternalExecution(input: {
 }): boolean {
   const { draft, execution } = input;
   return draft.status === 'submitting'
-    && draft.providerOutcome === 'uncertain'
-    && draft.providerSubmissionId === null
-    && !draft.hasRegistrationResult
     && draft.channelListingId === null
-    && draft.submissionLeaseToken !== null
-    && draft.submissionLeaseToken === execution.leaseToken
-    && draft.submissionLeaseClaimedAt !== null
-    && draft.hasSubmissionPayload
-    && draft.submissionPayloadHash === execution.requestHash
-    && draft.submissionKey === execution.idempotencyKey
+    && draft.reviewPayloadHash === execution.requestHash
     && draft.approvedByUserId === input.requestedByUserId
     && execution.executionKind === 'external_wing'
     && ['executing', 'reconciling'].includes(execution.status)
@@ -1308,12 +1193,7 @@ function canSupersedeFailedExternalExecution(input: {
 }): boolean {
   const { draft, execution } = input;
   return draft.status === 'failed'
-    && draft.providerOutcome === 'definitive_failure'
-    && draft.providerSubmissionId === null
-    && !draft.hasRegistrationResult
     && draft.channelListingId === null
-    && draft.submissionLeaseToken === null
-    && draft.submissionLeaseClaimedAt === null
     && draft.approvedByUserId === input.requestedByUserId
     && execution.executionKind === 'external_wing'
     && execution.status === 'failed'
@@ -1328,6 +1208,16 @@ function canSupersedeFailedExternalExecution(input: {
     && execution.expectedProviderAccountId === input.expectedProviderAccountId;
 }
 
+function matchesPreparedRequest(execution: ProductRegistrationExecution, requestHash: string): boolean {
+  if (!execution.submissionPayloadJson) return execution.requestHash === requestHash;
+  const frozen = freezeProductRegistrationPayload(execution.submissionPayloadJson as RegistrationSubmissionJson);
+  if (frozen.hash !== execution.requestHash || frozen.hash !== execution.submissionPayloadHash) {
+    throw new ConflictException('Frozen registration execution payload hash does not match its JSON.');
+  }
+  const original = registrationRequestBeforeCodeAssignment(frozen.payload);
+  return freezeProductRegistrationPayload(original as RegistrationSubmissionJson).hash === requestHash;
+}
+
 function externalExecutionResult(
   execution: ProductRegistrationExecution,
 ): RegistrationExecutionResult {
@@ -1335,7 +1225,9 @@ function externalExecutionResult(
     || !['not_attempted', 'uncertain', 'succeeded'].includes(execution.providerOutcome)) {
     throw new ConflictException('External registration execution has an unsupported lifecycle state.');
   }
+  const recipe = preparedRegistrationRecipe(execution.submissionPayloadJson);
   return {
+    ...(recipe ? { kidItemCode: recipe.kidItemCode } : {}),
     executionId: execution.id,
     preparationId: execution.productPreparationId,
     requestHash: execution.requestHash,
@@ -1345,142 +1237,6 @@ function externalExecutionResult(
     expectedProviderAccountId: execution.expectedProviderAccountId ?? '',
     listingId: execution.channelListingId,
   };
-}
-
-/**
- * Compatibility fence for preparations created before the execution ledger was
- * introduced. A legacy submission may already have reached provider IO, so it
- * must never be reborn as a fresh create operation.
- */
-async function importLegacyExecution(
-  tx: Prisma.TransactionClient,
-  draft: FrozenRegistrationDraft,
-  organizationId: string,
-): Promise<ProductRegistrationExecution> {
-  assertRegistrationIdentity(draft);
-  if (
-    !draft.submissionKey
-    || !draft.submissionPayloadJson
-    || !draft.submissionPayloadHash
-  ) {
-    throw new ConflictException(
-      'Legacy submitting preparation is missing frozen submission data and cannot be safely imported.',
-    );
-  }
-  const frozen = freezeProductRegistrationPayload(
-    draft.submissionPayloadJson as RegistrationSubmissionJson,
-  );
-  if (frozen.hash !== draft.submissionPayloadHash) {
-    throw new ConflictException('Legacy frozen submission hash does not match its payload.');
-  }
-  const legacyOutcome = draft.resolvedProviderOutcome;
-  const hasProviderIdentity = draft.providerSubmissionId !== null || draft.hasRegistrationResult;
-  const providerOutcome = legacyOutcome === 'succeeded' || hasProviderIdentity
-    ? 'succeeded'
-    : legacyOutcome === 'definitive_failure'
-      ? 'definitive_failure'
-      : 'uncertain';
-  const status = providerOutcome === 'definitive_failure' ? 'failed' : 'reconciling';
-  return tx.productRegistrationExecution.create({
-    data: {
-      organizationId,
-      productPreparationId: draft.preparationId,
-      channelAccountId: draft.channelAccountId,
-      idempotencyKey: draft.submissionKey,
-      requestHash: frozen.hash,
-      submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
-      submissionPayloadHash: frozen.hash,
-      status,
-      providerOutcome,
-      providerSubmissionId: draft.providerSubmissionId,
-      externalListingId: legacyExternalListingId(draft.registrationResult),
-      resultJson: draft.registrationResult == null
-        ? Prisma.JsonNull
-        : draft.registrationResult as Prisma.InputJsonValue,
-      lastErrorMessage: draft.lastError,
-      leaseToken: draft.submissionLeaseToken,
-      leaseClaimedAt: draft.submissionLeaseClaimedAt,
-      requestedByUserId: draft.approvedByUserId,
-      startedAt: draft.submissionLeaseClaimedAt,
-    },
-  });
-}
-
-function legacyExternalListingId(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const externalListingId = (value as Record<string, unknown>).externalListingId;
-  return typeof externalListingId === 'string' && externalListingId.trim()
-    ? externalListingId.trim()
-    : null;
-}
-
-/** Imports a pre-ledger registered row as a completed replay without provider IO. */
-async function importLegacyRegisteredExecution(
-  tx: Prisma.TransactionClient,
-  draft: FrozenRegistrationDraft,
-  organizationId: string,
-): Promise<ProductRegistrationExecution> {
-  assertRegistrationIdentity(draft);
-  if (!draft.channelListingId) {
-    throw new ConflictException('Registered preparation is missing its persisted listing identity.');
-  }
-  const listing = await tx.channelListing.findFirst({
-    where: {
-      id: draft.channelListingId,
-      organizationId,
-      channelAccountId: draft.channelAccountId,
-      sourceCandidateId: draft.sourceCandidateId,
-    },
-    select: { id: true, externalId: true },
-  });
-  if (!listing) {
-    throw new ConflictException('Registered preparation listing is outside its persisted account scope.');
-  }
-
-  let submissionPayloadJson: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
-  let submissionPayloadHash: string | null = null;
-  let requestHash: string;
-  if (draft.submissionPayloadJson && draft.submissionPayloadHash) {
-    const frozen = freezeProductRegistrationPayload(
-      draft.submissionPayloadJson as RegistrationSubmissionJson,
-    );
-    if (frozen.hash !== draft.submissionPayloadHash) {
-      throw new ConflictException('Legacy registered submission hash does not match its payload.');
-    }
-    submissionPayloadJson = frozen.payload as Prisma.InputJsonValue;
-    submissionPayloadHash = frozen.hash;
-    requestHash = frozen.hash;
-  } else {
-    requestHash = freezeProductRegistrationPayload({
-      kind: 'legacy_registered_replay',
-      preparationId: draft.preparationId,
-      channelListingId: listing.id,
-      channelAccountId: draft.channelAccountId,
-      externalListingId: listing.externalId,
-    } as RegistrationSubmissionJson).hash;
-  }
-
-  return tx.productRegistrationExecution.create({
-    data: {
-      organizationId,
-      productPreparationId: draft.preparationId,
-      channelAccountId: draft.channelAccountId,
-      channelListingId: listing.id,
-      idempotencyKey: draft.submissionKey || `legacy-registered:${draft.preparationId}`,
-      requestHash,
-      submissionPayloadJson,
-      submissionPayloadHash,
-      status: 'succeeded',
-      providerOutcome: 'succeeded',
-      providerSubmissionId: draft.providerSubmissionId ?? listing.externalId,
-      externalListingId: listing.externalId,
-      resultJson: draft.registrationResult == null
-        ? Prisma.DbNull
-        : draft.registrationResult as Prisma.InputJsonValue,
-      requestedByUserId: draft.approvedByUserId,
-      completedAt: draft.updatedAt,
-    },
-  });
 }
 
 function assertRegistrationIdentity(
@@ -1529,7 +1285,7 @@ function toFrozenSubmission(
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: draft.sourceContentWorkspaceId,
     displayName: frozenRequiredString(payload, 'displayName'),
-    status: draft.status as FrozenRegistrationSubmission['status'],
+    status: registrationDraftState(draft.closedAt, execution),
     submissionKey: execution.idempotencyKey,
     submissionPayloadJson: frozen.payload,
     submissionPayloadHash: execution.submissionPayloadHash,

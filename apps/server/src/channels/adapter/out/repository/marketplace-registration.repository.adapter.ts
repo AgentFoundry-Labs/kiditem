@@ -1,3 +1,5 @@
+import { applyPreparedRecipeToOptions } from '../persistence/registered-option-recipes';
+import type { PreparedRegistrationRecipe } from '../../../domain/registration-item-code';
 import {
   BadRequestException,
   ConflictException,
@@ -12,15 +14,16 @@ import {
   lockProductMapping,
 } from "../../../../common/product-mapping-generation";
 import {
-  PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
-  type ProductChannelOptionRecipeMutation,
-  type ProductChannelOptionRecipeMutationPort,
-} from "../../../../products/application/port/in/product-channel-option-recipe-mutation.port";
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipeMutation,
+  type ChannelOptionRecipePort,
+} from "../../../application/port/in/channel-option-recipe.port";
 import {
   normalizeKidItemFirstRegistrationLinks,
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
 } from "../../../domain/kiditem-first-registration-links";
+import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import { lockChannelListingRow } from "./channel-listing-row-lock";
 import type { MarketplaceRegistrationRepositoryPort } from "../../../application/port/out/repository/channel-listing.repository.port";
 
@@ -28,8 +31,8 @@ import type { MarketplaceRegistrationRepositoryPort } from "../../../application
 export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegistrationRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT)
-    private readonly recipeMutations?: ProductChannelOptionRecipeMutationPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly recipeMutations?: ChannelOptionRecipePort,
   ) {}
 
   async assertActiveRegistrationAccount(input: {
@@ -120,7 +123,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         organizationId: input.organizationId,
         expectedMasterProductId: input.masterProductId,
         components: [{
-          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+          masterProductId: link.sellpiaInventorySkuId,
           quantity: link.quantity,
         }],
       });
@@ -134,6 +137,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       sourceCandidateId: string;
       channelAccountId: string;
       submissionKey: string;
+      preparedRecipe?: PreparedRegistrationRecipe;
       externalListingId: string;
       displayName: string;
       masterProductId?: string;
@@ -226,7 +230,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
             externalId: true,
             status: true,
             isActive: true,
-            masterProductId: true,
           },
         })
       : null;
@@ -253,6 +256,12 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         );
       }
     }
+    const existingListingProductId = existing
+      ? (await readListingProductIds(tx, {
+        organizationId: input.organizationId,
+        listingIds: [existing.id],
+      })).get(existing.id) ?? null
+      : null;
     if (
       existing?.sourceCandidateId &&
       existing.sourceCandidateId !== candidate.id
@@ -262,9 +271,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       );
     }
     if (
-      existing?.masterProductId &&
+      existingListingProductId &&
       exactLinks.masterProductId &&
-      existing.masterProductId !== exactLinks.masterProductId
+      existingListingProductId !== exactLinks.masterProductId
     ) {
       throw new ConflictException(
         "Marketplace listing is linked to another MasterProduct.",
@@ -280,7 +289,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
           displayName: input.displayName,
           status: "active",
           isActive: true,
-          masterProductId: null,
         },
         select: {
           id: true,
@@ -314,6 +322,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       if (!recipeResult.mappingChanged) {
         await advanceProductMappingGeneration(tx, input.organizationId);
       }
+      if (input.preparedRecipe) await applyPreparedRecipeToOptions(tx, requireRecipeMutations(this.recipeMutations), {
+        organizationId: input.organizationId, channelListingId: created.id, recipe: input.preparedRecipe,
+      });
       return {
         listingId: created.id,
         channelAccountId: created.channelAccountId!,
@@ -374,6 +385,9 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       && !recipeResult.mappingChanged) {
       await advanceProductMappingGeneration(tx, input.organizationId);
     }
+    if (input.preparedRecipe) await applyPreparedRecipeToOptions(tx, requireRecipeMutations(this.recipeMutations), {
+      organizationId: input.organizationId, channelListingId: listing.id, recipe: input.preparedRecipe,
+    });
     return {
       listingId: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -390,6 +404,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       sourceCandidateId: string;
       channelAccountId: string;
       submissionKey: string;
+      preparedRecipe?: PreparedRegistrationRecipe;
       externalListingId: string;
       displayName: string;
       masterProductId?: string;
@@ -506,10 +521,10 @@ async function upsertExactOptionLinks(
   expectedMasterProductId: string | undefined,
 ): Promise<{
   mappingChanged: boolean;
-  mutations: ProductChannelOptionRecipeMutation[];
+  mutations: ChannelOptionRecipeMutation[];
 }> {
   let mappingChanged = false;
-  const mutations: ProductChannelOptionRecipeMutation[] = [];
+  const mutations: ChannelOptionRecipeMutation[] = [];
   for (const link of links) {
     const externalOptionId = link.externalOptionId;
     const existing = await tx.channelListingOption.findMany({
@@ -526,7 +541,7 @@ async function upsertExactOptionLinks(
         externalOptionId: true,
         isActive: true,
         inventoryComponents: {
-          select: { sellpiaInventorySkuId: true, quantity: true },
+          select: { masterProductId: true, quantity: true },
         },
       },
       orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
@@ -536,7 +551,7 @@ async function upsertExactOptionLinks(
         (option) =>
           option.inventoryComponents.length > 0 &&
           (option.inventoryComponents.length !== 1 ||
-            option.inventoryComponents[0]!.sellpiaInventorySkuId !==
+            option.inventoryComponents[0]!.masterProductId !==
               link.sellpiaInventorySkuId ||
             option.inventoryComponents[0]!.quantity !== link.quantity),
       )
@@ -563,7 +578,7 @@ async function upsertExactOptionLinks(
         channelListingOptionId: createdOption.id,
         expectedMasterProductId,
         components: [{
-          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+          masterProductId: link.sellpiaInventorySkuId,
           quantity: link.quantity,
         }],
       });
@@ -591,7 +606,7 @@ async function upsertExactOptionLinks(
       channelListingOptionId: target.id,
       expectedMasterProductId,
       components: [{
-        sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+        masterProductId: link.sellpiaInventorySkuId,
         quantity: link.quantity,
       }],
     });
@@ -608,8 +623,8 @@ function assertNoRecipeConflicts(channelListingOptionIds: readonly string[]): vo
 }
 
 function requireRecipeMutations(
-  recipeMutations: ProductChannelOptionRecipeMutationPort | undefined,
-): ProductChannelOptionRecipeMutationPort {
+  recipeMutations: ChannelOptionRecipePort | undefined,
+): ChannelOptionRecipePort {
   if (!recipeMutations) {
     throw new Error("Products recipe mutation owner is unavailable");
   }
