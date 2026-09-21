@@ -8,8 +8,6 @@ export const PRODUCT_PREPARATION_PROVIDER_OUTCOMES = [
 export type ProductPreparationProviderOutcome =
   (typeof PRODUCT_PREPARATION_PROVIDER_OUTCOMES)[number];
 
-export const PRODUCT_PREPARATION_SUBMISSION_LEASE_MS = 5 * 60 * 1_000;
-
 interface ProviderOutcomeRow {
   providerOutcome: string | null;
   status: string;
@@ -32,7 +30,14 @@ export function resolveProviderOutcome(
   return 'not_attempted';
 }
 
-export function canStartProviderCreate(
+/**
+ * 새 제공자 생성을 시작해도 되는 결과인가.
+ *
+ * 초안 밖으로 나가지 않는다 — 등록 실행의 리스·재시도 판정은 Channels 울타리
+ * (`channels/domain/registration-execution-state.ts`)가 소유한다(ADR-0014). 같은 규칙을
+ * 두 도메인이 각자 내보내면 어느 쪽이 진실인지 매번 판정해야 한다.
+ */
+function canStartProviderCreate(
   outcome: ProductPreparationProviderOutcome,
 ): boolean {
   return outcome === 'not_attempted' || outcome === 'definitive_failure';
@@ -61,17 +66,6 @@ export function blocksCandidateTerminalTransition(input: {
     || input.outcome === 'succeeded'
     || input.providerSubmissionId !== null
     || input.registrationResult !== null;
-}
-
-export function hasLiveSubmissionLease(input: {
-  token: string | null;
-  claimedAt: Date | null;
-  now: Date;
-}): boolean {
-  return input.token !== null
-    && input.claimedAt !== null
-    && input.claimedAt.getTime()
-      > input.now.getTime() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS;
 }
 
 function isProviderOutcome(value: string | null): value is ProductPreparationProviderOutcome {

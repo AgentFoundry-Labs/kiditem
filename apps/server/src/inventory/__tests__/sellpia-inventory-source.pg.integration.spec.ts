@@ -36,6 +36,7 @@ import {
   readActiveInventoryMatchingCandidates,
   readInventoryAvailability,
   readInventoryAvailabilityCandidates,
+  readInventoryMasterIdsWithAliveSku,
 } from '../read/inventory-availability';
 
 const base = '/api/inventory/sellpia-source';
@@ -533,6 +534,66 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         lastImportRunId: attempt.attemptId,
       }),
     ]);
+  });
+
+  /**
+   * 정본 상품을 "아직 단종되지 않았는가"로 고르는 소비자(몰 등록 매트릭스)를 위한
+   * 식별자 전용 읽기. 재고는 답하지 않는다 — 재고를 물으면 잠금과 발행 기준이 따라온다.
+   */
+  it('⭐ names the master products that still have a live Sellpia SKU, and nothing else', async () => {
+    const attempt = await begin('alive-sku-master-ids');
+    await complete(attempt, snapshot(0)).expect(201);
+    const published = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: {
+        organizationId_code: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-001' },
+      },
+    });
+    expect(published.masterProductId).not.toBeNull();
+    const unlinked = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'NO-MASTER',
+        name: '마스터 없음',
+        currentStock: 4,
+        isActive: true,
+      },
+    });
+    const discontinuedMaster = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-SELLPIA-GONE', name: '단종' },
+    });
+    await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'GONE',
+        name: '단종된 SKU',
+        currentStock: 0,
+        isActive: false,
+        masterProductId: discontinuedMaster.id,
+      },
+    });
+    const foreignMaster = await prisma.masterProduct.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, code: 'INV-SELLPIA-FOREIGN', name: '다른 조직' },
+    });
+    await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-MASTER',
+        name: '다른 조직 SKU',
+        currentStock: 9,
+        isActive: true,
+        masterProductId: foreignMaster.id,
+      },
+    });
+
+    const masterIds = await readInventoryMasterIdsWithAliveSku(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+    });
+
+    // 재고 0 이어도 살아 있으면 나온다. 단종·마스터 없음·다른 조직은 나오지 않는다.
+    expect(masterIds).toEqual([published.masterProductId]);
+    expect(unlinked.masterProductId).toBeNull();
+    expect(masterIds).not.toContain(discontinuedMaster.id);
+    expect(masterIds).not.toContain(foreignMaster.id);
   });
 
   it('reads only the published run through the transaction-aware organization fence', async () => {

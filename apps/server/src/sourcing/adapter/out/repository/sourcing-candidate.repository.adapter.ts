@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  candidateRegistrationState,
+  readRegistrationExecutionFacts,
+  type CandidateRegistrationState,
+} from '../../../../channels/read/registration-execution.reader';
 import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
 import type {
   CandidateImageRow,
@@ -245,7 +250,11 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       },
     });
     if (!row) return null;
-    return hydrateCandidate(row);
+    return {
+      ...hydrateCandidate(row),
+      registrationState:
+        (await this.readRegistrationStates(organizationId, [row])).get(row.id) ?? 'none',
+    };
   }
 
   async listSourced(query: {
@@ -289,7 +298,51 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         },
       }),
     ]);
-    return { total, items: rows.map(hydrateCandidate) };
+    // 페이지 전체를 한 번에 읽는다. 후보별 조회는 N+1 이다.
+    const states = await this.readRegistrationStates(query.organizationId, rows);
+    return {
+      total,
+      items: rows.map((row) => ({
+        ...hydrateCandidate(row),
+        registrationState: states.get(row.id) ?? 'none',
+      })),
+    };
+  }
+
+  /**
+   * 후보마다 지금의 등록 상태. 초안 행이 아니라 울타리가 근거다(ADR-0014).
+   *
+   * 실행 장부는 Channels 것이라 등록된 리더로만 읽는다(ADR-0009). 초안의 제출 칸은
+   * 울타리가 함께 갱신하는 거울이라, 그 둘이 갈라지면 화면이 거짓말을 한다.
+   */
+  private async readRegistrationStates(
+    organizationId: string,
+    rows: Array<{ id: string; productPreparations: Array<{ id: string }> }>,
+  ): Promise<Map<string, CandidateRegistrationState>> {
+    const candidateOf = new Map<string, string>();
+    for (const row of rows) {
+      for (const preparation of row.productPreparations) {
+        candidateOf.set(preparation.id, row.id);
+      }
+    }
+    const states = new Map<string, CandidateRegistrationState>();
+    if (candidateOf.size === 0) return states;
+    const facts = await readRegistrationExecutionFacts(this.prisma, {
+      organizationId,
+      productPreparationIds: [...candidateOf.keys()],
+    });
+    const byCandidate = new Map<string, typeof facts[number][]>();
+    for (const fact of facts) {
+      const candidateId = candidateOf.get(fact.productPreparationId);
+      if (!candidateId) continue;
+      const bucket = byCandidate.get(candidateId);
+      if (bucket) bucket.push(fact);
+      else byCandidate.set(candidateId, [fact]);
+    }
+    for (const [candidateId, candidateFacts] of byCandidate) {
+      states.set(candidateId, candidateRegistrationState(candidateFacts));
+    }
+    return states;
   }
 
   async archiveSourcedWorkspace(

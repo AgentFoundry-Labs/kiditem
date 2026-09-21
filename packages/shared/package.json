@@ -35,6 +35,11 @@
       "import": "./dist/channel-listing.js",
       "require": "./dist/channel-listing.cjs"
     },
+    "./registration-execution": {
+      "types": "./dist/registration-execution.d.ts",
+      "import": "./dist/registration-execution.js",
+      "require": "./dist/registration-execution.cjs"
+    },
     "./order": {
       "types": "./dist/order.d.ts",
       "import": "./dist/order.js",

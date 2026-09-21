@@ -1,32 +1,32 @@
 import { createHash } from 'node:crypto';
 
-export type ProductPreparationJson =
+export type RegistrationSubmissionJson =
   | null
   | boolean
   | number
   | string
-  | ProductPreparationJson[]
-  | { [key: string]: ProductPreparationJson };
+  | RegistrationSubmissionJson[]
+  | { [key: string]: RegistrationSubmissionJson };
 
-export interface FrozenProductPreparationPayload<T extends ProductPreparationJson> {
+export interface FrozenRegistrationSubmissionPayload<T extends RegistrationSubmissionJson> {
   payload: T;
   canonicalJson: string;
   hash: string;
 }
 
-export function canonicalizeProductPreparationPayload(value: unknown): string {
+export function canonicalizeRegistrationSubmissionPayload(value: unknown): string {
   return JSON.stringify(toCanonicalJson(value, '$'));
 }
 
-export function hashProductPreparationPayload(value: unknown): string {
+export function hashRegistrationSubmissionPayload(value: unknown): string {
   return createHash('sha256')
-    .update(canonicalizeProductPreparationPayload(value))
+    .update(canonicalizeRegistrationSubmissionPayload(value))
     .digest('hex');
 }
 
-export function freezeProductPreparationPayload<T extends ProductPreparationJson>(
+export function freezeProductRegistrationPayload<T extends RegistrationSubmissionJson>(
   value: T,
-): FrozenProductPreparationPayload<T> {
+): FrozenRegistrationSubmissionPayload<T> {
   const payload = toCanonicalJson(value, '$') as T;
   deepFreeze(payload);
   const canonicalJson = JSON.stringify(payload);
@@ -37,7 +37,7 @@ export function freezeProductPreparationPayload<T extends ProductPreparationJson
   });
 }
 
-function toCanonicalJson(value: unknown, path: string): ProductPreparationJson {
+function toCanonicalJson(value: unknown, path: string): RegistrationSubmissionJson {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return value;
   }
@@ -57,14 +57,14 @@ function toCanonicalJson(value: unknown, path: string): ProductPreparationJson {
     throw new TypeError(`${path} must contain plain JSON objects.`);
   }
 
-  const output: Record<string, ProductPreparationJson> = {};
+  const output: Record<string, RegistrationSubmissionJson> = {};
   for (const key of Object.keys(value as Record<string, unknown>).sort()) {
     output[key] = toCanonicalJson((value as Record<string, unknown>)[key], `${path}.${key}`);
   }
   return output;
 }
 
-function deepFreeze(value: ProductPreparationJson): void {
+function deepFreeze(value: RegistrationSubmissionJson): void {
   if (value === null || typeof value !== 'object') return;
   for (const child of Array.isArray(value) ? value : Object.values(value)) deepFreeze(child);
   Object.freeze(value);

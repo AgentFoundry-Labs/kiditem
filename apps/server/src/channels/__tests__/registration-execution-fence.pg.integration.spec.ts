@@ -10,24 +10,40 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ProductPreparationRepositoryAdapter } from '../adapter/out/repository/product-preparation.repository.adapter';
-import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
-import type { SourcingRepositoryTransaction } from '../application/port/out/transaction/repository-transaction';
-import { PRODUCT_PREPARATION_SUBMISSION_LEASE_MS } from '../domain/product-preparation-state';
+import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
+import { ProductPreparationRepositoryAdapter } from '../../sourcing/adapter/out/repository/product-preparation.repository.adapter';
+import { RegistrationDraftAdapter } from '../../sourcing/adapter/out/channels/registration-draft.adapter';
+import { SourcingCandidateRepositoryAdapter } from '../../sourcing/adapter/out/repository/sourcing-candidate.repository.adapter';
+import type { SourcingRepositoryTransaction } from '../../sourcing/application/port/out/transaction/repository-transaction';
+import type { ChannelsRepositoryTransaction } from '../application/port/out/transaction/repository-transaction';
+import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration-execution-state';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 
-describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
+describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
-  let repository: ProductPreparationRepositoryAdapter;
+  let drafts: ProductPreparationRepositoryAdapter;
+  let repository: RegistrationExecutionRepositoryAdapter;
   let candidateRepository: SourcingCandidateRepositoryAdapter;
   let candidateId: string;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService);
+    drafts = new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService);
+    // 울타리는 실행 행만 쓰고 초안은 Sourcing 어댑터를 통해 만진다(ADR-0014).
+    // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
+    repository = new RegistrationExecutionRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new RegistrationDraftAdapter({
+        findCandidateWorkspaceId: async () => null,
+        resolveSourceSelections: async (_opaqueTx, input) => input,
+        validateSourceSelections: async () => undefined,
+        ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
+        branchToListing: async () => ({ workspaceId: '' }),
+      }),
+    );
     candidateRepository = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
@@ -63,8 +79,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   it('returns one draft under concurrent same-account creation', async () => {
     const input = createInput(ACCOUNT_ID);
     const [left, right] = await Promise.all([
-      repository.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
-      repository.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
+      drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
+      drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
     ]);
 
     expect(left.preparationId).toBe(right.preparationId);
@@ -74,13 +90,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('keeps independent active drafts for separate channel accounts', async () => {
-    const first = await repository.createOrGetActiveDraft(
+    const first = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
     );
 
-    const second = await repository.createOrGetActiveDraft(
+    const second = await drafts.createOrGetActiveDraft(
       createInput(SECOND_ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -97,7 +113,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('freezes one canonical hash/key across retries and creates a new key after a failed edit', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -106,7 +122,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     expect(first.status).toBe('submitting');
     if (first.status === 'registered') throw new Error('unexpected registered state');
@@ -141,9 +156,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     )).rejects.toThrow("cannot be submitted from 'failed'");
-    const replacement = await repository.replaceDraftInput(
+    const replacement = await drafts.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
         preparationId: draft.preparationId,
@@ -158,7 +172,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       replacement.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (edited.status === 'registered') throw new Error('unexpected registered state');
     expect(edited.submissionKey).not.toBe(first.submissionKey);
@@ -166,7 +179,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('projects finalization inputs from frozen JSON instead of mutable compatibility columns', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -175,7 +188,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await prisma.productPreparation.update({
@@ -195,7 +207,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rejects a second claim while an unrecorded provider submission is in flight', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -204,19 +216,17 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
 
     await expect(repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     )).rejects.toThrow('already in progress');
   });
 
   it('rejects editing a submitting preparation before resolving mutable draft selections', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -225,13 +235,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     const unexpectedResolver = vi.fn().mockRejectedValue(
       new Error('resolver must not run for a non-editable state'),
     );
 
-    await expect(repository.replaceDraftInput(
+    await expect(drafts.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
         preparationId: draft.preparationId,
@@ -247,7 +256,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     ['rejected', { status: 'rejected' }],
     ['deleted', { isDeleted: true, deletedAt: new Date() }],
   ])('blocks provider submission after the source candidate is %s', async (_label, candidateData) => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -261,12 +270,11 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     )).rejects.toThrow('not active');
   });
 
   it('rolls listing/workspace creation back with finalization and reuses the recorded provider identity', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -275,7 +283,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await repository.recordProviderResult(
@@ -315,7 +322,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (retry.status === 'registered') throw new Error('unexpected registered state');
     expect(retry.submissionKey).toBe(claimed.submissionKey);
@@ -351,7 +357,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       input: { ...baseInput.input, selectedThumbnailUrl: requestedUrl },
     };
 
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       input,
       ensureWorkspace,
       async (_tx, selections) => ({
@@ -368,14 +374,13 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     expect(claimed.selectedThumbnailUrl).toBe(canonicalUrl);
   });
 
   it('reclaims an expired pre-provider lease with the same frozen key and hash', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -384,7 +389,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (first.status === 'registered') throw new Error('unexpected registered state');
     expect(first.providerOutcome).toBe('not_attempted');
@@ -397,7 +401,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       } },
       data: {
         leaseClaimedAt: new Date(
-          Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
+          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
         ),
       },
     });
@@ -405,7 +409,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (reclaimed.status === 'registered') throw new Error('unexpected registered state');
 
@@ -417,7 +420,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rejects an idempotency-key replay when the compatibility payload hash drifts', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -426,7 +429,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await prisma.productRegistrationExecution.update({
@@ -435,7 +437,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         productPreparationId: draft.preparationId,
       } },
       data: {
-        leaseClaimedAt: new Date(Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS),
+        leaseClaimedAt: new Date(Date.now() - REGISTRATION_EXECUTION_LEASE_MS),
       },
     });
     await prisma.productPreparation.update({
@@ -447,12 +449,11 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     )).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('imports an execution-less legacy submitting row as uncertain rather than preparing a new create', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -461,7 +462,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await prisma.productRegistrationExecution.delete({ where: { id: claimed.executionId } });
@@ -471,7 +471,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         status: 'submitting',
         providerOutcome: 'not_attempted',
         submissionLeaseClaimedAt: new Date(
-          Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
+          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
         ),
       },
     });
@@ -480,7 +480,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (imported.status === 'registered') throw new Error('unexpected registered state');
     expect(imported.providerOutcome).toBe('uncertain');
@@ -495,7 +494,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('replays an execution-less legacy registered preparation from its persisted listing', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -518,7 +517,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     )).resolves.toEqual({
       preparationId: draft.preparationId,
       status: 'registered',
@@ -543,7 +541,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -552,7 +550,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (first.status === 'registered') throw new Error('unexpected registered state');
     await repository.markProviderAttemptStarted(
@@ -567,7 +564,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       } },
       data: {
         leaseClaimedAt: new Date(
-          Date.now() - PRODUCT_PREPARATION_SUBMISSION_LEASE_MS,
+          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
         ),
       },
     });
@@ -576,7 +573,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (reclaimed.status === 'registered') throw new Error('unexpected registered state');
     expect(reclaimed.providerOutcome).toBe('uncertain');
@@ -585,7 +581,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rejects edit and cancellation after an uncertain or succeeded provider identity exists', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -594,7 +590,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await repository.markProviderAttemptStarted(
@@ -616,7 +611,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       select: { status: true, providerOutcome: true },
     })).resolves.toEqual({ status: 'reconciling', providerOutcome: 'uncertain' });
 
-    await expect(repository.replaceDraftInput(
+    await expect(drafts.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
         preparationId: draft.preparationId,
@@ -625,7 +620,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       },
       resolveSelections,
     )).rejects.toThrow('execution cannot be discarded or edited');
-    await expect(repository.replaceDraftInput(
+    await expect(drafts.replaceDraftInput(
       {
         organizationId: TEST_ORGANIZATION_ID,
         preparationId: draft.preparationId,
@@ -637,7 +632,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('rechecks the locked candidate before finalization and never invokes the callback after rejection', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -646,7 +641,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await repository.markProviderAttemptStarted(
@@ -681,7 +675,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('serializes candidate terminal initiation ahead of a concurrent submission claim', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -703,7 +697,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       `);
       reportCandidateLocked();
       await terminalRelease;
-      return repository.assertCandidateTerminalTransitionAllowed(
+      return drafts.assertCandidateTerminalTransitionAllowed(
         transaction as unknown as SourcingRepositoryTransaction,
         {
           organizationId: TEST_ORGANIZATION_ID,
@@ -716,7 +710,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     const observation = await Promise.race([
       claim.then(() => 'settled' as const, () => 'settled' as const),
@@ -730,7 +723,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('cancels an unstarted external WING intent before a candidate terminal transition', async () => {
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -738,7 +731,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
     const cancelledAt = new Date('2026-07-30T12:00:00.000Z');
 
     const cancelled = await candidateRepository.runInTransaction(async (transaction) => {
@@ -746,15 +739,15 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         id: candidateId,
         organizationId: TEST_ORGANIZATION_ID,
       });
-      const count = await repository.cancelUnstartedExternalRegistrationIntents(
-        transaction,
+      const count = await repository.cancelUnstartedExecutions(
+        transaction as unknown as ChannelsRepositoryTransaction,
         {
           organizationId: TEST_ORGANIZATION_ID,
           sourceCandidateId: candidateId,
           cancelledAt,
         },
       );
-      await repository.assertCandidateTerminalTransitionAllowed(transaction, {
+      await drafts.assertCandidateTerminalTransitionAllowed(transaction, {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
       });
@@ -773,7 +766,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('keeps a started external WING execution as a candidate deletion blocker', async () => {
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -781,8 +774,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
-    await repository.startExternalExecution({
+    });
+    await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -794,8 +787,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         id: candidateId,
         organizationId: TEST_ORGANIZATION_ID,
       });
-      const cancelled = await repository.cancelUnstartedExternalRegistrationIntents(
-        transaction,
+      const cancelled = await repository.cancelUnstartedExecutions(
+        transaction as unknown as ChannelsRepositoryTransaction,
         {
           organizationId: TEST_ORGANIZATION_ID,
           sourceCandidateId: candidateId,
@@ -803,7 +796,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         },
       );
       expect(cancelled).toBe(0);
-      return repository.assertCandidateTerminalTransitionAllowed(transaction, {
+      return drafts.assertCandidateTerminalTransitionAllowed(transaction, {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
       });
@@ -817,7 +810,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
 
   it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
     const idempotencyKey = randomUUID();
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -825,15 +818,15 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey,
-    }, ensureWorkspace, resolveSelections);
+    });
     expect(prepared).toMatchObject({
       status: 'prepared', providerOutcome: 'not_attempted', expectedProviderAccountId: 'account-0',
     });
     await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID, prepared.preparationId, TEST_USER_ID, resolveSelections,
+      TEST_ORGANIZATION_ID, prepared.preparationId, TEST_USER_ID,
     )).rejects.toBeInstanceOf(ConflictException);
 
-    const replay = await repository.prepareExternalExecution({
+    const replay = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -841,9 +834,9 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey,
-    }, ensureWorkspace, resolveSelections);
+    });
     expect(replay.executionId).toBe(prepared.executionId);
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -851,29 +844,29 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Changed name',
       registrationInput: { wingProduct: { productName: 'Changed name' } },
       idempotencyKey,
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
 
-    const started = await repository.startExternalExecution({
+    const started = await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
     expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
-    expect((await repository.startExternalExecution({
+    expect((await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     })).executionId).toBe(prepared.executionId);
-    await expect(repository.startExternalExecution({
+    await expect(repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
       requestedByUserId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     })).rejects.toBeInstanceOf(ConflictException);
 
-    const unresolved = await repository.markExternalExecutionUnresolved({
+    const unresolved = await repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -892,7 +885,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
     );
     expect(completed.status).toBe('registered');
-    await expect(repository.getExternalExecution({
+    await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -901,7 +894,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('does not downgrade provider success when an unresolved report was waiting on the execution lock', async () => {
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -909,8 +902,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
-    await repository.startExternalExecution({
+    });
+    await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -948,7 +941,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     });
     await executionLocked;
 
-    const unresolved = repository.markExternalExecutionUnresolved({
+    const unresolved = repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -967,7 +960,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       status: 'executing',
       providerOutcome: 'succeeded',
     });
-    await expect(repository.getExternalExecution({
+    await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
@@ -991,8 +984,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       idempotencyKey,
     };
     const [left, right] = await Promise.all([
-      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
-      repository.prepareExternalExecution(input, ensureWorkspace, resolveSelections),
+      repository.prepare(input),
+      repository.prepare(input),
     ]);
     expect(left.executionId).toBe(right.executionId);
     expect(await prisma.productRegistrationExecution.count({
@@ -1009,15 +1002,15 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
     };
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       ...base,
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
 
-    const resumed = await repository.prepareExternalExecution({
+    const resumed = await repository.prepare({
       ...base,
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
 
     expect(resumed.executionId).toBe(prepared.executionId);
     expect(await prisma.productRegistrationExecution.count({
@@ -1033,23 +1026,23 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       channelAccountId: ACCOUNT_ID,
     };
     const staleIdempotencyKey = randomUUID();
-    const stale = await repository.prepareExternalExecution({
+    const stale = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: staleIdempotencyKey,
-    }, ensureWorkspace, resolveSelections);
+    });
 
     // A later attempt with a changed payload (e.g. an edited category) freezes a
     // different hash, so the prepared execution can no longer resume. Because the
     // stale intent never reached the provider, it is abandoned and a fresh
     // preparation/execution is created instead of hard-conflicting.
-    const fresh = await repository.prepareExternalExecution({
+    const fresh = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots (edited)',
       registrationInput: { wingProduct: { productName: 'Kids rain boots', wingCategoryKey: '64687' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
 
     expect(fresh.status).toBe('prepared');
     expect(fresh.executionId).not.toBe(stale.executionId);
@@ -1088,12 +1081,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
 
     // Superseding never erases the frozen idempotency ledger. Retrying the old
     // request must surface its terminal cancellation instead of reviving it.
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: staleIdempotencyKey,
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('never revives a legacy active preparation whose execution ledger is missing', async () => {
@@ -1103,22 +1096,22 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
-    const stale = await repository.prepareExternalExecution({
+    const stale = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
     // Simulate a pre-ledger/partially migrated active row. The production path
     // must reconcile or reject it, never treat `every([])` as safe to replace.
     await prisma.productRegistrationExecution.delete({ where: { id: stale.executionId } });
 
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       ...base,
       displayName: 'Changed without a ledger',
       registrationInput: { wingProduct: { productName: 'Changed without a ledger' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
     await expect(prisma.productPreparation.findUniqueOrThrow({
       where: { id: stale.preparationId },
       select: { status: true, isDeleted: true },
@@ -1126,7 +1119,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   });
 
   it('never supersedes an ordinary create execution or its live claim lease', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
@@ -1135,11 +1128,10 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       draft.preparationId,
       TEST_USER_ID,
-      resolveSelections,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered claim');
 
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -1147,7 +1139,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Changed into manual WING flow',
       registrationInput: { wingProduct: { productName: 'Changed into manual WING flow' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
     await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: claimed.executionId },
       select: {
@@ -1171,19 +1163,19 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
-    const stale = await repository.prepareExternalExecution({
+    const stale = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
-    await repository.startExternalExecution({
+    });
+    await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: stale.executionId,
       requestedByUserId: TEST_USER_ID,
     });
-    await repository.markExternalExecutionUnresolved({
+    await repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: stale.executionId,
@@ -1191,24 +1183,24 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       evidence: { reason: 'browser_timeout' },
     });
 
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections)).resolves.toMatchObject({
+    })).resolves.toMatchObject({
       executionId: stale.executionId,
       status: 'reconciling',
       providerOutcome: 'uncertain',
     });
 
-    const fresh = await repository.prepareExternalExecution({
+    const fresh = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
       providerAbsenceVerified: true,
-    }, ensureWorkspace, resolveSelections);
+    });
 
     expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
     expect(fresh.executionId).not.toBe(stale.executionId);
@@ -1239,34 +1231,34 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
-    const prepared = await repository.prepareExternalExecution({
+    const prepared = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
     // Without a fresh provider lookup, a started execution remains protected.
-    await repository.startExternalExecution({
+    await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
 
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       ...base,
       displayName: 'Changed after start',
       registrationInput: { wingProduct: { productName: 'Changed after start' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
 
-    const fresh = await repository.prepareExternalExecution({
+    const fresh = await repository.prepare({
       ...base,
       displayName: 'Changed after verified absence',
       registrationInput: { wingProduct: { productName: 'Changed after verified absence' } },
       idempotencyKey: randomUUID(),
       providerAbsenceVerified: true,
-    }, ensureWorkspace, resolveSelections);
+    });
 
     expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
     expect(fresh.executionId).not.toBe(prepared.executionId);
@@ -1279,12 +1271,12 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
-    const stale = await repository.prepareExternalExecution({
+    const stale = await repository.prepare({
       ...base,
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
 
     let releaseSupersede!: () => void;
     let reportCandidateLocked!: () => void;
@@ -1312,10 +1304,17 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
           },
         }))),
     };
-    const pausedRepository = new ProductPreparationRepositoryAdapter(
+    const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
+      new RegistrationDraftAdapter({
+        findCandidateWorkspaceId: async () => null,
+        resolveSourceSelections: async (_opaqueTx, input) => input,
+        validateSourceSelections: async () => undefined,
+        ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
+        branchToListing: async () => ({ workspaceId: '' }),
+      }),
     );
-    const supersede = pausedRepository.prepareExternalExecution({
+    const supersede = pausedRepository.prepare({
       ...base,
       displayName: 'Kids rain boots (edited while start races)',
       registrationInput: {
@@ -1325,10 +1324,10 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         },
       },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections);
+    });
     await candidateLocked;
 
-    const start = repository.startExternalExecution({
+    const start = repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: stale.executionId,
@@ -1359,7 +1358,7 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       where: { id: ACCOUNT_ID },
       data: { channel: 'rocket', vendorId: null, externalAccountId: null },
     });
-    await expect(repository.prepareExternalExecution({
+    await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       requestedByUserId: TEST_USER_ID,
@@ -1367,30 +1366,30 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    }, ensureWorkspace, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('does not expose ordinary create executions through the external WING lifecycle', async () => {
-    const draft = await repository.createOrGetActiveDraft(
+    const draft = await drafts.createOrGetActiveDraft(
       createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections,
     );
     const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID, resolveSelections,
+      TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered claim');
-    await expect(repository.startExternalExecution({
+    await expect(repository.start({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: claimed.executionId,
       requestedByUserId: TEST_USER_ID,
     })).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.getExternalExecution({
+    await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: claimed.executionId,
       requestedByUserId: TEST_USER_ID,
     })).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.markExternalExecutionUnresolved({
+    await expect(repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidateId,
       executionId: claimed.executionId,
@@ -1482,6 +1481,8 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   }
 });
 
-function tx(value: SourcingRepositoryTransaction): Prisma.TransactionClient {
+function tx(
+  value: SourcingRepositoryTransaction | ChannelsRepositoryTransaction,
+): Prisma.TransactionClient {
   return value as unknown as Prisma.TransactionClient;
 }

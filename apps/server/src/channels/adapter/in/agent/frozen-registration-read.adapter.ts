@@ -1,24 +1,25 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
-  PRODUCT_PREPARATION_REPOSITORY_PORT,
-  type FrozenProductPreparationSubmission,
-  type ProductPreparationRepositoryPort,
-} from "../../../application/port/out/repository/product-preparation.repository.port";
+  REGISTRATION_EXECUTION_REPOSITORY_PORT,
+  type FrozenRegistrationSubmission,
+  type RegistrationExecutionRepositoryPort,
+} from "../../../application/port/out/repository/registration-execution.repository.port";
 import type {
   FrozenRegistrationReference,
   ServerFrozenRegistration,
-  SourcingFrozenRegistrationReadCapabilityPort,
-} from "../../../application/port/in/capability/sourcing-frozen-registration-capability.port";
+  FrozenRegistrationReadPort,
+} from "../../../application/port/in/capability/frozen-registration-read.port";
 
 /**
- * Read-only Sourcing provenance guard. It loads immutable preparation state
- * for Channels but never submits a provider request or finalizes a listing.
+ * Read-only provenance guard over the registration execution fence. It loads
+ * the immutable frozen submission for Agent capabilities but never submits a
+ * provider request or finalizes a listing.
  */
 @Injectable()
-export class SourcingFrozenRegistrationReadCapabilityAdapter implements SourcingFrozenRegistrationReadCapabilityPort {
+export class FrozenRegistrationReadAdapter implements FrozenRegistrationReadPort {
   constructor(
-    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
-    private readonly preparations: ProductPreparationRepositoryPort,
+    @Inject(REGISTRATION_EXECUTION_REPOSITORY_PORT)
+    private readonly executions: RegistrationExecutionRepositoryPort,
   ) {}
 
   async loadSubmission(
@@ -42,7 +43,7 @@ export class SourcingFrozenRegistrationReadCapabilityAdapter implements Sourcing
   }
 
   private async loadActorBoundFrozen(input: FrozenRegistrationReference) {
-    const frozen = await this.preparations.loadFrozenSubmission(
+    const frozen = await this.executions.loadFrozenSubmission(
       input.organizationId,
       input.preparationId,
     );
@@ -52,7 +53,7 @@ export class SourcingFrozenRegistrationReadCapabilityAdapter implements Sourcing
     ) {
       throw new Error("frozen_submission_mismatch:execution");
     }
-    const execution = await this.preparations.getExternalExecution({
+    const execution = await this.executions.get({
       organizationId: input.organizationId,
       sourceCandidateId: frozen.sourceCandidateId,
       executionId: input.executionId,
@@ -69,7 +70,7 @@ export class SourcingFrozenRegistrationReadCapabilityAdapter implements Sourcing
 }
 
 function toServerFrozenRegistration(
-  frozen: FrozenProductPreparationSubmission,
+  frozen: FrozenRegistrationSubmission,
   expectedProviderAccountId: string | null,
 ): ServerFrozenRegistration {
   const submissionPayloadJson = requiredRecord(

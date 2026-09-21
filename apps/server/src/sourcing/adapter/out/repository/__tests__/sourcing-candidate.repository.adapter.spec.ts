@@ -264,6 +264,23 @@ describe('SourcingCandidateRepositoryAdapter', () => {
           productPreparations: [preparation],
         })),
       },
+      // 등록 상태는 울타리 리더가 답한다(ADR-0014). 리더가 실제로 부르는 findMany 를
+      // 그대로 흉내 내야 경계가 바뀌면 이 테스트가 먼저 깨진다.
+      productRegistrationExecution: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'execution-1',
+          productPreparationId: 'prep-1',
+          channelAccountId: 'account-1',
+          channelListingId: 'listing-1',
+          executionKind: 'external_wing',
+          status: 'succeeded',
+          providerOutcome: 'succeeded',
+          providerSubmissionId: null,
+          externalListingId: '427011919',
+          resultJson: { source: 'coupang-wing-extension' },
+          createdAt: new Date('2026-05-17T00:45:00.000Z'),
+        }]),
+      },
     };
     const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
 
@@ -282,6 +299,8 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(row?.productPreparation).toEqual(preparation);
     expect(row?.productPreparations).toEqual([preparation]);
     expect(row?.productPreparation).not.toHaveProperty('masterId');
+    // 초안 행은 'product_registered' 라고 말하지만 근거는 실행 장부다.
+    expect(row?.registrationState).toBe('registered');
   });
 
   describe('updateManualBasics', () => {

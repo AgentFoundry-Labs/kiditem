@@ -8,7 +8,7 @@ import {
   parseAllowedSupplierUrl,
 } from '../../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../../apps/server/src/sourcing/domain/sourcing-candidate-identity';
-import { freezeProductPreparationPayload } from '../../apps/server/src/sourcing/domain/product-preparation-payload';
+import { freezeProductRegistrationPayload } from '../../apps/server/src/channels/domain/registration-submission-payload';
 
 const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
 vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
@@ -266,7 +266,7 @@ describe('isolated Agent OS browser-QA seed', () => {
         wingVendorRef: 'browser-qa-vendor',
       },
     });
-    const frozenChannelPayload = freezeProductPreparationPayload(
+    const frozenChannelPayload = freezeProductRegistrationPayload(
       channel.productRegistrationExecution.submissionPayloadJson,
     );
     expect(frozenChannelPayload.payload).toMatchObject({
@@ -463,7 +463,7 @@ describe('isolated Agent OS browser-QA seed', () => {
     const persistedPreparation = transaction.productPreparation.create.mock.calls[0][0].data;
     const persistedExecution =
       transaction.productRegistrationExecution.create.mock.calls[0][0].data;
-    const frozenPersistedPayload = freezeProductPreparationPayload(
+    const frozenPersistedPayload = freezeProductRegistrationPayload(
       persistedExecution.submissionPayloadJson,
     );
     expect(frozenPersistedPayload.payload).toMatchObject({

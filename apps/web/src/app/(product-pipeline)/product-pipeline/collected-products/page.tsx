@@ -32,6 +32,7 @@ import SourcingToolbar from './components/list/SourcingToolbar';
 import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
 import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
+import { registrationExecutionApi } from '../../../(channels)/_shared/registration-execution-api';
 import {
   candidatesApi,
   isInProgress,
@@ -300,7 +301,7 @@ export default function SourcingPage() {
             evidence: result.submission.evidence,
           });
         } catch (err) {
-          await candidatesApi.markExternalWingRegistrationUnresolved(
+          await registrationExecutionApi.markUnresolved(
             candidateId,
             executionId,
             { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
@@ -347,7 +348,7 @@ export default function SourcingPage() {
     externalListingId: string;
     evidence?: Record<string, unknown>;
   }) => {
-    await candidatesApi.confirmExternalRegistration(candidateId, {
+    await registrationExecutionApi.confirm(candidateId, {
       executionId,
       externalListingId,
       evidence,

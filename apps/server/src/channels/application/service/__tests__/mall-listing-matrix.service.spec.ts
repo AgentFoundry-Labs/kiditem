@@ -75,7 +75,7 @@ function build(overrides: {
       };
     },
     countOrdersByAccount: async () => overrides.orderCounts ?? [],
-    countActiveMasterProducts: async () => overrides.masterProductCount ?? 0,
+    countVisibleMasterProducts: async () => overrides.masterProductCount ?? 0,
   } as unknown as MallPublishingRepositoryPort;
 
   const availability: ChannelSkuAvailabilityPort = {

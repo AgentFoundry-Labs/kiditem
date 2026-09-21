@@ -133,6 +133,14 @@ registered, and whether that has been verified. It does not answer how to sign
 in or how to fill a form — that is the extension's spec, keyed the same way.
 _Avoid_: mall registry, mall list
 
+**Registration execution**:
+The submission fence that sends one draft to one channel account at most once;
+owned by Channels. It freezes the reviewed payload and its hash, holds the
+idempotency key and the lease, and records what the provider answered
+([ADR-0014](../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+Filling a mall form without submitting does not open one.
+_Avoid_: registration run, sourcing execution
+
 **Source owner**:
 The single module that owns one external source's collection attempts,
 canonical facts, coverage manifests, current complete snapshot, and terminal

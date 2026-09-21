@@ -86,7 +86,8 @@ export type MallPreflightRule =
   | 'option_name_forbids_danpum'
   | 'charset_korean_english_only'
   | 'option_count_within_limit'
-  | 'profile_selected';
+  | 'profile_selected'
+  | 'out_of_stock';
 
 export type MallProfileField =
   | 'shipping'
@@ -167,6 +168,8 @@ const BASE_RULES: readonly MallPreflightRule[] = [
   // 잊어버리므로 기본에 둔다.
   'option_count_within_limit',
   'profile_selected',
+  // 품절은 몰 사정이 아니라 우리 재고 사실이다. 몰마다 켜게 두면 켜는 걸 잊는다.
+  'out_of_stock',
 ];
 
 const NO_SUPPORT: MallAdapterSupports = {

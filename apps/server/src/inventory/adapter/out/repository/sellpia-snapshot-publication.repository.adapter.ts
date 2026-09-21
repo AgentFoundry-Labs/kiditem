@@ -464,6 +464,9 @@ async function ensureCanonicalInventoryProducts(
       sku.name,
       ARRAY[]::text[],
       ARRAY[]::text[],
+      -- 이 깃발은 "지금 팔고 있다"(ABC·수익성이 읽는 뜻)이지 화면에 세울 기준이 아니다.
+      -- 몰 등록 매트릭스와 송신 전 점검은 살아 있는 SKU 로 행을 고르고 품절은 재고 0 으로
+      -- 세운다(KID-259). 여기 조건을 바꾸면 그 두 뜻이 다시 하나로 뭉친다.
       sku.is_active AND sku.current_stock > 0,
       NOW(),
       NOW()

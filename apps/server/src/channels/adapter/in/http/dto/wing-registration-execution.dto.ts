@@ -11,7 +11,7 @@ import {
   MinLength,
 } from 'class-validator';
 
-export class PrepareExternalWingRegistrationDto {
+export class PrepareWingRegistrationExecutionDto {
   @IsUUID()
   channelAccountId!: string;
 
@@ -37,7 +37,7 @@ export class PrepareExternalWingRegistrationDto {
   sellpiaQuantity?: number;
 }
 
-export class PreviewExternalWingRegistrationMatchDto {
+export class PreviewWingRegistrationMatchDto {
   @IsString()
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @MinLength(1)
@@ -51,7 +51,7 @@ export class PreviewExternalWingRegistrationMatchDto {
   itemName?: string;
 }
 
-export class ExternalWingEvidenceDto {
+export class RegistrationExecutionEvidenceDto {
   @IsObject()
   evidence!: Record<string, unknown>;
 }

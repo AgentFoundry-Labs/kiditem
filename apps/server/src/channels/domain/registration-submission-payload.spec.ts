@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  canonicalizeProductPreparationPayload,
-  freezeProductPreparationPayload,
-  hashProductPreparationPayload,
-} from './product-preparation-payload';
+  canonicalizeRegistrationSubmissionPayload,
+  freezeProductRegistrationPayload,
+  hashRegistrationSubmissionPayload,
+} from './registration-submission-payload';
 
 describe('product preparation submission payload', () => {
   it('sorts object keys recursively while preserving array order', () => {
-    const canonical = canonicalizeProductPreparationPayload({
+    const canonical = canonicalizeRegistrationSubmissionPayload({
       z: 1,
       nested: { second: true, first: 'a' },
       items: [{ y: 2, x: 1 }, 'tail'],
@@ -24,16 +24,16 @@ describe('product preparation submission payload', () => {
     const left = { payload: { name: 'Boots', price: 21900 }, account: 'wing' };
     const right = { account: 'wing', payload: { price: 21900, name: 'Boots' } };
     const expected = createHash('sha256')
-      .update(canonicalizeProductPreparationPayload(left))
+      .update(canonicalizeRegistrationSubmissionPayload(left))
       .digest('hex');
 
-    expect(hashProductPreparationPayload(left)).toBe(expected);
-    expect(hashProductPreparationPayload(right)).toBe(expected);
+    expect(hashRegistrationSubmissionPayload(left)).toBe(expected);
+    expect(hashRegistrationSubmissionPayload(right)).toBe(expected);
   });
 
   it('returns an immutable JSON-compatible snapshot and its matching hash', () => {
     const source = { listingPayload: { price: 21900, tags: ['kids', 'rain'] } };
-    const frozen = freezeProductPreparationPayload(source);
+    const frozen = freezeProductRegistrationPayload(source);
     source.listingPayload.price = 1;
 
     expect(frozen.payload).toEqual({
@@ -42,7 +42,7 @@ describe('product preparation submission payload', () => {
     expect(frozen.canonicalJson).toBe(
       '{"listingPayload":{"price":21900,"tags":["kids","rain"]}}',
     );
-    expect(frozen.hash).toBe(hashProductPreparationPayload(frozen.payload));
+    expect(frozen.hash).toBe(hashRegistrationSubmissionPayload(frozen.payload));
     expect(() => {
       (frozen.payload.listingPayload as { price: number }).price = 2;
     }).toThrow();
@@ -51,7 +51,7 @@ describe('product preparation submission payload', () => {
   it.each([Number.NaN, Number.POSITIVE_INFINITY, undefined, new Date()])(
     'rejects non-JSON values (%s)',
     (value) => {
-      expect(() => canonicalizeProductPreparationPayload({ value })).toThrow();
+      expect(() => canonicalizeRegistrationSubmissionPayload({ value })).toThrow();
     },
   );
 });

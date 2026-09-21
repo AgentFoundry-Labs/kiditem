@@ -689,6 +689,24 @@
         }
       ],
       "legacyReaders": []
+    },
+    {
+      "name": "Product registration execution",
+      "table": "product_registration_executions",
+      "prismaModel": "productRegistrationExecution",
+      "prismaType": "ProductRegistrationExecution",
+      "relationNames": [
+        "productRegistrationExecutions",
+        "requestedProductRegistrationExecutions"
+      ],
+      "reader": "apps/server/src/channels/read/registration-execution.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/registration-execution.repository.adapter.ts",
+          "reason": "Channels owns the submission fence: it creates, leases, reconciles and finalizes one execution per draft and channel account, and re-reads the rows it just wrote inside that transaction (ADR-0014)."
+        }
+      ],
+      "legacyReaders": []
     }
   ]
 }

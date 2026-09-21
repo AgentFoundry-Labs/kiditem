@@ -374,6 +374,60 @@ describe('ProductWorkspaceScreen', () => {
     ));
   });
 
+  /**
+   * 초안 행의 `status` 는 거울이다. 울타리가 이미 등록됐다고 하면 그 초안은 더 고칠 것이
+   * 아니다 — 거울을 믿고 계속 고치면 이미 마켓에 보낸 등록의 입력을 뒤에서 바꾼다.
+   */
+  it('⭐ stops editing a draft the registration fence already calls registered', async () => {
+    useProductDetailMock.mockReturnValue({
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          registrationState: 'registered',
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            channelAccountId: null,
+            sourceContentWorkspaceId: null,
+            channelListingId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
+      error: null,
+      isLoading: false,
+    });
+    apiClientPatchMock.mockResolvedValue({ ok: true });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
+
+    // 후보 자체에 저장한다. 보낸 등록의 준비 행은 건드리지 않는다.
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+      '/api/sourcing/candidates/candidate-1/basic-info',
+      { name: '수정 상품명', salePrice: 13900 },
+    ));
+    expect(apiClientPatchMock).not.toHaveBeenCalledWith(
+      '/api/sourcing/preparations/prep-1',
+      expect.anything(),
+    );
+  });
+
   it('⭐ saves mall register values on the candidate even while a draft preparation exists', async () => {
     // 송신 전 점검과 폼 채우기는 후보 manualBasics 를 읽는다. 준비에 넣으면 점검이 그 값을 못 본다.
     useProductDetailMock.mockReturnValue({

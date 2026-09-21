@@ -28,6 +28,8 @@ export interface PreflightProductRow {
   optionNames: string[];
   /** 이 상품에 이어진 수집상품의 `rawData.manualBasics` KC 입력값. 이어진 수집상품이 없으면 null. */
   kc: PreflightKc | null;
+  /** 발행된 셀피아 스냅샷의 재고. 재고 연결이 없으면 null(0 이 아니라 모른다). */
+  stock: number | null;
 }
 
 export interface PreflightProductQuery {
@@ -102,6 +104,6 @@ export interface MallPublishingRepositoryPort {
   ): Promise<{ rows: MallMatrixProductRow[]; total: number }>;
   /** 계정별 주문 건수. */
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]>;
-  /** 판매 가능한 상품 마스터 수. 허브 중앙 숫자다. */
-  countActiveMasterProducts(organizationId: string): Promise<number>;
+  /** 등록 현황 표에 서는 상품 마스터 수. 허브 중앙 숫자이고 표의 `total` 과 같은 집합이다. */
+  countVisibleMasterProducts(organizationId: string): Promise<number>;
 }
