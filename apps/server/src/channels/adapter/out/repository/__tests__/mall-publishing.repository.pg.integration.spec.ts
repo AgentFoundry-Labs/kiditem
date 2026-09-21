@@ -472,7 +472,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         ],
       });
       await prisma.channelListingOptionInventoryComponent.createMany({
-        data: options.slice(0, 2).map((option) => ({
+        data: options.map((option) => ({
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: option.id,
           masterProductId: product.id,

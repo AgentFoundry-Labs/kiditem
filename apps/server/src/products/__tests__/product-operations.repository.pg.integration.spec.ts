@@ -1392,20 +1392,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   it('sums views and cart adds over the covered days of a partial window while orders keep the whole window', async () => {
     const { product, listings } = await productWithWingListings('KI-TRAFFIC-PARTIAL-WINDOW', 1);
     const listing = listings[0]!;
-    const option = await prisma.channelListingOption.create({
-      data: {
+    const option = await prisma.channelListingOption.findFirstOrThrow({
+      where: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
-        externalOptionId: 'KI-TRAFFIC-PARTIAL-WINDOW-O-1',
       },
-    });
-    await prisma.channelListingOptionInventoryComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingOptionId: option.id,
-        masterProductId: product.id,
-        quantity: 1,
-      },
+      select: { id: true },
     });
     const dates = closedWindowDates(14);
     // Wing confirmed every day of the window except yesterday.
@@ -1705,6 +1697,21 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
         externalId: 'TRAFFIC-STATUS-1',
+      },
+    });
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'TRAFFIC-STATUS-1-O',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
+        masterProductId: product.id,
+        quantity: 1,
       },
     });
     const cutoff = productAbcEvidenceCutoff(new Date());

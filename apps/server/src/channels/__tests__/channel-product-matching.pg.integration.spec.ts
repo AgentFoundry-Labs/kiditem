@@ -20,8 +20,9 @@ import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/reposito
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { readListingProductIds } from '../read/listing-product-summary.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -421,11 +422,20 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   });
 
   it('isolates mapping generations by organization', async () => {
-    const testListing = await createListing({ masterProductId: (await createProduct(
+    const testProduct = await createProduct(
       'KI-ORG-TEST',
       'Test organization product',
-    )).id });
-    await createOption(testListing.id, { itemName: 'Test option' });
+    );
+    const testListing = await createListing({ masterProductId: testProduct.id });
+    const testOption = await createOption(testListing.id, { itemName: 'Test option' });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: testOption.id,
+        masterProductId: testProduct.id,
+        quantity: 1,
+      },
+    });
     const otherProduct = await prisma.masterProduct.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
@@ -443,11 +453,19 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         externalId: `OTHER-${randomUUID()}`,
       },
     });
-    await prisma.channelListingOption.create({
+    const otherOption = await prisma.channelListingOption.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         listingId: otherListing.id,
         externalOptionId: `OTHER-${randomUUID()}`,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelListingOptionId: otherOption.id,
+        masterProductId: otherProduct.id,
+        quantity: 1,
       },
     });
 
@@ -486,8 +504,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     })).rejects.toThrow();
 
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(oldGeneration);
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: product.id });
+    await expect(readListingProductIds(prisma as unknown as Prisma.TransactionClient, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [listing.id],
+    })).resolves.toEqual(new Map([[listing.id, product.id]]));
     expect(await prisma.channelListingOptionInventoryComponent.count({
       where: { channelListingOptionId: option.id },
     })).toBe(1);
@@ -541,8 +561,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       matchedListings: 2,
       configuredOptions: 2,
     });
-    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: target.id } }))
-      .toMatchObject({ masterProductId: product.id });
+    await expect(readListingProductIds(prisma as unknown as Prisma.TransactionClient, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [target.id],
+    })).resolves.toEqual(new Map([[target.id, product.id]]));
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: targetOption.id },
     })).resolves.toMatchObject({ masterProductId: sku.id, quantity: 2 });
@@ -559,7 +581,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(1n);
   });
 
-  it('configures a linked Wing option from its registered title and the stored Sellpia deduction quantity', async () => {
+  it('configures a Wing option from its registered title and the stored Sellpia deduction quantity', async () => {
     const product = await createProduct('KI-WING-ALIAS', 'Wing alias product');
     const sku = await createInventorySku('SKU-WING-ALIAS', 27, product.id);
     const snapshot = await prisma.sellpiaManualMatchSnapshot.create({
@@ -594,7 +616,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
       .resolves.toEqual({
         evaluatedListings: 1,
-        matchedListings: 0,
+        matchedListings: 1,
         configuredOptions: 1,
       });
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({

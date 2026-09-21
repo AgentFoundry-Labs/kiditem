@@ -354,7 +354,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       where: { id: inventory.id },
       data: { currentStock: 0 },
     });
-    const linkedListing = await setupChannelListing(prisma, {
+    await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: master.id,
       channel: 'coupang',
@@ -362,14 +362,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId: inventory.id,
       externalOptionId: 'VI-T-CONFIG-LINK',
     });
-    // The product↔listing identity is direct CONFIG. Recipe/inventory mapping
-    // can be missing and is reported separately as mapping attention.
-    await prisma.channelListingOptionInventoryComponent.deleteMany({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingOptionId: linkedListing.listingOptionId,
-      },
-    });
+    // The recipe is the CONFIG linkage. Inventory evidence and current stock
+    // affect availability metrics, but do not remove a valid product link.
 
     const withoutInventory = await service.getSummary(
       buildDashboardContext(),

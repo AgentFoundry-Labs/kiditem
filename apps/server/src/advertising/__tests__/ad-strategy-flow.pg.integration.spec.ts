@@ -1194,13 +1194,6 @@ describe('AdStrategy flow (PG integration)', () => {
         abcGrade: 'A',
         suffix: 'C4-MULTI',
       });
-      const earlierSku = await seedSourceProduct(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-C4-MULTI-EARLY',
-        name: 'Sellpia C4 MULTI EARLY',
-        currentStock: 100,
-        purchasePrice: 5000,
-      });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -1216,8 +1209,8 @@ describe('AdStrategy flow (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: earlierListingOption.id,
-          masterProductId: earlierSku.id,
-          quantity: 1,
+          masterProductId: a.master.id,
+          quantity: 2,
         },
       });
       // The ad fact lives in the target-day ledger; the listing-daily row is

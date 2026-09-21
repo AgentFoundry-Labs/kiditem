@@ -137,10 +137,8 @@ describe('MasterProduct historical references (PG integration)', () => {
       'purchase_order_items',
       'return_transfers',
       'rocket_purchase_confirmation_allocations',
-      'sellpia_manual_match_aliases',
       'sellpia_product_monthly_sales',
       'stock_transfers',
-      'supplier_products',
     ]);
 
     await prisma.masterProduct.delete({ where: { id: skuId } });

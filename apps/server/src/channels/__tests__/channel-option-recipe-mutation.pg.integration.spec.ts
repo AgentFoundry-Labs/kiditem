@@ -12,7 +12,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
-import type { PrismaClient } from '@prisma/client';
+import { readListingProductIds } from '../read/listing-product-summary.reader';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('Channels channel-option recipe mutation boundary (PG integration)', () => {
@@ -56,8 +57,10 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       conflictingChannelListingOptionIds: [],
       mappingChanged: true,
     });
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .resolves.toMatchObject({ masterProductId: product.id });
+    await expect(readListingProductIds(prisma as unknown as Prisma.TransactionClient, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [listing.id],
+    })).resolves.toEqual(new Map([[listing.id, product.id]]));
     await expect(readGeneration()).resolves.toBe(1n);
     const codedOptions = await prisma.channelListingOption.findMany({
       where: { id: { in: options.map(({ id }) => id) } },
@@ -108,8 +111,10 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       where: { channelListingOptionId: options[0]!.id },
       select: { masterProductId: true, quantity: true },
     })).resolves.toEqual([{ masterProductId: first.id, quantity: 3 }]);
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .resolves.toMatchObject({ masterProductId: null });
+    await expect(readListingProductIds(prisma as unknown as Prisma.TransactionClient, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [listing.id],
+    })).resolves.toEqual(new Map([[listing.id, first.id]]));
     await expect(readGeneration()).resolves.toBe(0n);
   });
 
@@ -254,8 +259,10 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       }],
     })).rejects.toThrow();
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
-    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .resolves.toMatchObject({ masterProductId: null });
+    await expect(readListingProductIds(prisma as unknown as Prisma.TransactionClient, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingIds: [listing.id],
+    })).resolves.toEqual(new Map([[listing.id, null]]));
     await expect(readGeneration()).resolves.toBe(maximum);
     expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: options[0]!.id } }))
       .toMatchObject({ kidItemCode: null });

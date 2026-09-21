@@ -273,8 +273,8 @@ describe('Statistics flow (PG integration)', () => {
     }
   });
 
-  it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
-    const { masterM1, masterM2, masterM1Code, masterM2Code, listingL1, listingL2 } = await seedStatisticsFixture();
+  it('products keeps mixed-source identity unassigned while preserving profitRate and single-source metadata', async () => {
+    const { masterM2, masterM2Code, listingL1, listingL2 } = await seedStatisticsFixture();
 
     const result = await service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
@@ -283,11 +283,11 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL1,
         externalId: 'TEST-EXT-L1',
         channelName: 'TEST L1',
-        masterId: masterM1,
-        masterCode: masterM1Code,
+        masterId: listingL1,
+        masterCode: 'TEST-EXT-L1',
         productName: 'TEST Master M1',
         category: '유아용품',
-        grade: 'A',
+        grade: null,
         thumbnailUrl: 'https://cdn/m1.jpg',
         totalRevenue: 32_000,
         netProfit: 15_000,
@@ -328,7 +328,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 11_000, productCount: 1 },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
+      { grade: 'N/A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
       { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, productCount: 1, adCost: 1_000 },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
@@ -698,7 +698,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
+      { grade: 'N/A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
       { grade: 'B', revenue: null, profit: null, count: null, productCount: null, adCost: null },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('partial');
@@ -715,7 +715,7 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 9_000, productCount: 1 },
     ]);
     expect(openGrades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'N/A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
       { grade: 'B', revenue: 15_000, profit: 9_000, count: 1, productCount: 1, adCost: 0 },
     ]);
     expect(periodBasisStatus(openCategories.basis!.revenue)).toBe('complete');
