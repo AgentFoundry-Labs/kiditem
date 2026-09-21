@@ -1,4 +1,5 @@
 import { hashRegistrationSubmissionPayload } from '../../../apps/server/src/channels/domain/registration-submission-payload';
+import type { ProductRegistrationExecution } from '@prisma/client';
 import type { DataMigration } from '../types';
 import { importLegacyExecution, importLegacyRegisteredExecution, type LegacyRegistrationDraft } from '../helpers/legacy-registration-execution';
 
@@ -34,6 +35,7 @@ export const consolidateRegistrationExecutionMigration: DataMigration = {
         `;
       }
       if (existing) {
+        assertSafeClosure(legacy, existing);
         // A stale mirror may omit newer execution facts, but conflicting
         // retained provider identity or frozen content cannot be discarded.
         for (const [legacyKey, canonical] of [
@@ -43,10 +45,19 @@ export const consolidateRegistrationExecutionMigration: DataMigration = {
           ['submission_key', existing.idempotencyKey],
           ['submission_payload_hash', existing.submissionPayloadHash],
           ['provider_submission_id', existing.providerSubmissionId],
+          ['submission_lease_token', existing.leaseToken],
         ] as const) {
           if (legacy[legacyKey] != null && legacy[legacyKey] !== canonical) {
             throw new Error(`Registration contraction found conflicting ${legacyKey} for preparation ${preparationId}.`);
           }
+        }
+        if (legacy.provider_outcome != null && legacy.provider_outcome !== 'not_attempted'
+          && legacy.provider_outcome !== existing.providerOutcome) {
+          throw new Error(`Registration contraction found conflicting provider_outcome for preparation ${preparationId}.`);
+        }
+        if (legacy.submission_lease_claimed_at != null
+          && new Date(String(legacy.submission_lease_claimed_at)).getTime() !== existing.leaseClaimedAt?.getTime()) {
+          throw new Error(`Registration contraction found conflicting submission lease time for preparation ${preparationId}.`);
         }
         if (legacy.registration_result != null
           && hashRegistrationSubmissionPayload(legacy.registration_result) !== hashRegistrationSubmissionPayload(existing.resultJson)) {
@@ -67,7 +78,9 @@ export const consolidateRegistrationExecutionMigration: DataMigration = {
       if (status === 'draft' && !hasProviderIdentity
         && legacy.review_payload_hash == null && legacy.submission_payload_json == null && legacy.submission_payload_hash == null
         && (legacy.provider_outcome == null || legacy.provider_outcome === 'not_attempted')) continue;
-      if (status === 'cancelled' && !hasProviderIdentity && legacy.submission_payload_json == null) continue;
+      if (status === 'cancelled' && !hasProviderIdentity && legacy.submission_payload_json == null
+        && legacy.review_payload_hash == null && legacy.submission_payload_hash == null
+        && (legacy.provider_outcome == null || ['not_attempted', 'definitive_failure'].includes(String(legacy.provider_outcome)))) continue;
       const draft: LegacyRegistrationDraft = {
         preparationId,
         sourceCandidateId: String(legacy.source_candidate_id ?? ''),
@@ -89,6 +102,7 @@ export const consolidateRegistrationExecutionMigration: DataMigration = {
       const execution = status === 'registered'
         ? await importLegacyRegisteredExecution(tx, draft, organizationId)
         : await importLegacyExecution(tx, draft, organizationId);
+      assertSafeClosure(legacy, execution);
       if (legacy.review_payload_hash != null && legacy.review_payload_hash !== execution.requestHash) {
         throw new Error(`Registration contraction found conflicting approval for preparation ${preparationId}.`);
       }
@@ -111,6 +125,21 @@ export const consolidateRegistrationExecutionMigration: DataMigration = {
     return { affectedRows: imported, details: { importedExecutions: imported } };
   },
 };
+
+/** A closed/archived draft must not release the account for another uncertain submission. */
+function assertSafeClosure(legacy: Record<string, unknown>, execution: ProductRegistrationExecution): void {
+  const closed = legacy.closed_at != null || legacy.is_deleted === true
+    || ['registered', 'cancelled'].includes(String(legacy.status))
+    || execution.status === 'cancelled';
+  const unresolved = ['prepared', 'executing', 'reconciling'].includes(execution.status)
+    || execution.providerOutcome === 'uncertain'
+    || (execution.status !== 'succeeded' && (
+      execution.providerSubmissionId !== null || execution.externalListingId !== null || execution.resultJson !== null
+    ));
+  if (closed && unresolved) {
+    throw new Error(`Closed registration preparation ${execution.productPreparationId} retains an unresolved execution; reconcile it before schema contraction.`);
+  }
+}
 
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;

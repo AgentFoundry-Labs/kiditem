@@ -29,7 +29,7 @@ model SupplierProduct {
   id              String   @id @default(uuid()) @db.Uuid
   organizationId  String   @map("organization_id") @db.Uuid
   supplierId      String   @map("supplier_id") @db.Uuid
-  masterProductId String?  @map("master_product_id") @db.Uuid
+  masterProductId String   @map("master_product_id") @db.Uuid
   supplyPrice     Int      @default(0) @map("supply_price")
   isPrimary       Boolean  @default(false) @map("is_primary")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz

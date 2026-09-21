@@ -7,19 +7,19 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 
 ## 주요 테이블 (PostgreSQL, snake_case)
 - orders / order_line_items: 주문·주문라인·실시간 손익 집계 원천
-- master_products / sellpia_inventory_skus / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 정규 상품, 물리 SKU, 채널 listing/option과 option별 소비 구성
+- master_products / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 원천 재고 상품·현재고, 채널 listing/option과 option별 원천 상품·수량 레시피
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·가격·아이템위너 fact
 - channel_ad_target_daily_snapshots: 광고 target-일 fact (계정 합계는 캠페인 sweep 행의 합)
 - master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
 - settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
-- sellpia_inventory_states / sellpia_inventory_skus / warehouses / stock_transfers / return_transfers: 물리 재고와 기록형 이관/반품 운영
+- sellpia_inventory_states / master_products / warehouses / stock_transfers / return_transfers: 원천 재고 수집 상태·현재고와 기록형 이관/반품 운영
 - alerts: 알림 (type, status, title, message, read_at)
 - organizations: 회사 (name — 현재 "거영" 1개)
 
 ## 분석 팁
 - 이번달: WHERE ordered_at >= date_trunc('month', now())
-- 주문 라인 상품 귀속: order_line_items.listing_option_id → channel_listing_options.id → channel_listing_option_inventory_components.channel_listing_option_id → sellpia_inventory_skus.id/master_product_id → master_products.id. organization-backed join마다 각 테이블의 organization_id가 order_line_items.organization_id와 같은지 함께 검증한다.
-- 한 option은 여러 component/Sellpia SKU/MasterProduct를 소비할 수 있으므로 component 행과 quantity를 보존해 집계한다. channel_listings.master_product_id는 모든 option이 한 상품으로 수렴할 때만 채워지는 listing 전체 요약이며 주문 라인 상품 소유권으로 사용하지 않는다.
+- 주문 라인 상품 귀속: order_line_items.listing_option_id → channel_listing_options.id → channel_listing_option_inventory_components.channel_listing_option_id 및 master_product_id → master_products.id. organization-backed join마다 각 테이블의 organization_id가 order_line_items.organization_id와 같은지 함께 검증한다.
+- 한 option은 여러 MasterProduct를 소비할 수 있으므로 component의 master_product_id와 quantity를 보존해 집계한다. listing 전체의 상품 요약은 모든 option 레시피가 하나의 원천 상품을 가리킬 때만 조회 시 계산한다. 별도 요약 컬럼은 없으며 이 요약을 주문 라인 상품 귀속으로 사용하지 않는다.
 - 채널 fact 조인: channel_listing_daily_snapshots.listing_id → channel_listings.id
 - 금액 포맷: 원 단위 정수
 - 비율: 소수 1자리 (예: 이익률 12.3%)

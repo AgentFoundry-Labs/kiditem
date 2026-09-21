@@ -260,6 +260,150 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
     });
   }, 60_000);
 
+  it('aborts a cancelled legacy submission with uncertain provider evidence', async () => {
+    await expect(prisma.$transaction(async (tx) => {
+      await createLegacyPreparationShadow(tx);
+      await insertLegacyRows(tx, [{
+        id: ACTIVE_PREPARATION_ID,
+        status: 'cancelled',
+        submissionKey: 'cancelled-uncertain-key',
+        submissionPayloadJson: ACTIVE_FROZEN.payload,
+        submissionPayloadHash: ACTIVE_FROZEN.hash,
+        providerOutcome: 'uncertain',
+        providerSubmissionId: null,
+        registrationResult: null,
+        lastError: 'provider timeout',
+        submissionLeaseToken: ACTIVE_LEASE_TOKEN,
+        submissionLeaseClaimedAt: UPDATED_AT,
+        channelListingId: null,
+      }]);
+      await consolidateRegistrationExecutionMigration.run(tx, { target: 'local' });
+    })).rejects.toThrow(/Closed registration preparation/);
+
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
+    expect(await prisma.productPreparation.count()).toBe(0);
+  }, 60_000);
+
+  it.each([
+    { label: 'cancelled', status: 'cancelled', isDeleted: false },
+    { label: 'archived', status: 'submitting', isDeleted: true },
+  ])('aborts an existing reconciling execution when the legacy draft is $label', async ({ status, isDeleted }) => {
+    await createCanonicalExecution({
+      id: EXISTING_EXECUTION_ID,
+      preparationId: EXISTING_PREPARATION_ID,
+      idempotencyKey: 'existing-key',
+      payload: EXISTING_FROZEN,
+      providerOutcome: 'uncertain',
+      status: 'reconciling',
+      providerSubmissionId: 'existing-provider',
+      resultJson: EXISTING_RESULT,
+      leaseToken: EXISTING_LEASE_TOKEN,
+    });
+    const canonicalBefore = await readExecution(EXISTING_PREPARATION_ID);
+
+    await expect(prisma.$transaction(async (tx) => {
+      await createLegacyPreparationShadow(tx);
+      await insertLegacyRows(tx, [{
+        id: EXISTING_PREPARATION_ID,
+        status,
+        isDeleted,
+        submissionKey: 'existing-key',
+        submissionPayloadJson: EXISTING_FROZEN.payload,
+        submissionPayloadHash: EXISTING_FROZEN.hash,
+        providerOutcome: 'uncertain',
+        providerSubmissionId: 'existing-provider',
+        registrationResult: EXISTING_RESULT,
+        lastError: null,
+        submissionLeaseToken: EXISTING_LEASE_TOKEN,
+        submissionLeaseClaimedAt: UPDATED_AT,
+        channelListingId: null,
+      }]);
+      await consolidateRegistrationExecutionMigration.run(tx, { target: 'local' });
+    })).rejects.toThrow(/Closed registration preparation/);
+
+    expect(await prisma.productRegistrationExecution.count()).toBe(1);
+    await expect(readExecution(EXISTING_PREPARATION_ID)).resolves.toEqual(canonicalBefore);
+  }, 60_000);
+
+  it('rolls back closure backfill when an open legacy draft meets a cancelled uncertain execution', async () => {
+    await createCanonicalExecution({
+      id: EXISTING_EXECUTION_ID,
+      preparationId: EXISTING_PREPARATION_ID,
+      idempotencyKey: 'cancelled-key',
+      payload: EXISTING_FROZEN,
+      providerOutcome: 'uncertain',
+      status: 'cancelled',
+      providerSubmissionId: null,
+      resultJson: null,
+      leaseToken: EXISTING_LEASE_TOKEN,
+    });
+    const canonicalBefore = await readExecution(EXISTING_PREPARATION_ID);
+
+    await expect(prisma.$transaction(async (tx) => {
+      await createLegacyPreparationShadow(tx);
+      await insertLegacyRows(tx, [{
+        id: EXISTING_PREPARATION_ID,
+        status: 'submitting',
+        isDeleted: false,
+        closedAt: null,
+        submissionKey: 'cancelled-key',
+        submissionPayloadJson: EXISTING_FROZEN.payload,
+        submissionPayloadHash: EXISTING_FROZEN.hash,
+        providerOutcome: 'uncertain',
+        providerSubmissionId: null,
+        registrationResult: null,
+        lastError: null,
+        submissionLeaseToken: EXISTING_LEASE_TOKEN,
+        submissionLeaseClaimedAt: UPDATED_AT,
+        channelListingId: null,
+      }]);
+      await consolidateRegistrationExecutionMigration.run(tx, { target: 'local' });
+    })).rejects.toThrow(/Closed registration preparation/);
+
+    expect(await prisma.productRegistrationExecution.count()).toBe(1);
+    await expect(readExecution(EXISTING_PREPARATION_ID)).resolves.toEqual(canonicalBefore);
+  }, 60_000);
+
+  it.each([
+    { label: 'provider outcome', leaseToken: null, leaseClaimedAt: null, error: /conflicting provider_outcome/ },
+    { label: 'lease token', leaseToken: ACTIVE_LEASE_TOKEN, leaseClaimedAt: UPDATED_AT, error: /conflicting submission_lease_token/ },
+  ])('rejects a canonical failed execution against a legacy uncertain $label', async ({ leaseToken, leaseClaimedAt, error }) => {
+    await createCanonicalExecution({
+      id: EXISTING_EXECUTION_ID,
+      preparationId: EXISTING_PREPARATION_ID,
+      idempotencyKey: 'failed-key',
+      payload: EXISTING_FROZEN,
+      providerOutcome: 'definitive_failure',
+      status: 'failed',
+      providerSubmissionId: null,
+      resultJson: null,
+      leaseToken: null,
+    });
+    const canonicalBefore = await readExecution(EXISTING_PREPARATION_ID);
+
+    await expect(prisma.$transaction(async (tx) => {
+      await createLegacyPreparationShadow(tx);
+      await insertLegacyRows(tx, [{
+        id: EXISTING_PREPARATION_ID,
+        status: 'submitting',
+        submissionKey: 'failed-key',
+        submissionPayloadJson: EXISTING_FROZEN.payload,
+        submissionPayloadHash: EXISTING_FROZEN.hash,
+        providerOutcome: 'uncertain',
+        providerSubmissionId: null,
+        registrationResult: null,
+        lastError: 'legacy uncertain outcome',
+        submissionLeaseToken: leaseToken,
+        submissionLeaseClaimedAt: leaseClaimedAt,
+        channelListingId: null,
+      }]);
+      await consolidateRegistrationExecutionMigration.run(tx, { target: 'local' });
+    })).rejects.toThrow(error);
+
+    expect(await prisma.productRegistrationExecution.count()).toBe(1);
+    await expect(readExecution(EXISTING_PREPARATION_ID)).resolves.toEqual(canonicalBefore);
+  }, 60_000);
+
   it('backfills approval hashes and rolls back an import on conflicting approval evidence', async () => {
     await createCanonicalExecution({
       id: CONFLICT_EXECUTION_ID,
@@ -523,7 +667,8 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
         ) VALUES (
           ${row.id}::uuid, ${TEST_ORGANIZATION_ID}::uuid,
           ${SOURCE_CANDIDATE_ID}::uuid, ${(row.channelAccountId ?? ACCOUNT_ID)}::uuid,
-          ${row.channelListingId}::uuid, ${row.status}, false, NULL, NULL,
+          ${row.channelListingId}::uuid, ${row.status}, ${row.isDeleted ?? false},
+          ${row.closedAt ?? null}, ${row.deletedAt ?? null},
           ${row.reviewPayloadHash}, ${row.submissionKey},
           ${payloadJson}::jsonb, ${row.submissionPayloadHash},
           ${row.providerOutcome}, ${row.providerSubmissionId},
@@ -615,4 +760,7 @@ type LegacyRow = {
   channelListingId: string | null;
   channelAccountId?: string;
   reviewPayloadHash?: string | null;
+  isDeleted?: boolean;
+  closedAt?: Date | null;
+  deletedAt?: Date | null;
 };

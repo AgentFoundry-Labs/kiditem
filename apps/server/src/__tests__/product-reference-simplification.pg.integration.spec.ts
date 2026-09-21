@@ -107,11 +107,11 @@ describe('v0.1.31:017 product reference simplification (PostgreSQL)', () => {
     await expectConfirmedRecipe(prisma);
   }, 60_000);
 
-  it('aborts before cleanup when a supplier product has no canonical master product', async () => {
+  it.each([null, MISSING_MASTER_ID, OTHER_MASTER_ID])('aborts before cleanup when a supplier product reference is invalid: %s', async (masterProductId) => {
     await expect(prisma.$transaction(async (tx) => {
       await createAliasShadow(tx);
       await insertAliasShadowRows(tx, [[UNMATCHED_ALIAS_ID, null, 'unmatched']]);
-      await createSupplierProductShadow(tx);
+      await createSupplierProductShadow(tx, masterProductId);
 
       await simplifyProductReferencesMigration.run(tx, { target: 'local' });
     })).rejects.toThrow(/Supplier product references must resolve/);
@@ -235,7 +235,7 @@ describe('v0.1.31:017 product reference simplification (PostgreSQL)', () => {
     }
   }
 
-  async function createSupplierProductShadow(tx: Prisma.TransactionClient): Promise<void> {
+  async function createSupplierProductShadow(tx: Prisma.TransactionClient, masterProductId: string | null): Promise<void> {
     await tx.$executeRaw`
       CREATE TEMPORARY TABLE supplier_products (
         organization_id uuid NOT NULL,
@@ -244,7 +244,7 @@ describe('v0.1.31:017 product reference simplification (PostgreSQL)', () => {
     `;
     await tx.$executeRaw`
       INSERT INTO supplier_products (organization_id, master_product_id)
-      VALUES (${TEST_ORGANIZATION_ID}::uuid, ${MISSING_MASTER_ID}::uuid)
+      VALUES (${TEST_ORGANIZATION_ID}::uuid, ${masterProductId}::uuid)
     `;
   }
 

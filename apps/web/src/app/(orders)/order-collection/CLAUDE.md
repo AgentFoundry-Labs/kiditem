@@ -19,8 +19,7 @@ convenience history.
   stamped on the run; they never compare a mall key. A source with its own
   owner, login or start screen answers inside its own adapter file.
 - Order collection, Sellpia transfer, and tracking upload results are Orders
-  facts. Never record them as `MallOperationOutcome` rows or read card numbers
-  from that log.
+  facts. Read their owner state; do not duplicate them in a mall observation log.
 - Collected files live in one browser store that several surfaces write to (this
   screen, the dashboard department button, the mall agent loop, another tab).
   Writers publish the change through `order-generated-file-store`, and screens
