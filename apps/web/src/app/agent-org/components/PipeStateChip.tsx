@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import { PIPE_STATE_LABEL, type PipeState } from '../lib/pipe-states';
+import { PIPE_STATE_LABEL, type PipeState } from '@/lib/agent-org/pipe-states';
 
 /**
  * 상태 한 칸 — 아이콘 + 글 + 선 모양. 색만으로 말하지 않는다.

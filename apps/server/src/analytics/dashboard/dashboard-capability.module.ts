@@ -1,3 +1,7 @@
+import { SellpiaProductSalesModule } from '../sellpia-product-sales/sellpia-product-sales.module';
+import { DashboardFindingsService } from './application/service/dashboard-findings.service';
+import { DashboardFindingsRepositoryAdapter } from './adapter/out/repository/dashboard-findings.repository.adapter';
+import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from './application/port/out/repository/dashboard-findings.repository.port';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
@@ -25,6 +29,7 @@ import { DashboardTrendService } from './application/service/dashboard-trend.ser
 import { DashboardCollectionsService } from './application/service/dashboard-collections.service';
 
 const repositoryAdapters = [
+  DashboardFindingsRepositoryAdapter,
   ProfitCalculationRepositoryAdapter,
   DashboardSalesRepositoryAdapter,
   DashboardTrendRepositoryAdapter,
@@ -34,6 +39,7 @@ const repositoryAdapters = [
 ];
 
 const repositoryPorts = [
+  { provide: DASHBOARD_FINDINGS_REPOSITORY_PORT, useExisting: DashboardFindingsRepositoryAdapter },
   { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
   { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
@@ -43,6 +49,7 @@ const repositoryPorts = [
 ];
 
 const dashboardServices = [
+  DashboardFindingsService,
   DashboardSalesService,
   DashboardAdService,
   DashboardInventoryService,
@@ -51,7 +58,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule],
+  imports: [SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

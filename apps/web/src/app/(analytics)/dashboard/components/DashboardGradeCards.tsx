@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Layers, Loader2, RefreshCw } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
   useProductAbcRecalculation,
@@ -13,6 +12,7 @@ import {
   DashboardBasisDisclosure,
   type DashboardMetricBasis,
 } from './DashboardDataBasis';
+import { HeadlineCard, type HeadlineMetric } from './DashboardHeadlineCards';
 import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 
 /**
@@ -27,7 +27,6 @@ type DashboardGradeCardsProps = Pick<
   DashboardInventorySummary,
   | 'gradeCount'
   | 'classifiedProductCount'
-  | 'abcStatusCount'
   | 'abcContributionProfit'
   | 'abcFormula'
 >;
@@ -35,9 +34,15 @@ type DashboardGradeCardsProps = Pick<
 const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
 export function DashboardGradeCards({
-  gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
-  basis, contributionBasis, refetchReads,
+  gradeCount, classifiedProductCount, unclassifiedProductCount, abcContributionProfit, abcFormula,
+  basis, unclassifiedBasis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
+  /** Optional for older dashboard fixtures; the API now publishes this count. */
+  unclassifiedProductCount?: number;
+  /** Products' dedicated evidence for the unclassified population. */
+  unclassifiedBasis?: DashboardMetricBasis | null;
+  /** Kept for existing callers; activation timestamps are not published by the current contract. */
+  asOf?: string | null;
   basis?: DashboardMetricBasis | null;
   contributionBasis?: DashboardMetricBasis | null;
   /** The dashboard reads this panel renders, refetched after a publication. */
@@ -48,80 +53,81 @@ export function DashboardGradeCards({
   const [feedback, setFeedback] = useState<ProductAbcRecalculationFeedback | null>(null);
   const refresh = useProductAbcRecalculation({ onFeedback: setFeedback, refetchReads });
   const gradeMeasured = basisHasValues(basis ?? null);
+  const unclassifiedMeasured = basisHasValues(unclassifiedBasis ?? null);
+
+  const profitOf = (grade: ProductAbcGrade) => (basisHasValues(contributionBasis ?? null)
+    ? `가중 영업이익 ${formatNumber(abcContributionProfit.amountByGrade[grade])}원`
+    : '가중 영업이익 미수집');
+  const gradeMetric = (grade: ProductAbcGrade): HeadlineMetric => ({
+    key: `abc${grade}`,
+    label: grade,
+    ariaLabel: `${grade}등급 — ${profitOf(grade)}`,
+    value: gradeMeasured ? formatNumber(gradeCount[grade]) : null,
+    unit: '개',
+    note: profitOf(grade),
+    href: `/product-hub?abcGrade=${grade}`,
+  });
 
   return (
-    <section
-      className="overflow-hidden rounded-xl border border-slate-200 bg-white"
-      aria-label="수익성 ABC 현황"
-    >
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-        <h2
-          className="text-sm font-semibold text-slate-900"
-          title={abcFormula ? `절대평가 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일` : '상품 관리에서 등급 새로고침을 실행하세요.'}
-        >
-          수익성 ABC
-        </h2>
-        <div className="flex items-center gap-1.5">
-          <DashboardBasisDisclosure
-            label="수익성 ABC 근거"
-            entries={[
-              { label: 'ABC 등급', basis },
-              { label: '가중 영업이익', basis: contributionBasis ?? null },
-            ]}
-            meaning={(
-              <AbcCriteria
-                formula={abcFormula}
-                contributionBasis={abcContributionProfit.basis}
-              />
-            )}
-          />
-          <button
-            type="button"
-            onClick={() => { setFeedback(null); refresh.mutate(); }}
-            disabled={refresh.isPending}
-            title="ABC 등급 다시 계산"
-            aria-label="ABC 등급 다시 계산"
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {refresh.isPending
-              ? <Loader2 size={11} className="animate-spin" />
-              : <RefreshCw size={11} />}
-            {refresh.isPending ? '계산 중' : '재계산'}
-          </button>
-        </div>
-      </header>
-
-      {/* Three grades, three cells. The two status cells that used to sit beside
-          them — 평가 대기 and 원천 확인 필요 — counted populations rather than
-          grades, and 원천 확인 필요 published the same number as the ABC 미분류
-          row in the attention rail two columns to the left. The rail is where a
-          count an operator has to act on belongs. */}
-      <div className="grid grid-cols-3 gap-px bg-slate-200">
-        {(['A', 'B', 'C'] as const).map(grade => (
-          <GradeCell
-            key={grade}
-            grade={grade}
-            count={gradeMeasured ? gradeCount[grade] : null}
-            total={gradeMeasured ? classifiedProductCount : null}
-            contribution={abcContributionProfit.amountByGrade[grade]}
-            contributionMeasured={basisHasValues(contributionBasis ?? null)}
-          />
-        ))}
-      </div>
-
-      {/* The panel says what the grades are now. Movement over seven days is a
-          different question and only half of it was ever actionable, so 하락
-          moved to the attention rail — beside the other counts someone has to go
-          act on — and 상승 is not published: nothing follows from it. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">
-        <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">
-          계산 완료 {gradeMeasured ? `${formatNumber(abcStatusCount.READY)}개` : '—'}
-        </Link>
-      </div>
+    <>
+      <HeadlineCard
+        title="수익성 ABC"
+        icon={Layers}
+        tone="emerald"
+        href="/product-hub"
+        hrefLabel="상품 관리"
+        titleHint={abcFormula ? `절대평가 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일` : '상품 관리에서 등급 새로고침을 실행하세요.'}
+        metrics={[
+          gradeMetric('A'),
+          gradeMetric('B'),
+          gradeMetric('C'),
+          {
+            key: 'abcUnclassified',
+            label: '미분류',
+            value: !unclassifiedMeasured || unclassifiedProductCount === undefined
+              ? null
+              : formatNumber(unclassifiedProductCount),
+            unit: '개',
+            note: '공식 ABC 근거가 아직 없는 상품',
+            href: '/product-hub?abcGrade=unclassified',
+          },
+          {
+            key: 'abcReady',
+            label: '계산 완료',
+            value: gradeMeasured ? formatNumber(classifiedProductCount) : null,
+            unit: '개',
+            note: '현재 ABC 등급이 발행된 상품',
+          },
+        ]}
+        headerRight={(
+          <>
+            <DashboardBasisDisclosure
+              label="수익성 ABC 근거"
+              entries={[
+                { label: 'ABC 등급', basis },
+                { label: '미분류 상품', basis: unclassifiedBasis ?? null },
+                { label: '가중 영업이익', basis: contributionBasis ?? null },
+              ]}
+              meaning={<AbcCriteria formula={abcFormula} contributionBasis={abcContributionProfit.basis} />}
+            />
+            <button
+              type="button"
+              onClick={() => { setFeedback(null); refresh.mutate(); }}
+              disabled={refresh.isPending}
+              title="ABC 등급 다시 계산"
+              aria-label="ABC 등급 다시 계산"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {refresh.isPending ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              {refresh.isPending ? '계산 중' : '재계산'}
+            </button>
+          </>
+        )}
+      />
       {feedback && (
         <p
           className={cn(
-            'border-t border-slate-200 px-4 py-2.5 text-xs',
+            'rounded-lg px-3 py-2 text-xs',
             feedback.tone === 'success' && 'bg-emerald-50 text-emerald-800',
             feedback.tone === 'warning' && 'bg-amber-50 text-amber-800',
             feedback.tone === 'error' && 'bg-red-50 text-red-800',
@@ -131,57 +137,10 @@ export function DashboardGradeCards({
           {feedback.message}
         </p>
       )}
-    </section>
+    </>
   );
 }
 
-function GradeCell({
-  grade,
-  count,
-  total,
-  contribution,
-  contributionMeasured,
-}: {
-  grade: ProductAbcGrade;
-  count: number | null;
-  total: number | null;
-  contribution: number;
-  contributionMeasured: boolean;
-}) {
-  const percent = count !== null && total !== null && total > 0
-    ? Math.round((count / total) * 100)
-    : 0;
-  const countLabel = count === null ? '미수집' : `${formatNumber(count)}개`;
-  return (
-    <Link
-      href={`/product-hub?abcGrade=${grade}`}
-      aria-label={`${grade}등급 ${GRADE_LABELS[grade]} ${countLabel} 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
-      title={`${GRADE_LABELS[grade]} · 가중 영업이익 ${contributionMeasured ? `${formatNumber(contribution)}원` : '미수집'}`}
-      className="bg-white px-4 py-3.5 text-center transition-colors hover:bg-slate-50"
-    >
-      <p className="text-xs font-semibold text-slate-500">{grade}</p>
-      <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">
-        {count === null ? '—' : formatNumber(count)}
-      </p>
-      <div className="mx-auto mt-0.5 h-1 w-full overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-violet-600')}
-          style={{ width: `${Math.min(percent, 100)}%` }}
-        />
-      </div>
-      <p className="mt-0.5 truncate text-[11px] text-slate-500">
-        {contributionMeasured ? `${formatNumber(contribution)}원` : '—'}
-      </p>
-    </Link>
-  );
-}
-
-
-/**
- * What decides a grade, read off the published formula rather than restated
- * here. A threshold written into the screen is a threshold that goes stale the
- * first time Products changes one, and the reader would have no way to tell.
- */
 function AbcCriteria({
   formula,
   contributionBasis,

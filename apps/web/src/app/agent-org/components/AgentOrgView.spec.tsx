@@ -1,9 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
-import type { ConfirmReportStatus } from '../lib/confirm-report-api';
-import { buildPipeSnapshot, type PipeInputs } from '../lib/pipe-model';
+import type { PipeConfirmChannel } from '@/hooks/use-confirm-report';
+import type { ConfirmReportStatus } from '@/lib/agent-org/confirm-report-api';
+import { buildPipeSnapshot, type PipeInputs } from '@/lib/agent-org/pipe-model';
 import { AgentOrgView } from './AgentOrgView';
 
 const NOW = Date.parse('2026-09-13T06:00:00.000Z');

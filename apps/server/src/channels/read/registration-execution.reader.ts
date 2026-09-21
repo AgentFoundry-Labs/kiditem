@@ -1,3 +1,4 @@
+import { findChannel } from '@kiditem/shared/channel-registry';
 import type { Prisma } from '@prisma/client';
 import { LIVE_REGISTRATION_EXECUTION_STATUSES } from '../domain/registration-execution-state';
 
@@ -142,4 +143,28 @@ export async function readPreparedRegistrationRecipes(
     select: { channelListingId: true, submissionPayloadJson: true, submissionPayloadHash: true, requestHash: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
+}
+
+/** One execution per preparation is enforced by the ledger's unique key. */
+export async function readRegistrationFailureCounts(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string },
+): Promise<Array<{ channel: string; mallName: string; count: number }>> {
+  const failed = await tx.productRegistrationExecution.findMany({
+    where: { organizationId: input.organizationId, status: 'failed' },
+    select: { channelAccountId: true },
+  });
+  if (failed.length === 0) return [];
+  const accounts = await tx.channelAccount.findMany({
+    where: { organizationId: input.organizationId, id: { in: [...new Set(failed.map((row) => row.channelAccountId))] } },
+    select: { id: true, channel: true },
+  });
+  const counts = new Map<string, { channel: string; mallName: string; count: number }>();
+  for (const row of failed) {
+    const account = accounts.find(({ id }) => id === row.channelAccountId);
+    if (!account) continue;
+    const previous = counts.get(account.channel);
+    counts.set(account.channel, { channel: account.channel, mallName: findChannel(account.channel)?.name ?? account.channel, count: (previous?.count ?? 0) + 1 });
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count || a.channel.localeCompare(b.channel));
 }

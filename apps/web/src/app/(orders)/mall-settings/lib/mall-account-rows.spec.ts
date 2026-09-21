@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OrderCollectionMallAccount } from '../../order-collection/lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import {
   buildMallAccountRows,
   draftFromAccount,

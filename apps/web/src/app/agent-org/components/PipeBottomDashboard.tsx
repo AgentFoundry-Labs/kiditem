@@ -11,16 +11,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import { cn, formatKRW, formatNumber, timeAgo } from '@/lib/utils';
-import { countAgentHealth, type PipeAgentHealth, type PipeAgentSummary } from '../lib/pipe-agents';
-
-export interface PipeBusiness {
-  sales: DashboardSalesSummary | null;
-  ad: DashboardAdSummary | null;
-  salesFailed: boolean;
-  adFailed: boolean;
-}
+import type { PipeAgentHealth } from '@/lib/agent-org/agent-status';
+import type { PipeBusiness } from '@/lib/agent-org/types';
+import { countAgentHealth, type PipeAgentSummary } from '../lib/pipe-agents';
 
 /** 억 · 만 단위로 줄인 원화. 모르면 '—'. */
 export function compactKrw(value: number | null | undefined): string {

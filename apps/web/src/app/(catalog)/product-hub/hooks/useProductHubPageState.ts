@@ -10,6 +10,7 @@ import {
   type ProductOperationsAdStatus,
   type ProductOperationsInventoryFocus,
   type ProductOperationsPeriodDays,
+  type ProductOperationsSort,
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -40,6 +41,10 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
+// Profit and margin are exposed by the shared API contract, but the current
+// monthly response has no cost basis, so the page cannot offer meaningful
+// client navigation for those URL values yet.
+const SORTS: readonly ProductOperationsSort[] = ['latest', 'revenue', 'sold', 'stock'];
 export function useProductHubPageState() {
   const pathname = usePathname();
   const router = useRouter();
@@ -51,6 +56,10 @@ export function useProductHubPageState() {
   const activeStatusParam = searchParams.get('activeStatus');
   const adStatusParam = searchParams.get('adStatus');
   const periodDaysParam = Number(searchParams.get('periodDays'));
+  const sortParam = searchParams.get('sort');
+  const sort: ProductOperationsSort = SORTS.includes(sortParam as ProductOperationsSort)
+    ? sortParam as ProductOperationsSort
+    : 'latest';
   const pageParam = Number(searchParams.get('page'));
   const inventoryStatus = INVENTORY_STATUSES.includes(
     inventoryStatusParam as ProductInventoryStatusFilter,
@@ -98,13 +107,14 @@ export function useProductHubPageState() {
       periodDays: String(periodDays),
       activeStatus,
       adStatus,
+      sort,
     });
     if (inventoryFocus !== 'all') params.set('inventoryFocus', inventoryFocus);
     else if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
     return params;
-  }, [abcGrade, activeStatus, adStatus, inventoryFocus, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, inventoryFocus, inventoryStatus, page, periodDays, sort, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -117,6 +127,7 @@ export function useProductHubPageState() {
     periodDays: String(periodDays),
     activeStatus: 'active',
     adStatus: 'all',
+    sort: 'latest',
   }), [periodDays]);
   const overviewQueryKeyParams = useMemo(
     () => Object.fromEntries(overviewParams.entries()),
@@ -227,6 +238,10 @@ export function useProductHubPageState() {
       updateListParams({ periodDays: String(value), page: '1' });
     },
     setSearch,
+    sort,
+    setSort: (value: ProductOperationsSort) => {
+      updateListParams({ sort: value === 'latest' ? undefined : value, page: '1' });
+    },
     totalPages: Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / PAGE_SIZE)),
   };
 }

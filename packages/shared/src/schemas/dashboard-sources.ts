@@ -17,6 +17,8 @@ export type DashboardSourceName =
   | 'product_abc'
   | 'channel_listings'
   | 'sellpia_inventory'
+  | 'sellpia_product_sales'
+  | 'channel_registrations'
   | 'alerts';
 
 /** Admitted order rows — `OrderLineItem` revenue and settlement costs. */
@@ -66,3 +68,8 @@ export const SELLPIA_INVENTORY_SOURCE = 'sellpia_inventory' satisfies DashboardS
 
 /** Alert rows published by the alert owner. */
 export const ALERTS_SOURCE = 'alerts' satisfies DashboardSourceName;
+
+/** Complete Sellpia monthly product sales publication. */
+export const SELLPIA_PRODUCT_SALES_SOURCE = 'sellpia_product_sales' satisfies DashboardSourceName;
+/** Channels registration execution ledger. */
+export const CHANNEL_REGISTRATIONS_SOURCE = 'channel_registrations' satisfies DashboardSourceName;

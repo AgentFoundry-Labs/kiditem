@@ -15,7 +15,7 @@ import {
   readActiveOrderCollectionAttempt,
   rememberActiveOrderCollectionAttempt,
 } from './order-collection-source-owner';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },

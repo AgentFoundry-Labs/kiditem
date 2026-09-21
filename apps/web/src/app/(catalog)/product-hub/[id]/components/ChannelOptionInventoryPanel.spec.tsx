@@ -45,12 +45,13 @@ const channelListings = [{
 }];
 
 describe('<ChannelOptionInventoryPanel />', () => {
-  it('shows direct Sellpia consumption and capacity for every channel option', () => {
+  it('shows MasterProduct recipe quantities and capacity for every channel option', () => {
     render(<ChannelOptionInventoryPanel channelListings={channelListings} />);
 
     expect(screen.getByRole('heading', { name: '채널 판매 옵션 · 재고 구성' })).toBeInTheDocument();
+    expect(screen.getByText('채널 옵션마다 구성할 MasterProduct와 수량을 Channels 레시피로 관리합니다.')).toBeInTheDocument();
     expect(screen.getByText('SP-100 · 동물 블록 낱개')).toBeInTheDocument();
-    expect(screen.getByText('현재 재고 85 · 차감 10')).toBeInTheDocument();
+    expect(screen.getByText('현재고 85 · 구성 수량 10')).toBeInTheDocument();
     expect(screen.getByText('판매 가능 8개')).toBeInTheDocument();
     expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
     expect(screen.getByText('판매 가능 미확정')).toBeInTheDocument();

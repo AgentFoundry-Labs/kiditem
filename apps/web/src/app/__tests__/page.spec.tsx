@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ZodError } from 'zod';
+import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { ApiError } from '@/lib/api-error';
 
 // Mock next/navigation BEFORE importing the page (page uses useRouter)
@@ -55,7 +56,9 @@ vi.mock('@/lib/api-client', async () => {
     ...actual,
     apiClient: {
       ...actual.apiClient,
-      getParsed: (path: string, schema: unknown) => getParsedMock(path, schema),
+      getParsed: (path: string, schema: unknown) => path === '/api/sourcing/trend/status'
+        ? Promise.resolve({ naver: { latestAttempt: null }, shorts: { latestAttempt: null } })
+        : getParsedMock(path, schema),
       get: (path: string) => getMock(path),
       patch: vi.fn(),
     },
@@ -199,9 +202,36 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
 
     expect(await screen.findByText('셀피아 재고 0')).toBeInTheDocument();
-    expect(screen.getByText('매칭 확인 필요')).toBeInTheDocument();
+    expect(within(screen.getByRole('table', { name: '경고 항목별 상태와 건수' }))
+      .getByText('매칭 확인 필요')).toBeInTheDocument();
     expect(screen.getByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeInTheDocument();
     expect(screen.getByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeInTheDocument();
+  });
+
+  it.each([null, 0, 7])('renders owner reorder count %s without inventing zero or recounting product rows', async (count) => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
+      if (path === '/api/dashboard/findings') return Promise.resolve({
+        productSalesCapturedAt: null,
+        salesDecline: { month: null, count: null, keyProductLimit: 30, items: [] },
+        reorderSuggestions: null,
+        reorderProductCount: count,
+        registrationFailures: { count: 0, byChannel: [] },
+        metricBasis: { reorderProductCount: buildSnapshotBasis({
+          asOf: count === null ? null : '2026-07-27',
+          requiredAsOf: '2026-07-27', observedAt: null,
+          sources: ['sellpia_inventory', 'sellpia_product_sales'], measured: count !== null,
+        }) },
+      });
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      return Promise.resolve(null);
+    });
+    renderPage();
+    const card = await screen.findByTestId('headline-stockSoon');
+    await waitFor(() => expect(card.querySelector('dd')?.textContent).toBe(count === null ? '—' : `${count}개`));
+    expect(getParsedMock.mock.calls.some(([path]) => path.startsWith('/api/products/masters'))).toBe(false);
   });
 
   it('never renders a client-derived revenue goal when the server publishes none', async () => {
@@ -336,7 +366,7 @@ describe('Dashboard page (RTL)', () => {
     // borrows the no-data wording. The alerts panel is no longer among them: it
     // now carries the retry, so replacing it would strand the only way back.
     const unavailable = screen.getAllByTestId('dashboard-section-unavailable');
-    expect(unavailable.map((section) => section.getAttribute('data-section')))
+    expect(unavailable.map((section) => section.getAttribute('data-section')).sort())
       .toEqual(['경고', '수익성 ABC']);
     unavailable.forEach((section) => {
       expect(section).toHaveTextContent('읽기 실패');

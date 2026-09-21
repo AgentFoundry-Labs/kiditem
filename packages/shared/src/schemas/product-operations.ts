@@ -87,7 +87,11 @@ export type ProductOperationsAbcCalculationStatusFilter = z.infer<
   typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
 
+export const ProductOperationsSortSchema = z.enum(['latest', 'revenue', 'stock', 'sold']);
+export type ProductOperationsSort = z.infer<typeof ProductOperationsSortSchema>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
+  sort: ProductOperationsSortSchema.default('latest'),
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
   query: z.string().trim().min(1).max(200).optional(),
@@ -171,6 +175,8 @@ export const ProductDepletionProjectionSchema = z.object({
   coverage: z.enum(['ready', 'shared', 'no_direct_sales']),
   needsReorder: z.boolean(),
   reorderSkuCount: z.number().int().nonnegative(),
+  monthlyOutflow: z.number().nonnegative().nullable(),
+  outflowMonthCount: z.number().int().nonnegative(),
   minMonthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
 }).strict();
 export type ProductDepletionProjection = z.infer<
@@ -229,9 +235,23 @@ export type ProductOperationsDataStatus = z.infer<
   typeof ProductOperationsDataStatusSchema
 >;
 
+/** Current KST-month source facts; source coverage is distinct from current stock and ABC cutoff. */
+export const ProductMonthlySalesSchema = z.object({
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  revenue: z.number().finite(),
+  soldQuantity: z.number().finite(),
+  cost: z.number().finite().nullable(),
+  grossProfit: z.number().finite().nullable(),
+  grossMarginRate: z.number().finite().nullable(),
+  coverageStartDate: zIsoDate,
+  coverageEndDate: zIsoDate,
+}).strict();
+export type ProductMonthlySales = z.infer<typeof ProductMonthlySalesSchema>;
+
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
     isSelling: z.boolean(),
+    monthly: ProductMonthlySalesSchema.nullable(),
     updatedAt: zIsoDate,
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,

@@ -36,6 +36,7 @@ import { buildDashboardContext } from '../domain/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
@@ -56,6 +57,10 @@ import { seedAd } from '../../../test-helpers/finance-seeds';
 
 const WING_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
 const VENDOR_ID = 'VENDOR-AGREEMENT';
+
+const EMPTY_PRODUCT_ABC_READ = {
+  readAbc: async () => ({ products: [] }),
+};
 
 /**
  * Collection always starts on 1 August, so the previous calendar month is a
@@ -135,6 +140,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
+        { provide: PRODUCT_ABC_READ_PORT, useValue: EMPTY_PRODUCT_ABC_READ },
         { provide: PrismaService, useValue: prisma },
         {
           provide: PROFIT_CALCULATION_REPOSITORY_PORT,

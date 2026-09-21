@@ -14,6 +14,7 @@ import { DashboardInventoryService } from '../../analytics/dashboard/application
 import { buildDashboardContext } from '../../analytics/dashboard/domain/context';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
@@ -121,6 +122,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductTransactionalReadRepositoryAdapter(),
       ),
       { readContribution: async () => null } as never,
+      new SellpiaMasterProductProfitFactReader(prismaService),
     );
   });
 

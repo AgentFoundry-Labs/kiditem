@@ -9,7 +9,7 @@ import {
 } from '@/lib/mall-login-block';
 import { MallAccountGroups, type MallCardCollection } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 function account(

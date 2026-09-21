@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
-import type { PipeFeedEntry, PipeInboxItem } from '../lib/pipe-model';
-import { PIPE_STAGE_BY_ID } from '../lib/pipe-stages';
-import type { PipeState } from '../lib/pipe-states';
+import type { PipeFeedEntry, PipeInboxItem } from '@/lib/agent-org/pipe-model';
+import { PIPE_STAGE_BY_ID } from '@/lib/agent-org/pipe-stages';
+import type { PipeState } from '@/lib/agent-org/pipe-states';
 import { PipeStateChip } from './PipeStateChip';
 
 const INBOX_LIMIT = 6;

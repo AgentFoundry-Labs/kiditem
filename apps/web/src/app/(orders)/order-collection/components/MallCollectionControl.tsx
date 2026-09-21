@@ -6,7 +6,7 @@ import { useCollectionSourceControl } from '@/hooks/use-collection-source-contro
 import type { MallCardCollection } from './MallAccountGroups';
 import type { MallOrderCollectionSourceList } from '../lib/mall-order-collection-source';
 import type { OrderCollectionSourceAdapter } from '../lib/order-collection-source-adapter';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 /**
  * 카드가 들고 오는 어댑터. 몰은 화면 하나가 함께 읽는 목록을 보지만, 쿠팡 직배송은

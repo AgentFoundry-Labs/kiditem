@@ -64,14 +64,14 @@ vi.mock('./art09-orders-api', () => ({
   collectArt09OrdersFromExtension: mocks.collectArt09,
   convertArt09ToSellpiaFile: mocks.convertArt09,
 }));
-vi.mock('./order-mall-account-api', () => ({
+vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
 }));
 
 import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
 import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { createBrowserMallCollector } from './browser-mall-collection';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const RUN = {
   attemptId: '11111111-1111-4111-8111-111111111111',

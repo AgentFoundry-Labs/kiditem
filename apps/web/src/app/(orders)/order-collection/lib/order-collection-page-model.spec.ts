@@ -15,7 +15,7 @@ import {
   todayYmd,
 } from './order-collection-page-model';
 import { COUPANG_DIRECT_MALL_KEY } from './coupang-directship-collection-source';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function generatedFile(overrides: Partial<StoredOrderCollectionFile>): StoredOrderCollectionFile {

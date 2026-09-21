@@ -19,7 +19,7 @@ import {
   type MallAccountDraft,
 } from "../lib/order-collection-page-model";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
-import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
+import type { OrderCollectionMallAccount } from "@/lib/order-mall-account-api";
 import type { FailedMallReason } from "../hooks/use-order-activity-events";
 import { MallAccountGroups, type MallCardCollection } from "./MallAccountGroups";
 

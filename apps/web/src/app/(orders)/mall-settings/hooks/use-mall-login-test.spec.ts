@@ -6,7 +6,7 @@ const accounts = vi.hoisted(() => ({ password: vi.fn(), list: vi.fn() }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 vi.mock('../../order-collection/lib/order-collection-extension', () => extension);
-vi.mock('../../order-collection/lib/order-mall-account-api', () => ({ orderMallAccountApi: accounts }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: accounts }));
 
 import {
   getMallLoginBlocks,

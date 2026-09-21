@@ -59,7 +59,8 @@ describe('DashboardGradeCards', () => {
       expect(cell).toHaveAccessibleName(/미수집/);
       expect(cell).toHaveTextContent(`${grade}—`);
     }
-    expect(screen.getByRole('link', { name: '계산 완료 —' })).toBeInTheDocument();
+    expect(screen.getByTestId('headline-abcReady')).toHaveTextContent('계산 완료');
+    expect(screen.getByTestId('headline-abcReady')).toHaveTextContent('—');
     expect(screen.queryByText('평가 대기')).not.toBeInTheDocument();
     expect(screen.queryByText('원천 확인 필요')).not.toBeInTheDocument();
     // Which calculation produced these grades identifies the panel; it is not
@@ -77,6 +78,21 @@ describe('DashboardGradeCards', () => {
       `절대평가 v${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version} · 반감기 ${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.halfLifeDays}일`,
     );
     expect(screen.queryByText(/활성화|Invalid Date/)).not.toBeInTheDocument();
+  });
+
+  it('shows the unclassified population with its dedicated Products basis', () => {
+    render(
+      <DashboardGradeCards
+        {...summary}
+        unclassifiedProductCount={6}
+        unclassifiedBasis={unavailableAbcBasis}
+        refetchReads={async () => {}}
+      />,
+      { wrapper },
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '수익성 ABC 근거 안내' }));
+    expect(screen.getByText('미분류 상품')).toBeInTheDocument();
   });
 
   it('withholds contribution without its basis and discloses the owner publication when measured', () => {

@@ -7,6 +7,7 @@ describe('ProductInfoCards', () => {
     render(<ProductInfoCards product={product()} onOpenAbcDetail={() => undefined} />);
     expect(screen.getByText('상품 코드')).toBeInTheDocument();
     expect(screen.getByText('KID00000100')).toBeInTheDocument();
+    expect(screen.getByText('현재고는 이 MasterProduct에 저장된 최신 수량입니다.')).toBeInTheDocument();
     for (const label of ['카테고리', '브랜드', '광고 설정', '광고 예산 한도', '손익 태그']) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }

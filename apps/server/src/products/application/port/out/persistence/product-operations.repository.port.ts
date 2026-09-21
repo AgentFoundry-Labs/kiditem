@@ -52,6 +52,7 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'abcEvaluation'
   | 'contribution'
   | 'depletion'
+  | 'monthly'
   | 'displayImageUrls'
   | 'channelOptionSummary'
   | 'inventoryUnits'

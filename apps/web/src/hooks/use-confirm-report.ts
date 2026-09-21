@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { confirmReportApi, type ConfirmReportStatus } from '../lib/confirm-report-api';
+import { confirmReportApi, type ConfirmReportStatus } from '@/lib/agent-org/confirm-report-api';
 
 /** 텔레그램 답장은 서버가 받아 최종 선택에 쓴다. 화면은 이 간격으로 결정 수를 다시 읽는다. */
 const STATUS_POLL_MS = 20_000;

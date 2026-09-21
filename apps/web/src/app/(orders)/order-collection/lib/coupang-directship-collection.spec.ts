@@ -23,7 +23,7 @@ vi.mock('./order-collection-extension', () => ({
   detectOrderCollectionSessionExtension: mocks.detectExtension,
   ensureMallLoggedInViaExtension: mocks.ensureLogin,
 }));
-vi.mock('./order-mall-account-api', () => ({
+vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
 }));
 vi.mock('./coupang-directship-api', () => ({
@@ -40,7 +40,7 @@ import {
 import type { ConversionHistoryItem } from './order-collection-page-model';
 import type { CoupangDirectData } from './coupang-directship-api';
 import { COUPANG_DIRECT_MALL_KEY } from './coupang-directship-collection-source';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const ROCKET_CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 

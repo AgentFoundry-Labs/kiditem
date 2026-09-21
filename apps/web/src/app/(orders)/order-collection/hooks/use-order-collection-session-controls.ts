@@ -36,7 +36,7 @@ import {
   type CoupangDirectOwnerAttempt,
   type CoupangDirectOwnerAttemptControl,
 } from '../lib/coupang-directship-source-owner';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const UNMAPPED_RESTART_MESSAGE =
   '이 작업은 주문 수집 계정과 연결되지 않아 이 화면에서 자동 재실행할 수 없습니다. 원래 실행 화면에서 다시 시작해주세요.';

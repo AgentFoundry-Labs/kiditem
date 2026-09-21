@@ -78,7 +78,7 @@ import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
   type UpdateOrderCollectionMallAccountInput,
-} from '../lib/order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import {
   runSellpiaPostProcess,
   type GeneratedTrackingArtifact,

@@ -2,7 +2,7 @@ import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
 import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 export type ConversionState = 'idle' | 'ready' | 'converting' | 'success' | 'error';
 export type ConversionHistoryItem = StoredOrderCollectionFile;

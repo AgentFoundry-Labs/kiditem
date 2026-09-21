@@ -41,6 +41,27 @@ function inventoryTransactionalRead() {
   return { readSourceIdentities: vi.fn().mockResolvedValue([]) } as never;
 }
 
+function productAbcRead() {
+  return {
+    readAbc: vi.fn().mockImplementation(async (input: {
+      organizationId: string;
+      masterProductIds: readonly string[];
+    }) => {
+      const publication = await mockedReadProductAbcPublication({} as never, input);
+      return {
+        products: publication.products.map((product) => ({
+          masterProductId: product.masterProductId,
+          contributionEligible: product.contributionEligible,
+          abc: {
+            abcGrade: product.evaluation?.abcGrade ?? null,
+            evaluation: product.evaluation,
+          },
+        })),
+      };
+    }),
+  } as never;
+}
+
 /**
  * The ranking settles profit through `buildPerListingProfit`, whose own
  * behavior is proved against PostgreSQL in its spec and in the dashboard sales
@@ -195,6 +216,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
         },
       ]),
       inventoryTransactionalRead(),
+      productAbcRead(),
     );
     mockedReadProductAbcPublication.mockResolvedValue({
       currentFormulaRevision: 1,
@@ -239,6 +261,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           },
         ]),
         inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const result = await repository.fetchTopProducts(
@@ -282,6 +305,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           },
         ]),
         inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
@@ -304,7 +328,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -329,7 +353,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead());
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
       const settled = vi
         .spyOn(
           repository as unknown as {
@@ -366,6 +390,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           },
         ]),
         inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);

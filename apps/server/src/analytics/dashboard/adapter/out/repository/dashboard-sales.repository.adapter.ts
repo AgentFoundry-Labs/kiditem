@@ -1,3 +1,4 @@
+import { PRODUCT_ABC_READ_PORT, type ProductAbcReadPort } from '../../../../../products/application/port/in/product-abc-read.port';
 import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -6,7 +7,6 @@ import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
-import { readProductAbcPublication } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
@@ -47,6 +47,8 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
   ) {}
 
   /**
@@ -80,8 +82,8 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
   /**
    * Top-N (10) listing revenue ranking for the calendar month. Revenue is
    * grouped by ChannelListing so a bundle line is counted once regardless of
-   * how many Sellpia components its option consumes. Product labels and grade
-   * come from the listing's direct operational-product link.
+   * how many source products its option consumes. Source product identity is
+   * derived from option recipes; its retained official grade comes from Products.
    *
    * Revenue comes from the canonical Orders reader, which is the only read that can see a Rocket
    * line. Profit comes from `buildPerListingProfit` — the same helper
@@ -94,10 +96,22 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     monthStart: Date,
     monthEnd: Date,
   ): Promise<TopProduct[]> {
-    return this.prisma.$transaction(
+    const rows = await this.prisma.$transaction(
       (tx) => this.fetchTopProductsSnapshot(tx, organizationId, monthStart, monthEnd),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+    const ids = [...new Set(rows.flatMap((row) => row.masterProductId ? [row.masterProductId] : []))];
+    const snapshot = ids.length ? await this.productAbc.readAbc({ organizationId, masterProductIds: ids }) : null;
+    const byId = new Map(snapshot?.products.map((row) => [row.masterProductId, row.abc]) ?? []);
+    return rows.map((row) => {
+      const abc = row.masterProductId ? byId.get(row.masterProductId) ?? null : null;
+      return {
+        ...row,
+        abc,
+        grade: abc?.abcGrade ?? null,
+        abcEvaluation: abc?.evaluation ?? null,
+      } satisfies TopProduct;
+    });
   }
 
   private async fetchTopProductsSnapshot(
@@ -216,19 +230,6 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
             monthStart,
             monthEnd,
           );
-    const abc = await readProductAbcPublication(tx, {
-      organizationId,
-      masterProductIds: rows.flatMap((row) =>
-        row.masterProductId ? [row.masterProductId] : [],
-      ),
-    });
-    const evaluationByProductId = new Map(
-      abc.products.map((product) => [
-        product.masterProductId,
-        product.evaluation,
-      ]),
-    );
-
     return rows.map((r) => {
       const revenue = r.revenue;
       // A row with no listing has nothing to look up, and a listing the helper
@@ -236,15 +237,13 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       const measured = r.listingId
         ? (profitByListing.get(r.listingId) ?? null)
         : null;
-      const abcEvaluation = r.masterProductId
-        ? (evaluationByProductId.get(r.masterProductId) ?? null)
-        : null;
       return {
         id: r.id,
+        masterProductId: r.masterProductId,
         name: r.name,
         organization: r.organization ?? "미지정",
-        grade: abcEvaluation?.abcGrade ?? null,
-        abcEvaluation,
+        grade: null,
+        abcEvaluation: null,
         revenue,
         netProfit: measured?.netProfit ?? null,
         profitRate: measured?.profitRate ?? null,

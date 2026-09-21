@@ -120,6 +120,9 @@ export const queryKeys = {
     // When each collection last completed (range-agnostic)
     collections: () =>
       [...queryKeys.dashboard.all, 'collections'] as const,
+    // Read-only findings assembled by the dashboard owner.
+    findings: () =>
+      [...queryKeys.dashboard.all, 'findings'] as const,
     // Trend — keyed by the window it asked for, so a selected range does not
     // read the rolling window's cache.
     trend: (range: string, from?: string, to?: string) =>

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ProductOperationsSortSchema,
   ProductInventoryStatusSchema,
   ProductOperationsActiveStatusSchema,
   ProductOperationsAdStatusSchema,
@@ -30,6 +31,9 @@ export class ProductOperationsDataStatusQueryDto {
 }
 
 export class ProductOperationsListQueryDto {
+  @IsIn(ProductOperationsSortSchema.options)
+  sort: (typeof ProductOperationsSortSchema.options)[number] = 'latest';
+
   @Type(() => Number)
   @IsInt()
   @IsPositive()

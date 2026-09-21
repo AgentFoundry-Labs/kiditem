@@ -18,6 +18,8 @@ describe('product operations inventory mapper', () => {
       }]]),
       {
         coverage: 'ready',
+        monthlyOutflow: 25,
+        outflowMonthCount: 2,
         needsReorder: true,
         reorderSkuCount: 1,
         minMonthsOfAvailableStockLeft: 0.2,
@@ -46,6 +48,8 @@ describe('product operations inventory mapper', () => {
       new Map(),
       {
         coverage: 'no_direct_sales',
+        monthlyOutflow: null,
+        outflowMonthCount: 0,
         needsReorder: false,
         reorderSkuCount: 0,
         minMonthsOfAvailableStockLeft: null,
@@ -65,6 +69,8 @@ describe('product operations inventory mapper', () => {
       new Map(),
       {
         coverage: 'no_direct_sales',
+        monthlyOutflow: null,
+        outflowMonthCount: 0,
         needsReorder: false,
         reorderSkuCount: 0,
         minMonthsOfAvailableStockLeft: null,

@@ -10,7 +10,7 @@ import {
   mallRejectedCredentials,
 } from '@/lib/mall-login-block';
 import { testMallLoginViaExtension } from '../../order-collection/lib/order-collection-extension';
-import { orderMallAccountApi } from '../../order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 
 export type MallLoginTestOutcome =
   /** 저장된 값을 입력하고 로그인 버튼을 눌렀고, 누른 뒤 로그인 화면이 사라졌다. */

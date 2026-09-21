@@ -24,7 +24,7 @@ import {
   type ConversionHistoryItem,
 } from './order-collection-page-model';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 interface UploadTrackingOptions {
   account: OrderCollectionMallAccount;

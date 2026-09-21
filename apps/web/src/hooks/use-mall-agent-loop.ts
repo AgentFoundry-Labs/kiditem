@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { orderMallAccountApi } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import {
   getMallAgentLoopServerState,
   getMallAgentLoopState,

@@ -1,4 +1,4 @@
-import type { OrderCollectionMallAccount } from '../../order-collection/lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { mallCapabilities, mallReadiness, type MallReadiness } from './mall-capabilities';
 
 export interface MallAccountRowDraft {

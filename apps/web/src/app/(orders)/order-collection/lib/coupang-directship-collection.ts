@@ -21,7 +21,7 @@ import type {
   CoupangDirectPo,
   CoupangTransport,
 } from './coupang-directship-api';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 /**
  * 입고예정일 달력이 고른 것. 달력을 거치지 않은 수집은 선택 없이 전량을 가져온다.

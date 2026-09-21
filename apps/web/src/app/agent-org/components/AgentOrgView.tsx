@@ -4,12 +4,13 @@ import { useMemo, useState, useSyncExternalStore } from 'react';
 import { ChevronLeft, PanelLeft, PanelRight, Radio } from 'lucide-react';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import { cn, formatNumber } from '@/lib/utils';
-import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
+import type { PipeConfirmChannel } from '@/hooks/use-confirm-report';
 import type { CanvasInsets } from '../hooks/use-canvas-view';
 import { buildPipeAgents } from '../lib/pipe-agents';
 import { DIAGRAM_AGENT_BY_ID, DIAGRAM_NODES, type DiagramAgentId } from '../lib/pipe-diagram-layout';
-import type { PipeSnapshot } from '../lib/pipe-model';
-import { PipeBottomDashboard, type PipeBusiness } from './PipeBottomDashboard';
+import type { PipeSnapshot } from '@/lib/agent-org/pipe-model';
+import type { PipeBusiness } from '@/lib/agent-org/types';
+import { PipeBottomDashboard } from './PipeBottomDashboard';
 import { PipeDiagram } from './PipeDiagram';
 import {
   ACTIVITY_PANEL_WIDTH,

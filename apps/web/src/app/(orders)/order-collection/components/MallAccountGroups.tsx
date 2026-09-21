@@ -16,7 +16,7 @@ import {
   isBrowserCollectableMall,
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 /** 한 몰 카드가 자기 수집 컨트롤에서 받아 쓰는 것. */

@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOrderAutoDetect } from './use-order-auto-detect';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 

@@ -55,6 +55,7 @@ describe('useProductHubPageState', () => {
     expect(result.current.inventoryFocus).toBe('imminent');
     expect(result.current.activeStatus).toBe('inactive');
     expect(result.current.periodDays).toBe(7);
+    expect(result.current.sort).toBe('latest');
     expect(result.current).not.toHaveProperty('category');
     expect(result.current.abcGrade).toBe('A');
     expect(result.current.dataStatusOpen).toBe(true);
@@ -116,6 +117,28 @@ describe('useProductHubPageState', () => {
     expect(result.current.overviewData).toBe(overviewData);
   });
 
+  it('keeps the global overview summary independent when the list sort changes', () => {
+    navigation.params = new URLSearchParams('sort=revenue');
+    const listData = { total: 3, summary: { abcGradeCounts: { A: 1, B: 2, C: 0, unclassified: 0 } } };
+    vi.mocked(useQuery).mockImplementation((options) => {
+      const params = options.queryKey.at(-1) as Record<string, string>;
+      const isOverview = params.limit === '1';
+      return {
+        data: isOverview ? undefined : listData,
+        error: null,
+        isFetching: false,
+        isLoading: false,
+        isPlaceholderData: false,
+        refetch: isOverview ? refetchMocks.overview : refetchMocks.list,
+      } as unknown as ReturnType<typeof useQuery>;
+    });
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect((vi.mocked(useQuery).mock.calls[1]?.[0] as { enabled?: boolean }).enabled).toBe(false);
+    expect(result.current.overviewData).toBe(listData);
+  });
+
   it('updates only owned list parameters and preserves the workspace view', () => {
     navigation.params = new URLSearchParams('view=list&campaign=summer&page=3');
     const { result } = renderHook(() => useProductHubPageState());
@@ -161,6 +184,7 @@ describe('useProductHubPageState', () => {
         inventoryFocus: 'attention',
         adStatus: 'unconfigured',
         query: '우산',
+        sort: 'latest',
         abcGrade: 'B',
       },
     ]);
@@ -192,6 +216,7 @@ describe('useProductHubPageState', () => {
         periodDays: '7',
         activeStatus: 'active',
         adStatus: 'all',
+        sort: 'latest',
       },
     ]);
     expect(overviewOptions.queryFn.toString()).toContain('/api/products/masters');
@@ -207,6 +232,26 @@ describe('useProductHubPageState', () => {
     navigation.params = new URLSearchParams('view=list&dataStatus=abc&page=4');
     act(() => result.current.setAbcGrade('unclassified'));
     expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&abcGrade=unclassified&page=1');
+  });
+
+  it('keeps sort in the URL and resets pagination when it changes', () => {
+    navigation.params = new URLSearchParams('page=4');
+    const { result } = renderHook(() => useProductHubPageState());
+
+    act(() => result.current.setSort('revenue'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?page=1&sort=revenue');
+
+    navigation.params = new URLSearchParams('sort=revenue&page=2');
+    act(() => result.current.setSort('latest'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?page=1');
+  });
+
+  it.each(['unknown', 'profit', 'margin'])('falls back to latest for an unsupported URL sort: %s', (sort) => {
+    navigation.params = new URLSearchParams(`sort=${sort}`);
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect(result.current.sort).toBe('latest');
   });
 
   it('refetches both the visible list and the independent overview after publication', async () => {

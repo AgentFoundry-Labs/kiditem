@@ -43,7 +43,7 @@ export default function ProductInfoCards({
         <InfoRow label="재고 상태" value={PRODUCT_INVENTORY_LABELS[deriveProductInventoryStatus(product)]} />
         <InfoRow label="채널 판매 옵션" value={`${formatNumber(product.channelListings.reduce((sum, listing) => sum + listing.options.length, 0))}개`} />
         <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
-          재고 수량은 이 상품에 속한 Sellpia SKU의 확인된 물리 재고입니다.
+          현재고는 이 MasterProduct에 저장된 최신 수량입니다.
         </p>
       </InfoCard>
 

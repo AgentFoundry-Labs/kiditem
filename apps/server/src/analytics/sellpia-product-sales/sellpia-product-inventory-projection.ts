@@ -33,6 +33,8 @@ export type SellpiaInventoryProductRow = Readonly<{
 
 export type SellpiaProductInventoryMetrics = Readonly<{
   inventoryResolution: SellpiaProductInventoryResolution;
+  monthlyOutflow: number | null;
+  outflowMonthCount: number;
   monthsOfAvailableStockLeft: number | null;
   reorderPoint: number | null;
   needsReorder: boolean;
@@ -151,10 +153,10 @@ export function projectSellpiaProductInventory(input: {
     const availability = availabilityBySkuId.get(masterProductId)!;
     const completeQuantities = aggregateCompleteQuantities(products);
     const recent = completeQuantities.slice(-2);
-    const monthlyRate = recent.length > 0
+    const monthlyOutflow = recent.length > 0
       ? Math.round(recent.reduce((sum, quantity) => sum + quantity, 0) / recent.length)
-      : 0;
-    const reorder = computeReorder(availability.currentStock, monthlyRate);
+      : null;
+    const reorder = computeReorder(availability.currentStock, monthlyOutflow ?? 0);
     const deadStock = computeDeadStock(
       completeQuantities,
       availability.currentStock,
@@ -180,6 +182,8 @@ export function projectSellpiaProductInventory(input: {
           : null,
         destinations,
       },
+      monthlyOutflow,
+      outflowMonthCount: recent.length,
       monthsOfAvailableStockLeft: reorder.monthsOfAvailableStockLeft,
       reorderPoint: reorder.reorderPoint,
       needsReorder: reorder.needsReorder,
@@ -212,6 +216,8 @@ function emptyMetrics(
 ): SellpiaProductInventoryMetrics {
   return {
     inventoryResolution,
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     monthsOfAvailableStockLeft: null,
     reorderPoint: null,
     needsReorder: false,

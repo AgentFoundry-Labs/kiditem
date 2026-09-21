@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { businessDateKey, kstBusinessDate } from '@kiditem/shared/common';
 import { Package, RefreshCw, Search } from 'lucide-react';
 import {
   PRODUCT_ADVERTISING_LABELS,
@@ -13,13 +14,12 @@ import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
-import { PERIOD_OPTIONS } from '../lib/product-page-config';
-import { ProductCategoryTabs } from './ProductCategoryTabs';
+import { PERIOD_OPTIONS, SORT_OPTIONS } from '../lib/product-page-config';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
-import { ProductsColumnHeader } from './ProductsColumnHeader';
+import { PRODUCT_TABLE_MIN_WIDTH, ProductsColumnHeader } from './ProductsColumnHeader';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
@@ -39,19 +39,38 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
   const partialTrafficCaption = trafficBasis && periodBasisStatus(trafficBasis) === 'partial'
     ? `조회·장바구니 부분 ${trafficBasis.includedDates.length}/${trafficBasis.targetDays}일`
     : null;
+  const monthlyYearMonth = state.isPlaceholderData || state.errorMessage
+    ? currentKstYearMonth()
+    : data?.items
+      .map((item) => item.monthly?.yearMonth)
+      .find((yearMonth): yearMonth is string => yearMonth !== undefined)
+    ?? currentKstYearMonth();
+  const monthlyBasis = state.isPlaceholderData || state.errorMessage
+    ? undefined
+    : data?.items.find((item) => item.monthly !== null)?.monthly;
+  const monthlyCoverage = monthlyBasis ? monthlyCoverageLabel(data?.items ?? []) : '미측정';
+  const abcOfficialCutoff = state.isPlaceholderData || state.errorMessage
+    ? '확인 중'
+    : data?.summary.abcOfficialCutoffDate ?? '없음';
 
   if (state.isLoading && !data) return <PageSkeleton variant="table" />;
 
   return (
     <div className="space-y-4">
       {state.errorMessage ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.errorMessage}
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{state.errorMessage}</span>
+          <button type="button" onClick={() => void state.refetch()} className="rounded px-2 py-1 font-semibold underline" aria-label="상품 목록 다시 시도">
+            다시 시도
+          </button>
         </div>
       ) : null}
       {state.overviewErrorMessage ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          {state.overviewErrorMessage}
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <span>{state.overviewErrorMessage}</span>
+          <button type="button" onClick={() => void state.refetch()} className="rounded px-2 py-1 font-semibold underline" aria-label="상품 요약 다시 시도">
+            다시 시도
+          </button>
         </div>
       ) : null}
 
@@ -73,24 +92,23 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-5">
-          <div
-            className="relative flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
-            title='선택한 기간의 주문·매출과 방문·조회 데이터를 각각 표시합니다. 조회·장바구니는 수집된 날만 합산하고, 일부 날만 수집됐으면 "부분 N/M일"을 표시합니다. 수집 범위가 부족한 다른 지표는 미수집으로 표시됩니다.'
-          >
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-[var(--text-tertiary)]">조회·광고 지표 범위</span>
+            <div
+              className="relative flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
+              title='7·14·30일은 방문·조회·장바구니·주문·광고 지표의 조회 범위입니다. 상품 표의 매출·판매·원가·매출총이익·총이익률은 현재 KST 월 기준이며 이 선택으로 바뀌지 않습니다.'
+            >
             {PERIOD_OPTIONS.map((item) => (
               <button
                 key={item.days}
                 type="button"
-                disabled={item.days === 365}
-                onClick={() => item.days !== 365 && state.setPeriodDays(item.days)}
+                onClick={() => state.setPeriodDays(item.days)}
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-[13px] font-semibold',
                   item.days === state.periodDays
                     ? 'bg-[var(--primary)] text-white shadow-sm'
-                    : item.days === 365
-                      ? 'cursor-not-allowed text-[var(--text-tertiary)] opacity-55'
-                      : 'text-[var(--text-tertiary)] hover:bg-[var(--surface)]',
+                    : 'text-[var(--text-tertiary)] hover:bg-[var(--surface)]',
                 )}
               >
                 {item.label}
@@ -102,6 +120,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
                 {partialTrafficCaption}
               </p>
             ) : null}
+            </div>
           </div>
           <ProductOperationsDataStatusAction
             open={state.dataStatusOpen}
@@ -204,22 +223,66 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </span>
       </section>
 
-      <ProductsColumnHeader />
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-4 py-3 text-[12px] font-semibold text-[var(--text-tertiary)]">
+        <span>당월 실적 · KST {monthlyYearMonth} · 측정 {monthlyCoverage}</span>
+        <span>현재고는 최신 저장값 · ABC 공식 기준일 {abcOfficialCutoff}</span>
+      </div>
 
-      {state.isPlaceholderData ? (
-        <div className="flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-3 py-2 text-[13px] font-semibold text-[var(--text-secondary)]">
-          <RefreshCw size={14} className="animate-spin text-[var(--primary)]" />
-          상품 목록을 최신 조건으로 갱신하는 중입니다.
-        </div>
-      ) : null}
-
-      {data?.items.length ? (
-        <div className="space-y-3">
-          {data.items.map((product) => (
-            <ProductRowCard key={product.id} product={product} onOpenAbcDetail={setAbcDetailProduct} />
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="정렬">
+        <span className="text-[13px] font-semibold text-[var(--text-tertiary)]">정렬</span>
+        <div className="flex flex-wrap items-center rounded-xl bg-[var(--surface-sunken)] p-1">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={option.disabled}
+              aria-pressed={!option.disabled && state.sort === option.value}
+              title={option.disabledReason}
+              onClick={() => {
+                if (!option.disabled) state.setSort(option.value as typeof state.sort);
+              }}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors',
+                option.disabled
+                  ? 'cursor-not-allowed text-[var(--text-quaternary)] opacity-50'
+                  : state.sort === option.value
+                  ? 'bg-[var(--primary)] text-white shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+              )}
+            >
+              {option.label}
+            </button>
           ))}
         </div>
-      ) : !state.errorMessage ? (
+      </div>
+
+      <div
+        role="region"
+        aria-label="상품 목록 표"
+        tabIndex={0}
+        className="overflow-x-auto overscroll-x-contain pb-2"
+      >
+        <div className={PRODUCT_TABLE_MIN_WIDTH}>
+          <ProductsColumnHeader />
+
+          {state.isPlaceholderData ? (
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-3 py-2 text-[13px] font-semibold text-[var(--text-secondary)]">
+              <RefreshCw size={14} className="animate-spin text-[var(--primary)]" />
+              상품 목록을 최신 조건으로 갱신하는 중입니다.
+            </div>
+          ) : null}
+
+          {data?.items.length ? (
+            <div className="space-y-3">
+              {data.items.map((product) => (
+                <ProductRowCard key={product.id} product={product} onOpenAbcDetail={setAbcDetailProduct} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {!data?.items.length && !state.errorMessage ? (
         <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-12 text-center text-sm text-[var(--text-tertiary)]">
           조건에 맞는 KidItem 상품이 없습니다.
         </div>
@@ -283,4 +346,24 @@ function pageNumbers(currentPage: number, totalPages: number): number[] {
     ? 1
     : Math.min(Math.max(currentPage - 3, 1), totalPages - 6);
   return Array.from({ length: visibleCount }, (_, index) => firstPage + index);
+}
+
+function currentKstYearMonth(): string {
+  return businessDateKey(kstBusinessDate(new Date())).slice(0, 7);
+}
+
+function monthlyCoverageLabel(items: MasterProductOperationsListItem[]): string {
+  const measured = items.flatMap((item) => item.monthly ? [item.monthly] : []);
+  if (measured.length === 0) return '미측정';
+
+  const coverageRanges = new Set(measured.map((monthly) => `${monthly.coverageStartDate}–${monthly.coverageEndDate}`));
+  const hasUnmeasuredRows = measured.length < items.length;
+  if (coverageRanges.size > 1) {
+    return hasUnmeasuredRows
+      ? '상품별 수집 범위 상이 · 미측정 상품 있음'
+      : '상품별 수집 범위 상이';
+  }
+
+  const [range] = coverageRanges;
+  return hasUnmeasuredRows ? `수집상품만 ${range} · 미측정 상품 있음` : range!;
 }
