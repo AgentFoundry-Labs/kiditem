@@ -12,6 +12,7 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProductSalesService } from '../../analytics/sellpia-product-sales/sellpia-product-sales.service';
+import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/repository/master-product-contribution.repository.adapter';
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
@@ -120,6 +121,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new MasterProductContributionReadService(
         new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
       ),
+      new SellpiaMasterProductProfitFactReader(prismaService),
     );
     abc = new RecalculateProductAbcUseCase(abcRepository, profitability);
   });

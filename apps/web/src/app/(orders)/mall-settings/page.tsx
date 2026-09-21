@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { orderMallAccountApi } from '../order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { MallAccountTable } from './components/MallAccountTable';
 import { useMallLoginTest } from './hooks/use-mall-login-test';
 import {

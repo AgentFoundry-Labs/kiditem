@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
-} from '../lib/order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import { moveMallKey, reorderMallKeys } from '../lib/mall-order';
 
 interface UseMallOrderDragOptions {

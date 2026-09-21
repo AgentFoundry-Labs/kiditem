@@ -57,7 +57,7 @@ import { ApiError } from '@/lib/api-error';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
 import { COUPANG_DIRECT_MALL_KEY } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
-import type { OrderCollectionMallAccount } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   key,

@@ -73,6 +73,7 @@ export function mapProductOperationsListItem(
     activeChannels: uniqueActiveChannels(activeChannelProducts),
     displayImageUrls: [...product.imageUrls],
     depletion,
+    monthly: null,
     channelOptionSummary: {
       total: options.length,
       active: options.filter((option) => option.isActive).length,

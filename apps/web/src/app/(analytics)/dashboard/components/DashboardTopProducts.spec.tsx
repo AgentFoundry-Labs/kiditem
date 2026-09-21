@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { productAbcReadModel } from '@/test/fixtures/product-abc';
 import { DashboardTopProducts } from './DashboardTopProducts';
 
 function product(overrides: Record<string, unknown> = {}) {
@@ -29,6 +30,17 @@ describe('DashboardTopProducts', () => {
     const cell = within(rowOf('미분류 상품')).getByTitle('미분류');
     expect(cell).toHaveTextContent('—');
     expect(screen.queryByTitle('C등급')).not.toBeInTheDocument();
+  });
+
+  it('uses the canonical ABC status when a product has evidence but no grade', () => {
+    render(<DashboardTopProducts products={[product({
+      name: '관찰 중 상품',
+      abc: productAbcReadModel({ evaluation: null }),
+    })] as never} />);
+
+    const cell = within(rowOf('관찰 중 상품')).getByTitle('관찰 중');
+    expect(cell).toHaveTextContent('관찰 중');
+    expect(cell).not.toHaveTextContent('미분류');
   });
 
   it('renders a published grade as its own letter in the grade colour', () => {

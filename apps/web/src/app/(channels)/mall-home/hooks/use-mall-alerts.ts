@@ -9,7 +9,7 @@ import {
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { queryKeys } from '@/lib/query-keys';
-import { orderMallAccountApi } from '../../../(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { useMallCapabilityRows } from '../../_shared/use-mall-capability-rows';
 import {

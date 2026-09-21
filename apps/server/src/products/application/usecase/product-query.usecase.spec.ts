@@ -17,6 +17,60 @@ const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
 
 describe('ProductQueryUseCase', () => {
+  it('sorts current KST month revenue over all products before slicing pages', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-31T16:00:00Z'));
+    try {
+      const repository = makeRepository();
+      const otherId = '00000000-0000-4000-8000-000000000006';
+      const missingId = '00000000-0000-4000-8000-000000000007';
+      repository.listProducts.mockResolvedValue({ items: [rawListProduct(missingId), rawListProduct(productId), rawListProduct(otherId)], sellingChannelProducts: [] });
+      const monthly = { readMonthlySales: vi.fn().mockResolvedValue(new Map([
+        [productId, { revenue: 0, soldQuantity: 0, coverageStartDate: '2026-09-01', coverageEndDate: '2026-09-01' }],
+        [otherId, { revenue: 9000, soldQuantity: 3, coverageStartDate: '2026-09-01', coverageEndDate: '2026-09-01' }],
+      ])) };
+      const service = new ProductQueryUseCase(
+        repository as never,
+        { findByMasterProductIds: vi.fn().mockResolvedValue({ snapshot: {}, items: [] }) } as never,
+        { findByMasterProductIds: vi.fn().mockResolvedValue(new Map()) } as never,
+        makeCatalogDisplayMedia() as never, makeDataStatusRepository() as never,
+        makeContributionRead() as never, monthly,
+      );
+      const result = await service.listProducts(organizationId, { sort: 'revenue', limit: 1, page: 1, periodDays: 7 });
+      expect(result.items.map(({ id }) => id)).toEqual([otherId]);
+      expect(result.items[0]?.monthly).toMatchObject({ yearMonth: '2026-09', revenue: 9000, soldQuantity: 3, cost: null, grossProfit: null, grossMarginRate: null });
+      const second = await service.listProducts(organizationId, { sort: 'revenue', limit: 1, page: 2 });
+      expect(second.items[0]?.monthly?.revenue).toBe(0);
+      const last = await service.listProducts(organizationId, { sort: 'revenue', limit: 1, page: 3 });
+      expect(last.items[0]?.id).toBe(missingId);
+      expect(last.items[0]?.monthly).toBeNull();
+      expect(last.total).toBe(3);
+      expect(monthly.readMonthlySales).toHaveBeenCalledWith({ organizationId, masterProductIds: [missingId, productId, otherId], yearMonth: '2026-09' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('sorts the complete product list by creation before pagination, not source updates', async () => {
+    const repository = makeRepository();
+    const older = rawListProduct(productId);
+    const newerId = '00000000-0000-4000-8000-000000000006';
+    const newer = rawListProduct(newerId);
+    older.abcCreatedAt = new Date('2026-01-01T00:00:00Z');
+    newer.abcCreatedAt = new Date('2026-02-01T00:00:00Z');
+    repository.listProducts.mockResolvedValue({ items: [older, newer], sellingChannelProducts: [] });
+    const service = new ProductQueryUseCase(
+      repository as never,
+      { findByMasterProductIds: vi.fn().mockResolvedValue({ snapshot: {}, items: [] }) } as never,
+      { findByMasterProductIds: vi.fn().mockResolvedValue(new Map()) } as never,
+      makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository() as never,
+      makeContributionRead() as never,
+      { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
+    );
+    const result = await service.listProducts(organizationId, { sort: 'latest', page: 1, limit: 1 });
+    expect(result.total).toBe(2);
+    expect(result.items.map(({ id }) => id)).toEqual([newerId]);
+  });
+
   it('reads actual contribution for the basis selected by Finance evidence', async () => {
     const repository = makeRepository();
     const product = rawListProduct(productId);
@@ -42,6 +96,7 @@ describe('ProductQueryUseCase', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository(abcStatusFacts()) as never,
       contribution as never,
+      { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -108,7 +163,8 @@ describe('ProductQueryUseCase', () => {
         makeCatalogDisplayMedia() as never,
         { read: vi.fn().mockResolvedValue(status) } as never,
         makeContributionRead() as never,
-        );
+          { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
+    );
       const result = await service.listProducts(organizationId, {
         page: 1,
         limit: 50,
@@ -197,6 +253,7 @@ describe('ProductQueryUseCase', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
+      { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -327,6 +384,7 @@ describe('ProductQueryUseCase', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
+      { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
     );
     const baseQuery = {
       page: 1,
@@ -550,7 +608,8 @@ function makeService(
     media as never,
     makeDataStatusRepository() as never,
     contribution as never,
-  );
+    { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
+    );
 }
 
 function inventoryAvailability(masterProductId: string, currentStock: number) {
@@ -566,6 +625,8 @@ function depletionProjection(needsReorder: boolean, months: number | null) {
     coverage: months === null ? 'no_direct_sales' as const : 'ready' as const,
     needsReorder,
     reorderSkuCount: needsReorder ? 1 : 0,
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     minMonthsOfAvailableStockLeft: months,
   };
 }

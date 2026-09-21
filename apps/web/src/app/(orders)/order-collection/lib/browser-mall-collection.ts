@@ -21,7 +21,7 @@ import {
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
-} from './order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import {
   ICECREAM_MALL_KEY,
   isBrowserCollectableMall,

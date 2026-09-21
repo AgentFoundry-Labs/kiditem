@@ -226,6 +226,13 @@ async function openProfitDetail(): Promise<HTMLElement> {
   return await screen.findByText('순이익 구조').then(h => h.closest('div[class*="max-w-md"]') as HTMLElement);
 }
 
+function profitRateMetricCard(): HTMLElement {
+  const card = screen.getAllByTestId('dashboard-metric-card')
+    .find((candidate) => candidate.textContent?.includes('이익률'));
+  if (!card) throw new Error('이익률 metric card not found');
+  return card;
+}
+
 describe('Dashboard absolute ABC grade cards', () => {
   it('uses the classified denominator, exposes unclassified, and links exact filters', async () => {
     const abcBasis = {
@@ -257,7 +264,9 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    expect(screen.getByText('계산 완료 4개')).toBeInTheDocument();
+    const classified = screen.getByTestId('headline-abcReady');
+    expect(classified).toHaveTextContent('계산 완료');
+    expect(classified).toHaveTextContent('4개');
     // Unclassified reads as a row of "지금 손이 필요한 것", against the other
     // counts, instead of a second copy in the ABC footer.
     expect(document.querySelector('[data-warning-count="abc-unclassified"]')).toHaveTextContent('6');
@@ -891,8 +900,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(detail).toHaveTextContent('집행광고비—');
     expect(detail).not.toHaveTextContent('400,000원');
 
-    const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
+    const profitRateCard = profitRateMetricCard();
     expect(profitRateCard).toHaveTextContent('—');
   });
 
@@ -967,8 +975,7 @@ describe('Dashboard absolute ABC grade cards', () => {
       .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('777원');
     expect(profitCard).not.toHaveTextContent('800원');
-    const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
+    const profitRateCard = profitRateMetricCard();
     expect(profitRateCard).toHaveTextContent('77.7%');
   });
 
@@ -1003,8 +1010,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(profitCard).toHaveTextContent('0원');
     const detail = await openProfitDetail();
     expect(detail).toHaveTextContent('집행광고비0원');
-    const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
+    const profitRateCard = profitRateMetricCard();
     expect(profitRateCard).toHaveTextContent('0.0%');
   });
 });

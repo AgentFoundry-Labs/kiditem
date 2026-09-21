@@ -136,6 +136,8 @@ export const DashboardAlertItemSchema = z.object({
 
 export const TopProductSchema = z.object({
   id: z.string(),
+  masterProductId: z.string().uuid().nullable().optional(),
+  abc: ProductAbcReadModelSchema.nullable().optional(),
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
@@ -796,6 +798,8 @@ export const SellpiaProductSalesRowSchema = z.object({
   seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
   // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
   inventoryResolution: SellpiaProductInventoryResolutionSchema,
+  monthlyOutflow: z.number().nonnegative().nullable(),
+  outflowMonthCount: z.number().int().nonnegative(),
   monthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
   reorderPoint: z.number().nullable(), // 발주점 = 월평균 × (리드타임+안전)
   needsReorder: z.boolean(), // 발주 필요(현재고 ≤ 발주점)
@@ -914,3 +918,92 @@ export const DashboardCollectionsSchema = z.object({
 }).strict();
 
 export type DashboardCollections = z.infer<typeof DashboardCollectionsSchema>;
+
+// ─── Findings endpoint: GET /api/dashboard/findings ───────────────────────
+
+/**
+ * What the dashboard's 'AI가 발견한 문제' and 'AI 제안' panels read.
+ *
+ * Every verdict here is one an owner already published: the decline trend and
+ * the reorder need come from Sellpia product depletion, and a failed
+ * registration is the latest failed Channels execution for a draft/account. This read
+ * picks and counts them; it does not decide anything of its own.
+ *
+ * Unknown is null, never 0 — a depletion read that was never collected has no
+ * declining products to count, which is not the same as having none.
+ */
+const YearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+export const DashboardFindingProductSchema = z.object({
+  /** Sellpia product code — the key the depletion read ranks by. */
+  productCode: z.string().min(1),
+  name: z.string().min(1),
+  optionName: z.string().nullable(),
+  /** The operational product the source identity resolves to, when it is. */
+  masterProductId: z.string().uuid().nullable(),
+  imageUrl: z.string().url().nullable(),
+}).strict();
+
+export const DashboardSalesDeclineItemSchema = DashboardFindingProductSchema.extend({
+  /** Units sold in the compared month (complete published months only). */
+  recentQty: z.number().int().nonnegative(),
+  /** Monthly average of the up-to-three complete months before it. */
+  baselineQty: z.number().nonnegative(),
+  /** How far `recentQty` fell below `baselineQty`, in percent (negative). */
+  changePercent: z.number(),
+}).strict();
+
+export const DashboardSalesDeclineSchema = z.object({
+  /** The last complete month the trend compared; null without two complete months. */
+  month: YearMonthSchema.nullable(),
+  /** 주요 상품 = this many products with the largest baseline monthly quantities before the compared month. */
+  keyProductLimit: z.number().int().positive(),
+  /** Key products whose depletion trend is `down`; null when the trend was not measurable. */
+  count: z.number().int().nonnegative().nullable(),
+  /** The largest quantity declines first. */
+  items: z.array(DashboardSalesDeclineItemSchema).max(5),
+}).strict();
+
+export const DashboardReorderSuggestionSchema = DashboardFindingProductSchema.extend({
+  availableStock: z.number().int().positive(),
+  /** Units a month over the last two complete months, the rate the projection used. */
+  monthlyOutflow: z.number().positive(),
+  /** Days until the available stock runs out at that rate; 0 means today. */
+  daysLeft: z.number().int().nonnegative(),
+  reorderPoint: z.number().nullable(),
+}).strict();
+
+export const DashboardRegistrationFailuresSchema = z.object({
+  /** Draft/account pairs whose latest registration execution failed. */
+  count: z.number().int().nonnegative(),
+  byChannel: z.array(z.object({
+    /** The mall key (`ChannelAccount.channel`). */
+    channel: z.string().min(1),
+    /** The name the mall listing matrix gives the mall's column. */
+    mallName: z.string().min(1),
+    count: z.number().int().positive(),
+  }).strict()),
+}).strict();
+
+export const DashboardFindingsSchema = z.object({
+  /** When Sellpia product depletion was last captured; null when it never was. */
+  productSalesCapturedAt: zIsoDate.nullable(),
+  salesDecline: DashboardSalesDeclineSchema,
+  /**
+   * Products the depletion read says to reorder that still have stock, the
+   * soonest-to-run-out first. Null when stock or depletion was never collected.
+   */
+  reorderSuggestions: z.array(DashboardReorderSuggestionSchema).max(5).nullable(),
+  /** Owner-counted reorder products; null without completed depletion and stock evidence. */
+  reorderProductCount: z.number().int().nonnegative().nullable(),
+  registrationFailures: DashboardRegistrationFailuresSchema,
+  /** Snapshot evidence for `salesDecline.count`, `reorderSuggestions`, `registrationFailures.count`. */
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
+}).strict();
+
+export type DashboardFindingProduct = z.infer<typeof DashboardFindingProductSchema>;
+export type DashboardSalesDeclineItem = z.infer<typeof DashboardSalesDeclineItemSchema>;
+export type DashboardSalesDecline = z.infer<typeof DashboardSalesDeclineSchema>;
+export type DashboardReorderSuggestion = z.infer<typeof DashboardReorderSuggestionSchema>;
+export type DashboardRegistrationFailures = z.infer<typeof DashboardRegistrationFailuresSchema>;
+export type DashboardFindings = z.infer<typeof DashboardFindingsSchema>;

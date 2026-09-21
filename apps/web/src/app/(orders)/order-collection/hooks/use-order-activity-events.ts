@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { dayKey, todayYmd } from '../lib/order-collection-page-model';
 import type { OrderActivityEvent } from '../components/OrderActivityFeed';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const ACTIVITY_EVENTS_KEY = 'kiditem-order-activity-events';
 const ACTIVITY_EVENT_LIMIT = 30;

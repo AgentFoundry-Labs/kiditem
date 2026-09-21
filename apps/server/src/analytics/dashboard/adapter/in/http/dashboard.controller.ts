@@ -1,3 +1,4 @@
+import { DashboardFindingsService } from '../../../application/service/dashboard-findings.service';
 import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { buildDashboardContext } from '../../../domain/context';
@@ -9,6 +10,7 @@ import { DashboardCollectionsService } from '../../../application/service/dashbo
 import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
 import type {
   DashboardCollections,
+  DashboardFindings,
   DashboardSalesSummary,
   DashboardAdSummary,
   DashboardInventorySummary,
@@ -23,9 +25,15 @@ export class DashboardController {
     private readonly inventoryService: DashboardInventoryService,
     private readonly trendService: DashboardTrendService,
     private readonly collectionsService: DashboardCollectionsService,
+    private readonly findingsService: DashboardFindingsService,
   ) {}
 
   /** When each collection last completed. Not a period read: no window applies. */
+  @Get('findings')
+  getFindings(@CurrentOrganization() organizationId: string): Promise<DashboardFindings> {
+    return this.findingsService.getFindings(buildDashboardContext(), organizationId);
+  }
+
   @Get('collections')
   async getCollections(
     @CurrentOrganization() organizationId: string,

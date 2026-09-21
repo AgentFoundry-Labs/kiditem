@@ -11,7 +11,7 @@ import {
   classifyOrderCollectionFailure,
   isAutoDetectableMall,
 } from '../lib/order-collection-page-model';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { CollectionStartOutcome } from '@/hooks/use-collection-source-control';
 import type { BrowserMallCollectionResult } from '../lib/browser-mall-collection';
 import type { MallOrderCollectionStartInput } from '../lib/mall-order-collection-source';

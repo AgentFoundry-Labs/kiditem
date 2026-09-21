@@ -100,6 +100,8 @@ describe('Sellpia product inventory projection', () => {
 
     expect(result.byProductKey.get('missing')).toEqual({
       inventoryResolution: { status: 'not_collected' },
+      monthlyOutflow: null,
+      outflowMonthCount: 0,
       monthsOfAvailableStockLeft: null,
       reorderPoint: null,
       needsReorder: false,

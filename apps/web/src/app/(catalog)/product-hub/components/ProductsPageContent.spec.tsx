@@ -62,6 +62,8 @@ const state = vi.hoisted(() => ({
         coverage: 'shared' as const,
         needsReorder: true,
         reorderSkuCount: 1,
+        monthlyOutflow: 4,
+        outflowMonthCount: 2,
         minMonthsOfAvailableStockLeft: 0.5,
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
@@ -83,6 +85,16 @@ const state = vi.hoisted(() => ({
       salesAmount: 35_000,
       adSpend: null,
       adSpendRate: null,
+      monthly: {
+        yearMonth: '2026-09',
+        revenue: 35_000,
+        soldQuantity: 4,
+        cost: null,
+        grossProfit: null,
+        grossMarginRate: null,
+        coverageStartDate: '2026-09-01',
+        coverageEndDate: '2026-09-22',
+      },
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         traffic: {
@@ -155,6 +167,8 @@ const state = vi.hoisted(() => ({
   setInventoryFocus: vi.fn(),
   setPeriodDays: vi.fn(),
   setSearch: vi.fn(),
+  sort: 'latest' as const,
+  setSort: vi.fn(),
   totalPages: 3,
 }));
 const defaultData = state.data;
@@ -220,13 +234,16 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByRole('button', { name: '전체 카테고리' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '완구/놀이' })).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '재고' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '매출총이익' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '광고비율' })).not.toBeInTheDocument();
+    expect(screen.getByText('당월 실적 · KST 2026-09 · 측정 2026-09-01–2026-09-22')).toBeInTheDocument();
+    expect(screen.getByText('현재고는 최신 저장값 · ABC 공식 기준일 2026-07-31')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
     expect(screen.queryByRole('combobox', { name: 'ABC 상태' })).not.toBeInTheDocument();
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
-    expect(screen.getByText(/KI-001/)).toBeInTheDocument();
+    expect(screen.getByText(/상품 코드 KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
     expect(screen.queryByText(/공유 SKU 기준/)).not.toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
@@ -252,7 +269,7 @@ describe('<ProductsPageContent>', () => {
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByText('KID00000001')).toBeInTheDocument();
+    expect(screen.getByText(/상품 코드 KID00000001/)).toBeInTheDocument();
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
@@ -266,6 +283,71 @@ describe('<ProductsPageContent>', () => {
     expect(state.setPeriodDays).toHaveBeenCalledWith(7);
     expect(screen.queryByRole('button', { name: '+ 상품 추가' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
+  });
+
+  it('offers server-backed sort controls without changing the monthly scope control', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    const sortGroup = screen.getByRole('group', { name: '정렬' });
+    expect(within(sortGroup).getByRole('button', { name: '최신 등록순' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(sortGroup).getByRole('button', { name: '이익순' })).toBeDisabled();
+    expect(within(sortGroup).getByRole('button', { name: '이익률순' })).toBeDisabled();
+    expect(within(sortGroup).getByRole('button', { name: '이익순' })).toHaveAttribute('title', '당월 손익 근거 준비 중 · 월별 원가가 없어 계산 불가합니다.');
+    fireEvent.click(within(sortGroup).getByRole('button', { name: '매출순' }));
+
+    expect(state.setSort).toHaveBeenCalledWith('revenue');
+    expect(screen.getByText('당월 실적 · KST 2026-09 · 측정 2026-09-01–2026-09-22')).toBeInTheDocument();
+  });
+
+  it('keeps all product columns reachable through horizontal scrolling on narrow screens', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    const viewport = screen.getByRole('region', { name: '상품 목록 표' });
+    expect(viewport).toHaveAttribute('tabindex', '0');
+    expect(viewport).toHaveClass('overflow-x-auto');
+    expect(within(viewport).getByRole('row').parentElement).toHaveClass('min-w-[1164px]');
+  });
+
+  it('shows row-specific monthly coverage when the table does not share one period', () => {
+    const first = defaultData.items[0]!;
+    state.data = {
+      ...defaultData,
+      items: [first, {
+        ...first,
+        id: '22222222-2222-4222-8222-222222222222',
+        name: '다른 기간 상품',
+        monthly: {
+          ...first.monthly!,
+          yearMonth: '2026-08',
+          coverageStartDate: '2026-08-01',
+          coverageEndDate: '2026-08-31',
+        },
+      }],
+    };
+
+    render(<ProductsPageContent headingLevel={1} />);
+
+    expect(screen.getByText('당월 실적 · KST 2026-09 · 측정 상품별 수집 범위 상이')).toBeInTheDocument();
+    expect(screen.getByTitle('매출 · KST 2026-09 · 수집 범위 2026-09-01–2026-09-22')).toHaveTextContent('35,000원');
+    expect(screen.getByTitle('매출 · KST 2026-08 · 수집 범위 2026-08-01–2026-08-31')).toBeInTheDocument();
+  });
+
+  it('marks a shared period as applying only to measured products when a row is unmeasured', () => {
+    const first = defaultData.items[0]!;
+    state.data = {
+      ...defaultData,
+      items: [first, {
+        ...first,
+        id: '33333333-3333-4333-8333-333333333333',
+        name: '미측정 상품',
+        monthly: null,
+      }],
+    };
+
+    render(<ProductsPageContent headingLevel={1} />);
+
+    expect(screen.getByText('당월 실적 · KST 2026-09 · 측정 수집상품만 2026-09-01–2026-09-22 · 미측정 상품 있음')).toBeInTheDocument();
+    expect(screen.getByTitle('판매 · 월별 수집 미측정')).toHaveTextContent('—');
   });
 
   it('uses full-result operating summaries with one inventory command card', () => {
@@ -383,6 +465,8 @@ describe('<ProductsPageContent>', () => {
 
     expect(screen.getByText('상품 목록 실패')).toBeInTheDocument();
     expect(screen.queryByText('조건에 맞는 KidItem 상품이 없습니다.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '상품 목록 다시 시도' }));
+    expect(state.refetch).toHaveBeenCalledTimes(1);
   });
 
   describe('partial Wing traffic period', () => {

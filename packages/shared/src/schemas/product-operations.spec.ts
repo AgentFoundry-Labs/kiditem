@@ -134,11 +134,14 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     imageUrls: [],
     displayImageUrls: [],
     isSelling: true,
+    monthly: null,
     updatedAt: '2026-09-15T00:00:00.000Z',
     depletion: {
       coverage: 'no_direct_sales',
       needsReorder: false,
       reorderSkuCount: 0,
+      monthlyOutflow: null,
+      outflowMonthCount: 0,
       minMonthsOfAvailableStockLeft: null,
     },
     channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
@@ -165,6 +168,18 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
 }
 
 describe('product operations contracts', () => {
+  it('accepts only the public whole-result sort modes and defaults to latest', () => {
+    expect(MasterProductOperationsListQuerySchema.parse({}).sort).toBe('latest');
+    for (const sort of ['latest', 'revenue', 'sold', 'stock']) {
+      expect(MasterProductOperationsListQuerySchema.parse({ sort }).sort).toBe(sort);
+    }
+    expect(MasterProductOperationsListQuerySchema.safeParse({ sort: 'updatedAt' }).success).toBe(false);
+  });
+
+  it.each(['profit', 'margin'])('rejects %s sorting without same-basis monthly profit', (sort) => {
+    expect(MasterProductOperationsListQuerySchema.safeParse({ sort }).success).toBe(false);
+  });
+
   it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
     expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
     expect(MasterProductOperationsListQuerySchema.parse({}).activeStatus).toBe('active');
@@ -228,11 +243,14 @@ describe('product operations contracts', () => {
         imageUrls: [],
         displayImageUrls: [],
         isSelling: true,
+        monthly: null,
         updatedAt: '2026-07-16T00:00:00.000Z',
         depletion: {
           coverage: 'no_direct_sales',
           needsReorder: false,
           reorderSkuCount: 0,
+          monthlyOutflow: null,
+          outflowMonthCount: 0,
           minMonthsOfAvailableStockLeft: null,
         },
         channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
@@ -437,11 +455,14 @@ describe('product operations contracts', () => {
       abc: abcFixture,
       contribution: null,
       isSelling: true,
+      monthly: null,
       updatedAt: '2026-07-16T00:00:00.000Z',
       depletion: {
         coverage: 'shared',
         needsReorder: true,
         reorderSkuCount: 2,
+        monthlyOutflow: null,
+        outflowMonthCount: 0,
         minMonthsOfAvailableStockLeft: 0.5,
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
@@ -522,11 +543,15 @@ describe('product operations contracts', () => {
       coverage: 'no_direct_sales',
       needsReorder: false,
       reorderSkuCount: 0,
+      monthlyOutflow: null,
+      outflowMonthCount: 0,
       minMonthsOfAvailableStockLeft: null,
     })).toEqual({
       coverage: 'no_direct_sales',
       needsReorder: false,
       reorderSkuCount: 0,
+      monthlyOutflow: null,
+      outflowMonthCount: 0,
       minMonthsOfAvailableStockLeft: null,
     });
   });

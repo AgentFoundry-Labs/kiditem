@@ -127,6 +127,8 @@ function salesRow() {
       destinations: [destination],
     },
     monthsOfAvailableStockLeft: 2.5,
+    monthlyOutflow: 12,
+    outflowMonthCount: 2,
     reorderPoint: 15,
     needsReorder: false,
   } as const;

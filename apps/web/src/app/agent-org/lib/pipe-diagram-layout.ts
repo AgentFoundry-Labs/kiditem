@@ -47,7 +47,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { BrandKey } from './brand-marks';
-import type { PipeStageId } from './pipe-stages';
+import type { PipeStageId } from '@/lib/agent-org/pipe-stages';
 
 /**
  * Agent Org 다이어그램의 좌표 — 위에서 아래로 내려오고, 맡은 에이전트끼리 묶인다.

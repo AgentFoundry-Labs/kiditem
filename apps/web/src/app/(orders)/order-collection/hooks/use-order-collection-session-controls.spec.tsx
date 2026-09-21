@@ -46,7 +46,7 @@ vi.mock('../lib/order-collection-extension', async (importOriginal) => ({
 }));
 
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 const TOKEN = '33333333-3333-4333-8333-333333333333';

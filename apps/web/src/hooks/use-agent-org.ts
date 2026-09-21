@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import { DashboardAdSummarySchema, DashboardSalesSummarySchema } from '@kiditem/shared/dashboard';
-import { orderMallAccountApi } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { useAlertsQuery } from '@/lib/alerts-api';
 import { apiClient } from '@/lib/api-client';
 import {
@@ -14,8 +14,8 @@ import {
 } from '@/lib/mall-login-block';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
-import type { PipeBusiness } from '../components/PipeBottomDashboard';
-import { buildPipeSnapshot, type PipeSnapshot } from '../lib/pipe-model';
+import { buildPipeSnapshot, type PipeSnapshot } from '@/lib/agent-org/pipe-model';
+import type { PipeBusiness } from '@/lib/agent-org/types';
 import { useConfirmReport, type PipeConfirmChannel } from './use-confirm-report';
 
 /** 상대 시간("12분 전")을 다시 그리는 간격. */

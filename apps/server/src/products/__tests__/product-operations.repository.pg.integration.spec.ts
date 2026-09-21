@@ -41,6 +41,7 @@ import { ProductDataStatusUseCase } from '../application/usecase/product-data-st
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -95,6 +96,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       ),
       dataStatusRepository,
       { readContribution: async () => null } as never,
+      new SellpiaMasterProductProfitFactReader(prismaService),
     );
     recipes = new ChannelOptionRecipeUseCase(
       new ChannelOptionRecipeRepositoryAdapter(prismaService, transactionalRead),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPipeAgents, countAgentHealth } from './pipe-agents';
 import { DIAGRAM_AGENTS } from './pipe-diagram-layout';
-import { buildPipeSnapshot, type PipeInputs } from './pipe-model';
+import { buildPipeSnapshot, type PipeInputs } from '@/lib/agent-org/pipe-model';
 
 const NOW = Date.parse('2026-09-13T06:00:00.000Z');
 

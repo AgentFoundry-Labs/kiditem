@@ -22,10 +22,10 @@ import {
   type DiagramStageNode,
   type DiagramTile,
 } from '../lib/pipe-diagram-layout';
-import { mergeStageViews, type PipeMallConnector, type PipeSnapshot, type PipeStageView } from '../lib/pipe-model';
-import { PIPE_NO_DATA, type PipeState } from '../lib/pipe-states';
+import { mergeStageViews, type PipeMallConnector, type PipeSnapshot, type PipeStageView } from '@/lib/agent-org/pipe-model';
+import { PIPE_NO_DATA, type PipeState } from '@/lib/agent-org/pipe-states';
 import { NO_CANVAS_INSETS, useCanvasView, type CanvasInsets } from '../hooks/use-canvas-view';
-import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
+import type { PipeConfirmChannel } from '@/hooks/use-confirm-report';
 import { BrandMark } from './BrandMark';
 import { PipeStateChip } from './PipeStateChip';
 

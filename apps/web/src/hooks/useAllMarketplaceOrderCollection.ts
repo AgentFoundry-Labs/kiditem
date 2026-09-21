@@ -51,7 +51,7 @@ import {
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
-} from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import {
   collectSellpiaOrderSnapshot,
   reconcileCollectedOrdersWithSellpia,

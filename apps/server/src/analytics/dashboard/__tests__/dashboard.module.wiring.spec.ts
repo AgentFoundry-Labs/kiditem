@@ -1,4 +1,5 @@
 import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
+import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { AlertsModule } from '../../../alerts/alerts.module';
@@ -15,11 +16,13 @@ import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashb
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { CollectionFreshnessRepositoryAdapter } from '../adapter/out/repository/collection-freshness.repository.adapter';
+import { DashboardFindingsRepositoryAdapter } from '../adapter/out/repository/dashboard-findings.repository.adapter';
 // application/service
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
+import { DashboardFindingsService } from '../application/service/dashboard-findings.service';
 import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytics-overview-capability.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
 // application/port/out tokens
@@ -29,6 +32,7 @@ import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/reposit
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/collection-freshness.repository.port';
+import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-findings.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -36,6 +40,7 @@ const PROVIDERS_KEY = 'providers';
 const PATH_KEY = 'path';
 
 const EXPECTED_PORT_BINDINGS = [
+  [DASHBOARD_FINDINGS_REPOSITORY_PORT, DashboardFindingsRepositoryAdapter],
   [PROFIT_CALCULATION_REPOSITORY_PORT, ProfitCalculationRepositoryAdapter],
   [DASHBOARD_SALES_REPOSITORY_PORT, DashboardSalesRepositoryAdapter],
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
@@ -56,7 +61,7 @@ describe('DashboardModule capability wiring', () => {
     // the alerts module. The inventory adapter used to read that table directly,
     // with its own filter, order, and limit.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
+      .toEqual([SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });
@@ -72,6 +77,7 @@ describe('DashboardModule capability wiring', () => {
       Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       ProfitCalculationRepositoryAdapter,
+      DashboardFindingsRepositoryAdapter,
       DashboardSalesRepositoryAdapter,
       DashboardTrendRepositoryAdapter,
       WingTrafficAggregationRepositoryAdapter,
@@ -89,6 +95,7 @@ describe('DashboardModule capability wiring', () => {
       DashboardAdService,
       DashboardInventoryService,
       DashboardTrendService,
+      DashboardFindingsService,
       AnalyticsOverviewCapabilityAdapter,
     ]) {
       expect(providers).toContain(cls);

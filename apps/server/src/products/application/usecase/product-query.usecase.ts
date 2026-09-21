@@ -1,3 +1,5 @@
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { MASTER_PRODUCT_MONTHLY_SALES_READ_PORT, type MasterProductMonthlySalesReadPort } from '../../../analytics/application/port/in/master-product-monthly-sales-read.port';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   MasterProductOperationsListQuerySchema,
@@ -8,6 +10,8 @@ import {
   deriveProductInventoryStatus,
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
+  type ProductOperationsSort,
+  type ProductMonthlySales,
 } from '@kiditem/shared/product-operations';
 import {
   productAbcDisplayStatus,
@@ -69,6 +73,8 @@ export class ProductQueryUseCase implements ProductQueryPort {
     private readonly dataStatusRepository: ProductOperationsDataStatusRepositoryPort,
     @Inject(MASTER_PRODUCT_CONTRIBUTION_READ_PORT)
     private readonly contribution: MasterProductContributionReadPort,
+    @Inject(MASTER_PRODUCT_MONTHLY_SALES_READ_PORT)
+    private readonly monthlySales: MasterProductMonthlySalesReadPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -131,8 +137,23 @@ export class ProductQueryUseCase implements ProductQueryPort {
     const items = query.inventoryFocus
       ? withDepletion.filter((item) => matchesInventoryFocus(item, query.inventoryFocus!))
       : withDepletion;
+    const yearMonth = businessDateKey(kstBusinessDate(new Date())).slice(0, 7);
+    const monthly = await this.monthlySales.readMonthlySales({
+      organizationId, masterProductIds: items.map(({ id }) => id), yearMonth,
+    });
+    const withMonthly = items.map((item) => {
+      const sales = monthly.get(item.id);
+      return { ...item, monthly: sales ? {
+        ...sales, yearMonth,
+        // Existing live Finance profit is order/recipe-based. Sellpia purchase
+        // amounts cannot be substituted for the cost of these monthly sales.
+        cost: null, grossProfit: null, grossMarginRate: null,
+      } satisfies ProductMonthlySales : null };
+    });
     const offset = (query.page - 1) * query.limit;
-    const pageItems = items.slice(offset, offset + query.limit);
+    const createdAt = new Map(raw.items.map((item) => [item.id, item.abcCreatedAt.getTime()]));
+    const ranked = rankProducts(withMonthly, query.sort, createdAt);
+    const pageItems = ranked.slice(offset, offset + query.limit);
     return {
       items: await this.applyDisplayImages(organizationId, pageItems),
       total: items.length,
@@ -260,6 +281,8 @@ export class ProductQueryUseCase implements ProductQueryPort {
 function noDirectSales(): ProductDepletionProjection {
   return {
     coverage: 'no_direct_sales',
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     needsReorder: false,
     reorderSkuCount: 0,
     minMonthsOfAvailableStockLeft: null,
@@ -422,4 +445,24 @@ function parseOrBadRequest<T>(
     throw new ProductInputException(message);
   }
   return parsed.data;
+}
+
+function rankProducts<T extends MasterProductOperationsListItem>(
+  products: readonly T[], sort: ProductOperationsSort, createdAt: ReadonlyMap<string, number>,
+): T[] {
+  const value = (product: T): number | null => {
+    switch (sort) {
+      case 'revenue': return product.monthly?.revenue ?? null;
+      case 'sold': return product.monthly?.soldQuantity ?? null;
+      case 'stock': return product.inventoryUnits;
+      case 'latest': return createdAt.get(product.id) ?? null;
+    }
+  };
+  return [...products].sort((a, b) => {
+    const left = value(a);
+    const right = value(b);
+    if (left === null && right !== null) return 1;
+    if (left !== null && right === null) return -1;
+    return (left !== null && right !== null ? right - left : 0) || a.id.localeCompare(b.id);
+  });
 }

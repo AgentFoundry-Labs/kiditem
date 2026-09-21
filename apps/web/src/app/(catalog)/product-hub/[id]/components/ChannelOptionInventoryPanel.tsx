@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Boxes, PackageCheck } from 'lucide-react';
-import type { ProductChannelListingSummary } from '@kiditem/shared/product-operations';
 import { formatNumber } from '@/lib/utils';
 import { ChannelOptionInventoryDialog } from './ChannelOptionInventoryDialog';
+import type { ProductChannelListingSummary } from '@kiditem/shared/product-operations';
 
 type OptionRow = ProductChannelListingSummary['options'][number] & {
   channel: string;
@@ -41,7 +41,7 @@ export default function ChannelOptionInventoryPanel({
         <div>
           <h2 className="text-lg font-extrabold text-[var(--text-primary)]">채널 판매 옵션 · 재고 구성</h2>
           <p className="mt-1 text-sm text-[var(--text-tertiary)]">
-            실제 판매되는 채널 옵션마다 차감할 Sellpia 재고 SKU와 수량을 관리합니다.
+            채널 옵션마다 구성할 MasterProduct와 수량을 Channels 레시피로 관리합니다.
           </p>
         </div>
         <span className="text-sm font-bold text-[var(--text-tertiary)]">{formatNumber(options.length)}개 옵션</span>
@@ -88,7 +88,7 @@ export default function ChannelOptionInventoryPanel({
                 <div className="mt-4 space-y-2">
                   {!configured ? (
                     <p className="flex items-center gap-2 rounded-xl bg-amber-100 px-3 py-2 text-sm font-bold text-amber-800">
-                      <AlertTriangle size={14} /> 이 채널 옵션이 차감할 재고를 연결해 주세요.
+                      <AlertTriangle size={14} /> 이 채널 옵션의 MasterProduct 구성 레시피를 연결해 주세요.
                     </p>
                   ) : option.inventoryComponents.map((component) => (
                     <div key={component.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2 text-xs">
@@ -96,7 +96,7 @@ export default function ChannelOptionInventoryPanel({
                         {component.currentStock !== null ? <PackageCheck size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
                         <span className="truncate">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}{component.optionName ? ` / ${component.optionName}` : ''}</span>
                       </span>
-                      <span className="font-bold tabular-nums text-[var(--text-primary)]">현재 재고 {component.currentStock === null ? '연결 없음' : formatNumber(component.currentStock)} · 차감 {formatNumber(component.quantity)}</span>
+                      <span className="font-bold tabular-nums text-[var(--text-primary)]">현재고 {component.currentStock === null ? '연결 없음' : formatNumber(component.currentStock)} · 구성 수량 {formatNumber(component.quantity)}</span>
                     </div>
                   ))}
                 </div>

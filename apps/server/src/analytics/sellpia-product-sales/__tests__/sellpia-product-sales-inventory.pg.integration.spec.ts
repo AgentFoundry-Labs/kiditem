@@ -408,6 +408,167 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(evidence.has(foreign.masterProductId)).toBe(false);
   });
 
+  it('reads current-month sales from the latest COMPLETE generation, preserving zero and independent cost provenance', async () => {
+    const yearMonth = currentKstYearMonth();
+    const coverageStartDate = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    const coverageEndDate = new Date(`${yearMonth}-15T00:00:00.000Z`);
+    const partial = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-PARTIAL',
+      currentStock: 1,
+    });
+    const zero = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-ZERO',
+      currentStock: 1,
+    });
+    const stale = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-STALE',
+      currentStock: 1,
+    });
+    const foreign = await seedInventoryProduct(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-FOREIGN',
+      currentStock: 1,
+    });
+    const failedRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_product_profitability',
+        status: 'failed',
+        rowCount: 1,
+        errorCode: 'TEST_FAILED_GENERATION',
+        errorMessage: 'ignored by the canonical reader',
+      },
+    });
+
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: [
+        {
+          ...metricSales(partial.code, yearMonth, 2, 100),
+          optionCode: 'OPTION-A',
+          masterProductId: partial.id,
+          costBasis: 'UNKNOWN',
+          vatIncluded: null,
+          coverageStartDate,
+          coverageEndDate,
+        },
+        {
+          ...metricSales(partial.code, yearMonth, 3, 100),
+          optionCode: 'OPTION-B',
+          masterProductId: partial.id,
+          costBasis: 'ORDER_TIME_SUPPLY_COST',
+          vatIncluded: false,
+          coverageStartDate,
+          coverageEndDate,
+        },
+        {
+          ...metricSales(partial.code, previousKstYearMonth(), 99, 999),
+          optionCode: 'OTHER-MONTH',
+          masterProductId: partial.id,
+          coverageStartDate: new Date(`${previousKstYearMonth()}-01T00:00:00.000Z`),
+          coverageEndDate: new Date(`${previousKstYearMonth()}-28T00:00:00.000Z`),
+        },
+        {
+          ...metricSales(zero.code, yearMonth, 0, 0),
+          optionCode: 'ZERO',
+          masterProductId: zero.id,
+          coverageStartDate,
+          coverageEndDate,
+        },
+        {
+          ...metricSales(stale.code, yearMonth, 999, 999),
+          optionCode: 'STALE',
+          sourceImportRunId: failedRun.id,
+          masterProductId: stale.id,
+          coverageStartDate,
+          coverageEndDate,
+        },
+        {
+          ...metricSales(foreign.code, yearMonth, 999, 999),
+          optionCode: 'FOREIGN',
+          organizationId: OTHER_ORGANIZATION_ID,
+          sourceImportRunId: foreignProfitabilityRunId,
+          masterProductId: foreign.id,
+          coverageStartDate,
+          coverageEndDate,
+        },
+      ],
+    });
+
+    const result = await profitFactReader.readMonthlySales({
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductIds: [partial.id, zero.id, stale.id, foreign.id],
+      yearMonth,
+    });
+
+    expect(result.get(partial.id)).toEqual({
+      revenue: 500,
+      soldQuantity: 5,
+      coverageStartDate: yearMonth + '-01',
+      coverageEndDate: yearMonth + '-15',
+    });
+    expect(result.get(zero.id)).toEqual({
+      revenue: 0,
+      soldQuantity: 0,
+      coverageStartDate: yearMonth + '-01',
+      coverageEndDate: yearMonth + '-15',
+    });
+    expect(result.has(stale.id)).toBe(false);
+    expect(result.has(foreign.id)).toBe(false);
+  });
+
+  it('withholds a monthly sales fact when coverage is mismatched or missing', async () => {
+    const yearMonth = currentKstYearMonth();
+    const coverageStartDate = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    const product = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-COVERAGE',
+      currentStock: 1,
+    });
+    const missing = await seedInventoryProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'MONTHLY-SALES-MISSING-COVERAGE',
+      currentStock: 1,
+    });
+
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: [
+        {
+          ...metricSales(product.code, yearMonth, 1, 100),
+          optionCode: 'MATCHING-END',
+          masterProductId: product.id,
+          coverageStartDate,
+          coverageEndDate: new Date(`${yearMonth}-15T00:00:00.000Z`),
+        },
+        {
+          ...metricSales(product.code, yearMonth, 1, 100),
+          optionCode: 'MISMATCHED-END',
+          masterProductId: product.id,
+          coverageStartDate,
+          coverageEndDate: new Date(`${yearMonth}-16T00:00:00.000Z`),
+        },
+        {
+          ...metricSales(missing.code, yearMonth, 1, 100),
+          optionCode: 'MISSING',
+          masterProductId: missing.id,
+          coverageStartDate: null,
+          coverageEndDate: null,
+        },
+      ],
+    });
+
+    const result = await profitFactReader.readMonthlySales({
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductIds: [product.id, missing.id],
+      yearMonth,
+    });
+
+    expect(result.has(product.id)).toBe(false);
+    expect(result.has(missing.id)).toBe(false);
+  });
+
   it.each([
     { costBasis: 'UNKNOWN', vatIncluded: null },
     { costBasis: 'UNKNOWN', vatIncluded: true },
@@ -723,6 +884,11 @@ function previousKstYearMonth(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   const previous = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
   return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentKstYearMonth(): string {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function previousKstYearMonths(count: number): string[] {

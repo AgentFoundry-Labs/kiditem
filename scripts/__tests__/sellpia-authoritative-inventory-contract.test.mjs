@@ -428,21 +428,23 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.doesNotMatch(insert, /\bdeleted_at\b/);
   });
 
-  it("reads canonical Orders facts and the official Products ABC publication for dashboard ranking", () => {
+  it("reads canonical Orders facts and the public Products ABC view for dashboard ranking", () => {
     assert.match(
       dashboardSalesRepository,
       /readOrderLineWindowFacts\(tx/,
     );
     assert.match(
       dashboardSalesRepository,
-      /readProductAbcPublication\(tx/,
+      /this\.productAbc\.readAbc\(/,
     );
+    assert.match(dashboardSalesRepository, /@Inject\(PRODUCT_ABC_READ_PORT\)/);
+    assert.doesNotMatch(dashboardSalesRepository, /products\/adapter\/out/);
     assert.doesNotMatch(dashboardSalesRepository, /\$queryRaw/);
     assert.doesNotMatch(dashboardSalesRepository, /\bFROM\s+order_line_items\b/i);
     assert.doesNotMatch(dashboardSalesRepository, /channel_sku_components/);
     assert.doesNotMatch(dashboardSalesRepository, /LEFT JOIN LATERAL/);
     assert.doesNotMatch(dashboardSalesRepository, /master_product_abc_evaluations/);
-    assert.match(dashboardSalesRepository, /grade: abcEvaluation\?\.abcGrade \?\? null/);
+    assert.match(dashboardSalesRepository, /grade: abc\?\.abcGrade \?\? null/);
     assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade AS grade/);
     // One group per listing: a bundle line counts once however many Sellpia
     // components its option consumes. A line that settles against no listing —

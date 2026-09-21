@@ -1,5 +1,5 @@
 import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
-import type { OrderCollectionMallAccount } from '../../order-collection/lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { isTrackingSupportedMall } from '../../order-collection/lib/icecream-tracking-api';
 
 export interface MallCapabilities {

@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader2, Settings, Share2 } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
 import { ChannelSummary } from './components/ChannelSummary';
 import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
