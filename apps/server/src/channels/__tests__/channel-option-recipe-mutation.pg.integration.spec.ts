@@ -163,6 +163,36 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     expect(await prisma.channelListingOptionInventoryComponent.count({ where: { channelListingOptionId: option.id } })).toBe(0);
   });
 
+  it('still rejects new missing-product links even when another mutation carries a frozen code', async () => {
+    const { options } = await createListing(2);
+    const deletedId = randomUUID();
+    await expect(recipes.applyPreservingRecipes({
+      organizationId: TEST_ORGANIZATION_ID,
+      mutations: [
+        {
+          channelListingOptionId: options[0]!.id,
+          expectedMasterProductId: deletedId,
+          preparedKidItemCode: 'KID12345678',
+          components: [{ masterProductId: deletedId, quantity: 2 }],
+        },
+        {
+          channelListingOptionId: options[1]!.id,
+          components: [{ masterProductId: deletedId, quantity: 1 }],
+        },
+      ],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: options[0]!.id,
+      components: [{ masterProductId: deletedId, quantity: 1 }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
+    expect(await prisma.channelListingOption.findMany({
+      where: { id: { in: options.map(({ id }) => id) } },
+      select: { kidItemCode: true },
+    })).toEqual([{ kidItemCode: null }, { kidItemCode: null }]);
+  });
+
   it('rejects non-positive quantities and foreign organization targets before mutation', async () => {
     const product = await createProduct('VALIDATE', 5);
     const { options } = await createListing(1);

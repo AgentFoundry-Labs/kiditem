@@ -169,23 +169,30 @@ implements ChannelOptionRecipeRepositoryPort {
       targetIds,
       this.productTransactionalRead,
     );
-    if (expectedMasterProductIds.some((id) => !availableMasterProductIds.has(id))) {
-        throw new BadRequestException(
-          'Expected MasterProduct is missing or belongs to another organization',
-        );
-    }
+    const missingRegisteredOptions = new Set<string>();
     for (const mutation of input.mutations) {
-      if (!mutation.expectedMasterProductId) continue;
-      if (mutation.components.some((component) =>
-        component.masterProductId !== mutation.expectedMasterProductId
-        || !availableMasterProductIds.has(component.masterProductId))) {
+      if (mutation.expectedMasterProductId && mutation.components.some((component) =>
+        component.masterProductId !== mutation.expectedMasterProductId)) {
         throw new BadRequestException(
           'Recipe components do not resolve to the expected canonical MasterProduct',
         );
       }
+      const missingTarget = mutation.components.some((component) =>
+        !availableMasterProductIds.has(component.masterProductId))
+        || Boolean(mutation.expectedMasterProductId
+          && !availableMasterProductIds.has(mutation.expectedMasterProductId));
+      if (!missingTarget) continue;
+      if (!mutation.preparedKidItemCode || !mutation.expectedMasterProductId) {
+        throw new BadRequestException(
+          'One or more MasterProduct components do not belong to this organization',
+        );
+      }
+      // A historical registration cannot recreate a deleted source identity.
+      missingRegisteredOptions.add(mutation.channelListingOptionId);
     }
 
     const conflicts: string[] = [];
+    let codeChanged = false;
     const applied: typeof input.mutations[number][] = [];
     const listingIds = new Set<string>();
     for (const mutation of input.mutations) {
@@ -193,6 +200,18 @@ implements ChannelOptionRecipeRepositoryPort {
       if (mutation.preparedKidItemCode && option.kidItemCode !== null
         && option.kidItemCode !== mutation.preparedKidItemCode) {
         conflicts.push(mutation.channelListingOptionId);
+        continue;
+      }
+      if (missingRegisteredOptions.has(option.id)) {
+        // Keep existing recipes/codes intact; an as-yet unlinked option still retains its issued code.
+        if (option.kidItemCode === null && option.inventoryComponents.length === 0) {
+          await tx.channelListingOption.updateMany({
+            where: { id: option.id, organizationId: input.organizationId },
+            data: { kidItemCode: mutation.preparedKidItemCode },
+          });
+          codeChanged = true;
+        }
+        conflicts.push(option.id);
         continue;
       }
       if (option.inventoryComponents.length > 0) {
@@ -219,7 +238,6 @@ implements ChannelOptionRecipeRepositoryPort {
       });
     }
 
-    let codeChanged = false;
     for (const mutation of input.mutations) {
       if (conflicts.includes(mutation.channelListingOptionId)) continue;
       const option = optionById.get(mutation.channelListingOptionId)!;
@@ -427,6 +445,11 @@ async function validateRecipeTargetsInTransaction(
     targetIds,
     productTransactionalRead,
   );
+  if (targetIds.some((id) => !availableMasterProductIds.has(id))) {
+    throw new BadRequestException(
+      'One or more MasterProduct components do not belong to this organization',
+    );
+  }
   if (input.expectedMasterProductId
     && (!availableMasterProductIds.has(input.expectedMasterProductId)
       || input.components.some((component) =>
@@ -456,11 +479,6 @@ async function loadRecipeTargets(
   const availableMasterProductIds = new Set(
     identities.map((identity) => identity.masterProductId),
   );
-  if (ids.some((id) => !availableMasterProductIds.has(id))) {
-    throw new BadRequestException(
-      'One or more MasterProduct components do not belong to this organization',
-    );
-  }
   return availableMasterProductIds;
 }
 

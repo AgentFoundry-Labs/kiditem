@@ -19,6 +19,11 @@ import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { freezeProductRegistrationPayload } from '../domain/registration-submission-payload';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -38,6 +43,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   let service: ChannelCatalogImportService;
   let alerts: SourceFailureAlerts;
   let recipes: ChannelOptionRecipeUseCase;
+  let availability: ChannelSkuAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -47,6 +53,18 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+      ),
+    );
+    const prismaService = prisma as unknown as PrismaService;
+    availability = new ChannelSkuAvailabilityService(
+      new ChannelProductMatchingRepositoryAdapter(
+        prismaService,
+        new ProductTransactionalReadRepositoryAdapter(),
+        new ProductSourceReadRepositoryAdapter(prismaService),
+        recipes,
+      ),
+      new ProductAvailabilityUseCase(
+        new ProductAvailabilityRepositoryAdapter(prismaService),
       ),
     );
     repository = new ChannelCatalogImportRepositoryAdapter(
@@ -306,6 +324,133 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       inventoryComponents: [{ masterProductId: component.id, quantity: 2 }],
     });
   });
+
+  it.each([
+    { recipePresentBeforeDeletion: true, expectedMappingStatus: 'needs_review' as const },
+    { recipePresentBeforeDeletion: false, expectedMappingStatus: 'unmatched' as const },
+  ])(
+    'keeps a deleted registered source unresolved across later workbook captures (%j)',
+    async ({ recipePresentBeforeDeletion, expectedMappingStatus }) => {
+      const sellerSku = 'KID87654320';
+      const sourceCode = 'SP-DELETED-WORKBOOK';
+      const row = makeRow(0, {
+        externalProductId: 'P-DELETED',
+        externalSkuId: 'S-DELETED',
+      });
+      await importCatalog([row], fileHash('deleted-workbook-first'));
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: WING_ACCOUNT_ID,
+          externalId: 'P-DELETED',
+        },
+        include: { options: true },
+      });
+      const option = listing.options[0]!;
+      const source = await prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID00000005',
+          sourceAccountKey: 'kiditem',
+          sourceProductCode: sourceCode,
+          sourceOptionCode: '',
+          name: 'Deleted workbook bundle component',
+          currentStock: 4,
+        },
+      });
+      const execution = await createFrozenRegistrationExecution({
+        prisma,
+        channelAccountId: WING_ACCOUNT_ID,
+        channelListingId: listing.id,
+        masterProductId: source.id,
+        sourceCode,
+        sellerSku,
+      });
+      await prisma.channelListingOption.update({
+        where: { id: option.id },
+        data: { sellerSku },
+      });
+
+      if (recipePresentBeforeDeletion) {
+        await importCatalog([row], fileHash('deleted-workbook-recipe'));
+      }
+      const beforeOption = await prisma.channelListingOption.findUniqueOrThrow({
+        where: { id: option.id },
+        include: { inventoryComponents: true },
+      });
+      expect(beforeOption.inventoryComponents).toHaveLength(recipePresentBeforeDeletion ? 1 : 0);
+      const executionBefore = await registrationExecutionSnapshot(execution.id);
+
+      await prisma.masterProduct.delete({ where: { id: source.id } });
+      await expect(
+        importCatalog([row], fileHash('deleted-workbook-after-delete')),
+      ).resolves.toMatchObject({ duplicate: false });
+
+      const replacement = await prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID00000006',
+          sourceAccountKey: 'kiditem',
+          sourceProductCode: sourceCode,
+          sourceOptionCode: '',
+          name: 'Replacement with the same workbook source code',
+          currentStock: 99,
+        },
+      });
+      await expect(
+        importCatalog([row], fileHash('deleted-workbook-replacement')),
+      ).resolves.toMatchObject({ duplicate: false });
+
+      const afterOption = await prisma.channelListingOption.findUniqueOrThrow({
+        where: { id: option.id },
+        include: { inventoryComponents: true },
+      });
+      expect(afterOption).toMatchObject({ sellerSku, kidItemCode: sellerSku });
+      expect(afterOption.inventoryComponents.map(({ masterProductId, quantity }) => ({
+        masterProductId,
+        quantity,
+      }))).toEqual(recipePresentBeforeDeletion
+        ? [{ masterProductId: source.id, quantity: 2 }]
+        : []);
+      expect(afterOption.inventoryComponents).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ masterProductId: replacement.id }),
+      ]));
+
+      await expect(prisma.channelListing.findUniqueOrThrow({
+        where: { id: listing.id },
+        select: { masterProductId: true },
+      })).resolves.toEqual({
+        masterProductId: recipePresentBeforeDeletion ? source.id : null,
+      });
+      const [availabilityItem] = await availability.findByChannelSkuIds(
+        TEST_ORGANIZATION_ID,
+        [option.id],
+      );
+      expect(availabilityItem).toMatchObject({
+        sku: { mappingStatus: expectedMappingStatus, sellableStock: null },
+      });
+      expect(availabilityItem?.sku.sellableStock).not.toBe(0);
+      if (recipePresentBeforeDeletion) {
+        expect(availabilityItem).toMatchObject({
+          recipeStatus: 'review_required',
+          components: [{
+            masterProductId: source.id,
+            currentStock: null,
+            componentCapacity: null,
+          }],
+          warnings: ['inventory_unavailable'],
+        });
+      } else {
+        expect(availabilityItem).toMatchObject({
+          recipeStatus: 'unmatched',
+          components: [],
+          warnings: [],
+        });
+      }
+      await expect(registrationExecutionSnapshot(execution.id))
+        .resolves.toEqual(executionBefore);
+    },
+  );
 
   it('requires an active account in the organization and rejects non-Wing channels before claiming', async () => {
     await expect(
@@ -1453,6 +1598,23 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
     return state?.mappingGeneration ?? 0n;
   }
+
+  async function registrationExecutionSnapshot(executionId: string) {
+    return prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: executionId },
+      select: {
+        id: true,
+        requestHash: true,
+        submissionPayloadJson: true,
+        submissionPayloadHash: true,
+        status: true,
+        providerOutcome: true,
+        providerSubmissionId: true,
+        externalListingId: true,
+        resultJson: true,
+      },
+    });
+  }
 });
 
 function importInput(
@@ -1513,6 +1675,46 @@ function makeRow(
 
 function fileHash(label: string): string {
   return createHash('sha256').update(label).digest('hex');
+}
+
+async function createFrozenRegistrationExecution(input: {
+  prisma: PrismaClient;
+  channelAccountId: string;
+  channelListingId: string;
+  masterProductId: string;
+  sourceCode: string;
+  sellerSku: string;
+}) {
+  const frozen = freezeProductRegistrationPayload({
+    registrationInput: {
+      kidItemCode: input.sellerSku,
+      sellpiaMatch: {
+        sellpiaInventorySkuId: input.masterProductId,
+        quantity: 2,
+        code: input.sourceCode,
+      },
+      wingProduct: { variants: [{ vendorItemCode: input.sellerSku }] },
+    },
+  });
+  const execution = await input.prisma.productRegistrationExecution.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      productPreparationId: randomUUID(),
+      channelAccountId: input.channelAccountId,
+      channelListingId: input.channelListingId,
+      executionKind: 'external_wing',
+      idempotencyKey: randomUUID(),
+      requestHash: frozen.hash,
+      submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
+      submissionPayloadHash: frozen.hash,
+      status: 'succeeded',
+      providerOutcome: 'succeeded',
+      providerSubmissionId: `provider-${input.sourceCode}`,
+      externalListingId: 'P-DELETED',
+      resultJson: { externalListingId: 'P-DELETED' },
+    },
+  });
+  return { id: execution.id };
 }
 
 function zeroChanges() {
