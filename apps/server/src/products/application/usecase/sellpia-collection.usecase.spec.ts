@@ -35,6 +35,23 @@ describe('SellpiaCollectionUseCase publication recovery', () => {
     expect(publication.publishSnapshot).toHaveBeenCalledOnce();
   });
 
+  it('still attempts fenced settlement when the status reread fails', async () => {
+    const file = Buffer.from('source artifact');
+    const publicationError = new Error('publication unavailable');
+    const repository = {
+      readAttempt: vi.fn().mockResolvedValueOnce(attempt('RUNNING'))
+        .mockRejectedValueOnce(new Error('transient status read failure')),
+      failAttempt: vi.fn().mockResolvedValue(attempt('FAILED')),
+    };
+    const service = makeService(repository, {
+      publishSnapshot: vi.fn().mockRejectedValue(publicationError),
+    });
+    await expect(service.completeAttempt(input(file))).rejects.toBe(publicationError);
+    expect(repository.failAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId, attemptToken, errorCode: 'sellpia_publication_failed',
+    }));
+  });
+
   it('preserves the publication error when terminal settlement fails', async () => {
     const file = Buffer.from('source artifact');
     const publicationError = new Error('publication unavailable');

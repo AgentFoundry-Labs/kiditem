@@ -114,17 +114,22 @@ export class SellpiaCollectionUseCase implements SellpiaCollectionPort {
         qualityFacts: parsed.qualityFacts,
       });
     } catch (error) {
+      let terminal: SellpiaCollectionAttempt | undefined;
       try {
-        const terminal = await this.repository.readAttempt({
+        terminal = await this.repository.readAttempt({
           organizationId: input.organizationId,
           attemptId: input.attemptId,
         });
-        if (
-          terminal.state === 'COMPLETE'
-          && (terminal.contentChecksum === fileHash
-            || (terminal.contentChecksum === null && terminal.fileHash === fileHash))
-        ) return terminal;
-        if (terminal.state === 'RUNNING') {
+      } catch {
+        // A failed status read must not prevent a fenced failure-settlement attempt.
+      }
+      if (
+        terminal?.state === 'COMPLETE'
+        && (terminal.contentChecksum === fileHash
+          || (terminal.contentChecksum === null && terminal.fileHash === fileHash))
+      ) return terminal;
+      if (!terminal || terminal.state === 'RUNNING') {
+        try {
           await this.repository.failAttempt({
             organizationId: input.organizationId,
             userId: input.userId,
@@ -135,9 +140,10 @@ export class SellpiaCollectionUseCase implements SellpiaCollectionPort {
             fileName: input.file.fileName,
             contentChecksum: fileHash,
           });
+        } catch {
+          // Completed/cancelled attempts cannot be overwritten. If storage is down,
+          // retain the original error; the existing attempt expiry releases the lease.
         }
-      } catch {
-        // Preserve the publication error if settlement loses its fence or storage is unavailable.
       }
       throw error;
     }

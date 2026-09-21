@@ -390,16 +390,17 @@ apps/server/src/{owner}/
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
   domain/capability/      owner-defined Agent capability contracts, when platform-visible
-  application/service/    orchestration, transactions, organization context
+  application/usecase/   orchestration; existing application/service lanes follow owner guides
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
   read/                   pure ledger readers over the caller's transaction client
   transaction/            lock/fence functions for the caller's transaction (not a port lane)
 ```
 
-Required: module file, `application/service/`, and a port/adapter boundary for
+Required: module file, orchestration in `application/usecase/` (or the owner's
+existing `application/service/`), and a port/adapter boundary for
 each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
-Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
+Optional: `adapter/in/web/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
