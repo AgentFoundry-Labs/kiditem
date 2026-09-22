@@ -19,7 +19,7 @@ export interface CreateContentWorkspaceInput {
   organizationId: string;
   triggeredByUserId: string | null;
   rawTitle: string;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   channelListingId?: string | null;
   originWorkspaceId?: string | null;
 }
@@ -27,7 +27,7 @@ export interface CreateContentWorkspaceInput {
 export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -75,7 +75,7 @@ export class ContentWorkspaceService {
     organizationId: string;
     triggeredByUserId: string | null;
     rawTitle: string;
-    sourceCandidateId: string | null;
+    salesProductId: string | null;
     channelListingId?: string | null;
     originWorkspaceId?: string | null;
   }): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
@@ -98,7 +98,7 @@ export class ContentWorkspaceService {
     return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,
       ownerType,
-      sourceCandidateId: input.sourceCandidateId,
+      salesProductId: input.salesProductId,
       channelListingId: input.channelListingId ?? null,
       originWorkspaceId: input.originWorkspaceId ?? null,
       displayName,
@@ -208,7 +208,7 @@ export class ContentWorkspaceService {
     return {
       id: row.id,
       ownerType: row.ownerType,
-      sourceCandidateId: row.sourceCandidateId,
+      salesProductId: row.salesProductId,
       channelListingId: row.channelListingId,
       originWorkspaceId: row.originWorkspaceId,
       displayName: row.displayName,
@@ -310,7 +310,7 @@ export function registeredWorkspaceEditorHref(
 function toDuplicateSummary(row: {
   id: string;
   ownerType: string;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -330,7 +330,7 @@ function toDuplicateSummary(row: {
   return {
     id: row.id,
     ownerType: row.ownerType,
-    sourceCandidateId: row.sourceCandidateId,
+    salesProductId: row.salesProductId,
     channelListingId: row.channelListingId,
     originWorkspaceId: row.originWorkspaceId,
     displayName: row.displayName,
@@ -361,11 +361,11 @@ function displayTitle(value: string): string {
 }
 
 function ownerTypeFor(input: {
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   channelListingId?: string | null;
-}): 'sourcing_candidate' | 'channel_listing' | 'direct_detail_page' {
+}): 'sales_product' | 'channel_listing' | 'direct_detail_page' {
   if (input.channelListingId) return 'channel_listing';
-  if (input.sourceCandidateId) return 'sourcing_candidate';
+  if (input.salesProductId) return 'sales_product';
   return 'direct_detail_page';
 }
 

@@ -18,7 +18,6 @@ export interface ContentArchiveGenerationRow {
   generationInput: unknown;
   generationResult: unknown;
   generatedTitle: string | null;
-  sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   status: string;
   errorMessage: string | null;
@@ -27,7 +26,7 @@ export interface ContentArchiveGenerationRow {
   contentWorkspace: {
     id: string;
     ownerType: string;
-    sourceCandidateId: string | null;
+    salesProductId: string | null;
     channelListingId: string | null;
     displayName: string;
   };

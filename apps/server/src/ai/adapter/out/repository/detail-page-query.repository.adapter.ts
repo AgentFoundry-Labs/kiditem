@@ -22,7 +22,6 @@ interface DetailPageEditableGenerationSnapshot {
   contentWorkspaceId: string;
   detailPageArtifactId: string | null;
   generatedTitle: string | null;
-  sourceCandidateId: string | null;
   triggeredByUserId: string | null;
 }
 
@@ -37,9 +36,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
   async list(input: DetailPageListRepositoryInput): Promise<DetailPageGenerationSnapshot[]> {
     const ownershipWhere = input.contentWorkspaceId
       ? { contentWorkspaceId: input.contentWorkspaceId }
-      : input.sourceCandidateId
-        ? { sourceCandidateId: input.sourceCandidateId }
-        : {};
+      : {};
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId: input.organizationId,
@@ -126,7 +123,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         id: true,
         generationGroupId: true,
         contentWorkspaceId: true,
-        sourceCandidateId: true,
         detailPageArtifactId: true,
         contentType: true,
         templateId: true,
@@ -167,7 +163,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
     organizationId: string;
     triggeredByUserId: string | null;
     contentWorkspaceId: string;
-    sourceCandidateId: string | null;
     title: string;
     imageUrls: readonly string[];
   }): Promise<DetailPageGenerationSnapshot> {
@@ -191,7 +186,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           contentType: 'detail_page',
           generationGroupId: group.id,
           contentWorkspaceId: input.contentWorkspaceId,
-          sourceCandidateId: input.sourceCandidateId,
           triggeredByUserId: input.triggeredByUserId,
           templateId: null,
           generationInput: { source: UPLOADED_DETAIL_PAGE_SOURCE, imageUrls },
@@ -235,8 +229,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           contentType: input.source.contentType,
           generationGroupId: input.source.generationGroupId,
           contentWorkspaceId: input.source.contentWorkspaceId,
-          sourceCandidateId:
-            input.source.sourceCandidateId,
           triggeredByUserId: input.triggeredByUserId ?? input.source.triggeredByUserId,
           templateId: input.source.templateId,
           generationInput: input.source.generationInput as Prisma.InputJsonValue,
@@ -326,7 +318,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           contentWorkspaceId: true,
           detailPageArtifactId: true,
           generatedTitle: true,
-          sourceCandidateId: true,
           triggeredByUserId: true,
         },
       }) as DetailPageEditableGenerationSnapshot | null;
@@ -421,8 +412,8 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
    * 모두 같은 "저장된 상세페이지" 계약이라 서로 대체 가능하지만, 그 밖의 무엇으로도 대체하지 않는다.
    * (생성 결과 스냅샷·썸네일·수집 원본으로 폴백하면 엉뚱한 상세페이지가 등록된다.)
    */
-  async findCandidateCurrentDetailPageHtml(input: {
-    sourceCandidateId: string;
+  async findWorkspaceCurrentDetailPageHtml(input: {
+    contentWorkspaceId: string;
     organizationId: string;
   }): Promise<CandidateDetailPageHtmlSnapshot | null> {
     const revisionSelect = {
@@ -434,9 +425,8 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
 
     const workspace = await this.prisma.contentWorkspace.findFirst({
       where: {
+        id: input.contentWorkspaceId,
         organizationId: input.organizationId,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: input.sourceCandidateId,
         status: 'active',
         isDeleted: false,
       },

@@ -157,17 +157,17 @@ function pickStoredGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full'
 
 export function detailPageResultHref(input: {
   productId: string | null;
-  sourceCandidateId?: string | null;
+  contentWorkspaceId?: string | null;
   contentGenerationId: string;
   templateId: DetailPageTemplateId;
 }): string {
   void input.productId;
   void input.templateId;
   const generationId = encodeURIComponent(input.contentGenerationId);
-  if (input.sourceCandidateId) {
-    const sourceCandidateId = encodeURIComponent(input.sourceCandidateId);
-    const returnTo = encodeURIComponent(`/product-pipeline/collected-products/${sourceCandidateId}`);
-    return `/product-pipeline/detail-pages/${generationId}/editor?sourceCandidateId=${sourceCandidateId}&returnTo=${returnTo}`;
+  if (input.contentWorkspaceId) {
+    const workspaceId = encodeURIComponent(input.contentWorkspaceId);
+    const returnTo = encodeURIComponent(`/product-pipeline/registered-products/${workspaceId}`);
+    return `/product-pipeline/detail-pages/${generationId}/editor?returnTo=${returnTo}`;
   }
   return `/product-pipeline/detail-pages/${generationId}/editor`;
 }

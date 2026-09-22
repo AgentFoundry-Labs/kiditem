@@ -11,8 +11,8 @@ import {
   type ImageStoragePort,
 } from '../../../application/port/out/storage/image-storage.port';
 import type {
-  CandidateContentAssetRow,
-  CandidateCurrentThumbnailRow,
+  SalesProductContentAssetRow,
+  SalesProductCurrentThumbnailRow,
   ContentAssetLibraryRepositoryPort,
   ContentAssetLibraryWriteScope,
   ContentAssetListRepositoryInput,
@@ -221,10 +221,10 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     return { total, rows };
   }
 
-  async listCandidateAssets(input: {
+  async listSalesProductAssets(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateContentAssetRow[]> {
+    salesProductId: string;
+  }): Promise<SalesProductContentAssetRow[]> {
     return this.prisma.contentAsset.findMany({
       where: {
         organizationId: input.organizationId,
@@ -233,7 +233,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         originGenerationGroup: {
           contentWorkspace: {
             organizationId: input.organizationId,
-            sourceCandidateId: input.sourceCandidateId,
+            salesProductId: input.salesProductId,
             isDeleted: false,
           },
         },
@@ -249,14 +249,14 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
    * `RegistrationTarget` 이 없는 후보는 대표 선택을 여기에만 남길 수 있어서,
    * 이걸 읽지 않으면 저장은 되는데 재진입하면 사라진 것처럼 보인다.
    */
-  async findCandidateCurrentThumbnail(input: {
+  async findSalesProductCurrentThumbnail(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateCurrentThumbnailRow | null> {
+    salesProductId: string;
+  }): Promise<SalesProductCurrentThumbnailRow | null> {
     const workspace = await this.prisma.contentWorkspace.findFirst({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
         status: 'active',
         isDeleted: false,
         currentThumbnailSelectionId: { not: null },
@@ -284,31 +284,31 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
   }
 
   /**
-   * `findCandidateCurrentThumbnail` 의 배치판. 수집상품 목록은 한 페이지에
+   * `findSalesProductCurrentThumbnail` 의 배치판. 수집상품 목록은 한 페이지에
    * 후보가 20~100개라 후보마다 한 번씩 조회하면 N+1 이 된다. 목록 경로는
    * 반드시 이쪽을 쓴다.
    *
    * 후보 하나가 활성 워크스페이스를 여러 개 가질 수 있어 `updatedAt desc` 로
    * 정렬한 뒤 **처음 것만** 채택한다(단건 조회의 `findFirst` 와 같은 규칙).
    */
-  async findCandidateCurrentThumbnails(input: {
+  async findSalesProductCurrentThumbnails(input: {
     organizationId: string;
-    sourceCandidateIds: string[];
-  }): Promise<Map<string, CandidateCurrentThumbnailRow>> {
-    const result = new Map<string, CandidateCurrentThumbnailRow>();
-    const ids = [...new Set(input.sourceCandidateIds.filter(Boolean))];
+    salesProductIds: string[];
+  }): Promise<Map<string, SalesProductCurrentThumbnailRow>> {
+    const result = new Map<string, SalesProductCurrentThumbnailRow>();
+    const ids = [...new Set(input.salesProductIds.filter(Boolean))];
     if (ids.length === 0) return result;
     const workspaces = await this.prisma.contentWorkspace.findMany({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: { in: ids },
+        salesProductId: { in: ids },
         status: 'active',
         isDeleted: false,
         currentThumbnailSelectionId: { not: null },
       },
       orderBy: { updatedAt: 'desc' },
       select: {
-        sourceCandidateId: true,
+        salesProductId: true,
         currentThumbnailSelection: {
           select: {
             sourceThumbnailGenerationId: true,
@@ -319,7 +319,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       },
     });
     for (const workspace of workspaces) {
-      const candidateId = workspace.sourceCandidateId;
+      const candidateId = workspace.salesProductId;
       if (!candidateId || result.has(candidateId)) continue;
       const selection = workspace.currentThumbnailSelection;
       if (!selection || selection.contentAsset.isDeleted) continue;

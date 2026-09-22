@@ -19,7 +19,6 @@ import {
 } from '../port/out/repository/detail-page-query.repository.port';
 
 export interface DetailPageListQuery {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   templateId?: string | null;
 }
@@ -40,14 +39,13 @@ export class DetailPageQueryService {
     organizationId: string,
     query: DetailPageListQuery = {},
   ): Promise<DetailPageGenerationDto[]> {
-    const { contentWorkspaceId, sourceCandidateId, templateId } = query;
+    const { contentWorkspaceId, templateId } = query;
     if (templateId && templateId !== 'kids-playful' && templateId !== 'bold-vertical') {
       throw new BadRequestException('invalid templateId');
     }
     const rows = await this.repository.list({
       organizationId,
       contentWorkspaceId,
-      sourceCandidateId,
     });
     return rows
       .map((row) => this.toDto(row))
@@ -110,7 +108,6 @@ export class DetailPageQueryService {
     organizationId: string;
     triggeredByUserId: string | null;
     contentWorkspaceId: string;
-    sourceCandidateId: string | null;
     title: string;
     imageUrls: readonly string[];
   }): Promise<{ id: string; contentWorkspaceId: string }> {
@@ -124,7 +121,6 @@ export class DetailPageQueryService {
       organizationId: input.organizationId,
       triggeredByUserId: input.triggeredByUserId,
       contentWorkspaceId: input.contentWorkspaceId,
-      sourceCandidateId: input.sourceCandidateId,
       title: input.title,
       imageUrls: input.imageUrls,
     });
@@ -214,7 +210,6 @@ export class DetailPageQueryService {
     );
     return {
       id: row.id,
-      sourceCandidateId: row.sourceCandidateId,
       contentWorkspaceId: row.contentWorkspaceId,
       templateId: stored.templateId,
       productName,

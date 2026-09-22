@@ -96,12 +96,12 @@ describe('detail-page stored JSON helpers', () => {
     })).toBe('/product-pipeline/detail-pages/generation-456/editor');
   });
 
-  it('builds candidate-scoped detail-page result links when sourcing provenance exists', () => {
+  it('builds workspace-scoped detail-page result links when the generation has a workspace', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
-      sourceCandidateId: 'candidate-123',
+      contentWorkspaceId: 'workspace-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/product-pipeline/detail-pages/generation-456/editor?sourceCandidateId=candidate-123&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-123');
+    })).toBe('/product-pipeline/detail-pages/generation-456/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-123');
   });
 });

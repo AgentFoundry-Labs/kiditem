@@ -17,8 +17,8 @@ describe('RegistrationContentWorkspaceService', () => {
       selectedDetailPageGenerationId: 'generation-1',
     };
     const repository = {
-      ensureCandidateWorkspace: vi.fn(),
-      branchToListing: vi.fn(),
+      ensureSalesProductWorkspace: vi.fn(),
+      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn(),
       resolveSourceSelections: vi.fn().mockResolvedValue(resolved),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
@@ -38,78 +38,60 @@ describe('RegistrationContentWorkspaceService', () => {
     expect(repository.resolveSourceSelections).toHaveBeenCalledWith(TX, input);
   });
 
-  it('ensures the source-candidate workspace in the caller transaction', async () => {
+  it('ensures the sales-product draft workspace in the caller transaction', async () => {
     const repository = {
-      ensureCandidateWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'source-workspace-1' }),
-      branchToListing: vi.fn(),
+      ensureSalesProductWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'source-workspace-1' }),
+      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);
 
-    await expect(service.ensureCandidateWorkspace(TX, {
+    await expect(service.ensureSalesProductWorkspace(TX, {
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
       displayName: ' Kids rain boots ',
       createdByUserId: 'user-1',
     })).resolves.toEqual({ workspaceId: 'source-workspace-1' });
-    expect(repository.ensureCandidateWorkspace).toHaveBeenCalledWith(TX, {
+    expect(repository.ensureSalesProductWorkspace).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
       displayName: 'Kids rain boots',
       normalizedTitle: 'kidsrainboots',
       createdByUserId: 'user-1',
     });
   });
 
-  it('branches selected source content to the listing without accepting the same owner', async () => {
+  it('points the draft workspace at its listing without accepting the same id for both', async () => {
     const repository = {
-      ensureCandidateWorkspace: vi.fn(),
-      branchToListing: vi.fn().mockResolvedValue({ workspaceId: 'listing-workspace-1' }),
+      ensureSalesProductWorkspace: vi.fn(),
+      attachToListing: vi.fn().mockResolvedValue({ workspaceId: 'draft-workspace-1' }),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);
 
-    await expect(service.branchToListing(TX, {
+    await expect(service.attachToListing(TX, {
       organizationId: 'org-1',
-      sourceWorkspaceId: 'source-workspace-1',
+      salesProductId: 'sales-product-1',
       listingId: 'listing-1',
-      displayName: 'Kids rain boots',
-      createdByUserId: 'user-1',
-      selectedThumbnailUrl: 'https://cdn.example.com/thumb.png',
-      selectedThumbnailGenerationId: 'generation-1',
-      selectedThumbnailGenerationCandidateId: 'candidate-image-1',
-      selectedDetailPageArtifactId: 'artifact-1',
-      selectedDetailPageRevisionId: 'revision-1',
-      selectedDetailPageGenerationId: 'detail-generation-1',
-    })).resolves.toEqual({ workspaceId: 'listing-workspace-1' });
-    expect(repository.branchToListing).toHaveBeenCalledWith(
-      TX,
-      expect.objectContaining({
-        sourceWorkspaceId: 'source-workspace-1',
-        listingId: 'listing-1',
-        normalizedTitle: 'kidsrainboots',
-      }),
-    );
-
-    await expect(service.branchToListing(TX, {
+    })).resolves.toEqual({ workspaceId: 'draft-workspace-1' });
+    expect(repository.attachToListing).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
-      sourceWorkspaceId: 'same-id',
+      salesProductId: 'sales-product-1',
+      listingId: 'listing-1',
+    });
+
+    await expect(service.attachToListing(TX, {
+      organizationId: 'org-1',
+      salesProductId: 'same-id',
       listingId: 'same-id',
-      displayName: 'Kids rain boots',
-      createdByUserId: null,
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: null,
-      selectedDetailPageRevisionId: null,
-      selectedDetailPageGenerationId: null,
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+
   it('exposes read-only source-selection validation through the incoming port', async () => {
     const repository = {
-      ensureCandidateWorkspace: vi.fn(),
-      branchToListing: vi.fn(),
+      ensureSalesProductWorkspace: vi.fn(),
+      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);
@@ -130,8 +112,8 @@ describe('RegistrationContentWorkspaceService', () => {
 
   it('allows pre-provider source validation without an ambient transaction', async () => {
     const repository = {
-      ensureCandidateWorkspace: vi.fn(),
-      branchToListing: vi.fn(),
+      ensureSalesProductWorkspace: vi.fn(),
+      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);

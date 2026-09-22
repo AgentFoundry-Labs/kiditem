@@ -6,10 +6,7 @@ import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage, ThumbnailInputRole } from '../../../domain/model/thumbnail-editor';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
-import {
-  ThumbnailGenerationSubjectError,
-  classifyThumbnailGenerationSubject,
-} from '../../../domain/thumbnail-generation-subject';
+import { resolveThumbnailGenerationSubject } from '../../../domain/thumbnail-generation-subject';
 import {
   buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
@@ -39,9 +36,10 @@ export class ThumbnailEditorController {
    *   Frontend polls the generation row to surface candidates when the
    *   direct job sink finalizes.
    *
-   * - **Standalone upload (`contentWorkspaceId` + `sourceCandidateId` absent)**:
-   *   creates only a `ThumbnailGeneration` row. It must not create sourcing
-   *   inbox cards; direct upload thumbnail results are reachable by generation id.
+   * - **Standalone upload (`contentWorkspaceId` absent)**:
+   *   creates only a `ThumbnailGeneration` row in its own direct workspace. It
+   *   must not create sourcing inbox cards; direct upload thumbnail results are
+   *   reachable by generation id.
    */
   @Post('generate')
   async generate(
@@ -50,15 +48,7 @@ export class ThumbnailEditorController {
     @CurrentUser() authUser?: AuthUser,
   ): Promise<EnqueueResponse> {
     const mode = body.mode ?? 'edit';
-    let subject: ReturnType<typeof classifyThumbnailGenerationSubject>;
-    try {
-      subject = classifyThumbnailGenerationSubject(body);
-    } catch (err) {
-      if (err instanceof ThumbnailGenerationSubjectError) {
-        throw new BadRequestException(err.message);
-      }
-      throw err;
-    }
+    const subject = resolveThumbnailGenerationSubject(body);
     const workspace = subject.contentWorkspaceId
       ? await this.generationService.findWorkspaceForThumbnailEditor(subject.contentWorkspaceId, organizationId)
       : null;
@@ -116,26 +106,6 @@ export class ThumbnailEditorController {
         inputMeta,
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: workspace.imageUrl ?? inputs[0]?.url ?? '',
-        directPayload,
-      });
-      return {
-        candidates: [],
-        generationId: enqueueResult.generationId,
-        status: 'pending',
-      } satisfies EnqueueResponse;
-    }
-
-    if (subject.sourceCandidateId) {
-      const enqueueResult = await this.generationService.enqueueCandidateGeneration({
-        organizationId,
-        sourceCandidateId: subject.sourceCandidateId,
-        productName,
-        triggeredByUserId: authUser?.id ?? null,
-        inputs,
-        inputMeta,
-        method: mode === 'creative' ? 'creative' : 'generate',
-        originalUrl: inputs[0]?.url ?? '',
-        contentWorkspaceId: subject.contentWorkspaceId,
         directPayload,
       });
       return {

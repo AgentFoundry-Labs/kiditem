@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 import { AiModule } from '../../../../ai.module';
-import { DetailPageCandidateImageController } from '../detail-page-candidate-image.controller';
+import { DetailPageWorkspaceImageController } from '../detail-page-workspace-image.controller';
 import { DetailPageEditorController } from '../detail-page-editor.controller';
 import { DetailPageGenerationController } from '../detail-page-generation.controller';
 
@@ -17,7 +17,7 @@ describe('detail-page route-family controllers', () => {
 
     expect(controllers).toContain(DetailPageGenerationController);
     expect(controllers).toContain(DetailPageEditorController);
-    expect(controllers).toContain(DetailPageCandidateImageController);
+    expect(controllers).toContain(DetailPageWorkspaceImageController);
   });
 
   it('preserves the existing route URLs by route family', () => {
@@ -61,30 +61,30 @@ describe('detail-page route-family controllers', () => {
       path: ':id',
     });
 
-    expect(controllerPath(DetailPageCandidateImageController)).toBe(
+    expect(controllerPath(DetailPageWorkspaceImageController)).toBe(
       'ai/detail-page-image',
     );
-    expect(route(DetailPageCandidateImageController, 'prepare')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'prepare')).toEqual({
       method: RequestMethod.POST,
-      path: 'candidate/:candidateId/server-render',
+      path: 'workspace/:contentWorkspaceId/server-render',
     });
-    expect(route(DetailPageCandidateImageController, 'claim')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'claim')).toEqual({
       method: RequestMethod.POST,
       path: 'render-intents/:intentId/claim',
     });
-    expect(route(DetailPageCandidateImageController, 'document')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'document')).toEqual({
       method: RequestMethod.GET,
       path: 'render-intents/:intentId/document',
     });
-    expect(route(DetailPageCandidateImageController, 'status')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'status')).toEqual({
       method: RequestMethod.GET,
       path: 'render-intents/:intentId',
     });
-    expect(route(DetailPageCandidateImageController, 'finalize')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'finalize')).toEqual({
       method: RequestMethod.POST,
       path: 'render-intents/:intentId/finalize',
     });
-    expect(route(DetailPageCandidateImageController, 'fail')).toEqual({
+    expect(route(DetailPageWorkspaceImageController, 'fail')).toEqual({
       method: RequestMethod.POST,
       path: 'render-intents/:intentId/fail',
     });

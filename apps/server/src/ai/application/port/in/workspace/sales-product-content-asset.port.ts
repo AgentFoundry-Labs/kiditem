@@ -1,4 +1,4 @@
-export const CANDIDATE_CONTENT_ASSET_PORT = Symbol('CANDIDATE_CONTENT_ASSET_PORT');
+export const SALES_PRODUCT_CONTENT_ASSET_PORT = Symbol('SALES_PRODUCT_CONTENT_ASSET_PORT');
 
 /**
  * Registration-ready images for one sourcing candidate, split by
@@ -9,7 +9,7 @@ export const CANDIDATE_CONTENT_ASSET_PORT = Symbol('CANDIDATE_CONTENT_ASSET_PORT
  * product-image spec. `ContentAsset.width/height` are NULL across the table, so
  * role is the only usable selector.
  */
-export interface CandidateRegistrationImages {
+export interface SalesProductRegistrationImages {
   primary: string[];
   thumbnail: string[];
   detail: string[];
@@ -22,28 +22,28 @@ export interface CandidateRegistrationImages {
  * A candidate with no `RegistrationTarget` has nowhere else to record one, so
  * this is the only way the saved selection survives a reload.
  */
-export interface CandidateCurrentThumbnail {
+export interface SalesProductCurrentThumbnail {
   url: string;
   sourceThumbnailGenerationId: string | null;
   sourceThumbnailCandidateId: string | null;
 }
 
-export interface CandidateContentAssetPort {
+export interface SalesProductContentAssetPort {
   loadRegistrationMedia(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
   }): Promise<{
-    registrationImages: CandidateRegistrationImages;
-    currentThumbnail: CandidateCurrentThumbnail | null;
+    registrationImages: SalesProductRegistrationImages;
+    currentThumbnail: SalesProductCurrentThumbnail | null;
   }>;
   listRegistrationImages(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateRegistrationImages>;
+    salesProductId: string;
+  }): Promise<SalesProductRegistrationImages>;
   findCurrentThumbnail(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateCurrentThumbnail | null>;
+    salesProductId: string;
+  }): Promise<SalesProductCurrentThumbnail | null>;
   /**
    * `findCurrentThumbnail` 의 배치판. 수집상품 목록처럼 후보 여러 개의 대표를
    * 한 번에 읽어야 하는 경로 전용이다 — 단건 조회를 반복하면 N+1 이 된다.
@@ -51,6 +51,6 @@ export interface CandidateContentAssetPort {
    */
   findCurrentThumbnails(input: {
     organizationId: string;
-    sourceCandidateIds: string[];
-  }): Promise<Map<string, CandidateCurrentThumbnail>>;
+    salesProductIds: string[];
+  }): Promise<Map<string, SalesProductCurrentThumbnail>>;
 }

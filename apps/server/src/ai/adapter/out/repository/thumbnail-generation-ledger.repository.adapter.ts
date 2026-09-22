@@ -32,7 +32,7 @@ import {
   applyGenerationToWorkspace,
   cancelDirectGeneration,
   clearReadySelections,
-  createPendingCandidateJob,
+  createPendingSalesProductJob,
   createPendingEditJob,
   createPendingStandaloneJob,
   deleteGeneration,
@@ -97,25 +97,6 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     >;
   }
 
-  async findSourceCandidateForJob(sourceCandidateId: string, organizationId: string) {
-    return this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: sourceCandidateId,
-        organizationId,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        images: {
-          where: { isDeleted: false },
-          select: { id: true, url: true, storageKey: true },
-        },
-      },
-    });
-  }
-
   async findWorkspacesForThumbnailJobs(ids: string[], organizationId: string) {
     return findWorkspacesForThumbnailJobs(this.prisma, ids, organizationId, this.listings) as Promise<
       Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findWorkspacesForThumbnailJobs']>>
@@ -168,10 +149,11 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
                 contentWorkspaceId: input.contentWorkspaceId,
                 editAnalysis: input.editAnalysis,
               })
-            : input.subject === 'candidate'
-              ? await createPendingCandidateJob(tx, {
+            : input.subject === 'sales_product'
+              ? await createPendingSalesProductJob(tx, {
                   ...common,
-                  sourceCandidateId: input.sourceCandidateId,
+                  salesProductId: input.salesProductId,
+                  productName: input.productName,
                   contentWorkspaceId: input.contentWorkspaceId,
                 })
               : await createPendingStandaloneJob(tx, {
@@ -257,8 +239,8 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     });
   }
 
-  openPendingCandidateJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingCandidateJob']>[0]) {
-    return createPendingCandidateJob(this.prisma, {
+  openPendingSalesProductJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingSalesProductJob']>[0]) {
+    return createPendingSalesProductJob(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
     });

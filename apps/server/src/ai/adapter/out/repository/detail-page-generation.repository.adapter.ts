@@ -59,7 +59,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       },
       select: {
         id: true,
-        sourceCandidateId: true,
+        salesProductId: true,
         displayName: true,
         normalizedTitle: true,
       },
@@ -141,7 +141,6 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
             contentType: 'detail_page',
             generationGroupId,
             contentWorkspaceId: input.contentWorkspaceId,
-            sourceCandidateId: input.sourceCandidateId,
             triggeredByUserId: input.triggeredByUserId,
             templateId: input.templateId,
             generationInput: input.rawInput as unknown as Prisma.InputJsonValue,
@@ -255,7 +254,6 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         id: true,
         generationGroupId: true,
         contentWorkspaceId: true,
-        sourceCandidateId: true,
         generationInput: true,
         generationResult: true,
         templateId: true,
@@ -267,24 +265,15 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
 
   async findImageOnlyBaseCandidates(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
-    contentWorkspaceId: string | null;
+    contentWorkspaceId: string;
     templateId: string;
   }): Promise<DetailPageImageOnlyBaseCandidateSnapshot[]> {
-    if (!input.sourceCandidateId && !input.contentWorkspaceId) return [];
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId: input.organizationId,
       contentType: 'detail_page',
       templateId: input.templateId,
       status: { in: ['READY', 'completed'] },
-      ...(input.contentWorkspaceId
-        ? { contentWorkspaceId: input.contentWorkspaceId }
-        : {
-              OR: [
-                { sourceCandidateId: input.sourceCandidateId },
-                { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
-              ],
-            }),
+      contentWorkspaceId: input.contentWorkspaceId,
     };
     const rows = await this.prisma.contentGeneration.findMany({
       where,
@@ -299,20 +288,6 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       },
     });
     return rows as DetailPageImageOnlyBaseCandidateSnapshot[];
-  }
-
-  async findSourceCandidate(input: {
-    organizationId: string;
-    sourceCandidateId: string;
-  }) {
-    return this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.sourceCandidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { id: true, name: true },
-    });
   }
 
   async findSourceContentGeneration(input: {

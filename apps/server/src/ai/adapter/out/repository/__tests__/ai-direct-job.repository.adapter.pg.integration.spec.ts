@@ -135,7 +135,6 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
     ) => detailPages.openProcessingGenerationLedger({
       organizationId: TEST_ORGANIZATION_ID,
       contentWorkspaceId: workspace.id,
-      sourceCandidateId: null,
       triggeredByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
       templateId: 'bold-vertical',
       rawInput: {
@@ -238,20 +237,12 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
   it('converges concurrent thumbnail-child replay on one durable row and rejects request-hash drift', async () => {
     const otherPrisma = makeTestPrisma();
     await otherPrisma.$connect();
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: 'https://example.com/concurrent-thumbnail',
-        sourcePlatform: 'manual',
-        name: 'Concurrent thumbnail',
-      },
-      select: { id: true },
-    });
+    const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidate.id,
+        ownerType: 'sales_product',
+        salesProductId,
         displayName: 'Concurrent thumbnail',
         normalizedTitle: 'concurrent thumbnail',
         createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
@@ -274,9 +265,10 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       thumbnails: ThumbnailGenerationLedgerRepositoryAdapter,
       productGenerationIdentity = identity,
     ) => thumbnails.openPendingDirectGeneration({
-      subject: 'candidate',
+      subject: 'sales_product',
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidate.id,
+      salesProductId,
+      productName: 'Concurrent thumbnail',
       contentWorkspaceId: workspace.id,
       originalUrl: 'https://example.com/concurrent-thumbnail.jpg',
       method: 'generate',

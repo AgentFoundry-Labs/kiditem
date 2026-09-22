@@ -3,10 +3,10 @@ import {
   AI_WORKSPACE_ARCHIVE_PORT,
   type AiWorkspaceArchiveScope,
   type AiWorkspaceArchivePort,
-} from '../../../../ai/application/port/in/workspace/sourcing-workspace-archive.port';
+} from '../../../../ai/application/port/in/workspace/sales-product-workspace-archive.port';
 import type {
-  ArchiveSourcingWorkspaceInput,
-  ArchiveSourcingWorkspaceResult,
+  ArchiveSalesProductWorkspaceInput,
+  ArchiveSalesProductWorkspaceResult,
   SourcingAiWorkspaceArchivePort,
 } from '../../../application/port/out/cross-domain/ai-workspace-archive.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
@@ -18,10 +18,10 @@ export class SourcingAiWorkspaceArchiveAdapter implements SourcingAiWorkspaceArc
     private readonly aiArchive: AiWorkspaceArchivePort,
   ) {}
 
-  archiveSourcingWorkspace(
+  archiveSalesProductWorkspace(
     tx: SourcingRepositoryTransaction,
-    input: ArchiveSourcingWorkspaceInput,
-  ): Promise<ArchiveSourcingWorkspaceResult> {
-    return this.aiArchive.archiveSourcingWorkspace(tx as unknown as AiWorkspaceArchiveScope, input);
+    input: ArchiveSalesProductWorkspaceInput,
+  ): Promise<ArchiveSalesProductWorkspaceResult> {
+    return this.aiArchive.archiveSalesProductWorkspace(tx as unknown as AiWorkspaceArchiveScope, input);
   }
 }

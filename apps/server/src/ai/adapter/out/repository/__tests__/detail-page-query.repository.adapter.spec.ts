@@ -3,7 +3,6 @@ import { DetailPageQueryRepositoryAdapter } from '../detail-page-query.repositor
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
-const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
 const ARTIFACT_ID = '55555555-5555-4555-8555-555555555555';
 const REVISION_ID = '66666666-6666-4666-8666-666666666666';
 const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
@@ -20,7 +19,6 @@ describe('DetailPageQueryRepositoryAdapter', () => {
     await repository.list({
       organizationId: ORG,
       contentWorkspaceId: WORKSPACE_ID,
-      sourceCandidateId: CANDIDATE_ID,
     });
 
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
@@ -46,7 +44,6 @@ describe('DetailPageQueryRepositoryAdapter', () => {
           contentWorkspaceId: WORKSPACE_ID,
           detailPageArtifactId: null,
           generatedTitle: '소싱 상세페이지',
-          sourceCandidateId: CANDIDATE_ID,
           triggeredByUserId: 'user-1',
           generationGroup: { targetMasterId: null },
         }),
@@ -152,8 +149,8 @@ describe('DetailPageQueryRepositoryAdapter', () => {
     };
     const repository = new DetailPageQueryRepositoryAdapter(prisma as never, {} as never);
 
-    await expect(repository.findCandidateCurrentDetailPageHtml({
-      sourceCandidateId: CANDIDATE_ID,
+    await expect(repository.findWorkspaceCurrentDetailPageHtml({
+      contentWorkspaceId: WORKSPACE_ID,
       organizationId: ORG,
     })).resolves.toEqual({
       revisionId: 'revision-selected',

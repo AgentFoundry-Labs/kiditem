@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SourcingWorkspaceArchiveRepositoryPort } from '../../port/out/repository/sourcing-workspace-archive.repository.port';
-import { SourcingWorkspaceArchiveService } from '../sourcing-workspace-archive.service';
+import type { SalesProductWorkspaceArchiveRepositoryPort } from '../../port/out/repository/sales-product-workspace-archive.repository.port';
+import { SalesProductWorkspaceArchiveService } from '../sales-product-workspace-archive.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
 const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 
-describe('AI SourcingWorkspaceArchiveService', () => {
+describe('AI SalesProductWorkspaceArchiveService', () => {
   it('delegates candidate AI artifact archival to the archive repository', async () => {
     const scope = {
       contentWorkspace: {
@@ -26,18 +26,18 @@ describe('AI SourcingWorkspaceArchiveService', () => {
         updateMany: vi.fn(),
       },
     };
-    const repository: SourcingWorkspaceArchiveRepositoryPort = {
-      archiveSourcingWorkspace: vi.fn().mockResolvedValue({
+    const repository: SalesProductWorkspaceArchiveRepositoryPort = {
+      archiveSalesProductWorkspace: vi.fn().mockResolvedValue({
         archivedContentGenerations: 2,
         archivedDetailPageArtifacts: 1,
         archivedContentAssets: 3,
         archivedThumbnailGenerations: 4,
       }),
     };
-    const service = new SourcingWorkspaceArchiveService(repository);
+    const service = new SalesProductWorkspaceArchiveService(repository);
 
     await expect(
-      service.archiveSourcingWorkspace(scope, {
+      service.archiveSalesProductWorkspace(scope, {
         organizationId: ORG,
         sourceCandidateId: CANDIDATE_ID,
         archivedAt: ARCHIVED_AT,
@@ -49,7 +49,7 @@ describe('AI SourcingWorkspaceArchiveService', () => {
       archivedThumbnailGenerations: 4,
     });
 
-    expect(repository.archiveSourcingWorkspace).toHaveBeenCalledWith(scope, {
+    expect(repository.archiveSalesProductWorkspace).toHaveBeenCalledWith(scope, {
       organizationId: ORG,
       sourceCandidateId: CANDIDATE_ID,
       archivedAt: ARCHIVED_AT,

@@ -1,37 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
-  classifyThumbnailGenerationSubject,
   normalizeThumbnailGenerationListScope,
+  resolveThumbnailGenerationSubject,
 } from '../thumbnail-generation-subject';
 
 describe('thumbnail generation subject', () => {
-  it('classifies ownerless editor work as direct-upload', () => {
-    expect(classifyThumbnailGenerationSubject({})).toEqual({
-      kind: 'direct-upload',
-      sourceCandidateId: null,
+  it('reads ownerless editor work as a direct upload', () => {
+    expect(resolveThumbnailGenerationSubject({})).toEqual({ contentWorkspaceId: null });
+  });
+
+  it('treats a blank workspace id as no workspace at all', () => {
+    expect(resolveThumbnailGenerationSubject({ contentWorkspaceId: '   ' })).toEqual({
+      contentWorkspaceId: null,
+    });
+    expect(resolveThumbnailGenerationSubject({ contentWorkspaceId: null })).toEqual({
       contentWorkspaceId: null,
     });
   });
 
-  it('classifies a content workspace as the canonical owner', () => {
-    expect(
-      classifyThumbnailGenerationSubject({
-        contentWorkspaceId: 'workspace-1',
-      }),
-    ).toEqual({
-      kind: 'content-workspace',
-      sourceCandidateId: null,
+  it('carries the content workspace as the only owner a generation can have', () => {
+    expect(resolveThumbnailGenerationSubject({ contentWorkspaceId: ' workspace-1 ' })).toEqual({
       contentWorkspaceId: 'workspace-1',
     });
-  });
-
-  it('rejects workspace and sourcing candidate owners together', () => {
-    expect(() =>
-      classifyThumbnailGenerationSubject({
-        contentWorkspaceId: 'workspace-1',
-        sourceCandidateId: 'candidate-1',
-      }),
-    ).toThrow('contentWorkspaceId 와 sourceCandidateId 는 동시에 사용할 수 없습니다');
   });
 
   it('normalizes generation list scope with workspace-bound as the default', () => {
@@ -42,6 +32,8 @@ describe('thumbnail generation subject', () => {
     expect(() => normalizeThumbnailGenerationListScope('product-bound')).toThrow(
       '지원하지 않는 썸네일 생성 조회 범위입니다',
     );
-    expect(() => normalizeThumbnailGenerationListScope('unknown')).toThrow('지원하지 않는 썸네일 생성 조회 범위입니다');
+    expect(() => normalizeThumbnailGenerationListScope('collected-product')).toThrow(
+      '지원하지 않는 썸네일 생성 조회 범위입니다',
+    );
   });
 });

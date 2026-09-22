@@ -12,14 +12,12 @@ export const PRODUCT_GENERATION_AI_TRIGGER_PORT = Symbol('PRODUCT_GENERATION_AI_
 
 export type ProductGenerationTask = 'all' | 'detail' | 'thumbnail';
 
-export interface ProductGenerationAiRequest {
-  organizationId: string;
-  /** Caller-owned immutable request coordinate; runtime rejects an unlocked request. */
-  idempotencyKey?: string;
-  /** Canonical request digest required with the idempotency coordinate. */
-  requestHash?: string;
-  triggeredByUserId: string | null;
-  candidateId: string;
+/**
+ * The sales-product draft's own columns, in the draft's shape, passed by the
+ * owner that holds them. AI builds its prompts from this and never reads a
+ * Channels or Sourcing row to fill a gap — a blank field stays blank.
+ */
+export interface ProductGenerationProductBrief {
   productName: string;
   category?: string | null;
   description?: string | null;
@@ -27,22 +25,35 @@ export interface ProductGenerationAiRequest {
   imageUrls: string[];
   thumbnailUrl?: string | null;
   optionNames: string[];
+  productSize?: string | null;
+  colorVariantStatus?: string | null;
+  colorVariantNames?: string | null;
+  boxSetStatus?: string | null;
+  boxSetQuantity?: string | null;
+}
+
+export interface ProductGenerationAiRequest {
+  organizationId: string;
+  /** Caller-owned immutable request coordinate; runtime rejects an unlocked request. */
+  idempotencyKey?: string;
+  /** Canonical request digest required with the idempotency coordinate. */
+  requestHash?: string;
+  triggeredByUserId: string | null;
+  salesProductId: string;
+  productBrief: ProductGenerationProductBrief;
+  /** Where the draft's content came from, recorded as generation provenance. */
+  sourceCandidateId?: string | null;
   templateId: DetailPageTemplateId;
   ageGroup: DetailPageAgeGroup;
   detailImageCount: DetailImageCount;
   usageSectionMode: UsageSectionMode;
   kcCertificationStatus: KcCertificationStatus;
   kcCertificationNumber?: string | null;
-  productSize?: string | null;
-  colorVariantStatus?: string | null;
-  colorVariantNames?: string | null;
-  boxSetStatus?: string | null;
-  boxSetQuantity?: string | null;
   task?: ProductGenerationTask;
 }
 
 export interface ProductGenerationAiResult {
-  candidateId: string;
+  salesProductId: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
@@ -57,21 +68,21 @@ export interface ProductGenerationAiResult {
 export interface RegisterUploadedDetailPageRequest {
   organizationId: string;
   triggeredByUserId: string | null;
-  candidateId: string;
+  salesProductId: string;
   productName: string;
   /** 올린 상세페이지 이미지. 순서가 곧 상세페이지에 쌓이는 순서다. */
   detailPageImageUrls: string[];
 }
 
 export interface RegisterUploadedDetailPageResult {
-  candidateId: string;
+  salesProductId: string;
   detailGenerationId: string;
   contentWorkspaceId: string;
   href: string;
 }
 
 export interface ProductGenerationAiTriggerPort {
-  startForCandidate(input: ProductGenerationAiRequest): Promise<ProductGenerationAiResult>;
+  startForSalesProduct(input: ProductGenerationAiRequest): Promise<ProductGenerationAiResult>;
   registerUploadedDetailPage(
     input: RegisterUploadedDetailPageRequest,
   ): Promise<RegisterUploadedDetailPageResult>;

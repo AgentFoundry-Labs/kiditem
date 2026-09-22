@@ -55,21 +55,17 @@ const workspaceContextSelect = {
   currentThumbnailSelection: {
     select: { contentAsset: { select: { url: true } } },
   },
-  sourceCandidate: {
+  // The workspace's own managed gallery replaces the sourcing-candidate images
+  // it used to borrow: Sourcing is no longer reachable from an AI row.
+  contentGenerationGroups: {
+    where: { groupType: 'workspace_assets' },
+    take: 1,
     select: {
-      name: true,
-      category: true,
-      imageUrl: true,
-      thumbnailUrl: true,
-      images: {
-        where: { isDeleted: false },
-        orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }],
-        select: {
-          url: true,
-          role: true,
-          sortOrder: true,
-          isPrimary: true,
-        },
+      originatingAssets: {
+        where: { isDeleted: false, assetType: 'image' },
+        orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+        take: 20,
+        select: { url: true, role: true, sortOrder: true },
       },
     },
   },
@@ -111,7 +107,6 @@ export type EditorProductRow = {
 function workspaceName(workspace: WorkspaceContextRow): string {
   return (
     workspace.displayName ||
-    workspace.sourceCandidate?.name ||
     workspace.channelListing?.displayName ||
     workspace.channelListing?.channelName ||
     workspace.channelListing?.externalId ||
@@ -119,12 +114,24 @@ function workspaceName(workspace: WorkspaceContextRow): string {
   );
 }
 
+function workspaceAssets(workspace: WorkspaceContextRow): Array<{
+  url: string;
+  role: string;
+  sortOrder: number;
+  isPrimary: boolean;
+}> {
+  return (workspace.contentGenerationGroups[0]?.originatingAssets ?? []).map((asset, index) => ({
+    url: asset.url,
+    role: asset.role ?? 'product',
+    sortOrder: asset.sortOrder,
+    isPrimary: index === 0,
+  }));
+}
+
 function workspaceImageUrl(workspace: WorkspaceContextRow): string | null {
   return (
     workspace.currentThumbnailSelection?.contentAsset.url ??
-    workspace.sourceCandidate?.thumbnailUrl ??
-    workspace.sourceCandidate?.imageUrl ??
-    workspace.sourceCandidate?.images[0]?.url ??
+    workspaceAssets(workspace)[0]?.url ??
     workspace.channelListing?.thumbnails[0]?.imageUrl ??
     null
   );
@@ -134,14 +141,14 @@ function toThumbnailJobWorkspace(workspace: WorkspaceContextRow): ThumbnailJobWo
   const selectedUrl = workspace.currentThumbnailSelection?.contentAsset.url;
   const images = selectedUrl
     ? [{ url: selectedUrl, role: 'thumbnail', sortOrder: 0, isPrimary: true }]
-    : (workspace.sourceCandidate?.images ?? []);
+    : workspaceAssets(workspace);
   const imageUrl = workspaceImageUrl(workspace);
   return {
     id: workspace.id,
     name: workspaceName(workspace),
     imageUrl,
     thumbnailUrl: imageUrl,
-    category: workspace.sourceCandidate?.category ?? workspace.channelListing?.category ?? null,
+    category: workspace.channelListing?.category ?? null,
     images,
     thumbnailAnalyses: workspace.thumbnailAnalyses as unknown as ThumbnailAnalysisContext[],
   };
@@ -181,7 +188,7 @@ export async function findWorkspaceForThumbnailEditor(
     id: workspace.id,
     name: workspaceName(workspace),
     imageUrl: workspaceImageUrl(workspace),
-    category: workspace.sourceCandidate?.category ?? workspace.channelListing?.category ?? null,
+    category: workspace.channelListing?.category ?? null,
     organizationId: workspace.organizationId,
   };
 }
@@ -246,7 +253,6 @@ export async function findGenerationRows(
   prisma: PrismaService,
   organizationId: string,
   opts: {
-    sourceCandidateId?: string | null;
     contentWorkspaceId?: string | null;
     scope?: ThumbnailGenerationListScope;
     limit?: number | null;
@@ -255,13 +261,11 @@ export async function findGenerationRows(
   const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
   const ownerFilter: Prisma.ThumbnailGenerationWhereInput = opts.contentWorkspaceId
     ? { contentWorkspaceId: opts.contentWorkspaceId }
-    : opts.sourceCandidateId
-      ? { sourceCandidateId: opts.sourceCandidateId }
-      : opts.scope === 'all'
-        ? {}
-        : opts.scope === 'direct-upload'
-          ? { contentWorkspace: { is: { ownerType: 'direct_detail_page' } } }
-          : { contentWorkspace: { is: { channelListingId: { not: null } } } };
+    : opts.scope === 'all'
+      ? {}
+      : opts.scope === 'direct-upload'
+        ? { contentWorkspace: { is: { ownerType: 'direct_detail_page' } } }
+        : { contentWorkspace: { is: { ownerType: { not: 'direct_detail_page' } } } };
   const rows = await prisma.thumbnailGeneration.findMany({
     where: { organizationId, isDeleted: false, ...ownerFilter },
     orderBy: { createdAt: 'desc' },

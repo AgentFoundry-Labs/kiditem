@@ -36,10 +36,10 @@ export interface ThumbnailEditorGenerationEnqueueInput {
   directPayload: Record<string, unknown>;
 }
 
-export interface ThumbnailCandidateGenerationEnqueueInput {
+export interface ThumbnailSalesProductGenerationEnqueueInput {
   organizationId: string;
-  sourceCandidateId: string;
-  productName: string | null;
+  salesProductId: string;
+  productName: string;
   contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
@@ -125,21 +125,19 @@ export class ThumbnailGenerationJobService {
     return { generationId: generation.id, status: 'pending' };
   }
 
-  async enqueueCandidateGeneration(
-    input: ThumbnailCandidateGenerationEnqueueInput,
+  async enqueueSalesProductGeneration(
+    input: ThumbnailSalesProductGenerationEnqueueInput,
   ): Promise<ThumbnailGenerationEnqueueResult> {
     const models = resolveAiDirectJobModels('thumbnail_generate');
-    const candidate = await this.ledger.findSourceCandidateForJob(input.sourceCandidateId, input.organizationId);
-    if (!candidate) {
-      throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
-    }
-
-    const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
+    // The caller owns the draft's images, so it also owns the `candidateImageId`
+    // provenance on each input; AI records what it is given.
+    const inputImages = input.inputs;
     const directJob = this.directGenerationJobs.prepareGenerate({ payload: input.directPayload, models });
     const opened = await this.ledger.openPendingDirectGeneration({
-      subject: 'candidate',
+      subject: 'sales_product',
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
+      salesProductId: input.salesProductId,
+      productName: input.productName,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
@@ -162,7 +160,7 @@ export class ThumbnailGenerationJobService {
         actorUserId: input.triggeredByUserId,
         payload: {
           method: input.method,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
           contentWorkspaceId: input.contentWorkspaceId ?? null,
           inputCount: inputImages.length,
         },
@@ -360,34 +358,6 @@ export class ThumbnailGenerationJobService {
         payload: { purpose, variantKey: variantKey ?? 'auto' },
       });
     }
-  }
-
-  private attachCandidateImageRefs(
-    inputs: ThumbnailEditorInputImage[],
-    candidateImages: Array<{
-      id: string;
-      url: string;
-      storageKey: string | null;
-    }>,
-  ): ThumbnailEditorInputImage[] {
-    if (candidateImages.length === 0) return inputs;
-    const byUrl = new Map(candidateImages.map((image) => [image.url, image]));
-    const byKey = new Map(
-      candidateImages
-        .filter((image): image is { id: string; url: string; storageKey: string } => Boolean(image.storageKey))
-        .map((image) => [image.storageKey, image]),
-    );
-    return inputs.map((input) => {
-      if (input.candidateImageId) return input;
-      const matched = byUrl.get(input.url) ?? (input.storageKey ? byKey.get(input.storageKey) : undefined);
-      if (!matched) return input;
-      return {
-        ...input,
-        source: input.source === 'upload' ? 'sourcing_candidate' : input.source,
-        storageKey: input.storageKey ?? matched.storageKey,
-        candidateImageId: matched.id,
-      };
-    });
   }
 
 }

@@ -1,5 +1,5 @@
-export const SOURCING_CANDIDATE_CONTENT_ASSET_PORT = Symbol(
-  'SOURCING_CANDIDATE_CONTENT_ASSET_PORT',
+export const SOURCING_SALES_PRODUCT_CONTENT_ASSET_PORT = Symbol(
+  'SOURCING_SALES_PRODUCT_CONTENT_ASSET_PORT',
 );
 
 /**
@@ -7,7 +7,7 @@ export const SOURCING_CANDIDATE_CONTENT_ASSET_PORT = Symbol(
  * `ContentAsset.role`. `source` role assets are never returned — they are the
  * raw scrape originals and do not meet the Coupang product-image spec.
  */
-export interface CandidateRegistrationImages {
+export interface SalesProductRegistrationImages {
   primary: string[];
   thumbnail: string[];
   detail: string[];
@@ -20,28 +20,28 @@ export interface CandidateRegistrationImages {
  * can only save a representative through the workspace, so without this the
  * saved selection is lost on every reload.
  */
-export interface CandidateCurrentThumbnail {
+export interface SalesProductCurrentThumbnail {
   url: string;
   sourceThumbnailGenerationId: string | null;
   sourceThumbnailCandidateId: string | null;
 }
 
-export interface CandidateContentAssetPort {
+export interface SalesProductContentAssetPort {
   loadRegistrationMedia(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
   }): Promise<{
-    registrationImages: CandidateRegistrationImages;
-    currentThumbnail: CandidateCurrentThumbnail | null;
+    registrationImages: SalesProductRegistrationImages;
+    currentThumbnail: SalesProductCurrentThumbnail | null;
   }>;
   listRegistrationImages(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateRegistrationImages>;
+    salesProductId: string;
+  }): Promise<SalesProductRegistrationImages>;
   findCurrentThumbnail(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateCurrentThumbnail | null>;
+    salesProductId: string;
+  }): Promise<SalesProductCurrentThumbnail | null>;
   /**
    * 배치판. 수집상품 **목록**은 카드마다 저장된 대표를 보여줘야 하는데,
    * 후보별 단건 조회를 돌리면 N+1 이 된다. 목록 경로는 이쪽만 쓴다.
@@ -49,6 +49,6 @@ export interface CandidateContentAssetPort {
    */
   findCurrentThumbnails(input: {
     organizationId: string;
-    sourceCandidateIds: string[];
-  }): Promise<Map<string, CandidateCurrentThumbnail>>;
+    salesProductIds: string[];
+  }): Promise<Map<string, SalesProductCurrentThumbnail>>;
 }

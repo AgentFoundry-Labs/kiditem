@@ -12,7 +12,7 @@ const generationInclude = {
     select: {
       id: true,
       ownerType: true,
-      sourceCandidateId: true,
+      salesProductId: true,
       channelListingId: true,
       displayName: true,
     },
@@ -129,14 +129,11 @@ function generationWhere(
     ...(query.contentWorkspaceId
       ? { contentWorkspaceId: query.contentWorkspaceId }
       : {}),
+    // ContentGenerationSource keeps the sourcing-candidate id as provenance, so
+    // "what did this candidate produce" is still answerable after the workspace
+    // moved to the sales-product draft.
     ...(query.sourceCandidateId
-      ? {
-          OR: [
-            { sourceCandidateId: query.sourceCandidateId },
-            { sources: { some: { sourceCandidateId: query.sourceCandidateId } } },
-            { contentWorkspace: { sourceCandidateId: query.sourceCandidateId } },
-          ],
-        }
+      ? { sources: { some: { sourceCandidateId: query.sourceCandidateId } } }
       : {}),
   };
 }

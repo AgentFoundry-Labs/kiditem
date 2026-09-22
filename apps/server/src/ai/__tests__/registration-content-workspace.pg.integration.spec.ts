@@ -37,37 +37,14 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     await seedBaseFixture(prisma);
   });
 
-  it('adopts an ordinary active candidate thumbnail into managed source content', async () => {
+  it('adopts a draft image the owner selected into managed source content', async () => {
     const thumbnailUrl = 'https://cdn.example.com/source.jpg';
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: `https://1688.com/item/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: 'Kids rain boots',
-        thumbnailUrl,
-        imageUrl: thumbnailUrl,
-        status: 'sourced',
-        images: {
-          create: {
-            organizationId: TEST_ORGANIZATION_ID,
-            url: thumbnailUrl,
-            storageKey: 'sourcing/source.jpg',
-            role: 'product',
-            sortOrder: 0,
-            source: 'sourcing-extension',
-            isPrimary: true,
-          },
-        },
-      },
-    });
     const sourceWorkspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidate.id,
-        displayName: candidate.name,
+        ownerType: 'sales_product',
+        salesProductId: randomUUID(),
+        displayName: 'Kids rain boots',
         normalizedTitle: 'kidsrainboots',
         createdByUserId: TEST_USER_ID,
       },
@@ -97,55 +74,25 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     });
     expect(selection.contentAsset).toMatchObject({
       url: thumbnailUrl,
-      storageKey: 'sourcing/source.jpg',
       role: 'thumbnail',
       isDeleted: false,
     });
   });
 
-  it('waits for generation-to-candidate locks and rejects a concurrently archived selection', async () => {
-    const account = await prisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Coupang test account',
-        externalAccountId: randomUUID(),
-      },
-    });
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: `https://1688.com/item/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: 'Kids rain boots',
-        status: 'sourced',
-      },
-    });
+  it('waits for the thumbnail-generation lock and rejects a concurrently archived selection', async () => {
     const sourceWorkspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidate.id,
-        displayName: candidate.name,
+        ownerType: 'sales_product',
+        salesProductId: randomUUID(),
+        displayName: 'Kids rain boots',
         normalizedTitle: 'kidsrainboots',
         createdByUserId: TEST_USER_ID,
-      },
-    });
-    const listing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        sourceCandidateId: candidate.id,
-        externalId: randomUUID(),
-        channelName: candidate.name,
-        status: 'active',
       },
     });
     const generation = await prisma.thumbnailGeneration.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidate.id,
         contentWorkspaceId: sourceWorkspace.id,
         originalUrl: 'https://cdn.example.com/source.jpg',
         status: 'succeeded',
@@ -195,15 +142,11 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     });
     await sourceRowsLocked;
 
-    const branch = prisma.$transaction((transaction) => repository.branchToListing(
+    const branch = prisma.$transaction((transaction) => repository.resolveSourceSelections(
       ownerTransaction(transaction),
       {
         organizationId: TEST_ORGANIZATION_ID,
         sourceWorkspaceId: sourceWorkspace.id,
-        listingId: listing.id,
-        displayName: candidate.name,
-        normalizedTitle: 'kidsrainboots',
-        createdByUserId: TEST_USER_ID,
         selectedThumbnailUrl: generatedCandidate.url,
         selectedThumbnailGenerationId: generation.id,
         selectedThumbnailGenerationCandidateId: generatedCandidate.id,
@@ -223,13 +166,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
       'Selected thumbnail generation is not successful source content.',
     );
     expect(observation).toBe('blocked');
-    expect(await prisma.contentWorkspace.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingId: listing.id,
-        isDeleted: false,
-      },
-    })).toBe(0);
     expect(await prisma.contentWorkspaceThumbnailSelection.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,

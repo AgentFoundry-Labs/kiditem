@@ -2,13 +2,13 @@ import type { SourcingRepositoryTransaction } from '../transaction/repository-tr
 
 export const SOURCING_AI_WORKSPACE_ARCHIVE_PORT = Symbol('SOURCING_AI_WORKSPACE_ARCHIVE_PORT');
 
-export interface ArchiveSourcingWorkspaceInput {
+export interface ArchiveSalesProductWorkspaceInput {
   organizationId: string;
   sourceCandidateId: string;
   archivedAt: Date;
 }
 
-export interface ArchiveSourcingWorkspaceResult {
+export interface ArchiveSalesProductWorkspaceResult {
   archivedContentGenerations: number;
   archivedDetailPageArtifacts: number;
   archivedContentAssets: number;
@@ -16,8 +16,8 @@ export interface ArchiveSourcingWorkspaceResult {
 }
 
 export interface SourcingAiWorkspaceArchivePort {
-  archiveSourcingWorkspace(
+  archiveSalesProductWorkspace(
     tx: SourcingRepositoryTransaction,
-    input: ArchiveSourcingWorkspaceInput,
-  ): Promise<ArchiveSourcingWorkspaceResult>;
+    input: ArchiveSalesProductWorkspaceInput,
+  ): Promise<ArchiveSalesProductWorkspaceResult>;
 }

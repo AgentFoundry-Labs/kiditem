@@ -11,7 +11,7 @@ import { ContentArchiveController } from './adapter/in/http/content-archive.cont
 import { ContentArchiveLinkageController } from './adapter/in/http/content-archive-linkage.controller';
 import { ContentAssetController } from './adapter/in/http/content-asset.controller';
 import { ContentGenerationRerunController } from './adapter/in/http/content-generation-rerun.controller';
-import { DetailPageCandidateImageController } from './adapter/in/http/detail-page-candidate-image.controller';
+import { DetailPageWorkspaceImageController } from './adapter/in/http/detail-page-workspace-image.controller';
 import { DetailPageEditorController } from './adapter/in/http/detail-page-editor.controller';
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
@@ -54,7 +54,7 @@ import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
-import { SourcingWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-archive.repository.adapter';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { ThumbnailAnalysisRepositoryAdapter } from './adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailTrackingRepositoryAdapter } from './adapter/out/repository/thumbnail-tracking.repository.adapter';
@@ -102,7 +102,7 @@ import { ContentGenerationRerunService } from './application/service/content-gen
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
 import { ContentWorkspaceThumbnailSelectionService } from './application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
-import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
+import { SalesProductWorkspaceArchiveService } from './application/service/sales-product-workspace-archive.service';
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 import { AiDirectJobInputAssetsService } from './application/service/ai-direct-job-input-assets.service';
 import { AiDirectJobPayloadHydratorService } from './application/service/ai-direct-job-payload-hydrator.service';
@@ -126,7 +126,7 @@ import {
 } from './application/port/in/generation';
 import {
   AI_WORKSPACE_ARCHIVE_PORT,
-  CANDIDATE_CONTENT_ASSET_PORT,
+  SALES_PRODUCT_CONTENT_ASSET_PORT,
   CATALOG_DISPLAY_MEDIA_PORT,
   REGISTRATION_CONTENT_WORKSPACE_PORT,
 } from './application/port/in/workspace';
@@ -155,7 +155,7 @@ import {
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
-  SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
+  SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
@@ -238,7 +238,7 @@ export class AiAgentRuntimeModule {}
     ContentGenerationRerunService,
     ContentWorkspaceThumbnailSelectionService,
     RegistrationContentWorkspaceService,
-    SourcingWorkspaceArchiveService,
+    SalesProductWorkspaceArchiveService,
     DetailPageDirectGenerationExecutorService,
     DetailPageGeneratedImagesService,
     DetailPagePrefillService,
@@ -266,7 +266,7 @@ export class AiAgentRuntimeModule {}
     ContentWorkspaceThumbnailSelectionRepositoryAdapter,
     RegistrationContentWorkspaceRepositoryAdapter,
     DetailPageImageRepositoryAdapter,
-    SourcingWorkspaceArchiveRepositoryAdapter,
+    SalesProductWorkspaceArchiveRepositoryAdapter,
     ThumbnailAnalysisRepositoryAdapter,
     ThumbnailTrackingRepositoryAdapter,
     DetailPageTemplateStylesAdapter,
@@ -316,8 +316,8 @@ export class AiAgentRuntimeModule {}
       useExisting: RegistrationContentWorkspaceRepositoryAdapter,
     },
     {
-      provide: SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
-      useExisting: SourcingWorkspaceArchiveRepositoryAdapter,
+      provide: SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
+      useExisting: SalesProductWorkspaceArchiveRepositoryAdapter,
     },
     {
       provide: THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
@@ -336,7 +336,7 @@ export class AiAgentRuntimeModule {}
     },
     {
       provide: AI_WORKSPACE_ARCHIVE_PORT,
-      useExisting: SourcingWorkspaceArchiveService,
+      useExisting: SalesProductWorkspaceArchiveService,
     },
     {
       provide: AI_GENERATION_CANCELLATION_PORT,
@@ -346,7 +346,7 @@ export class AiAgentRuntimeModule {}
       provide: REGISTRATION_CONTENT_WORKSPACE_PORT,
       useExisting: RegistrationContentWorkspaceService,
     },
-    { provide: CANDIDATE_CONTENT_ASSET_PORT, useExisting: ContentAssetService },
+    { provide: SALES_PRODUCT_CONTENT_ASSET_PORT, useExisting: ContentAssetService },
     { provide: CATALOG_DISPLAY_MEDIA_PORT, useExisting: CatalogDisplayMediaService },
   ],
   controllers: [
@@ -355,7 +355,7 @@ export class AiAgentRuntimeModule {}
     ContentArchiveLinkageController,
     ContentAssetController,
     ContentGenerationRerunController,
-    DetailPageCandidateImageController,
+    DetailPageWorkspaceImageController,
     DetailPageEditorController,
     DetailPageGenerationController,
     ImageAiController,
@@ -391,7 +391,7 @@ export class AiAgentRuntimeModule {}
     AI_WORKSPACE_ARCHIVE_PORT,
     AI_GENERATION_CANCELLATION_PORT,
     REGISTRATION_CONTENT_WORKSPACE_PORT,
-    CANDIDATE_CONTENT_ASSET_PORT,
+    SALES_PRODUCT_CONTENT_ASSET_PORT,
     CATALOG_MEDIA_PUBLICATION_PORT,
     CATALOG_DISPLAY_MEDIA_PORT,
   ],

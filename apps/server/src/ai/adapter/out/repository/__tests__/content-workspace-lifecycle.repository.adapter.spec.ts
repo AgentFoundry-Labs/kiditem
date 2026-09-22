@@ -6,7 +6,7 @@ function channelListingQuery() {
   return {
     lockActiveOwner: vi.fn().mockResolvedValue({
       id: 'listing-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'candidate-1',
       accountId: 'account-1',
     }),
   };
@@ -42,7 +42,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
       ownerType: 'direct_detail_page',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'candidate-1',
       channelListingId: null,
       originWorkspaceId: null,
       displayName: 'Kids rain boots',
@@ -53,39 +53,9 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 
-  it('validates a candidate owner in the same organization inside the write transaction', async () => {
+  it('opens a draft workspace without reaching into the Channels row it belongs to', async () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([]),
-      contentWorkspace: {
-        findFirst: vi.fn().mockResolvedValue(null),
-        create: vi.fn(),
-      },
-    };
-    const prisma = {
-      ...tx,
-      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
-    };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
-
-    await expect(repository.ensureActiveWorkspace({
-      organizationId: 'org-1',
-      ownerType: 'sourcing_candidate',
-      sourceCandidateId: 'candidate-foreign',
-      channelListingId: null,
-      originWorkspaceId: null,
-      displayName: 'Kids rain boots',
-      normalizedTitle: 'kidsrainboots',
-      createdByUserId: 'user-1',
-    })).rejects.toBeInstanceOf(NotFoundException);
-
-    expect(prisma.$transaction).toHaveBeenCalledOnce();
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
-    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
-  });
-
-  it('locks a valid candidate owner before creating its workspace', async () => {
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'candidate-1' }]),
       contentWorkspace: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({
@@ -103,10 +73,73 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
-      ownerType: 'sourcing_candidate',
-      sourceCandidateId: 'candidate-1',
+      ownerType: 'sales_product',
+      salesProductId: 'sales-product-1',
       channelListingId: null,
       originWorkspaceId: null,
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    });
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.contentWorkspace.create).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a listing workspace whose origin draft workspace is gone', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'channel_listing',
+      salesProductId: null,
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'workspace-missing',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it('locks the origin draft workspace before branching a listing workspace off it', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'workspace-origin' }]),
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'workspace-1',
+          displayName: 'Kids rain boots',
+          normalizedTitle: 'kidsrainboots',
+        }),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+
+    await repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'channel_listing',
+      salesProductId: null,
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'workspace-origin',
       displayName: 'Kids rain boots',
       normalizedTitle: 'kidsrainboots',
       createdByUserId: 'user-1',
@@ -139,7 +172,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
       ownerType: 'direct_detail_page',
-      sourceCandidateId: null,
+      salesProductId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: '키즈 터치등',
@@ -154,7 +187,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         normalizedTitle: '키즈터치등',
         status: 'active',
         isDeleted: false,
-        sourceCandidateId: null,
+        salesProductId: null,
         channelListingId: null,
       },
     }));
@@ -173,14 +206,14 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         create: vi.fn(),
       },
     });
-    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'source-workspace-1', sourceCandidateId: 'candidate-1' }]);
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'source-workspace-1', salesProductId: 'candidate-1' }]);
     const channelListings = channelListingQuery();
     const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListings as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
       ownerType: 'channel_listing',
-      sourceCandidateId: null,
+      salesProductId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
       displayName: 'Kids rain boots',
@@ -201,7 +234,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     });
   });
 
-  it('lists only registered-product workspaces, excluding sourcing candidate workspaces', async () => {
+  it('lists only registered-product workspaces, excluding sales product workspaces', async () => {
     const prisma = {
       contentWorkspace: {
         count: vi.fn().mockResolvedValue(0),
@@ -223,7 +256,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         organizationId: 'org-1',
         status: 'active',
         isDeleted: false,
-        ownerType: { not: 'sourcing_candidate' },
+        ownerType: { not: 'sales_product' },
       },
       skip: 10,
       take: 10,

@@ -26,9 +26,10 @@ export class ThumbnailEditorDto {
   })
   masterId?: never;
 
-  @IsOptional()
-  @IsString()
-  sourceCandidateId?: string;
+  @IsEmpty({
+    message: 'sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요',
+  })
+  sourceCandidateId?: never;
 
   @IsOptional()
   @IsString()

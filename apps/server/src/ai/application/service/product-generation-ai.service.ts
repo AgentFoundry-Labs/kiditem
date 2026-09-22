@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   type ProductGenerationContextRepositoryPort,
@@ -16,6 +16,7 @@ import { DetailPageQueryService } from './detail-page-query.service';
 import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
+  ProductGenerationProductBrief,
   ProductGenerationAiTriggerPort,
   RegisterUploadedDetailPageRequest,
   RegisterUploadedDetailPageResult,
@@ -33,7 +34,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     private readonly detailPageQueries: DetailPageQueryService,
   ) {}
 
-  async startForCandidate(
+  async startForSalesProduct(
     input: ProductGenerationAiRequest,
   ): Promise<ProductGenerationAiResult> {
     const idempotencyKey = input.idempotencyKey?.trim();
@@ -53,24 +54,18 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   async registerUploadedDetailPage(
     input: RegisterUploadedDetailPageRequest,
   ): Promise<RegisterUploadedDetailPageResult> {
-    const candidate = await this.contextRepository.findCandidate({
-      organizationId: input.organizationId,
-      candidateId: input.candidateId,
-    });
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
-
-    const productName = input.productName.trim() || candidate.name;
+    const productName = input.productName.trim();
+    if (!productName) throw new ConflictException('product_generation_product_name_required');
     const workspace = await this.contentWorkspaces.ensureForGeneration({
       organizationId: input.organizationId,
       triggeredByUserId: input.triggeredByUserId,
       rawTitle: productName,
-      sourceCandidateId: input.candidateId,
+      salesProductId: input.salesProductId,
     });
     const created = await this.detailPageQueries.registerUploaded({
       organizationId: input.organizationId,
       triggeredByUserId: input.triggeredByUserId,
       contentWorkspaceId: workspace.id,
-      sourceCandidateId: input.candidateId,
       title: productName,
       imageUrls: input.detailPageImageUrls,
     });
@@ -80,10 +75,10 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       contentGenerationId: created.id,
     });
     return {
-      candidateId: input.candidateId,
+      salesProductId: input.salesProductId,
       detailGenerationId: created.id,
       contentWorkspaceId: workspace.id,
-      href: `/product-pipeline/collected-products/${encodeURIComponent(input.candidateId)}`,
+      href: salesProductHref(input.salesProductId),
     };
   }
 
@@ -118,7 +113,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     if (existingChildHashes.some((child) => child.requestHash !== coordinate.requestHash)) {
       throw new ConflictException('product_generation_idempotency_conflict');
     }
-    const href = `/product-pipeline/collected-products/${encodeURIComponent(input.candidateId)}`;
+    const href = salesProductHref(input.salesProductId);
     const includeDetailPage = input.task !== 'thumbnail';
     const includeThumbnail = input.task !== 'detail';
     const detailAlreadyAdmitted = !includeDetailPage || Boolean(existingChildren.detail);
@@ -126,7 +121,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
 
     if (detailAlreadyAdmitted && thumbnailAlreadyAdmitted) {
       return {
-        candidateId: input.candidateId,
+        salesProductId: input.salesProductId,
         detailGenerationId: includeDetailPage
           ? existingChildren.detail?.generationId ?? null
           : null,
@@ -139,19 +134,13 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         href,
       };
     }
-    const candidate = await this.contextRepository.findCandidate({
-      organizationId: input.organizationId,
-      candidateId: input.candidateId,
-    });
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+    const brief = input.productBrief;
+    const productName = brief.productName.trim();
+    if (!productName) throw new ConflictException('product_generation_product_name_required');
 
-    const productName = input.productName.trim() || candidate.name;
-
-    const imageUrls = input.imageUrls.length > 0
-      ? input.imageUrls
-      : candidate.images.map((image) => image.url).filter(Boolean);
-    const rawDescription = buildProductGenerationDescription(input, candidate.description);
-    const rawOptions = input.optionNames.join('\n');
+    const imageUrls = brief.imageUrls.filter(Boolean);
+    const rawDescription = buildProductGenerationDescription(brief);
+    const rawOptions = brief.optionNames.join('\n');
 
     let detailGenerationId: string | null = existingChildren.detail?.generationId ?? null;
     let contentWorkspaceId: string | null = existingChildren.detail?.contentWorkspaceId ?? null;
@@ -159,7 +148,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       const detail = await this.detailPages.generate(
         {
           rawTitle: productName,
-          rawCategory: input.category ?? candidate.category ?? '',
+          rawCategory: brief.category ?? '',
           rawDescription,
           rawOptions,
           imageUrls,
@@ -170,13 +159,15 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
           usageSectionMode: input.usageSectionMode,
           kcCertificationStatus: input.kcCertificationStatus,
           kcCertificationNumber: input.kcCertificationNumber ?? undefined,
-          sourceReferences: [
-            {
-              sourceType: 'sourcing_candidate',
-              sourceCandidateId: input.candidateId,
-              label: productName,
-            },
-          ],
+          sourceReferences: input.sourceCandidateId
+            ? [
+                {
+                  sourceType: 'sourcing_candidate' as const,
+                  sourceCandidateId: input.sourceCandidateId,
+                  label: productName,
+                },
+              ]
+            : [],
         },
         input.organizationId,
         input.triggeredByUserId,
@@ -188,7 +179,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
 
     let thumbnailGenerationId: string | null = existingChildren.thumbnail?.generationId ?? null;
     if (includeThumbnail && !existingChildren.thumbnail) {
-      const originalUrl = input.thumbnailUrl ?? imageUrls[0] ?? candidate.thumbnailUrl ?? '';
+      const originalUrl = brief.thumbnailUrl ?? imageUrls[0] ?? '';
       const resolved = await this.editorAi.resolveInputImage(
         originalUrl,
         input.organizationId,
@@ -212,13 +203,13 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         mode: 'edit',
         editCase: 'single',
         productName,
-        productDescription: input.description ?? candidate.description ?? '',
-        category: input.category ?? candidate.category ?? null,
+        productDescription: brief.description ?? '',
+        category: brief.category ?? null,
         inputs: [resolved],
       });
-      const thumbnail = await this.thumbnails.enqueueCandidateGeneration({
+      const thumbnail = await this.thumbnails.enqueueSalesProductGeneration({
         organizationId: input.organizationId,
-        sourceCandidateId: input.candidateId,
+        salesProductId: input.salesProductId,
         productName,
         contentWorkspaceId,
         triggeredByUserId: input.triggeredByUserId,
@@ -233,7 +224,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     }
 
     return {
-      candidateId: input.candidateId,
+      salesProductId: input.salesProductId,
       detailGenerationId,
       thumbnailGenerationId,
       contentWorkspaceId,
@@ -242,21 +233,22 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   }
 }
 
-function buildProductGenerationDescription(
-  input: ProductGenerationAiRequest,
-  candidateDescription: string | null,
-): string {
+function salesProductHref(salesProductId: string): string {
+  return `/product-pipeline/collected-products/${encodeURIComponent(salesProductId)}`;
+}
+
+function buildProductGenerationDescription(brief: ProductGenerationProductBrief): string {
   return [
-    textLine('특징', input.description ?? candidateDescription),
-    textLine('주요 타겟', input.target),
-    textLine('제품 사이즈', input.productSize),
+    textLine('특징', brief.description),
+    textLine('주요 타겟', brief.target),
+    textLine('제품 사이즈', brief.productSize),
     textLine(
       '색상 구성',
-      joinParts(input.colorVariantStatus, input.colorVariantNames),
+      joinParts(brief.colorVariantStatus, brief.colorVariantNames),
     ),
     textLine(
       '박스/세트',
-      joinParts(input.boxSetStatus, input.boxSetQuantity),
+      joinParts(brief.boxSetStatus, brief.boxSetQuantity),
     ),
   ].filter(Boolean).join('\n');
 }
