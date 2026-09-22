@@ -278,6 +278,27 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     expect(result.deletedDrafts).toBe(0);
   }, 60_000);
 
+  /** 런타임은 후보를 거절하면 그 초안을 `unused` 로 내린다(sourcing/CLAUDE.md). 이관도 같다. */
+  it('gives a rejected candidate an unused draft, not one that looks sellable', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      await seedCandidate(tx, { id: CANDIDATE_ID, status: 'rejected', rawData: { salePrice: '9900' } });
+      await seedCandidate(tx, { id: SECOND_CANDIDATE_ID, status: 'sourced', rawData: { salePrice: '9900' } });
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const drafts = await tx.$queryRaw<Array<{ source_candidate_id: string; status: string }>>`
+        SELECT source_candidate_id::text AS source_candidate_id, status FROM sales_products
+        ORDER BY source_candidate_id ASC
+      `;
+      return { run, drafts };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 2 });
+    expect(result.drafts).toEqual([
+      { source_candidate_id: CANDIDATE_ID, status: 'unused' },
+      { source_candidate_id: SECOND_CANDIDATE_ID, status: 'active' },
+    ]);
+  }, 60_000);
+
   it('changes nothing on a second run', async () => {
     const result = await withPost022Schema(async (tx) => {
       await seedCandidate(tx, { id: CANDIDATE_ID, rawData: { manualBasics: { ageGroup: '5세 이상' } } });
@@ -365,7 +386,8 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     await tx.$executeRaw`CREATE TEMP TABLE sourcing_candidates (
       id uuid PRIMARY KEY, organization_id uuid NOT NULL, name text NOT NULL, description text,
       source_platform text, source_url text, cost_cny numeric, thumbnail_url text, image_url text,
-      raw_data jsonb NOT NULL DEFAULT '{}', is_deleted boolean NOT NULL DEFAULT false
+      raw_data jsonb NOT NULL DEFAULT '{}', status text NOT NULL DEFAULT 'sourced',
+      is_deleted boolean NOT NULL DEFAULT false
     ) ON COMMIT DROP`;
     await tx.$executeRaw`CREATE TEMP TABLE candidate_images (
       id uuid PRIMARY KEY, organization_id uuid NOT NULL, candidate_id uuid NOT NULL, image_url text NOT NULL,
@@ -410,12 +432,14 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     name?: string;
     rawData?: Record<string, unknown>;
     isDeleted?: boolean;
+    status?: string;
     organizationId?: string;
   }): Promise<void> {
     await tx.$executeRaw`
-      INSERT INTO sourcing_candidates (id, organization_id, name, raw_data, is_deleted, source_platform, source_url)
+      INSERT INTO sourcing_candidates (id, organization_id, name, raw_data, status, is_deleted, source_platform, source_url)
       VALUES (${input.id}::uuid, ${input.organizationId ?? ORGANIZATION_ID}::uuid,
         ${input.name ?? '수집 상품'}, ${JSON.stringify(input.rawData ?? {})}::jsonb,
+        ${input.status ?? 'sourced'},
         ${input.isDeleted ?? false}, '1688', ${`https://detail.1688.com/offer/${input.id}.html`})
     `;
   }

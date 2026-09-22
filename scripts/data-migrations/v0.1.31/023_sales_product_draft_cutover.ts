@@ -21,6 +21,7 @@ type CandidateRow = {
   thumbnail_url: string | null;
   image_url: string | null;
   raw_data: unknown;
+  status: string;
   sales_product_id: string | null;
   sales_product_status: string | null;
 };
@@ -368,6 +369,7 @@ async function readCandidates(
            candidate.thumbnail_url,
            candidate.image_url,
            candidate.raw_data,
+           candidate.status,
            product.id::text AS sales_product_id,
            product.status AS sales_product_status
     FROM sourcing_candidates AS candidate
@@ -414,8 +416,11 @@ async function createDraft(
 ): Promise<void> {
   const id = randomUUID();
   const { optionAxes, optionValues } = planDraftOptions(draft.optionNames);
-  // 팔 옵션에 값이 다 차야 active 다. 옮겨 온 값이 없으면 초안으로 둔다.
-  const status = draft.salePrice === null ? 'draft' : 'active';
+  // 거절한 후보의 초안은 팔 물건이 아니다 — 런타임이 거절에서 `unused` 로 내리는 것과 같다
+  // (`sourcing/CLAUDE.md`). 팔 옵션에 값이 다 차야 active 고, 옮겨 온 값이 없으면 초안이다.
+  const status = candidate.status === 'rejected'
+    ? 'unused'
+    : draft.salePrice === null ? 'draft' : 'active';
   await tx.$executeRaw`
     INSERT INTO sales_products (
       id, organization_id, code, name, description, target_audience, age_group, product_size,
