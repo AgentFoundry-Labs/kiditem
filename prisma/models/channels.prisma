@@ -419,7 +419,6 @@ model SalesProduct {
   /// 옵션 단 제목(최대 3). 비어 있으면 옵션 없는 단일 상품이다.
   optionAxes          String[] @default([]) @map("option_axes")
   stockManaged        Boolean  @default(false) @map("stock_managed")
-  optionsLocked       Boolean  @default(false) @map("options_locked")
   /// [0] 대표, 그다음 추가 사진 순서.
   imageUrls           String[] @default([]) @map("image_urls")
   detailHtml          String?  @map("detail_html")

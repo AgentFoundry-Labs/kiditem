@@ -104,7 +104,6 @@ const targetExecutionResult = {
       deliveryFee: null,
       optionAxes: [],
       stockManaged: false,
-      optionsLocked: false,
       imageUrls: [],
       detailHtml: null,
       extraDetailHtml: [],

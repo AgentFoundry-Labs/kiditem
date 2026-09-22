@@ -76,6 +76,20 @@ describe('evaluateMallPreflight', () => {
     expect(violation?.message).toContain('수집상품');
   });
 
+  /**
+   * 후보 없이 직접 만든 판매상품은 그 판매상품이 KC 인증번호를 들고 있어도 막힌다. 이 게이트가 읽는
+   * KC 는 수집상품 입력값 하나뿐이고, 판매상품의 `certifications` 를 읽게 만드는 것은 고시 · KC 정본을
+   * 고르는 일이라 KID-168 이 정한다. 그 결정 전에 조용히 통과시키지 않도록 지금 동작을 잠근다.
+   */
+  it('⭐ 후보 없는 상품은 KC 를 댈 길이 없다 — 통과시키려면 KID-168 이 정본을 정해야 한다', () => {
+    const result = evaluate({ kc: null });
+    expect(result.ok).toBe(false);
+    expect(result.violations.map((entry) => entry.rule)).toContain('kc_certification');
+    // 게이트가 아는 KC 출처는 `kc` 하나다. 다른 칸을 채워도 이 규칙은 풀리지 않는다.
+    expect(evaluate({ kc: null, imageCount: 9, hasMallCategory: true, salePrice: 30_000 }).ok).toBe(false);
+    expect(isKcReady(null)).toBe(false);
+  });
+
   it("blocks the '단품' option name that malls silently reject", () => {
     const result = evaluate({ optionNames: ['단품', '2개세트'] });
     const violation = result.violations.find((entry) => entry.rule === 'option_name_forbids_danpum');

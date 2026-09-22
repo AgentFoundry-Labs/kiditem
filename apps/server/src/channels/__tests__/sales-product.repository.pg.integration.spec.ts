@@ -7,6 +7,8 @@ import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { MallPriceAdoptionWrite } from '../domain/sales-product/sales-product-mall-prices';
 import type { SabangnetImportProductWrite } from '../application/port/out/persistence/sales-product.repository.port';
+import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
+import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -559,3 +561,227 @@ function importWrite(channelAccountId: string, options: {
     }],
   };
 }
+
+/**
+ * 미등록(아직 몰에 없는) 목록과 후보 재사용 · 되돌리기의 저장소 계약.
+ *
+ * Products 는 남의 소유라 읽기 계약만 세워 둔다(구성 없는 상품만 다루므로 비어 있는 답으로 충분하다).
+ */
+describe('sales product preparation list and reuse (PostgreSQL)', () => {
+  let prisma: PrismaClient;
+  let repository: SalesProductRepositoryAdapter;
+  let service: SalesProductUseCase;
+
+  const productsRead = {
+    lock: async () => ({}),
+    readSourceIdentities: async () => [],
+    readAvailability: async () => ({ items: [] }),
+  } as unknown as ConstructorParameters<typeof SalesProductRepositoryAdapter>[1];
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    repository = new SalesProductRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      productsRead,
+      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService),
+    );
+    service = new SalesProductUseCase(repository);
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  const listQuery = (focus: SalesProductListQuery['focus']) =>
+    ({ focus, page: 1, limit: 50 }) satisfies SalesProductListQuery;
+
+  it('shows every product no mall carries yet, whether or not a collected product started it', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const candidateId = randomUUID();
+    const fromCandidate = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await prisma.salesProduct.update({
+      where: { id: fromCandidate.productId },
+      data: { sourceCandidateId: candidateId, name: '후보에서 만든 상품' },
+    });
+    const standalone = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await prisma.salesProduct.update({ where: { id: standalone.productId }, data: { name: '직접 만든 상품' } });
+    const listed = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountId,
+        salesProductId: listed.productId,
+        externalId: `ext-${randomUUID()}`,
+        isActive: true,
+      },
+    });
+
+    const unregistered = await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'));
+
+    expect(unregistered.items.map((item) => item.id).sort())
+      .toEqual([fromCandidate.productId, standalone.productId].sort());
+    expect(unregistered.total).toBe(2);
+    expect(unregistered.summary).toMatchObject({ total: 3, unregistered: 2 });
+    expect(unregistered.items.find((item) => item.id === fromCandidate.productId)?.sourceCandidateId)
+      .toBe(candidateId);
+    expect(unregistered.items.find((item) => item.id === standalone.productId)?.sourceCandidateId)
+      .toBeNull();
+  });
+
+  it('비활성 몰 상품만 남은 판매상품은 미등록 목록으로 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이다', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    // 사장님 2026-09-23: "몰 상품이 비활성화된 것은 등록은 되어있는 상태에서 비활성화된 거니까
+    // 미등록 목록으로 되돌아오도록 하면 안 된다." 그래서 기준은 '한 번이라도 몰에 올라간 적 있음'
+    // 이고, 탭 이름 '아직 몰에 없음' 이 그대로 사실이 된다.
+    const removed = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountId,
+        salesProductId: removed.productId,
+        externalId: `ext-${randomUUID()}`,
+        isActive: false,
+      },
+    });
+    const archived = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await prisma.salesProduct.update({ where: { id: archived.productId }, data: { status: 'archived' } });
+    const never = await createProduct(prisma, TEST_ORGANIZATION_ID);
+
+    const unregistered = await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'));
+
+    expect(unregistered.items.map((item) => item.id)).toEqual([never.productId]);
+    expect(unregistered.summary.unregistered).toBe(1);
+    const onlyArchived = await repository.list(
+      TEST_ORGANIZATION_ID,
+      { ...listQuery('unregistered'), status: 'archived' },
+    );
+    expect(onlyArchived.items.map((item) => item.id)).toEqual([archived.productId]);
+  });
+
+  it('never lets another organization see its unregistered products', async () => {
+    const mine = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    await createProduct(prisma, OTHER_ORGANIZATION_ID);
+
+    const unregistered = await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'));
+
+    expect(unregistered.items.map((item) => item.id)).toEqual([mine.productId]);
+    expect(unregistered.summary.unregistered).toBe(1);
+  });
+
+  it('answers one sales product when the same collected product is promoted twice at once', async () => {
+    const candidateId = randomUUID();
+    const promote = () => service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: { name: '비눗방울총', optionAxes: [], options: [{ values: [], salePrice: 3_000 }] },
+      }],
+    });
+
+    const [left, right] = await Promise.all([promote(), promote()]);
+
+    const ids = new Set([left.products[0]!.salesProductId, right.products[0]!.salesProductId]);
+    expect(ids.size).toBe(1);
+    expect(left.created + right.created).toBe(1);
+    expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId } }))
+      .toBe(1);
+  });
+
+  it('keeps a standalone product whole when it is archived, and drops it from the default list', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const created = await service.create(TEST_ORGANIZATION_ID, {
+      name: '직접 만든 상품',
+      optionAxes: ['색상'],
+      options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
+    });
+    const before = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService)
+      .create(TEST_ORGANIZATION_ID, {
+        salesProductId: created.id,
+        channelAccountId: accountId,
+        displayName: null,
+        registrationInput: {},
+        selectedOptions: [selected(before!.options[0]!.id)],
+      });
+
+    const archived = await service.update(
+      TEST_ORGANIZATION_ID,
+      created.id,
+      { expectedVersion: created.version, status: 'archived' },
+    );
+
+    expect(archived).toMatchObject({ id: created.id, code: created.code, status: 'archived' });
+    const after = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
+    expect(after!.options.map((option) => option.id)).toEqual(before!.options.map((option) => option.id));
+    expect(after!.options.map((option) => option.optionCode)).toEqual(before!.options.map((option) => option.optionCode));
+    expect(await prisma.registrationTarget.count({ where: { id: targetId, organizationId: TEST_ORGANIZATION_ID } }))
+      .toBe(1);
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('all'))).items).toEqual([]);
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'))).items).toEqual([]);
+    const onlyArchived = await repository.list(
+      TEST_ORGANIZATION_ID,
+      { ...listQuery('all'), status: 'archived' },
+    );
+    expect(onlyArchived.items.map((item) => item.id)).toEqual([created.id]);
+  });
+
+  it('keeps the KID, the option identities, the notice and KC input and the registration target across a send-back and a revival', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const candidateId = randomUUID();
+    const promoted = await service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: {
+          name: '비눗방울총',
+          optionAxes: ['색상'],
+          options: [{ values: ['빨강'], salePrice: 3_000 }, { values: ['파랑'], salePrice: 3_500 }],
+          noticeCategory: '01',
+          noticeValues: ['유아용품', '만 3세 이상'],
+          certifications: [{ number: 'CB012345-67890' }],
+        },
+      }],
+    });
+    const salesProductId = promoted.products[0]!.salesProductId;
+    const code = promoted.products[0]!.code;
+    const before = await repository.readOptionState(TEST_ORGANIZATION_ID, salesProductId);
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService)
+      .create(TEST_ORGANIZATION_ID, {
+        salesProductId,
+        channelAccountId: accountId,
+        displayName: null,
+        registrationInput: {},
+        selectedOptions: [selected(before!.options[0]!.id)],
+      });
+
+    const sentBack = await prisma.salesProduct.findUniqueOrThrow({ where: { id: salesProductId } });
+    await service.demoteToCandidate(TEST_ORGANIZATION_ID, salesProductId, { expectedVersion: sentBack.version });
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'))).items).toEqual([]);
+
+    const revived = await service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: { name: '다시 올린 이름', optionAxes: [], options: [{ values: [], salePrice: 9_900 }] },
+      }],
+    });
+
+    expect(revived.products[0]).toMatchObject({ salesProductId, code, created: false });
+    const after = await repository.readOptionState(TEST_ORGANIZATION_ID, salesProductId);
+    expect(after!.options.map((option) => option.id)).toEqual(before!.options.map((option) => option.id));
+    expect(after!.options.map((option) => option.optionCode)).toEqual(before!.options.map((option) => option.optionCode));
+    const row = await prisma.salesProduct.findUniqueOrThrow({ where: { id: salesProductId } });
+    expect(row).toMatchObject({
+      status: 'active',
+      name: '비눗방울총',
+      noticeCategory: '01',
+      noticeValues: ['유아용품', '만 3세 이상'],
+      certifications: [{ number: 'CB012345-67890' }],
+    });
+    expect(await prisma.registrationTarget.count({ where: { id: targetId, organizationId: TEST_ORGANIZATION_ID } }))
+      .toBe(1);
+  });
+});

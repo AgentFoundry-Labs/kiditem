@@ -5,6 +5,9 @@ import {
   SalesProductCreateInputSchema,
   SalesProductMallCategoryAssignRequestSchema,
   SalesProductMallSheetRequestSchema,
+  SalesProductListItemSchema,
+  SalesProductListQuerySchema,
+  SalesProductListResponseSchema,
   SalesProductOptionsReplaceInputSchema,
   salesProductOptionKey,
 } from './sales-product';
@@ -115,5 +118,44 @@ describe('mall sheet requests carry the chosen registration setting', () => {
       salesProductIds: [PRODUCT],
       targetIds: [{ salesProductId: PRODUCT, targetId: TARGET }],
     }).targetIds).toEqual([{ salesProductId: PRODUCT, targetId: TARGET }]);
+  });
+});
+
+describe('sales product list contract', () => {
+  it('asks for the products no mall carries yet', () => {
+    expect(SalesProductListQuerySchema.parse({ focus: 'unregistered' }).focus).toBe('unregistered');
+    expect(SalesProductListQuerySchema.parse({}).focus).toBe('all');
+  });
+
+  it('carries the collected product each row came from so a caller can drop the duplicate', () => {
+    const item = SalesProductListItemSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      code: 'KID00000001',
+      ownCode: null,
+      sourceCandidateId: '22222222-2222-4222-8222-222222222222',
+      name: '비눗방울총',
+      status: 'active',
+      salePrice: 3000,
+      imageUrl: null,
+      optionAxes: [],
+      optionCount: 1,
+      sellingOptionCount: 1,
+      unlinkedOptionCount: 0,
+      channelListingCount: 0,
+      channelOverrideCount: 0,
+      updatedAt: '2026-09-22T00:00:00.000Z',
+    });
+    expect(item.sourceCandidateId).toBe('22222222-2222-4222-8222-222222222222');
+  });
+
+  it('counts the unregistered products beside the other summary counts', () => {
+    const summary = SalesProductListResponseSchema.parse({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+      summary: { total: 4, withOptions: 2, withUnlinkedOptions: 1, unregistered: 3 },
+    }).summary;
+    expect(summary.unregistered).toBe(3);
   });
 });

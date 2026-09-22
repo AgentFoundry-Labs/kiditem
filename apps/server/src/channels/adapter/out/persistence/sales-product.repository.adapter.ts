@@ -162,15 +162,27 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const withUnlinked: Prisma.SalesProductWhereInput = {
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
+    /**
+     * 미등록 = 어느 몰에도 올라간 적 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+     *
+     * 몰에서 내린(비활성) 상품은 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이지 등록하지
+     * 않은 것이 아니다(사장님 2026-09-23).
+     */
+    const unregistered: Prisma.SalesProductWhereInput = {
+      channelListings: { none: {} },
+    };
     const focusWhere = query.focus === 'with_options'
       ? withOptions
-      : query.focus === 'unlinked' ? withUnlinked : {};
+      : query.focus === 'unlinked'
+        ? withUnlinked
+        : query.focus === 'unregistered' ? unregistered : {};
     const where: Prisma.SalesProductWhereInput = { AND: [base, searchWhere, focusWhere] };
-    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, rows] = await Promise.all([
+    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, rows] = await Promise.all([
       this.prisma.salesProduct.count({ where }),
       this.prisma.salesProduct.count({ where: base }),
       this.prisma.salesProduct.count({ where: { AND: [base, withOptions] } }),
       this.prisma.salesProduct.count({ where: { AND: [base, withUnlinked] } }),
+      this.prisma.salesProduct.count({ where: { AND: [base, unregistered] } }),
       this.prisma.salesProduct.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -180,6 +192,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           ownCode: true,
+          sourceCandidateId: true,
           name: true,
           status: true,
           imageUrls: true,
@@ -202,6 +215,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         id: row.id,
         code: row.code,
         ownCode: row.ownCode,
+        sourceCandidateId: row.sourceCandidateId,
         name: row.name,
         status: row.status as SalesProductStatus,
         salePrice: minimumOptionPrice(row.options),
@@ -222,6 +236,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         total: summaryTotal,
         withOptions: summaryWithOptions,
         withUnlinkedOptions: summaryUnlinked,
+        unregistered: summaryUnregistered,
       },
     };
   }
@@ -1575,7 +1590,6 @@ function toSalesProduct(
     deliveryFee: row.deliveryFee,
     optionAxes: row.optionAxes,
     stockManaged: row.stockManaged,
-    optionsLocked: row.optionsLocked,
     imageUrls: row.imageUrls,
     detailHtml: row.detailHtml,
     extraDetailHtml: row.extraDetailHtml,
@@ -1686,8 +1700,6 @@ function projectCompatibilityOverrides(
       mallKey: target.channelAccount.channel,
       mallName: target.channelAccount.name,
       salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
-      priceRateBp: null,
-      costPrice: null,
       name: target.displayName,
       detailHtml: typeof input.detailHtml === 'string' ? input.detailHtml : null,
       promoText: typeof input.promoText === 'string' ? input.promoText : null,

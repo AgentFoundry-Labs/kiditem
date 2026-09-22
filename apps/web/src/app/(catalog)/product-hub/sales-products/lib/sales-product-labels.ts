@@ -12,7 +12,8 @@ export const SALES_PRODUCT_STATUS_LABEL: Record<SalesProductStatus, string> = {
   paused: '일시중지',
   sold_out: '완전품절',
   unused: '미사용',
-  archived: '삭제',
+  /** 목록에서 내려 둔 상태. 되돌리기가 쓰는 표식이라 화면은 `salesProductStatusText` 로 읽는다. */
+  archived: '내림',
 };
 
 export const SALES_PRODUCT_STATUS_TONE: Record<SalesProductStatus, string> = {

@@ -1419,7 +1419,6 @@ async function createFixture(
       deliveryFee: null,
       optionAxes: ['색상'],
       stockManaged: false,
-      optionsLocked: false,
       imageUrls: [],
       detailHtml: null,
       extraDetailHtml: [],

@@ -64,7 +64,7 @@ vi.mock('@tanstack/react-query', () => ({
           total: 2,
           page: 1,
           limit: 25,
-          summary: { total: 2, withOptions: 1, withUnlinkedOptions: 0 },
+          summary: { total: 2, withOptions: 1, withUnlinkedOptions: 0, unregistered: 0 },
         },
         isLoading: false,
         isError: false,
