@@ -7858,6 +7858,8 @@ KidItemDomains.register({
     mallAdminListingsMallsV2: true,
     // 롯데ON(우리 거래처로 좁혀 로그인된 탭에서) · 스마트스토어(원상품 목록 검색 폼 그대로) · 티쳐몰(칸 머리로) 읽기기를 고친 판.
     mallAdminListingsMallsV3: true,
+    // 보리보리(셀러클럽) 상품목록 API 읽기기.
+    mallAdminListingsMallsV4: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

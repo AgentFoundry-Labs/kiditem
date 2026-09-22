@@ -171,6 +171,18 @@ export const MALL_ADMIN_LISTING_READERS = {
     detailNames: false,
     capability: 'mallAdminListingsMallsV3',
   },
+  /**
+   * 보리보리(트라이시클 셀러클럽). 상품관리 목록이 부르는 조회 API 를 화면 안에서 500개씩
+   * 부른다(라이브 2026-09-22: 1,362개 = 3쪽). 몰 상품코드는 화면의 '상품코드'(`prdNo`)이고
+   * 사방넷이 쓰던 번호와 같다 — '업체상품코드'(`prdCd`)가 아니다.
+   */
+  boribori: {
+    mallName: '보리보리',
+    origin: 'https://seller-club.co.kr',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV4',
+  },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;

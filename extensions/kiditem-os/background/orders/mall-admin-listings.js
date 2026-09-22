@@ -2118,6 +2118,184 @@
   }
 
   // 몰 키 → 읽기기. 서버 계약(`@kiditem/shared/mall-admin-listings`)의 몰 표와 같아야 한다.
+
+  /**
+   * 보리보리(트라이시클 셀러클럽) A201 상품관리 목록.
+   *
+   * 화면은 Vue + jqGrid 라 표를 읽어서는 안 된다 — 주소에 조건을 실어도 화면이 제 기본값
+   * (최근 1주일 · 판매중)으로 되돌리고, 스크립트로 폼을 채워 눌러도 Vue 가 무시한다. 그래서
+   * 그리드가 부르는 목록 API 를 화면 안에서 그대로 부른다.
+   *
+   * `POST /product/rest/productRegister/selectPrdNotiItemList` (JSON). 본문은 검색 조건 한 벌이고
+   * 비워 두면 조건 없는 조회가 된다 — 상태 배열(`prdSelCdArray` · `prdStatCdArray`)을 비우면
+   * 판매중뿐 아니라 판매종료까지 전부 들어온다(라이브 2026-09-22: 판매중만 454, 전부 1,362).
+   * 기간은 필수라 가게가 생기기 전부터 오늘까지로 넓게 준다.
+   *
+   * 몰 상품코드는 `prdNo` 다. 화면이 '상품코드' 라고 적는 칸이고 사방넷이 쓰던 번호와 같다
+   * (실측: 기존 리스팅 674개와 일치). `prdCd` 는 '업체상품코드' 라 다른 번호이므로 쓰지 않는다.
+   */
+  async function readBoriboriListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const LIST_PATH = "/product/rest/productRegister/selectPrdNotiItemList";
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    // 가게가 생기기 한참 전. 기간이 필수라 비울 수 없다.
+    const FROM = "2015/01/01";
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+    function price(value) {
+      const normalized = String(value ?? "").replace(/[,\s원]/g, "");
+      if (!/^\d{1,10}$/.test(normalized)) return null;
+      const parsed = Number(normalized);
+      return parsed <= 1_000_000_000 ? parsed : null;
+    }
+    function today() {
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${now.getFullYear()}/${month}/${day}`;
+    }
+    /** 이 화면이 들고 있는 협력사 번호. 없으면 빈 값으로 두고 세션이 가리키게 한다. */
+    function sellerAccountNo() {
+      const form = document.getElementById("searchForm");
+      const value = String(form?.elements?.selAcntNo?.value ?? "").trim();
+      return /^\d{1,12}$/.test(value) ? value : "";
+    }
+
+    function body(page) {
+      return {
+        appId: "prdMngList",
+        schDtTyp: "01",
+        schDtAuto: "",
+        strDt: FROM,
+        endDt: today(),
+        currentIndex: 0,
+        currentPage: page,
+        rowCount: plan.pageSize,
+        ctgrTyp: "01",
+        prdCdTyp: "01",
+        prdNmTyp: "01",
+        selAcntNo: sellerAccountNo(),
+        siteCd: "", prdSelCd: "", prdCd: "", prdNm: "", brandCd: "", brandNm: "", brandNo: null,
+        mdNo: "", regtr: "", attrCd: "", autoApprYn: "", bizTypCd: "", brandSearchTyp: "",
+        ctgrNo1: "", ctgrNo2: "", ctgrNo3: "", dispYn: "", dlvTypCd: "", noDispResnCd: "",
+        prdGroupCd: "", prdGroupNm: "", prdGroupNo: null, selAcntNm: "",
+        sortCol: "", sortCol2: "", sortCol3: "", sortMode: "",
+        aplBgnDy: "", defaultMdNm: "", defaultMdNo: null, tapChange: "",
+        // 상태 배열을 모두 비운다 — 이것이 '전체 상태' 다.
+        attrCdArray: [], brandCdArray: [], brandNmArray: [], brandNoArray: [], createNoArray: [],
+        defaultMdNmArray: [], defaultMdNoArray: [], dispChanTypCdArray: [], dispYnArray: [],
+        gendCdArray: [], mdNmArray: [], mdNoArray: [], piInfo: [], prdCdArray: [],
+        prdGroupCdArray: [], prdGroupNmArray: [], prdGroupNoArray: [], prdPageList: [],
+        prdSelCdArray: [], prdStatCdArray: [], selAcntNmArray: [], selAcntNoArray: [],
+      };
+    }
+
+    async function page(number) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch(LIST_PATH, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+          body: JSON.stringify(body(number)),
+          signal: controller.signal,
+        });
+        // 로그인이 풀리면 이 화면은 로그인으로 밀어낸다.
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== plan.sourceOrigin || /login/i.test(landed.pathname)) {
+          throw new Error("LOGIN_REQUIRED");
+        }
+        if (response.status === 401 || response.status === 403) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const payload = await response.json();
+        if (payload?.resultStatus?.status !== true) drift("result_status");
+        const total = payload?.data?.totalCount;
+        const result = payload?.data?.result;
+        if (!Number.isSafeInteger(total) || total < 0) drift("total");
+        if (!Array.isArray(result)) drift("result");
+        return { total, result };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      if (location.origin !== plan.sourceOrigin) return fail("mall_login_required");
+      const first = await page(1);
+      if (first.total > ROW_LIMIT) drift("row_limit");
+      const totalPages = Math.max(1, Math.ceil(first.total / plan.pageSize));
+      if (totalPages > PAGE_LIMIT) drift("page_limit");
+
+      const rows = [];
+      const seen = new Set();
+      for (let number = 1; number <= totalPages; number += 1) {
+        if (number > 1 && requestDelayMs > 0) await wait(requestDelayMs);
+        const chunk = number === 1 ? first : await page(number);
+        // 읽는 사이 상품이 늘거나 줄면 한 번에 찍은 목록이 아니다.
+        if (chunk.total !== first.total) return fail("mall_total_changed");
+        for (const item of chunk.result) {
+          const mallProductCode = text(String(item?.prdNo ?? ""), 60);
+          if (!mallProductCode || !/^\d{1,15}$/.test(mallProductCode)) drift("prdNo");
+          // 쪽이 겹치면 정렬이 흔들린 것이다 — 빠진 상품이 있다는 뜻이라 저장하지 않는다.
+          if (seen.has(mallProductCode)) drift("page_overlap");
+          seen.add(mallProductCode);
+          const productName = text(String(item?.prdNm ?? ""), 400);
+          if (!productName) drift("prdNm");
+          const statusWords = [item?.prdSelNm, item?.prdStatNm]
+            .map((word) => text(String(word ?? ""), 40))
+            .filter(Boolean);
+          if (statusWords.length === 0) drift("status");
+          rows.push({
+            mallProductCode,
+            productName,
+            sellpiaName: null,
+            sellerCode: null,
+            salePrice: price(item?.selPrc),
+            statusWords,
+            registeredOn: null,
+          });
+          if (rows.length > ROW_LIMIT) drift("row_limit");
+        }
+      }
+      if (rows.length !== first.total) return fail("mall_total_changed");
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: first.total,
+            recordsRead: rows.length,
+            pagesRead: totalPages,
+            totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
   const READERS = Object.freeze({
     kidkids: Object.freeze({
       mallName: "키드키즈",
@@ -2245,6 +2423,14 @@
       startPath: "/#/products/origin-list",
       world: "MAIN",
       read: readSmartstoreListings,
+    }),
+    boribori: Object.freeze({
+      mallName: "보리보리",
+      origin: "https://seller-club.co.kr",
+      // 목록 API 가 한 번에 500줄까지 준다(라이브 2026-09-22: 1,362개 = 3쪽).
+      pageSize: 500,
+      startPath: "/product/productManagerList",
+      read: readBoriboriListings,
     }),
     "teacher-mall": Object.freeze({
       mallName: "티쳐몰",
